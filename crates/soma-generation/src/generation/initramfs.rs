@@ -5,20 +5,18 @@ use super::{
 
 /// The initramfs layout version produced and accepted by this module.
 ///
-/// Version 2 adds the console and null device nodes the kernel opens for PID 1 before
-/// devtmpfs is mounted and the Generation-scoped responder private key the guest agent takes
-/// and erases before it switches into the composed root.
-pub const INITRAMFS_LAYOUT_VERSION: u16 = 2;
+/// Version 2 added the console and null device nodes the kernel opens for PID 1 before
+/// devtmpfs is mounted, alongside a Generation-scoped responder private key.
+/// Version 3 removes that key and its `etc/soma` directory: the responder static secret is
+/// now fresh for every Instance and reaches the guest only through the non-snapshot launch
+/// page, so a reusable Generation artifact carries public identity only.
+pub const INITRAMFS_LAYOUT_VERSION: u16 = 3;
 /// The fixed modification time of every initramfs entry.
 pub const INITRAMFS_MTIME: u32 = 0;
 /// The early-init executable path inside the archive.
 pub const EARLY_INIT_PATH: &str = "init";
 /// The guest-agent executable path inside the archive.
 pub const GUEST_AGENT_PATH: &str = "bin/soma-guest-agent";
-/// The responder private key path inside the archive; exactly 32 bytes.
-pub const RESPONDER_KEY_PATH: &str = "etc/soma/responder.key";
-/// The exact size of the responder private key body.
-pub const RESPONDER_KEY_LEN: usize = 32;
 
 const MAGIC: &[u8; 6] = b"070701";
 const TRAILER: &str = "TRAILER!!!";
@@ -32,15 +30,12 @@ const MAX_ENTRIES: usize = 64;
 type Layout = (&'static str, u32, (u32, u32));
 
 /// The complete allowlisted entry set in raw path-byte order.
-const LAYOUT_V2: &[Layout] = &[
+const LAYOUT_V3: &[Layout] = &[
     ("bin", S_IFDIR | 0o755, (0, 0)),
     (GUEST_AGENT_PATH, S_IFREG | 0o755, (0, 0)),
     ("dev", S_IFDIR | 0o755, (0, 0)),
     ("dev/console", S_IFCHR | 0o600, (5, 1)),
     ("dev/null", S_IFCHR | 0o666, (1, 3)),
-    ("etc", S_IFDIR | 0o755, (0, 0)),
-    ("etc/soma", S_IFDIR | 0o700, (0, 0)),
-    (RESPONDER_KEY_PATH, S_IFREG | 0o600, (0, 0)),
     (EARLY_INIT_PATH, S_IFREG | 0o755, (0, 0)),
     ("lower", S_IFDIR | 0o755, (0, 0)),
     ("newroot", S_IFDIR | 0o755, (0, 0)),
@@ -51,7 +46,7 @@ const LAYOUT_V2: &[Layout] = &[
 
 /// The verified contents of one deterministic initramfs.
 ///
-/// The responder key is verified for shape only; its bytes never leave the archive.
+/// The archive holds exactly two byte bodies, both executables; no entry carries a secret.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct InitramfsContents {
     /// The digest of the early-init executable bytes.
@@ -83,7 +78,7 @@ fn fields(inode: u32, mode: u32, rdev: (u32, u32), size: u32, name_len: usize) -
     ]
 }
 
-/// Builds the deterministic `newc` archive for layout v2.
+/// Builds the deterministic `newc` archive for layout v3.
 ///
 /// Entries are emitted in raw path-byte order with root ownership, fixed modes, zero mtime,
 /// sequential inode numbers, zero device numbers except the two character nodes, zero
@@ -91,23 +86,17 @@ fn fields(inode: u32, mode: u32, rdev: (u32, u32), size: u32, name_len: usize) -
 ///
 /// # Errors
 ///
-/// Returns [`CompileErrorKind::LimitExceeded`] when the total exceeds `max_bytes` and
-/// [`CompileErrorKind::InvalidInput`] for an all-zero responder key.
+/// Returns [`CompileErrorKind::LimitExceeded`] when the total exceeds `max_bytes`.
 pub fn build_initramfs(
     early_init: &[u8],
     guest_agent: &[u8],
-    responder_key: &[u8; RESPONDER_KEY_LEN],
     max_bytes: u64,
 ) -> Result<Vec<u8>, CompileError> {
-    if responder_key.iter().all(|byte| *byte == 0) {
-        return Err(build_invalid());
-    }
     let mut archive = Vec::new();
-    for (index, (path, mode, rdev)) in LAYOUT_V2.iter().enumerate() {
+    for (index, (path, mode, rdev)) in LAYOUT_V3.iter().enumerate() {
         let body: &[u8] = match *path {
             EARLY_INIT_PATH => early_init,
             GUEST_AGENT_PATH => guest_agent,
-            RESPONDER_KEY_PATH => responder_key,
             _ => &[],
         };
         let inode = u32::try_from(index + 1).map_err(|_| build_limit())?;
@@ -148,23 +137,25 @@ fn pad(archive: &mut Vec<u8>, alignment: usize) {
     }
 }
 
-/// Decodes and verifies a layout v2 archive, rejecting any deviation from the allowlist.
+/// Decodes and verifies a layout v3 archive, rejecting any deviation from the allowlist.
+///
+/// A layout v2 archive is rejected because its `etc/soma/responder.key` entry is not in the
+/// v3 allowlist, so a Generation carrying an immutable guest secret cannot be verified here.
 ///
 /// # Errors
 ///
 /// Returns [`CompileErrorKind::InvalidInput`] for malformed headers, ordering, padding,
-/// metadata, unknown paths, a malformed responder key, or trailing bytes.
+/// metadata, unknown paths, or trailing bytes.
 pub fn verify_initramfs(archive: &[u8]) -> Result<InitramfsContents, CompileError> {
     let mut cursor = 0_usize;
-    let mut expected = LAYOUT_V2.iter().enumerate();
+    let mut expected = LAYOUT_V3.iter().enumerate();
     let mut early_init = None;
     let mut guest_agent = None;
-    let mut key_seen = false;
     for _ in 0..=MAX_ENTRIES {
         let entry = read_entry(archive, cursor)?;
         cursor = entry.next;
         if entry.name == TRAILER.as_bytes() {
-            if expected.next().is_some() || entry.fields != TRAILER_FIELDS || !key_seen {
+            if expected.next().is_some() || entry.fields != TRAILER_FIELDS {
                 return Err(invalid());
             }
             let trailing = archive.get(cursor..).ok_or_else(invalid)?;
@@ -187,12 +178,6 @@ pub fn verify_initramfs(archive: &[u8]) -> Result<InitramfsContents, CompileErro
         match *path {
             EARLY_INIT_PATH => early_init = Some(Sha256Digest::of(entry.body)),
             GUEST_AGENT_PATH => guest_agent = Some(Sha256Digest::of(entry.body)),
-            RESPONDER_KEY_PATH => {
-                if entry.body.len() != RESPONDER_KEY_LEN || entry.body.iter().all(|b| *b == 0) {
-                    return Err(invalid());
-                }
-                key_seen = true;
-            }
             _ if !entry.body.is_empty() => return Err(invalid()),
             _ => {}
         }
@@ -268,10 +253,6 @@ const fn invalid() -> CompileError {
         CompilePhase::VerifyInitramfs,
         CompileErrorKind::InvalidInput,
     )
-}
-
-const fn build_invalid() -> CompileError {
-    CompileError::new(CompilePhase::BuildInitramfs, CompileErrorKind::InvalidInput)
 }
 
 const fn build_limit() -> CompileError {

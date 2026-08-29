@@ -143,33 +143,32 @@ impl fmt::Debug for Toolchain<'_> {
     }
 }
 
-/// Files supplying the pinned kernel, configuration, early init, guest agent, and the
-/// Generation-scoped responder private key that the initramfs carries to the guest agent.
+/// Files supplying the pinned kernel, configuration, early init, and guest agent.
+///
+/// No secret is a compiler input: the responder static secret is generated per Instance by
+/// the Host and delivered through the non-snapshot launch page, never through an artifact.
 #[derive(Clone, Copy)]
 pub struct MachineInputs<'a> {
     pub(crate) kernel: &'a Path,
     pub(crate) kernel_config: &'a Path,
     pub(crate) early_init: &'a Path,
     pub(crate) guest_agent: &'a Path,
-    pub(crate) responder_key: &'a Path,
 }
 
 impl<'a> MachineInputs<'a> {
-    /// Names the five machine input files; `responder_key` holds exactly 32 raw key bytes.
+    /// Names the four machine input files.
     #[must_use]
     pub const fn new(
         kernel: &'a Path,
         kernel_config: &'a Path,
         early_init: &'a Path,
         guest_agent: &'a Path,
-        responder_key: &'a Path,
     ) -> Self {
         Self {
             kernel,
             kernel_config,
             early_init,
             guest_agent,
-            responder_key,
         }
     }
 }
@@ -182,7 +181,6 @@ impl fmt::Debug for MachineInputs<'_> {
             .field("kernel_config", &"[REDACTED]")
             .field("early_init", &"[REDACTED]")
             .field("guest_agent", &"[REDACTED]")
-            .field("responder_key", &"[REDACTED]")
             .finish()
     }
 }

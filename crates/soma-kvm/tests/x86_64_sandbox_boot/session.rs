@@ -9,8 +9,7 @@ use std::{
 };
 
 use soma_guest::{
-    GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, ResponderKeypair,
-    TerminalStatus,
+    GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, TerminalStatus,
 };
 use soma_kvm::x86_64::{
     DeviceIdentity, GuestExit, Milestone, SandboxConfig, SandboxDisks, SandboxEvidence,
@@ -67,19 +66,14 @@ fn now_unix_nanos() -> u64 {
     .unwrap()
 }
 
-pub fn responder_key(keypair: &ResponderKeypair) -> [u8; 32] {
-    keypair.private_key().expose_for_provisioning(|key| *key)
-}
-
-/// Boots `config`, completes the session with `responder`, executes `command`, shuts down,
-/// and cleans up.
+/// Boots `config`, completes the session with fresh per-Instance authority, executes
+/// `command`, shuts down, and cleans up.
 ///
 /// Returns the evidence together with the command result, or the evidence and the failure.
-pub fn run_with_responder(
+pub fn run(
     config: SandboxConfig,
     generation_id: &str,
     command: &Command<'_>,
-    responder: &ResponderKeypair,
 ) -> (SandboxEvidence, Result<Executed, String>) {
     let network = LaunchNetwork::new(
         GUEST_CID,
@@ -99,19 +93,30 @@ pub fn run_with_responder(
         network,
     )
     .expect("fresh launch material");
+    eprintln!(
+        "instance responder public identity (the only publishable half): {}",
+        hex(&material.responder_public_key().to_bytes())
+    );
     let mut sandbox = match SandboxMachine::create(config) {
         Ok(sandbox) => sandbox,
         Err(error) => panic!("sandbox creation failed: {error}"),
     };
-    let outcome = drive(&mut sandbox, material, responder, command);
+    let outcome = drive(&mut sandbox, material, command);
     let evidence = sandbox.finish(EXIT_GRACE);
     (evidence, outcome)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut text, byte| {
+        write!(text, "{byte:02x}").unwrap();
+        text
+    })
 }
 
 fn drive(
     sandbox: &mut SandboxMachine,
     material: HostLaunchMaterial,
-    responder: &ResponderKeypair,
     command: &Command<'_>,
 ) -> Result<Executed, String> {
     let delivered = material
@@ -127,7 +132,7 @@ fn drive(
         .wait_connected(boot_deadline)
         .map_err(|error| format!("vsock connection: {error}"))?;
     sandbox.mark(Milestone::VsockConnected);
-    let host = HostControl::connect(delivered, responder.public_key(), HostIo::new(sandbox))
+    let host = HostControl::connect(delivered, HostIo::new(sandbox))
         .map_err(|error| format!("handshake: {error}"))?;
     sandbox.mark(Milestone::Handshake);
     let repaired = host

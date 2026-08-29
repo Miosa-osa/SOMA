@@ -67,12 +67,13 @@ fn every_malformed_launch_page_is_rejected_and_fully_wiped() {
         116..148,
         148..212,
         212..247,
+        247..279,
     ] {
         let mut page = canonical;
         page[range].fill(0);
         malformed.push(page);
     }
-    for offset in [16, 18, 212, 247, 278, 279, 4095] {
+    for offset in [16, 18, 212, 247, 278, 279, 310, 311, 4095] {
         let mut page = canonical;
         page[offset] ^= 1;
         malformed.push(page);

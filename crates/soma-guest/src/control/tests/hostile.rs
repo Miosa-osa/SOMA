@@ -67,13 +67,10 @@ fn duplicate_repair_after_commit_poisons_once() {
 
 #[test]
 fn repair_commit_failure_poisons_once_before_probe_acceptance() {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, host_observed, _) = pair();
-    let guest_thread =
-        thread::spawn(move || RawGuest::connect(guest_material, responder.private_key(), guest_io));
-    let host =
-        HostControl::connect(host_material, &public, CommitFailIo(host_io)).expect("host connect");
+    let guest_thread = thread::spawn(move || RawGuest::connect(guest_material, guest_io));
+    let host = HostControl::connect(host_material, CommitFailIo(host_io)).expect("host connect");
     let mut raw = guest_thread.join().expect("guest thread");
     let host_thread = thread::spawn(move || host.prepare_and_probe());
     assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
@@ -87,19 +84,12 @@ fn repair_commit_failure_poisons_once_before_probe_acceptance() {
 
 #[test]
 fn fixed_probe_cannot_be_substituted_by_an_authenticated_host() {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, _host_observed, guest_observed) = pair();
     let guest_thread = thread::spawn(move || {
-        GuestControl::connect(
-            guest_material,
-            responder.private_key(),
-            guest_io,
-            deadline(),
-        )
-        .expect("guest connect")
+        GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect")
     });
-    let mut raw_host = RawHost::connect(host_material, &public, host_io);
+    let mut raw_host = RawHost::connect(host_material, host_io);
     let guest = guest_thread.join().expect("guest thread");
     let mut substituted = HostMessage::prepare_and_probe(operation(3))
         .encode()
@@ -215,12 +205,10 @@ fn assert_execute_rejected(allowance: u64, respond: impl FnOnce(&mut RawGuest, O
 }
 
 fn connected_host() -> (Host, RawGuest, Observation) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, host_observed, _guest_observed) = pair();
-    let guest_thread =
-        thread::spawn(move || RawGuest::connect(guest_material, responder.private_key(), guest_io));
-    let host = HostControl::connect(host_material, &public, host_io).expect("host connect");
+    let guest_thread = thread::spawn(move || RawGuest::connect(guest_material, guest_io));
+    let host = HostControl::connect(host_material, host_io).expect("host connect");
     (
         host,
         guest_thread.join().expect("guest thread"),

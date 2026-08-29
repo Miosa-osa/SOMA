@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-28
 - Extends: ADR 0003 and ADR 0016
+- Superseded in part by: ADR 0024
 
 ## Context
 
@@ -24,10 +25,10 @@ The current crate accepts explicitly Instance-bound caller provisioning and reje
 It does not implement the secret-injection seam.
 Until that seam and its lifecycle evidence exist, this is an authenticated-protocol foundation rather than a production authenticated guest channel.
 
-Generation construction creates the responder keypair.
-The private key is provisioned into the trusted guest-agent artifact and the public key is recorded in the trusted content-addressed Generation manifest.
-The host must obtain the public key from that manifest and never from an unauthenticated guest message.
-A private key embedded in a publicly retrievable artifact cannot prove exclusive Generation possession and must not support a production authentication claim.
+Generation construction originally created the responder keypair, provisioned the private key into the trusted guest-agent artifact, and recorded the public key in the trusted content-addressed Generation manifest.
+ADR 0024 supersedes that provisioning rule because a private key embedded in a publicly retrievable artifact cannot prove exclusive Generation possession and must not support a production authentication claim.
+The Host now generates one fresh responder keypair per Instance, delivers the private half in the non-snapshot launch page, and retains the public half itself.
+The host must never obtain the responder public key from an unauthenticated guest message.
 Responder public-key admission performs an X25519 exchange with a fixed validation scalar and rejects a non-contributory all-zero shared output.
 Every handshake uses a focused wrapper over Snow's `DefaultResolver` that applies the same all-zero rejection after every static or ephemeral DH operation.
 The wrapper delegates the primitive implementation to Snow and does not maintain a hand-written low-order-key list.

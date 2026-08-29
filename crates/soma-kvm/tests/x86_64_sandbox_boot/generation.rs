@@ -1,11 +1,12 @@
 //! Compiles a real Generation for the live sandbox proof: exports an image from Docker into
 //! an OCI layout, imports and normalizes it, and runs the production compiler with the pinned
-//! kernel, the built static guest agent, and a per-test responder key.
+//! kernel and the built static guest agent.
+//! No secret is a compiler input; the guest responder authority is fresh per Instance.
 
 use std::{
     env,
     fs::{self, File},
-    io::{Read as _, Seek as _, SeekFrom, Write as _},
+    io::{Read as _, Seek as _, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -145,7 +146,6 @@ pub fn compile(
     layout: &Path,
     reference: &str,
     shape: Shape,
-    responder_key: &[u8; 32],
     inputs: &Inputs,
     scratch: &Path,
 ) -> Compiled {
@@ -186,8 +186,6 @@ pub fn compile(
     profile.overlay_capacities = vec![storage_mib * MIB];
     let staging = scratch.join("staging");
     fs::create_dir_all(&staging).unwrap();
-    let key_path = scratch.join("responder.key");
-    write_private(&key_path, responder_key);
     let generation = compile_generation(CompileGeneration::new(
         &template,
         &normalized,
@@ -201,30 +199,15 @@ pub fn compile(
                 &inputs.kernel_config,
                 &inputs.agent,
                 &inputs.agent,
-                &key_path,
             ),
         ),
     ))
     .expect("compile the Generation");
-    fs::write(&key_path, [0_u8; 32]).unwrap();
-    fs::remove_file(&key_path).unwrap();
     Compiled {
         store,
         generation,
         normalized,
     }
-}
-
-fn write_private(path: &Path, bytes: &[u8]) {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    let _ = fs::remove_file(path);
-    let mut file = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .unwrap();
-    file.write_all(bytes).unwrap();
 }
 
 /// Lowercase hex SHA-256 of a whole file, read from the start; the cursor is rewound after.

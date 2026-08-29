@@ -1,6 +1,6 @@
 use crate::{
     DeliveredHostLaunchMaterial, GuestCommand, GuestMessage, HostMessage, OperationId,
-    ResponderPublicKey, TerminalStatus,
+    TerminalStatus,
 };
 
 use super::{
@@ -33,12 +33,8 @@ impl<I: HostControlIo> HostControl<I> {
     /// # Errors
     ///
     /// Returns a redacted Handshake error after poisoning the transport exactly once.
-    pub fn connect(
-        material: DeliveredHostLaunchMaterial,
-        responder: &ResponderPublicKey,
-        io: I,
-    ) -> Result<Self, ControlError> {
-        let (channel, launch_operation) = host_connect::connect(material, responder, io)?;
+    pub fn connect(material: DeliveredHostLaunchMaterial, io: I) -> Result<Self, ControlError> {
+        let (channel, launch_operation) = host_connect::connect(material, io)?;
         Ok(Self {
             channel,
             launch_operation,

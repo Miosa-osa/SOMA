@@ -1,7 +1,7 @@
 use super::*;
 
 const PAGE_PREFIX_HEX: &str = concat!(
-    "534f4d412d4c41554e43482d5041474500020001",
+    "534f4d412d4c41554e43482d5041474500030001",
     "0101010101010101010101010101010101010101010101010101010101010101",
     "02020202020202020202020202020202",
     "03030303030303030303030303030303",
@@ -10,7 +10,8 @@ const PAGE_PREFIX_HEX: &str = concat!(
     "4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60",
     "6162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80",
     "00000003000000010200000000010a000002180a0000010a0000010000000000000001",
-    "e15206ac6ce68af8a88bd672475492202b2a6ec1f826fbc7587c797f0f5220aa",
+    "8182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0",
+    "0c6c21dcb25d29ab5c1034d5ef555679b91b5c3208d2ae5dec27508429c92121",
 );
 
 fn network() -> LaunchNetwork {
@@ -47,7 +48,7 @@ fn canonical_launch_page_matches_the_frozen_v1_vector() {
         .expect("launch-page delivery");
     let expected_prefix = decode_hex(PAGE_PREFIX_HEX);
 
-    assert_eq!(wire::ENCODED_SIZE, 279);
+    assert_eq!(wire::ENCODED_SIZE, 311);
     assert_eq!(&page[..wire::ENCODED_SIZE], expected_prefix);
     assert!(page[wire::ENCODED_SIZE..].iter().all(|byte| *byte == 0));
     assert_eq!(delivered.binding(), &binding);
@@ -57,7 +58,7 @@ fn canonical_launch_page_matches_the_frozen_v1_vector() {
 
 #[test]
 fn zero_random_fields_retry_before_material_is_admitted() {
-    for zeroed in [0..32, 32..64, 64..128] {
+    for zeroed in [0..32, 32..64, 64..128, 128..160] {
         let mut calls = 0;
         let material =
             HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], network(), |random| {

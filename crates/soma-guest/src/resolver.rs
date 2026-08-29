@@ -31,6 +31,20 @@ pub(crate) fn validate_responder_public_key(public: &[u8; 32]) -> Result<(), Err
         .map_err(|_| Error::NonContributoryPublicKey)
 }
 
+/// Derives the X25519 public half of one responder static secret.
+///
+/// The fixed suite clamps the scalar before the base-point multiplication, so any nonzero
+/// 32-byte sample is a usable responder secret and yields exactly the public value the
+/// handshake will present.
+pub(crate) fn derive_responder_public_key(private: &[u8; 32]) -> Result<[u8; 32], Error> {
+    let resolver = ContributoryResolver::default();
+    let mut dh = resolver
+        .resolve_dh(&DHChoice::Curve25519)
+        .ok_or(Error::CryptoSetup)?;
+    dh.set(private);
+    dh.pubkey().try_into().map_err(|_| Error::CryptoSetup)
+}
+
 pub(crate) fn fill_os_random(destination: &mut [u8]) -> Result<(), Error> {
     let resolver = DefaultResolver;
     let mut random = resolver.resolve_rng().ok_or(Error::RandomnessUnavailable)?;

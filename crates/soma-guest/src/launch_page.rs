@@ -2,9 +2,12 @@ use core::fmt;
 
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::{Error, InstancePsk, SessionBinding, resolver};
+use crate::{
+    Error, InstancePsk, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey, SessionBinding,
+    resolver,
+};
 
-use self::wire::ENTROPY_SIZE;
+use self::wire::{ENTROPY_SIZE, RESPONDER_SECRET_SIZE};
 
 mod network;
 mod session;
@@ -25,7 +28,7 @@ pub const LAUNCH_PAGE_SIZE: usize = 4096;
 /// overwrites it with zeroes, and the VMM retires the slot after observing host-side zeroes.
 pub const LAUNCH_PAGE_GUEST_ADDRESS: u64 = 0xd010_0000;
 
-const RANDOM_SIZE: usize = 32 + 32 + ENTROPY_SIZE;
+const RANDOM_SIZE: usize = 32 + 32 + ENTROPY_SIZE + RESPONDER_SECRET_SIZE;
 const RANDOM_ATTEMPTS: usize = 4;
 
 /// Host-owned fresh launch secrets for one concrete Instance.
@@ -55,6 +58,8 @@ pub struct HostLaunchMaterial {
     psk: InstancePsk,
     entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
     network: LaunchNetwork,
+    responder_secret: Zeroizing<[u8; RESPONDER_SECRET_SIZE]>,
+    responder_public: ResponderPublicKey,
 }
 
 /// Guest-owned launch secrets removed from one non-snapshot page.
@@ -63,6 +68,7 @@ pub struct GuestLaunchMaterial {
     psk: InstancePsk,
     entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
     network: LaunchNetwork,
+    responder: ResponderPrivateKey,
 }
 
 impl HostLaunchMaterial {
@@ -101,20 +107,39 @@ impl HostLaunchMaterial {
             let launch_nonce: [u8; 32] = reader.array()?;
             let psk = reader.secret_array::<32>()?;
             let entropy = reader.secret_array::<ENTROPY_SIZE>()?;
+            let responder_secret = reader.secret_array::<RESPONDER_SECRET_SIZE>()?;
             if launch_nonce != [0; 32]
                 && psk.iter().any(|byte| *byte != 0)
                 && entropy.iter().any(|byte| *byte != 0)
+                && responder_secret.iter().any(|byte| *byte != 0)
             {
+                let mut copy = Zeroizing::new([0_u8; RESPONDER_SECRET_SIZE]);
+                copy.copy_from_slice(responder_secret.as_ref());
+                let Ok(keypair) = ResponderKeypair::from_secret(copy) else {
+                    continue;
+                };
+                let (_, responder_public) = keypair.into_parts();
                 let binding = SessionBinding::new(generation, instance, operation, launch_nonce)?;
                 return Ok(Self {
                     binding,
                     psk: InstancePsk::from_zeroizing(instance, psk)?,
                     entropy,
                     network,
+                    responder_secret,
+                    responder_public,
                 });
             }
         }
         Err(Error::RandomnessUnavailable)
+    }
+
+    /// Returns the fresh public responder identity of this one Instance.
+    ///
+    /// This is the only half of the per-Instance guest authority that may enter a receipt,
+    /// an evidence record, or any other publicly retrievable artifact.
+    #[must_use]
+    pub const fn responder_public_key(&self) -> &ResponderPublicKey {
+        &self.responder_public
     }
 
     /// Borrows the exact transcript binding generated for this launch.
@@ -144,13 +169,20 @@ impl HostLaunchMaterial {
         let mut page = Zeroizing::new([0_u8; LAUNCH_PAGE_SIZE]);
         wire::encode(
             &mut page,
-            &self.binding,
-            self.psk.as_bytes(),
-            &self.entropy,
-            self.network,
+            &wire::PageFields {
+                binding: &self.binding,
+                psk: self.psk.as_bytes(),
+                entropy: &self.entropy,
+                network: self.network,
+                responder: &self.responder_secret,
+            },
         );
         deliver(&page)?;
-        Ok(DeliveredHostLaunchMaterial::new(self.binding, self.psk))
+        Ok(DeliveredHostLaunchMaterial::new(
+            self.binding,
+            self.psk,
+            self.responder_public,
+        ))
     }
 }
 
@@ -175,6 +207,7 @@ impl GuestLaunchMaterial {
             psk: decoded.psk,
             entropy: decoded.entropy,
             network: decoded.network,
+            responder: decoded.responder,
         })
     }
 
@@ -203,7 +236,11 @@ impl GuestLaunchMaterial {
         reseed: impl FnOnce(&[u8; ENTROPY_SIZE]) -> Result<(), E>,
     ) -> Result<GuestSessionMaterial, E> {
         reseed(&self.entropy)?;
-        Ok(GuestSessionMaterial::new(self.binding, self.psk))
+        Ok(GuestSessionMaterial::new(
+            self.binding,
+            self.psk,
+            self.responder,
+        ))
     }
 }
 

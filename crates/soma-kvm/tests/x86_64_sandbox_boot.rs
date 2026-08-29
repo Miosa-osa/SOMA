@@ -45,7 +45,6 @@ mod live {
     };
 
     use soma_generation::open_artifact;
-    use soma_guest::ResponderKeypair;
 
     use crate::{
         x86_64_discover::{kernel_path, sha256_of},
@@ -87,8 +86,6 @@ mod live {
         );
         let inputs = generation::inputs(kernel);
         let layout = generation::oci_layout(image, override_var, &scratch)?;
-        let responder = ResponderKeypair::generate().expect("responder keypair");
-        let key = session::responder_key(&responder);
         let compiled = generation::compile(
             &layout,
             &format!("docker.io/library/{image}"),
@@ -96,7 +93,6 @@ mod live {
                 memory_mib,
                 storage_mib,
             },
-            &key,
             &inputs,
             &scratch,
         );
@@ -139,12 +135,7 @@ mod live {
 
         let host_before = x86_64_host_sample::sample(ram_bytes / 1024);
         let sampler = Sampler::start(ram_bytes / 1024);
-        let (evidence, outcome) = session::run_with_responder(
-            config,
-            compiled.generation.id().as_str(),
-            command,
-            &responder,
-        );
+        let (evidence, outcome) = session::run(config, compiled.generation.id().as_str(), command);
         let (host_last, host_peak, host_peaks) = sampler.stop();
         let fd_after = open_descriptor_count();
         let threads_after = thread_count();

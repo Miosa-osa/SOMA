@@ -138,21 +138,19 @@ pub fn test_profile() -> CompilerProfile {
     profile
 }
 
-/// Writes the five machine inputs into `directory` and returns their paths.
-pub fn write_machine_inputs(directory: &Path, agent: &[u8]) -> [PathBuf; 5] {
+/// Writes the four machine inputs into `directory` and returns their paths.
+pub fn write_machine_inputs(directory: &Path, agent: &[u8]) -> [PathBuf; 4] {
     fs::create_dir_all(directory).unwrap();
     let paths = [
         directory.join("vmlinux"),
         directory.join("kernel.config"),
         directory.join("init"),
         directory.join("soma-guest-agent"),
-        directory.join("responder.key"),
     ];
     fs::write(&paths[0], synthetic_kernel(Some(0x0100_0010), 0x0100_0000)).unwrap();
     fs::write(&paths[1], kernel_config()).unwrap();
     fs::write(&paths[2], b"#!/bin/sh\nexec /bin/soma-guest-agent\n").unwrap();
     fs::write(&paths[3], agent).unwrap();
-    fs::write(&paths[4], b"synthetic-responder-private-key!").unwrap();
     paths
 }
 
@@ -213,7 +211,7 @@ pub fn compile_with_template(
         BuildHost::new(
             &staging,
             Toolchain::new(&tools.0, &tools.1),
-            MachineInputs::new(&inputs[0], &inputs[1], &inputs[2], &inputs[3], &inputs[4]),
+            MachineInputs::new(&inputs[0], &inputs[1], &inputs[2], &inputs[3]),
         ),
     ))
 }

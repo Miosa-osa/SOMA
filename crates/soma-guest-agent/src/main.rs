@@ -81,16 +81,13 @@ mod agent {
             pid1::poweroff();
         }
         let controller = Controller::captured();
-        let boot = match boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
-            Ok(boot) => boot,
-            Err(failure) => {
-                console::report(&format!(
-                    "boot failed at {:?} errno {}",
-                    failure.step, failure.errno
-                ));
-                destroy(&controller.poison(Fault::Boot));
-            }
-        };
+        if let Err(failure) = boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
+            console::report(&format!(
+                "boot failed at {:?} errno {}",
+                failure.step, failure.errno
+            ));
+            destroy(&controller.poison(Fault::Boot));
+        }
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
         ));
@@ -122,13 +119,8 @@ mod agent {
         ));
         let (controller, authenticated) = advance(
             controller.authenticate(
-                GuestControl::connect(
-                    session,
-                    &boot.responder,
-                    transport,
-                    Instant::now() + HANDSHAKE_BUDGET,
-                )
-                .map_err(|_| Fault::Control),
+                GuestControl::connect(session, transport, Instant::now() + HANDSHAKE_BUDGET)
+                    .map_err(|_| Fault::Control),
             ),
         );
         let (controller, probed) = advance(controller.probe(lifecycle::probe(authenticated)));

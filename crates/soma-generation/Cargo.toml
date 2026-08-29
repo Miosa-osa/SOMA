@@ -18,6 +18,7 @@ soma = { path = "../soma", version = "=1.0.0-alpha.1" }
 tar = { version = "=0.4.46", default-features = false }
 
 [dev-dependencies]
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
 soma-template = { path = "../soma-template", version = "=1.0.0-alpha.1" }
 tempfile = "=3.27.0"
 

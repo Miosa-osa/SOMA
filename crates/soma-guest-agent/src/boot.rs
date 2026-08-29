@@ -2,17 +2,16 @@
 //!
 //! The agent is `/init` of the deterministic initramfs, so it performs the sequence itself:
 //! mount devtmpfs, procfs, and sysfs, wait for exactly the two virtio block devices, verify and
-//! mount the EROFS lower and the private ext4 upper, compose `OverlayFS`, take the Generation
-//! responder key from the initramfs, and switch into the composed root.
+//! mount the EROFS lower and the private ext4 upper, compose `OverlayFS`, and switch into the
+//! composed root.
+//! The guest holds no immutable authentication secret: the responder static secret is fresh
+//! per Instance and arrives later through the launch page.
 //! Every step is typed and every failure is reported with the step and errno before poweroff.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
-
-use soma_guest::ResponderPrivateKey;
-use zeroize::Zeroizing;
 
 use crate::mounts::{self, Errno};
 
@@ -26,8 +25,6 @@ mod superblock;
 pub const ROOT_DEVICE: &str = "/dev/vda";
 /// Second virtio-blk device: the Instance-private ext4 overlay head.
 pub const OVERLAY_DEVICE: &str = "/dev/vdb";
-/// Path of the Generation-scoped responder private key inside the initramfs.
-pub const RESPONDER_KEY_PATH: &str = "/etc/soma/responder.key";
 /// Upper bound for the complete early-init sequence.
 pub const BOOT_BUDGET: Duration = Duration::from_secs(10);
 
@@ -61,8 +58,6 @@ pub enum BootStep {
     UpperDirectories,
     /// Mount `OverlayFS` over the composed directories.
     Overlay,
-    /// Read and erase the Generation responder key from the initramfs.
-    ResponderKey,
     /// Move `/dev`, `/proc`, and `/sys` into the composed root.
     MoveMounts,
     /// Move the composed root over `/` and enter it.
@@ -78,18 +73,12 @@ pub struct BootFailure {
     pub errno: i32,
 }
 
-/// Material produced by a successful boot.
-pub struct BootEvidence {
-    /// The Generation-scoped responder private key.
-    pub responder: ResponderPrivateKey,
-}
-
 /// Performs the complete early-init sequence before the given absolute deadline.
 ///
 /// # Errors
 ///
 /// Returns the first failed step; the caller must report it and power off.
-pub fn early_init(deadline: Instant) -> Result<BootEvidence, BootFailure> {
+pub fn early_init(deadline: Instant) -> Result<(), BootFailure> {
     mount_pseudo(
         BootStep::Devtmpfs,
         "devtmpfs",
@@ -139,10 +128,8 @@ pub fn early_init(deadline: Instant) -> Result<BootEvidence, BootFailure> {
         step: BootStep::Overlay,
         errno: errno.0,
     })?;
-    let responder = take_responder_key()?;
     move_mounts()?;
-    switch_root()?;
-    Ok(BootEvidence { responder })
+    switch_root()
 }
 
 fn mount_pseudo(
@@ -213,20 +200,6 @@ fn prepare_upper_directories() -> Result<(), BootFailure> {
         }
     }
     Ok(())
-}
-
-fn take_responder_key() -> Result<ResponderPrivateKey, BootFailure> {
-    let step = BootStep::ResponderKey;
-    let bytes =
-        Zeroizing::new(fs::read(RESPONDER_KEY_PATH).map_err(|error| failure(step, &error))?);
-    let key: [u8; 32] = bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| BootFailure { step, errno: 0 })?;
-    let responder = ResponderPrivateKey::new(key).map_err(|_| BootFailure { step, errno: 0 })?;
-    fs::write(RESPONDER_KEY_PATH, [0_u8; 32]).map_err(|error| failure(step, &error))?;
-    fs::remove_file(RESPONDER_KEY_PATH).map_err(|error| failure(step, &error))?;
-    Ok(responder)
 }
 
 fn move_mounts() -> Result<(), BootFailure> {

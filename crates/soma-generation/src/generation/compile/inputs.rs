@@ -3,7 +3,7 @@ use std::{fs::File, io::Read as _, path::Path};
 use crate::generation::{
     artifacts::Sha256Digest,
     error::{CompileError, CompileErrorKind, CompilePhase},
-    initramfs::{InitramfsContents, RESPONDER_KEY_LEN, build_initramfs, verify_initramfs},
+    initramfs::{InitramfsContents, build_initramfs, verify_initramfs},
     kernel::{VerifiedKernel, verify_kernel},
     kernel_config::{MAX_CONFIG_BYTES, VerifiedKernelConfig, verify_kernel_config},
     request::{CompileGeneration, CompilerProfile},
@@ -48,22 +48,7 @@ impl MachineArtifacts {
             profile.max_executable_bytes,
             CompilePhase::BuildInitramfs,
         )?;
-        let key_limit = u64::try_from(RESPONDER_KEY_LEN).unwrap_or(u64::MAX);
-        let responder_key = read_bounded(
-            inputs.responder_key,
-            key_limit,
-            CompilePhase::BuildInitramfs,
-        )?;
-        let responder_key: [u8; RESPONDER_KEY_LEN] =
-            responder_key.as_slice().try_into().map_err(|_| {
-                CompileError::new(CompilePhase::BuildInitramfs, CompileErrorKind::InvalidInput)
-            })?;
-        let initramfs = build_initramfs(
-            &early_init,
-            &guest_agent,
-            &responder_key,
-            profile.max_initramfs_bytes,
-        )?;
+        let initramfs = build_initramfs(&early_init, &guest_agent, profile.max_initramfs_bytes)?;
         let contents = verify_initramfs(&initramfs)?;
         if contents.guest_agent_digest != Sha256Digest::of(&guest_agent) {
             return Err(CompileError::new(

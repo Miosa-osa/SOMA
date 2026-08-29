@@ -73,7 +73,7 @@ impl ResponderPrivateKey {
         &self.0
     }
 
-    fn from_owned(bytes: Zeroizing<[u8; 32]>) -> Result<Self, Error> {
+    pub(crate) fn from_owned(bytes: Zeroizing<[u8; 32]>) -> Result<Self, Error> {
         if bytes.iter().all(|byte| *byte == 0) {
             return Err(Error::InvalidKeyMaterial);
         }
@@ -141,6 +141,26 @@ impl ResponderKeypair {
             private,
             public: ResponderPublicKey::new(public)?,
         })
+    }
+
+    /// Derives one keypair from an already sampled responder static secret.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidKeyMaterial`] for an all-zero secret and
+    /// [`Error::NonContributoryPublicKey`] when the derived public half is not contributory.
+    pub(crate) fn from_secret(secret: Zeroizing<[u8; 32]>) -> Result<Self, Error> {
+        let public = resolver::derive_responder_public_key(&secret)?;
+        let private = ResponderPrivateKey::from_owned(secret)?;
+        Ok(Self {
+            private,
+            public: ResponderPublicKey::new(public)?,
+        })
+    }
+
+    /// Splits the keypair into its two owned halves.
+    pub(crate) fn into_parts(self) -> (ResponderPrivateKey, ResponderPublicKey) {
+        (self.private, self.public)
     }
 
     /// Borrows the private half without exposing its bytes.

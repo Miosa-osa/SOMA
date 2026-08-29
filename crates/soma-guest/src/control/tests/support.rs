@@ -12,7 +12,7 @@ use std::{
 use crate::{
     AuthenticatedSession, ControlIo, DeliveredHostLaunchMaterial, GuestLaunchMaterial,
     GuestMessage, GuestSessionMaterial, HostControlIo, HostLaunchMaterial, HostMessage,
-    LAUNCH_PAGE_SIZE, LaunchNetwork, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey,
+    LAUNCH_PAGE_SIZE, LaunchNetwork,
 };
 
 pub(super) mod fault;
@@ -59,11 +59,7 @@ pub(super) fn launch_network() -> LaunchNetwork {
     .expect("fixed test network")
 }
 
-pub(super) fn launch() -> (
-    DeliveredHostLaunchMaterial,
-    GuestSessionMaterial,
-    ResponderKeypair,
-) {
+pub(super) fn launch() -> (DeliveredHostLaunchMaterial, GuestSessionMaterial) {
     let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], launch_network())
         .expect("launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
@@ -77,8 +73,7 @@ pub(super) fn launch() -> (
         .expect("guest page")
         .reseed_with(|_| Ok::<(), Infallible>(()))
         .expect("entropy repair");
-    let responder = ResponderKeypair::generate().expect("responder keypair");
-    (host, guest, responder)
+    (host, guest)
 }
 
 pub(super) fn pair() -> (MemoryIo, MemoryIo, Observation, Observation) {
@@ -178,15 +173,11 @@ impl HostControlIo for MemoryIo {
 }
 
 impl RawGuest {
-    pub(super) fn connect(
-        material: GuestSessionMaterial,
-        key: &ResponderPrivateKey,
-        mut io: MemoryIo,
-    ) -> Self {
+    pub(super) fn connect(material: GuestSessionMaterial, mut io: MemoryIo) -> Self {
         let deadline = deadline();
         let first = io.read_frame(deadline).expect("message one");
         let pending = material
-            .start_responder(key, &first)
+            .start_responder(&first)
             .expect("responder handshake");
         io.write_all(pending.response(), deadline)
             .expect("message two");
@@ -217,12 +208,8 @@ impl RawGuest {
 }
 
 impl RawHost {
-    pub(super) fn connect(
-        material: DeliveredHostLaunchMaterial,
-        key: &ResponderPublicKey,
-        mut io: MemoryIo,
-    ) -> Self {
-        let (waiting, first) = material.start_initiator(key).expect("initiator handshake");
+    pub(super) fn connect(material: DeliveredHostLaunchMaterial, mut io: MemoryIo) -> Self {
+        let (waiting, first) = material.start_initiator().expect("initiator handshake");
         let deadline = deadline();
         io.write_all(&first, deadline).expect("message one");
         let second = io.read_frame(deadline).expect("message two");

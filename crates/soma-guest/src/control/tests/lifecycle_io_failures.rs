@@ -40,21 +40,15 @@ fn guest_execute_and_shutdown_io_failures_cover_every_byte() {
 }
 
 fn successful_host_lifecycle_traffic() -> (usize, usize) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, _, _) = pair();
     let (host_io, traffic) = FaultIo::new(host_io, Direction::Read, None);
     let guest_thread = thread::spawn(move || {
-        let guest = GuestControl::connect(
-            guest_material,
-            responder.private_key(),
-            guest_io,
-            deadline(),
-        )
-        .expect("guest connect");
+        let guest =
+            GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect");
         drive_guest(guest).expect("guest lifecycle");
     });
-    let host = HostControl::connect(host_material, &public, host_io)
+    let host = HostControl::connect(host_material, host_io)
         .expect("host connect")
         .prepare_and_probe()
         .expect("host Ready");
@@ -64,44 +58,31 @@ fn successful_host_lifecycle_traffic() -> (usize, usize) {
 }
 
 fn successful_guest_lifecycle_traffic() -> (usize, usize) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, _, _) = pair();
     let (guest_io, traffic) = FaultIo::new(guest_io, Direction::Write, None);
     let host_thread = thread::spawn(move || {
-        let host = HostControl::connect(host_material, &public, host_io)
+        let host = HostControl::connect(host_material, host_io)
             .expect("host connect")
             .prepare_and_probe()
             .expect("host Ready");
         drive_host(host).expect("host lifecycle");
     });
-    let guest = GuestControl::connect(
-        guest_material,
-        responder.private_key(),
-        guest_io,
-        deadline(),
-    )
-    .expect("guest connect");
+    let guest = GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect");
     drive_guest(guest).expect("guest lifecycle");
     host_thread.join().expect("host thread");
     (traffic.read(), traffic.written())
 }
 
 fn assert_host_lifecycle_fails(direction: Direction, fail_at: usize) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, host_observed, _) = pair();
     let (host_io, _) = FaultIo::new(host_io, direction, Some(fail_at));
     let guest_thread = thread::spawn(move || {
-        let guest = GuestControl::connect(
-            guest_material,
-            responder.private_key(),
-            guest_io,
-            deadline(),
-        )?;
+        let guest = GuestControl::connect(guest_material, guest_io, deadline())?;
         drive_guest(guest)
     });
-    let host = HostControl::connect(host_material, &public, host_io)
+    let host = HostControl::connect(host_material, host_io)
         .expect("host connect")
         .prepare_and_probe()
         .expect("host Ready");
@@ -112,22 +93,15 @@ fn assert_host_lifecycle_fails(direction: Direction, fail_at: usize) {
 }
 
 fn assert_guest_lifecycle_fails(direction: Direction, fail_at: usize) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, _, guest_observed) = pair();
     let (guest_io, _) = FaultIo::new(guest_io, direction, Some(fail_at));
     let host_thread = thread::spawn(move || {
-        let host = HostControl::connect(host_material, &public, host_io)?;
+        let host = HostControl::connect(host_material, host_io)?;
         let host = host.prepare_and_probe()?;
         drive_host(host)
     });
-    let guest = GuestControl::connect(
-        guest_material,
-        responder.private_key(),
-        guest_io,
-        deadline(),
-    )
-    .expect("guest connect");
+    let guest = GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect");
 
     assert!(drive_guest(guest).is_err());
     assert_eq!(guest_observed.poison(), 1);

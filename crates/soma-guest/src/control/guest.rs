@@ -1,7 +1,4 @@
-use crate::{
-    GuestCommand, GuestMessage, GuestSessionMaterial, HostMessage, ResponderPrivateKey,
-    TerminalStatus,
-};
+use crate::{GuestCommand, GuestMessage, GuestSessionMaterial, HostMessage, TerminalStatus};
 use std::time::Instant;
 
 use super::{
@@ -30,12 +27,10 @@ impl<I: ControlIo> GuestControl<I> {
     /// Returns a redacted Handshake error after poisoning the transport exactly once.
     pub fn connect(
         material: GuestSessionMaterial,
-        responder: &ResponderPrivateKey,
         io: I,
         deadline: Instant,
     ) -> Result<Self, ControlError> {
-        let (channel, launch_operation) =
-            guest_connect::connect(material, responder, io, deadline)?;
+        let (channel, launch_operation) = guest_connect::connect(material, io, deadline)?;
         Ok(Self {
             channel,
             state: GuestState::AwaitPrepare(launch_operation),

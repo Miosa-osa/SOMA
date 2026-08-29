@@ -7,7 +7,7 @@ It starts from the deterministic initramfs, mounts the EROFS lower and private e
 
 ## Fresh launch material
 
-The VMM creates one fresh 4 KiB launch page containing magic, schema, GenerationId, InstanceId, OperationId, nonce, responder identity, Noise PSK material, assigned vsock CID, network generation, time sample, and a digest over the page.
+The VMM creates one fresh 4 KiB launch page containing magic, schema, GenerationId, InstanceId, OperationId, nonce, Noise PSK material, guest entropy seed, assigned vsock CID, network generation, time sample, the fresh per-Instance responder static secret decided by ADR 0024, and a digest over the page.
 The page occupies a dedicated KVM memory slot absent from the snapshot.
 The guest copies it once into locked memory, validates every identity and bound, overwrites the page, and reports consumption.
 The VMM removes the slot and observes host-side zeroes before committing repair.

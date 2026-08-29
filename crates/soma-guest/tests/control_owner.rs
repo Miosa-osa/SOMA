@@ -5,8 +5,7 @@ use std::time::{Duration, Instant};
 
 use soma_guest::{
     ControlIo, GuestCommand, GuestControl, GuestLaunchMaterial, GuestRequest, HostControl,
-    HostControlIo, HostLaunchMaterial, HostMessage, LAUNCH_PAGE_SIZE, OperationId,
-    ResponderKeypair, TerminalStatus,
+    HostControlIo, HostLaunchMaterial, HostMessage, LAUNCH_PAGE_SIZE, OperationId, TerminalStatus,
 };
 
 use control_support::{deadline, launch_network, pair};
@@ -31,8 +30,6 @@ fn readiness_message_has_no_caller_supplied_command() {
 
 #[test]
 fn owners_complete_both_handshake_messages_before_connecting() {
-    let responder = ResponderKeypair::generate().expect("responder keypair");
-    let public_key = *responder.public_key();
     let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], launch_network())
         .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
@@ -49,10 +46,9 @@ fn owners_complete_both_handshake_messages_before_connecting() {
     let (host_io, guest_io, host_observed, guest_observed) = pair();
 
     let guest_thread = std::thread::spawn(move || {
-        GuestControl::connect(guest, responder.private_key(), guest_io, deadline())
-            .expect("guest owner connected")
+        GuestControl::connect(guest, guest_io, deadline()).expect("guest owner connected")
     });
-    let host = HostControl::connect(host, &public_key, host_io).expect("host owner connected");
+    let host = HostControl::connect(host, host_io).expect("host owner connected");
     let guest = guest_thread.join().expect("guest thread");
 
     assert_eq!(host_observed.poison_calls(), 0);
@@ -63,8 +59,6 @@ fn owners_complete_both_handshake_messages_before_connecting() {
 
 #[test]
 fn one_owner_path_repairs_executes_and_shuts_down() {
-    let responder = ResponderKeypair::generate().expect("responder keypair");
-    let public_key = *responder.public_key();
     let host = HostLaunchMaterial::generate([4; 32], [5; 16], [6; 16], launch_network())
         .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
@@ -86,8 +80,8 @@ fn one_owner_path_repairs_executes_and_shuts_down() {
     let (host_io, guest_io, host_observed, guest_observed) = pair();
 
     let guest_thread = std::thread::spawn(move || {
-        let guest = GuestControl::connect(guest, responder.private_key(), guest_io, deadline())
-            .expect("guest owner connected");
+        let guest =
+            GuestControl::connect(guest, guest_io, deadline()).expect("guest owner connected");
         let (guest, request) = guest.next_request(deadline()).expect("prepare request");
         assert_eq!(
             request,
@@ -124,7 +118,7 @@ fn one_owner_path_repairs_executes_and_shuts_down() {
             .expect("shutdown acknowledgement");
     });
 
-    let host = HostControl::connect(host, &public_key, host_io).expect("host owner connected");
+    let host = HostControl::connect(host, host_io).expect("host owner connected");
     let host = host.prepare_and_probe().expect("authenticated Ready");
     assert_eq!(host_observed.repair_commits(), 1);
     let (host, outcome) = host.execute(execute, command).expect("execute outcome");
@@ -164,7 +158,6 @@ fn assert_frame_deadlines_are_shared(deadlines: &[Instant]) {
 
 #[test]
 fn expired_guest_connect_deadline_fails_closed_without_peer_input() {
-    let responder = ResponderKeypair::generate().expect("responder keypair");
     let host = HostLaunchMaterial::generate([31; 32], [32; 16], [33; 16], launch_network())
         .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
@@ -183,7 +176,7 @@ fn expired_guest_connect_deadline_fails_closed_without_peer_input() {
         .checked_sub(Duration::from_millis(1))
         .expect("expired deadline is representable");
 
-    let result = GuestControl::connect(guest, responder.private_key(), guest_io, expired);
+    let result = GuestControl::connect(guest, guest_io, expired);
 
     assert!(result.is_err());
     assert_eq!(guest_observed.poison_calls(), 1);
@@ -192,8 +185,6 @@ fn expired_guest_connect_deadline_fails_closed_without_peer_input() {
 
 #[test]
 fn every_valid_terminal_outcome_and_exact_output_limit_succeeds() {
-    let responder = ResponderKeypair::generate().expect("responder keypair");
-    let public_key = *responder.public_key();
     let host = HostLaunchMaterial::generate([9; 32], [10; 16], [11; 16], launch_network())
         .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
@@ -218,8 +209,8 @@ fn every_valid_terminal_outcome_and_exact_output_limit_succeeds() {
     let (host_io, guest_io, host_observed, guest_observed) = pair();
 
     let guest_thread = std::thread::spawn(move || {
-        let guest = GuestControl::connect(guest, responder.private_key(), guest_io, deadline())
-            .expect("guest owner connected");
+        let guest =
+            GuestControl::connect(guest, guest_io, deadline()).expect("guest owner connected");
         let (guest, _) = guest.next_request(deadline()).expect("prepare request");
         let mut guest = guest.repair_complete(deadline()).expect("repair complete");
         guest = guest
@@ -242,7 +233,7 @@ fn every_valid_terminal_outcome_and_exact_output_limit_succeeds() {
             .expect("shutdown acknowledgement");
     });
 
-    let mut host = HostControl::connect(host, &public_key, host_io)
+    let mut host = HostControl::connect(host, host_io)
         .expect("host owner connected")
         .prepare_and_probe()
         .expect("authenticated Ready");

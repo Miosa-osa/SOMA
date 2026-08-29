@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-29
 - Extends: ADR 0020 and ADR 0021
+- Extended by: ADR 0024
 
 ## Context
 
@@ -44,6 +45,9 @@ Hostile page tests additionally zero the network block and flip the digest, the 
 Every existing control-owner and launch-page test passes with the new schema.
 
 ## Consequences
+
+ADR 0024 raises the page to schema 3 by appending a fresh per-Instance responder static secret at byte 247 and moving the digest to byte 279.
+The first 247 bytes of a schema 3 page are exactly the layout decided here, with `3` in the page-schema field, so every rule and every `LaunchNetwork` validation above still applies.
 
 A schema 1 page is rejected by a schema 2 guest and the reverse, which is the intended fail-closed behavior for a Generation and VMM pair that must change together.
 The page remains a bearer secret; the added fields are non-secret but their delivery still depends on the confidential non-snapshot slot required by ADR 0020.

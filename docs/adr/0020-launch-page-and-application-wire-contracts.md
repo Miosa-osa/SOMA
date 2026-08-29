@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-29
 - Extends: ADR 0003 and ADR 0017
-- Extended by: ADR 0021
+- Extended by: ADR 0021, ADR 0023, and ADR 0024
 
 ## Context
 
@@ -95,9 +95,10 @@ The host must observe the page as zero before it can authorize Ready.
 Callback success alone does not establish single-copy delivery, snapshot exclusion, guest unmapping, or host zero observation.
 Failure at any injection, consumption, entropy-repair, authentication, or zero-observation step destroys the one-use VMM process.
 
-The responder private identity remains immutable Generation material held by the trusted guest agent.
-It is not carried in the launch page.
-Its public half remains pinned trusted Generation metadata as decided by ADR 0017.
+ADR 0024 supersedes the original rule that the responder private identity is immutable Generation material outside the launch page.
+The responder static secret is now sampled per Instance with the launch nonce, Instance PSK, and entropy seed, and it occupies bytes 247 through 278 of the schema 3 page.
+Every injection, single-copy, snapshot-exclusion, erasure, host-observation, and retirement obligation above therefore also protects the responder secret.
+The public half is retained by the Host that generated it and is the only half that may reach a receipt, log, or other publicly retrievable object.
 
 ### Application frame version 1
 

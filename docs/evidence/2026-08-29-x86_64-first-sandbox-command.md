@@ -224,3 +224,9 @@ The node serial log has the same shape as the busybox one: `[vda] 275677 4096-by
 - No certification: phase 5 of the compiler and every conformance count remain unimplemented, and the responder public key is carried by the test rather than bound into the manifest.
 - No latency claim: the numbers are unoptimized debug-build cold-boot single samples under host contention and inside a container, and must not be compared with a restored snapshot or any Ready or first-command objective.
 - The guest's own entropy, identity, and network repair effects were exercised once on a cold boot only; nothing here shows that a cloned Instance discards captured state.
+
+## Superseded artifact facts
+
+ADR 0024 removed the responder private key from the initramfs on 2026-08-30 and raised the layout to v3.
+The initramfs digest and the layout-v2 statements above describe the run that was executed on 2026-08-29 and are retained unchanged as evidence of that run.
+A run of the same test after ADR 0024 produces a different initramfs digest and no `/etc/soma/responder.key` entry.

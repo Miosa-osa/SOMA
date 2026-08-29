@@ -1,4 +1,4 @@
-use crate::{GuestSessionMaterial, OperationId, ResponderPrivateKey};
+use crate::{GuestSessionMaterial, OperationId};
 use std::time::Instant;
 
 use super::{
@@ -9,7 +9,6 @@ use super::{
 
 pub(super) fn connect<I: ControlIo>(
     material: GuestSessionMaterial,
-    responder: &ResponderPrivateKey,
     io: I,
     deadline: Instant,
 ) -> Result<(AuthChannel<I>, OperationId), ControlError> {
@@ -24,7 +23,7 @@ pub(super) fn connect<I: ControlIo>(
             return Err(fail(&mut io, ControlFailureClass::Protocol));
         }
     };
-    let Ok(pending) = material.start_responder(responder, &first) else {
+    let Ok(pending) = material.start_responder(&first) else {
         return Err(fail(&mut io, ControlFailureClass::Authentication));
     };
     if io.write_all(pending.response(), deadline).is_err() {

@@ -107,19 +107,12 @@ fn an_execute_operation_identity_cannot_be_reused() {
 }
 
 fn connected_guest() -> (GuestControl<MemoryIo>, RawHost, Observation) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, _, guest_observed) = pair();
     let guest_thread = thread::spawn(move || {
-        GuestControl::connect(
-            guest_material,
-            responder.private_key(),
-            guest_io,
-            deadline(),
-        )
-        .expect("guest connect")
+        GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect")
     });
-    let host = RawHost::connect(host_material, &public, host_io);
+    let host = RawHost::connect(host_material, host_io);
     (
         guest_thread.join().expect("guest thread"),
         host,

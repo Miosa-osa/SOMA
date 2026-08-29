@@ -111,19 +111,12 @@ fn repaired_owners() -> (RepairedHost, Guest, Observation, Observation) {
 }
 
 fn connected_owners() -> (Host, Guest, Observation, Observation) {
-    let (host_material, guest_material, responder) = launch();
-    let public = *responder.public_key();
+    let (host_material, guest_material) = launch();
     let (host_io, guest_io, host_observed, guest_observed) = pair();
     let guest_thread = thread::spawn(move || {
-        GuestControl::connect(
-            guest_material,
-            responder.private_key(),
-            guest_io,
-            deadline(),
-        )
-        .expect("guest connect")
+        GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect")
     });
-    let host = HostControl::connect(host_material, &public, host_io).expect("host connect");
+    let host = HostControl::connect(host_material, host_io).expect("host connect");
     (
         host,
         guest_thread.join().expect("guest thread"),

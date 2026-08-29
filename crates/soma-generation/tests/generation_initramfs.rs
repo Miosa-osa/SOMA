@@ -2,13 +2,12 @@ mod support;
 
 use soma_generation::{
     CompileErrorKind, Sha256Digest,
-    initramfs::{build_initramfs, verify_initramfs},
+    initramfs::{INITRAMFS_LAYOUT_VERSION, build_initramfs, verify_initramfs},
 };
 
-const GOLDEN_HEX: &str = include_str!("fixtures/initramfs_v2.hex");
+const GOLDEN_HEX: &str = include_str!("fixtures/initramfs_v3.hex");
 const INIT: &[u8] = b"#!/bin/sh\nexec /bin/soma-guest-agent\n";
 const AGENT: &[u8] = b"synthetic-guest-agent-bytes";
-const KEY: &[u8; 32] = b"synthetic-responder-private-key!";
 
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
@@ -19,7 +18,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn archive() -> Vec<u8> {
-    build_initramfs(INIT, AGENT, KEY, 1 << 20).unwrap()
+    build_initramfs(INIT, AGENT, 1 << 20).unwrap()
 }
 
 #[test]
@@ -46,13 +45,13 @@ fn initramfs_round_trips_with_allowlisted_digests() {
 #[test]
 fn initramfs_build_honors_its_byte_bound() {
     assert_eq!(
-        build_initramfs(INIT, AGENT, KEY, 100).unwrap_err().kind(),
+        build_initramfs(INIT, AGENT, 100).unwrap_err().kind(),
         CompileErrorKind::LimitExceeded
     );
 }
 
 #[test]
-fn initramfs_carries_device_nodes_and_rejects_a_zero_or_missing_key() {
+fn initramfs_carries_device_nodes_and_no_guest_secret_entry() {
     let bytes = archive();
     let console = field_offset(&bytes, b"dev/console", 9);
     assert_eq!(&bytes[console..console + 8], b"00000005");
@@ -60,22 +59,74 @@ fn initramfs_carries_device_nodes_and_rejects_a_zero_or_missing_key() {
     let null = field_offset(&bytes, b"dev/null", 9);
     assert_eq!(&bytes[null..null + 8], b"00000001");
     assert_eq!(&bytes[null + 8..null + 16], b"00000003");
+    assert_eq!(INITRAMFS_LAYOUT_VERSION, 3);
+    for retired in [
+        b"etc/soma/responder.key".as_slice(),
+        b"etc/soma".as_slice(),
+        b"responder".as_slice(),
+    ] {
+        assert!(
+            !bytes.windows(retired.len()).any(|window| window == retired),
+            "layout v3 must not carry {}",
+            String::from_utf8_lossy(retired)
+        );
+    }
+    let entries = bytes
+        .windows(6)
+        .filter(|window| *window == b"070701")
+        .count();
+    assert_eq!(entries, 12, "eleven allowlisted entries plus one trailer");
+}
+
+#[test]
+fn a_layout_v2_archive_carrying_a_responder_key_is_rejected() {
+    let v2 = with_extra_entry(&archive(), b"etc/soma/responder.key", &[7_u8; 32]);
     assert_eq!(
-        build_initramfs(INIT, AGENT, &[0; 32], 1 << 20)
-            .unwrap_err()
-            .kind(),
+        verify_initramfs(&v2).unwrap_err().kind(),
         CompileErrorKind::InvalidInput
     );
-    let key_position = bytes
-        .windows(KEY.len())
-        .position(|window| window == KEY)
-        .unwrap();
-    let mut zeroed = bytes.clone();
-    zeroed[key_position..key_position + KEY.len()].fill(0);
-    assert_eq!(
-        verify_initramfs(&zeroed).unwrap_err().kind(),
-        CompileErrorKind::InvalidInput
-    );
+}
+
+/// Splices one extra `newc` entry in front of the trailer of an otherwise valid archive.
+fn with_extra_entry(archive: &[u8], name: &[u8], body: &[u8]) -> Vec<u8> {
+    let trailer = archive
+        .windows(10)
+        .position(|window| window == b"TRAILER!!!")
+        .unwrap()
+        - 110;
+    let mut entry = Vec::new();
+    entry.extend_from_slice(b"070701");
+    let fields: [u32; 13] = [
+        99,
+        0o100_600,
+        0,
+        0,
+        1,
+        0,
+        u32::try_from(body.len()).unwrap(),
+        0,
+        0,
+        0,
+        0,
+        u32::try_from(name.len() + 1).unwrap(),
+        0,
+    ];
+    for field in fields {
+        entry.extend_from_slice(format!("{field:08x}").as_bytes());
+    }
+    entry.extend_from_slice(name);
+    entry.push(0);
+    while entry.len() % 4 != 0 {
+        entry.push(0);
+    }
+    entry.extend_from_slice(body);
+    while entry.len() % 4 != 0 {
+        entry.push(0);
+    }
+    let mut spliced = archive[..trailer].to_vec();
+    spliced.extend_from_slice(&entry);
+    spliced.extend_from_slice(&archive[trailer..]);
+    spliced
 }
 
 fn field_offset(archive: &[u8], entry_name: &[u8], field: usize) -> usize {
