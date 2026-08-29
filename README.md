@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://miosa.ai">
-    <img alt="MIOSA orb" src="https://miosa.ai/apple-touch-icon.png" width="96">
+    <img alt="MIOSA orb" src="https://miosa.ai/apple-touch-icon.png" width="96" height="96">
   </a>
 </p>
 
@@ -9,7 +9,7 @@
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://miosa.ai/miosa-logo-white.png">
       <source media="(prefers-color-scheme: light)" srcset="https://miosa.ai/miosa-logo-black.png">
-      <img alt="MIOSA" src="https://miosa.ai/miosa-logo-black.png" width="300">
+      <img alt="MIOSA" src="https://miosa.ai/miosa-logo-black.png" width="300" height="129">
     </picture>
   </a>
 </p>
