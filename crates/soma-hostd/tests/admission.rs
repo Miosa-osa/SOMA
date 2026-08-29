@@ -4,7 +4,7 @@ mod atlas;
 
 use atlas::{GIB, MIB, atlas_profile, atlas_shape};
 use soma_hostd::{
-    Admission, Gate, InstanceShape, MeasuredOverhead, SingleNode, WorkloadClass, estimate,
+    Admission, Gate, InstanceShape, MeasuredOverhead, Ratio, SingleNode, WorkloadClass, estimate,
 };
 
 #[test]
@@ -55,6 +55,41 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
         assert_eq!(row.cpu_strict, 72);
         assert_eq!(row.safe_count, memory_bound.min(72));
     }
+}
+
+#[test]
+fn the_three_to_one_row_of_the_ladder_admits_forty_two_and_not_forty_one() {
+    let mut profile = atlas_profile(16, 2, 32, 4);
+    profile.overcommit.api_waiting = Ratio {
+        vcpus: 3,
+        threads: 1,
+    };
+    let profile = profile.validate().expect("profile");
+    let row = estimate(&profile, &atlas_shape()).expect("estimate");
+    assert_eq!(
+        row.cpu_overcommitted, 42,
+        "the atlas ladder reads 42 at 3:1 on 14 admissible units"
+    );
+    assert_eq!(row.safe_count, 42);
+    assert_eq!(row.binding, Gate::CpuUnits);
+    let admission = Admission::new(profile, SingleNode);
+    let mut held = Vec::new();
+    loop {
+        match admission.reserve(&atlas_shape()) {
+            Ok(reservation) => held.push(reservation),
+            Err(rejection) => {
+                assert_eq!(rejection.gate, Gate::CpuUnits);
+                break;
+            }
+        }
+    }
+    assert_eq!(
+        held.len(),
+        42,
+        "the ratio is applied once to the census, not once per Instance"
+    );
+    assert_eq!(admission.usage().vcpus_by_class[0], 42);
+    assert_eq!(admission.usage().cpu_milli_units, 14_000);
 }
 
 #[test]

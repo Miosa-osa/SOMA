@@ -1,84 +1,38 @@
-//! Demand computation with checked arithmetic and the committed usage every gate is checked
-//! against.
+//! The committed usage every capacity gate is checked against, and the exact CPU census the
+//! class overcommit ratio is applied to once rather than once per Instance.
 
-use crate::{CapacityRejection, Gate, HostProfile, InstanceShape, MemoryClass, NodeFree, NodeId};
+use crate::{CapacityRejection, Demand, Gate, HostProfile, NodeFree, NodeId, WorkloadClass};
 
 use super::reserve::Reservation;
 
-/// What one shape consumes, in the units of every gate.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct Demand {
-    /// CPU milli-units after the class ratio.
-    pub cpu_milli_units: u64,
-    /// Guaranteed bytes including overhead.
-    pub guaranteed_bytes: u64,
-    /// Elastic bytes including overhead.
-    pub elastic_bytes: u64,
-    /// Private storage bytes.
-    pub storage_bytes: u64,
-    /// Network units.
-    pub network_units: u64,
-    /// Descriptors.
-    pub descriptors: u64,
-    /// vCPUs counted as runnable.
-    pub runnable_vcpus: u64,
-    /// Worst-case private dirty bytes.
-    pub dirty_bytes: u64,
+/// The milli-units one class census costs under `ratio`, rounded up exactly once.
+pub(super) fn class_milli_units(vcpus: u64, ratio: crate::Ratio) -> Option<u64> {
+    let numerator = vcpus
+        .checked_mul(1000)?
+        .checked_mul(u64::from(ratio.threads))?;
+    let denominator = u64::from(ratio.vcpus);
+    numerator
+        .checked_add(denominator.checked_sub(1)?)
+        .map(|rounded| rounded / denominator)
 }
 
-impl Demand {
-    /// Computes the demand of `shape` on `profile`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Gate::Arithmetic`] on overflow.
-    pub fn of(profile: &HostProfile, shape: &InstanceShape) -> Result<Self, CapacityRejection> {
-        let overflow = |requested| CapacityRejection {
-            gate: Gate::Arithmetic,
-            requested,
-            committed: 0,
-            limit: u64::MAX,
-        };
-        let ratio = profile.overcommit.ratio(shape.workload);
-        let cpu_milli_units = u64::from(shape.vcpus)
-            .checked_mul(1000)
-            .and_then(|units| units.checked_mul(u64::from(ratio.threads)))
-            .map(|units| units.div_ceil(u64::from(ratio.vcpus)))
-            .ok_or_else(|| overflow(u64::from(shape.vcpus)))?;
-        let overhead = profile.memory.overhead.bytes_per_instance;
-        let with_overhead = |bytes: u64| bytes.checked_add(overhead).ok_or_else(|| overflow(bytes));
-        let (guaranteed_bytes, elastic_bytes, dirty_bytes) = match shape.memory_class {
-            MemoryClass::Guaranteed => (
-                with_overhead(shape.guest_memory_bytes)?,
-                0,
-                shape.guest_memory_bytes,
-            ),
-            MemoryClass::Elastic {
-                expected_resident_bytes,
-            } => (
-                0,
-                with_overhead(expected_resident_bytes)?,
-                expected_resident_bytes,
-            ),
-        };
-        Ok(Self {
-            cpu_milli_units,
-            guaranteed_bytes,
-            elastic_bytes,
-            storage_bytes: shape.private_storage_bytes,
-            network_units: u64::from(shape.network_units),
-            descriptors: u64::from(shape.descriptors),
-            runnable_vcpus: u64::from(shape.vcpus),
-            dirty_bytes,
-        })
+/// The milli-units a whole per-class vCPU census costs under `profile`.
+pub(super) fn census_milli_units(census: &[u64; 3], profile: &HostProfile) -> Option<u64> {
+    let mut total = 0_u64;
+    for class in WorkloadClass::ALL {
+        let cost = class_milli_units(census[class.index()], profile.overcommit.ratio(class))?;
+        total = total.checked_add(cost)?;
     }
+    Some(total)
 }
 
 /// Committed usage across every gate.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Usage {
-    /// CPU milli-units.
+    /// CPU milli-units under the class ratios; derived from `vcpus_by_class`.
     pub cpu_milli_units: u64,
+    /// Committed raw vCPUs per workload class, in [`WorkloadClass::ALL`] order.
+    pub vcpus_by_class: [u64; 3],
     /// Guaranteed bytes.
     pub guaranteed_bytes: u64,
     /// Elastic bytes.
@@ -101,8 +55,10 @@ pub struct Usage {
     pub dirty_bytes: u64,
     /// Cleanups in progress.
     pub cleanups: u64,
-    /// Per-node CPU milli-units.
+    /// Per-node CPU milli-units, derived from `node_vcpus`.
     pub node_cpu: Vec<u64>,
+    /// Per-node raw vCPUs per workload class.
+    pub node_vcpus: Vec<[u64; 3]>,
     /// Per-node memory bytes.
     pub node_memory: Vec<u64>,
 }
@@ -138,12 +94,28 @@ impl Usage {
         let memory_limit = profile.admissible_memory_bytes();
         let limits = profile.limits;
         let mut next = self.clone();
-        next.cpu_milli_units = gate(
-            Gate::CpuUnits,
-            self.cpu_milli_units,
-            demand.cpu_milli_units,
-            cpu_limit,
-        )?;
+        let overflow = || CapacityRejection {
+            gate: Gate::Arithmetic,
+            requested: demand.vcpus,
+            committed: self.cpu_milli_units,
+            limit: cpu_limit,
+        };
+        let mut census = self.vcpus_by_class;
+        let index = demand.workload.index();
+        census[index] = census[index]
+            .checked_add(demand.vcpus)
+            .ok_or_else(overflow)?;
+        let committed = census_milli_units(&census, profile).ok_or_else(overflow)?;
+        if committed > cpu_limit {
+            return Err(CapacityRejection {
+                gate: Gate::CpuUnits,
+                requested: demand.cpu_milli_units,
+                committed: self.cpu_milli_units,
+                limit: cpu_limit,
+            });
+        }
+        next.vcpus_by_class = census;
+        next.cpu_milli_units = committed;
         let memory_committed = self.guaranteed_bytes.saturating_add(self.elastic_bytes);
         let memory_requested = demand.guaranteed_bytes.saturating_add(demand.elastic_bytes);
         gate(
@@ -233,9 +205,12 @@ impl Usage {
             .collect()
     }
 
-    pub(super) fn subtract(&mut self, reservation: &Reservation) {
+    pub(super) fn subtract(&mut self, reservation: &Reservation, profile: &HostProfile) {
         let demand = &reservation.demand;
-        self.cpu_milli_units = self.cpu_milli_units.saturating_sub(demand.cpu_milli_units);
+        let index = demand.workload.index();
+        let census = &mut self.vcpus_by_class[index];
+        *census = census.saturating_sub(demand.vcpus);
+        self.cpu_milli_units = census_milli_units(&self.vcpus_by_class, profile).unwrap_or(0);
         self.guaranteed_bytes = self
             .guaranteed_bytes
             .saturating_sub(demand.guaranteed_bytes);
@@ -251,8 +226,12 @@ impl Usage {
         self.runnable_vcpus = self.runnable_vcpus.saturating_sub(demand.runnable_vcpus);
         self.dirty_bytes = self.dirty_bytes.saturating_sub(demand.dirty_bytes);
         let node = reservation.node.0 as usize;
-        if let Some(cpu) = self.node_cpu.get_mut(node) {
-            *cpu = cpu.saturating_sub(demand.cpu_milli_units);
+        if let Some(census) = self.node_vcpus.get_mut(node) {
+            census[index] = census[index].saturating_sub(demand.vcpus);
+            let recomputed = census_milli_units(census, profile).unwrap_or(0);
+            if let Some(cpu) = self.node_cpu.get_mut(node) {
+                *cpu = recomputed;
+            }
         }
         if let Some(memory) = self.node_memory.get_mut(node) {
             *memory =

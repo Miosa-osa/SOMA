@@ -37,8 +37,12 @@ pub fn estimate(
 ) -> Result<CapacityEstimate, CapacityRejection> {
     let demand = Demand::of(profile, shape)?;
     let units = u64::from(profile.admissible_cpu_units());
-    let cpu_strict = units / u64::from(shape.vcpus);
-    let cpu_overcommitted = (units * 1000) / demand.cpu_milli_units.max(1);
+    let ratio = profile.overcommit.ratio(shape.workload);
+    let cpu_strict = divide(units, u64::from(shape.vcpus));
+    let cpu_overcommitted = divide(
+        units.saturating_mul(u64::from(ratio.vcpus)),
+        u64::from(shape.vcpus).saturating_mul(u64::from(ratio.threads)),
+    );
     let memory_cost = match shape.memory_class {
         MemoryClass::Guaranteed => demand.guaranteed_bytes,
         MemoryClass::Elastic { .. } => demand.elastic_bytes,

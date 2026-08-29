@@ -990,6 +990,7 @@ crates/soma-hostd/src/
   ids.rs
   admission.rs
   admission/capacity.rs
+  admission/demand.rs
   admission/numa.rs
   admission/profile.rs
   admission/rejection.rs

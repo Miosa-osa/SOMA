@@ -24,6 +24,12 @@ impl WorkloadClass {
         self as u8
     }
 
+    /// The index of this class in a per-class census.
+    #[must_use]
+    pub const fn index(self) -> usize {
+        self as usize - 1
+    }
+
     /// Decodes one class.
     #[must_use]
     pub const fn from_code(code: u8) -> Option<Self> {

@@ -6,6 +6,7 @@
 //! [`estimate`] reproduces the capacity ladder arithmetic for one uniform shape.
 
 pub mod capacity;
+pub mod demand;
 pub mod numa;
 pub mod profile;
 pub mod rejection;
@@ -14,6 +15,7 @@ pub mod shape;
 pub mod usage;
 
 pub use capacity::{CapacityEstimate, estimate};
+pub use demand::Demand;
 pub use numa::{NodeDemand, NodeFree, NodeId, NumaPlacement, NumaRejection, SingleNode};
 pub use profile::{
     CpuInventory, HostProfile, MeasuredOverhead, MemoryInventory, NetworkInventory, OperatorLimits,
@@ -22,4 +24,4 @@ pub use profile::{
 pub use rejection::{CapacityRejection, Gate};
 pub use reserve::{Admission, Reservation};
 pub use shape::{InstanceShape, MemoryClass, ShapeError, WorkloadClass};
-pub use usage::{Demand, Usage};
+pub use usage::Usage;

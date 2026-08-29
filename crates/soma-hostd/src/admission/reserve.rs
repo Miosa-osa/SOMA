@@ -6,7 +6,8 @@
 
 use std::sync::Mutex;
 
-use super::usage::{Demand, Usage, gate};
+use super::usage::{Usage, census_milli_units, gate};
+use crate::Demand;
 use crate::{
     CapacityRejection, Gate, HostProfile, InstanceShape, NodeDemand, NodeFree, NodeId,
     NumaPlacement, NumaRejection,
@@ -49,6 +50,7 @@ impl Admission {
         let nodes = profile.cpu.numa_nodes.max(1) as usize;
         let usage = Usage {
             node_cpu: vec![0; nodes],
+            node_vcpus: vec![[0; 3]; nodes],
             node_memory: vec![0; nodes],
             ..Usage::default()
         };
@@ -87,20 +89,28 @@ impl Admission {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut candidate = state.0.apply(&demand, &self.profile)?;
+        let marginal = candidate
+            .cpu_milli_units
+            .saturating_sub(state.0.cpu_milli_units);
         let free = state.0.free_nodes(&self.profile);
         let memory = demand.guaranteed_bytes.saturating_add(demand.elastic_bytes);
         let node = self
             .placement
             .place(
                 NodeDemand {
-                    cpu_milli_units: demand.cpu_milli_units,
+                    cpu_milli_units: marginal,
                     memory_bytes: memory,
                 },
                 &free,
             )
-            .map_err(|rejection| numa_rejection(rejection, &free, demand.cpu_milli_units))?;
-        if let Some(cpu) = candidate.node_cpu.get_mut(node.0 as usize) {
-            *cpu = cpu.saturating_add(demand.cpu_milli_units);
+            .map_err(|rejection| numa_rejection(rejection, &free, marginal))?;
+        let index = demand.workload.index();
+        if let Some(census) = candidate.node_vcpus.get_mut(node.0 as usize) {
+            census[index] = census[index].saturating_add(demand.vcpus);
+            let recomputed = census_milli_units(census, &self.profile).unwrap_or(u64::MAX);
+            if let Some(cpu) = candidate.node_cpu.get_mut(node.0 as usize) {
+                *cpu = recomputed;
+            }
         }
         if let Some(bytes) = candidate.node_memory.get_mut(node.0 as usize) {
             *bytes = bytes.saturating_add(memory);
@@ -157,7 +167,7 @@ impl Admission {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.0.subtract(&reservation);
+        state.0.subtract(&reservation, &self.profile);
         if cleanup_slot.is_some() {
             state.0.cleanups = state.0.cleanups.saturating_sub(1);
         }
