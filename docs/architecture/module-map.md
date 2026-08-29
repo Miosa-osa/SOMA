@@ -54,6 +54,7 @@ human, agent, SDK, or operator
     soma-guest-agent -> soma-guest
     soma-netd        -> soma request types, soma-guest launch identity
     soma-storage     independent Linux storage mechanism
+    soma-kvm live tests -> soma-guest, soma-generation, soma (dev-dependencies only)
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -69,6 +70,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
 `soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the future host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
+`soma-kvm` is a public package while `soma-guest` is private, so the sandbox machine exposes a byte-level control channel and launch-page slot, and the `soma-guest` protocol glue that turns them into an authenticated session lives in the crate's live test as a dev-dependency until `soma-vmm` owns it.
 No provider adapter belongs below the public Machine seam.
 The current low-level crates remain independent while `soma-vmm` uses an unavailable production platform adapter.
 The conceptual arrows become Rust dependencies only when a deep implementation requires them.
@@ -236,10 +238,9 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 
 `soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
 Its current depth includes a checked capability probe, an x86_64 machine that maps one private memory slot, enters one protected-mode vCPU, boots the pinned PVH kernel to a challenge-bound serial sentinel through a diagnostic 16550 model, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
-Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
-It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/`, the five v1 device models under `virtio/devices/`, and the fixed five-slot MMIO bus under `virtio/bus.rs`, all exercised only by host-side tests against in-memory guest RAM and not yet wired to a KVM exit, ioeventfd, irqfd, event loop, or real guest.
-As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
-The `x86_64/` modules now also boot the pinned PVH kernel to a challenge-bound serial sentinel through an owned bounded ELF parser, a loader, a diagnostic 16550 model, and a checked port bus; the retained proof is [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md).
+It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/`, the five v1 device models under `virtio/devices/`, and the fixed five-slot MMIO bus under `virtio/bus.rs`.
+The `x86_64/` modules wire that bus to KVM: `KVM_EXIT_MMIO` dispatch on the vCPU thread, one ioeventfd per queue-notify address, one irqfd per slot, a bounded epoll device thread, a shared range-checked guest-memory view, the dedicated launch-page slot, a deadline-bounded byte channel over the vsock host endpoint, and the test-only sandbox machine that cold-boots a compiled Generation for the static guest agent; the retained proofs are [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
+As real restore work arrives, the crate will own register restoration, interrupt-controller state, clock state, and the snapshot-driven execution loop over the same seams.
 It also owns the platform-neutral snapshot format v1 codec under `snapshot/`: the `SOMASNP` manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, per-device state, the memory-object descriptor, the fail-closed compatibility check, and the capture and restore ordering contracts.
 That codec performs no KVM ioctl; live capture and restore remain a later slice.
 
@@ -252,8 +253,10 @@ crates/soma-kvm/src/
   machine.rs
   x86_64/
     boot_info.rs
+    channel.rs
     cmdline.rs
     cpuid.rs
+    devices.rs
     elf.rs
     elf/
       header.rs
@@ -261,18 +264,29 @@ crates/soma-kvm/src/
       synthetic.rs
       tests.rs
     error.rs
+    event_loop.rs
+    events.rs
     guest.rs
     halt.rs
     kernel.rs
     kernel/
       config.rs
     kick.rs
+    launch_page.rs
     layout.rs
     loader.rs
     memory.rs
+    memory/
+      tests.rs
+    mmio.rs
     mod.rs
     ports.rs
     run.rs
+    sandbox.rs
+    sandbox/
+      evidence.rs
+      launch.rs
+      teardown.rs
     serial.rs
     serial/
       tests.rs
@@ -406,6 +420,11 @@ crates/soma-kvm/tests/
     discover.rs
     host_sample.rs
     newc.rs
+  x86_64_sandbox_boot.rs
+  x86_64_sandbox_boot/
+    control.rs
+    generation.rs
+    session.rs
   fixtures/
     arm64_agent.c
     arm64_init.S
@@ -429,7 +448,9 @@ It must remain free of provider policy and per-Machine public contract types.
 ### `linux.rs`
 
 `linux.rs` owns target-gated Linux KVM capability calls and architecture-specific probe requirements.
-The `x86_64/` modules own the machine-contract layout, PVH boot-page encoding, private guest RAM, the bounded ELF and PVH-note parser, the kernel and initramfs loader, the single command-line composer, the CPUID template, bootstrap vCPU state, the diagnostic 16550 model, the checked port bus, the bounded run loop, and the deadline watchdog; they expose no virtio device and no MMIO bus.
+The `x86_64/` modules own the machine-contract layout, PVH boot-page encoding, private guest RAM, the bounded ELF and PVH-note parser, the kernel and initramfs loader, the single command-line composer, the CPUID template, bootstrap vCPU state, the diagnostic 16550 model, the checked port bus, the bounded run loop, and the deadline watchdog.
+`memory.rs` shares the private RAM mapping between the loader, the vCPU thread, and the device thread as a range-checked `GuestMemory` view that never forms a Rust reference over guest bytes; `mmio.rs` decodes `KVM_EXIT_MMIO` for the five fixed pages, treats an unmapped address as a typed fatal exit, and counts transport violations instead of stopping the machine; `events.rs` owns the five irqfds and eight queue-notify ioeventfds and deregisters them on drop; `event_loop.rs` is the single epoll device thread with a per-wakeup work budget and pass limit; `devices.rs` binds the preopened root and overlay files, the link-down loopback network backend, the assigned vsock CID, and a fresh entropy source to the bus behind one mutex and condition variable; `launch_page.rs` maps, writes, verifies as erased, and retires the dedicated slot; `channel.rs` is the deadline-bounded byte channel over the vsock host endpoint; `sandbox.rs` and its submodules order creation, start, launch-page runtime, milestone timeline, and teardown for one test-only cold-booted Generation.
+`watchdog.rs` separates starting the vCPU thread from waiting for it so a control session can proceed while the guest runs and still reclaim the vCPU through the same kick-and-join path.
 The `arm64/` modules own only the explicit-fixture cold-boot and challenge-bound command proofs accepted by ADRs 0014 and 0016.
 Those abort-capable proofs are crate-internal and reachable only from ignored live tests run in dedicated test processes.
 They do not imply authenticated readiness, OCI execution, networking, snapshot restore, isolation certification, or production-engine support.
@@ -461,7 +482,7 @@ Every read and write is range-checked against registered regions before any byte
 `bus.rs` is the checked interval dispatcher over the five transports; `bus/table.rs` is the single source of every address, GSI, device identifier, queue count, and the kernel command-line fragment, and `bus/slots.rs` routes notifications and inbound delivery per slot and captures or restores all five slots with device identity validated before transport state.
 The `IrqSink` and `NotifySource` traits are the seams the `x86_64` machine implements with irqfd and ioeventfd later.
 
-The module does not register an ioeventfd or irqfd, decode a KVM exit, run an event loop, own the versioned snapshot container, or talk to a real guest, and passing its tests proves none of those.
+The module itself registers no ioeventfd or irqfd, decodes no KVM exit, runs no event loop, and owns no versioned snapshot container; the `x86_64` machine supplies those, and the block, vsock, and entropy models have now served a real guest on a cold boot while the network model has run only with its link down.
 
 ### `snapshot/`
 
@@ -526,7 +547,8 @@ Normalization reopens and verifies the imported completion and selected layers, 
 Its bounded local PAX profile accepts only exact `path` and `linkpath` values, while global, malformed, duplicate, xattr, timestamp, security, and unknown PAX metadata fail closed.
 The importer rejects global PAX and mixed local PAX plus GNU naming extensions before normalization.
 The `generation/` modules implement Generation compiler phases 1 through 3 and 6 for x86_64: one `TemplateRevision` plus one `NormalizedRootfs` become an EROFS root, sterile ext4 overlay templates, a verified kernel, a deterministic initramfs, and a canonical `SOMAGEN` manifest whose SHA-256 is the `GenerationId`.
-Guest boot, snapshot capture, and certification are absent and appear only as typed absent state, so a compiled Generation is not launchable.
+Snapshot capture and certification are absent and appear only as typed absent state, so a compiled Generation is not launchable through the public lifecycle; the `soma-kvm` live test cold-boots one directly and proves the artifacts compose into a working guest.
+Initramfs layout v2 carries the console and null device nodes and the Generation-scoped responder private key as a fifth machine input, and `open_artifact` opens one published artifact by descriptor for a launcher.
 
 The source map is:
 
@@ -691,7 +713,8 @@ crates/soma-guest-agent/tests/fixtures/README.md
 
 The crate compiles on every workspace target but only the Linux modules do work; other targets exit with an unsupported result.
 Host tests cover the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries.
-Booting as PID 1, mapping the launch page, kernel entropy credit, network installation, vsock connection, and shutdown have not run inside a SOMA virtual machine and remain unproven until the VMM supplies the launch-page slot and vsock device.
+Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the readiness probe, one Execute, and authenticated shutdown have each run once inside a cold-booted SOMA machine on x86_64, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md); the same path after a snapshot restore remains unproven.
+The stop path uses the restart command because the version 1 machine has no ACPI or paravirtual power-off, and `reboot=k` turns it into the reset pulse the VMM observes as the orderly exit.
 
 ## `soma-netd` responsibilities
 

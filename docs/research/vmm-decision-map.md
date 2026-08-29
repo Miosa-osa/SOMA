@@ -87,7 +87,8 @@ Resolved.
 Version 1 exposes exactly five modern virtio-mmio version 2 devices at fixed addresses with dedicated interrupts: one immutable EROFS root block device, one private ext4 overlay block device, one network device, one vsock control device, and one entropy device.
 It uses split queues with fixed limits, explicit feature allowlists, ioeventfd notifications, irqfd interrupts, hostile descriptor validation, quiescent capture, and a fail-closed restore order.
 PCI, legacy virtio, hotplug, vhost, optional high-complexity features, and separate control or shutdown devices are excluded.
-See [minimal device surface](minimal-device-surface.md).
+Status: the five device models, the bus, ioeventfd and irqfd wiring, and the bounded device thread are implemented, and a real x86_64 guest discovered all five devices, mounted the EROFS root and the ext4 overlay, drew entropy, and ran an authenticated vsock session on a cold boot; the network device has only run behind the link-down loopback backend, and the hostile-input, snapshot-restore, forced-cleanup, and latency evidence items remain open.
+See [minimal device surface](minimal-device-surface.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 
 ## #6: How is an OCI image turned into a bootable Generation?
 
@@ -105,8 +106,8 @@ Version 1 compiles the normalized OCI tree into a deterministic immutable EROFS 
 The pipeline consumes a canonical Template Lock that has already resolved the exact OCI platform digest, modules, command, declared launch inputs, policy ceiling, resource defaults, lifecycle defaults, and provenance.
 Kernel, deterministic initramfs, guest agent, root and overlay artifacts, machine and device contracts, CPU template, command line, guest protocols, snapshot state, repair policy, builder provenance, and artifact descriptors are bound into one canonical `GenerationId` manifest.
 The retained prototype proved byte-identical EROFS output from logically identical trees created in opposite insertion orders and recorded the populated-ext4 reproducibility failure that caused the two-device correction.
-Production implementation and x86_64 boot evidence remain explicit acceptance gates rather than completed claims.
-See [Generation compiler](generation-compiler.md), [ADR 0018](../adr/0018-content-addressed-oci-import.md), and [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md).
+Status: phases 1 through 3 and 6 are implemented, and phase 4 is partial, because a compiled Generation now cold-boots on KVM to an authenticated guest agent and one bounded command, while the quiesce, memory capture, certification, and launchable-manifest steps remain unimplemented and the responder public key is not yet bound into the manifest.
+See [Generation compiler](generation-compiler.md), [ADR 0018](../adr/0018-content-addressed-oci-import.md), [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md), and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 
 ## #7: What snapshot format and memory restore mechanism meet the target?
 
@@ -137,7 +138,8 @@ How does a cloned guest replace identity, entropy assumptions, time state, netwo
 Resolved architecturally.
 The static guest agent owns early mounts, one-use launch material, entropy and identity repair, fresh Noise-authenticated vsock control, direct bounded execution, shutdown, and the only path to Ready.
 Declared environment values, secret delivery, uploads, and workspace attachments occur only after fresh identity and authenticated repair and never become reusable snapshot authority.
-See [Linux guest integration](linux-guest-agent-integration.md).
+Status: the launch-page delivery and retirement, entropy, identity, and network repair, the Noise handshake over vsock, the readiness probe, one bounded Execute, and authenticated shutdown have live x86_64 evidence on a cold boot; the same path after a snapshot restore, which is the ticket's actual question, remains unproven because no snapshot has been captured.
+See [Linux guest integration](linux-guest-agent-integration.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 See [ADR 0017](../adr/0017-authenticated-guest-session.md), [ADR 0020](../adr/0020-launch-page-and-application-wire-contracts.md), and [ADR 0021](../adr/0021-own-authenticated-control-lifecycle.md).
 
 ## #9: What host isolation contains a compromised guest-facing VMM?

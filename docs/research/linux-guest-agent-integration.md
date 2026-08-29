@@ -36,3 +36,8 @@ Shutdown requires an authenticated request, refusal of new work, child terminati
 
 `boot`, `launch_page`, `entropy`, `identity`, `network_repair`, `control`, `executor`, `output`, `shutdown`, and `pid1` are separate guest modules.
 Linux tests must boot the pinned x86 Generation, restore it repeatedly, prove unique identities and entropy, reject captured sessions and malformed pages, enforce deadlines and output limits, prevent pre-Ready execution and ingress, execute Node 22, and prove complete descendant and filesystem cleanup.
+
+## Status
+
+The cold-boot half of that list has live x86_64 evidence: the static agent ran as PID 1 from the layout v2 initramfs, composed the root, consumed and erased the launch page, repaired entropy, identity, and network state, authenticated over vsock, answered the probe, executed one command, and shut down through the authenticated channel, as recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
+Repeated restore, unique identities across restores, captured-session rejection, and the Node 22 workload on a restored Instance remain unproven because no snapshot has been captured.

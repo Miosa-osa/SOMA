@@ -298,3 +298,9 @@ The device surface is implementation-complete only after Linux x86_64 tests prov
 10. Raw latency samples demonstrate that device reconstruction and attachment remain inside the certified restore budget.
 
 Until those results exist, SOMA must describe this document as the selected device contract rather than a working or faster device implementation.
+
+## Implementation status
+
+Items 1, 2, and 4 have live x86_64 evidence from a cold boot of a compiled Generation: the pinned guest registered exactly the five modern MMIO devices and no PCI bus, composed the EROFS root and the private ext4 upper into a writable root, executed a Generation file, changed only the private head, and completed one authenticated vsock session with repair, one command, and orderly shutdown.
+The entropy device served the guest's `/dev/hwrng` reseed once, which is not the two-restore proof of item 5, and the network device has run only behind the link-down loopback backend, so item 3 is untouched.
+Items 6 through 10 remain open, and the retained result is [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).

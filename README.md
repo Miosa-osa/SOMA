@@ -131,7 +131,7 @@ An unsupported local engine returns an explicit error and never runs the workloa
 | Host | CLI, library, and MCP | Local sandbox engine | Current evidence |
 | --- | --- | --- | --- |
 | macOS with Docker Desktop | Native validation | Linux container per OCI sandbox inside Docker's Linux VM | Live Ubuntu and Node 22 lifecycle, command, and cleanup validation |
-| Ubuntu 24.04 and 26.04 x86_64 | Native CI | KVM capability probe; direct-boots pinned kernel to serial (test-only) | Pinned PVH kernel booted to a challenge-bound serial sentinel with cleanup proven on a real host; no virtio device, root filesystem, guest agent, or sandbox lifecycle yet |
+| Ubuntu 24.04 and 26.04 x86_64 | Native CI | KVM capability probe; cold-boots a compiled Generation, authenticated guest agent, first bounded command (test-only) | A compiled busybox Generation booted on a real host with the five virtio-mmio devices, the static guest agent authenticated over vsock, one bounded command returned its bytes and exit status, and cleanup was proven; no network egress, snapshot restore, jail, or sandbox lifecycle process yet |
 | Windows Server 2025 x86_64 | Native CI | None | Portable client only |
 | Linux ARM64 | Native development validation | KVM capability probe | Explicit-fixture cold boot and direct command execution exist only as dedicated ignored tests, not a custom sandbox lifecycle |
 | Intel macOS, Windows ARM64 | Compile gate | None | Portable client only |
