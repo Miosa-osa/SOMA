@@ -55,7 +55,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     /// Returns a reservation to the host admission.
     pub(crate) fn release_capacity(&self, reservation: Option<Reservation>) {
         if let Some(reservation) = reservation {
-            self.capacity.admission.release(reservation, None);
+            self.capacity.admission.release(reservation);
         }
     }
 

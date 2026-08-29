@@ -20,9 +20,22 @@ pub struct Reservation {
     pub(super) node: NodeId,
     pub(super) demand: Demand,
     pub(super) launching: bool,
+    pub(super) cleanup: bool,
 }
 
 impl Reservation {
+    /// The identity this admission gave the reservation.
+    #[must_use]
+    pub const fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Whether the reservation holds one of the bounded cleanup slots.
+    #[must_use]
+    pub const fn holds_cleanup_slot(&self) -> bool {
+        self.cleanup
+    }
+
     /// The placed node.
     #[must_use]
     pub const fn node(&self) -> NodeId {
@@ -126,6 +139,7 @@ impl Admission {
             node,
             demand,
             launching: true,
+            cleanup: false,
         })
     }
 
@@ -141,12 +155,19 @@ impl Admission {
         }
     }
 
-    /// Takes one bounded cleanup slot for the teardown of `reservation`.
+    /// Takes one bounded cleanup slot for the teardown of `reservation`, once.
+    ///
+    /// The slot is owned by the reservation that took it: a second call is a no-op, no other
+    /// reservation can return it, and [`Admission::release`] returns exactly the slots the
+    /// reservation actually holds.
     ///
     /// # Errors
     ///
     /// Returns [`Gate::CleanupSlots`] when every slot is busy; the reservation is unchanged.
-    pub fn begin_cleanup(&self, reservation: &Reservation) -> Result<u64, CapacityRejection> {
+    pub fn begin_cleanup(&self, reservation: &mut Reservation) -> Result<(), CapacityRejection> {
+        if reservation.cleanup {
+            return Ok(());
+        }
         let mut state = self
             .state
             .lock()
@@ -157,21 +178,23 @@ impl Admission {
             1,
             u64::from(self.profile.limits.cleanup_slots),
         )?;
-        Ok(reservation.id)
+        reservation.cleanup = true;
+        Ok(())
     }
 
-    /// Releases every dimension of `reservation` and its cleanup slot when one was taken.
+    /// Releases every dimension `reservation` holds, including its cleanup slot when it took
+    /// one.
     #[expect(
         clippy::needless_pass_by_value,
         reason = "consuming the reservation makes a double release impossible"
     )]
-    pub fn release(&self, reservation: Reservation, cleanup_slot: Option<u64>) {
+    pub fn release(&self, reservation: Reservation) {
         let mut state = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         state.0.subtract(&reservation, &self.profile);
-        if cleanup_slot.is_some() {
+        if reservation.cleanup {
             state.0.cleanups = state.0.cleanups.saturating_sub(1);
         }
     }

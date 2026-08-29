@@ -138,15 +138,18 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
     );
     let mut fourth = fourth;
     admission.launched(&mut fourth);
-    let slot = admission.begin_cleanup(&first).expect("slot");
+    admission.begin_cleanup(&mut first).expect("slot");
     assert_eq!(
-        admission.begin_cleanup(&second).expect_err("cleanup").gate,
+        admission
+            .begin_cleanup(&mut second)
+            .expect_err("cleanup")
+            .gate,
         Gate::CleanupSlots
     );
-    admission.release(first, Some(slot));
-    admission.release(second, None);
-    admission.release(third, None);
-    admission.release(fourth, None);
+    admission.release(first);
+    admission.release(second);
+    admission.release(third);
+    admission.release(fourth);
     let mut tight = profile.into_profile();
     tight.process.processes = 1;
     let admission = Admission::new(certified(tight), SingleNode);
@@ -158,7 +161,53 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
             .gate,
         Gate::ProcessLimit
     );
-    admission.release(held, None);
+    admission.release(held);
+}
+
+#[test]
+fn a_cleanup_slot_is_owned_by_the_reservation_that_took_it() {
+    let admission = Admission::new(gated_profile(), SingleNode);
+    let mut first = admission.reserve(&atlas_valid()).expect("first");
+    admission.launched(&mut first);
+    let mut second = admission.reserve(&atlas_valid()).expect("second");
+    admission.launched(&mut second);
+
+    admission.begin_cleanup(&mut first).expect("slot");
+    assert!(first.holds_cleanup_slot());
+    assert_eq!(admission.usage().cleanups, 1);
+    admission.begin_cleanup(&mut first).expect("idempotent");
+    assert_eq!(
+        admission.usage().cleanups,
+        1,
+        "a second begin takes no second slot"
+    );
+    assert_eq!(
+        admission
+            .begin_cleanup(&mut second)
+            .expect_err("every slot is busy")
+            .gate,
+        Gate::CleanupSlots
+    );
+    assert!(!second.holds_cleanup_slot());
+
+    admission.release(second);
+    assert_eq!(
+        admission.usage().cleanups,
+        1,
+        "a reservation that holds no slot returns none"
+    );
+    admission.release(first);
+    assert_eq!(
+        admission.usage().cleanups,
+        0,
+        "the slot returns exactly once"
+    );
+    let mut third = admission.reserve(&atlas_valid()).expect("third");
+    admission
+        .begin_cleanup(&mut third)
+        .expect("the slot is available again");
+    admission.release(third);
+    assert_eq!(admission.usage().cleanups, 0);
 }
 
 #[test]

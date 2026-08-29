@@ -115,8 +115,10 @@ fn reservations_admit_exactly_the_memory_bound_then_reject_with_evidence() {
     assert_eq!(usage.launches, 49);
     for mut reservation in reservations.drain(..) {
         admission.launched(&mut reservation);
-        let slot = admission.begin_cleanup(&reservation).expect("cleanup slot");
-        admission.release(reservation, Some(slot));
+        admission
+            .begin_cleanup(&mut reservation)
+            .expect("cleanup slot");
+        admission.release(reservation);
     }
     let empty = admission.usage();
     assert_eq!(empty.residents, 0);
