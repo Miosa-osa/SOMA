@@ -55,6 +55,11 @@ This file records the primary sources that constrain SOMA's design.
 - [Firecracker snapshot support](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md) documents quiescent capture, complete memory and device state, private file-backed restore, and clone-identity hazards.
 - [Firecracker snapshot versioning](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/versioning.md) documents independent snapshot schemas, CPU compatibility, persisted device state, and external-resource limitations.
 - [ComputeSDK benchmarks](https://github.com/computesdk/benchmarks) define the public create-through-first-command benchmark SOMA must reproduce exactly.
+- [Declaw Firecracker architecture](https://docs.declaw.ai/architecture/firecracker) documents Declaw's public VM, filesystem, network, guest-service, and snapshot topology.
+- [Declaw templates](https://docs.declaw.ai/features/templates) document built-in root filesystem choices, custom preparation, immutable completed builds, and build lifecycle.
+- [Declaw networking](https://docs.declaw.ai/features/networking) documents its public allow and deny rules, proxy boundary, metadata blocking, and protocol limitations.
+- [Declaw environment secrets](https://docs.declaw.ai/security/env-secrets) and [credential vault](https://docs.declaw.ai/security/credential-vault) distinguish guest-delivered values from host-side destination-scoped injection.
+- [Declaw MCP sandboxing](https://docs.declaw.ai/cli/mcp) documents its stdio wrapper, selected environment forwarding, uploads, deny-all default, and disconnect cleanup.
 - [OCI Image Specification v1.1.1](https://github.com/opencontainers/image-spec/tree/v1.1.1) defines immutable manifests, indexes, layers, configuration, and platform selection for input images.
 - [OCI image layout v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) defines `oci-layout`, the top-level index, and descriptor-addressed blob placement for local imports.
 - [OCI descriptor specification v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/descriptor.md) defines media type, digest, size, optional platform metadata, and artifact extensibility rules.

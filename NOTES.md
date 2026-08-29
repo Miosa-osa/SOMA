@@ -1,5 +1,16 @@
 # Notes
 
+## 2026-08-29 - Templates compose into immutable Generations
+
+A SOMA Template is a user-facing preparation recipe rather than a running sandbox or a VMM input.
+The Template composes a base workload with focused agent, tool, workspace, environment, secret, network, lifecycle, and resource modules.
+Resolution produces a canonical Template Lock with exact input identities, then offline construction and certification produce an immutable Generation.
+Launch accepts the Generation plus fresh Instance inputs and never installs runtimes, resolves mutable image tags, or runs package managers.
+Flat ordered composition is preferred over nested inheritance so the resolved result is inspectable and module conflicts fail explicitly.
+Template network permissions are a maximum envelope that Launch may narrow but may not silently widen.
+Secret references never place reusable values in a Template, lock, Generation, snapshot, log, or receipt.
+Agent modules for Claude Code, Codex, OSA, Hermes, and future agents use one common contract and are convenience modules rather than privileged VMM behavior.
+
 ## 2026-08-29 - x86_64 halt guest proves the KVM machine floor
 
 The first x86_64 code in `soma-kvm` creates one VM, one 128 MiB private memory slot, and one protected-mode vCPU, then captures port-I/O exits and `KVM_EXIT_HLT` on a real Ubuntu 24.04 host.
@@ -9,6 +20,7 @@ The watchdog reuses the KVM signal-mask technique from the ARM64 proof: the vCPU
 The PVH `hvm_start_info`, memory map, and diagnostic command line are written at their contract addresses even though the raw guest ignores them, so the layout encoding is exercised before the kernel slice.
 The Docker backend now derives its OCI platform from the host architecture instead of assuming `linux/arm64`, and its macOS-only availability helper is target-gated so the workspace compiles on Linux under `-D warnings`.
 The retained result is in `docs/evidence/2026-08-29-x86_64-kvm-halt-guest.md` and proves the machine floor only, not a kernel boot, device, sandbox, or latency claim.
+
 ## 2026-08-29 - Virtio transport and split queues are hostile-input seams, not devices
 
 `soma-kvm/src/virtio/` implements the modern virtio-mmio version 2 register file and split virtqueues from the minimal device surface as pure, `unsafe`-free, target-independent Rust with 43 host-side tests.
@@ -25,6 +37,7 @@ Event-index suppression is not negotiated, so only `VIRTQ_AVAIL_F_NO_INTERRUPT` 
 `QueueState` and `TransportState` are fixed little-endian records with exact-length decoding, and restore revalidates status order, allowlisted features, interrupt bits, queue count, queue geometry against live memory, cursor consistency, and device activation before any state becomes visible.
 `InterruptACK` clears exactly the acknowledged known bits in one store; the atomicity claim rests on single-thread ownership of the transport, which the future event loop must preserve.
 Nothing here is an MMIO bus, ioeventfd, irqfd, device backend, event loop, snapshot container, or sandbox, and the tests prove transport and queue behavior only against in-memory guest RAM.
+
 ## 2026-08-29 - Pinned x86_64 PVH guest kernel builds reproducibly
 
 Decision-map ticket #4 now has its kernel input: Linux `v6.12.107` built as an uncompressed ELF `vmlinux` with `XEN_ELFNOTE_PHYS32_ENTRY` at `0x01000000`, `CONFIG_RELOCATABLE=n`, no modules, no PCI, no ACPI, and only the five virtio-mmio device drivers plus EROFS, ext4, OverlayFS, and the pseudo filesystems.

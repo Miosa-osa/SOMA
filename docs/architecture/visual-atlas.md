@@ -61,11 +61,11 @@ Read it from the top downward to follow a command.
                               |
                               v
   +-----------------------------------------------------------+
-  | SELECTED GUEST WORKLOAD                                   |
-  | example: node /usr/src/app/agent.js                       |
+  | USER-SELECTED PROGRAM                                     |
+  | executable and dependencies come from the workload       |
   +-----------------------------------------------------------+
   | GUEST USER SPACE                                          |
-  | selected runtime + application files + libraries          |
+  | workload runtime + application files + libraries          |
   | soma-guest + PID 1 + essential system files               |
   +-----------------------------------------------------------+
   | GUEST LINUX KERNEL                                        |

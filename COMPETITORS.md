@@ -105,12 +105,16 @@ Primary benchmark sources are the [immutable 2026-08-28 raw result](https://gith
 
 The official product spelling reviewed here is Declaw, while some supplied material used DeClaw.
 
-- **Architecture and isolation:** **Verified design disclosure.** Declaw documents one Firecracker microVM per sandbox, a read-only base ext4 image, a per-sandbox writable overlay, preallocated network namespace and TAP slots, an in-guest `envd`, a private ConnectRPC control path, and snapshot restore.
+- **Architecture and isolation:** **Verified design disclosure.** Declaw documents one Firecracker microVM per sandbox, a shared read-only base ext4 image, a per-sandbox writable overlay, preallocated network namespace and TAP slots, an in-guest `envd`, a private control path, a host-side egress proxy, and snapshot restore.
+- **Template model:** **Verified design disclosure.** Declaw documents `base`, `python`, `node`, and `ai-agent` root filesystem templates plus asynchronous custom builds from Dockerfile-like input. Completed custom templates are immutable, and sandbox creation rejects a template that is not ready.
+- **Agent interface:** **Verified design disclosure.** Its MCP wrapper runs an arbitrary stdio MCP server inside a sandbox, forwards only selected environment names and files, uses deny-all egress unless destinations are allowed, bridges stdio, and destroys the sandbox when the client disconnects.
+- **Secrets:** **Verified design disclosure.** Declaw distinguishes values delivered into the guest from vault-backed credentials inserted by a host-side egress proxy for scoped destinations.
 - **Performance:** **Independent observation, 2026-08-28.** ComputeSDK recorded 476.53 ms median TTI, 573.91 ms p95, 575.96 ms p99, and 100% success.
 - **Published claim:** **Vendor claim.** Declaw publishes approximately 125 ms cold boot and approximately 30 ms snapshot restore, which use a different boundary from the ComputeSDK TTI result.
-- **Best insight for SOMA:** Preallocate namespace, veth, TAP, and policy resources outside the critical restore path, and keep credentials in a host-side egress proxy.
+- **Best insight for SOMA:** Keep template builds outside Launch, preallocate namespace, veth, TAP, and policy resources outside the critical restore path, and support host-side credential injection when a protocol can be safely mediated.
 - **Pitfall or unknown:** Snapshot artifacts require authenticated provenance and restore-time uniqueness repair, while a transparent proxy also needs explicit bypass resistance and trust-store policy.
-- **Primary sources:** [Firecracker architecture](https://docs.declaw.ai/architecture/firecracker) and [Declaw](https://declaw.ai/).
+- **Primary sources:** [Firecracker architecture](https://docs.declaw.ai/architecture/firecracker), [templates](https://docs.declaw.ai/features/templates), [networking](https://docs.declaw.ai/features/networking), [credential vault](https://docs.declaw.ai/security/credential-vault), and [MCP sandboxing](https://docs.declaw.ai/cli/mcp).
+- **Detailed research:** [Declaw public architecture research](docs/research/declaw.md).
 
 ### Blaxel
 

@@ -37,6 +37,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Learn what the sandbox, VMM, KVM, guest, Template, Generation, and Instance are | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
 | See the complete machine as plain-text pictures | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
 | Understand where Node, Python, shells, and user agent programs come from | [Workload selection and execution](docs/architecture/visual-atlas.md#5-where-node-python-or-another-runtime-comes-from) |
+| Build reusable templates for Claude Code, Codex, OSA, Hermes, or another workload | [Composable template system](docs/architecture/template-system.md) |
 | Understand vCPUs, overcommit, shared memory, and how 200 sandboxes fit on 80 threads | [Host capacity and density](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) |
 | Learn capacity incrementally from one sandbox through larger Hosts and overload | [Incremental capacity ladder](docs/architecture/visual-atlas.md#15-capacity-ladder-from-one-sandbox-to-a-fleet) |
 | See what limits 100,000 sandboxes and how a fleet reaches that scale | [100,000-sandbox model](docs/architecture/visual-atlas.md#16-can-one-host-create-100000-sandboxes) |
@@ -45,6 +46,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Compare Docker, Apple VMs, and Linux KVM honestly | [Local sandbox reality](docs/architecture/local-sandbox-reality.md) |
 | Implement or continue the Linux custom VMM | [Linux VMM handoff](docs/operations/linux-vmm-handoff.md) |
 | Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
+| Review what Declaw publicly discloses and what remains unknown | [Declaw research](docs/research/declaw.md) |
 | Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
 | Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
 | Understand performance measurements and claims | [Benchmark contract](docs/benchmark-contract.md) |
