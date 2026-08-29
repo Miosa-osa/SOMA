@@ -9,7 +9,7 @@ It uses plain text so the architecture remains readable in a terminal, source vi
 - [The Linux KVM stack](#2-the-linux-kvm-production-stack)
 - [The minimum pieces of a sandbox](#3-the-minimum-pieces-of-one-kvm-sandbox)
 - [The guest filesystem and its first files](#4-where-the-first-file-and-first-directory-come-from)
-- [How Node 22 is added](#5-how-node-22-is-added)
+- [Where Node, Python, or another runtime comes from](#5-where-node-python-or-another-runtime-comes-from)
 - [Template, Generation, and Instance](#6-template-generation-and-instance-as-physical-shapes)
 - [What a vCPU is](#10-what-a-vcpu-actually-is)
 - [How a Host is divided](#11-one-large-host-divided-into-sandboxes)
@@ -61,11 +61,11 @@ Read it from the top downward to follow a command.
                               |
                               v
   +-----------------------------------------------------------+
-  | GUEST WORKLOAD                                            |
-  | node /usr/src/app/agent.js                                |
+  | SELECTED GUEST WORKLOAD                                   |
+  | example: node /usr/src/app/agent.js                       |
   +-----------------------------------------------------------+
   | GUEST USER SPACE                                          |
-  | Node 22 + application files + libraries                   |
+  | selected runtime + application files + libraries          |
   | soma-guest + PID 1 + essential system files               |
   +-----------------------------------------------------------+
   | GUEST LINUX KERNEL                                        |
@@ -173,8 +173,8 @@ GUEST VIEW AFTER START
 |-- tmp/                     temporary writable state
 |-- usr/
 |   |-- bin/
-|   |   `-- node             present in a Node workload Generation
-|   `-- src/app/             example agent application
+|   |   `-- <runtime>        only when selected workload provides one
+|   `-- src/app/             example workload files when provided
 `-- var/                     writable or overlay-backed runtime data
 ```
 
@@ -185,7 +185,56 @@ The exact directory contents come from the selected OCI workload plus the small 
 The first user-space process is PID 1.
 For the SOMA machine profile, PID 1 must establish required mounts and start or supervise `soma-guest` before arbitrary workload execution is accepted.
 
-## 5. How Node 22 is added
+## 5. Where Node, Python, or another runtime comes from
+
+SOMA does not require Node to execute an agent command.
+Node is one optional Workload runtime selected by the user.
+
+### Three different things called an agent
+
+```text
+EXTERNAL AGENT
+Claude Code, Codex, OSA, Hermes, or an application
+runs outside the sandbox
+        |
+        | Launch and Execute request
+        v
+SOMA GUEST AGENT
+soma-guest
+runs inside every SOMA Machine
+authenticates, repairs, executes, and reports
+        |
+        | exact executable path and argument vector
+        v
+USER WORKLOAD PROGRAM
+JavaScript agent, Python agent, shell command, Rust binary, or other program
+comes from the selected workload
+```
+
+The external agent does not need to be installed inside the sandbox just to control it.
+The SOMA Guest agent is infrastructure and is unrelated to Node.js.
+The user's workload program determines whether Node, Python, Java, a shell, or no language runtime is needed.
+
+### The user selects the workload before Launch
+
+```text
+Template or preparation input
+        |
+        +-- image: node:22 ----------> includes Node.js
+        |
+        +-- image: python:3.13 ------> includes Python
+        |
+        +-- image: ubuntu:24.04 -----> includes Ubuntu user space
+        |                              does not imply Node.js
+        |
+        `-- custom OCI image --------> includes exactly what its builder added
+```
+
+An OCI image is a stack of filesystem layers plus configuration metadata.
+The selected image supplies the workload's files, executables, dynamic loader, shared libraries, certificates, and default environment.
+SOMA resolves the mutable image tag to an exact platform-specific digest before constructing a Generation.
+
+### Node 22 example
 
 Node is workload content, not virtualization machinery.
 
@@ -213,8 +262,73 @@ v
 bounded output + execution Receipt
 ```
 
-Ubuntu, Kali, Python, and a custom agent image follow the same preparation shape.
-Their user-space files differ, but the Machine contract and lifecycle remain stable.
+Node exists at `/usr/local/bin/node` in this example because that path came from the selected `node:22` filesystem.
+SOMA did not install Node during Launch.
+
+### The same machine without Node
+
+```text
+custom OCI image
+|
+| contains /opt/agent/my-agent as a compatible static executable
+| contains no Node.js, Python, or shell
+v
+custom Generation
+|
+| Launch
+v
+custom Instance
+|
+| Execute ["/opt/agent/my-agent", "--task", "inspect"]
+v
+bounded output + execution Receipt
+```
+
+A native Rust or Go agent can execute directly when its binary and required files are present and compatible with the guest architecture.
+There is no reason to install Node for that workload.
+
+### What Execute actually does
+
+```text
+external caller
+|
+| Execute {
+|   program: "/usr/local/bin/node",
+|   args: ["--version"]
+| }
+v
+soma-guest receives authenticated bounded request
+|
+| verifies lifecycle, operation identity, path, arguments, output, and time bounds
+v
+guest Linux attempts direct process execution
+|
++-- executable and dependencies valid --> process starts
+|
+`-- executable or dependency invalid ---> typed execution failure
+```
+
+The command is a direct executable path plus an argument array.
+SOMA does not assume a shell, package manager, Node, Python, or application framework.
+
+### What happens when the image is wrong
+
+| Requested command | Selected workload contents | Result |
+|---|---|---|
+| `/usr/local/bin/node --version` | `node:22` contains that executable and its libraries | Node starts |
+| `/usr/local/bin/node --version` | plain Ubuntu has no Node at that path | executable-not-found failure |
+| `/bin/sh -c ...` | image contains no shell | executable-not-found failure |
+| `/opt/agent/run` | file exists but is not executable | permission failure |
+| `/opt/agent/run` | binary targets the wrong CPU architecture | executable-format failure |
+| `/opt/agent/run` | dynamic loader or required library is absent | loader or dependency failure |
+| `/opt/agent/run` | compatible static binary is present | starts without Node or Python |
+
+Readiness proves that the SOMA Guest agent can execute the fixed readiness command.
+It does not prove that every later user-selected executable exists.
+A Template or Generation certification profile may add workload-specific probes, but those probes must be explicit.
+
+Ubuntu, Kali, Python, Node, and custom agent images follow the same preparation shape.
+Their user-space files differ, while the Machine contract and SOMA lifecycle remain stable.
 
 ## 6. Template, Generation, and Instance as physical shapes
 
@@ -581,7 +695,8 @@ An incompatible Generation, unavailable KVM, failed network attachment, invalid 
 ```text
 HOST
 |
-+-- Node 22 Generation stored once
++-- selected workload Generation stored once
+|   +-- example: Node 22 only when the user selected node:22
 |   +-- kernel
 |   +-- immutable root filesystem
 |   `-- prepared snapshot pages
@@ -746,6 +861,76 @@ single-node placement says no: neither node satisfies both dimensions
 This is resource fragmentation.
 Adding the free numbers across a Host can produce an answer that no valid placement can realize.
 
+### Stage 8: three hundred sandboxes on a 160-thread Host
+
+Assume a 160-thread, 512 GiB Host reserves 16 threads and 48 GiB.
+That leaves 144 thread units and 464 GiB for admitted Instances.
+
+```text
+memory required      300 * 576 MiB = 168.75 GiB
+memory remaining     464 GiB - 168.75 GiB = 295.25 GiB
+CPU overcommit       300 / 144 = 2.08:1
+```
+
+The simple CPU and memory arithmetic fits.
+The larger Host now requires topology-aware placement across its NUMA nodes, and 300 simultaneous network attachments or snapshot restores must be measured as separate gates.
+
+### Stage 9: five hundred sandboxes on the same Host
+
+```text
+memory required      500 * 576 MiB = 281.25 GiB
+memory remaining     464 GiB - 281.25 GiB = 182.75 GiB
+CPU overcommit       500 / 144 = 3.47:1
+```
+
+Five hundred mostly waiting agents may fit the arithmetic.
+Five hundred CPU-heavy build agents will create a persistent run queue and will not behave like five hundred dedicated CPUs.
+
+At this rung, aggregate limits deserve equal attention:
+
+- Memory bandwidth can saturate even when RAM capacity remains free.
+- Shared last-level CPU caches can become contested.
+- NIC receive and transmit queues can become hot.
+- Connection tracking and ephemeral ports can constrain network-heavy workloads.
+- One Generation restore can create a synchronized page-fault wave.
+- Five hundred VMM processes and vCPU threads increase scheduler and kernel-object work.
+
+### Stage 10: eight hundred sandboxes approach the cliff
+
+```text
+memory required      800 * 576 MiB = 450 GiB
+memory remaining     464 GiB - 450 GiB = 14 GiB
+CPU overcommit       800 / 144 = 5.56:1
+```
+
+The arithmetic still says 800 is below the illustrative 824-Instance memory bound.
+The operational answer should probably be no for a guaranteed class because only 14 GiB remains for estimation error, growth, bursts, fragmentation, and emergency cleanup.
+
+This is the difference between a mathematical maximum and a safe operating maximum.
+
+```text
+mathematical maximum
+  first point at which a simplified division no longer fits
+
+safe operating maximum
+  last load-tested point that preserves latency, isolation, cleanup,
+  failure headroom, topology, and every resource reserve
+```
+
+Adding Instance 801 may succeed technically while making the entire Host less reliable.
+SOMA should reject before reaching that cliff according to the certified Host profile.
+
+### Stage 11: one thousand no longer fits this Host shape
+
+```text
+memory required      1,000 * 576 MiB = 562.5 GiB
+admissible memory    464 GiB
+memory deficit       98.5 GiB
+```
+
+Snapshot sharing may lower the initial resident set, but it cannot satisfy a guaranteed 512 MiB promise for 1,000 Instances on this Host.
+The honest next step is to add Hosts, reduce the Machine shape, or define an explicitly elastic class.
+
 ### Incremental Host ladder
 
 The table uses the fixed 1-vCPU, 512 MiB guest, 64 MiB placeholder-overhead shape.
@@ -763,6 +948,83 @@ Every row remains subject to storage, network, process, burst, and cleanup gates
 The example admission column is not a recommendation.
 It shows how CPU overcommit changes the arithmetic while the memory bound remains separate.
 Only workload-specific load testing can certify an overcommit ratio.
+
+### One large Host as the count rises
+
+This view keeps the illustrative 160-thread, 512 GiB Host fixed.
+
+| Resident count | CPU ratio against 144 units | Memory used | Arithmetic result | New concern |
+|---:|---:|---:|---|---|
+| 100 | 0.69:1 | 56.25 GiB | comfortable in CPU and RAM | baseline device and network cost |
+| 200 | 1.39:1 | 112.5 GiB | light CPU overcommit | synchronized Launch behavior |
+| 300 | 2.08:1 | 168.75 GiB | plausible for bursty agents | NUMA placement and NIC queues |
+| 400 | 2.78:1 | 225 GiB | workload-sensitive | cache and scheduler contention |
+| 500 | 3.47:1 | 281.25 GiB | plausible only with evidence | memory bandwidth and aggregate I/O |
+| 600 | 4.17:1 | 337.5 GiB | high overcommit | wake-up and cleanup storms |
+| 700 | 4.86:1 | 393.75 GiB | narrow safety margin | dirty-memory and reserve pressure |
+| 800 | 5.56:1 | 450 GiB | below arithmetic memory ceiling | only 14 GiB memory headroom remains |
+| 824 | 5.72:1 | 463.5 GiB | mathematical memory edge | no credible operational headroom |
+| 1,000 | 6.94:1 | 562.5 GiB | impossible for guaranteed shape | exceeds admitted RAM by 98.5 GiB |
+
+The rows do not certify any count.
+They teach why each increase changes more than one operational risk even when the Machine shape stays constant.
+
+### Fleet ladder after one Host stops being enough
+
+Assume load testing eventually certifies 200 active Instances per Host for one exact workload class.
+Also assume the fleet reserves 20 percent of Host capacity for failures, draining, upgrades, and bursts.
+
+```text
+usable active capacity per Host
+200 * 0.80 = 160 Instances
+```
+
+| Active target | Bare minimum at 200 per Host | Hosts with 20 percent spare policy | What becomes newly important |
+|---:|---:|---:|---|
+| 1,000 | 5 | 7 | placement retries and one-Host failure |
+| 2,500 | 13 | 16 | rack and power-domain awareness |
+| 5,000 | 25 | 32 | cell-local admission and Generation distribution |
+| 10,000 | 50 | 63 | control-plane partitioning and bounded fan-out |
+| 25,000 | 125 | 157 | failure-domain balancing and rolling upgrades |
+| 50,000 | 250 | 313 | multiple cells and aggregate artifact delivery |
+| 100,000 | 500 | 625 | regional cells, quotas, reconciliation, and disaster capacity |
+
+The spare-policy column uses `ceiling(active target / 160)`.
+It does not mean every Host should normally run at its certified maximum.
+
+At fleet scale, immutable sharing still happens primarily within each Host's local cache.
+A Generation must also be distributed across Hosts, and a cold fleet-wide request can overwhelm the registry or artifact service even when every Host has free CPU and RAM.
+
+```text
+one cached Host launch
+  reads local immutable artifacts
+
+one thousand cold Hosts launching together
+  may all request the same Generation from shared distribution services
+  creates a control-plane and artifact-delivery fan-out problem
+```
+
+Cells bound that fan-out and contain failures.
+
+```text
+GLOBAL CONTROL PLANE
+|
++-- Cell A
+|   +-- bounded Host set
+|   +-- local admission
+|   +-- local Generation distribution
+|   `-- local failure containment
+|
++-- Cell B
+|   `-- same independent responsibilities
+|
+`-- Cell C and later cells
+```
+
+The global layer chooses a healthy cell.
+The cell chooses a compatible Host.
+The Host atomically reserves resources and launches one Instance.
+No global scheduler should synchronously manipulate 100,000 individual KVM file descriptors.
 
 ### What happens when one more sandbox arrives
 

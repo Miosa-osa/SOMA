@@ -11,7 +11,7 @@ It does not redefine an external standard, turn an accepted design into an imple
 | Layer | Start with |
 | --- | --- |
 | Product | [SOMA](#soma), [sandbox](#sandbox), [Machine](#machine) |
-| Workload | [OCI image](#oci-image), [workload identity](#workload-identity), [Template](#template), [Generation](#generation) |
+| Workload | [OCI image](#oci-image), [workload identity](#workload-identity), [Workload runtime](#workload-runtime), [Template](#template), [Generation](#generation) |
 | Lifecycle | [Operation](#operation), [Instance](#instance), [Repair](#repair), [command readiness](#command-readiness) |
 | Resources | [Machine shape](#machine-shape), [vCPU](#vcpu), [requested shape](#requested-shape), [effective shape](#effective-shape) |
 | Runtime | [VMM](#vmm), [microVM](#microvm), [KVM](#kvm), [backend](#backend) |
@@ -171,6 +171,7 @@ Related: [Generation](#generation), [workload identity](#workload-identity).
 
 The Guest agent is the minimal authenticated component inside a SOMA guest that performs Repair and bounded command exchange.
 It authenticates the exact Instance lifetime rather than trusting an inherited channel from a captured Snapshot.
+It is not the external calling agent or the user's workload program.
 
 Related: [Repair](#repair), [command readiness](#command-readiness), [Instance](#instance).
 
@@ -443,6 +444,15 @@ Workload identity binds an exact OCI platform manifest digest, platform, and opt
 It is stronger than a human image tag and remains separate from Instance identity.
 
 Related: [OCI manifest](#oci-manifest), [Generation ID](#generation-id), [digest binding](#digest-binding).
+
+### Workload runtime
+
+A Workload runtime is an optional language or application runtime included by the selected workload.
+Node.js, Python, Java, and a shell are examples.
+A directly executable native program may need none of them.
+SOMA does not silently install a Workload runtime during Launch.
+
+Related: [OCI image](#oci-image), [Generation](#generation), [Guest agent](#guest-agent).
 
 ### Workspace volume
 

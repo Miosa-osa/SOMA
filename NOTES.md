@@ -418,6 +418,9 @@ Capacity education treats vCPU scheduling, resident memory, shared immutable pag
 Capacity language now distinguishes cumulative creations, queued requests, resident Instances, and simultaneously active Instances because only the latter three consume concurrent Host capacity and they consume it differently.
 The README links directly to the 200-vCPU-on-80-thread explanation, and the visual atlas begins with a task-oriented contents list so capacity education is not buried inside the full machine walkthrough.
 The capacity lesson now holds one Machine shape constant while moving from one Instance through 4, 16, 49, 64, and 200, then introduces larger NUMA Hosts, atomic admission, resource-specific failure modes, workload classes, and the evidence required before increasing density.
+The visual model distinguishes the external calling agent, the mandatory SOMA Guest agent, and the user workload program.
+Node.js, Python, shells, and other Workload runtimes come only from the selected workload image and are never implicit Launch prerequisites.
+The capacity ladder continues through 300, 500, 800, and 1,000 on a fixed large Host, then through 1,000, 2,500, 5,000, 10,000, 25,000, 50,000, and 100,000 across a fleet with explicit spare capacity.
 
 ## 2026-08-29 - Repository-owned README branding
 

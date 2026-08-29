@@ -69,3 +69,13 @@ It is scheduled onto a Host hardware thread and does not imply permanent ownersh
 ## Host
 
 A Host is the physical or virtual machine that supplies CPU time, memory, storage, networking, and process ownership for a set of independent Instances.
+
+## Workload runtime
+
+A Workload runtime is an optional language or application runtime, such as Node.js or Python, included by the selected workload.
+It is not part of SOMA's virtualization foundation and is not required when the workload is a directly executable native program.
+
+## Guest agent
+
+The Guest agent is the trusted SOMA component inside a Machine that authenticates the Instance, completes Repair, executes bounded commands, and reports evidence.
+It is distinct from the caller's external agent and from the user's workload program.

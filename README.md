@@ -36,6 +36,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 |---|---|
 | Learn what the sandbox, VMM, KVM, guest, Template, Generation, and Instance are | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
 | See the complete machine as plain-text pictures | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
+| Understand where Node, Python, shells, and user agent programs come from | [Workload selection and execution](docs/architecture/visual-atlas.md#5-where-node-python-or-another-runtime-comes-from) |
 | Understand vCPUs, overcommit, shared memory, and how 200 sandboxes fit on 80 threads | [Host capacity and density](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) |
 | Learn capacity incrementally from one sandbox through larger Hosts and overload | [Incremental capacity ladder](docs/architecture/visual-atlas.md#15-capacity-ladder-from-one-sandbox-to-a-fleet) |
 | See what limits 100,000 sandboxes and how a fleet reaches that scale | [100,000-sandbox model](docs/architecture/visual-atlas.md#16-can-one-host-create-100000-sandboxes) |
