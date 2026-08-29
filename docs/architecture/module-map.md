@@ -1046,6 +1046,7 @@ crates/soma-hostd/tests/
   claim.rs
   crash.rs
   daemon.rs
+  evict.rs
   foreign.rs
   inline.rs
   latency.rs
@@ -1072,7 +1073,7 @@ crates/soma-hostd/tests/
 `protocol.rs` and `daemon.rs` are the bounded typed claim, release, inspect, and reconcile protocol and the single-threaded `SOCK_SEQPACKET` skeleton over one pool; the daemon does not authenticate its peer and starts only with the explicitly requested in-process development launcher, and `bin/linux/host.rs` builds the certified host profile and Machine shape it admits against from explicit operator inventory arguments.
 
 Every module compiles on every workspace target except the Unix descriptor-carrying transfer payload, the Unix in-process testing implementations, and the Linux daemon; a non-Unix host cannot construct a transferable authority bundle at all.
-The integration tests prove one winner among 100 concurrent claimers fifty times, identical replay, changed-intent conflict, no reuse of an assigned worker, a fault at every transfer step, immediate exhaustion, bounded replenishment storms, 100-way fairness over ten workers, restart reconciliation, every admission gate, rollback, the atlas capacity ladder, and record claim latency over 1,000 claims without asserting it.
+The integration tests prove one winner among 100 concurrent claimers fifty times, identical replay across an eviction and a restart, changed-intent conflict, no reuse of an assigned worker, a fault at every transfer step, a crash between the resource assignment and the commit, a grant presented to another pool, start against release, immediate exhaustion, bounded replenishment storms that retain no finished thread, Generation eviction, 100-way fairness over ten workers, restart reconciliation including concurrent passes, the daemon replay dispositions, every admission gate, rollback, the atlas capacity ladder, and record claim latency over 1,000 claims without asserting it.
 No live VMM, jail, XFS head, or TAP bundle is exercised by this crate yet.
 
 ## Future node and protocol modules
