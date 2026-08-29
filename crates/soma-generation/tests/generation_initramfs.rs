@@ -5,9 +5,10 @@ use soma_generation::{
     initramfs::{build_initramfs, verify_initramfs},
 };
 
-const GOLDEN_HEX: &str = include_str!("fixtures/initramfs_v1.hex");
+const GOLDEN_HEX: &str = include_str!("fixtures/initramfs_v2.hex");
 const INIT: &[u8] = b"#!/bin/sh\nexec /bin/soma-guest-agent\n";
 const AGENT: &[u8] = b"synthetic-guest-agent-bytes";
+const KEY: &[u8; 32] = b"synthetic-responder-private-key!";
 
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
@@ -18,7 +19,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn archive() -> Vec<u8> {
-    build_initramfs(INIT, AGENT, 1 << 20).unwrap()
+    build_initramfs(INIT, AGENT, KEY, 1 << 20).unwrap()
 }
 
 #[test]
@@ -45,8 +46,35 @@ fn initramfs_round_trips_with_allowlisted_digests() {
 #[test]
 fn initramfs_build_honors_its_byte_bound() {
     assert_eq!(
-        build_initramfs(INIT, AGENT, 100).unwrap_err().kind(),
+        build_initramfs(INIT, AGENT, KEY, 100).unwrap_err().kind(),
         CompileErrorKind::LimitExceeded
+    );
+}
+
+#[test]
+fn initramfs_carries_device_nodes_and_rejects_a_zero_or_missing_key() {
+    let bytes = archive();
+    let console = field_offset(&bytes, b"dev/console", 9);
+    assert_eq!(&bytes[console..console + 8], b"00000005");
+    assert_eq!(&bytes[console + 8..console + 16], b"00000001");
+    let null = field_offset(&bytes, b"dev/null", 9);
+    assert_eq!(&bytes[null..null + 8], b"00000001");
+    assert_eq!(&bytes[null + 8..null + 16], b"00000003");
+    assert_eq!(
+        build_initramfs(INIT, AGENT, &[0; 32], 1 << 20)
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::InvalidInput
+    );
+    let key_position = bytes
+        .windows(KEY.len())
+        .position(|window| window == KEY)
+        .unwrap();
+    let mut zeroed = bytes.clone();
+    zeroed[key_position..key_position + KEY.len()].fill(0);
+    assert_eq!(
+        verify_initramfs(&zeroed).unwrap_err().kind(),
+        CompileErrorKind::InvalidInput
     );
 }
 

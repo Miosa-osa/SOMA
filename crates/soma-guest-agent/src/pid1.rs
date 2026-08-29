@@ -42,15 +42,21 @@ pub fn sync() {
     unsafe { libc::sync() };
 }
 
-/// Flushes filesystems and powers the machine off without ever returning.
+/// Flushes filesystems and stops the machine without ever returning.
+///
+/// The version 1 machine contract offers no ACPI and no paravirtual power-off, so a
+/// `LINUX_REBOOT_CMD_POWER_OFF` request degrades to `halt`, which parks the vCPU inside KVM
+/// with interrupts disabled and is invisible to the host. The contract boots with `reboot=k`,
+/// so the restart command pulses the keyboard-controller reset line instead, which the VMM
+/// observes as the orderly `Reset` exit; the machine is single-use and never actually restarts.
 ///
 /// Outside PID 1 the process exits with a distinct code instead of rebooting the host.
 pub fn poweroff() -> ! {
     sync();
     if is_pid1() {
-        // SAFETY: `reboot` with `LINUX_REBOOT_CMD_POWER_OFF` takes one integer command and
+        // SAFETY: `reboot` with `LINUX_REBOOT_CMD_RESTART` takes one integer command and
         // affects only this machine; it is only reached when this process is the guest init.
-        unsafe { libc::reboot(libc::LINUX_REBOOT_CMD_POWER_OFF) };
+        unsafe { libc::reboot(libc::LINUX_REBOOT_CMD_RESTART) };
         loop {
             // SAFETY: `pause` has no preconditions and merely blocks until a signal arrives.
             unsafe { libc::pause() };

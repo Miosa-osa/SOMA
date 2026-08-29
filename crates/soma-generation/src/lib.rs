@@ -26,8 +26,8 @@ pub use generation::{
     PublishedGeneration, Sha256Digest, SnapshotBinding, StartupBehavior, TemplateImage,
     TemplateRevision, ToolOutcome, Toolchain, TreeBounds, VerifiedGeneration, VerifiedKernel,
     VerifiedKernelConfig, compile_generation, contracts, derive_generation_id, erofs, initramfs,
-    kernel, kernel_config, manifest as generation_manifest, overlay, template, verify_generation,
-    verify_kernel_config,
+    kernel, kernel_config, manifest as generation_manifest, open_artifact, overlay, template,
+    verify_generation, verify_kernel_config,
 };
 pub use import::import_oci_layout;
 pub use normalize::{

@@ -45,7 +45,7 @@ pub use kernel_config::{VerifiedKernelConfig, verify_kernel_config};
 pub use manifest::{GenerationManifest, SnapshotBinding};
 pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
-pub use publish::PublishedGeneration;
+pub use publish::{PublishedGeneration, open_artifact};
 pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use tree_decoder::TreeBounds;

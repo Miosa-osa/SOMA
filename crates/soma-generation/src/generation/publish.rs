@@ -1,3 +1,5 @@
+use std::{fs::File, path::Path};
+
 use soma::GenerationId;
 
 use super::{
@@ -60,6 +62,41 @@ pub(crate) fn publish_manifest(
         descriptor,
         manifest: manifest.clone(),
     })
+}
+
+/// Opens one published Generation artifact read-only by its manifest descriptor.
+///
+/// The store rejects a symlink, and the open file's length must equal the descriptor size.
+/// Callers that need digest proof read the file through their own hasher; this accessor
+/// exists so a launcher can hand the immutable root, overlay template, kernel, and initramfs
+/// to a machine without ever composing a host path from artifact identity.
+///
+/// # Errors
+///
+/// Returns a redacted [`CompileError`] when the store or the object cannot be opened or the
+/// object length disagrees with the descriptor.
+pub fn open_artifact(store: &Path, descriptor: &ArtifactDescriptor) -> Result<File, CompileError> {
+    let store = Store::open(store)
+        .map_err(|error| CompileError::from_import(CompilePhase::VerifyGeneration, error))?;
+    let file = store
+        .open_blob(&descriptor.to_store_descriptor(), ImportPhase::Publish)
+        .map_err(|error| CompileError::from_import(CompilePhase::VerifyGeneration, error))?;
+    let length = file
+        .metadata()
+        .map_err(|_| {
+            CompileError::new(
+                CompilePhase::VerifyGeneration,
+                super::error::CompileErrorKind::Io,
+            )
+        })?
+        .len();
+    if length != descriptor.size {
+        return Err(CompileError::new(
+            CompilePhase::VerifyGeneration,
+            super::error::CompileErrorKind::Integrity,
+        ));
+    }
+    Ok(file.into_std())
 }
 
 /// Reads and digest-checks the manifest bytes named by a `GenerationId`.
