@@ -29,6 +29,7 @@ The `ioctl` cost is proportional to the source extent count at about 0.6 us per 
 `FICLONE` maps unwritten source extents as holes rather than shared extents, so a head never inherits its template's `fallocate` reservation and the free-space evidence plus the `ENOSPC` proof remain the only capacity guard.
 The in-process `ioctl` beats the `cp` subprocess by five times per head, and cleanup must also stay off the request path because 100 concurrent unlinks raised the 100-way p99 from 21.5 ms to 57.1 ms.
 The retained result is in `docs/evidence/2026-08-29-xfs-reflink-profile.md`; it is a loop-backed decision input, not a production-host latency claim, and the next dependency is the prepared-head pool in the host allocator.
+
 ## 2026-08-29 - soma-netd prepares sterile bundles and activates only after repair
 
 Decision-map ticket #10 now has a first implementation: `soma-netd` owns namespaces, TAP and veth devices, `/30` IPAM, MAC derivation, nftables text, conntrack zones, resolver policy, exclusive port reservations, the durable ledger, repair-gated activation, ordered release, and reconciliation, while the VMM side receives one TAP descriptor through `SOCK_SEQPACKET` plus `SCM_RIGHTS` with a fixed typed header.
@@ -586,6 +587,7 @@ The first boots exposed three guest-side contract bugs that are now fixed: early
 Initramfs layout v2 carries `/dev/console`, `/dev/null`, and the Generation-scoped responder private key as a fifth compiler input, since the Rust runtime aborts PID 1 without standard descriptors and the agent takes the key from the initramfs before switching root; the responder public key is still carried out of band rather than bound into the manifest.
 The run happened inside an `ubuntu:24.04` container with `/dev/kvm` passed through because the host seat session ended mid-work and `logind` moved the device's `uaccess` ACL to the display manager; the container adds no privilege and the evidence document records this.
 Nothing here proves network egress, snapshot restore, a jail, prepared workers, certification, or any latency objective, and the retained result is `docs/evidence/2026-08-29-x86_64-first-sandbox-command.md`.
+
 ## 2026-08-29 - The VMM jail launcher constrains the probe on Ubuntu 24.04
 
 Decision-map ticket #9 now has an implementation: `crates/soma-jail` records ownership, creates one cgroup v2 leaf with `memory.max`, `memory.swap.max=0`, `memory.oom.group=1`, `cpu.max`, and `pids.max`, clones the child with `clone3` directly into fresh user, mount, PID, network, IPC, and UTS namespaces and into that leaf with a pidfd, writes single-entry identity maps, and releases the child only after namespace, interface, and membership evidence has been read from the parent side.

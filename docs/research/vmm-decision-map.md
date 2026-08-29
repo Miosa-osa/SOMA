@@ -272,5 +272,5 @@ The lock binds the resolved digest and platform, ordered module identities and d
 Golden bytes, repeated-resolution equality, reordering and renaming identity tests, one test per rejection class, and lock prefix, bit-flip, and garbage sweeps are retained in the crate.
 The registry, resolver, and filesystem oracle are seams with deterministic test implementations only, so no registry pull, rootfs inspection, build plan, Generation construction from a lock, publication, or remote resolution has been implemented.
 Those are tickets T6 through T18 of the [Template implementation map](template-implementation-map.md); within T1 through T5 the multi-workload golden corpus, module resolution from a content-addressed store, the user, port, process-name, and mount-destination conflict fields, the field-origin `explain` result, the Launch-narrowing proof, and the workspace binding are still open.
-#6 consumes the lock through the `TemplateRevision` view documented in the crate.
+Ticket #6 consumes the lock through the `TemplateRevision` view documented in the crate.
 See [SOMA template system](../architecture/template-system.md) and [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md).
