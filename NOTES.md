@@ -392,6 +392,7 @@ This layered language prevents libraries, processes, build artifacts, and runnin
 The visual teaching order begins at physical virtualization, enters the Machine, distinguishes host-side Generation artifacts from the guest `/` tree, and only then adds a workload such as Node 22.
 Capacity education treats vCPU scheduling, resident memory, shared immutable pages, private dirty pages, sparse storage, network state, and host objects as independent limits whose minimum bounds safe admission.
 Capacity language now distinguishes cumulative creations, queued requests, resident Instances, and simultaneously active Instances because only the latter three consume concurrent Host capacity and they consume it differently.
+The README links directly to the 200-vCPU-on-80-thread explanation, and the visual atlas begins with a task-oriented contents list so capacity education is not buried inside the full machine walkthrough.
 
 ## 2026-08-29 - Repository-owned README branding
 

@@ -34,6 +34,7 @@ For engineers, SOMA is an open-source sandbox engine for Linux workloads from OC
 It provides a small CLI, a portable Rust interface, and an MCP server for agents, backed by explicit lifecycle and execution evidence.
 Start with [From hardware to an agent sandbox](docs/architecture/beginners-guide.md) for the beginner-first explanation of what the sandbox is and how every layer fits together.
 Use the [SOMA visual atlas](docs/architecture/visual-atlas.md) to see the complete machine, its minimum parts, its guest directory tree, and how a Node 22 workload is layered into it without Mermaid.
+Go directly to [how 200 sandboxes fit on 80 hardware threads](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) for CPU time slicing, overcommit, copy-on-write memory, lazy allocation, density limits, and the worked 256 GiB Host example.
 Continue with the [architecture diagrams](docs/architecture/diagrams.md) for the complete flow or use the [SOMA glossary](GLOSSARY.md) to connect terminology across OCI, virtualization, security, and performance.
 Read [Local sandbox reality](docs/architecture/local-sandbox-reality.md) for the exact distinction between SOMA configuration, Docker containers, Apple VMs, and the future Linux custom VMM.
 Linux implementation work should start with the [custom VMM handoff](docs/operations/linux-vmm-handoff.md).

@@ -3,6 +3,23 @@
 This atlas shows the machine as nested shapes and directory trees.
 It uses plain text so the architecture remains readable in a terminal, source viewer, screen reader, or printed page.
 
+## Find the picture you need
+
+- [The whole system](#1-the-whole-system-in-one-picture)
+- [The Linux KVM stack](#2-the-linux-kvm-production-stack)
+- [The minimum pieces of a sandbox](#3-the-minimum-pieces-of-one-kvm-sandbox)
+- [The guest filesystem and its first files](#4-where-the-first-file-and-first-directory-come-from)
+- [How Node 22 is added](#5-how-node-22-is-added)
+- [Template, Generation, and Instance](#6-template-generation-and-instance-as-physical-shapes)
+- [What a vCPU is](#10-what-a-vcpu-actually-is)
+- [How a Host is divided](#11-one-large-host-divided-into-sandboxes)
+- [How 200 sandboxes fit on 80 threads](#how-200-sandboxes-can-fit-on-80-hardware-threads)
+- [Density mechanisms and tradeoffs](#density-mechanisms-and-their-tradeoffs)
+- [Unsafe density shortcuts](#what-should-not-be-used-casually)
+- [The worked 256 GiB Host example](#a-realistic-200-sandbox-shape-on-the-256-gib-example-host)
+- [Whether one Host can create 100,000 sandboxes](#15-can-one-host-create-100000-sandboxes)
+- [How a fleet reaches 100,000](#how-soma-reaches-100000-active-sandboxes)
+
 ## 1. The whole system in one picture
 
 ```text
