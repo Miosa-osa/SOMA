@@ -33,21 +33,28 @@ mod x86_64_sandbox_boot_control;
 mod x86_64_sandbox_boot_session;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/host.rs"]
+mod x86_64_sandbox_boot_host;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
     use std::{
         fs,
-        path::{Path, PathBuf},
+        path::Path,
         sync::{Mutex, MutexGuard, PoisonError},
     };
 
     use soma_generation::open_artifact;
-    use soma_guest::{ResponderKeypair, TerminalStatus};
-    use soma_kvm::x86_64::{LAUNCH_PAGE_GPA, Milestone, SandboxEvidence};
+    use soma_guest::ResponderKeypair;
 
     use crate::{
         x86_64_discover::{kernel_path, sha256_of},
         x86_64_host_sample::{self, Sampler},
-        x86_64_sandbox_boot_generation as generation, x86_64_sandbox_boot_session as session,
+        x86_64_sandbox_boot_generation as generation,
+        x86_64_sandbox_boot_host::{
+            Proof, assert_proof, open_descriptor_count, require_kvm, scratch_dir, thread_count,
+        },
+        x86_64_sandbox_boot_session as session,
     };
 
     const MIB: u64 = 1024 * 1024;
@@ -60,57 +67,6 @@ mod live {
 
     fn serialize_live_proof() -> MutexGuard<'static, ()> {
         LIVE_PROOF.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn require_kvm() {
-        let ok = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open("/dev/kvm")
-            .is_ok();
-        assert!(
-            ok,
-            "prerequisite failed: this live test needs a readable and writable /dev/kvm; it never passes silently"
-        );
-    }
-
-    fn open_descriptor_count() -> usize {
-        fs::read_dir("/proc/self/fd")
-            .expect("the KVM live-test host must mount procfs")
-            .count()
-    }
-
-    fn thread_count() -> u64 {
-        fs::read_to_string("/proc/self/status")
-            .ok()
-            .and_then(|status| {
-                status
-                    .lines()
-                    .find_map(|line| line.strip_prefix("Threads:"))
-                    .and_then(|rest| rest.trim().parse().ok())
-            })
-            .unwrap_or(0)
-    }
-
-    fn scratch_dir(name: &str) -> PathBuf {
-        let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
-            .join("x86_64-sandbox-boot")
-            .join(name);
-        fs::create_dir_all(&dir).expect("create scratch directory under target/");
-        dir
-    }
-
-    struct Proof {
-        evidence: SandboxEvidence,
-        executed: session::Executed,
-        fd_before: usize,
-        fd_after: usize,
-        threads_before: u64,
-        threads_after: u64,
-        root_before: String,
-        root_after: String,
-        head_before: String,
-        head_after: String,
     }
 
     #[allow(clippy::too_many_lines)]
@@ -228,32 +184,6 @@ mod live {
             root_before,
             head_before,
         })
-    }
-
-    fn assert_proof(proof: &Proof) {
-        session::assert_orderly(&proof.evidence);
-        assert_eq!(proof.executed.status, TerminalStatus::Exited(0));
-        assert_eq!(
-            proof.fd_after, proof.fd_before,
-            "the sandbox leaked descriptors"
-        );
-        assert_eq!(
-            proof.threads_after, proof.threads_before,
-            "the sandbox leaked threads"
-        );
-        assert_eq!(
-            proof.root_before, proof.root_after,
-            "the EROFS root changed"
-        );
-        assert_ne!(
-            proof.head_before, proof.head_after,
-            "the overlay head never changed"
-        );
-        assert_eq!(LAUNCH_PAGE_GPA, soma_guest::LAUNCH_PAGE_GUEST_ADDRESS);
-        assert_eq!(soma_kvm::SOMA_CONTROL_PORT, soma_guest::CONTROL_VSOCK_PORT);
-        let ready = proof.evidence.at(Milestone::Ready).unwrap();
-        let start = proof.evidence.at(Milestone::RunStart).unwrap();
-        assert!(ready > start);
     }
 
     #[test]

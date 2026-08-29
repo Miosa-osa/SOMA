@@ -9,7 +9,6 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use soma_guest::ResponderPrivateKey;
@@ -17,8 +16,10 @@ use zeroize::Zeroizing;
 
 use crate::mounts::{self, Errno};
 
+use self::devices::wait_for_devices;
 use self::superblock::{erofs_superblock_ok, ext4_superblock_ok, verify_superblock};
 
+mod devices;
 mod superblock;
 
 /// First virtio-blk device: the immutable EROFS Generation root.
@@ -35,8 +36,6 @@ const UPPER_MOUNT: &str = "/mnt/upper";
 const UPPER_DIR: &str = "/mnt/upper/upper";
 const WORK_DIR: &str = "/mnt/upper/work";
 const ROOT_MOUNT: &str = "/mnt/root";
-const EXPECTED_BLOCK_DEVICES: [&str; 2] = ["vda", "vdb"];
-const DEVICE_POLL: Duration = Duration::from_millis(5);
 const NOSUID_NODEV_NOEXEC: libc::c_ulong = libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC;
 
 /// One typed early-init step.
@@ -168,43 +167,6 @@ fn mount_pseudo(
     }
 }
 
-fn wait_for_devices(deadline: Instant) -> Result<(), BootFailure> {
-    loop {
-        let names = block_device_names().unwrap_or_default();
-        if names == expected_block_devices()
-            && is_block_device(ROOT_DEVICE)
-            && is_block_device(OVERLAY_DEVICE)
-        {
-            return Ok(());
-        }
-        if names.len() > EXPECTED_BLOCK_DEVICES.len() || Instant::now() >= deadline {
-            return Err(BootFailure {
-                step: BootStep::Devices,
-                errno: libc::ETIMEDOUT,
-            });
-        }
-        thread::sleep(DEVICE_POLL);
-    }
-}
-
-fn block_device_names() -> std::io::Result<BTreeSet<String>> {
-    fs::read_dir("/sys/block")?
-        .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
-        .collect()
-}
-
-fn expected_block_devices() -> BTreeSet<String> {
-    EXPECTED_BLOCK_DEVICES
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect()
-}
-
-fn is_block_device(path: &str) -> bool {
-    use std::os::unix::fs::FileTypeExt;
-    fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_block_device())
-}
-
 /// Creates or verifies the `upper` and `work` directories on the sterile head.
 ///
 /// The Generation compiler publishes overlay templates that already carry both directories
@@ -298,18 +260,5 @@ pub(super) fn failure(step: BootStep, error: &std::io::Error) -> BootFailure {
     BootFailure {
         step,
         errno: error.raw_os_error().unwrap_or(0),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_device_contract_is_exactly_two_virtio_block_devices() {
-        assert_eq!(ROOT_DEVICE, "/dev/vda");
-        assert_eq!(OVERLAY_DEVICE, "/dev/vdb");
-        assert_eq!(expected_block_devices().len(), 2);
-        assert!(!is_block_device("/proc/self/exe"));
     }
 }
