@@ -36,6 +36,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 |---|---|
 | Learn what the sandbox, VMM, KVM, guest, Template, Generation, and Instance are | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
 | See exactly what sits on top of what, what connects, and which pieces are required | [What makes one SOMA sandbox](docs/architecture/sandbox-stack.md) |
+| Understand the measurable engineering bar for state-of-the-art admission | [SOMA engineering standard](docs/standards/sota-engineering-standard.md) |
 | See the complete machine as plain-text pictures | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
 | Understand where Node, Python, shells, and user agent programs come from | [Workload selection and execution](docs/architecture/visual-atlas.md#5-where-node-python-or-another-runtime-comes-from) |
 | Build reusable templates for Claude Code, Codex, OSA, Hermes, or another workload | [Composable template system](docs/architecture/template-system.md) |
@@ -50,6 +51,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
 | Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
 | Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
+| Read the current overall engineering assessment | [Dated engineering assessment](docs/reviews/2026-08-29-overall-engineering-assessment.md) |
 | Understand performance measurements and claims | [Benchmark contract](docs/benchmark-contract.md) |
 | Contribute code or documentation | [Contribution guide](CONTRIBUTING.md) |
 

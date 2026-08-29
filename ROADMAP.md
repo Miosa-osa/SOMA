@@ -131,3 +131,5 @@ Exit evidence:
 
 Every roadmap change must preserve or strengthen hardware isolation, private mutable state, authenticated readiness, exact compatibility, idempotent recovery, and honest measurement.
 A faster result that weakens one of those properties does not advance SOMA toward the north star.
+Every claimed capability must also pass every applicable row in the [SOMA state-of-the-art engineering standard](docs/standards/sota-engineering-standard.md).
+There is no average admission score, and one red applicable dimension blocks support and performance claims.

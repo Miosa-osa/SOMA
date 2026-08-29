@@ -1,5 +1,8 @@
 # Contributing to SOMA
 
+All implementation work is reviewed against the [SOMA state-of-the-art engineering standard](docs/standards/sota-engineering-standard.md).
+Passing unit tests alone does not admit a capability when its real production seam, failure behavior, isolation, cleanup, compatibility, or evidence gates remain open.
+
 SOMA by MIOSA welcomes security research, design review, documentation, tests, performance work, and implementation contributions.
 The project is pre-alpha and is not safe for untrusted production workloads.
 

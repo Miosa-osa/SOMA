@@ -1,5 +1,12 @@
 # Notes
 
+## 2026-08-29 - State of the art is an all-dimensions admission standard
+
+SOMA now defines state of the art as simultaneous admission across architecture, modularity, correctness, isolation, compatibility, evidence, performance, density, portability, operability, supply chain, and usability.
+No average score exists, and one red applicable dimension blocks a support or performance claim.
+The permanent standard is `docs/standards/sota-engineering-standard.md`, while the dated current assessment is `docs/reviews/2026-08-29-overall-engineering-assessment.md`.
+The standard preserves one production sandbox architecture, deep modules with small interfaces, capability-triggered safety primitives, explicit evidence classes, and dependency-ordered closure before breadth.
+
 ## 2026-08-29 - Template compiler slice 1 emits canonical Template Locks
 
 `crates/soma-template` implements the first slice of tickets T1 through T5 of the Template implementation map: it parses one `soma.template/v1alpha1` TOML document, composes a flat ordered module list with transitive requirements from a bounded in-memory registry of four data-defined modules, validates the ten rejection classes from the template system design, pins the OCI platform digest through an `OciResolver` seam, and emits the canonical `SOMALOCK` version 1 lock whose SHA-256 is the `LockId`.
