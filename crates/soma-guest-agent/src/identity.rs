@@ -17,9 +17,11 @@ const HOSTNAME_FILE: &str = "/etc/hostname";
 const MACHINE_ID_FILE: &str = "/etc/machine-id";
 const MACHINE_ID_STAGING: &str = "/etc/.machine-id.soma";
 const HOSTNAME_PREFIX: &str = "soma-";
+/// Filesystem-specific tmpfs parameters; `nosuid` and `nodev` are mount flags, not
+/// parameters, and the new mount API rejects them inside the option string.
 const SESSION_TMPFS: [(&str, &str); 2] = [
-    ("/run", "mode=0755,size=16m,nosuid,nodev"),
-    ("/tmp", "mode=1777,size=64m,nosuid,nodev"),
+    ("/run", "mode=0755,size=16m"),
+    ("/tmp", "mode=1777,size=64m"),
 ];
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 

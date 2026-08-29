@@ -1180,6 +1180,8 @@ dependencies = [
  "libc",
  "linux-loader",
  "sha2",
+ "soma",
+ "soma-generation",
  "soma-guest",
  "tempfile",
  "vm-fdt",

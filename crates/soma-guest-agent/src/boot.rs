@@ -205,20 +205,50 @@ fn is_block_device(path: &str) -> bool {
     fs::metadata(path).is_ok_and(|metadata| metadata.file_type().is_block_device())
 }
 
+/// Creates or verifies the `upper` and `work` directories on the sterile head.
+///
+/// The Generation compiler publishes overlay templates that already carry both directories
+/// empty, so a head may contain exactly `lost+found`, `upper`, and `work`; anything else, or
+/// a non-empty or non-directory `upper` or `work`, is tenant state or tampering and fails.
 fn prepare_upper_directories() -> Result<(), BootFailure> {
+    let step = BootStep::UpperDirectories;
     let entries = fs::read_dir(UPPER_MOUNT)
-        .map_err(|error| failure(BootStep::UpperDirectories, &error))?
+        .map_err(|error| failure(step, &error))?
         .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
         .collect::<Result<BTreeSet<_>, _>>()
-        .map_err(|error| failure(BootStep::UpperDirectories, &error))?;
-    if !entries.iter().all(|name| name == "lost+found") {
+        .map_err(|error| failure(step, &error))?;
+    if !entries
+        .iter()
+        .all(|name| matches!(name.as_str(), "lost+found" | "upper" | "work"))
+    {
         return Err(BootFailure {
-            step: BootStep::UpperDirectories,
+            step,
             errno: libc::EEXIST,
         });
     }
     for directory in [UPPER_DIR, WORK_DIR] {
-        fs::create_dir(directory).map_err(|error| failure(BootStep::UpperDirectories, &error))?;
+        match fs::symlink_metadata(directory) {
+            Ok(metadata) if metadata.is_dir() => {
+                let mut children =
+                    fs::read_dir(directory).map_err(|error| failure(step, &error))?;
+                if children.next().is_some() {
+                    return Err(BootFailure {
+                        step,
+                        errno: libc::ENOTEMPTY,
+                    });
+                }
+            }
+            Ok(_) => {
+                return Err(BootFailure {
+                    step,
+                    errno: libc::ENOTDIR,
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                fs::create_dir(directory).map_err(|error| failure(step, &error))?;
+            }
+            Err(error) => return Err(failure(step, &error)),
+        }
     }
     Ok(())
 }
