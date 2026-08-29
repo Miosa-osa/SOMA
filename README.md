@@ -1,15 +1,11 @@
 <p align="center">
-  <a href="https://miosa.ai">
-    <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="72" align="middle">
-  </a>
+  <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="72" align="middle">
   &nbsp;&nbsp;&nbsp;
-  <a href="https://miosa.ai">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
-      <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
-      <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="260" align="middle">
-    </picture>
-  </a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
+    <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="260" align="middle">
+  </picture>
 </p>
 
 <h1 align="center">SOMA</h1>
@@ -20,11 +16,12 @@
 </p>
 
 <p align="center">
-  <sub>
-    <a href="VERSION">Version 1.0.0-alpha.1</a>
-    &nbsp;&middot;&nbsp;
-    <a href="LICENSE">Apache-2.0</a>
-  </sub>
+  <a href="VERSION"><img alt="Version 1.0.0-alpha.1" src="https://img.shields.io/badge/version-1.0.0--alpha.1-7c3aed?style=flat-square"></a>
+  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security checks" src="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml/badge.svg"></a>
+  <a href="rust-toolchain.toml"><img alt="Rust 1.98" src="https://img.shields.io/badge/rust-1.98-000000?style=flat-square&logo=rust"></a>
+  <a href="#platform-status"><img alt="Linux, macOS, and Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-2563eb?style=flat-square"></a>
+  <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square"></a>
 </p>
 
 The name describes the role.
@@ -32,19 +29,24 @@ The model is the mind, while SOMA is the disposable machine body that executes i
 
 For engineers, SOMA is an open-source sandbox engine for Linux workloads from OCI images.
 It provides a small CLI, a portable Rust interface, and an MCP server for agents, backed by explicit lifecycle and execution evidence.
-Start with [From hardware to an agent sandbox](docs/architecture/beginners-guide.md) for the beginner-first explanation of what the sandbox is and how every layer fits together.
-Use the [SOMA visual atlas](docs/architecture/visual-atlas.md) to see the complete machine, its minimum parts, its guest directory tree, and how a Node 22 workload is layered into it without Mermaid.
-Go directly to [how 200 sandboxes fit on 80 hardware threads](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) for CPU time slicing, overcommit, copy-on-write memory, lazy allocation, density limits, and the worked 256 GiB Host example.
-Continue with the [architecture diagrams](docs/architecture/diagrams.md) for the complete flow or use the [SOMA glossary](GLOSSARY.md) to connect terminology across OCI, virtualization, security, and performance.
-Read [Local sandbox reality](docs/architecture/local-sandbox-reality.md) for the exact distinction between SOMA configuration, Docker containers, Apple VMs, and the future Linux custom VMM.
-Linux implementation work should start with the [custom VMM handoff](docs/operations/linux-vmm-handoff.md).
-The [custom VMM decision map](docs/research/vmm-decision-map.md) sequences the remaining research and implementation work by dependency.
 
-> [!WARNING]
-> SOMA is alpha software and is not safe for untrusted production workloads.
-> The local Docker backend runs Linux containers for development today.
-> The Linux custom-VMM engine remains under construction.
-> Dedicated ignored tests can direct-boot a trusted ARM64 Linux fixture, execute one challenge-bound direct command, and prove bounded teardown, but that test-only path is not linked into the library, does not execute OCI workloads, and does not expose a sandbox lifecycle.
+## Where to go
+
+| I want to understand or do this | Open this file |
+|---|---|
+| Learn what the sandbox, VMM, KVM, guest, Template, Generation, and Instance are | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
+| See the complete machine as plain-text pictures | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
+| Understand vCPUs, overcommit, shared memory, and how 200 sandboxes fit on 80 threads | [Host capacity and density](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) |
+| See what limits 100,000 sandboxes and how a fleet reaches that scale | [100,000-sandbox model](docs/architecture/visual-atlas.md#15-can-one-host-create-100000-sandboxes) |
+| Find the exact meaning of a SOMA or virtualization term | [Glossary](GLOSSARY.md) |
+| Navigate every Rust crate and responsibility | [Module map](docs/architecture/module-map.md) |
+| Compare Docker, Apple VMs, and Linux KVM honestly | [Local sandbox reality](docs/architecture/local-sandbox-reality.md) |
+| Implement or continue the Linux custom VMM | [Linux VMM handoff](docs/operations/linux-vmm-handoff.md) |
+| Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
+| Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
+| Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
+| Understand performance measurements and claims | [Benchmark contract](docs/benchmark-contract.md) |
+| Contribute code or documentation | [Contribution guide](CONTRIBUTING.md) |
 
 ## What makes SOMA different
 

@@ -397,6 +397,7 @@ The README links directly to the 200-vCPU-on-80-thread explanation, and the visu
 ## 2026-08-29 - Repository-owned README branding
 
 The README header uses transparent brand assets committed under `assets/brand` rather than website app icons or remotely named wordmarks.
-Version and license metadata use plain linked text because split Shields labels visually compete with the SOMA identity and are not required for status signaling.
 The orb and MIOSA wordmark form one centered horizontal lockup rather than two vertically stacked marks.
-Each mark owns its own link so GitHub cannot draw an underline through the spacing between them.
+The marks are intentionally unlinked because GitHub underlined residual inline anchor whitespace when either mark was linked.
+The README restores current version, CI, security, Rust toolchain, platform, and license badges and replaces the opening documentation paragraph with a task-oriented file map.
+The redundant top-level warning block was removed at the project owner's request, while implementation maturity remains stated in Project status and the platform evidence table.
