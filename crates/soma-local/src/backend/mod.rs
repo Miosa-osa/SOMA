@@ -1,3 +1,7 @@
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+))]
 mod clock;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod kvm;
@@ -70,6 +74,14 @@ pub(crate) enum LocalBackend {
     Kvm(kvm::KvmBackend),
 }
 
+#[cfg(not(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "x86_64")
+)))]
+fn eliminate_uninhabited_backend<T>(backend: &LocalBackend) -> T {
+    match *backend {}
+}
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 type PreparedWorkload = macos::MacPreparedWorkload;
 
@@ -109,6 +121,11 @@ impl Backend for LocalBackend {
             Self::Macos(_) => macos::MacBackend::kind(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(_) => kvm::KvmBackend::kind(),
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64")
+            )))]
+            backend => eliminate_uninhabited_backend(backend),
         }
     }
 
@@ -121,6 +138,14 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.resolve(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64")
+            )))]
+            backend => {
+                let _ = request;
+                eliminate_uninhabited_backend(backend)
+            }
         }
     }
 
@@ -133,6 +158,14 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.launch(&request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64")
+            )))]
+            backend => {
+                let _ = request;
+                eliminate_uninhabited_backend(backend)
+            }
         }
     }
 
@@ -145,6 +178,14 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64")
+            )))]
+            backend => {
+                let _ = request;
+                eliminate_uninhabited_backend(backend)
+            }
         }
     }
 
@@ -157,6 +198,14 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.inspect(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64")
+            )))]
+            backend => {
+                let _ = request;
+                eliminate_uninhabited_backend(backend)
+            }
         }
     }
 
@@ -169,6 +218,14 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.cleanup(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            #[cfg(not(any(
+                all(target_os = "macos", target_arch = "aarch64"),
+                all(target_os = "linux", target_arch = "x86_64")
+            )))]
+            backend => {
+                let _ = request;
+                eliminate_uninhabited_backend(backend)
+            }
         }
     }
 }
