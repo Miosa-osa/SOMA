@@ -15,7 +15,7 @@ Direct registry dependencies are pinned exactly:
 | `clap` | 4.6.6 | Command-line parsing |
 | `flate2` | 1.1.10 | Bounded gzip OCI layer decoding with the pure Rust backend |
 | `futures-util` | 0.3.34 | Bounded asynchronous MCP stream adapters |
-| `kvm-bindings` | 0.14.1 | Linux KVM ABI structures and ARM constants |
+| `kvm-bindings` | 0.14.1 | Linux KVM ABI structures for the x86_64 machine floor and ARM constants |
 | `kvm-ioctls` | 0.25.0 | Linux KVM ownership and ioctl wrappers |
 | `libc` | 0.2.189 | Narrow Linux descriptor and signal operations |
 | `linux-loader` | 0.14.0 | Checked Linux ARM64 Image loading |

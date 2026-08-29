@@ -17,6 +17,10 @@ mod linux;
 #[allow(unsafe_code)]
 mod machine;
 
+/// The `x86_64` machine floor: memory slot, protected-mode vCPU, port I/O capture, and `hlt`.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub mod x86_64;
+
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

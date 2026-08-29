@@ -224,7 +224,7 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 ## `soma-kvm` responsibilities
 
 `soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
-Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
+Its current depth includes a checked capability probe, an x86_64 machine floor that maps one private memory slot, enters one protected-mode vCPU, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
 
 The initial source map is:
@@ -233,6 +233,18 @@ The initial source map is:
 crates/soma-kvm/src/
   lib.rs
   linux.rs
+  machine.rs
+  x86_64/
+    boot_info.rs
+    error.rs
+    guest.rs
+    kick.rs
+    layout.rs
+    memory.rs
+    mod.rs
+    run.rs
+    vcpu.rs
+    watchdog.rs
   arm64/
     command.rs
     control_uart.rs
@@ -257,6 +269,7 @@ crates/soma-kvm/src/
       signal.rs
 crates/soma-kvm/tests/
   kvm_probe.rs
+  x86_64_halt_guest.rs
   fixtures/
     arm64_agent.c
     arm64_init.S
@@ -277,6 +290,7 @@ It must remain free of provider policy and per-Machine public contract types.
 ### `linux.rs`
 
 `linux.rs` owns target-gated Linux KVM capability calls and architecture-specific probe requirements.
+The `x86_64/` modules own the machine-contract layout, PVH boot-page encoding, private guest RAM, bootstrap vCPU state, the bounded run loop, and the deadline watchdog for the halt-guest floor; they boot no kernel and expose no device.
 The `arm64/` modules own only the explicit-fixture cold-boot and challenge-bound command proofs accepted by ADRs 0014 and 0016.
 Those abort-capable proofs are crate-internal and reachable only from ignored live tests run in dedicated test processes.
 They do not imply authenticated readiness, OCI execution, networking, snapshot restore, isolation certification, or production-engine support.

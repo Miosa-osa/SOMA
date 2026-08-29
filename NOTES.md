@@ -1,5 +1,15 @@
 # Notes
 
+## 2026-08-29 - x86_64 halt guest proves the KVM machine floor
+
+The first x86_64 code in `soma-kvm` creates one VM, one 128 MiB private memory slot, and one protected-mode vCPU, then captures port-I/O exits and `KVM_EXIT_HLT` on a real Ubuntu 24.04 host.
+It deliberately does not create the in-kernel interrupt controller for the halt proof, because with `KVM_CREATE_IRQCHIP` the kernel emulates `hlt` by parking the vCPU and never reports `KVM_EXIT_HLT` to userspace.
+The same proof run with the in-kernel controller therefore ends only through the watchdog, and that path is retained as a second ignored test that proves deadline enforcement and descriptor cleanup.
+The watchdog reuses the KVM signal-mask technique from the ARM64 proof: the vCPU thread blocks one real-time signal everywhere except inside `KVM_RUN`, so a kick is never lost between iterations.
+The PVH `hvm_start_info`, memory map, and diagnostic command line are written at their contract addresses even though the raw guest ignores them, so the layout encoding is exercised before the kernel slice.
+The Docker backend now derives its OCI platform from the host architecture instead of assuming `linux/arm64`, and its macOS-only availability helper is target-gated so the workspace compiles on Linux under `-D warnings`.
+The retained result is in `docs/evidence/2026-08-29-x86_64-kvm-halt-guest.md` and proves the machine floor only, not a kernel boot, device, sandbox, or latency claim.
+
 ## 2026-08-29 - Complete custom VMM architecture map
 
 Decision-map tickets #1 through #15 now have linked architecture assets.
