@@ -499,6 +499,129 @@ little writable data                storage write and fault spike
 SOMA therefore needs separate admission limits for resident Instances, concurrent Launch operations, runnable vCPUs, private dirty memory, network load, and cleanup work.
 A raw count of VM objects is not a truthful capacity model.
 
-## 15. The sentence to keep in your head
+## 15. Can one Host create 100,000 sandboxes?
+
+The answer changes depending on what `100,000` counts.
+
+```text
+100,000 CREATED OVER TIME
+create -> execute -> destroy -> reuse capacity -> repeat
+Possible on one Host if there is no deadline and cleanup remains complete.
+
+100,000 QUEUED REQUESTS
+requests wait outside the Host admission boundary
+Possible for a control plane, but they are not running sandboxes.
+
+100,000 RESIDENT INSTANCES
+all Machines retain memory, process, kernel, storage, and network state
+Not realistic on an 80-thread Host with 25 GiB or 256 GiB RAM.
+
+100,000 ACTIVE INSTANCES
+all workloads demand CPU, memory bandwidth, storage, or network together
+Requires a fleet, not one Host of this size.
+```
+
+### Why 25 GiB cannot hold 100,000 microVMs
+
+Before reserving anything for the Host:
+
+```text
+25 GiB / 100,000 = about 262 KiB of physical RAM per Instance
+```
+
+That budget would need to contain guest memory, page tables, VMM state, virtual-device state, guest-kernel state, private dirty pages, and host accounting.
+It is not sufficient for a useful Linux microVM.
+
+Assume an illustrative 25 GiB Host reserves 5 GiB for the host and has 20 GiB left for sandboxes.
+The following table demonstrates the arithmetic but is not a measured SOMA capacity claim.
+
+| Machine shape | Illustrative measured overhead placeholder | Memory bound | Strict 1:1 CPU bound | Approximate safe upper bound before other gates |
+|---|---:|---:|---:|---:|
+| 1 vCPU, 1 GiB guest RAM | 64 MiB | 18 | 72 | 18 |
+| 1 vCPU, 512 MiB guest RAM | 64 MiB | 35 | 72 | 35 |
+| 1 vCPU, 256 MiB guest RAM | 64 MiB | 64 | 72 | 64 |
+| 1 vCPU, 128 MiB guest RAM | 64 MiB | 106 | 72 | 72 |
+
+The 64 MiB overhead value is deliberately labeled as a placeholder.
+The real value must be measured on the certified SOMA Host with the exact kernel, device model, Generation, workload, and VMM build.
+
+At 1 GiB per guest, memory stops admission near 18 Instances in this illustrative 25 GiB scenario.
+At 128 MiB per guest, strict 1:1 CPU allocation stops admission at 72 even though the memory arithmetic reaches 106.
+An operator may configure CPU overcommit for idle or I/O-bound workloads, but a simultaneous burst then queues runnable vCPUs and loses predictable latency.
+
+### The same calculation for 256 GiB
+
+Assume the earlier illustrative reserve leaves 232 GiB for sandboxes and 72 strict CPU units.
+
+| Machine shape | Illustrative measured overhead placeholder | Memory bound | Strict 1:1 CPU bound | Approximate safe upper bound before other gates |
+|---|---:|---:|---:|---:|
+| 1 vCPU, 1 GiB guest RAM | 64 MiB | 218 | 72 | 72 |
+| 1 vCPU, 512 MiB guest RAM | 64 MiB | 412 | 72 | 72 |
+| 1 vCPU, 256 MiB guest RAM | 64 MiB | 742 | 72 | 72 |
+| 1 vCPU, 128 MiB guest RAM | 64 MiB | 1,237 | 72 | 72 |
+
+These are strict continuously-busy CPU bounds, not limits on mostly idle resident Machines.
+With a validated 4:1 CPU overcommit policy, CPU admission could become 288 single-vCPU Instances, but only if memory and every other gate also admit 288.
+That policy does not manufacture additional CPU capacity.
+If all 288 become runnable together, they compete for 72 thread units.
+
+### Why shared snapshots do not remove the RAM limit
+
+Private copy-on-write memory can let many Instances initially share immutable snapshot pages.
+It reduces physical memory used at Launch, but any Instance may dirty pages later.
+
+SOMA therefore needs two explicit policies:
+
+```text
+GUARANTEED MEMORY ADMISSION
+reserve enough capacity for the promised worst case
+lower density, predictable behavior, no memory surprise
+
+ELASTIC MEMORY ADMISSION
+admit against measured resident and dirty-page behavior
+higher density, but requires pressure limits, eviction policy, and weaker guarantees
+```
+
+SOMA must never advertise guaranteed 1 GiB Machines while admitting them as if every Machine will permanently use only its initial shared pages.
+
+### What actually limits the Host first
+
+```text
+workload type                    likely first constraint
+----------------------------------------------------------------
+CPU-heavy agents                hardware threads and run queues
+large language runtimes         resident RAM and private dirty pages
+build workloads                 storage IOPS, writes, and memory
+network crawlers                bandwidth, packets, ports, and conntrack
+very tiny idle guests           VMM processes, threads, FDs, and kernel objects
+large simultaneous Launch burst page faults, storage reads, and repair channels
+large simultaneous cleanup      filesystem, networking, and process teardown
+```
+
+The production allocator must report which capacity gate rejected Launch.
+That evidence lets an operator decide whether to add RAM, add hosts, reduce Machine shapes, adjust a proven overcommit policy, or move the workload to another pool.
+
+### How SOMA reaches 100,000 active sandboxes
+
+One control plane divides the target across many independently bounded Hosts.
+
+```text
+                         100,000 active Instances
+                                   |
+                              control plane
+                                   |
+             +---------------------+---------------------+
+             |                     |                     |
+           cell A                cell B                cell C ...
+             |                     |                     |
+        many Hosts            many Hosts            many Hosts
+             |                     |                     |
+       bounded Instances      bounded Instances      bounded Instances
+```
+
+If a certified Host safely supports 200 active Instances for a particular workload and availability policy, 100,000 Instances require at least 500 such Hosts before spare capacity, failure domains, upgrades, and regional redundancy are added.
+The number `200` in that example must come from retained load-test evidence rather than from hardware specifications alone.
+
+## 16. The sentence to keep in your head
 
 SOMA prepares a sealed Generation, realizes it as a fresh isolated Instance through a Backend, and gives an agent a bounded authenticated way to execute inside it.
