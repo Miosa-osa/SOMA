@@ -1,5 +1,15 @@
 # Notes
 
+## 2026-08-29 - Template implementation uses four separate planes
+
+The complete Template flow separates authoring, placement, Host Launch, and maintenance.
+Authoring resolves modules, authorizes capability ceilings, locks exact inputs, builds, certifies, and publishes an immutable Generation.
+Placement resolves a Template revision to one ready Generation before selecting a compatible Host.
+Host Launch receives exact immutable identity and effective policy, then delivers fresh environment, secret, upload, workspace, and network inputs only after a unique authenticated Instance exists.
+Maintenance owns revocation, retention, leases, distribution, and garbage collection outside Launch.
+Five deep interfaces own Template compilation, Generation building, launch-input delivery, policy narrowing, and agent sessions without introducing agent-brand behavior into the VMM.
+The dependency-ordered implementation map contains eighteen vertical slices and explicitly updates VMM decision-map tickets #6, #8, #10, #13, and #15 rather than duplicating them.
+
 ## 2026-08-29 - Templates compose into immutable Generations
 
 A SOMA Template is a user-facing preparation recipe rather than a running sandbox or a VMM input.

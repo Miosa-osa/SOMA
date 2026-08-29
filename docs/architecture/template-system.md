@@ -1,6 +1,7 @@
 # SOMA template system
 
 The binding architectural decision is [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md).
+The sequenced implementation work is in the [Template implementation map](../research/template-implementation-map.md).
 
 A SOMA Template is a small, composable preparation recipe.
 It is not a running sandbox, a mutable virtual machine, or an artifact on the Launch critical path.
@@ -233,6 +234,20 @@ draft -> resolving -> building -> certifying -> ready
 A ready Generation is immutable.
 Changing any content-affecting Template field produces a new Template Lock and normally a new Generation identity.
 Rebuilding the same locked inputs must either reproduce the expected identity or fail certification.
+
+## Complete lifecycle flow
+
+Template authoring, placement, Host Launch, and maintenance are separate planes.
+The Template compiler resolves and authorizes all mutable or composable input before placement.
+Placement resolves a Template revision to one ready certified Generation before selecting a Host.
+The Host receives immutable Generation identity, effective shape, narrowed policy, and fresh launch bindings rather than a mutable Template.
+
+After the Host creates a fresh Instance and completes authenticated repair, it may deliver declared environment values, secrets, uploads, workspace attachments, and private network authority.
+The agent command starts only after those inputs and its declared readiness requirements succeed.
+Termination revokes authority before releasing reusable host resources.
+Registry deletion and garbage collection occur later and only after references, leases, revocation policy, and retention permit removal.
+
+The [Template implementation map](../research/template-implementation-map.md) shows this entire flow and assigns every stage to a focused implementation ticket.
 
 ## What SOMA should reuse
 

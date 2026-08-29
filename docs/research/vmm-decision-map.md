@@ -102,6 +102,7 @@ How do the existing verified OCI import and normalized rootfs become a determini
 
 Resolved at the architecture and prototype boundary.
 Version 1 compiles the normalized OCI tree into a deterministic immutable EROFS lower filesystem and gives each Instance a private ext4 OverlayFS upper device selected from certified size classes.
+The pipeline consumes a canonical Template Lock that has already resolved the exact OCI platform digest, modules, command, declared launch inputs, policy ceiling, resource defaults, lifecycle defaults, and provenance.
 Kernel, deterministic initramfs, guest agent, root and overlay artifacts, machine and device contracts, CPU template, command line, guest protocols, snapshot state, repair policy, builder provenance, and artifact descriptors are bound into one canonical `GenerationId` manifest.
 The retained prototype proved byte-identical EROFS output from logically identical trees created in opposite insertion orders and recorded the populated-ext4 reproducibility failure that caused the two-device correction.
 Production implementation and x86_64 boot evidence remain explicit acceptance gates rather than completed claims.
@@ -135,6 +136,7 @@ How does a cloned guest replace identity, entropy assumptions, time state, netwo
 
 Resolved architecturally.
 The static guest agent owns early mounts, one-use launch material, entropy and identity repair, fresh Noise-authenticated vsock control, direct bounded execution, shutdown, and the only path to Ready.
+Declared environment values, secret delivery, uploads, and workspace attachments occur only after fresh identity and authenticated repair and never become reusable snapshot authority.
 See [Linux guest integration](linux-guest-agent-integration.md).
 See [ADR 0017](../adr/0017-authenticated-guest-session.md), [ADR 0020](../adr/0020-launch-page-and-application-wire-contracts.md), and [ADR 0021](../adr/0021-own-authenticated-control-lifecycle.md).
 
@@ -166,6 +168,7 @@ How are namespace, TAP, address, route, DNS, egress, proxy, ingress, metadata pr
 
 Resolved architecturally.
 The privileged broker owns sterile network bundles, atomic Instance assignment, protected destinations, readiness-gated activation, typed evidence, idempotent release, and crash reconciliation while the VMM receives only one TAP descriptor.
+It enforces an effective policy that placement already narrowed against the Template ceiling, organization policy, caller authority, and Backend capabilities.
 See [Linux network profile](linux-network-profile-v1.md), [ADR 0012](../adr/0012-fail-closed-networking.md), and [topology](../architecture/topology.md).
 
 ## #11: How are writable disks created privately within the tail budget?
@@ -211,6 +214,7 @@ How does the Linux implementation satisfy the existing portable Resolve, Launch,
 
 Resolved architecturally.
 The KVM adapter composes Generation resolution, admission, prepared ownership, restore, repair, execution, inspection, shutdown, cleanup, evidence, retries, and reconciliation behind the unchanged portable lifecycle.
+Template and module resolution remain outside the adapter, which receives only an exact certified Generation, effective policy, and fresh launch bindings.
 See [KVM backend integration](kvm-backend-integration.md).
 
 ## #14: What evidence admits the first production host profile?
@@ -241,4 +245,5 @@ How should admission, placement, cells, capacity reservations, Generation distri
 
 Resolved architecturally.
 The fleet uses bounded independent cells, capability-filtered placement, host-authoritative admission, idempotent operations, signed Generation distribution, reserved capacity, explicit overload, reconciliation, and staged scale gates up to 100,000 concurrent sandboxes.
+The fleet also distributes immutable Template Locks, Generation readiness and revocation state, compatibility evidence, leases, and cache intent while resolving aliases before placement and keeping mutable Template logic off Hosts.
 See [fleet control plane](fleet-control-plane.md).

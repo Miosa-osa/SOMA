@@ -83,12 +83,16 @@ Outcome: an OCI digest can be converted reproducibly into a certified SOMA Gener
 
 Exit evidence:
 
+- A versioned Template composes exact modules, policy ceilings, declared launch inputs, lifecycle defaults, and resource defaults into one canonical Template Lock.
+- Resolution explains the origin of every file, command, requirement, and permission and rejects cycles, conflicts, unpinned inputs, and unauthorized capabilities.
 - Digest-pinned OCI acquisition and provenance.
 - Reproducible root normalization and kernel selection.
 - Controlled boot, quiesce, capture, repair-contract binding, and certification.
 - Shape-family compatibility evidence.
 - Signed manifest, SBOM, build provenance, revocation identity, and retained test results.
 - No registry credential or mutable tag in the VMM protocol.
+- Template build state, immutable publication, revocation, retention, and garbage collection are explicit and crash-safe.
+- The [Template implementation map](docs/research/template-implementation-map.md) passes through certification and publication before any Template is described as launchable.
 
 ## Phase 6: Burst performance
 
