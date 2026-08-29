@@ -1,4 +1,4 @@
-# ADR 0022: Carry fresh network and transport identity in launch-page schema 2
+# ADR 0023: Carry fresh network and transport identity in launch-page schema 2
 
 - Status: Accepted
 - Date: 2026-08-29
