@@ -1226,6 +1226,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-netd"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "libc",
+ "sha2",
+ "soma",
+ "soma-guest",
+ "tempfile",
+]
+
+[[package]]
 name = "soma-vmm"
 version = "1.0.0-alpha.1"
 

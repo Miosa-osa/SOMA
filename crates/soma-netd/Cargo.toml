@@ -1,0 +1,27 @@
+[package]
+name = "soma-netd"
+description = "Privileged Linux network broker for SOMA sterile network bundles"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "soma-netd"
+path = "src/bin/soma-netd.rs"
+
+[dependencies]
+sha2 = { version = "=0.11.0", default-features = false }
+soma = { path = "../soma", version = "=1.0.0-alpha.1" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.189"
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true
