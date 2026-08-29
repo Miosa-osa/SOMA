@@ -1,7 +1,9 @@
 <p align="center">
   <a href="https://miosa.ai">
     <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="72" align="middle">
-    &nbsp;&nbsp;&nbsp;
+  </a>
+  &nbsp;&nbsp;&nbsp;
+  <a href="https://miosa.ai">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
       <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
