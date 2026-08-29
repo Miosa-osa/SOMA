@@ -28,6 +28,10 @@ pub enum InjectedFault {
     Closed,
     /// The worker stalls for the duration before acknowledging.
     Stall(Duration),
+    /// The allocator process dies mid-transfer: the step panics, so no teardown runs and the
+    /// worker, its process, and its assigned resources are left exactly as a crash leaves
+    /// them. Drive it under [`std::panic::catch_unwind`].
+    Abandon,
 }
 
 /// What the launcher and its handles should fail.
@@ -209,6 +213,7 @@ impl WorkerHandle for InProcessHandle {
                     return Err(TransferFault::Closed);
                 }
                 InjectedFault::Stall(duration) => thread::sleep(duration),
+                InjectedFault::Abandon => panic!("simulated allocator crash at {step:?}"),
             }
         }
         let descriptors = match frame {

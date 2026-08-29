@@ -1010,6 +1010,7 @@ crates/soma-hostd/src/
   pool/ledger.rs
   pool/ledger/fold.rs
   pool/ledger/record.rs
+  pool/ledger/record/tests.rs
   pool/ledger/tests.rs
   pool/reconcile.rs
   pool/release.rs
@@ -1042,12 +1043,14 @@ crates/soma-hostd/tests/
   bounds.rs
   capacity.rs
   claim.rs
+  crash.rs
   daemon.rs
   foreign.rs
   latency.rs
   lifecycle.rs
   reconcile.rs
   replay.rs
+  support/broker.rs
   support/mod.rs
   transfer.rs
 ```
@@ -1057,7 +1060,7 @@ crates/soma-hostd/tests/
 `pool/claim.rs` and `pool/claim/registry.rs` own the single-winner claim: the registry serializes idempotency per `OperationId`, a replay with the same fingerprint returns the identical outcome, a changed fingerprint conflicts, a concurrent replay waits at most the claim deadline, and an exhausted pool rejects at once instead of queueing.
 `pool/transfer.rs` and its `run` module deliver the eight ordered authority frames, identity, deadline, entropy, launch page, disk head, TAP, control, and commit, each acknowledged before the next; any fault, timeout, partial acknowledgement, deadline, or intent mismatch destroys the worker, and a grant issued by another pool is refused and destroyed through the pool that issued it.
 `pool/replenish.rs`, `pool/replenish/background.rs`, and `pool/backpressure.rs` bound construction by concurrency, deadline, target, and maximum and return typed `Exhausted` and `Overloaded` results.
-`pool/ledger.rs`, `pool/ledger/record.rs`, and `pool/ledger/fold.rs` are the durable ledger of create-exclusive, checksummed, file-and-directory-synced records and the projection that fails closed on a sterile record after an assignment.
+`pool/ledger.rs`, `pool/ledger/record.rs`, and `pool/ledger/fold.rs` are the durable ledger of create-exclusive, checksummed, file-and-directory-synced records and the projection that fails closed on a sterile record after an assignment; the fresh per-Instance references are recorded before the first authority frame and refreshed by every transfer record, so a crash mid-transfer releases the leased head and the network bundle at the next reconciliation.
 `pool/reconcile.rs` treats every nonterminal entry without a live slot as suspect after a restart, probes the launcher and the brokers, terminates or releases, retains a live running Instance, and gates replenishment until it has run.
 `pool/release.rs` tears down assigned, running, claimed, and sterile workers by reason and never returns one to the pool; a start keeps its worker in the owned table and runs the blocking launcher round trip outside the pool-wide lock, so a concurrent release is refused by phase rather than told the pool owns nothing.
 `pool/launcher.rs` and `pool/resources.rs` are the seams the jail adapter from decision-map ticket #9 and the live `soma-storage` and `soma-netd` brokers will implement; `testing/` is the in-process launcher with per-step fault injection over a shared process table and the in-process broker that leases heads through the real `soma-storage` ledger over socket pairs.

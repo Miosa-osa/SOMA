@@ -1,4 +1,8 @@
 //! The projection of ordered records into one entry per worker.
+//!
+//! Every record that names resources refreshes the entry's references, so reconciliation
+//! after a crash releases what the worker actually held rather than what it held when it was
+//! sterile.
 
 use std::collections::BTreeMap;
 
@@ -42,7 +46,11 @@ pub(super) fn fold(
             entry.operation = record.operation;
             entry.fingerprint = record.fingerprint;
         }
-        RecordKind::TransferStep => entry.last_step = TransferStep::from_code(record.detail),
+        RecordKind::Assigning => entry.resources = record.resources,
+        RecordKind::TransferStep => {
+            entry.last_step = TransferStep::from_code(record.detail);
+            entry.resources = record.resources;
+        }
         RecordKind::TransferFault => {}
         RecordKind::Assigned => {
             entry.phase = Phase::Assigned;

@@ -5,7 +5,7 @@ mod frames;
 
 use std::time::Instant;
 
-use failure::{TransferFailure, failure};
+use failure::{TransferFailure, failure, refuse_foreign};
 use frames::{frames, fresh_entropy};
 
 use crate::{
@@ -115,17 +115,19 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             return Err(failure(id, None, fault, disposition));
         }
         match self.broker().assign(sterile, intent) {
-            Ok(resources) => Ok((
-                Attempt {
+            Ok(resources) => {
+                let refs = resources.refs();
+                let attempt = Attempt {
                     worker,
                     handle,
                     identity,
-                    refs: resources.refs(),
+                    refs,
                     reservation,
                     won_at,
-                },
-                resources,
-            )),
+                };
+                self.assigning(attempt, intent)
+                    .map(|attempt| (attempt, resources))
+            }
             Err(fault) => {
                 let held = Holdings {
                     handle: Some(handle),
@@ -141,6 +143,30 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                     disposition,
                 ))
             }
+        }
+    }
+
+    /// Records the fresh references before the first frame, so a crash between the broker's
+    /// assignment and the commit still releases them.
+    fn assigning(
+        &self,
+        attempt: Attempt<L::Handle>,
+        intent: &AssignmentIntent,
+    ) -> Result<Attempt<L::Handle>, TransferFailure> {
+        let id = attempt.worker.id();
+        let record = Record::new(
+            RecordKind::Assigning,
+            id,
+            attempt.worker.generation(),
+            self.digest(),
+        )
+        .operation(intent.operation)
+        .instance(intent.instance)
+        .identity(attempt.identity)
+        .resources(attempt.refs);
+        match self.record(&record) {
+            Ok(_) => Ok(attempt),
+            Err(error) => Err(self.abort(attempt, None, TransferFault::Ledger(error))),
         }
     }
 
@@ -253,26 +279,4 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             .insert(id, owned);
         Ok(())
     }
-}
-
-/// Destroys a grant this pool did not issue through the pool that did.
-///
-/// Assigning one pool's broker resources to another pool's slot would write records for a
-/// worker the receiving ledger never constructed, which no later fold could project.
-fn refuse_foreign<L: WorkerLauncher, R: ResourceBroker>(
-    mut claimed: Claimed<'_, L, R>,
-) -> TransferFailure {
-    let issuer = claimed.pool;
-    let (Some(worker), Some(prepared)) = (claimed.worker.take(), claimed.prepared.take()) else {
-        unreachable!("a live grant always holds its worker and payload");
-    };
-    let id = worker.id();
-    let held = Holdings {
-        handle: Some(prepared.handle),
-        identity: prepared.identity,
-        resources: Resources::Sterile(prepared.sterile),
-        reservation: claimed.reservation.take(),
-    };
-    let disposition = issuer.destroy_claiming(worker, held, DestroyReason::ForeignPool);
-    failure(id, None, TransferFault::ForeignPool, disposition)
 }

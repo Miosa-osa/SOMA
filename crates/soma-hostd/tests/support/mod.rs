@@ -16,7 +16,14 @@ use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
 use soma_storage::{ClassName, TemplateDigest};
 use tempfile::TempDir;
 
+mod broker;
+
+pub use broker::SharedBroker;
+
 pub type TestPool = Pool<InProcessLauncher, InProcessBroker>;
+
+/// A pool over the host broker every pool of a test shares.
+pub type SharedPool = Pool<InProcessLauncher, SharedBroker>;
 
 pub struct Harness {
     pub dir: TempDir,
@@ -167,6 +174,27 @@ pub fn open_with(
             limits,
             InProcessLauncher::new(Arc::clone(table)),
             InProcessBroker::new(),
+            PoolAdmission::new(Arc::clone(admission), shape()),
+            dir,
+        )
+        .expect("pool"),
+    )
+}
+
+/// Opens a pool over one shared host broker, so a simulated restart keeps its leases.
+pub fn open_shared(
+    dir: &Path,
+    table: &Arc<ProcessTable>,
+    limits: Limits,
+    admission: &Arc<Admission>,
+    broker: &Arc<InProcessBroker>,
+) -> Arc<SharedPool> {
+    Arc::new(
+        Pool::open(
+            key(),
+            limits,
+            InProcessLauncher::new(Arc::clone(table)),
+            SharedBroker::new(broker),
             PoolAdmission::new(Arc::clone(admission), shape()),
             dir,
         )
