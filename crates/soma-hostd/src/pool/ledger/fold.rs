@@ -3,11 +3,16 @@
 //! Every record that names resources refreshes the entry's references, so reconciliation
 //! after a crash releases what the worker actually held rather than what it held when it was
 //! sterile.
+//! Every phase-changing record must follow the legal transition table and keep the lease
+//! generation, which only a claim bumps, so the durable ledger proves on its own that no
+//! worker was ever reclaimed.
 
 use std::collections::BTreeMap;
 
 use super::{LedgerError, Record, RecordKind};
-use crate::{Phase, ReconcileDisposition, TransferStep, WorkerId, WorkerLedgerEntry};
+use crate::{
+    LeaseGeneration, Phase, ReconcileDisposition, TransferStep, WorkerId, WorkerLedgerEntry,
+};
 
 pub(super) fn fold(
     entries: &mut BTreeMap<WorkerId, WorkerLedgerEntry>,
@@ -26,6 +31,14 @@ pub(super) fn fold(
     }
     let entry = entries.get_mut(&record.worker).ok_or(invariant)?;
     if entry.phase == Phase::Dead {
+        return Err(invariant);
+    }
+    if !generation_follows(entry.lease_generation, record) {
+        return Err(invariant);
+    }
+    if let Some(next) = moves_to(record.kind)
+        && !entry.phase.may_transition_to(next)
+    {
         return Err(invariant);
     }
     entry.records += 1;
@@ -70,6 +83,37 @@ pub(super) fn fold(
         }
     }
     Ok(())
+}
+
+/// The phase a record moves an entry to, when it moves one.
+///
+/// A reconciliation that did not retain the worker closes it from whatever live phase the
+/// restart found, which is the one transition the phase table does not describe.
+const fn moves_to(kind: RecordKind) -> Option<Phase> {
+    match kind {
+        RecordKind::Sterile => Some(Phase::Sterile),
+        RecordKind::ConstructFailed | RecordKind::Dead => Some(Phase::Dead),
+        RecordKind::Claiming => Some(Phase::Claiming),
+        RecordKind::Assigned => Some(Phase::Assigned),
+        RecordKind::Running => Some(Phase::Running),
+        RecordKind::Destroying => Some(Phase::Destroying),
+        RecordKind::Constructing
+        | RecordKind::Assigning
+        | RecordKind::TransferStep
+        | RecordKind::TransferFault
+        | RecordKind::Suspect
+        | RecordKind::Reconciled => None,
+    }
+}
+
+/// The claim is the one record that bumps the lease generation; nothing else may change it.
+fn generation_follows(current: LeaseGeneration, record: &Record) -> bool {
+    let expected = if record.kind == RecordKind::Claiming {
+        current.next().ok()
+    } else {
+        Some(current)
+    };
+    expected == Some(record.lease_generation)
 }
 
 fn fresh(record: &Record) -> WorkerLedgerEntry {

@@ -1,4 +1,7 @@
-use super::{record::tests::record, *};
+use super::{
+    record::tests::{claimed, record, record_at},
+    *,
+};
 use crate::{InstanceId, Phase, TransferStep};
 
 #[test]
@@ -20,7 +23,7 @@ fn appends_are_durable_sequenced_and_replayed_in_order() {
     let reopened = Ledger::open(dir.path()).expect("reopen");
     assert_eq!(
         reopened
-            .append(&record(RecordKind::Claiming, 1).detail(1))
+            .append(&record_at(RecordKind::Claiming, 1, claimed()).detail(1))
             .expect("append"),
         3
     );
@@ -59,23 +62,26 @@ fn projection_rejects_sterile_after_assignment_and_records_after_death() {
     let dir = tempfile::tempdir().expect("tempdir");
     let ledger = Ledger::open(dir.path()).expect("ledger");
     let worker = record(RecordKind::Constructing, 1).worker;
-    for kind in [
-        RecordKind::Constructing,
-        RecordKind::Sterile,
-        RecordKind::Claiming,
-        RecordKind::TransferStep,
-    ] {
+    for kind in [RecordKind::Constructing, RecordKind::Sterile] {
         ledger.append(&record(kind, 1).detail(1)).expect("append");
     }
+    for kind in [RecordKind::Claiming, RecordKind::TransferStep] {
+        ledger
+            .append(&record_at(kind, 1, claimed()).detail(1))
+            .expect("append");
+    }
     ledger
-        .append(&record(RecordKind::Assigned, 1).instance(InstanceId::new([9; 16]).expect("id")))
+        .append(
+            &record_at(RecordKind::Assigned, 1, claimed())
+                .instance(InstanceId::new([9; 16]).expect("id")),
+        )
         .expect("append");
     let entry = ledger.entries().expect("entries")[&worker].clone();
     assert!(entry.was_assigned);
     assert_eq!(entry.last_step, Some(TransferStep::Identity));
     assert_eq!(entry.phase, Phase::Assigned);
     ledger
-        .append(&record(RecordKind::Sterile, 1))
+        .append(&record_at(RecordKind::Sterile, 1, claimed()))
         .expect("append");
     assert_eq!(
         ledger.entries(),
@@ -112,4 +118,68 @@ fn projection_rejects_sterile_after_assignment_and_records_after_death() {
             ..
         })
     ));
+}
+
+#[test]
+fn projection_rejects_records_that_skip_a_phase_or_move_the_lease_generation() {
+    let append = |records: &[Record]| {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let ledger = Ledger::open(dir.path()).expect("ledger");
+        for record in records {
+            ledger.append(record).expect("append");
+        }
+        ledger.entries().map(|entries| entries.len())
+    };
+    let worker = record(RecordKind::Constructing, 4).worker;
+    let sterile = [
+        record(RecordKind::Constructing, 4),
+        record(RecordKind::Sterile, 4),
+    ];
+    assert_eq!(append(&sterile), Ok(1));
+
+    let mut running_without_a_claim = sterile.to_vec();
+    running_without_a_claim.push(record(RecordKind::Running, 4));
+    assert_eq!(
+        append(&running_without_a_claim),
+        Err(LedgerError::Invariant {
+            worker,
+            kind: RecordKind::Running,
+        }),
+        "a worker can never run without being claimed and assigned"
+    );
+
+    let mut claimed_twice = sterile.to_vec();
+    claimed_twice.push(record_at(RecordKind::Claiming, 4, claimed()));
+    claimed_twice.push(record_at(RecordKind::Assigned, 4, claimed()));
+    claimed_twice.push(record_at(RecordKind::Claiming, 4, claimed()));
+    assert_eq!(
+        append(&claimed_twice),
+        Err(LedgerError::Invariant {
+            worker,
+            kind: RecordKind::Claiming,
+        }),
+        "an assigned worker can never be claimed again"
+    );
+
+    let mut unbumped_claim = sterile.to_vec();
+    unbumped_claim.push(record(RecordKind::Claiming, 4));
+    assert_eq!(
+        append(&unbumped_claim),
+        Err(LedgerError::Invariant {
+            worker,
+            kind: RecordKind::Claiming,
+        }),
+        "a claim always bumps the lease generation"
+    );
+
+    let mut moved_generation = sterile.to_vec();
+    moved_generation.push(record_at(RecordKind::Destroying, 4, claimed()));
+    assert_eq!(
+        append(&moved_generation),
+        Err(LedgerError::Invariant {
+            worker,
+            kind: RecordKind::Destroying,
+        }),
+        "nothing but a claim moves the lease generation"
+    );
 }
