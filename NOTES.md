@@ -65,7 +65,6 @@ Version 1 commands run as root with a fixed environment allowlist, `/` as workin
 `scripts/build-guest-agent.sh` produced a 815,288-byte binary with SHA-256 `e6367c5774aab8926f13ef9c9f952bcdb5a1e7d347d0e4cdfae851e94e1e3eb1` that `file` reports as statically linked; the digest is a local measurement and not yet a reproducible-build claim.
 Host tests prove the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries, but the agent has not booted inside a SOMA virtual machine.
 The next dependency is the VMM side: the launch-page memory slot, the vsock device on the fixed port, and the initramfs writer that places `/init` and the responder key.
-||||||| parent of 22e2929 (docs(soma-kvm): map the virtio device models, bus, and parser fuzz target)
 
 ## 2026-08-29 - Five virtio device models and the fixed MMIO bus are host-tested seams, not a working machine
 
