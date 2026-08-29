@@ -372,6 +372,7 @@ Every read and write is range-checked against registered regions before any byte
 `device.rs` is the `VirtioDevice` seam that a block, network, vsock, or entropy model implements; the only implementation today is a crate-private echo test device.
 
 The module does not implement an MMIO bus, ioeventfd or irqfd registration, a device backend, an event loop, or the versioned snapshot container, and passing its tests proves none of those.
+
 ### `snapshot/`
 
 `snapshot/` owns the snapshot format v1 encoding and validation policy from `docs/research/snapshot-format-v1.md`.

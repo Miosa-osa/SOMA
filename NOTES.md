@@ -46,6 +46,7 @@ Decision-map ticket #4 now has its kernel input: Linux `v6.12.107` built as an u
 Two consecutive builds on the same host produced byte-identical output; the evidence is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-build.md`.
 This is a build and layout proof only, not KVM boot evidence, device discovery evidence, or a Generation.
 A first build with `CONFIG_DEVMEM=n` was superseded the same day because the guest agent reads the launch page through `/dev/mem`; the retained evidence records both digests.
+
 ## 2026-08-29 - Snapshot format v1 codec and ordering contracts
 
 Decision-map ticket #7 now has an implemented codec half under `crates/soma-kvm/src/snapshot/`.
