@@ -8,7 +8,11 @@
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
-    use std::{fs, time::Duration};
+    use std::{
+        fs,
+        sync::{Mutex, MutexGuard, PoisonError},
+        time::Duration,
+    };
 
     use soma_kvm::x86_64::{
         EXPECTED_SERIAL, GuestExit, HaltGuestConfig, HaltGuestErrorKind, InterruptController,
@@ -16,6 +20,13 @@ mod live {
     };
 
     const RAM_BYTES: u64 = 128 * 1024 * 1024;
+
+    /// Descriptor accounting is process-wide, so the live proofs never overlap in one process.
+    static LIVE_PROOF: Mutex<()> = Mutex::new(());
+
+    fn serialize_live_proof() -> MutexGuard<'static, ()> {
+        LIVE_PROOF.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 
     fn require_kvm() {
         let readable_writable = fs::OpenOptions::new()
@@ -38,6 +49,7 @@ mod live {
     #[test]
     #[ignore = "requires a Linux x86_64 runner with accessible /dev/kvm"]
     fn halts_after_writing_soma_to_the_serial_port_and_releases_descriptors() {
+        let _serialized = serialize_live_proof();
         require_kvm();
         let fd_before = open_descriptor_count();
         let evidence = run_halt_guest(&HaltGuestConfig::new(RAM_BYTES, Duration::from_secs(10)))
@@ -70,6 +82,7 @@ mod live {
     #[test]
     #[ignore = "requires a Linux x86_64 runner with accessible /dev/kvm"]
     fn in_kernel_irqchip_parks_hlt_and_the_watchdog_reclaims_the_vcpu() {
+        let _serialized = serialize_live_proof();
         require_kvm();
         let fd_before = open_descriptor_count();
         let config = HaltGuestConfig::new(RAM_BYTES, Duration::from_secs(2))

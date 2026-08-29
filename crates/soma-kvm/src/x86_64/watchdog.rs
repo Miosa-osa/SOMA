@@ -45,9 +45,12 @@ pub(crate) fn run_with_deadline(
             "deadline must be positive",
         ));
     }
+    // The interrupt handler is process-wide, so concurrent proofs in one process serialize here
+    // instead of failing. A poisoned lock only means a previous proof panicked after installing
+    // its handler; the guard restored it, so the lock is safe to reuse.
     let _lock = PROCESS_HANDLER_LOCK
-        .try_lock()
-        .map_err(|_| HaltGuestError::invalid(Phase::Run, "another halt-guest proof is running"))?;
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let signal = kick::signal_number()?;
     let handler = HandlerGuard::install(signal)?;
     let result = run_worker(vcpu, timeout, signal);
