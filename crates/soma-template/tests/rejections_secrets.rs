@@ -142,3 +142,44 @@ fn module_sealed_values_may_not_carry_a_secret_literal() {
         assert!(!rejection.to_string().contains(LITERAL));
     }
 }
+
+fn with_environment(name: &str, value: &str) -> String {
+    edit(
+        EXAMPLE,
+        "[[secrets]]",
+        &format!("[[environment]]\nname = \"{name}\"\nvalue = '{value}'\n\n[[secrets]]"),
+    )
+}
+
+#[test]
+fn name_markers_match_whole_components_and_spare_trivial_values() {
+    for (name, value) in [
+        ("TOKENIZERS_PARALLELISM", "false"),
+        ("SECRETARY_NAME", "bob"),
+        ("KEYCLOAK_URL", "http://keycloak.internal"),
+        ("USE_TOKEN_AUTH", "true"),
+        ("GITHUB_TOKEN", ""),
+        ("MY_API_KEY_PRESENT", "0"),
+    ] {
+        assert!(
+            support::resolve_text(&with_environment(name, value)).is_ok(),
+            "{name}={value} is not a secret literal"
+        );
+    }
+    for (name, value) in [
+        ("GITHUB_TOKEN", "x"),
+        ("my_api_key", "plain"),
+        ("AWS_ACCESS_KEY_ID", "plain"),
+        ("APIKEY", "2"),
+        ("SSH_PRIVATE_KEY_PATH", "/root/.ssh/id"),
+        ("ANTHROPIC_API_KEY", ""),
+    ] {
+        let rejection = reject(&with_environment(name, value));
+        assert_names(
+            &rejection,
+            RejectionClass::SecretLiteral,
+            "environment[1].value",
+            None,
+        );
+    }
+}

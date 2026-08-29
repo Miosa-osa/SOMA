@@ -3,6 +3,9 @@
 //! Version 1 combines three signals: a name that conventionally carries a credential, a
 //! value shaped like a known credential format, and a module declaring the name as one that
 //! must arrive through secret delivery.
+//! A name marker matches whole underscore-delimited components, so `GITHUB_TOKEN` is a
+//! credential carrier while `TOKENIZERS_PARALLELISM` is not, and a name marker alone never
+//! rejects a trivial value such as `false` or `0` because such a value cannot be a credential.
 //! Value detection also looks inside `/`, `=`, `:`, and whitespace separated segments, so a
 //! credential embedded in a path, a `--flag=value` argument, or a sentence is still found.
 
@@ -37,16 +40,30 @@ const SECRET_VALUE_PREFIXES: &[&str] = &[
     "AIza",
 ];
 
+/// Whether a name carries a credential marker as one or more whole `_` components.
 pub(super) fn secret_name(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
-    SECRET_NAME_MARKERS
-        .iter()
-        .any(|marker| upper.contains(marker))
+    let components: Vec<&str> = upper.split('_').collect();
+    SECRET_NAME_MARKERS.iter().any(|marker| {
+        let marker: Vec<&str> = marker.split('_').collect();
+        components
+            .windows(marker.len())
+            .any(|window| window == marker.as_slice())
+    })
+}
+
+/// A value that cannot be a credential: empty, a boolean word, or a single binary digit.
+fn trivial_value(value: &str) -> bool {
+    let trimmed = value.trim();
+    trimmed.is_empty()
+        || ["true", "false", "0", "1"]
+            .iter()
+            .any(|word| trimmed.eq_ignore_ascii_case(word))
 }
 
 /// Whether one environment literal must be rejected: the name is declared secret by a
-/// composed module, the name conventionally carries a credential, or the value has a
-/// credential shape.
+/// composed module, the value has a credential shape, or the name conventionally carries a
+/// credential and the value is not trivial.
 pub(super) fn environment_literal(modules: &[&ModuleSpec], name: &str, value: &str) -> bool {
     let module_secret = modules.iter().any(|module| {
         module
@@ -54,7 +71,7 @@ pub(super) fn environment_literal(modules: &[&ModuleSpec], name: &str, value: &s
             .iter()
             .any(|secret| secret.as_str() == name)
     });
-    module_secret || secret_name(name) || embedded_secret(value)
+    module_secret || embedded_secret(value) || (secret_name(name) && !trivial_value(value))
 }
 
 /// Whether `value`, or any separator-delimited segment of it, has a credential shape.
