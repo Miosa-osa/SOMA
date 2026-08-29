@@ -42,21 +42,34 @@ fn find_on_path(name: &str) -> Option<PathBuf> {
 }
 
 /// Prints an explicit skip line and returns `None` when a toolchain is absent.
+///
+/// Setting `SOMA_REQUIRE_TOOLCHAIN` to anything but `0` turns the skip into a failure, so a
+/// required gate run can prove that every toolchain-dependent test actually executed instead of
+/// passing silently.
 pub fn toolchains(test: &str) -> Option<(PathBuf, PathBuf)> {
     let erofs = erofs_tools();
     let e2fs = e2fsprogs();
     match (erofs, e2fs) {
         (Some(erofs), Some(e2fs)) => Some((erofs, e2fs)),
         (erofs, e2fs) => {
-            eprintln!(
-                "SKIP {test}: pinned toolchain not found (mkfs.erofs found={}, mke2fs found={}); \
-                 set SOMA_EROFS_TOOLS and SOMA_E2FSPROGS or add them to PATH",
+            let message = format!(
+                "{test}: pinned toolchain not found (erofs formatter found={}, ext4 formatter \
+                 found={}); set SOMA_EROFS_TOOLS and SOMA_E2FSPROGS or add them to PATH",
                 erofs.is_some(),
                 e2fs.is_some()
             );
+            assert!(
+                !require_toolchain(),
+                "prerequisite failed: {message}; SOMA_REQUIRE_TOOLCHAIN forbids skipping"
+            );
+            eprintln!("SKIP {message}");
             None
         }
     }
+}
+
+fn require_toolchain() -> bool {
+    env::var_os("SOMA_REQUIRE_TOOLCHAIN").is_some_and(|value| value != "0")
 }
 
 /// A synthetic `x86_64` `ET_EXEC` ELF with one executable load segment and an optional PVH note.

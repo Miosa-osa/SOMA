@@ -6,8 +6,8 @@ use std::{fs, path::Path, thread};
 
 use soma::GenerationId;
 use soma_generation::{
-    CandidateId, CompileErrorKind, CompilePhase, certify_candidate, verify_candidate,
-    verify_generation,
+    CandidateId, CompileErrorKind, CompilePhase, Incompatibility, certify_candidate,
+    verify_candidate, verify_generation,
 };
 use support::{
     fixture_tree::{AGENT, fixture_layers},
@@ -151,4 +151,47 @@ fn concurrent_identical_builders_converge_on_one_candidate_object() {
         objects_with_magic(&fixture.store, READY_MAGIC).is_empty(),
         "a ready Generation appeared without certification"
     );
+}
+
+#[test]
+fn a_correctly_encoded_candidate_incompatible_with_the_exact_profile_is_rejected() {
+    let Some(tools) = toolchains("a_correctly_encoded_candidate_incompatible_with_the_profile")
+    else {
+        return;
+    };
+    let (fixture, normalized) = normalize_layers_for(&fixture_layers(), "amd64");
+    let scratch = tempfile::tempdir().unwrap();
+    let compiled = compile(&normalized, &fixture.store, scratch.path(), &tools, AGENT).unwrap();
+
+    // Every byte is canonical and every artifact is present; only the host profile disagrees.
+    let mut narrower = test_profile();
+    narrower.overlay_capacities = vec![512 * 1024 * 1024];
+    let error = verify_candidate(&fixture.store, compiled.id(), &narrower)
+        .expect_err("an incompatible host profile must reject a well formed Candidate");
+    assert_eq!(error.kind(), CompileErrorKind::Unsupported);
+    assert_eq!(
+        error.incompatibility(),
+        Some(Incompatibility::OverlayCapacity)
+    );
+
+    let mut newer_policy = test_profile();
+    newer_policy.policy_version = 1;
+    assert!(verify_candidate(&fixture.store, compiled.id(), &newer_policy).is_ok());
+}
+
+#[test]
+fn no_resolution_can_report_a_launchable_generation_yet() {
+    let Some(tools) = toolchains("no_resolution_can_report_a_launchable_generation_yet") else {
+        return;
+    };
+    let (fixture, normalized) = normalize_layers_for(&fixture_layers(), "amd64");
+    let scratch = tempfile::tempdir().unwrap();
+    let compiled = compile(&normalized, &fixture.store, scratch.path(), &tools, AGENT).unwrap();
+
+    // The Candidate resolution has no launchability at all, and the Generation resolution
+    // cannot succeed while certification and snapshot verification are unimplemented.
+    assert!(verify_candidate(&fixture.store, compiled.id(), &test_profile()).is_ok());
+    let guessed = guessed_generation_id(compiled.id());
+    assert!(verify_generation(&fixture.store, &guessed, &test_profile()).is_err());
+    assert!(!compiled.candidate.launchable());
 }

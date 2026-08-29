@@ -19,6 +19,11 @@ pub use session::{DeliveredHostLaunchMaterial, GuestSessionMaterial};
 /// Exact size of the one-launch bearer-secret page.
 pub const LAUNCH_PAGE_SIZE: usize = 4096;
 
+/// The launch-page layout version both peers and the Generation manifest must agree on.
+///
+/// Schema 3 appends the fresh per-Instance responder static secret decided by ADR 0024.
+pub const LAUNCH_PAGE_SCHEMA_VERSION: u16 = wire::PAGE_SCHEMA_VERSION;
+
 /// Fixed guest-physical address of the dedicated launch-page memory slot.
 ///
 /// The address lies above the 3 GiB RAM ceiling and above the five fixed virtio-mmio pages of

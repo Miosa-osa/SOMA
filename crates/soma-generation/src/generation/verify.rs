@@ -18,8 +18,11 @@ use super::{
 };
 use crate::{ImportPhase, normalize::TREE_MEDIA_TYPE, oci::Descriptor, store::Store};
 
+mod incompatibility;
+mod machine;
 mod profile;
 
+pub use incompatibility::Incompatibility;
 use profile::require_profile;
 
 const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
@@ -253,3 +256,6 @@ const fn integrity() -> CompileError {
 const fn io_error() -> CompileError {
     CompileError::new(CompilePhase::VerifyGeneration, CompileErrorKind::Io)
 }
+
+#[cfg(test)]
+mod tests;

@@ -9,7 +9,7 @@ use super::{
 };
 
 const DOMAIN: &[u8; 16] = b"SOMA-LAUNCH-PAGE";
-const PAGE_SCHEMA_VERSION: u16 = 3;
+pub(super) const PAGE_SCHEMA_VERSION: u16 = 3;
 const DIGEST_SIZE: usize = 32;
 pub(super) const ENTROPY_SIZE: usize = 64;
 pub(super) const RESPONDER_SECRET_SIZE: usize = 32;

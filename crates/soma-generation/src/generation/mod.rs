@@ -54,4 +54,6 @@ pub use publish::open_artifact;
 pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use tree_decoder::TreeBounds;
-pub use verify::{VerifiedCandidate, VerifiedGeneration, verify_candidate, verify_generation};
+pub use verify::{
+    Incompatibility, VerifiedCandidate, VerifiedGeneration, verify_candidate, verify_generation,
+};

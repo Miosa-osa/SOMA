@@ -66,3 +66,15 @@ fn decoder_rejects_duplicate_descriptors_and_unsupported_platforms() {
         CompileErrorKind::LimitExceeded
     );
 }
+
+#[test]
+fn the_manifest_layout_versions_match_the_contracts_they_restate() {
+    // The Generation manifest and the guest launch page must change together, so the compiler
+    // constant is bound to the protocol crate's schema rather than restated by hand.
+    assert_eq!(
+        soma_generation::contracts::LAUNCH_PAGE_LAYOUT_VERSION,
+        soma_guest::LAUNCH_PAGE_SCHEMA_VERSION
+    );
+    assert_eq!(soma_generation::contracts::MEMORY_SLOT_LAYOUT_VERSION, 1);
+    assert_eq!(soma_generation::contracts::REPAIR_POLICY_VERSION, 1);
+}

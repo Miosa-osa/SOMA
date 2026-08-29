@@ -47,7 +47,7 @@ pub(crate) fn profile_v1() -> GenerationManifest {
         },
         tree,
         root: RootBinding {
-            descriptor: descriptor(ArtifactRole::ErofsRoot, 0x03, 1_200_000_000),
+            descriptor: descriptor(ArtifactRole::ErofsRoot, 0x03, 1_200_001_024),
             uuid: derive_root_uuid(&tree.digest),
             format_profile: erofs::EROFS_FORMAT_PROFILE.to_owned(),
             formatter_digest: digest(0x04),
@@ -94,12 +94,12 @@ pub(crate) fn profile_v1() -> GenerationManifest {
         shape: MachineShapeBinding {
             memory_bytes: 512 * MIB,
             vcpu_count: 1,
-            memory_slot_layout_version: 1,
-            launch_page_layout_version: 1,
+            memory_slot_layout_version: contracts::MEMORY_SLOT_LAYOUT_VERSION,
+            launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
         },
         snapshot: SnapshotBinding::Absent,
         repair: RepairBinding {
-            policy_version: 1,
+            policy_version: contracts::REPAIR_POLICY_VERSION,
             readiness_command_digest: contracts::readiness_command_digest(),
         },
         template: TemplateBinding {
@@ -116,9 +116,9 @@ pub(crate) fn profile_v1() -> GenerationManifest {
 /// A captured snapshot binding a certification token can carry.
 pub(crate) fn captured_snapshot() -> SnapshotBinding {
     SnapshotBinding::Captured {
-        format_version: 1,
+        format_version: contracts::SNAPSHOT_FORMAT_VERSION,
         memory: descriptor(ArtifactRole::MemorySnapshot, 0x20, 512 * MIB),
         state: descriptor(ArtifactRole::StateManifest, 0x21, 4096),
-        capture_point_version: 1,
+        capture_point_version: contracts::SNAPSHOT_CAPTURE_POINT_VERSION,
     }
 }

@@ -1,5 +1,25 @@
 use super::artifacts::Sha256Digest;
 
+/// The memory-slot layout version the `x86_64` machine contract fixes.
+///
+/// Version 1 is guest RAM in slot 0 and the dedicated non-snapshot launch page in slot 1.
+pub const MEMORY_SLOT_LAYOUT_VERSION: u16 = 1;
+
+/// The launch-page layout version the guest protocol fixes.
+///
+/// This restates `soma_guest::LAUNCH_PAGE_SCHEMA_VERSION`; a test binds the two values, and a
+/// Generation built for another schema is rejected by compatibility verification.
+pub const LAUNCH_PAGE_LAYOUT_VERSION: u16 = 3;
+
+/// The repair-policy version the readiness contract fixes.
+pub const REPAIR_POLICY_VERSION: u16 = 1;
+
+/// The snapshot format version certification will bind.
+pub const SNAPSHOT_FORMAT_VERSION: u16 = 1;
+
+/// The snapshot capture-point version certification will bind.
+pub const SNAPSHOT_CAPTURE_POINT_VERSION: u16 = 1;
+
 /// One versioned contract identity bound into the Generation manifest.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ContractBinding {

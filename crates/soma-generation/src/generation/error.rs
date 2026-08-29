@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use crate::ImportError;
+use crate::{ImportError, generation::verify::Incompatibility};
 
 /// The Generation compiler stage that rejected an input without exposing host or guest paths.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,11 +63,31 @@ pub enum CompileErrorKind {
 pub struct CompileError {
     phase: CompilePhase,
     kind: CompileErrorKind,
+    incompatibility: Option<Incompatibility>,
 }
 
 impl CompileError {
     pub(crate) const fn new(phase: CompilePhase, kind: CompileErrorKind) -> Self {
-        Self { phase, kind }
+        Self {
+            phase,
+            kind,
+            incompatibility: None,
+        }
+    }
+
+    /// One rejected compatibility invariant, named without echoing any manifest byte.
+    pub(crate) const fn incompatible(reason: Incompatibility) -> Self {
+        Self {
+            phase: CompilePhase::VerifyGeneration,
+            kind: CompileErrorKind::Unsupported,
+            incompatibility: Some(reason),
+        }
+    }
+
+    /// Returns the exact compatibility invariant that failed, when one did.
+    #[must_use]
+    pub const fn incompatibility(&self) -> Option<Incompatibility> {
+        self.incompatibility
     }
 
     pub(crate) const fn from_import(phase: CompilePhase, error: ImportError) -> Self {
@@ -104,6 +124,7 @@ impl fmt::Debug for CompileError {
             .debug_struct("CompileError")
             .field("phase", &self.phase)
             .field("kind", &self.kind)
+            .field("incompatibility", &self.incompatibility)
             .finish()
     }
 }
@@ -114,7 +135,11 @@ impl fmt::Display for CompileError {
             formatter,
             "Generation compilation failed during {:?}: {:?}",
             self.phase, self.kind
-        )
+        )?;
+        match self.incompatibility {
+            Some(reason) => write!(formatter, " ({reason})"),
+            None => Ok(()),
+        }
     }
 }
 

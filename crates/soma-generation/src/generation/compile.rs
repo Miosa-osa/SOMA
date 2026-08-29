@@ -201,12 +201,12 @@ impl ManifestParts<'_> {
             shape: MachineShapeBinding {
                 memory_bytes: template.memory_bytes(),
                 vcpu_count: template.shape().vcpu_count(),
-                memory_slot_layout_version: 1,
-                launch_page_layout_version: 1,
+                memory_slot_layout_version: contracts::MEMORY_SLOT_LAYOUT_VERSION,
+                launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
             },
             snapshot: SnapshotBinding::Absent,
             repair: RepairBinding {
-                policy_version: 1,
+                policy_version: contracts::REPAIR_POLICY_VERSION,
                 readiness_command_digest: template.startup().readiness_command_digest(),
             },
             template: TemplateBinding {
