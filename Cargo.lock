@@ -1170,6 +1170,7 @@ dependencies = [
  "kvm-ioctls",
  "libc",
  "linux-loader",
+ "sha2",
  "vm-fdt",
  "vm-memory",
  "vm-superio",

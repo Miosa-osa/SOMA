@@ -23,6 +23,8 @@ pub mod x86_64;
 
 mod virtio;
 
+pub mod snapshot;
+
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
