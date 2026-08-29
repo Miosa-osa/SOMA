@@ -1,15 +1,17 @@
 //! The transfer sequence over a claimed worker.
 
+pub(super) mod failure;
 mod frames;
 
-use std::{fmt, time::Instant};
+use std::time::Instant;
 
+use failure::{TransferFailure, failure};
 use frames::{frames, fresh_entropy};
 
 use crate::{
     AssignedResources, AssignmentIntent, Claimed, Claiming, DestroyReason, Pool, Record,
     RecordKind, Reservation, ResourceBroker, ResourceRefs, StepAck, TransferEvidence,
-    TransferFault, TransferFrame, TransferStep, Worker, WorkerHandle, WorkerId, WorkerIdentity,
+    TransferFault, TransferFrame, TransferStep, Worker, WorkerHandle, WorkerIdentity,
     WorkerLauncher,
     pool::{
         Owned, OwnedWorker, Prepared,
@@ -17,31 +19,6 @@ use crate::{
         transfer::Disposition,
     },
 };
-
-/// A failed transfer: the worker was destroyed and never returned to the pool.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TransferFailure {
-    /// The worker.
-    pub worker: WorkerId,
-    /// The step that failed, when a step was reached.
-    pub step: Option<TransferStep>,
-    /// The fault.
-    pub fault: TransferFault,
-    /// What teardown did.
-    pub disposition: Disposition,
-}
-
-impl fmt::Display for TransferFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            formatter,
-            "{:?} transfer failed at {:?}: {}",
-            self.worker, self.step, self.fault
-        )
-    }
-}
-
-impl std::error::Error for TransferFailure {}
 
 /// The live state of one transfer.
 struct Attempt<H> {
@@ -55,6 +32,9 @@ struct Attempt<H> {
 
 impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     /// Transfers fresh authority for `intent` into the claimed worker exactly once.
+    ///
+    /// A grant issued by another pool is refused and destroyed through the pool that issued
+    /// it; it is never admitted here.
     ///
     /// # Errors
     ///
@@ -99,6 +79,9 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         mut claimed: Claimed<'_, L, R>,
         intent: &AssignmentIntent,
     ) -> Result<(Attempt<L::Handle>, AssignedResources), TransferFailure> {
+        if !std::ptr::eq(claimed.pool, self) {
+            return Err(refuse_foreign(claimed));
+        }
         let (Some(worker), Some(prepared)) = (claimed.worker.take(), claimed.prepared.take())
         else {
             unreachable!("a live grant always holds its worker and payload");
@@ -272,16 +255,24 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     }
 }
 
-const fn failure(
-    worker: WorkerId,
-    step: Option<TransferStep>,
-    fault: TransferFault,
-    disposition: Disposition,
+/// Destroys a grant this pool did not issue through the pool that did.
+///
+/// Assigning one pool's broker resources to another pool's slot would write records for a
+/// worker the receiving ledger never constructed, which no later fold could project.
+fn refuse_foreign<L: WorkerLauncher, R: ResourceBroker>(
+    mut claimed: Claimed<'_, L, R>,
 ) -> TransferFailure {
-    TransferFailure {
-        worker,
-        step,
-        fault,
-        disposition,
-    }
+    let issuer = claimed.pool;
+    let (Some(worker), Some(prepared)) = (claimed.worker.take(), claimed.prepared.take()) else {
+        unreachable!("a live grant always holds its worker and payload");
+    };
+    let id = worker.id();
+    let held = Holdings {
+        handle: Some(prepared.handle),
+        identity: prepared.identity,
+        resources: Resources::Sterile(prepared.sterile),
+        reservation: claimed.reservation.take(),
+    };
+    let disposition = issuer.destroy_claiming(worker, held, DestroyReason::ForeignPool);
+    failure(id, None, TransferFault::ForeignPool, disposition)
 }

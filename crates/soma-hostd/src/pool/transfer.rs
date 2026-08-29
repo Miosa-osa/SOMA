@@ -11,7 +11,7 @@ use std::{fmt, time::Duration};
 
 use soma_guest::LaunchNetwork;
 
-pub use run::TransferFailure;
+pub use run::failure::TransferFailure;
 
 use crate::{
     Descriptor, DestroyOutcome, InstanceId, LaunchMaterialHandle, LeaseGeneration, LedgerError,
@@ -159,6 +159,8 @@ pub enum TransferFault {
     Closed,
     /// The claim deadline passed before the transfer completed.
     ClaimDeadline,
+    /// The grant was presented to a pool that did not issue it.
+    ForeignPool,
     /// The host produced no fresh entropy.
     Entropy,
     /// A resource could not be assigned.
@@ -177,6 +179,7 @@ impl fmt::Display for TransferFault {
             Self::PartialAck => formatter.write_str("worker acknowledged a different step"),
             Self::Closed => formatter.write_str("worker channel closed"),
             Self::ClaimDeadline => formatter.write_str("claim deadline passed"),
+            Self::ForeignPool => formatter.write_str("grant belongs to another pool"),
             Self::Entropy => formatter.write_str("no fresh entropy"),
             Self::Resource(fault) => write!(formatter, "resource fault: {fault}"),
             Self::Ledger(error) => write!(formatter, "ledger fault: {error}"),

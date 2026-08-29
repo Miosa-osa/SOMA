@@ -29,6 +29,8 @@ pub enum DestroyReason {
     Dropped = 8,
     /// The transfer intent did not match the claim.
     IntentMismatch = 9,
+    /// The grant was presented to a pool that did not issue it.
+    ForeignPool = 10,
 }
 
 /// What releasing one worker did.
