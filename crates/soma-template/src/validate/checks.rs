@@ -1,6 +1,6 @@
-//! Platform, resource, lifecycle, command, module-value, and executable checks.
+//! Platform, resource, lifecycle, description, command, module-value, and executable checks.
 
-use super::{FilesystemOracle, backend::BackendCapabilities, syntax};
+use super::{FilesystemOracle, backend::BackendCapabilities, secret, syntax};
 use crate::{
     compose::Composition,
     error::{ExternalDependency, TemplateError},
@@ -105,6 +105,14 @@ pub(super) fn lifecycle(
     Ok(())
 }
 
+/// A non-content field is still a committed file, so a credential in it is rejected.
+pub(super) fn description(template: &Template) -> Result<(), Rejection> {
+    match template.description() {
+        Some(text) if secret::embedded_secret(text) => Err(literal("description", "description")),
+        _ => Ok(()),
+    }
+}
+
 pub(super) fn command(command: &Command) -> Result<LockedCommand, Rejection> {
     if command
         .program()
@@ -123,12 +131,34 @@ pub(super) fn command(command: &Command) -> Result<LockedCommand, Rejection> {
         .map_err(|reason| invalid("command.working_directory".to_owned(), reason))?;
     let user = command.user().unwrap_or(DEFAULT_USER);
     syntax::user(user).map_err(|reason| invalid("command.user".to_owned(), reason))?;
+    if secret::embedded_secret(command.program()) {
+        return Err(literal("command.program", "program"));
+    }
+    for (index, argument) in command.args().iter().enumerate() {
+        if secret::embedded_secret(argument) {
+            return Err(literal(&format!("command.args[{index}]"), "args"));
+        }
+    }
+    if secret::embedded_secret(working_directory.as_str()) {
+        return Err(literal("command.working_directory", "working_directory"));
+    }
+    if secret::embedded_secret(user) {
+        return Err(literal("command.user", "user"));
+    }
     Ok(LockedCommand {
         program: command.program().to_owned(),
         args: command.args().to_vec(),
         working_directory: working_directory.as_str().to_owned(),
         user: user.to_owned(),
     })
+}
+
+fn literal(field: &str, name: &str) -> Rejection {
+    Rejection::SecretLiteral {
+        module: None,
+        field: field.to_owned(),
+        name: name.to_owned(),
+    }
 }
 
 pub(super) fn modules(composition: &Composition<'_>) -> Result<(), Rejection> {
@@ -152,6 +182,15 @@ pub(super) fn modules(composition: &Composition<'_>) -> Result<(), Rejection> {
                 module_invalid("health_probe.timeout_seconds".to_owned(), reason)
             })?,
             None => {}
+        }
+        for (index, (name, value)) in module.sealed_environment().iter().enumerate() {
+            if secret::environment_literal(&composition.modules, name.as_str(), value) {
+                return Err(Rejection::SecretLiteral {
+                    module: Some(module.identity().clone()),
+                    field: format!("sealed_environment[{index}]"),
+                    name: name.as_str().to_owned(),
+                });
+            }
         }
     }
     Ok(())

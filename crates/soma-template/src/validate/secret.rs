@@ -3,8 +3,12 @@
 //! Version 1 combines three signals: a name that conventionally carries a credential, a
 //! value shaped like a known credential format, and a module declaring the name as one that
 //! must arrive through secret delivery.
+//! Value detection also looks inside `/`, `=`, `:`, and whitespace separated segments, so a
+//! credential embedded in a path, a `--flag=value` argument, or a sentence is still found.
 
-pub(super) const SECRET_SOURCE_SCHEME: &str = "secret://";
+use crate::module::ModuleSpec;
+
+pub(crate) const SECRET_SOURCE_SCHEME: &str = "secret://";
 
 const SECRET_NAME_MARKERS: &[&str] = &[
     "SECRET",
@@ -40,7 +44,30 @@ pub(super) fn secret_name(name: &str) -> bool {
         .any(|marker| upper.contains(marker))
 }
 
-pub(super) fn secret_value(value: &str) -> bool {
+/// Whether one environment literal must be rejected: the name is declared secret by a
+/// composed module, the name conventionally carries a credential, or the value has a
+/// credential shape.
+pub(super) fn environment_literal(modules: &[&ModuleSpec], name: &str, value: &str) -> bool {
+    let module_secret = modules.iter().any(|module| {
+        module
+            .secret_environment()
+            .iter()
+            .any(|secret| secret.as_str() == name)
+    });
+    module_secret || secret_name(name) || embedded_secret(value)
+}
+
+/// Whether `value`, or any separator-delimited segment of it, has a credential shape.
+pub(super) fn embedded_secret(value: &str) -> bool {
+    secret_value(value)
+        || value
+            .split(|character: char| {
+                matches!(character, '/' | '=' | ':') || character.is_whitespace()
+            })
+            .any(secret_value)
+}
+
+fn secret_value(value: &str) -> bool {
     let trimmed = value.trim();
     if SECRET_VALUE_PREFIXES
         .iter()
@@ -86,14 +113,18 @@ fn json_web_token(value: &str) -> bool {
         })
 }
 
-/// A secret source must be a reference into a secret store, never a literal.
-pub(super) fn secret_source(source: &str) -> bool {
+/// The shape of a secret source: the `secret://` scheme and a non-empty graphic ASCII path.
+pub(crate) fn secret_source_shape(source: &str) -> bool {
     source
         .strip_prefix(SECRET_SOURCE_SCHEME)
-        .is_some_and(|path| {
-            !path.is_empty()
-                && !path.contains(char::is_whitespace)
-                && path.bytes().all(|byte| byte.is_ascii_graphic())
-                && !secret_value(path)
-        })
+        .is_some_and(|path| !path.is_empty() && path.bytes().all(|byte| byte.is_ascii_graphic()))
+}
+
+/// A secret source must be a reference into a secret store, never a literal, and no path
+/// segment of the reference may itself be a credential.
+pub(super) fn secret_source(source: &str) -> bool {
+    secret_source_shape(source)
+        && source
+            .strip_prefix(SECRET_SOURCE_SCHEME)
+            .is_some_and(|path| !embedded_secret(path))
 }

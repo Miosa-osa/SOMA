@@ -110,6 +110,7 @@ pub enum Rejection {
         field: String,
     },
     SecretLiteral {
+        module: Option<ModuleIdentity>,
         field: String,
         name: String,
     },
@@ -211,6 +212,7 @@ impl Rejection {
     pub const fn module(&self) -> Option<&ModuleIdentity> {
         match self {
             Self::UnsupportedPlatform { module, .. }
+            | Self::SecretLiteral { module, .. }
             | Self::InvalidValue { module, .. }
             | Self::UnpinnedInput { module, .. }
             | Self::UnknownModule { module, .. } => module.as_ref(),
@@ -221,7 +223,6 @@ impl Rejection {
             | Self::ConflictingDefaultCommands { second, .. } => Some(second),
             Self::UnresolvableImage { .. }
             | Self::MissingDefaultCommand { .. }
-            | Self::SecretLiteral { .. }
             | Self::SecretWithoutScope { .. }
             | Self::NetworkExceedsCeiling { .. }
             | Self::ExecutableAbsent { .. }

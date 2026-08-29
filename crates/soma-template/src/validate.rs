@@ -1,8 +1,11 @@
 //! The required validation of a composed Template against external inputs.
 //!
 //! Validation runs in one fixed order so the same Template always reports the same first
-//! rejection: platforms, resources, lifecycle, command shape, module values, environment,
-//! network envelope, secrets, required environment, and finally the executable check.
+//! rejection: platforms, resources, lifecycle, description, command shape, module values,
+//! environment, network envelope, secrets, required environment, and finally the executable
+//! check.
+//! Secret-literal detection runs wherever a Template or module literal is bound: environment
+//! values, command fields, the description, secret sources and scopes, and sealed values.
 
 mod backend;
 mod checks;
@@ -125,6 +128,7 @@ pub(crate) fn validate(
     checks::platforms(template, composition, backend)?;
     checks::resources(template, backend)?;
     checks::lifecycle(template, backend)?;
+    checks::description(template)?;
     let command = checks::command(&composition.command)?;
     checks::modules(composition)?;
     let environment = contract::environment(template, composition)?;

@@ -126,6 +126,14 @@ fn policy(rejection: &Rejection, formatter: &mut fmt::Formatter<'_>) -> fmt::Res
             formatter,
             "{module} {field}: environment `{name}` is not provided"
         ),
+        Rejection::SecretLiteral {
+            module: Some(module),
+            name,
+            ..
+        } => write!(
+            formatter,
+            "{module} {field}: `{name}` carries a secret literal"
+        ),
         Rejection::SecretLiteral { name, .. } => {
             write!(formatter, "{field}: `{name}` carries a secret literal")
         }

@@ -30,19 +30,14 @@ pub(super) fn environment(
                 InvalidReason::Duplicate,
             ));
         }
-        if let Some(value) = &entry.value {
-            let module_secret = composition.modules.iter().any(|module| {
-                module
-                    .secret_environment()
-                    .iter()
-                    .any(|name| name.as_str() == entry.name)
+        if let Some(value) = &entry.value
+            && secret::environment_literal(&composition.modules, &entry.name, value)
+        {
+            return Err(Rejection::SecretLiteral {
+                module: None,
+                field: format!("environment[{index}].value"),
+                name: entry.name.clone(),
             });
-            if module_secret || secret::secret_name(&entry.name) || secret::secret_value(value) {
-                return Err(Rejection::SecretLiteral {
-                    field: format!("environment[{index}].value"),
-                    name: entry.name.clone(),
-                });
-            }
         }
         locked.push(LockedEnvironment {
             name: entry.name.clone(),
@@ -92,11 +87,19 @@ pub(super) fn secrets(
         }
         if !secret::secret_source(&secret.source) {
             return Err(Rejection::SecretLiteral {
+                module: None,
                 field: format!("secrets[{index}].source"),
                 name: secret.name.clone(),
             });
         }
         let scope = scope(index, secret, envelope)?;
+        if secret::embedded_secret(&scope) {
+            return Err(Rejection::SecretLiteral {
+                module: None,
+                field: format!("secrets[{index}].scope"),
+                name: secret.name.clone(),
+            });
+        }
         let mode_field = format!("secrets[{index}].mode");
         let mode = match (secret.delivery, secret.mode) {
             (SecretDelivery::File, Some(mode)) => {
