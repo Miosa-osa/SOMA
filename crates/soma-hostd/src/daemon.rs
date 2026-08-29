@@ -28,8 +28,8 @@ use std::{
 use soma_guest::LaunchNetwork;
 
 use crate::{
-    AssignmentIntent, Claim, FailureCode, MAX_FRAME, Pool, Reply, Request, ResourceBroker,
-    WorkerLauncher, claim_failure_code, failure_code, lifecycle_failure_code,
+    AssignmentIntent, Claim, ClaimOutcome, FailureCode, MAX_FRAME, Pool, Reply, Request,
+    ResourceBroker, WorkerLauncher, claim_failure_code, failure_code, lifecycle_failure_code,
     transfer_failure_code,
 };
 
@@ -156,10 +156,7 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker>(
                 Ok(Claim {
                     outcome,
                     grant: None,
-                }) => Reply::Replayed {
-                    worker: outcome.worker,
-                    lease_generation: outcome.lease_generation,
-                },
+                }) => replayed(pool, outcome),
                 Ok(Claim {
                     grant: Some(grant), ..
                 }) => match pool.transfer(grant, &intent) {
@@ -204,6 +201,23 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker>(
             }
             Err(_) => Reply::Failed(failure_code(FailureCode::Ledger)),
         },
+    }
+}
+
+/// Answers a replay from the disposition of the worker the operation is bound to.
+///
+/// A replay whose worker was destroyed, by a failed transfer or by a release, is answered
+/// with the typed terminal failure rather than a reply naming a worker that is gone.
+fn replayed<L: WorkerLauncher, R: ResourceBroker>(
+    pool: &Arc<Pool<L, R>>,
+    outcome: ClaimOutcome,
+) -> Reply {
+    match pool.inspect(outcome.worker) {
+        Some(view) if !view.phase.is_terminal() => Reply::Replayed {
+            worker: outcome.worker,
+            lease_generation: outcome.lease_generation,
+        },
+        _ => Reply::Failed(failure_code(FailureCode::Terminated)),
     }
 }
 

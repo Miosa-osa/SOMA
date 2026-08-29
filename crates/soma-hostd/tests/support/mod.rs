@@ -8,8 +8,8 @@ use soma_hostd::{
     Admission, AssignmentIntent, CpuClass, CpuInventory, ExhaustedBehavior, GenerationId,
     HostProfile, InstanceId, InstanceShape, LaunchMaterialHandle, Limits, MeasuredOverhead,
     MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId, OperatorLimits,
-    OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, SingleNode,
-    StorageInventory, ValidShape, WorkloadClass,
+    OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, Request,
+    SingleNode, StorageInventory, ValidShape, WorkloadClass,
     testing::{InProcessBroker, InProcessLauncher, ProcessTable},
 };
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
@@ -184,6 +184,19 @@ pub fn instance(n: u32) -> InstanceId {
     let mut bytes = [0xb0; 16];
     bytes[..4].copy_from_slice(&n.to_be_bytes());
     InstanceId::new(bytes).expect("nonzero")
+}
+
+/// The daemon request that produces exactly `intent(n)`.
+pub fn claim_request(n: u32) -> Request {
+    let intent = intent(n);
+    Request::Claim {
+        operation: intent.operation,
+        instance: intent.instance,
+        vsock_cid: intent.vsock_cid,
+        deadline_nanos: intent.deadline_nanos(),
+        launch_material: intent.launch_material,
+        intent: intent.network,
+    }
 }
 
 pub fn intent(n: u32) -> AssignmentIntent {

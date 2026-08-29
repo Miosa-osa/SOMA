@@ -1041,6 +1041,7 @@ crates/soma-hostd/tests/
   bounds.rs
   capacity.rs
   claim.rs
+  daemon.rs
   latency.rs
   reconcile.rs
   replay.rs

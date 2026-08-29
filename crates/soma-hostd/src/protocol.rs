@@ -165,6 +165,8 @@ pub enum FailureCode {
     Invariant = 11,
     /// A capacity gate refused the Instance.
     Capacity = 12,
+    /// The operation's worker was destroyed; its Launch did not succeed.
+    Terminated = 13,
 }
 
 /// Maps a claim failure onto its code.
