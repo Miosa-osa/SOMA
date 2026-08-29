@@ -1,0 +1,188 @@
+//! The `soma.template/v1alpha1` document model.
+//!
+//! The document is authored as TOML.
+//! Unknown fields and unknown schema versions are rejected before any other rule runs, so
+//! a field name typo can never silently disable a policy.
+//!
+//! Field notes that go beyond the minimum example in the template system design:
+//!
+//! - `[command]` may be omitted; composition then requires exactly one module default.
+//! - `[command] user` is an optional POSIX user name; version 1 defaults to `root`.
+//! - `[network]` may be omitted and defaults to denied egress and denied ingress.
+//! - `[[secrets]] scope` is required for `file` and `egress-proxy` delivery, and defaults to
+//!   the secret name for `environment` delivery; `mode` applies only to `file` delivery.
+//! - `[[environment]]` entries carry either a literal `value` or `required = true`.
+
+mod choice;
+mod command;
+mod digest;
+mod parse;
+mod reader;
+
+use soma::{OciImage, OciPlatform};
+
+use crate::module::ModuleRef;
+
+pub use choice::{EgressIntent, IdleAction, IngressIntent, SecretDelivery};
+pub use command::Command;
+pub use parse::parse_template;
+
+pub const SCHEMA: &str = "soma.template/v1alpha1";
+pub const MAX_DOCUMENT_BYTES: usize = 256 * 1024;
+pub const MAX_STRING_BYTES: usize = 4096;
+pub const MAX_NAME_BYTES: usize = 128;
+pub const MAX_MODULES: usize = 64;
+pub const MAX_ARGUMENTS: usize = 64;
+pub const MAX_ENVIRONMENT: usize = 256;
+pub const MAX_SECRETS: usize = 64;
+pub const MAX_DOMAINS: usize = 256;
+pub const MAX_CIDRS: usize = 256;
+pub const DEFAULT_WORKING_DIRECTORY: &str = "/";
+pub const DEFAULT_USER: &str = "root";
+
+/// One parsed Template document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Template {
+    pub(crate) name: String,
+    pub(crate) description: Option<String>,
+    pub(crate) workload: Workload,
+    pub(crate) modules: Vec<ModuleRef>,
+    pub(crate) command: Option<Command>,
+    pub(crate) resources: Resources,
+    pub(crate) network: Network,
+    pub(crate) lifecycle: Lifecycle,
+    pub(crate) environment: Vec<EnvironmentEntry>,
+    pub(crate) secrets: Vec<SecretReference>,
+}
+
+impl Template {
+    #[must_use]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[must_use]
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+
+    #[must_use]
+    pub const fn workload(&self) -> &Workload {
+        &self.workload
+    }
+
+    #[must_use]
+    pub fn modules(&self) -> &[ModuleRef] {
+        &self.modules
+    }
+
+    #[must_use]
+    pub const fn command(&self) -> Option<&Command> {
+        self.command.as_ref()
+    }
+
+    #[must_use]
+    pub const fn resources(&self) -> &Resources {
+        &self.resources
+    }
+
+    #[must_use]
+    pub const fn network(&self) -> &Network {
+        &self.network
+    }
+
+    #[must_use]
+    pub const fn lifecycle(&self) -> &Lifecycle {
+        &self.lifecycle
+    }
+
+    #[must_use]
+    pub fn environment(&self) -> &[EnvironmentEntry] {
+        &self.environment
+    }
+
+    #[must_use]
+    pub fn secrets(&self) -> &[SecretReference] {
+        &self.secrets
+    }
+
+    /// The SHA-256 digest of the content-affecting projection of this document.
+    ///
+    /// The projection excludes `name`, `description`, the mutable `workload.image` text,
+    /// and every TOML formatting detail, so two documents that select the same inputs share
+    /// one content digest.
+    #[must_use]
+    pub fn content_digest(&self) -> [u8; 32] {
+        digest::content_digest(self)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Workload {
+    pub(crate) image: OciImage,
+    pub(crate) platform: OciPlatform,
+}
+
+impl Workload {
+    #[must_use]
+    pub const fn image(&self) -> &OciImage {
+        &self.image
+    }
+
+    #[must_use]
+    pub const fn platform(&self) -> &OciPlatform {
+        &self.platform
+    }
+}
+
+/// The requested Machine shape.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Resources {
+    pub vcpus: u32,
+    pub memory_mib: u64,
+    pub writable_storage_mib: u64,
+}
+
+/// The authored network intent before normalization into an envelope.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Network {
+    pub egress: EgressIntent,
+    pub allow_domains: Vec<String>,
+    pub allow_cidrs: Vec<String>,
+    pub ingress: IngressIntent,
+}
+
+impl Default for Network {
+    fn default() -> Self {
+        Self {
+            egress: EgressIntent::Deny,
+            allow_domains: Vec::new(),
+            allow_cidrs: Vec::new(),
+            ingress: IngressIntent::Deny,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Lifecycle {
+    pub idle_timeout_seconds: u64,
+    pub maximum_lifetime_seconds: u64,
+    pub on_idle: IdleAction,
+}
+
+/// One declared environment slot: a literal value or a name that Launch must supply.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnvironmentEntry {
+    pub name: String,
+    pub value: Option<String>,
+}
+
+/// A reference to a secret held outside the Template; never a value.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SecretReference {
+    pub name: String,
+    pub source: String,
+    pub delivery: SecretDelivery,
+    pub scope: Option<String>,
+    pub mode: Option<u32>,
+}

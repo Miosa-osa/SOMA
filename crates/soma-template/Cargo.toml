@@ -1,0 +1,16 @@
+[package]
+name = "soma-template"
+description = "Template parsing, module composition, and canonical Template Lock construction for SOMA"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+sha2 = { version = "=0.11.0", default-features = false }
+soma = { path = "../soma", version = "=1.0.0-alpha.1" }
+toml = { version = "=1.1.4", default-features = false, features = ["parse", "serde", "std"] }
+
+[lints]
+workspace = true

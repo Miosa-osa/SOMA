@@ -12,6 +12,7 @@ members = [
     "crates/soma-mcp",
     "crates/soma-netd",
     "crates/soma-storage",
+    "crates/soma-template",
     "crates/soma-vmm",
 ]
 resolver = "3"
