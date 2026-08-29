@@ -1,5 +1,16 @@
 # Notes
 
+## 2026-08-29 - XFS reflink heads must be prepared outside Launch
+
+Decision-map ticket #11 now has its mechanism and its measurement: `crates/soma-storage` owns published overlay classes with exact-size admission, a Linux profile probe that proves XFS plus one working `FICLONE` before any head exists, sterile ext4 templates from a pinned `mke2fs` and `e2fsck -fn` invocation with a private `mke2fs.conf`, derived UUID and hash seed, fixed creation time, and lazy initialization off, descriptor-only `FICLONE` head creation with file and directory `fsync` plus size and shared-extent verification through `FIEMAP`, the two-clone isolation and `ENOSPC` proofs, a single-use head ledger, durable release, and report-only reconciliation.
+Every live proof runs on a loop-backed XFS `reflink=1` filesystem inside a digest-pinned privileged Ubuntu 24.04 container through `scripts/xfs-reflink-bench.sh`, because the development host root filesystem is ext4 without reflink; the tests are ignored by default and fail on a missing prerequisite instead of passing silently.
+The matrix in `soma-storage-bench` crossed 100 MiB, 1 GiB, and 4 GiB templates, sterile, preallocated, and fragmented extents, warm and cold cache, 1, 10, and 100 simultaneous clones, ten percent free space, and 100 concurrent unlinks, and compared in-process `FICLONE` with the `cp --reflink=always` subprocess: 69 cells, 200 raw samples each, zero failures.
+The best 100-way cell has a complete-clone p99 of 9.9 ms and the worst 1,868 ms against the 1.00 ms disk share of fresh resource activation, and even the best single clone is 1.25 ms at p99 because the durable file `fsync` alone costs 0.6 ms, so on-demand cloning is not admitted and prepared sterile heads are mandatory.
+Clones of one template serialize on the template inode, so a 100-way burst costs about 100 times one `ioctl` and parallel replenishment gains nothing per class.
+The `ioctl` cost is proportional to the source extent count at about 0.6 us per extent, so template size hardly matters but a fragmented template must never be certified.
+`FICLONE` maps unwritten source extents as holes rather than shared extents, so a head never inherits its template's `fallocate` reservation and the free-space evidence plus the `ENOSPC` proof remain the only capacity guard.
+The in-process `ioctl` beats the `cp` subprocess by five times per head, and cleanup must also stay off the request path because 100 concurrent unlinks raised the 100-way p99 from 21.5 ms to 57.1 ms.
+The retained result is in `docs/evidence/2026-08-29-xfs-reflink-profile.md`; it is a loop-backed decision input, not a production-host latency claim, and the next dependency is the prepared-head pool in the host allocator.
 ## 2026-08-29 - soma-netd prepares sterile bundles and activates only after repair
 
 Decision-map ticket #10 now has a first implementation: `soma-netd` owns namespaces, TAP and veth devices, `/30` IPAM, MAC derivation, nftables text, conntrack zones, resolver policy, exclusive port reservations, the durable ledger, repair-gated activation, ordered release, and reconciliation, while the VMM side receives one TAP descriptor through `SOCK_SEQPACKET` plus `SCM_RIGHTS` with a fixed typed header.

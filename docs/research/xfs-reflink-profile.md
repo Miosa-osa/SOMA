@@ -25,3 +25,9 @@ It retains every raw duration plus kernel, XFS, mount, device, CPU, and template
 On-demand cloning is admitted only if p99 fits the disk budget under the worst certified matrix; otherwise prepared heads are mandatory.
 
 Modules are `storage/profile`, `storage/template`, `storage/clone`, `storage/verify`, `storage/lease`, `storage/release`, and `storage/reconcile`.
+
+## Measured result
+
+The matrix ran on 2026-08-29 through `crates/soma-storage` and `scripts/xfs-reflink-bench.sh` on a loop-backed XFS `reflink=1` filesystem inside a privileged pinned Ubuntu 24.04 container.
+No 100-way cell came near the 1.00 ms p99 disk share of fresh resource activation, so on-demand cloning is not admitted and prepared sterile heads are mandatory.
+The retained tables, identities, and decision are in [the XFS reflink evidence](../evidence/2026-08-29-xfs-reflink-profile.md).

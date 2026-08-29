@@ -22,7 +22,6 @@ crates/
   soma-macos/
   soma-mcp/
   soma-netd/
-
   soma-storage/
   soma-vmm/
 ```
@@ -54,7 +53,6 @@ human, agent, SDK, or operator
     soma-guest       independent protocol foundation
     soma-guest-agent -> soma-guest
     soma-netd        -> soma request types, soma-guest launch identity
-
     soma-storage     independent Linux storage mechanism
 ```
 
@@ -69,7 +67,6 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
-
 `soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the future host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 No provider adapter belongs below the public Machine seam.

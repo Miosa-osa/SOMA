@@ -184,9 +184,11 @@ Can XFS `FICLONE` create isolated writable heads with acceptable p99 under reali
 
 ### Answer
 
-Resolved architecturally.
-Writable state uses certified sterile ext4 size classes cloned privately through XFS `FICLONE`, with on-demand versus precreated selection determined by retained p99 evidence.
-See [XFS reflink profile](xfs-reflink-profile.md).
+Resolved by measurement.
+Writable state uses certified sterile ext4 size classes cloned privately through XFS `FICLONE`; `crates/soma-storage` implements the profile, template, clone, verify, lease, release, and reconcile modules with live proofs on a loop-backed `reflink=1` filesystem.
+The retained matrix of 69 cells with 200 raw samples each and zero failures put the best 100-way complete-clone p99 at 9.9 ms and the worst at 1,868 ms against the 1.00 ms disk share of fresh resource activation, and no single-clone cell fit either, so on-demand cloning is not admitted and prepared sterile heads are mandatory.
+Clones of one template serialize on the template inode, the `ioctl` cost scales with the source extent count rather than the template size, and `FICLONE` maps unwritten template extents as holes, so heads come from sterile templates through an asynchronously replenished pool and never carry a capacity reservation.
+See [XFS reflink profile](xfs-reflink-profile.md) and [the XFS reflink evidence](../evidence/2026-08-29-xfs-reflink-profile.md).
 
 ## #12: How are prepared workers allocated without reusing tenant state?
 
