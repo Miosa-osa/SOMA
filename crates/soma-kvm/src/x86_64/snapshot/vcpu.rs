@@ -22,17 +22,26 @@ use crate::snapshot::kvm_state::{
 /// or leave a snapshot however many registers the host supports. Every entry is architectural
 /// guest state that the pinned kernel actually uses: the system-call and sysenter
 /// configuration, segment bases, the memory-type and misc-enable configuration, the timestamp
-/// counter and its deadline timer, and the KVM paravirtual clock, async-page-fault,
-/// steal-time, and end-of-interrupt registers.
-const MSR_ALLOWLIST: [u32; 24] = [
+/// counter and its deadline timer, the speculation-control and extended-supervisor-state
+/// configuration, and the KVM paravirtual clock, async-page-fault, steal-time, and
+/// end-of-interrupt registers.
+///
+/// `IA32_XSS` is not optional. The guest kernel enables its supervisor extended-state
+/// components at boot and every later `XRSTORS` names them; a machine restored with the
+/// register back at zero takes a general-protection fault the first time a task returns to
+/// user mode. `IA32_SPEC_CTRL` is not optional either: dropping it would silently restore a
+/// machine with weaker speculation mitigations than the one that was captured.
+const MSR_ALLOWLIST: [u32; 26] = [
     0x0000_0010, // IA32_TSC
     0x0000_003b, // IA32_TSC_ADJUST
+    0x0000_0048, // IA32_SPEC_CTRL
     0x0000_0174, // IA32_SYSENTER_CS
     0x0000_0175, // IA32_SYSENTER_ESP
     0x0000_0176, // IA32_SYSENTER_EIP
     0x0000_01a0, // IA32_MISC_ENABLE
     0x0000_0277, // IA32_CR_PAT
     0x0000_06e0, // IA32_TSC_DEADLINE
+    0x0000_0da0, // IA32_XSS
     0x4b56_4d00, // KVM_WALL_CLOCK_NEW
     0x4b56_4d01, // KVM_SYSTEM_TIME_NEW
     0x4b56_4d02, // KVM_ASYNC_PF_EN

@@ -3,6 +3,11 @@
 //! Version 1 keeps KVM's supported leaves, requires the KVM paravirtual signature leaf so the
 //! guest selects `kvmclock`, pins the bootstrap vCPU's APIC identifiers to zero, and marks the
 //! hypervisor bit. Anything the host cannot provide fails closed before vCPU execution.
+//!
+//! Both topology leaves report the x2APIC identifier of whichever host processor answered the
+//! ioctl, so both are pinned: leaving either as the host reported it would show the guest a
+//! value that changes between calls on the same host and would make the certified template
+//! digest unreproducible.
 
 use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::{Kvm, VcpuFd};
@@ -11,6 +16,7 @@ use super::error::{MachineError, Phase};
 
 const LEAF_FEATURES: u32 = 0x1;
 const LEAF_TOPOLOGY: u32 = 0xb;
+const LEAF_TOPOLOGY_V2: u32 = 0x1f;
 const LEAF_KVM_SIGNATURE: u32 = 0x4000_0000;
 const FEATURES_ECX_HYPERVISOR: u32 = 1 << 31;
 const FEATURES_EBX_APIC_ID_MASK: u32 = 0xff << 24;
@@ -34,7 +40,7 @@ pub(crate) fn apply_template(cpuid: &mut CpuId) -> Result<(), MachineError> {
                 entry.ebx &= !FEATURES_EBX_APIC_ID_MASK;
                 entry.ecx |= FEATURES_ECX_HYPERVISOR;
             }
-            LEAF_TOPOLOGY => entry.edx = 0,
+            LEAF_TOPOLOGY | LEAF_TOPOLOGY_V2 => entry.edx = 0,
             LEAF_KVM_SIGNATURE => {
                 signature_seen = true;
                 if [entry.ebx, entry.ecx, entry.edx] != KVM_SIGNATURE {
@@ -77,6 +83,7 @@ mod tests {
         let mut cpuid = CpuId::from_entries(&[
             entry(LEAF_FEATURES, 0x0700_0800, 0, 0),
             entry(LEAF_TOPOLOGY, 0, 0, 5),
+            entry(LEAF_TOPOLOGY_V2, 0, 0, 0x28),
             entry(
                 LEAF_KVM_SIGNATURE,
                 KVM_SIGNATURE[0],
@@ -90,6 +97,10 @@ mod tests {
         assert_eq!(entries[0].ebx, 0x0000_0800);
         assert_eq!(entries[0].ecx, FEATURES_ECX_HYPERVISOR);
         assert_eq!(entries[1].edx, 0);
+        assert_eq!(
+            entries[2].edx, 0,
+            "the v2 topology APIC id must be pinned too"
+        );
 
         let mut without = CpuId::from_entries(&[entry(LEAF_FEATURES, 0, 0, 0)]).unwrap();
         let error = apply_template(&mut without).unwrap_err();

@@ -11,7 +11,7 @@ pub mod guest_memory;
 pub mod queue;
 pub mod transport;
 
-pub use bus::slots::{SlotRestoreError, SlotSnapshot};
+pub use bus::slots::{PendingWork, SlotRestoreError, SlotSnapshot};
 pub use bus::{
     BusConfigError, BusDevices, BusEvent, BusViolation, FIRST_GSI, IrqSink, MMIO_WINDOW_BASE,
     MmioBus, NotifySource, SLOT_COUNT, Slot, kernel_command_line,

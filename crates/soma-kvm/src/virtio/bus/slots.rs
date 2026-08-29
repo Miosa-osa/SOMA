@@ -2,8 +2,8 @@
 
 use std::fmt;
 
-use super::{BusDevices, MmioBus, Slot, with_slot};
-use crate::virtio::device::{DeviceStateError, VirtioDevice};
+use super::{BusDevices, MmioBus, SLOT_COUNT, Slot, with_slot};
+use crate::virtio::device::{DeviceStateError, MAX_QUEUES, VirtioDevice};
 use crate::virtio::devices::net::{NET_RX_QUEUE, rx::deliver_rx};
 use crate::virtio::devices::service::{ServiceError, ServiceReport, service_queue};
 use crate::virtio::devices::vsock::rx::{deliver_events, deliver_rx as deliver_vsock_rx};
@@ -13,6 +13,9 @@ use crate::virtio::queue::violation::QueueViolation;
 use crate::virtio::transport::MmioTransport;
 use crate::virtio::transport::state::{RestoreError, TransportState};
 use crate::virtio::transport::violation::TransportViolation;
+
+/// Driver-posted heads per slot and queue, indexed by [`Slot::index`] and queue index.
+pub type PendingWork = [[u32; MAX_QUEUES]; SLOT_COUNT];
 
 /// Captured state of one slot: transport record plus device record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -105,25 +108,29 @@ impl MmioBus {
         }
     }
 
-    /// Counts driver-posted heads no device has taken yet, across every ready queue.
+    /// Counts driver-posted heads no device has taken yet, per slot and queue.
     ///
-    /// Snapshot capture requires this to be zero: a queue with unserviced work would be
-    /// restored into an Instance that never asked for it.
+    /// A guest-driven queue must read zero at the capture point: work the device never took
+    /// would be restored into an Instance that never asked for it. A device-filled receive or
+    /// event queue reads the number of buffers the driver posted in advance, which is ordinary
+    /// state and is restored with the queue.
     ///
     /// # Errors
     /// Returns the first queue violation found while reading the available ring.
     pub fn pending_work<M: GuestMemory + ?Sized>(
         &mut self,
         mem: &M,
-    ) -> Result<u32, (Slot, u16, QueueViolation)> {
-        let mut pending = 0_u32;
+    ) -> Result<PendingWork, (Slot, u16, QueueViolation)> {
+        let mut pending = PendingWork::default();
         for slot in Slot::ALL {
             for index in 0..slot.queue_count() {
                 let queue = with_slot!(self, slot, |t| t
                     .queue_and_device_mut(index)
                     .map(|(queue, _)| queue.is_ready().then(|| queue.pending(mem))));
                 match queue {
-                    Some(Some(Ok(count))) => pending = pending.saturating_add(u32::from(count)),
+                    Some(Some(Ok(count))) => {
+                        pending[usize::from(slot.index())][usize::from(index)] = u32::from(count);
+                    }
                     Some(Some(Err(violation))) => return Err((slot, index, violation)),
                     Some(None) | None => {}
                 }

@@ -88,6 +88,24 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
     let outcome = drive(&restored, delivered, &responder, commands);
     let complete = restored.is_ready();
     let evidence = restored.machine.finish(EXIT_GRACE);
+    let log = fixture.scratch.join(format!("restore-{name}.log"));
+    std::fs::write(&log, &evidence.serial).expect("retain the restored console");
+    let console = String::from_utf8_lossy(&evidence.serial);
+    eprintln!(
+        "[{name}] console ({} bytes) retained at {}:",
+        evidence.serial.len(),
+        log.display()
+    );
+    for line in console
+        .lines()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+    {
+        eprintln!("  | {line}");
+    }
     let executed = match outcome {
         Ok(executed) => executed,
         Err(error) => {

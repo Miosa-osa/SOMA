@@ -204,6 +204,10 @@ fn capture_source(
         "the source machine never entered KVM_RUN"
     );
     eprintln!(
+        "[capture] posted receive buffers at the capture point: net={} vsock={} events={}",
+        outcome.posted_buffers[0], outcome.posted_buffers[1], outcome.posted_buffers[2],
+    );
+    eprintln!(
         "[capture] memory={} ({} bytes) overlay={} ({} bytes) state={} ({} bytes) root={}",
         outcome.memory_digest,
         outcome.memory_bytes,

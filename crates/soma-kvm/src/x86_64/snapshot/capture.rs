@@ -59,6 +59,8 @@ pub struct CaptureOutcome {
     pub root_digest: Digest,
     /// When the agent announced the repair point, relative to the machine's own clock.
     pub repair_point_at: Instant,
+    /// Receive buffers the driver had posted at the capture point: network, vsock, events.
+    pub posted_buffers: [u32; 3],
 }
 
 /// Captures `sandbox` at the repair point and publishes the snapshot.
@@ -102,6 +104,7 @@ pub fn capture(
     let mut bus = paused.bus;
     quiesce::drain(&mut bus, &paused.memory)?;
     quiesce::prove_queues_quiescent(&mut bus, &paused.memory)?;
+    let posted = quiesce::posted(&mut bus, &paused.memory);
     quiesced.prove(QuiescePrecondition::QueuesProvenQuiescent)?;
 
     let mut sequence = quiesced.begin_capture()?;
@@ -219,6 +222,7 @@ pub fn capture(
         state_bytes,
         root_digest,
         repair_point_at,
+        posted_buffers: posted,
     })
 }
 

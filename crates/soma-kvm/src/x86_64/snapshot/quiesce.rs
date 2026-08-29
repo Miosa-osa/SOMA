@@ -64,7 +64,19 @@ pub(super) fn drain<M: GuestMemory + ?Sized>(
     Ok(())
 }
 
-/// Proves that no ready queue holds a head the device has not taken.
+/// The queues the guest drives, which must hold no unserviced head at the capture point.
+///
+/// The receive and event queues are excluded on purpose: the driver posts empty buffers into
+/// them in advance and the device fills them only when the host has something to deliver, so a
+/// nonzero count there is ordinary posted capacity that restore carries forward unchanged.
+const GUEST_DRIVEN: [(Slot, u16); 4] = [
+    (Slot::Root, 0),
+    (Slot::Overlay, 0),
+    (Slot::Net, crate::virtio::NET_TX_QUEUE),
+    (Slot::Rng, 0),
+];
+
+/// Proves that no guest-driven queue holds a head the device has not taken.
 ///
 /// # Errors
 ///
@@ -77,10 +89,31 @@ pub(super) fn prove_queues_quiescent<M: GuestMemory + ?Sized>(
     let pending = bus.pending_work(memory).map_err(|_| {
         SnapshotError::NotQuiescent("a queue could not be read while proving quiescence")
     })?;
-    if pending != 0 {
+    for (slot, queue) in GUEST_DRIVEN {
+        if pending[usize::from(slot.index())][usize::from(queue)] != 0 {
+            return Err(SnapshotError::NotQuiescent(
+                "a guest-driven queue holds work the device never took",
+            ));
+        }
+    }
+    // The vsock transmit queue is guest-driven too, but the control device is proven to hold
+    // no connection at all, which is the stronger statement the device contract asks for.
+    if pending[usize::from(Slot::Vsock.index())][usize::from(crate::virtio::VSOCK_TX_QUEUE)] != 0 {
         return Err(SnapshotError::NotQuiescent(
-            "a queue holds work the device never took",
+            "the vsock transmit queue holds a packet the device never took",
         ));
     }
     prove_no_ingress(bus)
+}
+
+/// The posted receive and event capacity a capture carries forward, for the evidence.
+pub(super) fn posted<M: GuestMemory + ?Sized>(bus: &mut MmioBus, memory: &M) -> [u32; 3] {
+    bus.pending_work(memory).map_or([0; 3], |pending| {
+        [
+            pending[usize::from(Slot::Net.index())][usize::from(crate::virtio::NET_RX_QUEUE)],
+            pending[usize::from(Slot::Vsock.index())][usize::from(crate::virtio::VSOCK_RX_QUEUE)],
+            pending[usize::from(Slot::Vsock.index())]
+                [usize::from(crate::virtio::VSOCK_EVENT_QUEUE)],
+        ]
+    })
 }
