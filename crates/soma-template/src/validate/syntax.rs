@@ -6,8 +6,10 @@ use crate::{module::GuestPath, rejection::InvalidReason};
 const MAX_DOMAIN_BYTES: usize = 253;
 const MAX_LABEL_BYTES: usize = 63;
 const MAX_USER_BYTES: usize = 32;
-/// One year in seconds; a longer idle or maximum lifetime is treated as a typo.
-pub(crate) const MAX_TIMEOUT_SECONDS: u64 = 365 * 24 * 60 * 60;
+/// Thirty days in seconds, the same bound as the Generation compiler's `MAX_TTL_SECONDS` in
+/// `soma_generation::generation::template`, so a locked maximum lifetime is always a valid
+/// `LifetimeLimits`; a longer idle or maximum lifetime is treated as a typo.
+pub(crate) const MAX_TIMEOUT_SECONDS: u64 = 30 * 24 * 60 * 60;
 
 /// A lowercase DNS name, optionally prefixed by `*.` to allow every subdomain.
 ///

@@ -4,11 +4,12 @@ mod support;
 
 use soma::{EgressPolicy, NetworkPolicy, OciImage};
 use soma_template::{
-    EgressIntent, IngressIntent, ModuleRegistry, PolicyCeiling, RevisionError, TemplateRevision,
-    resolve,
+    EgressIntent, IngressIntent, InvalidReason, ModuleRegistry, PolicyCeiling, Rejection,
+    RejectionClass, RevisionError, TemplateRevision, resolve,
 };
 use support::{
-    EXAMPLE, PYTHON_DIGEST, PYTHON_SIZE, backend, edit, example, lock, oracle, parse, resolver,
+    EXAMPLE, PYTHON_DIGEST, PYTHON_SIZE, assert_names, backend, edit, example, lock, oracle, parse,
+    resolver,
 };
 
 #[test]
@@ -146,4 +147,37 @@ fn shape_fails_closed_for_envelopes_the_portable_contract_cannot_state() {
         TemplateRevision::from_lock(&ingress).shape().err(),
         Some(RevisionError::UnrepresentableNetwork)
     );
+}
+
+#[test]
+fn the_lifetime_bound_matches_the_compiler_contract() {
+    let thirty_days = 30 * 24 * 60 * 60;
+    let accepted = edit(
+        EXAMPLE,
+        "maximum_lifetime_seconds = 14400",
+        &format!("maximum_lifetime_seconds = {thirty_days}"),
+    );
+    assert_eq!(
+        TemplateRevision::from_lock(&lock(&accepted)).ttl_seconds(),
+        thirty_days
+    );
+    let rejected = edit(
+        EXAMPLE,
+        "maximum_lifetime_seconds = 14400",
+        &format!("maximum_lifetime_seconds = {}", thirty_days + 1),
+    );
+    let rejection = support::reject(&rejected);
+    assert_names(
+        &rejection,
+        RejectionClass::InvalidValue,
+        "lifecycle.maximum_lifetime_seconds",
+        None,
+    );
+    assert!(matches!(
+        rejection,
+        Rejection::InvalidValue {
+            reason: InvalidReason::InvalidTimeout,
+            ..
+        }
+    ));
 }

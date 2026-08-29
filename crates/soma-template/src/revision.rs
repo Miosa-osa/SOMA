@@ -17,8 +17,16 @@
 //! | `shape.storage_mib` | `shape()?.storage_mib()` | resources writable storage, layout row 9 |
 //! | `shape.capabilities.network` | `shape()?.capabilities().network_policy()` | network envelope, layout row 10; exact for a fully denied envelope and for unrestricted egress with denied ingress, otherwise fails closed until the policy compiler exists |
 //! | `startup.workload_probe` | none, readiness only | module digests in layout row 7 bind each health probe; the build plan turns them into a workload probe |
-//! | `lifetime.ttl_seconds` | `ttl_seconds()` | lifecycle maximum lifetime, layout row 11 |
+//! | `lifetime.ttl_seconds` | `ttl_seconds()` | lifecycle maximum lifetime, layout row 11; validation bounds it by the compiler's thirty-day `MAX_TTL_SECONDS`, so `LifetimeLimits::new` accepts every locked value |
 //! | `profile_version` | none, a Generation builder input | `policy_version()` in layout row 4 is the composition rule set, not the compiler profile |
+//!
+//! `shape()` is bounded by the portable `MachineShape` contract and the Backend limits only;
+//! it is not pre-validated against the compiler's profile, whose version 1 accepts exactly one
+//! vCPU, 128 MiB through 3 GiB of memory, writable storage of at least 64 MiB in 4 MiB units,
+//! and `linux/amd64`, so the specification example's two vCPUs project to a shape that
+//! `soma_generation::TemplateRevision::new` rejects as unsupported.
+//! The crate-boundary test in `soma-generation` (`tests/template_boundary.rs`) builds the
+//! compiler's revision from this view and records that mismatch.
 //!
 //! The remaining lock fields are not consumed by the compiler's revision and are carried for
 //! later slices: `modules()` and `default_command()` feed the deterministic build plan and the
