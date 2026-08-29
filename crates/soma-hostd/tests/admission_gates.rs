@@ -23,7 +23,7 @@ fn gated_profile() -> CertifiedProfile {
 }
 
 #[test]
-fn every_gate_rejects_by_name_and_a_rejection_leaves_usage_unchanged() {
+fn every_gate_a_machine_shape_can_trip_rejects_by_name_and_rolls_back() {
     let admission = Admission::new(gated_profile(), SingleNode);
     let shape = |f: fn(MachineShape) -> MachineShape| f(atlas_shape());
     let cases: [(Gate, MachineShape); 10] = [
@@ -114,6 +114,7 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
     let profile = gated_profile();
     let first = admission.reserve(&atlas_valid()).expect("first");
     let second = admission.reserve(&atlas_valid()).expect("second");
+    let before = admission.usage();
     assert_eq!(
         admission
             .reserve(&atlas_valid())
@@ -121,6 +122,7 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
             .gate,
         Gate::ConcurrentLaunches
     );
+    assert_eq!(admission.usage(), before, "ConcurrentLaunches rolled back");
     let mut first = first;
     let mut second = second;
     admission.launched(&mut first);
@@ -129,6 +131,7 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
     let mut third = third;
     admission.launched(&mut third);
     let fourth = admission.reserve(&atlas_valid()).expect("fourth");
+    let before = admission.usage();
     assert_eq!(
         admission
             .reserve(&atlas_valid())
@@ -136,6 +139,7 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
             .gate,
         Gate::OperatorSafetyLimit
     );
+    assert_eq!(admission.usage(), before, "OperatorSafetyLimit rolled back");
     let mut fourth = fourth;
     admission.launched(&mut fourth);
     admission.begin_cleanup(&mut first).expect("slot");
@@ -154,6 +158,7 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
     tight.process.processes = 1;
     let admission = Admission::new(certified(tight), SingleNode);
     let held = admission.reserve(&atlas_valid()).expect("one process");
+    let before = admission.usage();
     assert_eq!(
         admission
             .reserve(&atlas_valid())
@@ -161,6 +166,7 @@ fn launch_resident_cleanup_and_process_limits_gate_in_sequence() {
             .gate,
         Gate::ProcessLimit
     );
+    assert_eq!(admission.usage(), before, "ProcessLimit rolled back");
     admission.release(held);
 }
 
@@ -181,6 +187,7 @@ fn a_cleanup_slot_is_owned_by_the_reservation_that_took_it() {
         1,
         "a second begin takes no second slot"
     );
+    let before = admission.usage();
     assert_eq!(
         admission
             .begin_cleanup(&mut second)
@@ -188,6 +195,7 @@ fn a_cleanup_slot_is_owned_by_the_reservation_that_took_it() {
             .gate,
         Gate::CleanupSlots
     );
+    assert_eq!(admission.usage(), before, "CleanupSlots rolled back");
     assert!(!second.holds_cleanup_slot());
 
     admission.release(second);

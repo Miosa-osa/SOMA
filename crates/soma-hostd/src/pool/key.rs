@@ -142,12 +142,15 @@ impl PoolKey {
 mod tests {
     use super::*;
 
-    fn key(vcpus: u32) -> PoolKey {
+    /// One named change to exactly one key component.
+    type Mutation = (&'static str, fn(&mut PoolKey));
+
+    fn key() -> PoolKey {
         PoolKey {
             host_profile: HostProfileDigest::new([1; 32]).expect("nonzero"),
             generation: GenerationId::new([2; 32]).expect("nonzero"),
             cpu: CpuClass {
-                vcpus,
+                vcpus: 1,
                 workload: WorkloadClass::ApiWaiting,
             },
             memory: MemoryShape {
@@ -166,16 +169,55 @@ mod tests {
 
     #[test]
     fn digest_is_stable_and_changes_with_every_component() {
-        assert_eq!(key(1).digest(), key(1).digest());
-        assert_ne!(key(1).digest(), key(2).digest());
-        let mut elastic = key(1);
-        elastic.memory.class = MemoryClass::Elastic {
-            expected_resident_bytes: 1,
-        };
-        assert_ne!(elastic.digest(), key(1).digest());
-        let mut renamed = key(1);
-        renamed.overlay.name = ClassName::new("smal").expect("name");
-        assert_ne!(renamed.digest(), key(1).digest());
-        assert!(format!("{:?}", key(1).digest()).starts_with("pool-key("));
+        assert_eq!(key().digest(), key().digest());
+        let mutations: [Mutation; 11] = [
+            ("host profile", |key| {
+                key.host_profile = HostProfileDigest::new([7; 32]).expect("nonzero");
+            }),
+            ("generation", |key| {
+                key.generation = GenerationId::new([7; 32]).expect("nonzero");
+            }),
+            ("vcpus", |key| {
+                key.cpu.vcpus += 1;
+            }),
+            ("workload class", |key| {
+                key.cpu.workload = WorkloadClass::Build;
+            }),
+            ("guest bytes", |key| {
+                key.memory.guest_bytes += 1;
+            }),
+            ("memory class", |key| {
+                key.memory.class = MemoryClass::Elastic {
+                    expected_resident_bytes: 1,
+                };
+            }),
+            ("overlay name", |key| {
+                key.overlay.name = ClassName::new("smal").expect("name");
+            }),
+            ("overlay version", |key| {
+                key.overlay.version += 1;
+            }),
+            ("overlay logical bytes", |key| {
+                key.overlay.logical_bytes += 1;
+            }),
+            ("overlay template digest", |key| {
+                key.overlay.template_digest = TemplateDigest::from_bytes([7; 32]);
+            }),
+            ("network profile", |key| {
+                key.network = ProfileDigest([7; 32]);
+            }),
+        ];
+        let mut seen = vec![key().digest()];
+        for (component, mutate) in mutations {
+            let mut mutated = key();
+            mutate(&mut mutated);
+            let digest = mutated.digest();
+            assert!(
+                !seen.contains(&digest),
+                "{component} did not change the pool key digest"
+            );
+            seen.push(digest);
+        }
+        assert!(format!("{:?}", key().digest()).starts_with("pool-key("));
     }
 }
