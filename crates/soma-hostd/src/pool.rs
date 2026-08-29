@@ -135,6 +135,7 @@ pub struct Pool<L: WorkerLauncher, R: ResourceBroker> {
     pub(crate) registry_changed: Condvar,
     pub(crate) in_flight: AtomicUsize,
     pub(crate) replenish_gate: Mutex<()>,
+    pub(crate) reconcile_gate: Mutex<()>,
     pub(crate) threads: Mutex<Vec<JoinHandle<()>>>,
     pub(crate) reconciled: AtomicBool,
     counter: AtomicU64,
@@ -183,6 +184,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             registry_changed: Condvar::new(),
             in_flight: AtomicUsize::new(0),
             replenish_gate: Mutex::new(()),
+            reconcile_gate: Mutex::new(()),
             threads: Mutex::new(Vec::new()),
             reconciled: AtomicBool::new(!suspects),
             counter: AtomicU64::new(0),
@@ -231,13 +233,21 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         !self.reconciled.load(Ordering::Acquire)
     }
 
-    /// Adds a slot in the given phase, compacting dead slots and enforcing `max`.
+    /// Adds a slot in the given phase, compacting dead slots, refusing a worker the table
+    /// already holds, and enforcing `max`.
     pub(crate) fn add_slot(&self, slot: Arc<Slot>) -> Result<Arc<Slot>, Overloaded> {
         let mut slots = self
             .slots
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         slots.retain(|slot| slot.observe().phase != Phase::Dead);
+        if slots.iter().any(|live| live.id() == slot.id()) {
+            return Err(Overloaded {
+                gate: OverloadGate::DuplicateWorker,
+                current: 1,
+                limit: 1,
+            });
+        }
         if slots.len() >= self.limits.max {
             return Err(Overloaded {
                 gate: OverloadGate::PoolMaximum,

@@ -95,10 +95,17 @@ impl fmt::Display for ReconcileReport {
 impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     /// Reconciles every nonterminal ledger entry that this process does not hold a slot for.
     ///
+    /// Passes are serialized, so two callers can never adopt the same running Instance twice
+    /// and leave an unowned slot counting against the pool maximum forever.
+    ///
     /// # Errors
     ///
     /// Returns a ledger failure; the pool stays unreconciled and will not replenish.
     pub fn reconcile(&self) -> Result<ReconcileReport, LedgerError> {
+        let gate = self
+            .reconcile_gate
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let entries = self.ledger().entries()?;
         let mut report = ReconcileReport::default();
         for entry in entries.values() {
@@ -166,6 +173,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         }
         self.reconciled
             .store(true, std::sync::atomic::Ordering::Release);
+        drop(gate);
         Ok(report)
     }
 

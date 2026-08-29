@@ -4,7 +4,7 @@
 
 mod support;
 
-use std::sync::Arc;
+use std::sync::{Arc, Barrier};
 
 use soma_hostd::{
     ConstructionFault, Liveness, Phase, ReconcileDisposition, ReplenishLimit, ResourceLiveness,
@@ -140,4 +140,54 @@ fn gone_processes_are_released_rather_than_terminated() {
     let clean = open(dir.path(), &table, limits(2, 2));
     assert!(!clean.needs_reconcile());
     assert_eq!(clean.reconcile().expect("reconcile").suspects, 0);
+}
+
+#[test]
+fn concurrent_reconciliations_adopt_one_running_instance_exactly_once() {
+    let first = harness(limits(1, 4));
+    let running = {
+        let pool = &first.pool;
+        pool.replenish_blocking().expect("replenish");
+        let worker = {
+            let claim = pool.claim(op(1), intent(1).fingerprint()).expect("claim");
+            let worker = claim.outcome.worker;
+            pool.transfer(claim.grant.expect("grant"), &intent(1))
+                .expect("transfer");
+            worker
+        };
+        pool.start(worker).expect("start");
+        worker
+    };
+    let table = Arc::clone(&first.table);
+    let dir = first.dir;
+    drop(first.pool);
+
+    let second = open(dir.path(), &table, limits(1, 4));
+    let barrier = Arc::new(Barrier::new(2));
+    let passes: Vec<_> = (0..2)
+        .map(|_| {
+            let pool = Arc::clone(&second);
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                barrier.wait();
+                pool.reconcile().expect("reconcile")
+            })
+        })
+        .collect();
+    let reports: Vec<_> = passes
+        .into_iter()
+        .map(|pass| pass.join().expect("thread"))
+        .collect();
+    let retained: usize = reports.iter().map(|report| report.counts().2).sum();
+    assert_eq!(retained, 1, "the Instance was adopted exactly once");
+    assert_eq!(
+        second.occupancy().running,
+        1,
+        "one running Instance produced one slot"
+    );
+    second.release(running).expect("release");
+    let occupancy = second.occupancy();
+    assert_eq!(occupancy.running, 0, "no zombie slot outlived the release");
+    assert!(second.release(running).is_err());
+    assert_eq!(second.replenish_blocking().expect("replenish"), 1);
 }

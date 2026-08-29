@@ -143,11 +143,13 @@ pub struct Exhausted {
     pub behavior: ExhaustedBehavior,
 }
 
-/// Which bounded structure was full.
+/// Which bounded structure refused more work.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OverloadGate {
     /// The idempotent claim registry has no room for another live binding.
     ClaimRegistry,
+    /// The slot table already holds a live worker with this identity.
+    DuplicateWorker,
     /// Every replenishment slot is busy.
     ReplenishConcurrency,
     /// The pool holds `max` live workers.
