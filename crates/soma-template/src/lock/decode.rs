@@ -1,8 +1,9 @@
-//! Hostile lock decoder; every read is bounded and trailing bytes are rejected.
+//! Hostile lock decoder; every read is bounded, trailing bytes are rejected, and every
+//! decoded record then passes the shape rules in [`super::verify`].
 
 use super::{
     LOCK_MAGIC, LOCK_SCHEMA_VERSION, LockedCommand, LockedEnvironment, LockedModule, LockedSecret,
-    MAX_LOCK_ENVIRONMENT, MAX_LOCK_MODULES, TemplateLock,
+    MAX_LOCK_ENVIRONMENT, MAX_LOCK_MODULES, TemplateLock, verify,
 };
 use crate::{
     error::LockError,
@@ -46,6 +47,12 @@ pub(super) fn decode(bytes: &[u8]) -> Result<TemplateLock, LockError> {
     let ceiling = PolicyCeiling::decode(&mut reader)?;
     let backend = BackendCapabilities::decode(&mut reader)?;
     reader.finish()?;
+    verify::image(&image, &backend)?;
+    verify::command(&command)?;
+    verify::resources(&resources, &backend)?;
+    verify::lifecycle(&lifecycle, &backend)?;
+    verify::environment(&environment)?;
+    verify::secrets(&secrets, &network)?;
     Ok(TemplateLock {
         template_schema,
         policy_version,
@@ -94,17 +101,12 @@ fn modules(reader: &mut Reader<'_>) -> Result<Vec<LockedModule>, LockError> {
 }
 
 fn command(reader: &mut Reader<'_>) -> Result<LockedCommand, LockError> {
-    let command = LockedCommand {
+    Ok(LockedCommand {
         program: reader.string(MAX_STRING_BYTES)?,
         args: reader.strings(MAX_ARGUMENTS, MAX_STRING_BYTES)?,
         working_directory: reader.string(MAX_STRING_BYTES)?,
         user: reader.string(MAX_STRING_BYTES)?,
-    };
-    if command.program.is_empty() || command.working_directory.is_empty() || command.user.is_empty()
-    {
-        return Err(LockError::InvalidField { field: "command" });
-    }
-    Ok(command)
+    })
 }
 
 fn lifecycle(reader: &mut Reader<'_>) -> Result<Lifecycle, LockError> {
@@ -133,29 +135,13 @@ fn environment(reader: &mut Reader<'_>) -> Result<Vec<LockedEnvironment>, LockEr
         } else {
             None
         };
-        if name.is_empty() || (sealed_by.is_some() && value.is_none()) {
-            return Err(LockError::InvalidField {
-                field: "environment",
-            });
-        }
         entries.push(LockedEnvironment {
             name,
             value,
             sealed_by,
         });
     }
-    if !sorted_unique(entries.iter().map(|entry| entry.name.as_str())) {
-        return Err(LockError::InvalidField {
-            field: "environment",
-        });
-    }
     Ok(entries)
-}
-
-/// Whether names are strictly increasing, the one order the encoder emits.
-fn sorted_unique<'a>(names: impl Iterator<Item = &'a str>) -> bool {
-    let names: Vec<&str> = names.collect();
-    names.windows(2).all(|pair| pair[0] < pair[1])
 }
 
 fn secrets(reader: &mut Reader<'_>) -> Result<Vec<LockedSecret>, LockError> {
@@ -175,13 +161,6 @@ fn secrets(reader: &mut Reader<'_>) -> Result<Vec<LockedSecret>, LockError> {
         } else {
             None
         };
-        if name.is_empty()
-            || source.is_empty()
-            || scope.is_empty()
-            || mode.is_some() != (delivery == SecretDelivery::File)
-        {
-            return Err(LockError::InvalidField { field: "secrets" });
-        }
         secrets.push(LockedSecret {
             name,
             source,
@@ -189,9 +168,6 @@ fn secrets(reader: &mut Reader<'_>) -> Result<Vec<LockedSecret>, LockError> {
             scope,
             mode,
         });
-    }
-    if !sorted_unique(secrets.iter().map(|secret| secret.name.as_str())) {
-        return Err(LockError::InvalidField { field: "secrets" });
     }
     Ok(secrets)
 }

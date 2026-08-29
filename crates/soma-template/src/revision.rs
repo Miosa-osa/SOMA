@@ -191,8 +191,11 @@ impl TemplateRevision {
     /// # Errors
     ///
     /// Returns [`RevisionError::InvalidShape`] for a zero dimension or more vCPUs than the
-    /// portable contract carries, and [`RevisionError::UnrepresentableNetwork`] when the
-    /// envelope has no exact portable policy.
+    /// portable contract carries, which no lock this crate produces or decodes has because
+    /// the validator and the decoder both bound every dimension; the check remains so the
+    /// projection fails closed if the portable bounds tighten.
+    /// Returns [`RevisionError::UnrepresentableNetwork`] when the envelope has no exact
+    /// portable policy.
     pub fn shape(&self) -> Result<MachineShape, RevisionError> {
         let vcpus = u16::try_from(self.vcpus).map_err(|_| RevisionError::InvalidShape)?;
         let shape = MachineShape::new(vcpus, self.memory_mib, self.writable_storage_mib)

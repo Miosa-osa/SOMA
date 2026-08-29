@@ -4,8 +4,8 @@ mod support;
 
 use soma::{EgressPolicy, NetworkPolicy, OciImage};
 use soma_template::{
-    EgressIntent, IngressIntent, ModuleRegistry, PolicyCeiling, RevisionError, TemplateLock,
-    TemplateRevision, resolve,
+    EgressIntent, IngressIntent, ModuleRegistry, PolicyCeiling, RevisionError, TemplateRevision,
+    resolve,
 };
 use support::{
     EXAMPLE, PYTHON_DIGEST, PYTHON_SIZE, backend, edit, example, lock, oracle, parse, resolver,
@@ -145,34 +145,5 @@ fn shape_fails_closed_for_envelopes_the_portable_contract_cannot_state() {
     assert_eq!(
         TemplateRevision::from_lock(&ingress).shape().err(),
         Some(RevisionError::UnrepresentableNetwork)
-    );
-}
-
-#[test]
-fn shape_fails_closed_for_a_decoded_lock_with_a_zero_dimension() {
-    let mut bytes = example().encode();
-    let marker: Vec<u8> = [
-        2_u32.to_be_bytes().as_slice(),
-        &2048_u64.to_be_bytes(),
-        &10_240_u64.to_be_bytes(),
-    ]
-    .concat();
-    let offset = bytes
-        .windows(marker.len())
-        .position(|window| window == marker)
-        .expect("resources are encoded in order");
-    bytes[offset..offset + 4].copy_from_slice(&0_u32.to_be_bytes());
-    let decoded = TemplateLock::decode(&bytes).expect("structurally valid");
-    assert_eq!(decoded.resources().vcpus, 0);
-    assert_eq!(
-        TemplateRevision::from_lock(&decoded).shape().err(),
-        Some(RevisionError::InvalidShape)
-    );
-    let huge = 70_000_u32;
-    bytes[offset..offset + 4].copy_from_slice(&huge.to_be_bytes());
-    let decoded = TemplateLock::decode(&bytes).expect("structurally valid");
-    assert_eq!(
-        TemplateRevision::from_lock(&decoded).shape().err(),
-        Some(RevisionError::InvalidShape)
     );
 }

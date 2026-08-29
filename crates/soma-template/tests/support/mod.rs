@@ -230,20 +230,32 @@ pub fn assert_names(
 
 /// Replaces the first or last occurrence of `from` with the same-length `to`.
 pub fn replace_bytes(bytes: &[u8], from: &str, to: &str, last: bool) -> Vec<u8> {
+    let count = positions(bytes, from.as_bytes()).len();
+    replace_nth(
+        bytes,
+        from.as_bytes(),
+        to.as_bytes(),
+        if last { count - 1 } else { 0 },
+    )
+}
+
+/// Replaces the `nth` (zero-based) occurrence of `from` with the same-length `to`.
+pub fn replace_nth(bytes: &[u8], from: &[u8], to: &[u8], nth: usize) -> Vec<u8> {
     assert_eq!(from.len(), to.len(), "substitution must keep the length");
-    let positions: Vec<usize> = bytes
-        .windows(from.len())
+    let positions = positions(bytes, from);
+    let position = *positions.get(nth).expect("occurrence is encoded");
+    let mut mutated = bytes.to_vec();
+    mutated[position..position + to.len()].copy_from_slice(to);
+    mutated
+}
+
+fn positions(bytes: &[u8], needle: &[u8]) -> Vec<usize> {
+    let found: Vec<usize> = bytes
+        .windows(needle.len())
         .enumerate()
-        .filter(|(_, window)| *window == from.as_bytes())
+        .filter(|(_, window)| *window == needle)
         .map(|(index, _)| index)
         .collect();
-    assert!(!positions.is_empty(), "`{from}` is encoded");
-    let position = if last {
-        positions[positions.len() - 1]
-    } else {
-        positions[0]
-    };
-    let mut mutated = bytes.to_vec();
-    mutated[position..position + to.len()].copy_from_slice(to.as_bytes());
-    mutated
+    assert!(!found.is_empty(), "needle is encoded");
+    found
 }

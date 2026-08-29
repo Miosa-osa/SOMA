@@ -42,6 +42,7 @@
 mod decode;
 mod encode;
 mod fields;
+mod verify;
 
 use crate::{
     compose::Composition,
@@ -122,10 +123,18 @@ impl TemplateLock {
 
     /// Decodes canonical bytes, rejecting any malformed, unbounded, or trailing content.
     ///
+    /// A decoded lock satisfies the same shape rules the validator applied before encoding:
+    /// a control-free program, an absolute normalized working directory, a portable user,
+    /// nonzero resources within the bound Backend limits, bounded and ordered timeouts with a
+    /// supported idle action, a supported platform, portable environment and secret names in
+    /// sorted order, `secret://` sources, scopes of the shape their delivery needs inside the
+    /// envelope, owner-only file modes, lowercase domains, and canonical CIDRs.
+    /// The revision view can therefore be built from any decoded lock without re-validation.
+    ///
     /// # Errors
     ///
     /// Returns [`LockError`] for a bad magic, unsupported version, wire violation, invalid
-    /// discriminant, or a field that fails its shape rule.
+    /// discriminant, or a field that fails one of those shape rules.
     pub fn decode(bytes: &[u8]) -> Result<Self, LockError> {
         decode::decode(bytes)
     }

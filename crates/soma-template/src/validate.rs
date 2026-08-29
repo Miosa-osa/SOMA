@@ -13,7 +13,7 @@ pub(crate) mod cidr;
 mod contract;
 mod network;
 pub(crate) mod policy;
-mod secret;
+pub(crate) mod secret;
 pub(crate) mod syntax;
 
 use std::{
