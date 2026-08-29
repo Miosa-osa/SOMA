@@ -78,6 +78,16 @@ mod live {
 
     fn build_initramfs() -> PathBuf {
         let dir = scratch_dir();
+        // A prebuilt archive lets the proof run where python3 or Docker is unavailable,
+        // such as a container that only receives /dev/kvm.
+        if let Some(prebuilt) = std::env::var_os("SOMA_X86_64_INITRAMFS") {
+            let path = PathBuf::from(prebuilt);
+            assert!(
+                path.is_file(),
+                "SOMA_X86_64_INITRAMFS must name an existing newc archive"
+            );
+            return path;
+        }
         let init = dir.join("init");
         let _ = fs::remove_file(&init);
         let script = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
