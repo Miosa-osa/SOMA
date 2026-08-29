@@ -11,10 +11,16 @@ use super::super::{
 /// One named point on the sandbox timeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Milestone {
+    /// A restore validated the constant-size manifest identity and compatibility metadata.
+    ValidateManifest,
     /// The KVM VM exists.
     CreateVm,
     /// Guest RAM is mapped and registered.
     MapRegister,
+    /// A restore mapped the immutable memory object privately, without copying it.
+    MapMemory,
+    /// A restore registered every certified memory slot.
+    RegisterSlots,
     /// TSS window, in-kernel irqchip, and PIT exist.
     Platform,
     /// The five device models are bound to the bus.
@@ -25,6 +31,8 @@ pub enum Milestone {
     LoadGuest,
     /// vCPU 0 exists with its CPUID template and bootstrap registers.
     Vcpu,
+    /// A restore installed every certified vCPU state group.
+    VcpuRestored,
     /// Every irqfd and ioeventfd is registered.
     Events,
     /// The launch material is in the slot.

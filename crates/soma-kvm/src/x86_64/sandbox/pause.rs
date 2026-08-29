@@ -92,6 +92,14 @@ impl SandboxMachine {
         }
     }
 
+    /// Wakes the device thread so host-side work reaches the guest.
+    ///
+    /// A restored machine uses it to deliver the transport-reset event the vsock restore
+    /// queued, which is what makes the guest driver re-read its fresh context identifier.
+    pub(in crate::x86_64) fn wake_devices(&self) {
+        let _ignored = self.host_work.write(1);
+    }
+
     /// The five device models, whether the machine is running or paused.
     pub(in crate::x86_64) fn bus(&self) -> MutexGuard<'_, MmioBus> {
         self.shared.lock()

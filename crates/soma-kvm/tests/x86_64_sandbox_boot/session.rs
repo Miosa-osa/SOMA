@@ -19,9 +19,9 @@ use soma_kvm::x86_64::{
 
 use crate::x86_64_sandbox_boot_control::HostIo;
 
-const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
-const GUEST_CID: u32 = 3;
-const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
+pub const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
+pub const GUEST_CID: u32 = 3;
+pub const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 pub const BOOT_DEADLINE: Duration = Duration::from_secs(60);
 const EXIT_GRACE: Duration = Duration::from_secs(10);
 /// Two descendants of one shell, each holding one pipe and writing without end.
@@ -52,7 +52,7 @@ pub fn random16() -> [u8; 16] {
     bytes
 }
 
-fn generation_bytes(id: &str) -> [u8; 32] {
+pub fn generation_bytes(id: &str) -> [u8; 32] {
     let hex = id.strip_prefix("sha256:").expect("GenerationId prefix");
     let mut bytes = [0_u8; 32];
     for (index, pair) in hex.as_bytes().chunks(2).enumerate() {
@@ -61,7 +61,7 @@ fn generation_bytes(id: &str) -> [u8; 32] {
     bytes
 }
 
-fn now_unix_nanos() -> u64 {
+pub fn now_unix_nanos() -> u64 {
     u64::try_from(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)

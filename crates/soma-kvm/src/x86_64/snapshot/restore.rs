@@ -40,7 +40,7 @@ use crate::x86_64::{
     launch_page::{LAUNCH_PAGE_SIZE, LaunchPageSlot},
     layout::GuestLayout,
     memory::{GuestRam, RamMapping},
-    sandbox::{SandboxMachine, Timeline, restored::RestoredParts},
+    sandbox::{Milestone, SandboxMachine, Timeline, restored::RestoredParts},
     serial::SERIAL_GSI,
     timing::Stopwatch,
 };
@@ -96,6 +96,9 @@ impl Restored {
         self.step(RestoreStep::AttachFreshAuthority)?;
         self.machine.write_launch_page(page)?;
         self.machine.start()?;
+        // The vsock restore queued a transport-reset event; delivering it now is what makes
+        // the guest driver re-read the fresh context identifier before the agent connects.
+        self.machine.wake_devices();
         self.step(RestoreStep::ResumeVcpu)
     }
 
@@ -137,6 +140,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         memory_bytes,
         verify_artifacts,
     } = request;
+    let mut timeline = Timeline::new();
     let mut sequence = RestoreSequence::start();
     let kvm = Kvm::new().map_err(|error| MachineError::os(Phase::Restore, error))?;
     let manifest = Manifest::decode(&artifacts::read_state(&paths.state())?)?;
@@ -148,11 +152,13 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         verify(&paths, &manifest, &state)?;
     }
     sequence.complete(RestoreStep::ValidateManifest)?;
+    timeline.mark(Milestone::ValidateManifest);
 
     let vm = kvm
         .create_vm()
         .map_err(|error| MachineError::os(Phase::Restore, error))?;
     sequence.complete(RestoreStep::CreateVm)?;
+    timeline.mark(Milestone::CreateVm);
 
     let layout = GuestLayout::new(manifest.header().memory.size())?;
     let memory = File::open(paths.memory())
@@ -166,14 +172,17 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     let ram = GuestRam::from_mapping(RamMapping::adopt(base, len), layout)?;
     drop(memory);
     sequence.complete(RestoreStep::MapMemoryPrivately)?;
+    timeline.mark(Milestone::MapMemory);
 
     let machine = Machine::adopt(kvm, vm, ram);
     machine.register_certified_slots(&state.vm)?;
     sequence.complete(RestoreStep::RegisterMemorySlots)?;
+    timeline.mark(Milestone::RegisterSlots);
 
     let mac = net_mac(&state.devices[Slot::Net.index() as usize])?;
     let captured_cid = vsock_cid(&state.devices[Slot::Vsock.index() as usize])?;
     machine.recreate_platform(&state.vm, &state.routing)?;
+    timeline.mark(Milestone::Platform);
     let bus = recreate_devices(
         &machine,
         disks,
@@ -185,16 +194,19 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         },
     )?;
     sequence.complete(RestoreStep::RecreateIrqchipAndDevices)?;
+    timeline.mark(Milestone::Devices);
 
     let vcpu = machine
         .vm_fd()
         .create_vcpu(0)
         .map_err(|error| MachineError::os(Phase::Restore, error))?;
     sequence.complete(RestoreStep::CreateVcpu)?;
+    timeline.mark(Milestone::Vcpu);
     vcpu::write_configuration(machine.kvm_fd(), &vcpu, &state.vcpu)?;
     sequence.complete(RestoreStep::RestoreCpuidAndMsrs)?;
     vcpu::write_registers(machine.kvm_fd(), &vcpu, &state.vcpu)?;
     sequence.complete(RestoreStep::RestoreVcpuState)?;
+    timeline.mark(Milestone::VcpuRestored);
 
     let serial_line = EventFd::new(libc::EFD_NONBLOCK)
         .map_err(|error| MachineError::io(Phase::Restore, &error))?;
@@ -210,8 +222,10 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     platform::write_pit(machine.vm_fd(), state.pit)?;
     platform::write_clock(machine.vm_fd(), state.clock)?;
     sequence.complete(RestoreStep::RestoreDeviceAndInterruptState)?;
+    timeline.mark(Milestone::Events);
 
     let launch_page = LaunchPageSlot::map_and_register(machine.vm_fd())?;
+    timeline.mark(Milestone::LaunchPageMapped);
     let machine = SandboxMachine::from_restored(RestoredParts {
         machine,
         bus,
@@ -221,7 +235,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         notify,
         launch_page,
         clock: Stopwatch::new(),
-        timeline: Timeline::new(),
+        timeline,
         cmdline: crate::x86_64::cmdline::compose_generation(),
     })?;
     Ok(Restored {
