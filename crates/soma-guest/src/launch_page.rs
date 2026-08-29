@@ -2,17 +2,28 @@ use core::fmt;
 
 use zeroize::{Zeroize, Zeroizing};
 
-use crate::{
-    Error, InitiatorAwaitingResponse, InitiatorHandshake, InstancePsk, ResponderHandshake,
-    ResponderPendingResponse, ResponderPrivateKey, ResponderPublicKey, SessionBinding, resolver,
-};
+use crate::{Error, InstancePsk, SessionBinding, resolver};
 
 use self::wire::ENTROPY_SIZE;
 
+mod network;
+mod session;
 mod wire;
+
+pub use network::LaunchNetwork;
+pub use session::{DeliveredHostLaunchMaterial, GuestSessionMaterial};
 
 /// Exact size of the one-launch bearer-secret page.
 pub const LAUNCH_PAGE_SIZE: usize = 4096;
+
+/// Fixed guest-physical address of the dedicated launch-page memory slot.
+///
+/// The address lies above the 3 GiB RAM ceiling and above the five fixed virtio-mmio pages of
+/// machine contract v1, so it never overlaps RAM, MMIO, or any boot structure.
+/// The VMM maps one fresh 4 KiB anonymous slot here after restore and before vCPU resume.
+/// The trusted guest agent maps the same address through `/dev/mem`, consumes the page once,
+/// overwrites it with zeroes, and the VMM retires the slot after observing host-side zeroes.
+pub const LAUNCH_PAGE_GUEST_ADDRESS: u64 = 0xd010_0000;
 
 const RANDOM_SIZE: usize = 32 + 32 + ENTROPY_SIZE;
 const RANDOM_ATTEMPTS: usize = 4;
@@ -22,18 +33,20 @@ const RANDOM_ATTEMPTS: usize = 4;
 /// This state is neither cloneable nor accidentally reusable within the owned safe API.
 ///
 /// ```compile_fail
-/// use soma_guest::HostLaunchMaterial;
+/// use soma_guest::{HostLaunchMaterial, LaunchNetwork};
 ///
 /// fn requires_clone<T: Clone>(_: &T) {}
 ///
-/// let material = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16]).unwrap();
+/// let network = LaunchNetwork::new(3, 1, [2, 0, 0, 0, 0, 1], [10, 0, 0, 2], 24, [10, 0, 0, 1], [10, 0, 0, 1], 1).unwrap();
+/// let material = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], network).unwrap();
 /// requires_clone(&material);
 /// ```
 ///
 /// ```compile_fail
-/// use soma_guest::HostLaunchMaterial;
+/// use soma_guest::{HostLaunchMaterial, LaunchNetwork};
 ///
-/// let material = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16]).unwrap();
+/// let network = LaunchNetwork::new(3, 1, [2, 0, 0, 0, 0, 1], [10, 0, 0, 2], 24, [10, 0, 0, 1], [10, 0, 0, 1], 1).unwrap();
+/// let material = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], network).unwrap();
 /// let _delivered = material.deliver_with(|_| Ok::<(), ()>(())).unwrap();
 /// let _reused = material.deliver_with(|_| Ok::<(), ()>(())).unwrap();
 /// ```
@@ -41,24 +54,7 @@ pub struct HostLaunchMaterial {
     binding: SessionBinding,
     psk: InstancePsk,
     entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
-}
-
-/// Host launch secrets after one delivery callback reported success.
-///
-/// Connecting a host owner consumes this state, so one reported delivery enables one attempt.
-///
-/// ```compile_fail
-/// use soma_guest::{HostLaunchMaterial, ResponderKeypair};
-///
-/// let material = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16]).unwrap();
-/// let delivered = material.deliver_with(|_| Ok::<(), ()>(())).unwrap();
-/// let responder = ResponderKeypair::generate().unwrap();
-/// let _started = delivered.start_initiator(responder.public_key());
-/// let _reused = delivered.binding();
-/// ```
-pub struct DeliveredHostLaunchMaterial {
-    binding: SessionBinding,
-    psk: InstancePsk,
+    network: LaunchNetwork,
 }
 
 /// Guest-owned launch secrets removed from one non-snapshot page.
@@ -66,28 +62,7 @@ pub struct GuestLaunchMaterial {
     binding: SessionBinding,
     psk: InstancePsk,
     entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
-}
-
-/// Guest session material available only after the caller repairs entropy.
-///
-/// Connecting a guest owner consumes this state, so one injected PSK authorizes one handshake.
-///
-/// ```compile_fail
-/// use soma_guest::{GuestLaunchMaterial, HostLaunchMaterial, LAUNCH_PAGE_SIZE, ResponderKeypair};
-///
-/// let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16]).unwrap();
-/// let mut page = [0; LAUNCH_PAGE_SIZE];
-/// let host = host.deliver_with(|bytes| { page.copy_from_slice(bytes); Ok::<(), ()>(()) }).unwrap();
-/// let guest = GuestLaunchMaterial::take_from_page(&mut page).unwrap();
-/// let guest = guest.reseed_with(|_| Ok::<(), ()>(())).unwrap();
-/// let responder = ResponderKeypair::generate().unwrap();
-/// let (_, first) = host.start_initiator(responder.public_key()).unwrap();
-/// let _pending = guest.start_responder(responder.private_key(), &first);
-/// let _reused = guest.start_responder(responder.private_key(), &first);
-/// ```
-pub struct GuestSessionMaterial {
-    binding: SessionBinding,
-    psk: InstancePsk,
+    network: LaunchNetwork,
 }
 
 impl HostLaunchMaterial {
@@ -100,23 +75,32 @@ impl HostLaunchMaterial {
         generation: [u8; 32],
         instance: [u8; 16],
         operation: [u8; 16],
+        network: LaunchNetwork,
     ) -> Result<Self, Error> {
-        Self::generate_with(generation, instance, operation, resolver::fill_os_random)
+        Self::generate_with(
+            generation,
+            instance,
+            operation,
+            network,
+            resolver::fill_os_random,
+        )
     }
 
     fn generate_with(
         generation: [u8; 32],
         instance: [u8; 16],
         operation: [u8; 16],
+        network: LaunchNetwork,
         mut fill: impl FnMut(&mut [u8]) -> Result<(), Error>,
     ) -> Result<Self, Error> {
         validate_identity(generation, instance, operation)?;
         for _ in 0..RANDOM_ATTEMPTS {
             let mut random = Zeroizing::new([0_u8; RANDOM_SIZE]);
             fill(random.as_mut())?;
-            let launch_nonce = array(&random[..], 0)?;
-            let psk = secret_array(&random[..], 32)?;
-            let entropy = secret_array(&random[..], 64)?;
+            let mut reader = wire::Reader::new(&random[..]);
+            let launch_nonce: [u8; 32] = reader.array()?;
+            let psk = reader.secret_array::<32>()?;
+            let entropy = reader.secret_array::<ENTROPY_SIZE>()?;
             if launch_nonce != [0; 32]
                 && psk.iter().any(|byte| *byte != 0)
                 && entropy.iter().any(|byte| *byte != 0)
@@ -126,6 +110,7 @@ impl HostLaunchMaterial {
                     binding,
                     psk: InstancePsk::from_zeroizing(instance, psk)?,
                     entropy,
+                    network,
                 });
             }
         }
@@ -136,6 +121,12 @@ impl HostLaunchMaterial {
     #[must_use]
     pub const fn binding(&self) -> &SessionBinding {
         &self.binding
+    }
+
+    /// Returns the non-secret network identity delivered with this launch.
+    #[must_use]
+    pub const fn network(&self) -> LaunchNetwork {
+        self.network
     }
 
     /// Delivers one internally owned canonical launch page through a scoped callback.
@@ -151,32 +142,15 @@ impl HostLaunchMaterial {
         deliver: impl FnOnce(&[u8; LAUNCH_PAGE_SIZE]) -> Result<(), E>,
     ) -> Result<DeliveredHostLaunchMaterial, E> {
         let mut page = Zeroizing::new([0_u8; LAUNCH_PAGE_SIZE]);
-        wire::encode(&mut page, &self.binding, self.psk.as_bytes(), &self.entropy);
+        wire::encode(
+            &mut page,
+            &self.binding,
+            self.psk.as_bytes(),
+            &self.entropy,
+            self.network,
+        );
         deliver(&page)?;
-        Ok(DeliveredHostLaunchMaterial {
-            binding: self.binding,
-            psk: self.psk,
-        })
-    }
-}
-
-impl DeliveredHostLaunchMaterial {
-    /// Borrows the exact transcript binding delivered to the guest.
-    #[must_use]
-    pub const fn binding(&self) -> &SessionBinding {
-        &self.binding
-    }
-
-    /// Consumes delivered material to start exactly one authenticated host handshake.
-    ///
-    /// # Errors
-    ///
-    /// Returns a redacted cryptographic setup error.
-    pub(crate) fn start_initiator(
-        self,
-        responder: &ResponderPublicKey,
-    ) -> Result<(InitiatorAwaitingResponse, Vec<u8>), Error> {
-        InitiatorHandshake::start(&self.binding, responder, self.psk)
+        Ok(DeliveredHostLaunchMaterial::new(self.binding, self.psk))
     }
 }
 
@@ -200,6 +174,7 @@ impl GuestLaunchMaterial {
             binding: decoded.binding,
             psk: decoded.psk,
             entropy: decoded.entropy,
+            network: decoded.network,
         })
     }
 
@@ -207,6 +182,12 @@ impl GuestLaunchMaterial {
     #[must_use]
     pub const fn binding(&self) -> &SessionBinding {
         &self.binding
+    }
+
+    /// Returns the non-secret network identity carried by the consumed page.
+    #[must_use]
+    pub const fn network(&self) -> LaunchNetwork {
+        self.network
     }
 
     /// Consumes the injected seed at the guest entropy-repair boundary.
@@ -222,47 +203,8 @@ impl GuestLaunchMaterial {
         reseed: impl FnOnce(&[u8; ENTROPY_SIZE]) -> Result<(), E>,
     ) -> Result<GuestSessionMaterial, E> {
         reseed(&self.entropy)?;
-        Ok(GuestSessionMaterial {
-            binding: self.binding,
-            psk: self.psk,
-        })
+        Ok(GuestSessionMaterial::new(self.binding, self.psk))
     }
-}
-
-impl GuestSessionMaterial {
-    pub(crate) const fn binding(&self) -> &SessionBinding {
-        &self.binding
-    }
-
-    /// Starts the authenticated guest handshake after entropy repair.
-    ///
-    /// # Errors
-    ///
-    /// Returns a redacted authentication or setup error.
-    pub(crate) fn start_responder(
-        self,
-        private_key: &ResponderPrivateKey,
-        first: &[u8],
-    ) -> Result<ResponderPendingResponse, Error> {
-        ResponderHandshake::accept(&self.binding, private_key, self.psk, first)
-    }
-}
-
-fn array<const N: usize>(source: &[u8], start: usize) -> Result<[u8; N], Error> {
-    source
-        .get(start..start.checked_add(N).ok_or(Error::LaunchPageRejected)?)
-        .ok_or(Error::LaunchPageRejected)?
-        .try_into()
-        .map_err(|_| Error::LaunchPageRejected)
-}
-
-fn secret_array<const N: usize>(source: &[u8], start: usize) -> Result<Zeroizing<[u8; N]>, Error> {
-    let bytes = source
-        .get(start..start.checked_add(N).ok_or(Error::LaunchPageRejected)?)
-        .ok_or(Error::LaunchPageRejected)?;
-    let mut secret = Zeroizing::new([0; N]);
-    secret.copy_from_slice(bytes);
-    Ok(secret)
 }
 
 fn validate_identity(
@@ -287,9 +229,7 @@ macro_rules! redacted_debug {
 }
 
 redacted_debug!(HostLaunchMaterial, "HostLaunchMaterial");
-redacted_debug!(DeliveredHostLaunchMaterial, "DeliveredHostLaunchMaterial");
 redacted_debug!(GuestLaunchMaterial, "GuestLaunchMaterial");
-redacted_debug!(GuestSessionMaterial, "GuestSessionMaterial");
 
 #[cfg(test)]
 mod tests;

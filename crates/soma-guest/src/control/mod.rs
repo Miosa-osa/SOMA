@@ -45,6 +45,13 @@ mod outcome;
 mod request;
 
 pub use error::{ControlError, ControlFailureClass, ControlStage};
+
+/// Fixed vsock port of the SOMA control endpoint on the host context (CID 2).
+///
+/// The trusted guest agent connects from its assigned CID to this port on `VMADDR_CID_HOST`.
+/// The VMM vsock device accepts only this destination port, and the value is part of the
+/// machine contract so both peers change it together.
+pub const CONTROL_VSOCK_PORT: u32 = 0x534f_4d41;
 pub use guest::GuestControl;
 pub use host::{HostControl, RepairedHostControl};
 pub use io::{ControlIo, HostControlIo};

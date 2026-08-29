@@ -49,8 +49,8 @@ pub use application::{
 };
 pub use binding::SessionBinding;
 pub use control::{
-    ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome, GuestControl,
-    GuestRequest, HostControl, HostControlIo, RepairedHostControl,
+    CONTROL_VSOCK_PORT, ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome,
+    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl,
 };
 pub use error::Error;
 pub(crate) use handshake::{
@@ -58,7 +58,7 @@ pub(crate) use handshake::{
 };
 pub use launch_page::{
     DeliveredHostLaunchMaterial, GuestLaunchMaterial, GuestSessionMaterial, HostLaunchMaterial,
-    LAUNCH_PAGE_SIZE,
+    LAUNCH_PAGE_GUEST_ADDRESS, LAUNCH_PAGE_SIZE, LaunchNetwork,
 };
 pub(crate) use record::AuthenticatedSession;
 pub use record::MAX_RECORD_PAYLOAD;

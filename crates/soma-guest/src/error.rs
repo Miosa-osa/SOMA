@@ -29,6 +29,8 @@ pub enum Error {
     RandomnessUnavailable,
     /// A launch page was not the one exact supported encoding.
     LaunchPageRejected,
+    /// A launch network identity violated the fixed address, prefix, or transport bounds.
+    InvalidLaunchNetwork,
     /// An operation identity used the reserved all-zero value.
     InvalidOperation,
     /// A local direct command violated the bounded wire contract.
@@ -67,6 +69,7 @@ impl fmt::Display for Error {
             Self::SessionExhausted => "session sequence exhausted",
             Self::RandomnessUnavailable => "operating-system randomness unavailable",
             Self::LaunchPageRejected => "launch page rejected",
+            Self::InvalidLaunchNetwork => "invalid launch network identity",
             Self::InvalidOperation => "invalid operation identity",
             Self::InvalidCommand => "invalid guest command",
             Self::ApplicationMessageTooLarge => "application message exceeds one record",

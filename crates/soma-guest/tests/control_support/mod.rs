@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use soma_guest::{ControlIo, HostControlIo};
+use soma_guest::{ControlIo, HostControlIo, LaunchNetwork};
 
 #[derive(Debug)]
 enum Packet {
@@ -137,4 +137,19 @@ impl HostControlIo for MemoryIo {
         *self.observed.repair_commits.lock().expect("repair counter") += 1;
         Ok(())
     }
+}
+
+/// Returns the fixed non-secret network identity used by launch fixtures.
+pub fn launch_network() -> LaunchNetwork {
+    LaunchNetwork::new(
+        3,
+        1,
+        [0x02, 0, 0, 0, 0, 1],
+        [10, 0, 0, 2],
+        24,
+        [10, 0, 0, 1],
+        [10, 0, 0, 1],
+        1,
+    )
+    .expect("fixed test network")
 }

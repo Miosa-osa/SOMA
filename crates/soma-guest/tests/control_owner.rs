@@ -9,7 +9,7 @@ use soma_guest::{
     ResponderKeypair, TerminalStatus,
 };
 
-use control_support::{deadline, pair};
+use control_support::{deadline, launch_network, pair};
 
 fn accepts_control_io<T: ControlIo>() {}
 fn accepts_host_control_io<T: HostControlIo>() {}
@@ -33,8 +33,8 @@ fn readiness_message_has_no_caller_supplied_command() {
 fn owners_complete_both_handshake_messages_before_connecting() {
     let responder = ResponderKeypair::generate().expect("responder keypair");
     let public_key = *responder.public_key();
-    let host =
-        HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16]).expect("host launch material");
+    let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], launch_network())
+        .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
     let host = host
         .deliver_with(|bytes| {
@@ -65,8 +65,8 @@ fn owners_complete_both_handshake_messages_before_connecting() {
 fn one_owner_path_repairs_executes_and_shuts_down() {
     let responder = ResponderKeypair::generate().expect("responder keypair");
     let public_key = *responder.public_key();
-    let host =
-        HostLaunchMaterial::generate([4; 32], [5; 16], [6; 16]).expect("host launch material");
+    let host = HostLaunchMaterial::generate([4; 32], [5; 16], [6; 16], launch_network())
+        .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
     let host = host
         .deliver_with(|bytes| {
@@ -165,8 +165,8 @@ fn assert_frame_deadlines_are_shared(deadlines: &[Instant]) {
 #[test]
 fn expired_guest_connect_deadline_fails_closed_without_peer_input() {
     let responder = ResponderKeypair::generate().expect("responder keypair");
-    let host =
-        HostLaunchMaterial::generate([31; 32], [32; 16], [33; 16]).expect("host launch material");
+    let host = HostLaunchMaterial::generate([31; 32], [32; 16], [33; 16], launch_network())
+        .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
     let _host = host
         .deliver_with(|bytes| {
@@ -194,8 +194,8 @@ fn expired_guest_connect_deadline_fails_closed_without_peer_input() {
 fn every_valid_terminal_outcome_and_exact_output_limit_succeeds() {
     let responder = ResponderKeypair::generate().expect("responder keypair");
     let public_key = *responder.public_key();
-    let host =
-        HostLaunchMaterial::generate([9; 32], [10; 16], [11; 16]).expect("host launch material");
+    let host = HostLaunchMaterial::generate([9; 32], [10; 16], [11; 16], launch_network())
+        .expect("host launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
     let host = host
         .deliver_with(|bytes| {

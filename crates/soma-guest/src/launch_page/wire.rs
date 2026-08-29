@@ -1,18 +1,26 @@
+use snow::{params::HashChoice, resolvers::CryptoResolver, resolvers::DefaultResolver};
 use zeroize::Zeroizing;
 
 use crate::{Error, InstancePsk, SessionBinding, binding::AUTH_PROFILE};
 
-use super::LAUNCH_PAGE_SIZE;
+use super::{
+    LAUNCH_PAGE_SIZE,
+    network::{self, LaunchNetwork},
+};
 
 const DOMAIN: &[u8; 16] = b"SOMA-LAUNCH-PAGE";
-const PAGE_SCHEMA_VERSION: u16 = 1;
+const PAGE_SCHEMA_VERSION: u16 = 2;
+const DIGEST_SIZE: usize = 32;
 pub(super) const ENTROPY_SIZE: usize = 64;
-pub(super) const ENCODED_SIZE: usize = 16 + 2 + 2 + 32 + 16 + 16 + 32 + 32 + ENTROPY_SIZE;
+pub(super) const NETWORK_OFFSET: usize = 16 + 2 + 2 + 32 + 16 + 16 + 32 + 32 + ENTROPY_SIZE;
+pub(super) const DIGEST_OFFSET: usize = NETWORK_OFFSET + network::ENCODED_SIZE;
+pub(super) const ENCODED_SIZE: usize = DIGEST_OFFSET + DIGEST_SIZE;
 
 pub(super) struct DecodedPage {
     pub(super) binding: SessionBinding,
     pub(super) psk: InstancePsk,
     pub(super) entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
+    pub(super) network: LaunchNetwork,
 }
 
 pub(super) fn encode(
@@ -20,6 +28,7 @@ pub(super) fn encode(
     binding: &SessionBinding,
     psk: &[u8; 32],
     entropy: &[u8; ENTROPY_SIZE],
+    network: LaunchNetwork,
 ) {
     let mut cursor = 0;
     write(page, &mut cursor, DOMAIN);
@@ -31,29 +40,34 @@ pub(super) fn encode(
     write(page, &mut cursor, binding.launch_nonce());
     write(page, &mut cursor, psk);
     write(page, &mut cursor, entropy);
-    debug_assert_eq!(cursor, ENCODED_SIZE);
+    debug_assert_eq!(cursor, NETWORK_OFFSET);
+    network.encode(&mut page[NETWORK_OFFSET..DIGEST_OFFSET]);
+    let digest = digest(&page[..DIGEST_OFFSET]);
+    page[DIGEST_OFFSET..ENCODED_SIZE].copy_from_slice(&digest);
 }
 
 pub(super) fn decode(page: &[u8]) -> Result<DecodedPage, Error> {
     if page.len() != LAUNCH_PAGE_SIZE || page.get(..16) != Some(DOMAIN) {
         return Err(Error::LaunchPageRejected);
     }
-    let mut cursor = 16;
-    if read_u16(page, &mut cursor)? != PAGE_SCHEMA_VERSION
-        || read_u16(page, &mut cursor)? != AUTH_PROFILE
-    {
+    let mut reader = Reader::new(page);
+    reader.take(16)?;
+    if reader.u16()? != PAGE_SCHEMA_VERSION || reader.u16()? != AUTH_PROFILE {
         return Err(Error::LaunchPageRejected);
     }
-    let generation = array(page, advance(&mut cursor, 32)?)?;
-    let instance = array(page, advance(&mut cursor, 16)?)?;
-    let operation = array(page, advance(&mut cursor, 16)?)?;
-    let launch_nonce = array(page, advance(&mut cursor, 32)?)?;
-    let psk = secret_array(page, advance(&mut cursor, 32)?)?;
-    let entropy = secret_array(page, advance(&mut cursor, ENTROPY_SIZE)?)?;
-    if cursor != ENCODED_SIZE
-        || page[cursor..].iter().any(|byte| *byte != 0)
+    let generation = reader.array()?;
+    let instance = reader.array()?;
+    let operation = reader.array()?;
+    let launch_nonce = reader.array()?;
+    let psk = reader.secret_array()?;
+    let entropy = reader.secret_array()?;
+    let network = LaunchNetwork::decode(reader.take(network::ENCODED_SIZE)?)?;
+    let stored_digest: [u8; DIGEST_SIZE] = reader.array()?;
+    if reader.cursor != ENCODED_SIZE
+        || page[ENCODED_SIZE..].iter().any(|byte| *byte != 0)
         || psk.iter().all(|byte| *byte == 0)
         || entropy.iter().all(|byte| *byte == 0)
+        || !constant_time_equal(&stored_digest, &digest(&page[..DIGEST_OFFSET]))
     {
         return Err(Error::LaunchPageRejected);
     }
@@ -64,37 +78,85 @@ pub(super) fn decode(page: &[u8]) -> Result<DecodedPage, Error> {
         binding,
         psk,
         entropy,
+        network,
     })
 }
 
-fn array<const N: usize>(source: &[u8], start: usize) -> Result<[u8; N], Error> {
-    source
-        .get(start..start.checked_add(N).ok_or(Error::LaunchPageRejected)?)
-        .ok_or(Error::LaunchPageRejected)?
-        .try_into()
-        .map_err(|_| Error::LaunchPageRejected)
+fn digest(covered: &[u8]) -> [u8; DIGEST_SIZE] {
+    let mut hash = DefaultResolver
+        .resolve_hash(&HashChoice::Blake2s)
+        .expect("the fixed suite provides BLAKE2s");
+    hash.input(covered);
+    let mut output = [0; DIGEST_SIZE];
+    hash.result(&mut output);
+    output
 }
 
-fn secret_array<const N: usize>(source: &[u8], start: usize) -> Result<Zeroizing<[u8; N]>, Error> {
-    let bytes = source
-        .get(start..start.checked_add(N).ok_or(Error::LaunchPageRejected)?)
-        .ok_or(Error::LaunchPageRejected)?;
-    let mut secret = Zeroizing::new([0; N]);
-    secret.copy_from_slice(bytes);
-    Ok(secret)
+fn constant_time_equal(left: &[u8; DIGEST_SIZE], right: &[u8; DIGEST_SIZE]) -> bool {
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |acc, (a, b)| acc | (a ^ b))
+        == 0
 }
 
-fn advance(cursor: &mut usize, amount: usize) -> Result<usize, Error> {
-    let start = *cursor;
-    *cursor = cursor
-        .checked_add(amount)
-        .ok_or(Error::LaunchPageRejected)?;
-    Ok(start)
+pub(super) struct Reader<'a> {
+    source: &'a [u8],
+    cursor: usize,
 }
 
-fn read_u16(source: &[u8], cursor: &mut usize) -> Result<u16, Error> {
-    let start = advance(cursor, 2)?;
-    Ok(u16::from_be_bytes(array(source, start)?))
+impl<'a> Reader<'a> {
+    pub(super) const fn new(source: &'a [u8]) -> Self {
+        Self { source, cursor: 0 }
+    }
+
+    pub(super) fn take(&mut self, length: usize) -> Result<&'a [u8], Error> {
+        let end = self
+            .cursor
+            .checked_add(length)
+            .ok_or(Error::LaunchPageRejected)?;
+        let value = self
+            .source
+            .get(self.cursor..end)
+            .ok_or(Error::LaunchPageRejected)?;
+        self.cursor = end;
+        Ok(value)
+    }
+
+    pub(super) fn array<const N: usize>(&mut self) -> Result<[u8; N], Error> {
+        self.take(N)?
+            .try_into()
+            .map_err(|_| Error::LaunchPageRejected)
+    }
+
+    pub(super) fn secret_array<const N: usize>(&mut self) -> Result<Zeroizing<[u8; N]>, Error> {
+        let bytes = self.take(N)?;
+        let mut secret = Zeroizing::new([0; N]);
+        secret.copy_from_slice(bytes);
+        Ok(secret)
+    }
+
+    pub(super) fn u8(&mut self) -> Result<u8, Error> {
+        Ok(self.array::<1>()?[0])
+    }
+
+    pub(super) fn u16(&mut self) -> Result<u16, Error> {
+        Ok(u16::from_be_bytes(self.array()?))
+    }
+
+    pub(super) fn u32(&mut self) -> Result<u32, Error> {
+        Ok(u32::from_be_bytes(self.array()?))
+    }
+
+    pub(super) fn u64(&mut self) -> Result<u64, Error> {
+        Ok(u64::from_be_bytes(self.array()?))
+    }
+
+    pub(super) fn finish(self) -> Result<(), Error> {
+        if self.cursor != self.source.len() {
+            return Err(Error::LaunchPageRejected);
+        }
+        Ok(())
+    }
 }
 
 fn write(destination: &mut [u8], cursor: &mut usize, source: &[u8]) {

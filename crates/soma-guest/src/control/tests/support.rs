@@ -12,7 +12,7 @@ use std::{
 use crate::{
     AuthenticatedSession, ControlIo, DeliveredHostLaunchMaterial, GuestLaunchMaterial,
     GuestMessage, GuestSessionMaterial, HostControlIo, HostLaunchMaterial, HostMessage,
-    LAUNCH_PAGE_SIZE, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey,
+    LAUNCH_PAGE_SIZE, LaunchNetwork, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey,
 };
 
 pub(super) mod fault;
@@ -45,12 +45,27 @@ pub(super) struct RawHost {
     session: AuthenticatedSession,
 }
 
+pub(super) fn launch_network() -> LaunchNetwork {
+    LaunchNetwork::new(
+        3,
+        1,
+        [0x02, 0, 0, 0, 0, 1],
+        [10, 0, 0, 2],
+        24,
+        [10, 0, 0, 1],
+        [10, 0, 0, 1],
+        1,
+    )
+    .expect("fixed test network")
+}
+
 pub(super) fn launch() -> (
     DeliveredHostLaunchMaterial,
     GuestSessionMaterial,
     ResponderKeypair,
 ) {
-    let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16]).expect("launch material");
+    let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], launch_network())
+        .expect("launch material");
     let mut page = [0_u8; LAUNCH_PAGE_SIZE];
     let host = host
         .deliver_with(|bytes| {

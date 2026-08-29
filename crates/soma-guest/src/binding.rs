@@ -57,15 +57,21 @@ impl SessionBinding {
         encoded
     }
 
-    pub(crate) const fn instance(&self) -> &[u8; 16] {
+    /// Returns the non-secret canonical Instance identity bound into the transcript.
+    #[must_use]
+    pub const fn instance(&self) -> &[u8; 16] {
         &self.instance
     }
 
-    pub(crate) const fn generation(&self) -> &[u8; 32] {
+    /// Returns the non-secret Generation digest bound into the transcript.
+    #[must_use]
+    pub const fn generation(&self) -> &[u8; 32] {
         &self.generation
     }
 
-    pub(crate) const fn operation(&self) -> &[u8; 16] {
+    /// Returns the non-secret Launch operation identity bound into the transcript.
+    #[must_use]
+    pub const fn operation(&self) -> &[u8; 16] {
         &self.operation
     }
 

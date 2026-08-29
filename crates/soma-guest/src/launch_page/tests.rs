@@ -1,7 +1,7 @@
 use super::*;
 
 const PAGE_PREFIX_HEX: &str = concat!(
-    "534f4d412d4c41554e43482d5041474500010001",
+    "534f4d412d4c41554e43482d5041474500020001",
     "0101010101010101010101010101010101010101010101010101010101010101",
     "02020202020202020202020202020202",
     "03030303030303030303030303030303",
@@ -9,17 +9,34 @@ const PAGE_PREFIX_HEX: &str = concat!(
     "2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f40",
     "4142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60",
     "6162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f80",
+    "00000003000000010200000000010a000002180a0000010a0000010000000000000001",
+    "e15206ac6ce68af8a88bd672475492202b2a6ec1f826fbc7587c797f0f5220aa",
 );
+
+fn network() -> LaunchNetwork {
+    LaunchNetwork::new(
+        3,
+        1,
+        [0x02, 0, 0, 0, 0, 1],
+        [10, 0, 0, 2],
+        24,
+        [10, 0, 0, 1],
+        [10, 0, 0, 1],
+        1,
+    )
+    .expect("fixed test network")
+}
 
 #[test]
 fn canonical_launch_page_matches_the_frozen_v1_vector() {
-    let material = HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], |random| {
-        for (index, byte) in random.iter_mut().enumerate() {
-            *byte = u8::try_from(index + 1).expect("128-byte fixture");
-        }
-        Ok(())
-    })
-    .expect("deterministic material");
+    let material =
+        HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], network(), |random| {
+            for (index, byte) in random.iter_mut().enumerate() {
+                *byte = u8::try_from(index + 1).expect("128-byte fixture");
+            }
+            Ok(())
+        })
+        .expect("deterministic material");
     let binding = material.binding;
     let mut page = [0xA5; LAUNCH_PAGE_SIZE];
     let delivered = material
@@ -30,6 +47,7 @@ fn canonical_launch_page_matches_the_frozen_v1_vector() {
         .expect("launch-page delivery");
     let expected_prefix = decode_hex(PAGE_PREFIX_HEX);
 
+    assert_eq!(wire::ENCODED_SIZE, 279);
     assert_eq!(&page[..wire::ENCODED_SIZE], expected_prefix);
     assert!(page[wire::ENCODED_SIZE..].iter().all(|byte| *byte == 0));
     assert_eq!(delivered.binding(), &binding);
@@ -41,15 +59,16 @@ fn canonical_launch_page_matches_the_frozen_v1_vector() {
 fn zero_random_fields_retry_before_material_is_admitted() {
     for zeroed in [0..32, 32..64, 64..128] {
         let mut calls = 0;
-        let material = HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], |random| {
-            calls += 1;
-            random.fill(9);
-            if calls == 1 {
-                random[zeroed.clone()].fill(0);
-            }
-            Ok(())
-        })
-        .expect("second random sample");
+        let material =
+            HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], network(), |random| {
+                calls += 1;
+                random.fill(9);
+                if calls == 1 {
+                    random[zeroed.clone()].fill(0);
+                }
+                Ok(())
+            })
+            .expect("second random sample");
 
         assert_eq!(calls, 2);
         assert_eq!(material.binding.launch_nonce(), &[9; 32]);
@@ -59,7 +78,7 @@ fn zero_random_fields_retry_before_material_is_admitted() {
 #[test]
 fn repeated_zero_random_material_fails_after_the_bounded_attempts() {
     let mut calls = 0;
-    let error = HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], |random| {
+    let error = HostLaunchMaterial::generate_with([1; 32], [2; 16], [3; 16], network(), |random| {
         calls += 1;
         random.fill(0);
         Ok(())
@@ -77,10 +96,11 @@ fn invalid_caller_identity_is_rejected_before_randomness_is_requested() {
         ([1; 32], [0; 16], [3; 16]),
         ([1; 32], [2; 16], [0; 16]),
     ] {
-        let error = HostLaunchMaterial::generate_with(generation, instance, operation, |_| {
-            panic!("random source must not be called")
-        })
-        .expect_err("zero identity");
+        let error =
+            HostLaunchMaterial::generate_with(generation, instance, operation, network(), |_| {
+                panic!("random source must not be called")
+            })
+            .expect_err("zero identity");
         assert_eq!(error, Error::InvalidBinding);
     }
 }
