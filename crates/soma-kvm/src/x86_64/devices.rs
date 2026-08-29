@@ -93,6 +93,18 @@ pub(crate) fn build_bus(
     disks: SandboxDisks,
     identity: DeviceIdentity,
 ) -> Result<MmioBus, MachineError> {
+    MmioBus::new(build_devices(disks, identity)?)
+        .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Bus(error)))
+}
+
+/// Constructs the five device models with fresh backends and no transport binding.
+///
+/// Snapshot restore needs the unbound models so it can rebuild every transport from captured
+/// state instead of from the power-on defaults `build_bus` installs.
+pub(crate) fn build_devices(
+    disks: SandboxDisks,
+    identity: DeviceIdentity,
+) -> Result<BusDevices, MachineError> {
     let root = block(BlockRole::ImmutableRoot, disks.root, true, ROOT_SERIAL)?;
     let overlay = block(
         BlockRole::PrivateOverlay,
@@ -106,14 +118,13 @@ pub(crate) fn build_bus(
     let entropy = OsEntropy::open()
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Entropy(error)))?;
     let rng = RngDevice::new(Box::new(entropy));
-    MmioBus::new(BusDevices {
+    Ok(BusDevices {
         root,
         overlay,
         net,
         vsock,
         rng,
     })
-    .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Bus(error)))
 }
 
 #[cfg(test)]

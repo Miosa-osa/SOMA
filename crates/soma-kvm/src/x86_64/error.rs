@@ -30,6 +30,8 @@ pub enum Phase {
     Run,
     Control,
     Join,
+    Capture,
+    Restore,
     Cleanup,
 }
 
@@ -57,6 +59,8 @@ impl fmt::Display for Phase {
             Self::Run => "run vCPU 0",
             Self::Control => "guest control session",
             Self::Join => "join vCPU thread",
+            Self::Capture => "capture the machine snapshot",
+            Self::Restore => "restore the machine snapshot",
             Self::Cleanup => "release owned resources",
         };
         formatter.write_str(name)

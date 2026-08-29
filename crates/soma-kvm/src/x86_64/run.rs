@@ -1,5 +1,7 @@
 //! The bounded `KVM_RUN` loop shared by the halt guest and the kernel boot.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use kvm_ioctls::{VcpuExit, VcpuFd};
 
 use super::{
@@ -19,18 +21,25 @@ pub enum GuestExit {
     Reset,
     /// SOMA stopped the vCPU because the expected serial sentinel arrived.
     Sentinel,
+    /// SOMA kicked the vCPU out of `KVM_RUN` so its state could be captured.
+    ///
+    /// The guest is still live and the vCPU descriptor is handed back to the caller instead
+    /// of being dropped, because a paused machine is about to be read, not released.
+    Paused,
 }
 
 /// Runs the vCPU until it stops, an unexpected exit occurs, or the watchdog interrupts it.
 ///
 /// Port I/O is dispatched through `bus`, MMIO through `mmio` when the machine has a device
 /// bus; when `sentinel` is given the loop stops as soon as the captured serial output ends
-/// with it.
+/// with it. An interruption is a pause when `pause` is set and a deadline failure otherwise,
+/// so the two uses of the same signal never blur into one another.
 pub(crate) fn run(
     vcpu: &mut VcpuFd,
     bus: &mut PortBus,
     mut mmio: Option<&mut MmioDispatch>,
     sentinel: Option<&[u8]>,
+    pause: &AtomicBool,
 ) -> Result<GuestExit, MachineError> {
     loop {
         match vcpu.run() {
@@ -56,6 +65,9 @@ pub(crate) fn run(
             Ok(VcpuExit::Intr) => {}
             Ok(exit) => return Err(unexpected(&exit)),
             Err(error) if error.errno() == libc::EINTR => {
+                if pause.load(Ordering::Acquire) {
+                    return Ok(GuestExit::Paused);
+                }
                 return Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout));
             }
             Err(error) => return Err(MachineError::os(Phase::Run, error)),

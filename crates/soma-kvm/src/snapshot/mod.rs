@@ -16,5 +16,5 @@ pub mod restore;
 pub mod section;
 mod wire;
 
-pub use digest::Digest;
+pub use digest::{Digest, Hasher};
 pub use wire::WireError;

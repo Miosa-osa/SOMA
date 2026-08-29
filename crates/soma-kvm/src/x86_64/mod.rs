@@ -11,6 +11,7 @@
 mod boot_info;
 mod channel;
 mod cmdline;
+mod console_tap;
 mod cpuid;
 mod devices;
 mod elf;
@@ -30,6 +31,7 @@ mod ports;
 mod run;
 mod sandbox;
 mod serial;
+mod snapshot;
 mod timing;
 mod vcpu;
 mod watchdog;
@@ -54,6 +56,10 @@ pub use self::{
     run::GuestExit,
     sandbox::{Milestone, MilestoneMark, SandboxConfig, SandboxEvidence, SandboxMachine},
     serial::SerialCounters,
+    snapshot::{
+        Artifact, CaptureOutcome, CaptureRequest, RestoreFacts, RestoreRequest, Restored,
+        SnapshotError, SnapshotPaths, capture, restore,
+    },
     timing::PhaseTiming,
 };
 use self::{layout::GuestLayout, memory::GuestRam, timing::Stopwatch};
@@ -83,6 +89,73 @@ impl Machine {
         ram.register(&vm)?;
         clock.lap(Phase::RegisterMemory);
         Ok(Self { vm, kvm, ram })
+    }
+
+    /// Takes ownership of resources another constructor produced, in release order.
+    const fn adopt(kvm: Kvm, vm: VmFd, ram: GuestRam) -> Self {
+        Self { vm, kvm, ram }
+    }
+
+    const fn vm_fd(&self) -> &VmFd {
+        &self.vm
+    }
+
+    const fn kvm_fd(&self) -> &Kvm {
+        &self.kvm
+    }
+
+    fn shared_ram(&self) -> memory::SharedRam {
+        self.ram.shared()
+    }
+
+    /// Registers guest RAM at exactly the layout the snapshot certified.
+    ///
+    /// Version 1 certifies one slot covering all of guest RAM from address zero; anything
+    /// else is a machine this implementation cannot reproduce.
+    fn register_certified_slots(
+        &self,
+        state: &crate::snapshot::kvm_state::VmState,
+    ) -> Result<(), MachineError> {
+        let certified = state.slots();
+        let expected = self.ram.layout().ram_bytes();
+        let single = certified.first().is_some_and(|slot| {
+            slot.slot == 0
+                && slot.guest_address == 0
+                && slot.memory_offset == 0
+                && slot.size == expected
+        });
+        if certified.len() != 1 || !single {
+            return Err(MachineError::invalid(
+                Phase::Restore,
+                "the certified memory-slot layout is not the version 1 single-slot layout",
+            ));
+        }
+        self.ram.register(&self.vm)
+    }
+
+    /// Recreates the TSS window, the in-kernel interrupt controller, the timer, and the
+    /// SOMA-owned interrupt routes, in the order KVM requires before any vCPU exists.
+    fn recreate_platform(
+        &self,
+        state: &crate::snapshot::kvm_state::VmState,
+        routing: &crate::snapshot::kvm_state::IrqRoutingState,
+    ) -> Result<(), snapshot::SnapshotError> {
+        let tss = usize::try_from(state.tss_address())
+            .map_err(|_| MachineError::invalid(Phase::Restore, "TSS address overflow"))?;
+        self.vm
+            .set_tss_address(tss)
+            .map_err(|error| MachineError::os(Phase::Restore, error))?;
+        self.vm
+            .create_irq_chip()
+            .map_err(|error| MachineError::os(Phase::Restore, error))?;
+        let config = kvm_pit_config {
+            flags: KVM_PIT_SPEAKER_DUMMY,
+            ..kvm_pit_config::default()
+        };
+        self.vm
+            .create_pit2(config)
+            .map_err(|error| MachineError::os(Phase::Restore, error))?;
+        snapshot::write_routing(&self.vm, routing)
     }
 
     /// Sets the TSS window and optionally creates the in-kernel interrupt controller and PIT.

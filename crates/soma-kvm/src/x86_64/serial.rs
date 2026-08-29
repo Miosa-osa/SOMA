@@ -8,11 +8,14 @@
 #[cfg(test)]
 mod tests;
 
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
 use vmm_sys_util::eventfd::EventFd;
 
-use super::error::{MachineError, Phase};
+use super::{
+    console_tap::ConsoleTap,
+    error::{MachineError, Phase},
+};
 
 /// The first of the eight `x86` I/O ports owned by the model.
 pub(crate) const SERIAL_BASE: u16 = 0x3f8;
@@ -79,11 +82,17 @@ pub(crate) struct Serial {
     marks: Vec<LineMark>,
     counters: SerialCounters,
     interrupt: Option<EventFd>,
+    tap: Option<Arc<ConsoleTap>>,
 }
 
 impl Serial {
     /// Creates a model that raises `interrupt` when the guest enables transmit interrupts.
     pub(crate) fn new(interrupt: Option<EventFd>) -> Self {
+        Self::with_tap(interrupt, None)
+    }
+
+    /// Creates a model that also offers every completed line to a live console tap.
+    pub(crate) fn with_tap(interrupt: Option<EventFd>, tap: Option<Arc<ConsoleTap>>) -> Self {
         Self {
             ier: 0,
             lcr: 0,
@@ -96,6 +105,7 @@ impl Serial {
             marks: Vec::new(),
             counters: SerialCounters::default(),
             interrupt,
+            tap,
         }
     }
 
@@ -231,11 +241,18 @@ impl Serial {
             ));
         }
         self.output.push(byte);
-        if byte == b'\n' && self.marks.len() < LINE_MARK_LIMIT {
-            self.marks.push(LineMark {
-                end_offset: self.output.len(),
-                at: Instant::now(),
-            });
+        if byte == b'\n' {
+            let at = Instant::now();
+            if let Some(tap) = &self.tap {
+                let start = self.marks.last().map_or(0, |mark| mark.end_offset);
+                tap.observe_line(&self.output[start..], at);
+            }
+            if self.marks.len() < LINE_MARK_LIMIT {
+                self.marks.push(LineMark {
+                    end_offset: self.output.len(),
+                    at,
+                });
+            }
         }
         Ok(())
     }

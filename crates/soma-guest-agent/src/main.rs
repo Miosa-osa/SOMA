@@ -76,6 +76,11 @@ mod agent {
         boot, console, control, entropy, identity, launch_page, lifecycle, network_repair, pid1,
     };
 
+    /// Console line the agent prints once it is parked at the disconnected repair point.
+    ///
+    /// A snapshot builder waits for this exact line before it quiesces and captures.
+    pub const REPAIR_POINT_LINE: &str = "awaiting launch material";
+
     const PAGE_POLL: Duration = Duration::from_millis(2);
     const ENTROPY_BUDGET: Duration = Duration::from_secs(5);
     const TRANSPORT_BUDGET: Duration = Duration::from_secs(10);
@@ -95,6 +100,12 @@ mod agent {
             ));
             destroy(&controller.poison(Fault::Boot));
         }
+        // The disconnected repair point. Everything the Generation needs on disk is already
+        // written, so the agent flushes the private overlay and announces the wait before it
+        // blocks: a Generation builder captures the machine exactly here, with no launch
+        // material, no session, and no Instance identity anywhere in guest memory.
+        pid1::sync();
+        console::report(REPAIR_POINT_LINE);
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
         ));

@@ -7,9 +7,16 @@
 use std::{error::Error, fmt};
 
 /// Conditions the builder must prove, in order, before any state is read.
+///
+/// Capture happens before any launch material exists, so there is no authenticated session
+/// to prove and none to scrub; what the builder proves instead is that the Generation's own
+/// pinned guest agent is the code that parked the machine at the disconnected repair point
+/// (ADR 0024).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuiescePrecondition {
-    GuestAuthenticated,
+    /// The Generation's pinned guest agent reached its own code and announced itself.
+    GenerationAgentBooted,
+    /// The agent is blocked in the launch-page wait with no session and no Instance identity.
     RepairPointReached,
     IngressDisabled,
     DeviceWorkDrained,
@@ -20,7 +27,7 @@ pub enum QuiescePrecondition {
 
 impl QuiescePrecondition {
     pub const ORDER: [Self; 7] = [
-        Self::GuestAuthenticated,
+        Self::GenerationAgentBooted,
         Self::RepairPointReached,
         Self::IngressDisabled,
         Self::DeviceWorkDrained,
@@ -200,13 +207,13 @@ mod tests {
         assert_eq!(
             quiesce.begin_capture(),
             Err(CaptureOrderError::PreconditionsIncomplete(
-                QuiescePrecondition::GuestAuthenticated
+                QuiescePrecondition::GenerationAgentBooted
             ))
         );
         assert_eq!(
             quiesce.prove(QuiescePrecondition::VcpuPaused),
             Err(CaptureOrderError::PreconditionOutOfOrder {
-                expected: QuiescePrecondition::GuestAuthenticated,
+                expected: QuiescePrecondition::GenerationAgentBooted,
                 attempted: QuiescePrecondition::VcpuPaused
             })
         );
@@ -214,7 +221,7 @@ mod tests {
             quiesce.prove(precondition).unwrap();
         }
         assert_eq!(
-            quiesce.prove(QuiescePrecondition::GuestAuthenticated),
+            quiesce.prove(QuiescePrecondition::GenerationAgentBooted),
             Err(CaptureOrderError::AlreadyComplete)
         );
         let mut sequence = quiesce.begin_capture().unwrap();

@@ -125,6 +125,10 @@ impl SandboxMachine {
                     EventLoopReport::default(),
                 )
             }
+            Stage::Paused(paused) => {
+                let super::Paused { report, devices } = *paused;
+                (report, devices)
+            }
             Stage::Stopped => (
                 never_ran("sandbox already stopped"),
                 EventLoopReport::default(),
@@ -144,5 +148,6 @@ fn never_ran(reason: &'static str) -> RunReport {
         bus: None,
         mmio: None,
         result: Err(MachineError::invalid(Phase::Run, reason)),
+        vcpu: None,
     }
 }

@@ -65,13 +65,13 @@ pub struct MilestoneMark {
 }
 
 /// The monotonic timeline of one sandbox.
-pub(crate) struct Timeline {
+pub(in crate::x86_64) struct Timeline {
     started: Instant,
     marks: Vec<MilestoneMark>,
 }
 
 impl Timeline {
-    pub(crate) fn new() -> Self {
+    pub(in crate::x86_64) fn new() -> Self {
         Self {
             started: Instant::now(),
             marks: Vec::new(),

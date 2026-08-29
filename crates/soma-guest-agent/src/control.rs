@@ -11,6 +11,7 @@ use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use soma_guest::ControlIo;
@@ -20,6 +21,8 @@ use crate::ioctl;
 pub use soma_guest::CONTROL_VSOCK_PORT;
 
 const MIN_TIMEOUT: Duration = Duration::from_millis(1);
+/// Interval between vsock context-identifier reads while waiting for a restored assignment.
+const CID_POLL: Duration = Duration::from_millis(2);
 const VSOCK_DEVICE: &str = "/dev/vsock";
 const IOCTL_VM_SOCKETS_GET_LOCAL_CID: libc::c_ulong = 0x7b9;
 
@@ -158,7 +161,7 @@ pub fn connect_vsock(
     expected_cid: u32,
     deadline: Instant,
 ) -> Result<StreamIo<UnixStream>, TransportError> {
-    verify_local_cid(expected_cid)?;
+    await_local_cid(expected_cid, deadline)?;
     // SAFETY: `socket` has no memory preconditions; the descriptor is checked before use.
     let fd = unsafe { libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
     if fd < 0 {
@@ -198,7 +201,27 @@ pub fn connect_vsock(
     Ok(StreamIo::new(stream))
 }
 
-fn verify_local_cid(expected: u32) -> Result<(), TransportError> {
+/// Waits until the vsock device reports exactly the assigned CID, or the deadline passes.
+///
+/// On a cold boot the driver already read the assigned CID from configuration space, so the
+/// first attempt succeeds. After a snapshot restore the VMM installs a fresh CID and queues
+/// the transport-reset event that makes the driver re-read it, so the guest may briefly still
+/// report the captured CID; polling turns that ordering into a bounded wait instead of a
+/// spurious mismatch, and a genuinely wrong CID still fails closed at the deadline.
+fn await_local_cid(expected: u32, deadline: Instant) -> Result<(), TransportError> {
+    loop {
+        let actual = read_local_cid()?;
+        if actual == expected {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(TransportError::CidMismatch);
+        }
+        thread::sleep(CID_POLL);
+    }
+}
+
+fn read_local_cid() -> Result<u32, TransportError> {
     let device = std::fs::File::open(VSOCK_DEVICE)
         .map_err(|error| TransportError::Socket(errno_of(&error)))?;
     let mut cid: u32 = 0;
@@ -213,9 +236,7 @@ fn verify_local_cid(expected: u32) -> Result<(), TransportError> {
     if result != 0 {
         return Err(TransportError::Socket(last_errno()));
     }
-    (cid == expected)
-        .then_some(())
-        .ok_or(TransportError::CidMismatch)
+    Ok(cid)
 }
 
 fn errno_of(error: &io::Error) -> i32 {

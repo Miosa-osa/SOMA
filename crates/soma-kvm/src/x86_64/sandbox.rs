@@ -7,8 +7,10 @@
 //! page at the repair commit, marks its own milestones, and `finish` reclaims the vCPU,
 //! stops the device thread, deregisters every route, and returns the evidence.
 
-mod evidence;
+pub(in crate::x86_64) mod evidence;
 mod launch;
+mod pause;
+pub(in crate::x86_64) mod restored;
 mod teardown;
 
 use std::{
@@ -19,12 +21,13 @@ use std::{
 use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
-use self::evidence::Timeline;
+pub(in crate::x86_64) use self::evidence::Timeline;
 pub use self::evidence::{Milestone, MilestoneMark, SandboxEvidence};
 use super::{
     InterruptController, Machine, MachineError, Phase,
     channel::ControlChannel,
     cmdline,
+    console_tap::ConsoleTap,
     devices::{self, DeviceIdentity, SandboxDisks, SharedBus},
     event_loop::EventLoop,
     events::{IrqLines, NotifyFds},
@@ -36,6 +39,7 @@ use super::{
     timing::Stopwatch,
     watchdog::VcpuRun,
 };
+use super::{event_loop::EventLoopReport, watchdog::RunReport};
 
 /// Inputs for one sandbox.
 pub struct SandboxConfig {
@@ -63,9 +67,17 @@ struct Running {
     event_loop: EventLoop,
 }
 
+/// A machine whose device thread stopped and whose vCPU left `KVM_RUN` with every resource
+/// still owned, so a snapshot builder can read its state.
+struct Paused {
+    report: RunReport,
+    devices: EventLoopReport,
+}
+
 enum Stage {
     Prepared(Prepared),
     Running(Running),
+    Paused(Box<Paused>),
     Stopped,
 }
 
@@ -76,6 +88,7 @@ pub struct SandboxMachine {
     host_work: Arc<EventFd>,
     finished: Arc<AtomicBool>,
     launch_page: Mutex<Option<LaunchPageSlot>>,
+    console: Option<Arc<ConsoleTap>>,
     stage: Stage,
     clock: Stopwatch,
     timeline: Mutex<Timeline>,
@@ -134,6 +147,7 @@ impl SandboxMachine {
             host_work: Arc::new(host_work),
             finished: Arc::new(AtomicBool::new(false)),
             launch_page: Mutex::new(Some(launch_page)),
+            console: None,
             stage: Stage::Prepared(Prepared {
                 vcpu,
                 serial_line,
@@ -176,7 +190,10 @@ impl SandboxMachine {
             kicks,
             Arc::clone(&self.finished),
         );
-        let bus = PortBus::new(Serial::new(Some(prepared.serial_line)));
+        let bus = PortBus::new(Serial::with_tap(
+            Some(prepared.serial_line),
+            self.console.clone(),
+        ));
         let vcpu = VcpuRun::start(prepared.vcpu, bus, Some(dispatch), None).map_err(|report| {
             report
                 .result

@@ -55,6 +55,15 @@ impl RamMapping {
         Ok(Self { base, len })
     }
 
+    /// Takes ownership of a range another mapper produced, unmapping it exactly once on drop.
+    ///
+    /// Snapshot restore maps `memory.raw` with `MAP_PRIVATE | MAP_NORESERVE` through the
+    /// snapshot codec and hands the range here, so the machine keeps one owner for the KVM
+    /// slot, the device view, and the final `munmap`.
+    pub(super) const fn adopt(base: ptr::NonNull<u8>, len: usize) -> Self {
+        Self { base, len }
+    }
+
     pub(crate) const fn len(&self) -> usize {
         self.len
     }
@@ -175,6 +184,24 @@ impl GuestRam {
             mapping: Arc::new(RamMapping::anonymous(length, Phase::MapMemory)?),
             layout,
         })
+    }
+
+    /// Wraps a mapping the caller already produced for exactly `layout.ram_bytes()` bytes.
+    pub(super) fn from_mapping(
+        mapping: RamMapping,
+        layout: GuestLayout,
+    ) -> Result<Self, MachineError> {
+        if u64::try_from(mapping.len()).is_ok_and(|len| len == layout.ram_bytes()) {
+            Ok(Self {
+                mapping: Arc::new(mapping),
+                layout,
+            })
+        } else {
+            Err(MachineError::invalid(
+                Phase::MapMemory,
+                "restored mapping length does not match the certified guest RAM size",
+            ))
+        }
     }
 
     pub(crate) const fn layout(&self) -> GuestLayout {

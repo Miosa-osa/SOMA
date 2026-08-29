@@ -159,6 +159,16 @@ impl PrivateMapping {
         unsafe { std::slice::from_raw_parts(self.base.as_ptr(), self.len) }
     }
 
+    /// Releases the mapped range to a caller that takes over unmapping it exactly once.
+    ///
+    /// The machine layer adopts the range so one owner registers it with KVM, serves guest
+    /// accesses through it, and unmaps it after the VM is gone.
+    #[must_use]
+    pub fn into_raw(self) -> (*mut u8, usize) {
+        let this = std::mem::ManuallyDrop::new(self);
+        (this.base.as_ptr(), this.len)
+    }
+
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: as in `as_slice`, plus `&mut self` guarantees unique access to the pages
         // for the lifetime of the returned slice. Writes land in private copy-on-write pages.
@@ -264,5 +274,18 @@ mod tests {
             PrivateMapping::map(&directory, 4096).unwrap_err(),
             MappingError::NotRegularFile
         );
+    }
+
+    #[test]
+    fn into_raw_hands_over_the_exact_range_and_suppresses_the_unmap() {
+        let (_guard, file) = TempFile::create(&[3; 8192]);
+        let mapping = PrivateMapping::map(&file, 8192).unwrap();
+        let expected = mapping.as_ptr();
+        let (base, len) = mapping.into_raw();
+        assert_eq!(base, expected);
+        assert_eq!(len, 8192);
+        // SAFETY: `base` and `len` are exactly the range `into_raw` released, and this is the
+        // only unmap of that range because `into_raw` suppressed the mapping's own `Drop`.
+        assert_eq!(unsafe { libc::munmap(base.cast(), len) }, 0);
     }
 }

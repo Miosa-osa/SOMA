@@ -9,6 +9,7 @@ use crate::virtio::devices::service::{ServiceError, ServiceReport, service_queue
 use crate::virtio::devices::vsock::rx::{deliver_events, deliver_rx as deliver_vsock_rx};
 use crate::virtio::devices::vsock::{VSOCK_EVENT_QUEUE, VSOCK_RX_QUEUE};
 use crate::virtio::guest_memory::GuestMemory;
+use crate::virtio::queue::violation::QueueViolation;
 use crate::virtio::transport::MmioTransport;
 use crate::virtio::transport::state::{RestoreError, TransportState};
 use crate::virtio::transport::violation::TransportViolation;
@@ -102,6 +103,33 @@ impl MmioBus {
             }
             Slot::Root | Slot::Overlay | Slot::Rng => Ok(ServiceReport::default()),
         }
+    }
+
+    /// Counts driver-posted heads no device has taken yet, across every ready queue.
+    ///
+    /// Snapshot capture requires this to be zero: a queue with unserviced work would be
+    /// restored into an Instance that never asked for it.
+    ///
+    /// # Errors
+    /// Returns the first queue violation found while reading the available ring.
+    pub fn pending_work<M: GuestMemory + ?Sized>(
+        &mut self,
+        mem: &M,
+    ) -> Result<u32, (Slot, u16, QueueViolation)> {
+        let mut pending = 0_u32;
+        for slot in Slot::ALL {
+            for index in 0..slot.queue_count() {
+                let queue = with_slot!(self, slot, |t| t
+                    .queue_and_device_mut(index)
+                    .map(|(queue, _)| queue.is_ready().then(|| queue.pending(mem))));
+                match queue {
+                    Some(Some(Ok(count))) => pending = pending.saturating_add(u32::from(count)),
+                    Some(Some(Err(violation))) => return Err((slot, index, violation)),
+                    Some(None) | None => {}
+                }
+            }
+        }
+        Ok(pending)
     }
 
     /// Captures one slot; the caller proves quiescence first.

@@ -6,28 +6,31 @@
 //! [`VcpuRun`] separates starting the thread from waiting for it so a sandbox can drive its
 //! control session while the guest runs and still reclaim the vCPU through the same path.
 
+mod worker;
+
 use std::{
     sync::{
-        Mutex, MutexGuard,
-        mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError},
     },
     thread::{self, JoinHandle},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use kvm_ioctls::VcpuFd;
 
+use self::worker::{Control, cancel, finish, join_then, worker_main};
 use super::{
     error::{MachineError, MachineErrorKind, Phase},
-    kick::{self, HandlerGuard, RunMaskGuard},
+    kick::{self, HandlerGuard},
     mmio::MmioDispatch,
     ports::PortBus,
-    run::{self, GuestExit},
+    run::GuestExit,
 };
 
 const STARTUP_GRACE: Duration = Duration::from_secs(2);
-const CANCELLATION_GRACE: Duration = Duration::from_secs(2);
-const JOIN_POLL: Duration = Duration::from_millis(1);
+pub(super) const CANCELLATION_GRACE: Duration = Duration::from_secs(2);
 static PROCESS_HANDLER_LOCK: Mutex<()> = Mutex::new(());
 
 enum WorkerEvent {
@@ -36,6 +39,7 @@ enum WorkerEvent {
         Box<PortBus>,
         Option<Box<MmioDispatch>>,
         Result<GuestExit, MachineError>,
+        Option<VcpuFd>,
     ),
 }
 
@@ -45,6 +49,10 @@ pub(crate) struct RunReport {
     pub(crate) bus: Option<Box<PortBus>>,
     pub(crate) mmio: Option<Box<MmioDispatch>>,
     pub(crate) result: Result<GuestExit, MachineError>,
+    /// vCPU 0, returned only by a pause so its state can be read outside `KVM_RUN`.
+    ///
+    /// The holder must drop it before the VM and guest memory it belongs to.
+    pub(crate) vcpu: Option<VcpuFd>,
 }
 
 impl RunReport {
@@ -53,6 +61,7 @@ impl RunReport {
             bus: None,
             mmio: None,
             result: Err(MachineError::new(phase, MachineErrorKind::WorkerLost)),
+            vcpu: None,
         }
     }
 
@@ -61,6 +70,7 @@ impl RunReport {
             bus: Some(Box::new(bus)),
             mmio: mmio.map(Box::new),
             result: Err(error),
+            vcpu: None,
         }
     }
 }
@@ -94,6 +104,7 @@ pub(crate) struct VcpuRun {
     worker: JoinHandle<()>,
     receiver: Receiver<WorkerEvent>,
     signal: libc::c_int,
+    pause: Arc<AtomicBool>,
     _handler: HandlerGuard,
     _lock: MutexGuard<'static, ()>,
 }
@@ -129,16 +140,30 @@ impl VcpuRun {
         let (sender, receiver) = mpsc::sync_channel(2);
         let bus = Box::new(bus);
         let mmio = mmio.map(Box::new);
+        let pause = Arc::new(AtomicBool::new(false));
+        let worker_pause = Arc::clone(&pause);
         let worker = match thread::Builder::new()
             .name("soma-kvm-vcpu-0".to_owned())
-            .spawn(move || worker_main(vcpu, bus, mmio, sentinel.as_deref(), signal, &sender))
-        {
+            .spawn(move || {
+                worker_main(
+                    vcpu,
+                    bus,
+                    mmio,
+                    sentinel.as_deref(),
+                    &Control {
+                        signal,
+                        pause: &worker_pause,
+                        sender: &sender,
+                    },
+                );
+            }) {
             Ok(worker) => worker,
             Err(error) => {
                 return Err(RunReport {
                     bus: None,
                     mmio: None,
                     result: Err(MachineError::io(Phase::Run, &error)),
+                    vcpu: None,
                 });
             }
         };
@@ -147,10 +172,13 @@ impl VcpuRun {
                 worker,
                 receiver,
                 signal,
+                pause,
                 _handler: handler,
                 _lock: lock,
             }),
-            Ok(WorkerEvent::Finished(bus, mmio, result)) => Err(finish(worker, bus, mmio, result)),
+            Ok(WorkerEvent::Finished(bus, mmio, result, vcpu)) => {
+                Err(finish(worker, bus, mmio, result, vcpu))
+            }
             Err(RecvTimeoutError::Disconnected) => {
                 Err(join_then(worker, RunReport::lost(Phase::Run)))
             }
@@ -165,97 +193,54 @@ impl VcpuRun {
             worker,
             receiver,
             signal,
+            pause: _pause,
             _handler,
             _lock,
         } = self;
         match receiver.recv_timeout(timeout) {
-            Ok(WorkerEvent::Finished(bus, mmio, result)) => finish(worker, bus, mmio, result),
+            Ok(WorkerEvent::Finished(bus, mmio, result, vcpu)) => {
+                finish(worker, bus, mmio, result, vcpu)
+            }
             Ok(WorkerEvent::Ready) => std::process::abort(),
             Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Run)),
             Err(RecvTimeoutError::Timeout) => cancel(worker, &receiver, signal),
         }
     }
-}
 
-fn worker_main(
-    mut vcpu: VcpuFd,
-    mut bus: Box<PortBus>,
-    mut mmio: Option<Box<MmioDispatch>>,
-    sentinel: Option<&[u8]>,
-    signal: libc::c_int,
-    sender: &SyncSender<WorkerEvent>,
-) {
-    let result = match RunMaskGuard::install(&vcpu, signal) {
-        Ok(mask) => {
-            let result = if sender.send(WorkerEvent::Ready).is_ok() {
-                run::run(&mut vcpu, &mut bus, mmio.as_deref_mut(), sentinel)
-            } else {
-                Err(MachineError::new(Phase::Run, MachineErrorKind::WorkerLost))
-            };
-            drop(mask);
-            result
+    /// Kicks the vCPU out of `KVM_RUN` at a safe point and reclaims its descriptor.
+    ///
+    /// The guest is not stopped: KVM has already saved every architectural register, so the
+    /// returned [`RunReport::vcpu`] can be read with `KVM_GET_*` while nothing runs it.
+    ///
+    /// A worker that neither reports nor disconnects within `grace` may still own a live
+    /// vCPU, so the process aborts rather than releasing guest memory underneath it.
+    pub(crate) fn pause(self, grace: Duration) -> RunReport {
+        let Self {
+            worker,
+            receiver,
+            signal,
+            pause,
+            _handler,
+            _lock,
+        } = self;
+        pause.store(true, Ordering::Release);
+        if let Err(error) = kick::kick(&worker, signal) {
+            return join_then(
+                worker,
+                RunReport {
+                    bus: None,
+                    mmio: None,
+                    result: Err(error),
+                    vcpu: None,
+                },
+            );
         }
-        Err(error) => Err(error),
-    };
-    drop(vcpu);
-    if let Some(dispatch) = mmio.as_deref() {
-        dispatch.finish();
-    }
-    let _ignored = sender.send(WorkerEvent::Finished(bus, mmio, result));
-}
-
-fn cancel(
-    worker: JoinHandle<()>,
-    receiver: &Receiver<WorkerEvent>,
-    signal: libc::c_int,
-) -> RunReport {
-    let kick_error = kick::kick(&worker, signal).err();
-    match receiver.recv_timeout(CANCELLATION_GRACE) {
-        Ok(WorkerEvent::Finished(bus, mmio, result)) => {
-            let result = match (kick_error, result) {
-                (Some(error), _) => Err(error),
-                (None, Ok(exit)) => Ok(exit),
-                (None, Err(_)) => Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout)),
-            };
-            finish(worker, bus, mmio, result)
+        match receiver.recv_timeout(grace) {
+            Ok(WorkerEvent::Finished(bus, mmio, result, vcpu)) => {
+                finish(worker, bus, mmio, result, vcpu)
+            }
+            Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Join)),
+            Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
         }
-        // A kicked worker that neither finishes nor disconnects may still own a live vCPU.
-        Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
-        Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Join)),
     }
-}
-
-fn finish(
-    worker: JoinHandle<()>,
-    bus: Box<PortBus>,
-    mmio: Option<Box<MmioDispatch>>,
-    result: Result<GuestExit, MachineError>,
-) -> RunReport {
-    join_then(
-        worker,
-        RunReport {
-            bus: Some(bus),
-            mmio,
-            result,
-        },
-    )
-}
-
-/// Joins the worker within the grace period; a join failure replaces the pending result.
-fn join_then(worker: JoinHandle<()>, report: RunReport) -> RunReport {
-    let started = Instant::now();
-    while !worker.is_finished() {
-        if started.elapsed() >= CANCELLATION_GRACE {
-            std::process::abort();
-        }
-        thread::park_timeout(JOIN_POLL);
-    }
-    if worker.join().is_err() {
-        return RunReport {
-            bus: report.bus,
-            mmio: report.mmio,
-            result: Err(MachineError::new(Phase::Join, MachineErrorKind::WorkerLost)),
-        };
-    }
-    report
 }
