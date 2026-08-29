@@ -1,13 +1,16 @@
 <p align="center">
   <a href="https://miosa.ai">
-    <img alt="MIOSA orb" src="https://github.com/Miosa-osa/SOMA/raw/refs/heads/main/assets/brand/miosa-icon.png" width="96">
+    <img alt="MIOSA orb" src="https://miosa.ai/apple-touch-icon.png" width="96">
   </a>
 </p>
 
 <p align="center">
   <a href="https://miosa.ai">
-    <img alt="MIOSA" src="https://github.com/Miosa-osa/SOMA/raw/refs/heads/main/assets/brand/miosa-logo-black-text.png#gh-light-mode-only" width="300">
-    <img alt="MIOSA" src="https://github.com/Miosa-osa/SOMA/raw/refs/heads/main/assets/brand/miosa-logo-white-text.png#gh-dark-mode-only" width="300">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://miosa.ai/miosa-logo-white.png">
+      <source media="(prefers-color-scheme: light)" srcset="https://miosa.ai/miosa-logo-black.png">
+      <img alt="MIOSA" src="https://miosa.ai/miosa-logo-black.png" width="300">
+    </picture>
   </a>
 </p>
 
