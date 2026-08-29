@@ -22,8 +22,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security" src="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml/badge.svg?branch=main"></a>
   <a href="VERSION"><img alt="Version 1.0.0 alpha 1" src="https://img.shields.io/badge/version-1.0.0--alpha.1-7c3aed?style=flat-square"></a>
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square"></a>
 </p>
