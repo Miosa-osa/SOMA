@@ -8,7 +8,7 @@ This document assigns responsibilities and dependency direction for the initial 
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains nine implemented crates:
+The current workspace contains ten implemented crates:
 
 ```text
 crates/
@@ -16,6 +16,7 @@ crates/
   soma-cli/
   soma-generation/
   soma-guest/
+  soma-guest-agent/
   soma-kvm/
   soma-local/
   soma-macos/
@@ -23,8 +24,8 @@ crates/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a command-line adapter, and a bounded stdio MCP adapter.
-It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, authenticated guest agent, snapshot-safe secret injection, or remote transport.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a command-line adapter, and a bounded stdio MCP adapter.
+It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, VMM-side launch-page injection, in-VM guest-agent evidence, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
 The only initial production target is Ubuntu 24.04 x86_64 with KVM.
@@ -48,6 +49,7 @@ human, agent, SDK, or operator
 
     soma-generation -> soma identity types
     soma-guest       independent protocol foundation
+    soma-guest-agent -> soma-guest
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -59,6 +61,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-macos` owns the development-only Apple VM-per-OCI lifecycle adapter.
 `soma-generation` verifies bounded OCI image-layout input and publishes immutable imported and normalized logical-tree artifacts without minting a certified Generation.
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
+`soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 No provider adapter belongs below the public Machine seam.
 The current low-level crates remain independent while `soma-vmm` uses an unavailable production platform adapter.
@@ -543,15 +546,62 @@ crates/soma-guest/src/
   error.rs
   handshake.rs
   launch_page.rs
+  launch_page/network.rs
+  launch_page/session.rs
   launch_page/wire.rs
   record.rs
   resolver.rs
   secret.rs
 ```
 
-The crate is an independent protocol and ownership foundation so the future host VMM adapter and static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
+The crate is an independent protocol and ownership foundation so the host VMM adapter and the static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
+It also fixes the machine-contract constants shared by both peers: the launch-page guest-physical address, the vsock control port, and the schema 2 non-secret `LaunchNetwork` identity accepted by ADR 0022.
 It does not contain a guest executable, VMM device transport adapter, trusted Generation-manifest verifier, physical snapshot-safe secret injection, real clone repair, process executor, C ABI, or attestation mechanism.
 Its owned authenticated probe state is necessary but cannot authorize a Machine Ready result until those external repair and execution effects are wired and evidenced.
+
+## `soma-guest-agent` responsibilities
+
+`soma-guest-agent` is the statically linked Linux executable that runs as PID 1 inside a SOMA microVM.
+It performs the early-init sequence from the Generation compiler contract, waits at the disconnected repair point, consumes the launch page, repairs entropy, transport, identity, and network state in the fixed order, authenticates the host over vsock, runs the fixed readiness probe through the production executor, serves bounded direct commands, and performs authenticated shutdown.
+It consumes `soma-guest` for every byte of the launch page, handshake, record, application message, and lifecycle state and reimplements none of them.
+
+The source map is:
+
+```text
+crates/soma-guest-agent/src/
+  main.rs
+  boot.rs
+  boot/superblock.rs
+  console.rs
+  control.rs
+  descendants.rs
+  entropy.rs
+  environment.rs
+  executor.rs
+  identity.rs
+  ioctl.rs
+  launch_page.rs
+  lifecycle.rs
+  mounts.rs
+  network_repair.rs
+  network_repair/encoding.rs
+  output.rs
+  pid1.rs
+  repair.rs
+  shutdown.rs
+crates/soma-guest-agent/tests/fixtures/README.md
+```
+
+`main.rs` is a composition root only; `repair.rs` owns the typestated controller whose markers make an out-of-order or duplicate transition unrepresentable and whose runtime ledger re-checks the same order.
+`boot.rs` owns the bounded early-init sequence with fixed device names, mount options, superblock identity checks, a sterile-head check, and the `switch_root` style move into the composed root.
+`launch_page.rs` maps the fixed guest-physical page through `/dev/mem`, copies it once into locked zeroizing memory, erases and verifies the mapping, and only then decodes it.
+`entropy.rs`, `identity.rs`, and `network_repair.rs` own one repair effect each over narrow `libc` calls with `SAFETY` comments.
+`control.rs` adapts a vsock stream to the protocol crate's `ControlIo` with absolute deadlines; `lifecycle.rs` sequences the probe, Execute, and Shutdown exchanges; `executor.rs`, `output.rs`, `environment.rs`, and `descendants.rs` own direct `execve`, exact output accounting, the fixed environment policy, and complete descendant reaping.
+`pid1.rs` and `console.rs` own the never-exit, orphan-reaping, panic-to-poweroff, and bounded-diagnostic duties of init.
+
+The crate compiles on every workspace target but only the Linux modules do work; other targets exit with an unsupported result.
+Host tests cover the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries.
+Booting as PID 1, mapping the launch page, kernel entropy credit, network installation, vsock connection, and shutdown have not run inside a SOMA virtual machine and remain unproven until the VMM supplies the launch-page slot and vsock device.
 
 ## Future node and protocol modules
 
@@ -596,6 +646,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 - A new dependency requires a documented role, compatible license, maintained provenance, and review of its unsafe surface.
 - Target-only dependencies remain gated so Linux, macOS, and Windows clients can compile without another host's runtime.
 - `soma-kvm` never depends on `soma-vmm`.
+- `soma-guest-agent` depends only on `soma-guest`, `zeroize`, and `libc`, and never on a host, VMM, or provider crate.
 - Provider adapters and ComputeSDK integration never become dependencies of either VMM crate.
 
 ## Review checklist

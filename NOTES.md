@@ -10,6 +10,19 @@ Flat ordered composition is preferred over nested inheritance so the resolved re
 Template network permissions are a maximum envelope that Launch may narrow but may not silently widen.
 Secret references never place reusable values in a Template, lock, Generation, snapshot, log, or receipt.
 Agent modules for Claude Code, Codex, OSA, Hermes, and future agents use one common contract and are convenience modules rather than privileged VMM behavior.
+## 2026-08-29 - Static Linux guest agent for the repair state machine
+
+Decision-map ticket #8 now has a guest side: `crates/soma-guest-agent` is a statically linked x86_64 musl executable that runs as PID 1 from the Generation initramfs.
+It performs the compiler's early-init sequence itself, waits at the disconnected repair point, and drives the exact `Captured`, `MaterialAccepted`, `EntropyRepaired`, `TransportFresh`, `IdentityRepaired`, `NetworkRepaired`, `Authenticated`, `Probed`, `Ready`, `Running`, `Stopping`, and `Poisoned` order through a typestated controller with a runtime ledger.
+Every protocol byte comes from `soma-guest`; the agent adds only Linux mechanisms behind narrow `libc` calls with `SAFETY` comments.
+Three machine-contract decisions are now constants in `soma-guest`: the launch page lives in a dedicated slot at guest-physical `0xd0100000` above RAM and the MMIO window, the control endpoint is vsock port `0x534f4d41` on host CID 2 with the guest connecting, and launch-page schema 2 carries the non-secret vsock CID, network generation, MAC, IPv4 identity, resolver, time sample, and a BLAKE2s digest as accepted by ADR 0022.
+The guest reads the page by mapping `/dev/mem` because the x86 `read` path rejects addresses above `high_memory` while `mmap` does not; the kernel therefore needs `CONFIG_DEVMEM=y`, may keep `CONFIG_STRICT_DEVMEM` because the page is not System RAM, and must not enable `CONFIG_IO_STRICT_DEVMEM` for that range, plus `CONFIG_VSOCKETS`, `CONFIG_VIRTIO_VSOCKETS`, `CONFIG_HW_RANDOM_VIRTIO`, EROFS, ext4, OverlayFS, devtmpfs, procfs, sysfs, and tmpfs.
+`pivot_root` cannot leave the initial ramfs, so the agent moves the composed OverlayFS over `/` and enters it with `chroot` exactly as `switch_root` does after moving `/dev`, `/proc`, and `/sys`.
+The Generation responder private key is read from `/etc/soma/responder.key` in the initramfs, then overwritten and unlinked before the root switch.
+Version 1 commands run as root with a fixed environment allowlist, `/` as working directory, and closed standard input because the wire contract carries no environment fields; a caller-controlled environment needs a new wire version and an ADR.
+`scripts/build-guest-agent.sh` produced a 815,288-byte binary with SHA-256 `e6367c5774aab8926f13ef9c9f952bcdb5a1e7d347d0e4cdfae851e94e1e3eb1` that `file` reports as statically linked; the digest is a local measurement and not yet a reproducible-build claim.
+Host tests prove the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries, but the agent has not booted inside a SOMA virtual machine.
+The next dependency is the VMM side: the launch-page memory slot, the vsock device on the fixed port, and the initramfs writer that places `/init` and the responder key.
 
 ## 2026-08-29 - x86_64 halt guest proves the KVM machine floor
 

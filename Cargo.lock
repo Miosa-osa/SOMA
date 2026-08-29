@@ -1163,6 +1163,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-guest-agent"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "libc",
+ "soma-guest",
+ "zeroize",
+]
+
+[[package]]
 name = "soma-kvm"
 version = "1.0.0-alpha.1"
 dependencies = [

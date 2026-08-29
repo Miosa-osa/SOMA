@@ -1,0 +1,23 @@
+[package]
+name = "soma-guest-agent"
+description = "Statically linked Linux PID 1 guest agent that drives SOMA repair, control, and execution"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "soma-guest-agent"
+path = "src/main.rs"
+
+[dependencies]
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+zeroize = "=1.9.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "=0.2.189"
+
+[lints]
+workspace = true

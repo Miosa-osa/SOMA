@@ -17,7 +17,7 @@ Direct registry dependencies are pinned exactly:
 | `futures-util` | 0.3.34 | Bounded asynchronous MCP stream adapters |
 | `kvm-bindings` | 0.14.1 | Linux KVM ABI structures for the x86_64 machine floor and ARM constants |
 | `kvm-ioctls` | 0.25.0 | Linux KVM ownership and ioctl wrappers |
-| `libc` | 0.2.189 | Narrow Linux descriptor and signal operations |
+| `libc` | 0.2.189 | Narrow Linux descriptor, signal, mount, socket, and ioctl operations for the KVM adapter and the static guest agent |
 | `linux-loader` | 0.14.0 | Checked Linux ARM64 Image loading |
 | `rmcp` | 3.1.4 | Model Context Protocol server and test client |
 | `schemars` | 1.2.2 | MCP tool input schemas |
