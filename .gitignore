@@ -13,3 +13,6 @@ coverage/
 benchmarks/results/
 /fuzz/artifacts/
 /fuzz/corpus/
+
+# Built guest-kernel artifacts, sources, and build trees (see kernel/README.md)
+kernel/out/

@@ -11,6 +11,9 @@ This file records the primary sources that constrain SOMA's design.
 - [rust-vmm virtio-queue](https://github.com/rust-vmm/vm-virtio/blob/main/virtio-queue/README.md) documents split-queue state, save and restore, notification suppression, and device-side buffer-validation responsibilities.
 - [Linux KVM API](https://www.kernel.org/doc/html/latest/virt/kvm/api.html) defines the file-descriptor, ioctl, memory-mapping, and vCPU execution contract.
 - [Linux x86 boot protocol](https://docs.kernel.org/arch/x86/boot.html) defines protected-mode and 64-bit direct kernel entry.
+- [Linux 6.12.y stable source](https://cdn.kernel.org/pub/linux/kernel/v6.x/) is the pinned guest-kernel source line; `kernel/source.json` records the exact tarball and SHA-256.
+- [Linux PVH entry](https://github.com/torvalds/linux/blob/v6.12/arch/x86/platform/pvh/head.S) emits `XEN_ELFNOTE_PHYS32_ENTRY` and defines the 32-bit entry sequence that `kernel/verify-pvh.py` checks.
+- [Firecracker guest kernel configurations](https://github.com/firecracker-microvm/firecracker/tree/main/resources/guest_configs) are the microVM minimalism reference consulted for the SOMA kernel fragment, which differs by removing PCI, ACPI, and relocation.
 - [Xen HVM direct-boot ABI](https://xenbits.xen.org/docs/4.10-testing/misc/pvh.html) defines the legacy-free x86 PVH entry state used by the first SOMA machine contract.
 - [Xen hvm_start_info](https://xenbits.xen.org/docs/unstable/hypercall/x86_64/include%2Cpublic%2Carch-x86%2Chvm%2Cstart_info.h.html) defines PVH start information, modules, command line, and memory map.
 - [rust-vmm community](https://github.com/rust-vmm/community) catalogs reusable Rust virtualization crates and production consumers.

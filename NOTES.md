@@ -25,6 +25,14 @@ Event-index suppression is not negotiated, so only `VIRTQ_AVAIL_F_NO_INTERRUPT` 
 `QueueState` and `TransportState` are fixed little-endian records with exact-length decoding, and restore revalidates status order, allowlisted features, interrupt bits, queue count, queue geometry against live memory, cursor consistency, and device activation before any state becomes visible.
 `InterruptACK` clears exactly the acknowledged known bits in one store; the atomicity claim rests on single-thread ownership of the transport, which the future event loop must preserve.
 Nothing here is an MMIO bus, ioeventfd, irqfd, device backend, event loop, snapshot container, or sandbox, and the tests prove transport and queue behavior only against in-memory guest RAM.
+## 2026-08-29 - Pinned x86_64 PVH guest kernel builds reproducibly
+
+Decision-map ticket #4 now has its kernel input: Linux `v6.12.107` built as an uncompressed ELF `vmlinux` with `XEN_ELFNOTE_PHYS32_ENTRY` at `0x01000000`, `CONFIG_RELOCATABLE=n`, no modules, no PCI, no ACPI, and only the five virtio-mmio device drivers plus EROFS, ext4, OverlayFS, and the pseudo filesystems.
+`kernel/build.sh` pins the source tarball by SHA-256, compiles inside an Ubuntu 24.04 image pinned by digest with verified gcc 13.3.0 and binutils 2.42, fixes every `KBUILD_*` and `SOURCE_DATE_EPOCH` value, fails closed if `make olddefconfig` changes any pinned symbol, and records a manifest with every digest.
+`kernel/verify-pvh.py` parses the ELF with the standard library only and rejects a missing note, a segment below the contract floor, overlapping segments, or an entry outside executable loaded bytes.
+Two consecutive builds on the same host produced byte-identical output; the evidence is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-build.md`.
+This is a build and layout proof only, not KVM boot evidence, device discovery evidence, or a Generation.
+The built kernel lacks `CONFIG_DEVMEM`, which the guest agent needs to read the launch page; the fragment now requests it and a reviewed regeneration plus rebuild is the next kernel step.
 
 ## 2026-08-29 - Complete custom VMM architecture map
 

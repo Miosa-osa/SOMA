@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "artifact": "soma-guest-kernel",
+  "machine_contract": "x86_64-v1",
+  "arch": "x86_64",
+  "kernel_version": "6.12.107",
+  "source_tag": "v6.12.107",
+  "tarball_url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.107.tar.xz",
+  "tarball_sha256": "a5f8c5be3fde2d6d9ca14e9631642cf1f44487143f11059da730dcd5892e307a",
+  "config": "config-x86_64-soma-v1",
+  "builder_base_image": "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+  "builder_base_image_tag_at_pin": "docker.io/library/ubuntu:24.04",
+  "toolchain": {
+    "gcc": "13.3.0",
+    "ld": "2.42",
+    "make": "4.3"
+  },
+  "reproducible_env": {
+    "KBUILD_BUILD_TIMESTAMP": "2026-08-29T00:00:00Z",
+    "KBUILD_BUILD_USER": "soma",
+    "KBUILD_BUILD_HOST": "soma-kernel-builder",
+    "KBUILD_BUILD_VERSION": "1",
+    "SOURCE_DATE_EPOCH": "1756425600"
+  }
+}

@@ -1,0 +1,76 @@
+# SOMA x86_64 machine contract v1: symbols that must hold in the final .config.
+# Checked by verify-config.py after `make olddefconfig`; any mismatch fails the build.
+# Lines use exact Kconfig syntax so the same parser handles both files.
+
+# Boot ABI and fixed link address
+CONFIG_64BIT=y
+CONFIG_X86_64=y
+CONFIG_PVH=y
+CONFIG_KVM_GUEST=y
+CONFIG_PARAVIRT=y
+CONFIG_HYPERVISOR_GUEST=y
+CONFIG_PHYSICAL_START=0x1000000
+# CONFIG_RELOCATABLE is not set
+# CONFIG_RANDOMIZE_BASE is not set
+# CONFIG_EFI is not set
+# CONFIG_XEN is not set
+
+# Virtio over MMIO only
+CONFIG_VIRTIO=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_VSOCKETS=y
+CONFIG_VIRTIO_VSOCKETS=y
+CONFIG_HW_RANDOM=y
+CONFIG_HW_RANDOM_VIRTIO=y
+# CONFIG_VIRTIO_PCI is not set
+# CONFIG_VIRTIO_BALLOON is not set
+# CONFIG_VIRTIO_CONSOLE is not set
+
+# Filesystems and pseudo filesystems
+CONFIG_EROFS_FS=y
+CONFIG_EXT4_FS=y
+CONFIG_OVERLAY_FS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_TMPFS=y
+CONFIG_BLK_DEV_INITRD=y
+
+# Networking and IPC
+CONFIG_NET=y
+CONFIG_INET=y
+CONFIG_IPV6=y
+CONFIG_UNIX=y
+# CONFIG_NETFILTER is not set
+
+# Diagnostic console
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+
+# Process isolation
+CONFIG_SECCOMP=y
+CONFIG_SECCOMP_FILTER=y
+CONFIG_CGROUPS=y
+CONFIG_NAMESPACES=y
+
+# Excluded platform facilities
+# CONFIG_MODULES is not set
+# CONFIG_PCI is not set
+# CONFIG_ACPI is not set
+# CONFIG_USB_SUPPORT is not set
+# CONFIG_SOUND is not set
+# CONFIG_DRM is not set
+# CONFIG_FB is not set
+# CONFIG_VT is not set
+# CONFIG_INPUT is not set
+# CONFIG_SCSI is not set
+# CONFIG_ATA is not set
+# CONFIG_MEMORY_HOTPLUG is not set
+# CONFIG_WIRELESS is not set
+# CONFIG_BT is not set
+# CONFIG_DEBUG_INFO_BTF is not set
+CONFIG_DEBUG_INFO_NONE=y
