@@ -64,11 +64,12 @@ What guest-physical layout, Linux boot protocol, vCPU register state, interrupt 
 
 ### Answer
 
-Resolved architecturally; halt-guest floor proven on x86_64.
+Resolved; cold-boot machine contract proven on x86_64.
 Version 1 uses a pinned uncompressed x86_64 Linux ELF kernel with a PVH entry note, one bootstrap vCPU, a fixed low-memory layout, no firmware, and no general PC platform.
 It defines exact boot structures, initial register state, required KVM capabilities, cold-boot and restore ordering, failure behavior, and unsupported devices.
 The memory-slot, PVH boot-page, protected-mode vCPU entry, port-I/O exit, `hlt`, watchdog, and cleanup floor is implemented in `soma-kvm` and retained in [the x86_64 halt-guest evidence](../evidence/2026-08-29-x86_64-kvm-halt-guest.md).
-PVH kernel boot, the serial console, and the machine-contract acceptance test remain open.
+The acceptance test in [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md) boots the pinned kernel through the PVH entry to a challenge-bound serial sentinel with proven descriptor cleanup.
+That proof is a cold-boot machine-contract test only; devices, root filesystem, guest agent, readiness, and snapshot restore remain open under later tickets.
 See [x86_64 machine contract](x86_64-machine-contract.md).
 
 ## #5: What is the minimal device surface?

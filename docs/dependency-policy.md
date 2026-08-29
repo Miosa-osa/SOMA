@@ -34,7 +34,7 @@ Direct registry dependencies are pinned exactly:
 | `vm-fdt` | 0.3.0 | Generated ARM64 flattened device trees |
 | `vm-memory` | 0.18.0 | Checked guest-address and anonymous-memory mappings |
 | `vm-superio` | 0.8.1 | Bounded 16550 UART model for the ARM64 proof path |
-| `vmm-sys-util` | 0.15.0 | Targeted vCPU thread signaling |
+| `vmm-sys-util` | 0.15.0 | Targeted vCPU thread signaling and the x86_64 serial-interrupt eventfd registered with `KVM_IRQFD` |
 | `zeroize` | 1.9.0 | Best-effort erasure of crate-owned secret wrapper buffers |
 
 The versions in this table were the latest registry releases returned by the project verification on the research date.

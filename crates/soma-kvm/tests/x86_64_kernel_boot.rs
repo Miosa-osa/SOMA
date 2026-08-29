@@ -19,6 +19,10 @@ mod x86_64_newc;
 mod x86_64_discover;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_kernel_boot/host_sample.rs"]
+mod x86_64_host_sample;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
     use std::{
         fs,
@@ -35,6 +39,7 @@ mod live {
 
     use crate::{
         x86_64_discover::{kernel_path, sha256_of},
+        x86_64_host_sample::{self, Sampler},
         x86_64_newc,
     };
 
@@ -131,8 +136,15 @@ mod live {
             .with_nonce(nonce);
 
         let fd_before = open_descriptor_count();
+        let host_before = x86_64_host_sample::sample(RAM_BYTES / 1024);
+        let sampler = Sampler::start(RAM_BYTES / 1024);
         let result = run_kernel_boot(&config);
+        let (host_last, host_peak, host_peaks) = sampler.stop();
         let fd_after = open_descriptor_count();
+        x86_64_host_sample::describe("host_before_run", &host_before);
+        x86_64_host_sample::describe("host_last_sample_with_guest_mapped", &host_last);
+        x86_64_host_sample::describe("host_peak_vmrss_while_running", &host_peak);
+        eprintln!("host_peaks_while_running: {host_peaks:?}");
         let log = scratch_dir().join("serial.log");
         let evidence = match result {
             Ok(evidence) => evidence,

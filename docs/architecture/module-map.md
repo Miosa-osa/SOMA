@@ -226,10 +226,11 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 ## `soma-kvm` responsibilities
 
 `soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
-Its current depth includes a checked capability probe, an x86_64 machine floor that maps one private memory slot, enters one protected-mode vCPU, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
+Its current depth includes a checked capability probe, an x86_64 machine that maps one private memory slot, enters one protected-mode vCPU, boots the pinned PVH kernel to a challenge-bound serial sentinel through a diagnostic 16550 model, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/` that is exercised only by host-side tests and is not yet wired to an MMIO bus, KVM exit, device model, or event loop.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
+The `x86_64/` modules now also boot the pinned PVH kernel to a challenge-bound serial sentinel through an owned bounded ELF parser, a loader, a diagnostic 16550 model, and a checked port bus; the retained proof is [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md).
 It also owns the platform-neutral snapshot format v1 codec under `snapshot/`: the `SOMASNP` manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, per-device state, the memory-object descriptor, the fail-closed compatibility check, and the capture and restore ordering contracts.
 That codec performs no KVM ioctl; live capture and restore remain a later slice.
 
@@ -242,13 +243,31 @@ crates/soma-kvm/src/
   machine.rs
   x86_64/
     boot_info.rs
+    cmdline.rs
+    cpuid.rs
+    elf.rs
+    elf/
+      header.rs
+      note.rs
+      synthetic.rs
+      tests.rs
     error.rs
     guest.rs
+    halt.rs
+    kernel.rs
+    kernel/
+      config.rs
     kick.rs
     layout.rs
+    loader.rs
     memory.rs
     mod.rs
+    ports.rs
     run.rs
+    serial.rs
+    serial/
+      tests.rs
+    timing.rs
     vcpu.rs
     watchdog.rs
   virtio/
@@ -328,6 +347,11 @@ crates/soma-kvm/src/
 crates/soma-kvm/tests/
   kvm_probe.rs
   x86_64_halt_guest.rs
+  x86_64_kernel_boot.rs
+  x86_64_kernel_boot/
+    discover.rs
+    host_sample.rs
+    newc.rs
   fixtures/
     arm64_agent.c
     arm64_init.S
@@ -337,6 +361,9 @@ crates/soma-kvm/tests/
     arm64_process_test.c
     build_command_initramfs.py
     build_initramfs.py
+    x86_64/
+      build_x86_64_init.py
+      x86_64_init.c
 ```
 
 ### `soma-kvm/src/lib.rs`
@@ -348,7 +375,7 @@ It must remain free of provider policy and per-Machine public contract types.
 ### `linux.rs`
 
 `linux.rs` owns target-gated Linux KVM capability calls and architecture-specific probe requirements.
-The `x86_64/` modules own the machine-contract layout, PVH boot-page encoding, private guest RAM, bootstrap vCPU state, the bounded run loop, and the deadline watchdog for the halt-guest floor; they boot no kernel and expose no device.
+The `x86_64/` modules own the machine-contract layout, PVH boot-page encoding, private guest RAM, the bounded ELF and PVH-note parser, the kernel and initramfs loader, the single command-line composer, the CPUID template, bootstrap vCPU state, the diagnostic 16550 model, the checked port bus, the bounded run loop, and the deadline watchdog; they expose no virtio device and no MMIO bus.
 The `arm64/` modules own only the explicit-fixture cold-boot and challenge-bound command proofs accepted by ADRs 0014 and 0016.
 Those abort-capable proofs are crate-internal and reachable only from ignored live tests run in dedicated test processes.
 They do not imply authenticated readiness, OCI execution, networking, snapshot restore, isolation certification, or production-engine support.

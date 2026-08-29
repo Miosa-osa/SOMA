@@ -452,3 +452,14 @@ The orb and MIOSA wordmark form one centered horizontal lockup rather than two v
 The marks are intentionally unlinked because GitHub underlined residual inline anchor whitespace when either mark was linked.
 The README restores current version, CI, security, Rust toolchain, platform, and license badges and replaces the opening documentation paragraph with a task-oriented file map.
 The redundant top-level warning block was removed at the project owner's request, while implementation maturity remains stated in Project status and the platform evidence table.
+
+## 2026-08-29 - Pinned PVH kernel boots on KVM to a challenge-bound serial sentinel
+
+Decision-map ticket #4's acceptance test now passes on a real Ubuntu 24.04 x86_64 host: `run_kernel_boot` parses the pinned `vmlinux` with an owned bounded ELF64 parser, loads its segments and a top-down initramfs, writes the PVH pages, and enters the `XEN_ELFNOTE_PHYS32_ENTRY` address on one protected-mode vCPU.
+The parser rejects a missing or duplicated Xen note, a malformed note segment, a segment below `0x01000000`, overlapping or overflowing segments, file bytes outside the image, and an entry outside executable loaded bytes; a truncation sweep and a bit-flip sweep over a synthetic image never panic, and the live negative test proves a corrupted note fails in `LoadGuest` before any vCPU exists.
+The diagnostic 16550 model is output-only and bounded at 64 KiB: `LSR` always reports an empty transmitter, `IIR` acknowledges the transmit interrupt on read, `IER` is masked to its four defined bits, the scratch register and loopback `MSR` satisfy the 8250 autoconfig probe, and an irqfd on GSI 4 delivers the transmit interrupt so tty writes never stall.
+The port bus answers only the eight UART ports and the keyboard-controller pair; the `0xfe` reset pulse from `reboot=k` is the orderly `Reset` exit, and every other port reads as a floating bus and is counted.
+The kernel boot needs the in-kernel PIT: without it Linux still reaches `/init` and prints the sentinel, but the local APIC timer is never calibrated and a 20 ms `nanosleep` in `/init` never returns, so the PIT is part of the version 1 profile.
+The CPUID template requires KVM's paravirtual signature leaf so the guest selects `kvm-clock`, and pins the bootstrap APIC identifiers to zero.
+The command line is composed only in `cmdline.rs` from the fixed contract set plus `rdinit=/init` and `soma.nonce=<hex>`, which is the seam that later becomes part of `GenerationId`.
+The retained result, including single-sample host residency numbers, is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-boot.md`; it proves the cold-boot machine contract only, not a device, root filesystem, guest agent, readiness, snapshot, or latency claim.
