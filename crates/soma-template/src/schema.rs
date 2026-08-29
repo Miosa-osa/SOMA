@@ -12,10 +12,12 @@
 //! - `[[secrets]] scope` is required for `file` and `egress-proxy` delivery, and defaults to
 //!   the secret name for `environment` delivery; `mode` applies only to `file` delivery.
 //! - `[[environment]]` entries carry either a literal `value` or `required = true`.
+//!
+//! A document has no content digest of its own: the digest bound into a lock is computed
+//! from the composed selection, so the authored spelling of one selection never splits it.
 
 mod choice;
 mod command;
-mod digest;
 mod parse;
 mod reader;
 
@@ -106,16 +108,6 @@ impl Template {
     #[must_use]
     pub fn secrets(&self) -> &[SecretReference] {
         &self.secrets
-    }
-
-    /// The SHA-256 digest of the content-affecting projection of this document.
-    ///
-    /// The projection excludes `name`, `description`, the mutable `workload.image` text,
-    /// and every TOML formatting detail, so two documents that select the same inputs share
-    /// one content digest.
-    #[must_use]
-    pub fn content_digest(&self) -> [u8; 32] {
-        digest::content_digest(self)
     }
 }
 

@@ -13,7 +13,7 @@
 //! | 2 | lock schema version | `u16` = 1 |
 //! | 3 | template schema | string |
 //! | 4 | policy version | `u16`, the composition and validation rule set |
-//! | 5 | template content digest | 32 bytes |
+//! | 5 | content digest | 32 bytes: SHA-256 of the composed selection (platform, ordered module identities, effective command, resources, normalized network, lifecycle, effective environment, secret references) |
 //! | 6 | workload | 32-byte OCI manifest digest, `u64` size, platform (os, arch, presence + variant) |
 //! | 7 | modules | count; each: kind `u8`, name, `u32` version, `u16` schema, 32-byte digest |
 //! | 8 | command | program, args list, working directory, user |
@@ -42,6 +42,7 @@ mod encode;
 mod fields;
 
 use crate::{
+    compose::Composition,
     error::LockError,
     identity::LockId,
     resolve::ResolvedImage,
@@ -79,16 +80,25 @@ pub struct TemplateLock {
 impl TemplateLock {
     pub(crate) fn assemble(
         template: &Template,
+        composition: &Composition<'_>,
         image: ResolvedImage,
-        modules: Vec<LockedModule>,
         validated: Validated,
         ceiling: &PolicyCeiling,
         backend: &BackendCapabilities,
     ) -> Self {
+        let modules = composition
+            .modules
+            .iter()
+            .map(|module| LockedModule {
+                identity: module.identity().clone(),
+                schema_version: module.schema_version(),
+                digest: module.digest(),
+            })
+            .collect();
         Self {
             template_schema: crate::schema::SCHEMA.to_owned(),
             policy_version: POLICY_VERSION,
-            content_digest: template.content_digest(),
+            content_digest: composition.content_digest(template),
             image,
             modules,
             command: validated.command,
@@ -134,6 +144,7 @@ impl TemplateLock {
         self.policy_version
     }
 
+    /// The digest of the composed selection, independent of every external input.
     #[must_use]
     pub const fn content_digest(&self) -> &[u8; 32] {
         &self.content_digest

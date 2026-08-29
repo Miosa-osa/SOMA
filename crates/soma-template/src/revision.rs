@@ -25,6 +25,12 @@
 //! agent command contract, `environment()` and `secrets()` feed launch-input delivery,
 //! `network()` and `lifecycle()` feed policy narrowing and Backend lifecycle selection, and
 //! `content_digest()` plus `lock_id()` are provenance that certification binds.
+//!
+//! The content digest is the digest of the composed selection, so
+//! [`TemplateRevision::with_provenance`] recomposes a document against a module registry and
+//! proves content-projection equality only: the mutable image reference is excluded from the
+//! lock by design, and the reference it attaches is caller-vouched provenance, not a
+//! verified input.
 
 mod network;
 
@@ -33,8 +39,10 @@ use std::{error::Error, fmt};
 use soma::{Capabilities, MachineShape, OciDigest, OciImage, OciPlatform};
 
 use crate::{
+    compose,
     identity::LockId,
     lock::{LockedCommand, LockedEnvironment, LockedModule, LockedSecret, TemplateLock},
+    module::ModuleRegistry,
     schema::{Lifecycle, Template},
     validate::NetworkEnvelope,
 };
@@ -42,7 +50,10 @@ use crate::{
 /// Why a lock could not be projected onto the portable request contract.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RevisionError {
-    /// The Template document is not the one the lock was derived from.
+    /// The Template document does not compose to the selection bound into the lock.
+    ///
+    /// This proves content-projection equality only; two documents that differ solely in the
+    /// mutable `workload.image` text compose to one selection and are not told apart.
     ProvenanceMismatch,
     /// The locked resources do not form a portable Machine shape.
     InvalidShape,
@@ -133,14 +144,21 @@ impl TemplateRevision {
         }
     }
 
-    /// Attaches the authored image reference from the document the lock was derived from.
+    /// Attaches the authored image reference from a document that composes, against
+    /// `registry`, to the selection bound into the lock.
     ///
     /// # Errors
     ///
-    /// Returns [`RevisionError::ProvenanceMismatch`] when the document's content digest is
-    /// not the digest bound into the lock.
-    pub fn with_provenance(mut self, template: &Template) -> Result<Self, RevisionError> {
-        if template.content_digest() != self.content_digest {
+    /// Returns [`RevisionError::ProvenanceMismatch`] when the document does not compose or
+    /// composes to a different selection than the lock's content digest.
+    pub fn with_provenance(
+        mut self,
+        template: &Template,
+        registry: &ModuleRegistry,
+    ) -> Result<Self, RevisionError> {
+        let composition =
+            compose::compose(template, registry).map_err(|_| RevisionError::ProvenanceMismatch)?;
+        if composition.content_digest(template) != self.content_digest {
             return Err(RevisionError::ProvenanceMismatch);
         }
         self.image.reference = Some(template.workload().image().clone());
@@ -152,6 +170,7 @@ impl TemplateRevision {
         self.lock_id
     }
 
+    /// The digest of the composed selection the lock was derived from.
     #[must_use]
     pub const fn content_digest(&self) -> &[u8; 32] {
         &self.content_digest

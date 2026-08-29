@@ -4,8 +4,8 @@ mod support;
 
 use soma::{EgressPolicy, NetworkPolicy, OciImage};
 use soma_template::{
-    EgressIntent, IngressIntent, PolicyCeiling, RevisionError, TemplateLock, TemplateRevision,
-    resolve,
+    EgressIntent, IngressIntent, ModuleRegistry, PolicyCeiling, RevisionError, TemplateLock,
+    TemplateRevision, resolve,
 };
 use support::{
     EXAMPLE, PYTHON_DIGEST, PYTHON_SIZE, backend, edit, example, lock, oracle, parse, resolver,
@@ -35,10 +35,11 @@ fn view_mirrors_the_lock() {
 }
 
 #[test]
-fn provenance_attaches_only_the_matching_document() {
+fn provenance_attaches_only_a_document_that_composes_to_the_locked_selection() {
     let lock = example();
+    let registry = ModuleRegistry::builtin();
     let revision = TemplateRevision::from_lock(&lock)
-        .with_provenance(&parse(EXAMPLE))
+        .with_provenance(&parse(EXAMPLE), &registry)
         .expect("same document");
     assert_eq!(
         revision.image().reference().map(OciImage::as_str),
@@ -47,15 +48,48 @@ fn provenance_attaches_only_the_matching_document() {
     let renamed = parse(&edit(EXAMPLE, "claude-code-python", "renamed"));
     assert!(
         TemplateRevision::from_lock(&lock)
-            .with_provenance(&renamed)
+            .with_provenance(&renamed, &registry)
             .is_ok()
     );
-    let changed = parse(&edit(EXAMPLE, "memory_mib = 2048", "memory_mib = 1024"));
+    let retagged = parse(&edit(EXAMPLE, "python:3.12-slim", "python:3.12"));
+    let attached = TemplateRevision::from_lock(&lock)
+        .with_provenance(&retagged, &registry)
+        .expect("the reference text is provenance the check cannot see");
     assert_eq!(
+        attached.image().reference().map(OciImage::as_str),
+        Some("python:3.12")
+    );
+    let mismatch = |text: &str| {
         TemplateRevision::from_lock(&lock)
-            .with_provenance(&changed)
-            .err(),
+            .with_provenance(&parse(text), &registry)
+            .err()
+    };
+    assert_eq!(
+        mismatch(&edit(EXAMPLE, "memory_mib = 2048", "memory_mib = 1024")),
         Some(RevisionError::ProvenanceMismatch)
+    );
+    assert_eq!(
+        mismatch(&edit(EXAMPLE, "\"soma://tools/git@1\",", "")),
+        Some(RevisionError::ProvenanceMismatch)
+    );
+    assert_eq!(
+        mismatch(&edit(EXAMPLE, "value = \"true\"", "value = \"false\"")),
+        Some(RevisionError::ProvenanceMismatch)
+    );
+    let uncomposable = edit(
+        EXAMPLE,
+        "\"soma://tools/git@1\",",
+        "\"soma://tools/git@1\",\n  \"soma://tools/nope@1\",",
+    );
+    assert_eq!(
+        mismatch(&uncomposable),
+        Some(RevisionError::ProvenanceMismatch)
+    );
+    assert!(
+        TemplateRevision::from_lock(&lock)
+            .with_provenance(&parse(EXAMPLE), &ModuleRegistry::empty())
+            .is_err(),
+        "a registry that cannot compose the document proves nothing"
     );
 }
 

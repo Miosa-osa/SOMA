@@ -4,12 +4,12 @@ mod support;
 
 use soma::OciPlatform;
 use soma_template::{
-    BackendCapabilities, EgressIntent, IdleAction, IngressIntent, PolicyCeiling, ResourceLimits,
-    TestResolver, parse_template, resolve,
+    BackendCapabilities, EgressIntent, IdleAction, IngressIntent, ModuleKind, ModuleRef,
+    PolicyCeiling, ResourceLimits, TestResolver, parse_template, resolve,
 };
 use support::{
-    EXAMPLE, OTHER_DIGEST, PYTHON_SIZE, backend, ceiling, digest, edit, example, lock, oracle,
-    resolver,
+    EXAMPLE, OTHER_DIGEST, PYTHON_SIZE, backend, ceiling, digest, edit, example, lock, minimal,
+    module, oracle, registry, resolve_in, resolver,
 };
 
 #[test]
@@ -187,4 +187,49 @@ fn explicit_defaults_do_not_change_identity() {
     );
     let no_dir = edit(EXAMPLE, "working_directory = \"/workspace\"\n", "");
     assert_eq!(lock(&root_dir).id(), lock(&no_dir).id());
+}
+
+#[test]
+fn equivalent_compositions_share_one_identity() {
+    let reference = |value: &str| ModuleRef::parse(value).expect("reference");
+    let base = module(ModuleKind::Tools, "base", 1).build().expect("spec");
+    let mid = module(ModuleKind::Tools, "mid", 1)
+        .requires(reference("soma://tools/base@1"))
+        .build()
+        .expect("spec");
+    let top = module(ModuleKind::Tools, "top", 1)
+        .requires(reference("soma://tools/mid@1"))
+        .requires(reference("soma://tools/base@1"))
+        .build()
+        .expect("spec");
+    let registry = registry(vec![base, mid, top]);
+    let id = |modules: &[&str]| {
+        resolve_in(&registry, &minimal(modules, ""))
+            .expect("resolves")
+            .id()
+    };
+    let implicit = id(&["soma://tools/top@1"]);
+    assert_eq!(implicit, id(&["soma://tools/top@1", "soma://tools/base@1"]));
+    assert_eq!(implicit, id(&["soma://tools/base@1", "soma://tools/top@1"]));
+    assert_eq!(
+        implicit,
+        id(&[
+            "soma://tools/mid@1",
+            "soma://tools/base@1",
+            "soma://tools/top@1"
+        ])
+    );
+    assert_ne!(implicit, id(&["soma://tools/top@1", "soma://tools/git@1"]));
+    let explicit = edit(EXAMPLE, "working_directory = \"/workspace\"\n", "");
+    let omitted = edit(
+        EXAMPLE,
+        "[command]\nprogram = \"claude\"\nargs = []\nworking_directory = \"/workspace\"\n",
+        "",
+    );
+    assert_eq!(lock(&explicit).id(), lock(&omitted).id());
+    assert_eq!(
+        lock(&explicit).content_digest(),
+        lock(&omitted).content_digest()
+    );
+    assert_ne!(lock(&explicit).id(), example().id());
 }

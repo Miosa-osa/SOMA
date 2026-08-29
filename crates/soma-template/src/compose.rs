@@ -1,9 +1,11 @@
 //! Ordered composition of one base workload with its modules.
 //!
 //! Composition is purely structural: it needs the Template and the module registry and
-//! nothing else.
+//! nothing else, which is why the content digest of the composed selection is computed here
+//! and can be recomputed from a document without any external input.
 //! Every conflict names the module and field responsible instead of choosing a winner.
 
+mod digest;
 mod graph;
 
 use std::collections::BTreeMap;
@@ -26,6 +28,13 @@ pub(crate) struct Composition<'a> {
     pub(crate) modules: Vec<&'a ModuleSpec>,
     pub(crate) command: Command,
     pub(crate) sealed: Vec<SealedValue>,
+}
+
+impl Composition<'_> {
+    /// The SHA-256 digest of the composed selection; see [`digest`].
+    pub(crate) fn content_digest(&self, template: &Template) -> [u8; 32] {
+        digest::content_digest(template, self)
+    }
 }
 
 pub(crate) fn compose<'a>(

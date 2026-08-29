@@ -7,7 +7,7 @@ use soma::{OciDigest, OciImage, OciPlatform};
 use crate::{
     compose,
     error::{ExternalDependency, LockError, TemplateError},
-    lock::{LockedModule, TemplateLock},
+    lock::TemplateLock,
     module::ModuleRegistry,
     rejection::Rejection,
     schema::Template,
@@ -189,17 +189,13 @@ pub fn resolve_with(
     let composition = compose::compose(template, registry)?;
     let image = resolve_image(template, resolver)?;
     let validated = validate::validate(template, &composition, &image, ceiling, backend, oracle)?;
-    let modules = composition
-        .modules
-        .iter()
-        .map(|module| LockedModule {
-            identity: module.identity().clone(),
-            schema_version: module.schema_version(),
-            digest: module.digest(),
-        })
-        .collect();
     Ok(TemplateLock::assemble(
-        template, image, modules, validated, ceiling, backend,
+        template,
+        &composition,
+        image,
+        validated,
+        ceiling,
+        backend,
     ))
 }
 
