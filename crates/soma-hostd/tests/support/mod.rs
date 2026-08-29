@@ -5,9 +5,11 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use soma_hostd::{
-    AssignmentIntent, CpuClass, ExhaustedBehavior, GenerationId, HostProfileDigest, InstanceId,
-    LaunchMaterialHandle, Limits, MemoryClass, MemoryShape, OperationId, OverlayIdentity, Pool,
-    PoolKey, WorkloadClass,
+    Admission, AssignmentIntent, CpuClass, CpuInventory, ExhaustedBehavior, GenerationId,
+    HostProfile, InstanceId, InstanceShape, LaunchMaterialHandle, Limits, MeasuredOverhead,
+    MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId, OperatorLimits,
+    OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, SingleNode,
+    StorageInventory, WorkloadClass,
     testing::{InProcessBroker, InProcessLauncher, ProcessTable},
 };
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
@@ -20,6 +22,61 @@ pub struct Harness {
     pub dir: TempDir,
     pub table: Arc<ProcessTable>,
     pub pool: Arc<TestPool>,
+    pub admission: Arc<Admission>,
+}
+
+/// A host large enough that the pool bounds, not capacity, gate the policy tests.
+pub fn host_profile() -> HostProfile {
+    HostProfile {
+        cpu: CpuInventory {
+            hardware_threads: 100_000,
+            reserved_threads: 1,
+            numa_nodes: 1,
+        },
+        memory: MemoryInventory {
+            total_bytes: 1 << 46,
+            reserved_bytes: 1 << 30,
+            overhead: MeasuredOverhead::ATLAS_PLACEHOLDER,
+            elastic_budget_bytes: 0,
+        },
+        storage: StorageInventory {
+            private_budget_bytes: u64::MAX / 2,
+        },
+        network: NetworkInventory { units: 100_000 },
+        process: ProcessInventory {
+            processes: 100_000,
+            descriptors: 4_000_000,
+        },
+        limits: OperatorLimits {
+            resident_instances: 100_000,
+            concurrent_launches: 100_000,
+            runnable_vcpus: 1_000_000,
+            dirty_memory_bytes: u64::MAX / 2,
+            cleanup_slots: 64,
+        },
+        overcommit: OvercommitPolicy::STRICT,
+    }
+    .validate()
+    .expect("profile")
+}
+
+/// The Machine shape every worker of the test pool is prepared for.
+pub fn shape() -> InstanceShape {
+    InstanceShape {
+        vcpus: 1,
+        guest_memory_bytes: 512 << 20,
+        memory_class: MemoryClass::Guaranteed,
+        private_storage_bytes: 4 << 30,
+        workload: WorkloadClass::ApiWaiting,
+        network_units: 1,
+        descriptors: 16,
+    }
+    .validate()
+    .expect("shape")
+}
+
+pub fn admission() -> Arc<Admission> {
+    Arc::new(Admission::new(host_profile(), SingleNode))
 }
 
 /// A ledger directory on a memory-backed filesystem when one exists, so the fsync of every
@@ -47,7 +104,7 @@ pub fn ledger_dir() -> TempDir {
 
 pub fn key() -> PoolKey {
     PoolKey {
-        host_profile: HostProfileDigest::new([1; 32]).expect("nonzero"),
+        host_profile: host_profile().digest(),
         generation: GenerationId::new([2; 32]).expect("nonzero"),
         cpu: CpuClass {
             vcpus: 1,
@@ -83,17 +140,33 @@ pub fn limits(target: usize, max: usize) -> Limits {
 pub fn harness(limits: Limits) -> Harness {
     let dir = ledger_dir();
     let table = ProcessTable::new();
-    let pool = open(dir.path(), &table, limits);
-    Harness { dir, table, pool }
+    let admission = admission();
+    let pool = open_with(dir.path(), &table, limits, &admission);
+    Harness {
+        dir,
+        table,
+        pool,
+        admission,
+    }
 }
 
 pub fn open(dir: &Path, table: &Arc<ProcessTable>, limits: Limits) -> Arc<TestPool> {
+    open_with(dir, table, limits, &admission())
+}
+
+pub fn open_with(
+    dir: &Path,
+    table: &Arc<ProcessTable>,
+    limits: Limits,
+    admission: &Arc<Admission>,
+) -> Arc<TestPool> {
     Arc::new(
         Pool::open(
             key(),
             limits,
             InProcessLauncher::new(Arc::clone(table)),
             InProcessBroker::new(),
+            PoolAdmission::new(Arc::clone(admission), shape()),
             dir,
         )
         .expect("pool"),

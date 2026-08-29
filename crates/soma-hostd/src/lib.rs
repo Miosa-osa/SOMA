@@ -4,7 +4,7 @@
 //! the exact [`PoolKey`], the single-winner idempotent claim, the exactly-once transfer of
 //! fresh per-Instance authority, bounded replenishment and backpressure, the durable
 //! lifecycle ledger, restart reconciliation, and the multi-dimension capacity admission of
-//! the visual atlas.
+//! the visual atlas, which every claim reserves from before a worker is granted.
 //! It never executes guest device logic and never returns an assigned worker to a pool.
 //!
 //! The jail launcher, the storage clone path, and the network broker are consumed through
@@ -45,6 +45,7 @@ pub use pool::{
     backpressure::{
         Exhausted, ExhaustedBehavior, Limits, LimitsError, Occupancy, OverloadGate, Overloaded,
     },
+    capacity::PoolAdmission,
     claim::{Claim, ClaimClass, ClaimError, ClaimOutcome, Claimed},
     key::{CpuClass, MemoryShape, OverlayIdentity, PoolKey, PoolKeyDigest},
     launcher::{

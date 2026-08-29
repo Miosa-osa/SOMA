@@ -163,6 +163,8 @@ pub enum FailureCode {
     Phase = 10,
     /// Internal invariant.
     Invariant = 11,
+    /// A capacity gate refused the Instance.
+    Capacity = 12,
 }
 
 /// Maps a claim failure onto its code.
@@ -170,6 +172,7 @@ pub enum FailureCode {
 pub const fn claim_failure_code(error: &ClaimError) -> FailureCode {
     match error {
         ClaimError::Exhausted(_) => FailureCode::Exhausted,
+        ClaimError::Capacity(_) => FailureCode::Capacity,
         ClaimError::Overloaded(_) => FailureCode::Overloaded,
         ClaimError::OperationConflict { .. } => FailureCode::Conflict,
         ClaimError::Deadline { .. } => FailureCode::Deadline,

@@ -998,7 +998,9 @@ crates/soma-hostd/src/
   admission/usage.rs
   pool.rs
   pool/backpressure.rs
+  pool/capacity.rs
   pool/claim.rs
+  pool/claim/error.rs
   pool/claim/registry.rs
   pool/inspect.rs
   pool/key.rs
@@ -1029,11 +1031,13 @@ crates/soma-hostd/src/
   testing/launcher.rs
   testing/table.rs
   bin/soma-hostd.rs
+  bin/linux/host.rs
 crates/soma-hostd/tests/
   admission.rs
   admission_gates.rs
   atlas/mod.rs
   bounds.rs
+  capacity.rs
   claim.rs
   latency.rs
   reconcile.rs
@@ -1051,8 +1055,9 @@ crates/soma-hostd/tests/
 `pool/reconcile.rs` treats every nonterminal entry without a live slot as suspect after a restart, probes the launcher and the brokers, terminates or releases, retains a live running Instance, and gates replenishment until it has run.
 `pool/release.rs` tears down assigned, running, claimed, and sterile workers by reason and never returns one to the pool.
 `pool/launcher.rs` and `pool/resources.rs` are the seams the jail adapter from decision-map ticket #9 and the live `soma-storage` and `soma-netd` brokers will implement; `testing/` is the in-process launcher with per-step fault injection over a shared process table and the in-process broker that leases heads through the real `soma-storage` ledger over socket pairs.
+`pool/capacity.rs` binds one pool to the host [`Admission`] and the exact Machine shape its workers are prepared for, so every claim reserves each visual-atlas dimension atomically before it wins a slot, a refusal is the typed `CapacityRejection` naming the gate, the transfer frees the Launch slot at commit, every teardown returns the reservation, and reconciliation rebuilds the committed usage of each retained Instance.
 `admission/` is the visual atlas capacity model: a certified host profile with host reserve, labelled measured per-VM overhead, per-dimension limits, and per-class overcommit ratios; checked demand arithmetic; an atomic multi-dimension reservation that rolls back on the first refusing gate; a typed rejection naming the gate and its numbers; explicit guaranteed and elastic memory classes; a single-node NUMA placement hook; and the capacity ladder estimate.
-`protocol.rs` and `daemon.rs` are the bounded typed claim, release, inspect, and reconcile protocol and the single-threaded `SOCK_SEQPACKET` skeleton over one pool; the daemon does not authenticate its peer and starts only with the explicitly requested in-process development launcher.
+`protocol.rs` and `daemon.rs` are the bounded typed claim, release, inspect, and reconcile protocol and the single-threaded `SOCK_SEQPACKET` skeleton over one pool; the daemon does not authenticate its peer and starts only with the explicitly requested in-process development launcher, and `bin/linux/host.rs` builds the certified host profile and Machine shape it admits against from explicit operator inventory arguments.
 
 Every module compiles on every workspace target except the Unix descriptor-carrying transfer payload, the Unix in-process testing implementations, and the Linux daemon; a non-Unix host cannot construct a transferable authority bundle at all.
 The integration tests prove one winner among 100 concurrent claimers fifty times, identical replay, changed-intent conflict, no reuse of an assigned worker, a fault at every transfer step, immediate exhaustion, bounded replenishment storms, 100-way fairness over ten workers, restart reconciliation, every admission gate, rollback, the atlas capacity ladder, and record claim latency over 1,000 claims without asserting it.

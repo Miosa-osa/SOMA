@@ -84,12 +84,12 @@ fn replay(
             presented: fingerprint,
         });
     }
-    outcome_of(claim).map(Some).ok_or(ClaimError::Ledger(
-        LedgerError::Invariant {
+    outcome_of(claim)
+        .map(Some)
+        .ok_or(ClaimError::Ledger(LedgerError::Invariant {
             worker: claim.worker,
             kind: RecordKind::Claiming,
-        },
-    ))
+        }))
 }
 
 impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {

@@ -5,6 +5,7 @@
 //! replenishment threads; each submodule adds one policy or mechanism to it.
 
 pub mod backpressure;
+pub mod capacity;
 pub mod claim;
 mod inspect;
 pub mod key;
@@ -30,13 +31,14 @@ use std::{
 
 use sha2::{Digest, Sha256};
 
+use capacity::PoolAdmission;
 use claim::Registry;
 use ledger::now_nanos;
 
 use crate::{
     Assigned, InstanceId, LeaseGeneration, Ledger, LedgerError, Limits, LimitsError, OperationId,
-    OverloadGate, Overloaded, Phase, PoolKey, PoolKeyDigest, Record, ResourceBroker, ResourceRefs,
-    Running, Slot, Worker, WorkerHandle, WorkerId, WorkerIdentity, WorkerLauncher,
+    OverloadGate, Overloaded, Phase, PoolKey, PoolKeyDigest, Record, Reservation, ResourceBroker,
+    ResourceRefs, Running, Slot, Worker, WorkerHandle, WorkerId, WorkerIdentity, WorkerLauncher,
 };
 
 /// Why a pool could not open.
@@ -85,6 +87,7 @@ pub(crate) struct Owned<H> {
     pub(crate) refs: ResourceRefs,
     pub(crate) instance: InstanceId,
     pub(crate) operation: OperationId,
+    pub(crate) reservation: Option<Reservation>,
 }
 
 /// What `inspect` reports about one worker.
@@ -109,6 +112,7 @@ pub struct Pool<L: WorkerLauncher, R: ResourceBroker> {
     limits: Limits,
     launcher: L,
     broker: R,
+    capacity: PoolAdmission,
     ledger: Ledger,
     slots: RwLock<Vec<Arc<Slot>>>,
     pub(crate) prepared: Mutex<PreparedTable<L, R>>,
@@ -135,6 +139,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         limits: Limits,
         launcher: L,
         broker: R,
+        capacity: PoolAdmission,
         ledger_root: &Path,
     ) -> Result<Self, PoolError> {
         let limits = limits.validate().map_err(PoolError::Limits)?;
@@ -155,6 +160,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             limits,
             launcher,
             broker,
+            capacity,
             ledger,
             slots: RwLock::new(Vec::new()),
             prepared: Mutex::new(BTreeMap::new()),

@@ -50,6 +50,8 @@ pub struct ReconcileFinding {
     pub disposition: ReconcileDisposition,
     /// Whether teardown and release both reported completion.
     pub complete: bool,
+    /// Whether the committed capacity of a retained Instance was reserved again.
+    pub capacity_restored: bool,
 }
 
 /// The complete reconciliation pass.
@@ -119,8 +121,11 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 .map(|identity| self.launcher().probe(identity));
             let resources = self.broker().verify(&entry.resources);
             let retain = entry.phase == Phase::Running && liveness == Some(Liveness::Alive);
+            let mut capacity_restored = false;
             let (disposition, complete) = if retain {
-                (ReconcileDisposition::Retained, self.retain(entry))
+                let (fitted, reserved) = self.retain(entry);
+                capacity_restored = reserved;
+                (ReconcileDisposition::Retained, fitted)
             } else {
                 let destroyed = match (entry.identity, liveness) {
                     (Some(identity), Some(Liveness::Alive | Liveness::Unknown)) => {
@@ -156,6 +161,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 resources,
                 disposition,
                 complete,
+                capacity_restored,
             });
         }
         self.reconciled
@@ -163,8 +169,11 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         Ok(report)
     }
 
-    /// Adopts a running Instance without a handle; returns whether it fit the table.
-    fn retain(&self, entry: &crate::WorkerLedgerEntry) -> bool {
+    /// Adopts a running Instance without a handle.
+    ///
+    /// Returns whether it fit the table and whether its committed capacity was reserved
+    /// again, so a restart rebuilds the host usage of every Instance it keeps.
+    fn retain(&self, entry: &crate::WorkerLedgerEntry) -> (bool, bool) {
         let slot = Slot::restore(
             entry.worker,
             entry.key,
@@ -172,16 +181,19 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             entry.lease_generation,
         );
         let Ok(slot) = self.add_slot(slot) else {
-            return false;
+            return (false, false);
         };
         let Some(worker) = Worker::<Running>::attach(slot) else {
-            return false;
+            return (false, false);
         };
         let (Some(instance), Some(operation), Some(identity)) =
             (entry.instance, entry.operation, entry.identity)
         else {
-            return false;
+            return (false, false);
         };
+        let mut reservation = self.reserve_capacity().ok();
+        self.capacity_launched(&mut reservation);
+        let reserved = reservation.is_some();
         self.owned
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -194,8 +206,9 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                     refs: entry.resources,
                     instance,
                     operation,
+                    reservation,
                 },
             );
-        true
+        (true, reserved)
     }
 }

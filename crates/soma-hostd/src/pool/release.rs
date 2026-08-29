@@ -6,16 +6,26 @@ mod types;
 pub use types::{DestroyReason, LifecycleError, ReleaseEvidence};
 
 use crate::{
-    Claiming, DestroyOutcome, Destroying, Phase, Pool, Record, RecordKind, Removal, ResourceBroker,
-    ResourceRefs, ResourceRelease, Worker, WorkerHandle, WorkerId, WorkerIdentity, WorkerLauncher,
+    Claiming, DestroyOutcome, Destroying, Phase, Pool, Record, RecordKind, Removal, Reservation,
+    ResourceBroker, ResourceRefs, ResourceRelease, Worker, WorkerHandle, WorkerId, WorkerIdentity,
+    WorkerLauncher,
     pool::{Owned, OwnedWorker, Prepared, transfer::Disposition},
 };
 
-/// What a worker still holds when it is destroyed.
-pub(crate) enum Holdings<S> {
+/// Which broker resources a worker still holds when it is destroyed.
+pub(crate) enum Resources<S> {
     Sterile(S),
     Assigned(ResourceRefs),
     None,
+}
+
+/// Everything one destroyed worker still holds: its process, its broker resources, and the
+/// capacity reservation its Instance was admitted under.
+pub(crate) struct Holdings<H, S> {
+    pub(crate) handle: Option<H>,
+    pub(crate) identity: WorkerIdentity,
+    pub(crate) resources: Resources<S>,
+    pub(crate) reservation: Option<Reservation>,
 }
 
 impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
@@ -97,20 +107,20 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .remove(&slot.id());
-            let (handle, identity, holdings) = match prepared {
+            let (handle, identity, resources) = match prepared {
                 Some(Prepared {
                     handle,
                     sterile,
                     identity,
                     ..
-                }) => (Some(handle), identity, Holdings::Sterile(sterile)),
-                None => (None, absent(), Holdings::None),
+                }) => (Some(handle), identity, Resources::Sterile(sterile)),
+                None => (None, absent(), Resources::None),
             };
             evidence.push(self.teardown(
                 destroying,
                 handle,
                 identity,
-                holdings,
+                resources,
                 DestroyReason::Evicted,
             ));
         }
@@ -120,35 +130,42 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     pub(crate) fn destroy_claiming(
         &self,
         worker: Worker<Claiming>,
-        handle: Option<L::Handle>,
-        identity: WorkerIdentity,
-        holdings: Holdings<R::Sterile>,
+        held: Holdings<L::Handle, R::Sterile>,
         reason: DestroyReason,
     ) -> Disposition {
-        match worker.destroy() {
+        let Holdings {
+            handle,
+            identity,
+            resources,
+            reservation,
+        } = held;
+        let disposition = match worker.destroy() {
             Ok(destroying) => {
-                let evidence = self.teardown(destroying, handle, identity, holdings, reason);
+                let evidence = self.teardown(destroying, handle, identity, resources, reason);
                 Disposition {
                     destroyed: evidence.destroyed,
                     released: evidence.released,
                 }
             }
-            Err(_) => self.orphan(handle, holdings),
-        }
+            Err(_) => self.orphan(handle, resources),
+        };
+        self.release_capacity(reservation);
+        disposition
     }
 
     pub(crate) fn destroy_owned(
         &self,
-        owned: Owned<L::Handle>,
+        mut owned: Owned<L::Handle>,
         reason: DestroyReason,
     ) -> ReleaseEvidence {
+        self.release_capacity(owned.reservation.take());
         let (id, generation, destroying) = match owned.worker {
             OwnedWorker::Assigned(worker) => (worker.id(), worker.generation(), worker.destroy()),
             OwnedWorker::Running(worker) => (worker.id(), worker.generation(), worker.destroy()),
         };
         let Ok(destroying) = destroying else {
             let disposition =
-                self.orphan(owned.handle, Holdings::<R::Sterile>::Assigned(owned.refs));
+                self.orphan(owned.handle, Resources::<R::Sterile>::Assigned(owned.refs));
             return ReleaseEvidence {
                 worker: id,
                 lease_generation: generation,
@@ -162,7 +179,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             destroying,
             owned.handle,
             owned.identity,
-            Holdings::Assigned(owned.refs),
+            Resources::Assigned(owned.refs),
             reason,
         )
     }
@@ -172,7 +189,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         worker: Worker<Destroying>,
         handle: Option<L::Handle>,
         identity: WorkerIdentity,
-        holdings: Holdings<R::Sterile>,
+        resources: Resources<R::Sterile>,
         reason: DestroyReason,
     ) -> ReleaseEvidence {
         let id = worker.id();
@@ -189,7 +206,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             None if identity.process != 0 => self.launcher().terminate(identity),
             None => no_process(),
         };
-        let released = self.release_holdings(holdings);
+        let released = self.release_resources(resources);
         ledger &= self
             .record(
                 &Record::new(RecordKind::Dead, id, generation, self.digest()).detail(reason as u8),
@@ -206,11 +223,11 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         }
     }
 
-    fn release_holdings(&self, holdings: Holdings<R::Sterile>) -> ResourceRelease {
-        match holdings {
-            Holdings::Sterile(sterile) => self.broker().release_sterile(sterile),
-            Holdings::Assigned(refs) => self.broker().release(&refs),
-            Holdings::None => ResourceRelease {
+    fn release_resources(&self, resources: Resources<R::Sterile>) -> ResourceRelease {
+        match resources {
+            Resources::Sterile(sterile) => self.broker().release_sterile(sterile),
+            Resources::Assigned(refs) => self.broker().release(&refs),
+            Resources::None => ResourceRelease {
                 disk: Removal::AlreadyAbsent,
                 network: Removal::AlreadyAbsent,
                 complete: true,
@@ -218,10 +235,10 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         }
     }
 
-    fn orphan(&self, handle: Option<L::Handle>, holdings: Holdings<R::Sterile>) -> Disposition {
+    fn orphan(&self, handle: Option<L::Handle>, resources: Resources<R::Sterile>) -> Disposition {
         Disposition {
             destroyed: Self::destroy_handle(handle).unwrap_or_else(no_process),
-            released: self.release_holdings(holdings),
+            released: self.release_resources(resources),
         }
     }
 }

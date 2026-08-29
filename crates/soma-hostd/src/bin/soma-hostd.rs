@@ -13,10 +13,15 @@ mod linux {
     use std::{path::PathBuf, sync::Arc, time::Duration};
 
     use soma_hostd::{
-        CpuClass, ExhaustedBehavior, GenerationId, HostProfileDigest, Limits, MemoryClass,
-        MemoryShape, OverlayIdentity, Pool, PoolKey, WorkloadClass, daemon,
+        Admission, CpuClass, ExhaustedBehavior, GenerationId, HostProfile, Limits, MemoryClass,
+        MemoryShape, OverlayIdentity, Pool, PoolAdmission, PoolKey, SingleNode, WorkloadClass,
+        daemon,
         testing::{InProcessBroker, InProcessLauncher, ProcessTable},
     };
+
+    mod host;
+
+    use host::{Host, profile, shape};
     use soma_netd::ProfileDigest;
     use soma_storage::{ClassName, TemplateDigest};
 
@@ -25,7 +30,6 @@ mod linux {
         ledger: PathBuf,
         launcher: Option<String>,
         generation: Option<[u8; 32]>,
-        host_profile: Option<[u8; 32]>,
         network_profile: Option<[u8; 32]>,
         template: Option<[u8; 32]>,
         class: String,
@@ -36,6 +40,7 @@ mod linux {
         target: usize,
         max: usize,
         concurrency: usize,
+        host: Host,
     }
 
     fn parse() -> Result<Config, String> {
@@ -44,7 +49,6 @@ mod linux {
             ledger: PathBuf::from("/run/soma-hostd/ledger"),
             launcher: None,
             generation: None,
-            host_profile: None,
             network_profile: None,
             template: None,
             class: String::from("default"),
@@ -55,6 +59,22 @@ mod linux {
             target: 4,
             max: 8,
             concurrency: 2,
+            host: Host {
+                threads: None,
+                reserved_threads: 1,
+                memory: None,
+                reserved_memory: 0,
+                overhead: None,
+                storage: None,
+                network_units: 4096,
+                processes: 4096,
+                descriptors: 1 << 20,
+                residents: u32::MAX,
+                launches: u32::MAX,
+                runnable_vcpus: u32::MAX,
+                dirty_memory: u64::MAX / 2,
+                cleanup_slots: 64,
+            },
         };
         let mut args = std::env::args().skip(1);
         while let Some(flag) = args.next() {
@@ -64,7 +84,24 @@ mod linux {
                 "--ledger" => config.ledger = PathBuf::from(value()?),
                 "--launcher" => config.launcher = Some(value()?),
                 "--generation" => config.generation = Some(hex32(&value()?, &flag)?),
-                "--host-profile" => config.host_profile = Some(hex32(&value()?, &flag)?),
+                "--host-threads" => config.host.threads = Some(number(&value()?, &flag)?),
+                "--host-reserved-threads" => {
+                    config.host.reserved_threads = number(&value()?, &flag)?;
+                }
+                "--host-memory-bytes" => config.host.memory = Some(number(&value()?, &flag)?),
+                "--host-reserved-memory-bytes" => {
+                    config.host.reserved_memory = number(&value()?, &flag)?;
+                }
+                "--host-overhead-bytes" => config.host.overhead = Some(number(&value()?, &flag)?),
+                "--host-storage-bytes" => config.host.storage = Some(number(&value()?, &flag)?),
+                "--host-network-units" => config.host.network_units = number(&value()?, &flag)?,
+                "--host-processes" => config.host.processes = number(&value()?, &flag)?,
+                "--host-descriptors" => config.host.descriptors = number(&value()?, &flag)?,
+                "--resident-instances" => config.host.residents = number(&value()?, &flag)?,
+                "--concurrent-launches" => config.host.launches = number(&value()?, &flag)?,
+                "--runnable-vcpus" => config.host.runnable_vcpus = number(&value()?, &flag)?,
+                "--dirty-memory-bytes" => config.host.dirty_memory = number(&value()?, &flag)?,
+                "--cleanup-slots" => config.host.cleanup_slots = number(&value()?, &flag)?,
                 "--network-profile" => config.network_profile = Some(hex32(&value()?, &flag)?),
                 "--overlay-template" => config.template = Some(hex32(&value()?, &flag)?),
                 "--overlay-class" => config.class = value()?,
@@ -81,12 +118,9 @@ mod linux {
         Ok(config)
     }
 
-    fn key(config: &Config) -> Result<PoolKey, String> {
+    fn key(config: &Config, profile: &HostProfile) -> Result<PoolKey, String> {
         Ok(PoolKey {
-            host_profile: HostProfileDigest::new(
-                config.host_profile.ok_or("--host-profile is required")?,
-            )
-            .map_err(|error| error.to_string())?,
+            host_profile: profile.digest(),
             generation: GenerationId::new(config.generation.ok_or("--generation is required")?)
                 .map_err(|error| error.to_string())?,
             cpu: CpuClass {
@@ -126,7 +160,10 @@ mod linux {
                 return Err("--launcher in-process is required; no jail adapter exists yet".into());
             }
         }
-        let key = key(&config)?;
+        let profile = profile(&config.host)?;
+        let shape = shape(&config)?;
+        let key = key(&config, &profile)?;
+        let capacity = PoolAdmission::new(Arc::new(Admission::new(profile, SingleNode)), shape);
         let limits = Limits {
             min: config.target.min(1),
             target: config.target,
@@ -143,6 +180,7 @@ mod linux {
                 limits,
                 InProcessLauncher::new(ProcessTable::new()),
                 InProcessBroker::new(),
+                capacity,
                 &config.ledger,
             )
             .map_err(|error| error.to_string())?,

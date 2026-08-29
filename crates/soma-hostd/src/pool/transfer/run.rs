@@ -8,9 +8,14 @@ use frames::{frames, fresh_entropy};
 
 use crate::{
     AssignedResources, AssignmentIntent, Claimed, Claiming, DestroyReason, Pool, Record,
-    RecordKind, ResourceBroker, ResourceRefs, StepAck, TransferEvidence, TransferFault,
-    TransferFrame, TransferStep, Worker, WorkerHandle, WorkerId, WorkerIdentity, WorkerLauncher,
-    pool::{Owned, OwnedWorker, Prepared, release::Holdings, transfer::Disposition},
+    RecordKind, Reservation, ResourceBroker, ResourceRefs, StepAck, TransferEvidence,
+    TransferFault, TransferFrame, TransferStep, Worker, WorkerHandle, WorkerId, WorkerIdentity,
+    WorkerLauncher,
+    pool::{
+        Owned, OwnedWorker, Prepared,
+        release::{Holdings, Resources},
+        transfer::Disposition,
+    },
 };
 
 /// A failed transfer: the worker was destroyed and never returned to the pool.
@@ -44,6 +49,7 @@ struct Attempt<H> {
     handle: H,
     identity: WorkerIdentity,
     refs: ResourceRefs,
+    reservation: Option<Reservation>,
     won_at: Instant,
 }
 
@@ -99,6 +105,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         };
         let won_at = claimed.won_at;
         let fingerprint = claimed.fingerprint;
+        let reservation = claimed.reservation.take();
         drop(claimed);
         let Prepared {
             handle,
@@ -115,9 +122,13 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             None
         };
         if let Some((reason, fault)) = refusal {
-            let holdings = Holdings::Sterile(sterile);
-            let disposition =
-                self.destroy_claiming(worker, Some(handle), identity, holdings, reason);
+            let held = Holdings {
+                handle: Some(handle),
+                identity,
+                resources: Resources::Sterile(sterile),
+                reservation,
+            };
+            let disposition = self.destroy_claiming(worker, held, reason);
             return Err(failure(id, None, fault, disposition));
         }
         match self.broker().assign(sterile, intent) {
@@ -127,14 +138,19 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                     handle,
                     identity,
                     refs: resources.refs(),
+                    reservation,
                     won_at,
                 },
                 resources,
             )),
             Err(fault) => {
-                let reason = DestroyReason::TransferFault;
-                let disposition =
-                    self.destroy_claiming(worker, Some(handle), identity, Holdings::None, reason);
+                let held = Holdings {
+                    handle: Some(handle),
+                    identity,
+                    resources: Resources::None,
+                    reservation,
+                };
+                let disposition = self.destroy_claiming(worker, held, DestroyReason::TransferFault);
                 Err(failure(
                     id,
                     None,
@@ -183,7 +199,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
 
     fn abort(
         &self,
-        attempt: Attempt<L::Handle>,
+        mut attempt: Attempt<L::Handle>,
         step: Option<TransferStep>,
         fault: TransferFault,
     ) -> TransferFailure {
@@ -193,23 +209,24 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         } else {
             DestroyReason::TransferFault
         };
-        let disposition = self.destroy_claiming(
-            attempt.worker,
-            Some(attempt.handle),
-            attempt.identity,
-            Holdings::Assigned(attempt.refs),
-            reason,
-        );
+        let held = Holdings {
+            handle: Some(attempt.handle),
+            identity: attempt.identity,
+            resources: Resources::Assigned(attempt.refs),
+            reservation: attempt.reservation.take(),
+        };
+        let disposition = self.destroy_claiming(attempt.worker, held, reason);
         failure(id, step, fault, disposition)
     }
 
     fn commit(
         &self,
-        attempt: Attempt<L::Handle>,
+        mut attempt: Attempt<L::Handle>,
         intent: &AssignmentIntent,
     ) -> Result<(), TransferFailure> {
         let id = attempt.worker.id();
         let generation = attempt.worker.generation();
+        let mut reservation = attempt.reservation.take();
         let assigned = match attempt.worker.assign() {
             Ok(assigned) => assigned,
             Err(race) => {
@@ -217,10 +234,12 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                     destroyed: attempt.handle.destroy(),
                     released: self.broker().release(&attempt.refs),
                 };
+                self.release_capacity(reservation);
                 let fault = TransferFault::State(race);
                 return Err(failure(id, Some(TransferStep::Commit), fault, disposition));
             }
         };
+        self.capacity_launched(&mut reservation);
         let owned = Owned {
             worker: OwnedWorker::Assigned(assigned),
             handle: Some(attempt.handle),
@@ -228,6 +247,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             refs: attempt.refs,
             instance: intent.instance,
             operation: intent.operation,
+            reservation,
         };
         let record = Record::new(RecordKind::Assigned, id, generation, self.digest())
             .operation(intent.operation)

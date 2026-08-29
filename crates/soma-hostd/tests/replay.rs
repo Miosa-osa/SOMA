@@ -54,7 +54,9 @@ fn a_replay_after_a_restart_returns_the_recorded_outcome_and_takes_no_second_wor
     second.reconcile().expect("reconcile");
     second.replenish_blocking().expect("replenish");
     let sterile = second.occupancy().sterile;
-    let replay = second.claim(op(1), intent(1).fingerprint()).expect("replay");
+    let replay = second
+        .claim(op(1), intent(1).fingerprint())
+        .expect("replay");
     assert!(
         replay.grant.is_none(),
         "a replay after a restart never receives a second grant"
