@@ -79,10 +79,24 @@ pub(crate) enum OwnedWorker {
     Running(Worker<Running>),
 }
 
-/// One worker after transfer; `handle` is absent for a worker retained across a restart.
+impl OwnedWorker {
+    /// The shared slot both typestates act on.
+    pub(crate) const fn slot(&self) -> &Arc<Slot> {
+        match self {
+            Self::Assigned(worker) => worker.slot(),
+            Self::Running(worker) => worker.slot(),
+        }
+    }
+}
+
+/// One worker after transfer; `handle` is absent for a worker retained across a restart and
+/// while [`Pool::start`] holds it outside the pool-wide lock.
 pub(crate) struct Owned<H> {
     pub(crate) worker: OwnedWorker,
     pub(crate) handle: Option<H>,
+    /// Whether a start is in flight; the pool still owns the worker, so a release is refused
+    /// by phase rather than answered as unknown.
+    pub(crate) starting: bool,
     pub(crate) identity: WorkerIdentity,
     pub(crate) refs: ResourceRefs,
     pub(crate) instance: InstanceId,

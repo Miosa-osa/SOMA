@@ -5,10 +5,12 @@ mod types;
 
 pub use types::{DestroyReason, LifecycleError, ReleaseEvidence};
 
+use std::sync::Arc;
+
 use crate::{
-    Claiming, DestroyOutcome, Destroying, Phase, Pool, Record, RecordKind, Removal, Reservation,
-    ResourceBroker, ResourceRefs, ResourceRelease, Worker, WorkerHandle, WorkerId, WorkerIdentity,
-    WorkerLauncher,
+    Assigned, Claiming, DestroyOutcome, Destroying, Phase, Pool, Record, RecordKind, Removal,
+    Reservation, ResourceBroker, ResourceRefs, ResourceRelease, Worker, WorkerHandle, WorkerId,
+    WorkerIdentity, WorkerLauncher,
     pool::{Owned, OwnedWorker, Prepared, transfer::Disposition},
 };
 
@@ -31,10 +33,40 @@ pub(crate) struct Holdings<H, S> {
 impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     /// Starts an assigned worker's Instance.
     ///
+    /// The worker never leaves `owned`: the launcher handle is taken out so the blocking
+    /// start round trip runs outside the pool-wide lock, and the entry is marked starting so
+    /// a concurrent release or start is refused by phase instead of being told the pool owns
+    /// nothing.
+    ///
     /// # Errors
     ///
     /// Returns the typed refusal; a start fault destroys the worker.
     pub fn start(&self, worker: WorkerId) -> Result<(), LifecycleError> {
+        let busy = LifecycleError::Phase {
+            worker,
+            phase: Phase::Assigned,
+        };
+        let mut handle = {
+            let mut owned = self
+                .owned
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let Some(entry) = owned.get_mut(&worker) else {
+                return Err(LifecycleError::Unknown(worker));
+            };
+            if entry.starting {
+                return Err(busy);
+            }
+            let OwnedWorker::Assigned(_) = &entry.worker else {
+                return Err(LifecycleError::Phase {
+                    worker,
+                    phase: Phase::Running,
+                });
+            };
+            entry.starting = true;
+            entry.handle.take()
+        };
+        let started = handle.as_mut().map_or(Ok(()), WorkerHandle::start);
         let mut owned = self
             .owned
             .lock()
@@ -42,23 +74,18 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         let Some(entry) = owned.get_mut(&worker) else {
             return Err(LifecycleError::Unknown(worker));
         };
-        let OwnedWorker::Assigned(_) = &entry.worker else {
-            return Err(LifecycleError::Phase {
-                worker,
-                phase: Phase::Running,
-            });
-        };
-        let started = entry.handle.as_mut().map_or(Ok(()), WorkerHandle::start);
-        let Some(mut taken) = owned.remove(&worker) else {
-            return Err(LifecycleError::Unknown(worker));
-        };
-        drop(owned);
+        entry.handle = handle;
+        entry.starting = false;
         if let Err(fault) = started {
-            let _ = self.destroy_owned(taken, DestroyReason::StartFault);
+            let taken = owned.remove(&worker);
+            drop(owned);
+            if let Some(taken) = taken {
+                let _ = self.destroy_owned(taken, DestroyReason::StartFault);
+            }
             return Err(LifecycleError::Start(fault));
         }
-        let OwnedWorker::Assigned(assigned) = taken.worker else {
-            return Err(LifecycleError::Unknown(worker));
+        let Some(assigned) = Worker::<Assigned>::attach(Arc::clone(entry.worker.slot())) else {
+            return Err(busy);
         };
         let running = assigned.run().map_err(LifecycleError::State)?;
         let record = Record::new(
@@ -67,17 +94,15 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             running.generation(),
             self.digest(),
         )
-        .operation(taken.operation)
-        .instance(taken.instance)
-        .resources(taken.refs)
-        .identity(taken.identity);
-        taken.worker = OwnedWorker::Running(running);
-        let recorded = self.record(&record);
-        self.owned
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(worker, taken);
-        recorded.map(|_| ()).map_err(LifecycleError::Ledger)
+        .operation(entry.operation)
+        .instance(entry.instance)
+        .resources(entry.refs)
+        .identity(entry.identity);
+        entry.worker = OwnedWorker::Running(running);
+        drop(owned);
+        self.record(&record)
+            .map(|_| ())
+            .map_err(LifecycleError::Ledger)
     }
 
     /// Releases an assigned or running worker; it is destroyed, never reused.
@@ -86,12 +111,24 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     ///
     /// Returns [`LifecycleError::Unknown`] when the pool owns no such worker.
     pub fn release(&self, worker: WorkerId) -> Result<ReleaseEvidence, LifecycleError> {
-        let owned = self
+        let mut table = self
             .owned
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match table.get(&worker) {
+            None => return Err(LifecycleError::Unknown(worker)),
+            Some(entry) if entry.starting => {
+                return Err(LifecycleError::Phase {
+                    worker,
+                    phase: Phase::Assigned,
+                });
+            }
+            Some(_) => {}
+        }
+        let owned = table
             .remove(&worker)
             .ok_or(LifecycleError::Unknown(worker))?;
+        drop(table);
         Ok(self.destroy_owned(owned, DestroyReason::Released))
     }
 

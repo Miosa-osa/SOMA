@@ -1043,6 +1043,7 @@ crates/soma-hostd/tests/
   claim.rs
   daemon.rs
   latency.rs
+  lifecycle.rs
   reconcile.rs
   replay.rs
   support/mod.rs
@@ -1056,7 +1057,7 @@ crates/soma-hostd/tests/
 `pool/replenish.rs`, `pool/replenish/background.rs`, and `pool/backpressure.rs` bound construction by concurrency, deadline, target, and maximum and return typed `Exhausted` and `Overloaded` results.
 `pool/ledger.rs`, `pool/ledger/record.rs`, and `pool/ledger/fold.rs` are the durable ledger of create-exclusive, checksummed, file-and-directory-synced records and the projection that fails closed on a sterile record after an assignment.
 `pool/reconcile.rs` treats every nonterminal entry without a live slot as suspect after a restart, probes the launcher and the brokers, terminates or releases, retains a live running Instance, and gates replenishment until it has run.
-`pool/release.rs` tears down assigned, running, claimed, and sterile workers by reason and never returns one to the pool.
+`pool/release.rs` tears down assigned, running, claimed, and sterile workers by reason and never returns one to the pool; a start keeps its worker in the owned table and runs the blocking launcher round trip outside the pool-wide lock, so a concurrent release is refused by phase rather than told the pool owns nothing.
 `pool/launcher.rs` and `pool/resources.rs` are the seams the jail adapter from decision-map ticket #9 and the live `soma-storage` and `soma-netd` brokers will implement; `testing/` is the in-process launcher with per-step fault injection over a shared process table and the in-process broker that leases heads through the real `soma-storage` ledger over socket pairs.
 `pool/capacity.rs` binds one pool to the host [`Admission`] and the exact Machine shape its workers are prepared for, so every claim reserves each visual-atlas dimension atomically before it wins a slot, a refusal is the typed `CapacityRejection` naming the gate, the transfer frees the Launch slot at commit, every teardown returns the reservation, and reconciliation rebuilds the committed usage of each retained Instance.
 `admission/` is the visual atlas capacity model: a certified host profile with host reserve, labelled measured per-VM overhead, per-dimension limits, and per-class overcommit ratios, which only [`HostProfile::validate`] and [`InstanceShape::validate`] can produce so no unvalidated profile or shape reaches the arithmetic; checked demand and division arithmetic that answers an overflow with `Gate::Arithmetic` instead of aborting; an atomic multi-dimension reservation that rolls back on the first refusing gate; a typed rejection naming the gate and its numbers; explicit guaranteed and elastic memory classes; a single-node NUMA placement hook; and the capacity ladder estimate.

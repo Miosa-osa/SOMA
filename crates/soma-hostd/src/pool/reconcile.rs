@@ -202,6 +202,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 Owned {
                     worker: OwnedWorker::Running(worker),
                     handle: None,
+                    starting: false,
                     identity,
                     refs: entry.resources,
                     instance,

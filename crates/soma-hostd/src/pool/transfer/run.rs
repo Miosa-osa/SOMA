@@ -243,6 +243,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         let owned = Owned {
             worker: OwnedWorker::Assigned(assigned),
             handle: Some(attempt.handle),
+            starting: false,
             identity: attempt.identity,
             refs: attempt.refs,
             instance: intent.instance,
