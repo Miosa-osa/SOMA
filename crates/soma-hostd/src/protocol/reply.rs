@@ -47,7 +47,7 @@ pub enum Reply {
         /// Retained.
         retained: u32,
     },
-    /// A typed failure code from [`failure_code`].
+    /// A typed failure code from [`crate::failure_code`].
     Failed(u16),
 }
 

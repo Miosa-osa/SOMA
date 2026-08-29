@@ -1,6 +1,6 @@
 //! The capacity equation of the visual atlas: the safe count of one uniform shape is the
 //! minimum over every independent limit, including the section 14 burst limits that
-//! [`Admission::reserve`] enforces, so the estimate and the admitted count agree.
+//! [`crate::Admission::reserve`] enforces, so the estimate and the admitted count agree.
 
 use crate::{CapacityRejection, CertifiedProfile, Demand, Gate, MemoryClass, ValidShape};
 
