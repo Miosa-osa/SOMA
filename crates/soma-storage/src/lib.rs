@@ -18,6 +18,8 @@
 //!   touching the template or each other.
 //! - [`lease`], [`release`], and [`reconcile`] own single-use head ownership, destruction, and
 //!   the audit of a head directory against the ownership ledger.
+//! - [`bench`] is the retained measurement matrix behind the on-demand versus prepared-head
+//!   decision in `docs/evidence`.
 //!
 //! Portable types compile everywhere.
 //! Every kernel mechanism is Linux-only and fails closed elsewhere.
@@ -34,6 +36,8 @@ pub mod reconcile;
 #[cfg(unix)]
 pub mod release;
 
+#[cfg(target_os = "linux")]
+pub mod bench;
 #[cfg(target_os = "linux")]
 pub mod clone;
 #[cfg(target_os = "linux")]

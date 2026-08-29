@@ -8,6 +8,10 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[[bin]]
+name = "soma-storage-bench"
+path = "src/bin/soma-storage-bench.rs"
+
 [dependencies]
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
