@@ -40,6 +40,7 @@ pub(super) fn rejection(rejection: &Rejection, formatter: &mut fmt::Formatter<'_
         | Rejection::ConflictingDefaultCommands { .. }
         | Rejection::ConflictingSealedEnvironment { .. }
         | Rejection::MissingDefaultCommand { .. }
+        | Rejection::ConflictingDeliveryTarget { .. }
         | Rejection::ModuleCycle { .. }
         | Rejection::UnpinnedInput { .. }
         | Rejection::UnknownModule { .. }
@@ -78,6 +79,17 @@ fn structural(rejection: &Rejection, formatter: &mut fmt::Formatter<'_>) -> fmt:
         }
         Rejection::MissingDefaultCommand { .. } => {
             write!(formatter, "{field}: no module supplies a default command")
+        }
+        Rejection::ConflictingDeliveryTarget {
+            module: Some(module),
+            target,
+            ..
+        } => write!(formatter, "{field}: `{target}` is owned by {module}"),
+        Rejection::ConflictingDeliveryTarget { target, .. } => {
+            write!(
+                formatter,
+                "{field}: `{target}` is already a delivery target"
+            )
         }
         Rejection::ModuleCycle { module, cycle, .. } => {
             write!(formatter, "{module} {field}: module cycle")?;

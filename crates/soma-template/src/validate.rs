@@ -134,7 +134,7 @@ pub(crate) fn validate(
     checks::modules(composition)?;
     let environment = contract::environment(template, composition)?;
     let network = network::envelope(template.network(), ceiling)?;
-    let secrets = contract::secrets(template, &network)?;
+    let secrets = contract::secrets(template, composition, &network, &environment)?;
     contract::required_environment(composition, &environment, &secrets)?;
     checks::executable(&command, &composition.modules, image, oracle)?;
     Ok(Validated {

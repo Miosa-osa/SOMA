@@ -6,7 +6,7 @@ use super::{checks::invalid, network::NetworkEnvelope, secret, syntax};
 use crate::{
     compose::Composition,
     lock::{LockedEnvironment, LockedSecret, MAX_LOCK_ENVIRONMENT},
-    module::EnvironmentName,
+    module::{EnvironmentName, GuestPath, ModuleIdentity},
     rejection::{InvalidReason, Rejection},
     schema::{DEFAULT_SECRET_FILE_MODE, SecretDelivery, Template},
 };
@@ -77,10 +77,13 @@ pub(super) fn environment(
     Ok(locked)
 }
 
-/// The secret references, sorted by their unique names.
+/// The secret references, sorted by their unique names, each with an exclusive delivery
+/// target.
 pub(super) fn secrets(
     template: &Template,
+    composition: &Composition<'_>,
     envelope: &NetworkEnvelope,
+    environment: &[LockedEnvironment],
 ) -> Result<Vec<LockedSecret>, Rejection> {
     let mut names = BTreeSet::new();
     let mut locked = Vec::new();
@@ -112,6 +115,14 @@ pub(super) fn secrets(
                 name: secret.name.clone(),
             });
         }
+        delivery_target(
+            index,
+            secret.delivery,
+            &scope,
+            composition,
+            environment,
+            &locked,
+        )?;
         let mode_field = format!("secrets[{index}].mode");
         let mode = match (secret.delivery, secret.mode) {
             (SecretDelivery::File, Some(mode)) => {
@@ -165,6 +176,57 @@ fn scope(
             Ok(scope.to_owned())
         }
     }
+}
+
+/// Every delivery target is exclusive: one environment name, one guest file, or one
+/// destination receives at most one secret, and none may be a slot the Template or a
+/// composed module already owns.
+fn delivery_target(
+    index: usize,
+    delivery: SecretDelivery,
+    scope: &str,
+    composition: &Composition<'_>,
+    environment: &[LockedEnvironment],
+    earlier: &[LockedSecret],
+) -> Result<(), Rejection> {
+    let field = format!("secrets[{index}].scope");
+    let conflict = |module: Option<ModuleIdentity>| Rejection::ConflictingDeliveryTarget {
+        module,
+        field: field.clone(),
+        target: scope.to_owned(),
+    };
+    match delivery {
+        SecretDelivery::Environment => {
+            if let Some(entry) = environment.iter().find(|entry| entry.name == scope) {
+                return Err(conflict(entry.sealed_by.clone()));
+            }
+        }
+        SecretDelivery::File => {
+            let path =
+                syntax::absolute_path(scope).map_err(|reason| invalid(field.clone(), reason))?;
+            let overlaps = |other: &GuestPath| other.contains(&path) || path.contains(other);
+            for module in &composition.modules {
+                if module.owned_paths().iter().any(overlaps) {
+                    return Err(conflict(Some(module.identity().clone())));
+                }
+            }
+            let taken = earlier
+                .iter()
+                .filter(|secret| secret.delivery == SecretDelivery::File)
+                .any(|secret| GuestPath::parse(&secret.scope).is_ok_and(|other| overlaps(&other)));
+            if taken {
+                return Err(conflict(None));
+            }
+        }
+        SecretDelivery::EgressProxy => {}
+    }
+    if earlier
+        .iter()
+        .any(|secret| secret.delivery == delivery && secret.scope == scope)
+    {
+        return Err(conflict(None));
+    }
+    Ok(())
 }
 
 pub(super) fn required_environment(

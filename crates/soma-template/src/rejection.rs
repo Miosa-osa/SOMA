@@ -109,6 +109,13 @@ pub enum Rejection {
     MissingDefaultCommand {
         field: String,
     },
+    /// A secret delivery target already taken by another secret, a Template environment
+    /// entry, or a module's owned path or sealed value.
+    ConflictingDeliveryTarget {
+        module: Option<ModuleIdentity>,
+        field: String,
+        target: String,
+    },
     SecretLiteral {
         module: Option<ModuleIdentity>,
         field: String,
@@ -169,7 +176,8 @@ impl Rejection {
             Self::DuplicateExclusiveOwnership { .. }
             | Self::ConflictingDefaultCommands { .. }
             | Self::ConflictingSealedEnvironment { .. }
-            | Self::MissingDefaultCommand { .. } => RejectionClass::ExclusiveConflict,
+            | Self::MissingDefaultCommand { .. }
+            | Self::ConflictingDeliveryTarget { .. } => RejectionClass::ExclusiveConflict,
             Self::SecretLiteral { .. } => RejectionClass::SecretLiteral,
             Self::SecretWithoutScope { .. } => RejectionClass::SecretWithoutScope,
             Self::NetworkExceedsCeiling { .. } => RejectionClass::NetworkExceedsCeiling,
@@ -194,6 +202,7 @@ impl Rejection {
             | Self::ConflictingDefaultCommands { field, .. }
             | Self::ConflictingSealedEnvironment { field, .. }
             | Self::MissingDefaultCommand { field }
+            | Self::ConflictingDeliveryTarget { field, .. }
             | Self::SecretLiteral { field, .. }
             | Self::SecretWithoutScope { field, .. }
             | Self::NetworkExceedsCeiling { field, .. }
@@ -212,6 +221,7 @@ impl Rejection {
     pub const fn module(&self) -> Option<&ModuleIdentity> {
         match self {
             Self::UnsupportedPlatform { module, .. }
+            | Self::ConflictingDeliveryTarget { module, .. }
             | Self::SecretLiteral { module, .. }
             | Self::InvalidValue { module, .. }
             | Self::UnpinnedInput { module, .. }
