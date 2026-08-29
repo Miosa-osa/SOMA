@@ -5,6 +5,7 @@
 //! Nothing here touches KVM, eventfds, or a real guest.
 
 pub mod block;
+pub mod net;
 pub mod segments;
 pub mod service;
 

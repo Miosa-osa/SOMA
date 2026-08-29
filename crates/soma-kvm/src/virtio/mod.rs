@@ -28,6 +28,18 @@ pub use devices::block::{
     BlockDevice, BlockRole, VIRTIO_BLK_DEVICE_ID, VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH,
     VIRTIO_BLK_F_RO,
 };
+pub use devices::net::backend::{
+    LOOPBACK_QUEUE_LIMIT, LoopbackBackend, LoopbackHandle, NetBackend, NetBackendError, TapBackend,
+};
+pub use devices::net::frame::{
+    FrameError, MAX_FRAME_LEN, MIN_FRAME_LEN, VIRTIO_NET_HDR_LEN, validate_tx,
+};
+pub use devices::net::rx::deliver_rx;
+pub use devices::net::state::{NET_STATE_LEN, NET_STATE_VERSION, NetState};
+pub use devices::net::{
+    MAX_RX_CHAIN_BYTES, NET_CONFIG_LEN, NET_FEATURES, NET_QUEUE_MAX, NET_RX_QUEUE, NET_TX_QUEUE,
+    NetCounters, NetDevice, VIRTIO_NET_DEVICE_ID, VIRTIO_NET_F_MAC,
+};
 pub use devices::segments::{read_readable, write_writable};
 pub use devices::service::{ChainHandler, DeviceFault, ServiceError, ServiceReport, service_queue};
 pub use guest_memory::{
