@@ -20,6 +20,7 @@ Flat ordered composition is preferred over nested inheritance so the resolved re
 Template network permissions are a maximum envelope that Launch may narrow but may not silently widen.
 Secret references never place reusable values in a Template, lock, Generation, snapshot, log, or receipt.
 Agent modules for Claude Code, Codex, OSA, Hermes, and future agents use one common contract and are convenience modules rather than privileged VMM behavior.
+
 ## 2026-08-29 - Static Linux guest agent for the repair state machine
 
 Decision-map ticket #8 now has a guest side: `crates/soma-guest-agent` is a statically linked x86_64 musl executable that runs as PID 1 from the Generation initramfs.
