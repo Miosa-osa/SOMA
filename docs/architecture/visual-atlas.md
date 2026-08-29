@@ -13,11 +13,12 @@ It uses plain text so the architecture remains readable in a terminal, source vi
 - [Template, Generation, and Instance](#6-template-generation-and-instance-as-physical-shapes)
 - [What a vCPU is](#10-what-a-vcpu-actually-is)
 - [How a Host is divided](#11-one-large-host-divided-into-sandboxes)
+- [The incremental capacity ladder](#15-capacity-ladder-from-one-sandbox-to-a-fleet)
 - [How 200 sandboxes fit on 80 threads](#how-200-sandboxes-can-fit-on-80-hardware-threads)
 - [Density mechanisms and tradeoffs](#density-mechanisms-and-their-tradeoffs)
 - [Unsafe density shortcuts](#what-should-not-be-used-casually)
 - [The worked 256 GiB Host example](#a-realistic-200-sandbox-shape-on-the-256-gib-example-host)
-- [Whether one Host can create 100,000 sandboxes](#15-can-one-host-create-100000-sandboxes)
+- [Whether one Host can create 100,000 sandboxes](#16-can-one-host-create-100000-sandboxes)
 - [How a fleet reaches 100,000](#how-soma-reaches-100000-active-sandboxes)
 
 ## 1. The whole system in one picture
@@ -516,7 +517,371 @@ little writable data                storage write and fault spike
 SOMA therefore needs separate admission limits for resident Instances, concurrent Launch operations, runnable vCPUs, private dirty memory, network load, and cleanup work.
 A raw count of VM objects is not a truthful capacity model.
 
-## 15. Can one Host create 100,000 sandboxes?
+## 15. Capacity ladder from one sandbox to a fleet
+
+This lesson changes one variable at a time so the reason for each limit remains visible.
+The numbers are explanatory arithmetic, not measured SOMA performance or capacity claims.
+
+### Keep one sandbox shape fixed
+
+Every step uses this illustrative Machine shape:
+
+```text
+ONE SANDBOX
+  1 vCPU
+  512 MiB guest RAM
+  64 MiB placeholder for VMM and Host memory overhead
+  4 GiB logical private writable disk
+  one shared immutable Generation
+  one private network identity
+```
+
+The memory admission cost used in the examples is therefore:
+
+```text
+512 MiB guest RAM + 64 MiB overhead = 576 MiB per resident Instance
+```
+
+Real SOMA Host profiles must replace the placeholder overhead with retained measurements.
+The actual overhead changes with the kernel, device model, page tables, queue sizes, networking, observability, and workload.
+
+### Stage 1: one sandbox on one Host
+
+```text
+HOST
+4 hardware threads
+8 GiB RAM
+|
+`-- Instance A
+    +-- 1 vCPU
+    +-- 512 MiB guest RAM
+    +-- private writable disk
+    `-- private identity and network
+```
+
+Nothing needs to be oversubscribed.
+There is also almost no density benefit from sharing because only one Instance uses the Generation.
+
+At this stage, the important lesson is ownership:
+
+```text
+physical CPU thread       Host owns it
+virtual CPU state         Instance A owns it
+guest RAM mapping         Instance A owns it
+immutable Generation      Host cache owns it
+private dirty pages       Instance A owns them
+private writable blocks   Instance A owns them
+```
+
+The first failure can still happen before capacity is exhausted.
+An incompatible Generation, unavailable KVM, failed network attachment, invalid snapshot, or failed guest authentication must reject Launch even though CPU and RAM are available.
+
+### Stage 2: four sandboxes share one Generation
+
+```text
+HOST
+|
++-- Node 22 Generation stored once
+|   +-- kernel
+|   +-- immutable root filesystem
+|   `-- prepared snapshot pages
+|
++-- Instance A: private vCPU, dirty pages, disk, identity
++-- Instance B: private vCPU, dirty pages, disk, identity
++-- Instance C: private vCPU, dirty pages, disk, identity
+`-- Instance D: private vCPU, dirty pages, disk, identity
+```
+
+This is where immutable sharing first matters.
+Four Instances can map the same verified read-only files and clean snapshot pages instead of storing four independent copies.
+
+What remains private:
+
+- vCPU register and interrupt state
+- every modified memory page
+- every writable filesystem block
+- network identity and policy state
+- guest session keys and Instance identity
+
+If one guest modifies a shared clean page, copy-on-write gives that guest a private physical page.
+The other three guests continue seeing the original immutable page.
+
+### Stage 3: sixteen sandboxes introduce scheduling
+
+Assume an 8-thread, 16 GiB Host reserves 2 threads and 3 GiB for Host work.
+
+```text
+admissible CPU       6 thread units
+admissible memory    13 GiB = 13,312 MiB
+memory bound         floor(13,312 / 576) = 23 Instances
+```
+
+Sixteen resident Instances fit the illustrative memory budget.
+They require CPU overcommit:
+
+```text
+16 vCPUs / 6 thread units = 2.67:1 CPU overcommit
+```
+
+If only four vCPUs are runnable, they can run immediately.
+If all sixteen become runnable, the scheduler time-slices them across six thread units.
+
+```text
+QUIET MOMENT                         FULL WAKE-UP
+
+4 runnable vCPUs                     16 runnable vCPUs
+6 thread units                       6 thread units
+no CPU queue                         about 2.67 contenders per unit
+low scheduling delay                 queueing and context switching rise
+```
+
+Isolation still holds during the full wake-up.
+Performance changes because execution time is scarce, not because memory boundaries disappeared.
+
+### Stage 4: sixty-four sandboxes change the likely bottleneck
+
+Assume a 16-thread, 32 GiB Host reserves 2 threads and 4 GiB.
+
+```text
+admissible CPU       14 thread units
+admissible memory    28 GiB = 28,672 MiB
+memory bound         floor(28,672 / 576) = 49 Instances
+```
+
+The CPU could admit 56 vCPUs under a 4:1 overcommit policy.
+Memory stops this exact 512 MiB shape at 49 before CPU reaches 56.
+Sixty-four resident Machines do not fit the guaranteed-memory policy.
+
+There are only four honest choices:
+
+```text
+1. admit 49 and reject the rest
+2. reduce the requested guest-memory shape
+3. add physical RAM or another Host
+4. offer an explicit elastic-memory class with weaker guarantees
+```
+
+Pretending shared clean pages will always remain shared is not a fifth choice.
+A workload update, garbage collection cycle, file cache growth, or simultaneous compilation can dirty memory and destroy the optimistic sharing ratio.
+
+### Stage 5: sixty-four sandboxes on a balanced Host
+
+Increase the Host to 40 threads and 128 GiB RAM.
+Reserve 4 threads and 12 GiB.
+
+```text
+admissible CPU       36 thread units
+admissible memory    116 GiB = 118,784 MiB
+memory bound         floor(118,784 / 576) = 206 Instances
+
+64 vCPUs / 36 thread units = 1.78:1 CPU overcommit
+```
+
+Now sixty-four resident sandboxes fit comfortably in CPU and memory.
+The next limit may move somewhere less obvious:
+
+- Launch page faults may saturate storage reads.
+- First writes may cause an OverlayFS copy-up burst.
+- Sixty-four TAP interfaces may trigger network setup or policy latency.
+- Agent workloads may exhaust outbound connection tracking or bandwidth.
+- Sixty-four VMM processes multiply file descriptors and host threads.
+- Simultaneous completion may produce a cleanup storm.
+
+This is why adding RAM does not guarantee that every other subsystem scales with it.
+
+### Stage 6: two hundred sandboxes on the 80-thread Host
+
+Use the earlier 80-thread, 256 GiB Host with 72 thread units and 232 GiB admitted after reserves.
+
+```text
+memory required      200 * 576 MiB = 112.5 GiB
+memory remaining     232 GiB - 112.5 GiB = 119.5 GiB
+CPU overcommit       200 / 72 = 2.78:1
+```
+
+For this 512 MiB shape, CPU scheduling behavior is likely to become important before guaranteed RAM.
+That answer reverses for a 2 GiB guest shape:
+
+```text
+2 GiB guest + 64 MiB overhead = 2,112 MiB per Instance
+232 GiB / 2,112 MiB = 112 Instances by memory
+```
+
+The same Host can therefore admit about 200 of the illustrative 512 MiB shape but only about 112 of the illustrative 2 GiB shape before other gates.
+Hardware specifications do not produce one universal sandbox count.
+Machine shape and workload behavior are part of the capacity answer.
+
+### Stage 7: a larger Host introduces topology
+
+Doubling cores and RAM does not always double useful capacity.
+A large server may have multiple CPU sockets or NUMA nodes.
+
+```text
+LARGE DUAL-NUMA HOST
+
+NUMA node 0                            NUMA node 1
+CPU threads 0..79                      CPU threads 80..159
+local RAM bank A                       local RAM bank B
+       |                                      |
+       +------------- interconnect -----------+
+```
+
+A vCPU running on node 0 reaches node 0 memory faster than remote memory on node 1.
+If a VMM's vCPU threads move between nodes while its guest memory remains elsewhere, latency and interconnect traffic rise.
+
+A topology-aware allocator should place each small Machine's vCPUs, memory, and device work on one NUMA node when practical.
+It should treat sibling simultaneous-multithreading threads as shared core capacity rather than pretending every hardware thread has the power of an independent physical core.
+
+The edge case appears when each node has enough total free resources but neither node has the requested resources together.
+
+```text
+node 0: 2 free CPU units, 20 GiB free RAM
+node 1: 12 free CPU units, 1 GiB free RAM
+request: 8 vCPUs, 8 GiB RAM
+
+Host totals say yes: 14 CPU units and 21 GiB RAM are free
+single-node placement says no: neither node satisfies both dimensions
+```
+
+This is resource fragmentation.
+Adding the free numbers across a Host can produce an answer that no valid placement can realize.
+
+### Incremental Host ladder
+
+The table uses the fixed 1-vCPU, 512 MiB guest, 64 MiB placeholder-overhead shape.
+Every row remains subject to storage, network, process, burst, and cleanup gates.
+
+| Host class | Total threads | Total RAM | Illustrative reserve | Strict CPU bound | Memory bound | Example overcommitted admission |
+|---|---:|---:|---:|---:|---:|---:|
+| Tiny | 4 | 8 GiB | 1 thread, 2 GiB | 3 | 10 | 3 strict or 6 at 2:1 |
+| Small | 8 | 16 GiB | 2 threads, 3 GiB | 6 | 23 | 16 at 2.67:1 |
+| Medium | 16 | 32 GiB | 2 threads, 4 GiB | 14 | 49 | 42 at 3:1 |
+| Large | 40 | 128 GiB | 4 threads, 12 GiB | 36 | 206 | 144 at 4:1 |
+| Dense | 80 | 256 GiB | 8 threads, 24 GiB | 72 | 412 | 200 at 2.78:1 |
+| Very large | 160 | 512 GiB | 16 threads, 48 GiB | 144 | 824 | 576 at 4:1 |
+
+The example admission column is not a recommendation.
+It shows how CPU overcommit changes the arithmetic while the memory bound remains separate.
+Only workload-specific load testing can certify an overcommit ratio.
+
+### What happens when one more sandbox arrives
+
+Admission must be atomic across every dimension.
+
+```text
+Launch request
+      |
+      v
+check compatible Generation -------- no --> reject
+      |
+     yes
+      v
+check CPU policy -------------------- no --> reject: CPU capacity
+      |
+     yes
+      v
+check RAM and NUMA placement -------- no --> reject: memory or fragmentation
+      |
+     yes
+      v
+check private storage reserve ------- no --> reject: storage capacity
+      |
+     yes
+      v
+check network and kernel objects ---- no --> reject: network or Host objects
+      |
+     yes
+      v
+reserve everything together
+      |
+      v
+Launch
+```
+
+SOMA must not reserve CPU, fail to reserve networking, and leave the CPU reservation leaked.
+A rejected Launch returns capacity evidence and rolls back every partial reservation.
+
+### Why a Host breaks above its safe point
+
+Different limits fail differently.
+
+| Limit crossed | First visible symptom | What happens next | Required response |
+|---|---|---|---|
+| Runnable vCPU capacity | run queues and scheduling delay rise | command p99 grows before failures appear | stop admission or move work |
+| Guaranteed RAM | reservation cannot be satisfied | Launch must fail before VM creation | reject or choose another Host |
+| Elastic RAM | reclaim and dirty pressure rise | stalls, OOM kills, or Host instability | throttle, evict, or fail closed |
+| Snapshot faults | Launch latency rises together | storage queue and page-fault workers saturate | cap concurrent restore |
+| Writable storage | free blocks or quota reserve falls | writes fail and cleanup may need space | reject before emergency reserve |
+| File descriptors | socket, TAP, event, or image opens fail | partially created Machines become likely | retain FD reserve and reject early |
+| Process or thread limit | VMM or vCPU thread creation fails | Launch cannot establish ownership | reject and roll back |
+| Network addresses | no private identity is available | guest cannot receive valid network state | reject before resume |
+| Connection tracking | new flows drop or time out | network-heavy agents fail unevenly | shard, raise proven limit, or throttle |
+| Network bandwidth | latency and packet loss rise | unrelated tenants become noisy neighbors | shape and admit by bandwidth class |
+| Cleanup capacity | dead Machines accumulate temporarily | resources remain unavailable longer | reserve cleanup workers and backpressure |
+| NUMA locality | remote-memory access increases | tail latency rises despite free totals | topology-aware placement |
+
+The best admission signal appears before user-visible failure.
+For CPU, that may be runnable pressure and throttling rather than 100 percent utilization alone.
+For memory, it is committed capacity, private dirty growth, reclaim pressure, and NUMA fit.
+For storage, it is reserved headroom, write amplification, IOPS, and queue depth.
+For networking, it is address inventory, flow state, packets, bandwidth, and policy-programming latency.
+
+### Three workload patterns produce three different answers
+
+```text
+PATTERN A: API-WAITING AGENTS
+CPU active 10 percent of the time
+small dirty-memory working set
+many network waits
+high CPU overcommit can work
+network limits may appear first
+
+PATTERN B: BUILD AGENTS
+CPU active most of the time
+large dirty-memory working set
+heavy filesystem writes
+low CPU overcommit is safer
+CPU, RAM, and storage contend together
+
+PATTERN C: IDLE INTERACTIVE SESSIONS
+almost no CPU while idle
+moderate resident memory
+occasional synchronized wake-up
+high resident density can work
+burst admission must cover wake-up storms
+```
+
+This is why SOMA needs workload classes backed by evidence rather than one global overcommit number.
+An admission profile that is safe for API-waiting agents may collapse under build agents on the same hardware.
+
+### The proof required before moving up one rung
+
+Do not jump from 16 to 200 because the arithmetic fits.
+Increase load in steps and retain the evidence.
+
+```text
+16 -> 24 -> 32 -> 48 -> 64 -> 96 -> 128 -> 160 -> 200
+
+At every step measure:
+  Launch p50, p95, and p99
+  first-command p50, p95, and p99
+  runnable vCPU pressure and throttling
+  resident, shared, and private dirty memory
+  major and minor page faults
+  storage queue depth, latency, and free reserve
+  packets, bandwidth, drops, and connection tracking
+  VMM processes, threads, and file descriptors
+  cleanup time and leaked-resource count
+  success rate and exact rejection reason
+```
+
+Stop increasing when the next rung violates the latency, isolation, cleanup, or safety objective.
+The last passing rung is evidence for that exact Host profile, Generation, Machine shape, workload class, concurrency pattern, and SOMA version.
+It is not proof for a different workload or Host.
+
+The kernel mechanisms underneath this model are documented by the [KVM API](https://docs.kernel.org/virt/kvm/api.html), [cgroup v2 CPU and memory controls](https://docs.kernel.org/admin-guide/cgroup-v2.html), [Linux scheduler design](https://docs.kernel.org/scheduler/sched-design-CFS.html), and [OverlayFS upper and lower layers](https://docs.kernel.org/filesystems/overlayfs.html).
+
+## 16. Can one Host create 100,000 sandboxes?
 
 The answer changes depending on what `100,000` counts.
 
@@ -745,6 +1110,6 @@ One control plane divides the target across many independently bounded Hosts.
 If a certified Host safely supports 200 active Instances for a particular workload and availability policy, 100,000 Instances require at least 500 such Hosts before spare capacity, failure domains, upgrades, and regional redundancy are added.
 The number `200` in that example must come from retained load-test evidence rather than from hardware specifications alone.
 
-## 16. The sentence to keep in your head
+## 17. The sentence to keep in your head
 
 SOMA prepares a sealed Generation, realizes it as a fresh isolated Instance through a Backend, and gives an agent a bounded authenticated way to execute inside it.

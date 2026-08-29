@@ -100,6 +100,7 @@ This file records the primary sources that constrain SOMA's design.
 ## Security references
 
 - [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) defines hierarchical CPU, memory, process, and I/O resource containment.
+- [Linux scheduler design](https://docs.kernel.org/scheduler/sched-design-CFS.html) explains virtual runtime, runnable-task selection, and why time sharing does not create additional physical CPU power.
 - [Linux pidfd](https://docs.kernel.org/userspace-api/pidfd.html) defines process identity and signaling without numeric-PID reuse races.
 - [Noise Protocol Framework](https://noiseprotocol.org/noise.html) defines handshake patterns, pre-shared-key modifiers, transcript hashing, transport split, and message bounds for the guest-session profile.
 - [Snow](https://github.com/mcginty/snow) is the reviewed Rust implementation used for the fixed Noise profile and documents its own security-review limitations.

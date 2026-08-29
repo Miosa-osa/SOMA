@@ -409,6 +409,7 @@ The visual teaching order begins at physical virtualization, enters the Machine,
 Capacity education treats vCPU scheduling, resident memory, shared immutable pages, private dirty pages, sparse storage, network state, and host objects as independent limits whose minimum bounds safe admission.
 Capacity language now distinguishes cumulative creations, queued requests, resident Instances, and simultaneously active Instances because only the latter three consume concurrent Host capacity and they consume it differently.
 The README links directly to the 200-vCPU-on-80-thread explanation, and the visual atlas begins with a task-oriented contents list so capacity education is not buried inside the full machine walkthrough.
+The capacity lesson now holds one Machine shape constant while moving from one Instance through 4, 16, 49, 64, and 200, then introduces larger NUMA Hosts, atomic admission, resource-specific failure modes, workload classes, and the evidence required before increasing density.
 
 ## 2026-08-29 - Repository-owned README branding
 
