@@ -3,10 +3,12 @@
 //! If the guest neither stops nor faults before the deadline, the watchdog kicks the vCPU thread
 //! out of `KVM_RUN`. If the thread still cannot be joined within a bounded grace period the
 //! process aborts, because releasing guest memory under a live vCPU is never acceptable.
+//! [`VcpuRun`] separates starting the thread from waiting for it so a sandbox can drive its
+//! control session while the guest runs and still reclaim the vCPU through the same path.
 
 use std::{
     sync::{
-        Mutex,
+        Mutex, MutexGuard,
         mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
     },
     thread::{self, JoinHandle},
@@ -18,6 +20,7 @@ use kvm_ioctls::VcpuFd;
 use super::{
     error::{MachineError, MachineErrorKind, Phase},
     kick::{self, HandlerGuard, RunMaskGuard},
+    mmio::MmioDispatch,
     ports::PortBus,
     run::{self, GuestExit},
 };
@@ -29,13 +32,18 @@ static PROCESS_HANDLER_LOCK: Mutex<()> = Mutex::new(());
 
 enum WorkerEvent {
     Ready,
-    Finished(Box<PortBus>, Result<GuestExit, MachineError>),
+    Finished(
+        Box<PortBus>,
+        Option<Box<MmioDispatch>>,
+        Result<GuestExit, MachineError>,
+    ),
 }
 
-/// The run result together with the port bus, which is returned even when the run failed so
-/// callers can retain the captured console for diagnosis.
+/// The run result together with the port bus and MMIO dispatcher, which are returned even when
+/// the run failed so callers can retain the captured console and counters for diagnosis.
 pub(crate) struct RunReport {
     pub(crate) bus: Option<Box<PortBus>>,
+    pub(crate) mmio: Option<Box<MmioDispatch>>,
     pub(crate) result: Result<GuestExit, MachineError>,
 }
 
@@ -43,7 +51,16 @@ impl RunReport {
     fn lost(phase: Phase) -> Self {
         Self {
             bus: None,
+            mmio: None,
             result: Err(MachineError::new(phase, MachineErrorKind::WorkerLost)),
+        }
+    }
+
+    fn failed(bus: PortBus, mmio: Option<MmioDispatch>, error: MachineError) -> Self {
+        Self {
+            bus: Some(Box::new(bus)),
+            mmio: mmio.map(Box::new),
+            result: Err(error),
         }
     }
 }
@@ -55,80 +72,115 @@ impl RunReport {
 pub(crate) fn run_with_deadline(
     vcpu: VcpuFd,
     bus: PortBus,
+    mmio: Option<MmioDispatch>,
     sentinel: Option<Vec<u8>>,
     timeout: Duration,
 ) -> RunReport {
     if timeout.is_zero() {
-        return RunReport {
-            bus: Some(Box::new(bus)),
-            result: Err(MachineError::invalid(
-                Phase::Run,
-                "deadline must be positive",
-            )),
-        };
+        return RunReport::failed(
+            bus,
+            mmio,
+            MachineError::invalid(Phase::Run, "deadline must be positive"),
+        );
     }
-    // The interrupt handler is process-wide, so concurrent proofs in one process serialize here
-    // instead of failing. A poisoned lock only means a previous proof panicked after installing
-    // its handler; the guard restored it, so the lock is safe to reuse.
-    let _lock = PROCESS_HANDLER_LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let signal = match kick::signal_number() {
-        Ok(signal) => signal,
-        Err(error) => {
-            return RunReport {
-                bus: Some(Box::new(bus)),
-                result: Err(error),
-            };
-        }
-    };
-    let handler = match HandlerGuard::install(signal) {
-        Ok(handler) => handler,
-        Err(error) => {
-            return RunReport {
-                bus: Some(Box::new(bus)),
-                result: Err(error),
-            };
-        }
-    };
-    let report = run_worker(vcpu, Box::new(bus), sentinel, timeout, signal);
-    drop(handler);
-    report
+    match VcpuRun::start(vcpu, bus, mmio, sentinel) {
+        Ok(run) => run.wait(timeout),
+        Err(report) => report,
+    }
 }
 
-fn run_worker(
-    vcpu: VcpuFd,
-    bus: Box<PortBus>,
-    sentinel: Option<Vec<u8>>,
-    timeout: Duration,
+/// A vCPU thread that has entered `KVM_RUN` with its interrupt mask installed.
+pub(crate) struct VcpuRun {
+    worker: JoinHandle<()>,
+    receiver: Receiver<WorkerEvent>,
     signal: libc::c_int,
-) -> RunReport {
-    let (sender, receiver) = mpsc::sync_channel(2);
-    let worker = match thread::Builder::new()
-        .name("soma-kvm-vcpu-0".to_owned())
-        .spawn(move || worker_main(vcpu, bus, sentinel.as_deref(), signal, &sender))
-    {
-        Ok(worker) => worker,
-        Err(error) => {
-            return RunReport {
-                bus: None,
-                result: Err(MachineError::io(Phase::Run, &error)),
-            };
-        }
-    };
+    _handler: HandlerGuard,
+    _lock: MutexGuard<'static, ()>,
+}
 
-    match receiver.recv_timeout(STARTUP_GRACE) {
-        Ok(WorkerEvent::Ready) => wait_for_result(worker, &receiver, timeout, signal),
-        Ok(WorkerEvent::Finished(bus, result)) => finish(worker, bus, result),
-        Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Run)),
-        // The worker's KVM_RUN mask may not be installed, so neither a kick nor a return is safe.
-        Err(RecvTimeoutError::Timeout) => std::process::abort(),
+impl VcpuRun {
+    /// Starts the worker and waits until it has entered its run mask.
+    ///
+    /// # Errors
+    ///
+    /// Returns a report carrying the bus and dispatcher when the thread could not start; a
+    /// worker that neither reports readiness nor finishes within the startup grace aborts
+    /// the process because its run mask state is unknown.
+    pub(crate) fn start(
+        vcpu: VcpuFd,
+        bus: PortBus,
+        mmio: Option<MmioDispatch>,
+        sentinel: Option<Vec<u8>>,
+    ) -> Result<Self, RunReport> {
+        // The interrupt handler is process-wide, so concurrent proofs in one process serialize
+        // here instead of failing. A poisoned lock only means a previous proof panicked after
+        // installing its handler; the guard restored it, so the lock is safe to reuse.
+        let lock = PROCESS_HANDLER_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let signal = match kick::signal_number() {
+            Ok(signal) => signal,
+            Err(error) => return Err(RunReport::failed(bus, mmio, error)),
+        };
+        let handler = match HandlerGuard::install(signal) {
+            Ok(handler) => handler,
+            Err(error) => return Err(RunReport::failed(bus, mmio, error)),
+        };
+        let (sender, receiver) = mpsc::sync_channel(2);
+        let bus = Box::new(bus);
+        let mmio = mmio.map(Box::new);
+        let worker = match thread::Builder::new()
+            .name("soma-kvm-vcpu-0".to_owned())
+            .spawn(move || worker_main(vcpu, bus, mmio, sentinel.as_deref(), signal, &sender))
+        {
+            Ok(worker) => worker,
+            Err(error) => {
+                return Err(RunReport {
+                    bus: None,
+                    mmio: None,
+                    result: Err(MachineError::io(Phase::Run, &error)),
+                });
+            }
+        };
+        match receiver.recv_timeout(STARTUP_GRACE) {
+            Ok(WorkerEvent::Ready) => Ok(Self {
+                worker,
+                receiver,
+                signal,
+                _handler: handler,
+                _lock: lock,
+            }),
+            Ok(WorkerEvent::Finished(bus, mmio, result)) => Err(finish(worker, bus, mmio, result)),
+            Err(RecvTimeoutError::Disconnected) => {
+                Err(join_then(worker, RunReport::lost(Phase::Run)))
+            }
+            // The worker's KVM_RUN mask may not be installed, so neither a kick nor a return is safe.
+            Err(RecvTimeoutError::Timeout) => std::process::abort(),
+        }
+    }
+
+    /// Waits for the guest to stop, kicking the vCPU out of `KVM_RUN` after `timeout`.
+    pub(crate) fn wait(self, timeout: Duration) -> RunReport {
+        let Self {
+            worker,
+            receiver,
+            signal,
+            _handler,
+            _lock,
+        } = self;
+        match receiver.recv_timeout(timeout) {
+            Ok(WorkerEvent::Finished(bus, mmio, result)) => finish(worker, bus, mmio, result),
+            Ok(WorkerEvent::Ready) => std::process::abort(),
+            Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Run)),
+            Err(RecvTimeoutError::Timeout) => cancel(worker, &receiver, signal),
+        }
     }
 }
 
 fn worker_main(
     mut vcpu: VcpuFd,
     mut bus: Box<PortBus>,
+    mut mmio: Option<Box<MmioDispatch>>,
     sentinel: Option<&[u8]>,
     signal: libc::c_int,
     sender: &SyncSender<WorkerEvent>,
@@ -136,7 +188,7 @@ fn worker_main(
     let result = match RunMaskGuard::install(&vcpu, signal) {
         Ok(mask) => {
             let result = if sender.send(WorkerEvent::Ready).is_ok() {
-                run::run(&mut vcpu, &mut bus, sentinel)
+                run::run(&mut vcpu, &mut bus, mmio.as_deref_mut(), sentinel)
             } else {
                 Err(MachineError::new(Phase::Run, MachineErrorKind::WorkerLost))
             };
@@ -146,21 +198,10 @@ fn worker_main(
         Err(error) => Err(error),
     };
     drop(vcpu);
-    let _ignored = sender.send(WorkerEvent::Finished(bus, result));
-}
-
-fn wait_for_result(
-    worker: JoinHandle<()>,
-    receiver: &Receiver<WorkerEvent>,
-    timeout: Duration,
-    signal: libc::c_int,
-) -> RunReport {
-    match receiver.recv_timeout(timeout) {
-        Ok(WorkerEvent::Finished(bus, result)) => finish(worker, bus, result),
-        Ok(WorkerEvent::Ready) => std::process::abort(),
-        Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Run)),
-        Err(RecvTimeoutError::Timeout) => cancel(worker, receiver, signal),
+    if let Some(dispatch) = mmio.as_deref() {
+        dispatch.finish();
     }
+    let _ignored = sender.send(WorkerEvent::Finished(bus, mmio, result));
 }
 
 fn cancel(
@@ -170,13 +211,13 @@ fn cancel(
 ) -> RunReport {
     let kick_error = kick::kick(&worker, signal).err();
     match receiver.recv_timeout(CANCELLATION_GRACE) {
-        Ok(WorkerEvent::Finished(bus, result)) => {
+        Ok(WorkerEvent::Finished(bus, mmio, result)) => {
             let result = match (kick_error, result) {
                 (Some(error), _) => Err(error),
                 (None, Ok(exit)) => Ok(exit),
                 (None, Err(_)) => Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout)),
             };
-            finish(worker, bus, result)
+            finish(worker, bus, mmio, result)
         }
         // A kicked worker that neither finishes nor disconnects may still own a live vCPU.
         Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
@@ -187,12 +228,14 @@ fn cancel(
 fn finish(
     worker: JoinHandle<()>,
     bus: Box<PortBus>,
+    mmio: Option<Box<MmioDispatch>>,
     result: Result<GuestExit, MachineError>,
 ) -> RunReport {
     join_then(
         worker,
         RunReport {
             bus: Some(bus),
+            mmio,
             result,
         },
     )
@@ -210,6 +253,7 @@ fn join_then(worker: JoinHandle<()>, report: RunReport) -> RunReport {
     if worker.join().is_err() {
         return RunReport {
             bus: report.bus,
+            mmio: report.mmio,
             result: Err(MachineError::new(Phase::Join, MachineErrorKind::WorkerLost)),
         };
     }

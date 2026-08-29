@@ -4,9 +4,10 @@
 //! placed top-down, page-aligned, directly below the end of guest RAM and must not touch any
 //! kernel segment. Every placement is checked against the layout before a byte is written.
 
+use std::{fs::File, io::Read as _};
+
 use super::{
     boot_info,
-    cmdline::{self, BootNonce},
     elf::PvhKernel,
     error::{MachineError, Phase},
     layout::{
@@ -30,12 +31,32 @@ pub(crate) struct LoadedKernel {
     pub(crate) cmdline: String,
 }
 
-/// Loads `image` and the optional `initramfs` into `ram` and writes the PVH boot pages.
+/// Reads one artifact completely, rejecting an empty file or one above `limit` bytes.
+pub(crate) fn read_bounded(file: File, limit: u64) -> Result<Vec<u8>, MachineError> {
+    let length = file
+        .metadata()
+        .map_err(|error| MachineError::io(Phase::ReadKernel, &error))?
+        .len();
+    if length == 0 || length > limit {
+        return Err(MachineError::invalid(
+            Phase::ReadKernel,
+            "artifact is empty or exceeds its size bound",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit)
+        .read_to_end(&mut bytes)
+        .map_err(|error| MachineError::io(Phase::ReadKernel, &error))?;
+    Ok(bytes)
+}
+
+/// Loads `image` and the optional `initramfs` into `ram` and writes the PVH boot pages with
+/// the already composed `cmdline`.
 pub(crate) fn load_kernel(
     ram: &mut GuestRam,
     image: &[u8],
     initramfs: Option<&[u8]>,
-    nonce: Option<&BootNonce>,
+    cmdline: &str,
 ) -> Result<LoadedKernel, MachineError> {
     let kernel = PvhKernel::parse(image)?;
     let mut kernel_end = KERNEL_START;
@@ -67,13 +88,12 @@ pub(crate) fn load_kernel(
         Some(bytes) => Some(place_initramfs(ram, bytes, kernel_end)?),
         None => None,
     };
-    let cmdline = cmdline::compose(placed.is_some(), nonce);
-    write_boot_pages(ram, placed, &cmdline)?;
+    write_boot_pages(ram, placed, cmdline)?;
     Ok(LoadedKernel {
         entry: u64::from(kernel.entry()),
         kernel_end,
         initramfs: placed,
-        cmdline,
+        cmdline: cmdline.to_owned(),
     })
 }
 
@@ -127,6 +147,7 @@ fn write_boot_pages(
 mod tests {
     use super::*;
     use crate::x86_64::{
+        cmdline::{self, BootNonce},
         elf::synthetic::{PF_R, Segment, SyntheticElf},
         error::MachineErrorKind,
         layout::{GuestLayout, MIN_RAM_BYTES},
@@ -136,13 +157,23 @@ mod tests {
         GuestRam::map(GuestLayout::new(MIN_RAM_BYTES).unwrap()).unwrap()
     }
 
+    fn line(initramfs: bool, nonce: Option<&BootNonce>) -> String {
+        cmdline::compose(initramfs, nonce)
+    }
+
     #[test]
     fn loads_kernel_and_places_initramfs_top_down() {
         let entry = u32::try_from(KERNEL_START).unwrap() + 8;
         let image = SyntheticElf::kernel(entry).build();
         let initramfs = vec![0xaa_u8; 5000];
         let nonce = BootNonce::new([1; 8]);
-        let loaded = load_kernel(&mut ram(), &image, Some(&initramfs), Some(&nonce)).unwrap();
+        let loaded = load_kernel(
+            &mut ram(),
+            &image,
+            Some(&initramfs),
+            &line(true, Some(&nonce)),
+        )
+        .unwrap();
         assert_eq!(loaded.entry, u64::from(entry));
         assert_eq!(loaded.kernel_end, KERNEL_START + 64 + 4096);
         let expected_start = (MIN_RAM_BYTES - 5000) & !(PAGE_SIZE - 1);
@@ -158,7 +189,7 @@ mod tests {
     fn loads_without_initramfs_or_nonce() {
         let entry = u32::try_from(KERNEL_START).unwrap();
         let image = SyntheticElf::kernel(entry).build();
-        let loaded = load_kernel(&mut ram(), &image, None, None).unwrap();
+        let loaded = load_kernel(&mut ram(), &image, None, &line(false, None)).unwrap();
         assert_eq!(loaded.initramfs, None);
         assert_eq!(loaded.cmdline, boot_info::DIAGNOSTIC_CMDLINE);
     }
@@ -173,14 +204,22 @@ mod tests {
             extra_memory: 0,
             flags: PF_R,
         });
-        let error = load_kernel(&mut ram(), &elf.build(), None, None).unwrap_err();
+        let error = load_kernel(&mut ram(), &elf.build(), None, &line(false, None)).unwrap_err();
         assert_eq!(error.phase(), Phase::LoadGuest);
         assert!(matches!(error.kind(), MachineErrorKind::Invalid(_)));
 
         let image = SyntheticElf::kernel(entry).build();
-        assert!(load_kernel(&mut ram(), &image, Some(&[]), None).is_err());
+        assert!(load_kernel(&mut ram(), &image, Some(&[]), &line(true, None)).is_err());
         let huge = vec![0_u8; usize::try_from(MIN_RAM_BYTES).unwrap()];
-        assert!(load_kernel(&mut ram(), &image, Some(&huge[..huge.len() - 4096]), None).is_err());
+        assert!(
+            load_kernel(
+                &mut ram(),
+                &image,
+                Some(&huge[..huge.len() - 4096]),
+                &line(true, None)
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -189,13 +228,19 @@ mod tests {
         let mut elf = SyntheticElf::kernel(entry);
         elf.segments[0].extra_memory = MIN_RAM_BYTES - KERNEL_START - 64 - 8192;
         let initramfs = vec![1_u8; 12288];
-        let error = load_kernel(&mut ram(), &elf.build(), Some(&initramfs), None).unwrap_err();
+        let error = load_kernel(
+            &mut ram(),
+            &elf.build(),
+            Some(&initramfs),
+            &line(true, None),
+        )
+        .unwrap_err();
         assert!(error.to_string().contains("does not fit"));
     }
 
     #[test]
     fn elf_rejections_surface_as_typed_load_errors() {
-        let error = load_kernel(&mut ram(), b"not an elf", None, None).unwrap_err();
+        let error = load_kernel(&mut ram(), b"not an elf", None, &line(false, None)).unwrap_err();
         assert_eq!(error.phase(), Phase::LoadGuest);
         assert!(matches!(error.kind(), MachineErrorKind::Elf(_)));
     }

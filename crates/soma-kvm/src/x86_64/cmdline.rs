@@ -19,8 +19,10 @@ pub(crate) const FIXED_ARGUMENTS: [&str; 9] = [
     "cryptomgr.notests",
 ];
 
-/// Init path inside the SOMA initramfs fixture.
+/// Init path inside the SOMA initramfs fixture and the compiled Generation initramfs.
 pub(crate) const INITRAMFS_INIT: &str = "rdinit=/init";
+/// Root and overlay identification appended by the Generation compiler contract.
+pub(crate) const GENERATION_DISKS: &str = "soma.lower=/dev/vda soma.upper=/dev/vdb";
 /// The kernel argument that carries the challenge nonce to the guest.
 pub(crate) const NONCE_ARGUMENT: &str = "soma.nonce";
 /// The prefix of the challenge-bound sentinel the guest writes to its console.
@@ -55,7 +57,22 @@ impl BootNonce {
     }
 }
 
-/// Composes the complete command line for one boot.
+/// Composes the complete command line for one compiled Generation: the fixed contract set,
+/// the five `virtio_mmio.device=` declarations from the bus table, the initramfs init, and
+/// the root and overlay identification.
+///
+/// It must equal the command line bound into the Generation manifest byte for byte.
+pub(crate) fn compose_generation() -> String {
+    [
+        FIXED_ARGUMENTS.join(" "),
+        crate::virtio::kernel_command_line(),
+        INITRAMFS_INIT.to_owned(),
+        GENERATION_DISKS.to_owned(),
+    ]
+    .join(" ")
+}
+
+/// Composes the complete command line for one diagnostic boot.
 pub(crate) fn compose(initramfs: bool, nonce: Option<&BootNonce>) -> String {
     let mut arguments: Vec<String> = FIXED_ARGUMENTS.iter().map(|s| (*s).to_owned()).collect();
     if initramfs {
@@ -75,6 +92,17 @@ mod tests {
     #[test]
     fn fixed_set_matches_the_contract_line() {
         assert_eq!(compose(false, None), DIAGNOSTIC_CMDLINE);
+    }
+
+    #[test]
+    fn generation_line_is_contract_devices_init_and_disks() {
+        let line = compose_generation();
+        assert!(line.starts_with(DIAGNOSTIC_CMDLINE));
+        assert!(line.contains(" virtio_mmio.device=4K@0xd0000000:5:0 "));
+        assert!(line.contains(" virtio_mmio.device=4K@0xd0004000:9:4 "));
+        assert!(line.ends_with(" rdinit=/init soma.lower=/dev/vda soma.upper=/dev/vdb"));
+        assert_eq!(line.matches("virtio_mmio.device=").count(), 5);
+        assert!(!line.contains("soma.nonce"));
     }
 
     #[test]

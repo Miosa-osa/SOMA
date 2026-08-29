@@ -2,25 +2,33 @@
 //!
 //! This module owns the machine-contract floor on a real `/dev/kvm`: memory registration, the
 //! in-kernel interrupt controller, bootstrap register state, port I/O dispatch to a diagnostic
-//! 16550 model, deadline enforcement, and ordered cleanup. It proves two things and nothing more:
-//! a raw halt guest and a PVH cold boot of the pinned kernel to a challenge-bound serial
-//! sentinel. It emulates no virtio device and makes no sandbox, readiness, isolation, or
-//! latency claim.
+//! 16550 model, MMIO dispatch to the five fixed virtio transports, queue-notify ioeventfds,
+//! per-slot irqfds, one bounded device thread, deadline enforcement, and ordered cleanup. It
+//! proves a raw halt guest, a PVH cold boot to a challenge-bound serial sentinel, and the
+//! test-only sandbox machine that boots a compiled Generation for an authenticated guest
+//! agent. It makes no readiness, snapshot, isolation, or latency claim on its own.
 
 mod boot_info;
+mod channel;
 mod cmdline;
 mod cpuid;
+mod devices;
 mod elf;
 mod error;
+mod event_loop;
+mod events;
 mod guest;
 mod halt;
 mod kernel;
 mod kick;
+mod launch_page;
 mod layout;
 mod loader;
 mod memory;
+mod mmio;
 mod ports;
 mod run;
+mod sandbox;
 mod serial;
 mod timing;
 mod vcpu;
@@ -30,14 +38,21 @@ use kvm_bindings::{KVM_PIT_SPEAKER_DUMMY, kvm_pit_config};
 use kvm_ioctls::{Kvm, VcpuFd, VmFd};
 
 pub use self::{
+    channel::{ChannelError, ControlChannel},
     cmdline::BootNonce,
+    devices::{BLOCK_SIZE, DeviceIdentity, SandboxDisks},
     elf::ElfError,
     error::{MachineError, MachineErrorKind, Phase},
+    event_loop::{EventLoopReport, SlotActivity},
     guest::EXPECTED_SERIAL,
     halt::{HaltGuestConfig, HaltGuestEvidence, InterruptController, run_halt_guest},
     kernel::{BootKernelConfig, KernelBootEvidence, KernelBootFailure, run_kernel_boot},
+    launch_page::{LAUNCH_PAGE_GPA, LAUNCH_PAGE_SIZE, LAUNCH_PAGE_SLOT},
+    memory::SharedRam,
+    mmio::MmioCounters,
     ports::BusCounters,
     run::GuestExit,
+    sandbox::{Milestone, MilestoneMark, SandboxConfig, SandboxEvidence, SandboxMachine},
     serial::SerialCounters,
     timing::PhaseTiming,
 };

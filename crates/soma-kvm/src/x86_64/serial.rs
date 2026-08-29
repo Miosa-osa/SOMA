@@ -8,6 +8,8 @@
 #[cfg(test)]
 mod tests;
 
+use std::time::Instant;
+
 use vmm_sys_util::eventfd::EventFd;
 
 use super::error::{MachineError, Phase};
@@ -19,7 +21,18 @@ pub(crate) const SERIAL_PORTS: u16 = 8;
 /// The legacy GSI for `COM1`.
 pub(crate) const SERIAL_GSI: u32 = 4;
 /// Upper bound on captured serial bytes before the proof fails closed.
-pub(crate) const SERIAL_CAPTURE_LIMIT: usize = 64 * 1024;
+pub(crate) const SERIAL_CAPTURE_LIMIT: usize = 256 * 1024;
+/// Upper bound on retained line marks; later lines are captured but not timestamped.
+const LINE_MARK_LIMIT: usize = 4096;
+
+/// The host monotonic instant at which one captured console line was completed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LineMark {
+    /// Byte offset one past the newline that completed the line.
+    end_offset: usize,
+    /// When the newline byte reached the model.
+    at: Instant,
+}
 
 const IER_THRI: u8 = 0x02;
 const IER_MASK: u8 = 0x0f;
@@ -63,6 +76,7 @@ pub(crate) struct Serial {
     fifo_enabled: bool,
     thri_pending: bool,
     output: Vec<u8>,
+    marks: Vec<LineMark>,
     counters: SerialCounters,
     interrupt: Option<EventFd>,
 }
@@ -79,6 +93,7 @@ impl Serial {
             fifo_enabled: false,
             thri_pending: false,
             output: Vec::new(),
+            marks: Vec::new(),
             counters: SerialCounters::default(),
             interrupt,
         }
@@ -86,6 +101,19 @@ impl Serial {
 
     pub(crate) fn output(&self) -> &[u8] {
         &self.output
+    }
+
+    /// The instant the first line containing `needle` was completed, if it was captured.
+    pub(crate) fn line_instant(&self, needle: &[u8]) -> Option<Instant> {
+        let mut start = 0;
+        for mark in &self.marks {
+            let line = self.output.get(start..mark.end_offset)?;
+            if line.windows(needle.len()).any(|window| window == needle) {
+                return Some(mark.at);
+            }
+            start = mark.end_offset;
+        }
+        None
     }
 
     pub(crate) fn into_output(self) -> Vec<u8> {
@@ -203,6 +231,12 @@ impl Serial {
             ));
         }
         self.output.push(byte);
+        if byte == b'\n' && self.marks.len() < LINE_MARK_LIMIT {
+            self.marks.push(LineMark {
+                end_offset: self.output.len(),
+                at: Instant::now(),
+            });
+        }
         Ok(())
     }
 

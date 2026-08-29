@@ -4,6 +4,7 @@ use kvm_ioctls::{VcpuExit, VcpuFd};
 
 use super::{
     error::{MachineError, MachineErrorKind, Phase},
+    mmio::MmioDispatch,
     ports::{PortBus, PortEvent},
 };
 
@@ -22,15 +23,25 @@ pub enum GuestExit {
 
 /// Runs the vCPU until it stops, an unexpected exit occurs, or the watchdog interrupts it.
 ///
-/// Port I/O is dispatched through `bus`; when `sentinel` is given the loop stops as soon as the
-/// captured serial output ends with it.
+/// Port I/O is dispatched through `bus`, MMIO through `mmio` when the machine has a device
+/// bus; when `sentinel` is given the loop stops as soon as the captured serial output ends
+/// with it.
 pub(crate) fn run(
     vcpu: &mut VcpuFd,
     bus: &mut PortBus,
+    mut mmio: Option<&mut MmioDispatch>,
     sentinel: Option<&[u8]>,
 ) -> Result<GuestExit, MachineError> {
     loop {
         match vcpu.run() {
+            Ok(VcpuExit::MmioRead(address, data)) => match mmio.as_deref_mut() {
+                Some(dispatch) => dispatch.read(address, data)?,
+                None => return Err(unexpected(&VcpuExit::MmioRead(address, data))),
+            },
+            Ok(VcpuExit::MmioWrite(address, data)) => match mmio.as_deref_mut() {
+                Some(dispatch) => dispatch.write(address, data)?,
+                None => return Err(unexpected(&VcpuExit::MmioWrite(address, data))),
+            },
             Ok(VcpuExit::IoIn(port, data)) => bus.io_in(port, data),
             Ok(VcpuExit::IoOut(port, data)) => match bus.io_out(port, data)? {
                 PortEvent::Reset => return Ok(GuestExit::Reset),
@@ -43,18 +54,17 @@ pub(crate) fn run(
             Ok(VcpuExit::Hlt) => return Ok(GuestExit::Halt),
             Ok(VcpuExit::Shutdown) => return Ok(GuestExit::Shutdown),
             Ok(VcpuExit::Intr) => {}
-            Ok(exit) => {
-                return Err(MachineError::new(
-                    Phase::Run,
-                    MachineErrorKind::UnexpectedExit(classify(&exit)),
-                ));
-            }
+            Ok(exit) => return Err(unexpected(&exit)),
             Err(error) if error.errno() == libc::EINTR => {
                 return Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout));
             }
             Err(error) => return Err(MachineError::os(Phase::Run, error)),
         }
     }
+}
+
+fn unexpected(exit: &VcpuExit<'_>) -> MachineError {
+    MachineError::new(Phase::Run, MachineErrorKind::UnexpectedExit(classify(exit)))
 }
 
 /// True when `output` ends with `expected` followed by at most one line terminator.

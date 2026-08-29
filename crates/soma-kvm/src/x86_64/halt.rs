@@ -119,7 +119,7 @@ fn prepare_and_run(
     clock.lap(Phase::LoadGuest);
     let vcpu = machine.boot_vcpu(entry, clock)?;
     let bus = PortBus::new(Serial::new(None));
-    let report = watchdog::run_with_deadline(vcpu, bus, None, config.timeout);
+    let report = watchdog::run_with_deadline(vcpu, bus, None, None, config.timeout);
     clock.lap(Phase::Run);
     let serial = report
         .bus

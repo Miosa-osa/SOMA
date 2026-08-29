@@ -1,6 +1,7 @@
 use std::{error::Error, fmt};
 
 use super::{super::KvmProbeError, elf::ElfError};
+use crate::virtio::{BlockConfigError, BusConfigError, EntropyError, VsockConfigError};
 
 /// One lifecycle phase of an `x86_64` machine proof.
 ///
@@ -22,7 +23,12 @@ pub enum Phase {
     Cpuid,
     Sregs,
     Regs,
+    Devices,
+    LaunchPage,
+    Events,
+    EventLoop,
     Run,
+    Control,
     Join,
     Cleanup,
 }
@@ -44,7 +50,12 @@ impl fmt::Display for Phase {
             Self::Cpuid => "install CPUID",
             Self::Sregs => "install special registers",
             Self::Regs => "install general registers",
+            Self::Devices => "build virtio devices and bus",
+            Self::LaunchPage => "map launch page slot",
+            Self::Events => "register ioeventfds and irqfds",
+            Self::EventLoop => "start device event loop",
             Self::Run => "run vCPU 0",
+            Self::Control => "guest control session",
             Self::Join => "join vCPU thread",
             Self::Cleanup => "release owned resources",
         };
@@ -69,6 +80,20 @@ pub enum MachineErrorKind {
     Timeout,
     /// The vCPU thread panicked or disconnected without a result.
     WorkerLost,
+    /// The five device models could not be bound to the bus.
+    Bus(BusConfigError),
+    /// A block device rejected its backend or geometry.
+    Block(BlockConfigError),
+    /// The vsock device rejected its guest context identifier.
+    Vsock(VsockConfigError),
+    /// The host entropy source is unavailable.
+    Entropy(EntropyError),
+    /// The guest touched a guest-physical address outside RAM and the five MMIO pages.
+    UnmappedMmio { address: u64 },
+    /// The guest issued an MMIO access of a width the transport cannot represent.
+    MmioWidth { bytes: usize },
+    /// The guest did not overwrite the consumed launch page with zeroes.
+    LaunchPageNotErased,
 }
 
 impl fmt::Display for MachineErrorKind {
@@ -81,6 +106,19 @@ impl fmt::Display for MachineErrorKind {
             Self::UnexpectedExit(exit) => write!(formatter, "unexpected vCPU exit {exit}"),
             Self::Timeout => formatter.write_str("guest did not halt before the deadline"),
             Self::WorkerLost => formatter.write_str("vCPU thread ended without a result"),
+            Self::Bus(error) => write!(formatter, "{error}"),
+            Self::Block(error) => write!(formatter, "{error}"),
+            Self::Vsock(error) => write!(formatter, "{error}"),
+            Self::Entropy(error) => write!(formatter, "{error}"),
+            Self::UnmappedMmio { address } => {
+                write!(formatter, "guest accessed unmapped address {address:#x}")
+            }
+            Self::MmioWidth { bytes } => {
+                write!(formatter, "guest issued an MMIO access of {bytes} bytes")
+            }
+            Self::LaunchPageNotErased => {
+                formatter.write_str("the guest consumed the launch page without erasing it")
+            }
         }
     }
 }

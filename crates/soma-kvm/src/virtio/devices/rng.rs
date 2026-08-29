@@ -36,7 +36,7 @@ pub struct RngCounters {
 
 /// The entropy device model.
 pub struct RngDevice {
-    backend: Box<dyn EntropyBackend>,
+    backend: Box<dyn EntropyBackend + Send>,
     activated: bool,
     counters: RngCounters,
 }
@@ -44,7 +44,7 @@ pub struct RngDevice {
 impl RngDevice {
     /// Binds a fresh entropy source.
     #[must_use]
-    pub fn new(backend: Box<dyn EntropyBackend>) -> Self {
+    pub fn new(backend: Box<dyn EntropyBackend + Send>) -> Self {
         Self {
             backend,
             activated: false,

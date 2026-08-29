@@ -261,6 +261,14 @@ impl MmioBus {
     }
 }
 
+/// The bus moves to the device thread and is shared with the vCPU thread behind a mutex, so
+/// every device model and backend must be `Send`; this fails to compile otherwise.
+const _: () = {
+    const fn assert_send<T: Send>() {}
+    assert_send::<MmioBus>();
+    assert_send::<BusDevices>();
+};
+
 fn check_role(slot: Slot, device: &BlockDevice, expected: BlockRole) -> Result<(), BusConfigError> {
     if device.role() == expected {
         Ok(())

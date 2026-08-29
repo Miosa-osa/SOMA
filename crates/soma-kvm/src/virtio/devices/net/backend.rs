@@ -3,12 +3,11 @@
 //! The device never opens `/dev/net/tun`; the privileged broker hands over an
 //! already-configured nonblocking descriptor as an owned [`File`].
 
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::rc::Rc;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// Why a backend call failed; carries no descriptor or interface name.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,11 +90,19 @@ impl NetBackend for TapBackend {
 /// Largest number of frames the loopback queues hold.
 pub const LOOPBACK_QUEUE_LIMIT: usize = 64;
 
-type FrameQueue = Rc<RefCell<VecDeque<Vec<u8>>>>;
+type FrameQueue = Arc<Mutex<VecDeque<Vec<u8>>>>;
 
-/// An in-memory backend for tests with queues shared through
-/// [`LoopbackHandle`], so a test can feed and observe frames while the
-/// device owns the backend.
+fn frames(queue: &FrameQueue) -> MutexGuard<'_, VecDeque<Vec<u8>>> {
+    // A poisoned queue only means a test thread panicked mid-push; the frames stay usable.
+    queue.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An in-memory backend with queues shared through [`LoopbackHandle`], so a
+/// test can feed and observe frames while the device owns the backend.
+///
+/// It is also the link-down placeholder of the first sandbox slice: with the
+/// host link gate down the device never calls it, and it is `Send` so the bus
+/// that owns it can move to the device thread.
 #[derive(Clone, Debug, Default)]
 pub struct LoopbackBackend {
     sent: FrameQueue,
@@ -132,8 +139,8 @@ impl LoopbackBackend {
     #[must_use]
     pub fn handle(&self) -> LoopbackHandle {
         LoopbackHandle {
-            sent: Rc::clone(&self.sent),
-            inbound: Rc::clone(&self.inbound),
+            sent: Arc::clone(&self.sent),
+            inbound: Arc::clone(&self.inbound),
         }
     }
 }
@@ -141,7 +148,7 @@ impl LoopbackBackend {
 impl LoopbackHandle {
     /// Queues a frame for the guest to receive; drops when the queue is full.
     pub fn push_inbound(&self, frame: &[u8]) {
-        let mut inbound = self.inbound.borrow_mut();
+        let mut inbound = frames(&self.inbound);
         if inbound.len() < LOOPBACK_QUEUE_LIMIT {
             inbound.push_back(frame.to_vec());
         }
@@ -150,7 +157,7 @@ impl LoopbackHandle {
     /// Removes and returns every transmitted frame so far.
     #[must_use]
     pub fn take_sent(&self) -> Vec<Vec<u8>> {
-        self.sent.borrow_mut().drain(..).collect()
+        frames(&self.sent).drain(..).collect()
     }
 }
 
@@ -159,10 +166,11 @@ impl NetBackend for LoopbackBackend {
         if let Some(kind) = self.fail {
             return Err(NetBackendError::Io(kind));
         }
-        let mut sent = self.sent.borrow_mut();
+        let mut sent = frames(&self.sent);
         if sent.len() < LOOPBACK_QUEUE_LIMIT {
             sent.push_back(frame.to_vec());
         }
+        drop(sent);
         if self.echo {
             self.handle().push_inbound(frame);
         }
@@ -173,7 +181,7 @@ impl NetBackend for LoopbackBackend {
         if let Some(kind) = self.fail {
             return Err(NetBackendError::Io(kind));
         }
-        let Some(frame) = self.inbound.borrow_mut().pop_front() else {
+        let Some(frame) = frames(&self.inbound).pop_front() else {
             return Ok(None);
         };
         let len = frame.len().min(buf.len());

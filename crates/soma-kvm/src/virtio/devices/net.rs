@@ -57,7 +57,7 @@ pub struct NetCounters {
 
 /// The network device model.
 pub struct NetDevice {
-    backend: Box<dyn NetBackend>,
+    backend: Box<dyn NetBackend + Send>,
     mac: [u8; 6],
     link_up: bool,
     activated: bool,
@@ -67,7 +67,7 @@ pub struct NetDevice {
 impl NetDevice {
     /// Binds a backend with the Generation's placeholder MAC; link down.
     #[must_use]
-    pub fn new(backend: Box<dyn NetBackend>, mac: [u8; 6]) -> Self {
+    pub fn new(backend: Box<dyn NetBackend + Send>, mac: [u8; 6]) -> Self {
         Self {
             backend,
             mac,

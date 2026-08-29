@@ -2,13 +2,13 @@
 
 mod config;
 
-use std::{fs, io::Read as _};
+use std::fs;
 
 use vmm_sys_util::eventfd::EventFd;
 
 pub use self::config::BootKernelConfig;
 use super::{
-    InterruptController, Machine, MachineError, Phase,
+    InterruptController, Machine, MachineError, Phase, cmdline,
     loader::{self, INITRAMFS_LIMIT, KERNEL_IMAGE_LIMIT, LoadedKernel},
     ports::{BusCounters, PortBus},
     run::GuestExit,
@@ -177,8 +177,8 @@ fn prepare_and_run(
 ) -> Result<BootOutcome, (MachineError, Vec<u8>)> {
     let prepared = (|| {
         machine.configure_platform(InterruptController::InKernel, config.pit, clock)?;
-        let loaded =
-            loader::load_kernel(&mut machine.ram, image, initramfs, config.nonce.as_ref())?;
+        let line = cmdline::compose(initramfs.is_some(), config.nonce.as_ref());
+        let loaded = loader::load_kernel(&mut machine.ram, image, initramfs, &line)?;
         clock.lap(Phase::LoadGuest);
         let vcpu = machine.boot_vcpu(loaded.entry, clock)?;
         let line = EventFd::new(libc::EFD_NONBLOCK)
@@ -195,7 +195,7 @@ fn prepare_and_run(
         .nonce
         .filter(|_| config.stop_on_sentinel)
         .map(|nonce| nonce.sentinel().into_bytes());
-    let report = watchdog::run_with_deadline(vcpu, bus, sentinel, config.timeout);
+    let report = watchdog::run_with_deadline(vcpu, bus, None, sentinel, config.timeout);
     clock.lap(Phase::Run);
     let (serial, bus, uart) = report.bus.map_or(
         (
@@ -219,21 +219,7 @@ fn prepare_and_run(
 
 fn read_bounded(path: &std::path::Path, limit: u64) -> Result<Vec<u8>, MachineError> {
     let file = fs::File::open(path).map_err(|error| MachineError::io(Phase::ReadKernel, &error))?;
-    let length = file
-        .metadata()
-        .map_err(|error| MachineError::io(Phase::ReadKernel, &error))?
-        .len();
-    if length == 0 || length > limit {
-        return Err(MachineError::invalid(
-            Phase::ReadKernel,
-            "artifact is empty or exceeds its size bound",
-        ));
-    }
-    let mut bytes = Vec::new();
-    file.take(limit)
-        .read_to_end(&mut bytes)
-        .map_err(|error| MachineError::io(Phase::ReadKernel, &error))?;
-    Ok(bytes)
+    loader::read_bounded(file, limit)
 }
 
 #[cfg(test)]

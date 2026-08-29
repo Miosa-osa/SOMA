@@ -98,7 +98,7 @@ pub struct BlockCounters {
 /// One block device model.
 pub struct BlockDevice {
     role: BlockRole,
-    backend: Box<dyn BlockBackend>,
+    backend: Box<dyn BlockBackend + Send>,
     blk_size: u32,
     capacity_sectors: u64,
     serial: [u8; BLOCK_SERIAL_LEN],
@@ -113,7 +113,7 @@ impl BlockDevice {
     /// Rejects a role/backend mismatch, a bad block size, or a bad capacity.
     pub fn new(
         role: BlockRole,
-        backend: Box<dyn BlockBackend>,
+        backend: Box<dyn BlockBackend + Send>,
         blk_size: u32,
         serial: [u8; BLOCK_SERIAL_LEN],
     ) -> Result<Self, BlockConfigError> {
