@@ -5,6 +5,7 @@
 
 use soma::OciPlatform;
 
+use super::{cidr, syntax};
 use crate::{
     error::{BoundError, LockError},
     schema::{EgressIntent, IngressIntent, MAX_CIDRS, MAX_DOMAINS, MAX_STRING_BYTES},
@@ -44,11 +45,13 @@ impl PolicyCeiling {
         }
     }
 
-    /// Restricts allowlist egress to the given domain patterns.
+    /// Restricts allowlist egress to the given domain patterns, stored sorted and
+    /// deduplicated.
     ///
     /// # Errors
     ///
-    /// Returns [`BoundError::TooMany`] above [`MAX_DOMAINS`] entries.
+    /// Returns [`BoundError::TooMany`] above [`MAX_DOMAINS`] entries and
+    /// [`BoundError::InvalidShape`] for a pattern that is not a lowercase domain.
     pub fn with_domains(mut self, domains: &[&str]) -> Result<Self, BoundError> {
         if domains.len() > MAX_DOMAINS {
             return Err(BoundError::TooMany {
@@ -56,15 +59,22 @@ impl PolicyCeiling {
                 maximum: MAX_DOMAINS,
             });
         }
+        for (index, domain) in domains.iter().enumerate() {
+            syntax::domain(domain).map_err(|_| BoundError::InvalidShape {
+                field: format!("ceiling.domains[{index}]"),
+            })?;
+        }
         self.domains = Some(sorted(domains));
         Ok(self)
     }
 
-    /// Restricts allowlist egress to the given CIDRs.
+    /// Restricts allowlist egress to the given CIDRs, stored in canonical text, sorted, and
+    /// deduplicated.
     ///
     /// # Errors
     ///
-    /// Returns [`BoundError::TooMany`] above [`MAX_CIDRS`] entries.
+    /// Returns [`BoundError::TooMany`] above [`MAX_CIDRS`] entries and
+    /// [`BoundError::InvalidShape`] for a malformed CIDR or one with a host bit set.
     pub fn with_cidrs(mut self, cidrs: &[&str]) -> Result<Self, BoundError> {
         if cidrs.len() > MAX_CIDRS {
             return Err(BoundError::TooMany {
@@ -72,7 +82,16 @@ impl PolicyCeiling {
                 maximum: MAX_CIDRS,
             });
         }
-        self.cidrs = Some(sorted(cidrs));
+        let mut canonical = Vec::with_capacity(cidrs.len());
+        for (index, value) in cidrs.iter().enumerate() {
+            let cidr = cidr::Cidr::parse(value).map_err(|_| BoundError::InvalidShape {
+                field: format!("ceiling.cidrs[{index}]"),
+            })?;
+            canonical.push(cidr.canonical());
+        }
+        canonical.sort();
+        canonical.dedup();
+        self.cidrs = Some(canonical);
         Ok(self)
     }
 
@@ -111,8 +130,8 @@ impl PolicyCeiling {
             field: "ceiling.egress",
             value: egress,
         })?;
-        let domains = optional_list(reader, MAX_DOMAINS)?;
-        let cidrs = optional_list(reader, MAX_CIDRS)?;
+        let domains = optional_list(reader, MAX_DOMAINS, |domain| syntax::domain(domain).is_ok())?;
+        let cidrs = optional_list(reader, MAX_CIDRS, cidr::is_canonical)?;
         let ingress = reader.u8()?;
         let ingress = IngressIntent::from_code(ingress).ok_or(LockError::InvalidDiscriminant {
             field: "ceiling.ingress",
@@ -156,10 +175,18 @@ fn put_optional_list(writer: &mut Writer, values: Option<&[String]>) {
     }
 }
 
-fn optional_list(reader: &mut Reader<'_>, bound: usize) -> Result<Option<Vec<String>>, LockError> {
+/// Reads an optional list that must be sorted, unique, and made of `valid` entries.
+fn optional_list(
+    reader: &mut Reader<'_>,
+    bound: usize,
+    valid: fn(&str) -> bool,
+) -> Result<Option<Vec<String>>, LockError> {
     if reader.presence()? {
         let values = reader.strings(bound, MAX_STRING_BYTES)?;
-        if !values.is_sorted() || values.windows(2).any(|pair| pair[0] == pair[1]) {
+        if !values.is_sorted()
+            || values.windows(2).any(|pair| pair[0] == pair[1])
+            || !values.iter().all(|value| valid(value))
+        {
             return Err(LockError::InvalidField {
                 field: "ceiling.list",
             });

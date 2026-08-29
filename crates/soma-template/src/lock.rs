@@ -18,7 +18,7 @@
 //! | 7 | modules | count; each: kind `u8`, name, `u32` version, `u16` schema, 32-byte digest |
 //! | 8 | command | program, args list, working directory, user |
 //! | 9 | resources | `u32` vCPUs, `u64` memory MiB, `u64` writable storage MiB |
-//! | 10 | network | egress `u8`; for allowlist a domain list and a CIDR list; ingress `u8` |
+//! | 10 | network | egress `u8`; for allowlist a sorted domain list and a sorted canonical CIDR list; ingress `u8` |
 //! | 11 | lifecycle | `u64` idle seconds, `u64` maximum seconds, on-idle `u8` |
 //! | 12 | environment | count; each: name, presence + value, presence + sealing module identity |
 //! | 13 | secrets | count; each: name, source, delivery `u8`, scope, presence + `u32` mode |

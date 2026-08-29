@@ -9,6 +9,7 @@
 
 mod backend;
 mod checks;
+pub(crate) mod cidr;
 mod contract;
 mod network;
 pub(crate) mod policy;

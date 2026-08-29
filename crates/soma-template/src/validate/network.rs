@@ -1,12 +1,15 @@
 //! The normalized network envelope and its comparison with the policy ceiling.
 //!
 //! Authored intent is normalized so that `deny` with explicit destinations and `allowlist`
-//! with the same destinations describe one envelope, and destination lists are stored
-//! sorted because their order has no effect on the sandbox.
+//! with the same destinations describe one envelope, destination lists are stored sorted
+//! and deduplicated because their order has no effect on the sandbox, and every CIDR is
+//! stored in its one canonical text so textual variants of one network share one lock.
 
-use std::net::IpAddr;
-
-use super::{policy::PolicyCeiling, syntax};
+use super::{
+    cidr::{self, Cidr},
+    policy::PolicyCeiling,
+    syntax,
+};
 use crate::{
     error::LockError,
     rejection::{InvalidReason, Rejection},
@@ -86,6 +89,8 @@ impl NetworkEnvelope {
                 if (domains.is_empty() && cidrs.is_empty())
                     || !canonical(&domains)
                     || !canonical(&cidrs)
+                    || domains.iter().any(|domain| syntax::domain(domain).is_err())
+                    || !cidrs.iter().all(|value| cidr::is_canonical(value))
                 {
                     return Err(LockError::InvalidField {
                         field: "network.egress",
@@ -141,7 +146,7 @@ pub(super) fn envelope(
         EgressIntent::Deny if !has_destinations => EgressEnvelope::Deny,
         EgressIntent::Allowlist | EgressIntent::Deny => EgressEnvelope::Allowlist {
             domains: sorted(&network.allow_domains),
-            cidrs: sorted(&network.allow_cidrs),
+            cidrs: cidr::canonical_list(&network.allow_cidrs),
         },
     };
     check_ceiling(network, &egress, ceiling)?;
@@ -188,12 +193,18 @@ fn check_ceiling(
         }
     }
     if let Some(allowed) = ceiling.cidrs() {
-        for (index, cidr) in network.allow_cidrs.iter().enumerate() {
-            let covered = allowed.iter().any(|outer| cidr_contains(outer, cidr));
+        let outer: Vec<Cidr> = allowed
+            .iter()
+            .filter_map(|value| Cidr::parse(value).ok())
+            .collect();
+        for (index, requested) in network.allow_cidrs.iter().enumerate() {
+            // Every value was shape-checked already; anything unparseable is not covered.
+            let covered = Cidr::parse(requested)
+                .is_ok_and(|inner| outer.iter().any(|outer| outer.contains(&inner)));
             if !covered {
                 return Err(exceeds(
                     &format!("network.allow_cidrs[{index}]"),
-                    cidr,
+                    requested,
                     &format!("{} permitted CIDRs", allowed.len()),
                 ));
             }
@@ -209,44 +220,6 @@ fn pattern_covers(ceiling: &str, requested: &str) -> bool {
             .strip_prefix("*.")
             .is_some_and(|allowed| allowed == suffix || syntax::domain_covers(ceiling, suffix)),
         None => syntax::domain_covers(ceiling, requested),
-    }
-}
-
-/// Whether the `outer` CIDR contains every address of the `inner` CIDR.
-///
-/// Both values were already shape-checked; a malformed value is treated as not contained.
-fn cidr_contains(outer: &str, inner: &str) -> bool {
-    let Some((outer_address, outer_prefix)) = split(outer) else {
-        return false;
-    };
-    let Some((inner_address, inner_prefix)) = split(inner) else {
-        return false;
-    };
-    if outer_address.is_ipv4() != inner_address.is_ipv4()
-        || outer_prefix > inner_prefix
-        || outer_prefix > 128
-    {
-        return false;
-    }
-    // Both families are left-aligned in 128 bits by `numeric`, so the prefix mask always
-    // starts at the top bit regardless of family.
-    let mask = if outer_prefix == 0 {
-        0
-    } else {
-        u128::MAX << (128 - outer_prefix)
-    };
-    (numeric(outer_address) & mask) == (numeric(inner_address) & mask)
-}
-
-fn split(cidr: &str) -> Option<(IpAddr, u32)> {
-    let (address, prefix) = cidr.split_once('/')?;
-    Some((address.parse().ok()?, prefix.parse().ok()?))
-}
-
-fn numeric(address: IpAddr) -> u128 {
-    match address {
-        IpAddr::V4(v4) => u128::from(u32::from(v4)) << 96,
-        IpAddr::V6(v6) => u128::from(v6),
     }
 }
 

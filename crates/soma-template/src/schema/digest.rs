@@ -8,7 +8,7 @@
 use sha2::{Digest as _, Sha256};
 
 use super::{EgressIntent, Network, SecretDelivery, Template};
-use crate::{module::digest::put_command, wire::Writer};
+use crate::{module::digest::put_command, validate::cidr, wire::Writer};
 
 const MAGIC: &[u8; 8] = b"SOMATMPL";
 const PROJECTION_VERSION: u16 = 1;
@@ -36,7 +36,7 @@ pub(super) fn content_digest(template: &Template) -> [u8; 32] {
     let network = template.network();
     writer.put_u8(logical_egress(network).code());
     writer.put_strings(&sorted(&network.allow_domains));
-    writer.put_strings(&sorted(&network.allow_cidrs));
+    writer.put_strings(&cidr::canonical_list(&network.allow_cidrs));
     writer.put_u8(network.ingress.code());
     let lifecycle = template.lifecycle();
     writer.put_u64(lifecycle.idle_timeout_seconds);

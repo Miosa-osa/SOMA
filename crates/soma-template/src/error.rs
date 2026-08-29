@@ -11,6 +11,7 @@ pub enum BoundError {
     TooLong { field: String, maximum: usize },
     TooMany { field: String, maximum: usize },
     ForbiddenCharacter { field: String },
+    InvalidShape { field: String },
 }
 
 impl BoundError {
@@ -20,7 +21,8 @@ impl BoundError {
             Self::Empty { field }
             | Self::TooLong { field, .. }
             | Self::TooMany { field, .. }
-            | Self::ForbiddenCharacter { field } => field,
+            | Self::ForbiddenCharacter { field }
+            | Self::InvalidShape { field } => field,
         }
     }
 }
@@ -37,6 +39,9 @@ impl fmt::Display for BoundError {
             }
             Self::ForbiddenCharacter { field } => {
                 write!(formatter, "field `{field}` contains a forbidden character")
+            }
+            Self::InvalidShape { field } => {
+                write!(formatter, "field `{field}` has an invalid shape")
             }
         }
     }

@@ -1,7 +1,6 @@
 //! Shape rules for domains, CIDRs, users, modes, and guest paths.
 
-use std::net::IpAddr;
-
+use super::cidr::Cidr;
 use crate::{module::GuestPath, rejection::InvalidReason};
 
 const MAX_DOMAIN_BYTES: usize = 253;
@@ -49,22 +48,9 @@ pub(crate) fn domain_covers(pattern: &str, host: &str) -> bool {
     }
 }
 
-/// An IPv4 or IPv6 address with an explicit prefix length.
+/// An IPv4 or IPv6 network with an explicit prefix length and no host bit set.
 pub(crate) fn cidr(value: &str) -> Result<(), InvalidReason> {
-    let (address, prefix) = value.split_once('/').ok_or(InvalidReason::InvalidCidr)?;
-    let address: IpAddr = address.parse().map_err(|_| InvalidReason::InvalidCidr)?;
-    if prefix.is_empty() || prefix.len() > 3 || !prefix.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(InvalidReason::InvalidCidr);
-    }
-    if prefix.len() > 1 && prefix.starts_with('0') {
-        return Err(InvalidReason::InvalidCidr);
-    }
-    let prefix: u32 = prefix.parse().map_err(|_| InvalidReason::InvalidCidr)?;
-    let maximum = if address.is_ipv4() { 32 } else { 128 };
-    if prefix > maximum {
-        return Err(InvalidReason::InvalidCidr);
-    }
-    Ok(())
+    Cidr::parse(value).map(|_| ())
 }
 
 /// A portable POSIX user name: a lowercase letter or underscore, then lowercase letters,
