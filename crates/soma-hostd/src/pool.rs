@@ -124,7 +124,8 @@ pub struct Pool<L: WorkerLauncher, R: ResourceBroker> {
 
 impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
     /// Opens a pool over `ledger_root`; a ledger with nonterminal entries must be reconciled
-    /// before the pool replenishes.
+    /// before the pool replenishes, and the idempotency registry is seeded from the claims
+    /// the ledger already holds so a replay survives a restart.
     ///
     /// # Errors
     ///
@@ -143,6 +144,11 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             .map_err(PoolError::Ledger)?
             .values()
             .any(|entry| entry.phase.is_nonterminal());
+        let mut registry = Registry::default();
+        registry.seed(
+            &ledger.claims().map_err(PoolError::Ledger)?,
+            limits.binding_limit,
+        );
         Ok(Self {
             digest: key.digest(),
             key,
@@ -153,7 +159,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             slots: RwLock::new(Vec::new()),
             prepared: Mutex::new(BTreeMap::new()),
             owned: Mutex::new(BTreeMap::new()),
-            registry: Mutex::new(Registry::default()),
+            registry: Mutex::new(registry),
             registry_changed: Condvar::new(),
             in_flight: AtomicUsize::new(0),
             replenish_gate: Mutex::new(()),

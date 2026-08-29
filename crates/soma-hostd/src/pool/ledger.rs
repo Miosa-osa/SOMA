@@ -210,6 +210,21 @@ impl Ledger {
             })
             .collect())
     }
+
+    /// Returns the claim the ledger recorded for `operation`, if any.
+    ///
+    /// This is the durable record of an idempotent claim: the in-memory registry may evict
+    /// a binding or start empty after a restart, and this lookup restores it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a read failure.
+    pub fn claim_of(&self, operation: OperationId) -> Result<Option<ClaimRecord>, LedgerError> {
+        Ok(self
+            .claims()?
+            .into_iter()
+            .find(|claim| claim.operation == operation))
+    }
 }
 
 fn sequences(root: &Path) -> Result<Vec<u64>, LedgerError> {

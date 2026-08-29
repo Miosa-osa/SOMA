@@ -32,6 +32,18 @@ pub enum ClaimClass {
     OnDemand = 2,
 }
 
+impl ClaimClass {
+    /// Decodes one class from its ledger detail byte.
+    #[must_use]
+    pub const fn from_code(code: u8) -> Option<Self> {
+        match code {
+            1 => Some(Self::Prepared),
+            2 => Some(Self::OnDemand),
+            _ => None,
+        }
+    }
+}
+
 /// The identical result every replay of one operation receives.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ClaimOutcome {

@@ -1037,6 +1037,7 @@ crates/soma-hostd/tests/
   claim.rs
   latency.rs
   reconcile.rs
+  replay.rs
   support/mod.rs
   transfer.rs
 ```
