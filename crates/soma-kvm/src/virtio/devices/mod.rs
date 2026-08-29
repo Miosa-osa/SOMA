@@ -6,8 +6,10 @@
 
 pub mod block;
 pub mod net;
+pub mod rng;
 pub mod segments;
 pub mod service;
+pub mod vsock;
 
 #[cfg(test)]
 pub(crate) mod harness;

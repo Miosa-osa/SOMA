@@ -40,8 +40,31 @@ pub use devices::net::{
     MAX_RX_CHAIN_BYTES, NET_CONFIG_LEN, NET_FEATURES, NET_QUEUE_MAX, NET_RX_QUEUE, NET_TX_QUEUE,
     NetCounters, NetDevice, VIRTIO_NET_DEVICE_ID, VIRTIO_NET_F_MAC,
 };
+#[cfg(unix)]
+pub use devices::rng::backend::OsEntropy;
+pub use devices::rng::backend::{EntropyBackend, EntropyError};
+pub use devices::rng::state::{RNG_STATE_LEN, RNG_STATE_VERSION, RngState};
+pub use devices::rng::{
+    MAX_ENTROPY_REQUEST, RNG_FEATURES, RNG_QUEUE_MAX, RngCounters, RngDevice, VIRTIO_RNG_DEVICE_ID,
+};
 pub use devices::segments::{read_readable, write_writable};
 pub use devices::service::{ChainHandler, DeviceFault, ServiceError, ServiceReport, service_queue};
+pub use devices::vsock::connection::{HOST_TX_BUFFER, HostEndpoint};
+pub use devices::vsock::credit::{Credit, CreditError, HOST_BUF_ALLOC};
+pub use devices::vsock::packet::{
+    HOST_CID, MAX_PAYLOAD_LEN, PacketError, SOMA_CONTROL_PORT, VIRTIO_VSOCK_DEVICE_ID,
+    VSOCK_EVENT_TRANSPORT_RESET, VSOCK_HDR_LEN, VSOCK_OP_CREDIT_REQUEST, VSOCK_OP_CREDIT_UPDATE,
+    VSOCK_OP_INVALID, VSOCK_OP_REQUEST, VSOCK_OP_RESPONSE, VSOCK_OP_RST, VSOCK_OP_RW,
+    VSOCK_OP_SHUTDOWN, VSOCK_SHUTDOWN_RCV, VSOCK_SHUTDOWN_SEND, VSOCK_TYPE_STREAM, VsockHeader,
+    parse_tx,
+};
+pub use devices::vsock::rx::{deliver_events, deliver_rx as deliver_vsock_rx};
+pub use devices::vsock::state::{VSOCK_STATE_LEN, VSOCK_STATE_VERSION, VsockState};
+pub use devices::vsock::{
+    CID_ANY, MAX_OUTBOUND_PACKETS, MAX_PENDING_EVENTS, MIN_GUEST_CID, VSOCK_CONFIG_LEN,
+    VSOCK_EVENT_QUEUE, VSOCK_FEATURES, VSOCK_QUEUE_MAX, VSOCK_RX_QUEUE, VSOCK_TX_QUEUE,
+    VsockConfigError, VsockCounters, VsockDevice,
+};
 pub use guest_memory::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestValue, RegionLayoutError, VecGuestMemory,
 };
