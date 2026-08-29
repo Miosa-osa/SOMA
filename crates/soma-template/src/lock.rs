@@ -20,13 +20,15 @@
 //! | 9 | resources | `u32` vCPUs, `u64` memory MiB, `u64` writable storage MiB |
 //! | 10 | network | egress `u8`; for allowlist a sorted domain list and a sorted canonical CIDR list; ingress `u8` |
 //! | 11 | lifecycle | `u64` idle seconds, `u64` maximum seconds, on-idle `u8` |
-//! | 12 | environment | count; each: name, presence + value, presence + sealing module identity |
-//! | 13 | secrets | count; each: name, source, delivery `u8`, scope, presence + `u32` mode |
+//! | 12 | environment | count; each, sorted by unique name: name, presence + value, presence + sealing module identity |
+//! | 13 | secrets | count; each, sorted by unique name: name, source, delivery `u8`, scope, presence + `u32` mode |
 //! | 14 | policy ceiling | egress `u8`, presence + domain list, presence + CIDR list, ingress `u8` |
 //! | 15 | Backend capabilities | platform list, idle-action mask `u8`, `u32`, `u64`, `u64` limits |
 //!
 //! A string is a `u32` big-endian length followed by UTF-8 bytes; a list is a `u16` count
 //! followed by its elements; a presence byte is exactly 0 or 1.
+//! Environment entries and secrets are name-unique sets, so they are encoded sorted by name
+//! and the decoder rejects any other order, as it does for destination lists.
 //! Discriminants: egress deny 0, allowlist 1, unrestricted 2; ingress deny 0, unrestricted 1;
 //! on-idle destroy 0, stop 1, checkpoint 2; delivery environment 0, file 1, egress-proxy 2;
 //! module kinds agent 1 through resources 8 in declaration order.

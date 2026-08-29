@@ -12,7 +12,7 @@ use crate::{
 };
 
 /// The effective environment contract: Template literals and Launch-required names, plus
-/// every module seal.
+/// every module seal, sorted by name because names are unique and order has no effect.
 ///
 /// A Template entry that restates a sealed name is dropped in favour of the seal, which
 /// composition already proved carries the same value, so the lock records the sealing module
@@ -73,9 +73,11 @@ pub(super) fn environment(
             },
         ));
     }
+    locked.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(locked)
 }
 
+/// The secret references, sorted by their unique names.
 pub(super) fn secrets(
     template: &Template,
     envelope: &NetworkEnvelope,
@@ -128,6 +130,7 @@ pub(super) fn secrets(
             mode,
         });
     }
+    locked.sort_by(|left, right| left.name.cmp(&right.name));
     Ok(locked)
 }
 

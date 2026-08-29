@@ -144,7 +144,18 @@ fn environment(reader: &mut Reader<'_>) -> Result<Vec<LockedEnvironment>, LockEr
             sealed_by,
         });
     }
+    if !sorted_unique(entries.iter().map(|entry| entry.name.as_str())) {
+        return Err(LockError::InvalidField {
+            field: "environment",
+        });
+    }
     Ok(entries)
+}
+
+/// Whether names are strictly increasing, the one order the encoder emits.
+fn sorted_unique<'a>(names: impl Iterator<Item = &'a str>) -> bool {
+    let names: Vec<&str> = names.collect();
+    names.windows(2).all(|pair| pair[0] < pair[1])
 }
 
 fn secrets(reader: &mut Reader<'_>) -> Result<Vec<LockedSecret>, LockError> {
@@ -178,6 +189,9 @@ fn secrets(reader: &mut Reader<'_>) -> Result<Vec<LockedSecret>, LockError> {
             scope,
             mode,
         });
+    }
+    if !sorted_unique(secrets.iter().map(|secret| secret.name.as_str())) {
+        return Err(LockError::InvalidField { field: "secrets" });
     }
     Ok(secrets)
 }

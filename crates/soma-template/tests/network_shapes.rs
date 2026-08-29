@@ -9,7 +9,7 @@ use soma_template::{
 };
 use support::{
     EXAMPLE, assert_names, backend, edit, lock, minimal, module, oracle, parse, registry, reject,
-    rejection, resolve_in, resolver,
+    rejection, replace_bytes, resolve_in, resolver,
 };
 
 fn with_cidrs(list: &str) -> String {
@@ -178,49 +178,35 @@ fn ceilings_normalize_cidrs_and_check_destination_shapes() {
     );
 }
 
-fn replace(bytes: &[u8], from: &str, to: &str, last: bool) -> Vec<u8> {
-    assert_eq!(from.len(), to.len());
-    let positions: Vec<usize> = bytes
-        .windows(from.len())
-        .enumerate()
-        .filter(|(_, window)| *window == from.as_bytes())
-        .map(|(index, _)| index)
-        .collect();
-    assert!(!positions.is_empty(), "`{from}` is encoded");
-    let position = if last {
-        positions[positions.len() - 1]
-    } else {
-        positions[0]
-    };
-    let mut mutated = bytes.to_vec();
-    mutated[position..position + to.len()].copy_from_slice(to.as_bytes());
-    mutated
-}
-
 #[test]
 fn the_decoder_accepts_only_canonical_cidrs_in_the_envelope_and_the_ceiling() {
     let bytes = lock(&with_cidrs("\"10.0.0.0/8\"")).encode();
     assert!(TemplateLock::decode(&bytes).is_ok());
     assert_eq!(
-        TemplateLock::decode(&replace(&bytes, "10.0.0.0/8", "10.0.0.1/8", false)),
+        TemplateLock::decode(&replace_bytes(&bytes, "10.0.0.0/8", "10.0.0.1/8", false)),
         Err(LockError::InvalidField {
             field: "network.egress"
         })
     );
     assert_eq!(
-        TemplateLock::decode(&replace(&bytes, "10.0.0.0/8", "10.0.0.1/8", true)),
+        TemplateLock::decode(&replace_bytes(&bytes, "10.0.0.0/8", "10.0.0.1/8", true)),
         Err(LockError::InvalidField {
             field: "ceiling.list"
         })
     );
     assert_eq!(
-        TemplateLock::decode(&replace(&bytes, "2001:db8::/32", "2001:DB8::/32", true)),
+        TemplateLock::decode(&replace_bytes(
+            &bytes,
+            "2001:db8::/32",
+            "2001:DB8::/32",
+            true
+        )),
         Err(LockError::InvalidField {
             field: "ceiling.list"
         })
     );
     assert_eq!(
-        TemplateLock::decode(&replace(
+        TemplateLock::decode(&replace_bytes(
             &bytes,
             "api.anthropic.com",
             "api.anthropic.123",

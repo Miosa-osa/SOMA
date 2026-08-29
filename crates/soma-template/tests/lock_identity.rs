@@ -4,8 +4,8 @@ mod support;
 
 use soma::OciPlatform;
 use soma_template::{
-    BackendCapabilities, EgressIntent, IdleAction, IngressIntent, ModuleKind, ModuleRef,
-    PolicyCeiling, ResourceLimits, TestResolver, parse_template, resolve,
+    BackendCapabilities, EgressIntent, IdleAction, IngressIntent, LockedEnvironment, LockedSecret,
+    ModuleKind, ModuleRef, PolicyCeiling, ResourceLimits, TestResolver, parse_template, resolve,
 };
 use support::{
     EXAMPLE, OTHER_DIGEST, PYTHON_SIZE, backend, ceiling, digest, edit, example, lock, minimal,
@@ -232,4 +232,34 @@ fn equivalent_compositions_share_one_identity() {
         lock(&omitted).content_digest()
     );
     assert_ne!(lock(&explicit).id(), example().id());
+}
+
+#[test]
+fn environment_and_secret_order_do_not_change_identity() {
+    let two_each = edit(
+        EXAMPLE,
+        "[[secrets]]",
+        "[[environment]]\nname = \"AAX_ONE\"\nvalue = \"1\"\n\n[[secrets]]\nname = \"AAX_KEYS\"\nsource = \"secret://vault/aax\"\ndelivery = \"environment\"\n\n[[secrets]]",
+    );
+    let swapped_environment = edit(
+        &two_each,
+        "[[environment]]\nname = \"CI\"\nvalue = \"true\"\n\n[[environment]]\nname = \"AAX_ONE\"\nvalue = \"1\"",
+        "[[environment]]\nname = \"AAX_ONE\"\nvalue = \"1\"\n\n[[environment]]\nname = \"CI\"\nvalue = \"true\"",
+    );
+    let swapped_secrets = edit(
+        &two_each,
+        "[[secrets]]\nname = \"AAX_KEYS\"\nsource = \"secret://vault/aax\"\ndelivery = \"environment\"\n\n[[secrets]]\nname = \"ANTHROPIC_API_KEY\"\nsource = \"secret://anthropic/default\"\ndelivery = \"environment\"\n",
+        "[[secrets]]\nname = \"ANTHROPIC_API_KEY\"\nsource = \"secret://anthropic/default\"\ndelivery = \"environment\"\n\n[[secrets]]\nname = \"AAX_KEYS\"\nsource = \"secret://vault/aax\"\ndelivery = \"environment\"\n",
+    );
+    let baseline = lock(&two_each);
+    assert_eq!(baseline.id(), lock(&swapped_environment).id());
+    assert_eq!(baseline.id(), lock(&swapped_secrets).id());
+    let names: Vec<&str> = baseline
+        .environment()
+        .iter()
+        .map(LockedEnvironment::name)
+        .collect();
+    assert_eq!(names, ["AAX_ONE", "CI", "GIT_TERMINAL_PROMPT"]);
+    let names: Vec<&str> = baseline.secrets().iter().map(LockedSecret::name).collect();
+    assert_eq!(names, ["AAX_KEYS", "ANTHROPIC_API_KEY"]);
 }

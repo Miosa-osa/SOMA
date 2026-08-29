@@ -123,7 +123,12 @@ fn missing_required_environment_names_the_module_slot() {
         "value = \"true\"\n\n[[environment]]\nname = \"ANTHROPIC_API_KEY\"\nrequired = true",
     );
     let lock = support::lock(&via_launch);
-    assert_eq!(lock.environment()[1].value(), None);
+    let required = lock
+        .environment()
+        .iter()
+        .find(|entry| entry.name() == "ANTHROPIC_API_KEY")
+        .expect("Launch-required slot is locked");
+    assert_eq!(required.value(), None);
 }
 
 #[test]

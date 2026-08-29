@@ -3,7 +3,7 @@
 mod support;
 
 use soma_template::{LOCK_MAGIC, LockError, TemplateLock, WireError};
-use support::example;
+use support::{EXAMPLE, edit, example, lock, replace_bytes};
 
 #[test]
 fn every_prefix_is_rejected_without_panic() {
@@ -126,4 +126,54 @@ fn random_bytes_never_panic() {
             let _ = TemplateLock::decode(&prefixed);
         }
     }
+}
+
+#[test]
+fn unsorted_or_duplicate_environment_and_secret_names_are_rejected() {
+    let text = edit(
+        EXAMPLE,
+        "[[secrets]]",
+        "[[environment]]\nname = \"AAX_ONE\"\nvalue = \"1\"\n\n[[environment]]\nname = \"AAX_TWO\"\nvalue = \"1\"\n\n[[secrets]]\nname = \"SAX_ONE\"\nsource = \"secret://vault/one\"\ndelivery = \"environment\"\n\n[[secrets]]\nname = \"SAX_TWO\"\nsource = \"secret://vault/two\"\ndelivery = \"environment\"\n\n[[secrets]]",
+    );
+    let bytes = lock(&text).encode();
+    assert!(TemplateLock::decode(&bytes).is_ok());
+    let duplicate = replace_bytes(
+        &bytes,
+        "\x00\x00\x00\x07AAX_ONE",
+        "\x00\x00\x00\x07AAX_TWO",
+        false,
+    );
+    assert_eq!(
+        TemplateLock::decode(&duplicate),
+        Err(LockError::InvalidField {
+            field: "environment"
+        })
+    );
+    let reversed = replace_bytes(
+        &replace_bytes(
+            &bytes,
+            "\x00\x00\x00\x07AAX_ONE",
+            "\x00\x00\x00\x07AAX_TWO",
+            false,
+        ),
+        "\x00\x00\x00\x07AAX_TWO",
+        "\x00\x00\x00\x07AAX_ONE",
+        true,
+    );
+    assert_eq!(
+        TemplateLock::decode(&reversed),
+        Err(LockError::InvalidField {
+            field: "environment"
+        })
+    );
+    let duplicate = replace_bytes(
+        &bytes,
+        "\x00\x00\x00\x07SAX_ONE",
+        "\x00\x00\x00\x07SAX_TWO",
+        false,
+    );
+    assert_eq!(
+        TemplateLock::decode(&duplicate),
+        Err(LockError::InvalidField { field: "secrets" })
+    );
 }

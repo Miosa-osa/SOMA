@@ -227,3 +227,23 @@ pub fn assert_names(
         );
     }
 }
+
+/// Replaces the first or last occurrence of `from` with the same-length `to`.
+pub fn replace_bytes(bytes: &[u8], from: &str, to: &str, last: bool) -> Vec<u8> {
+    assert_eq!(from.len(), to.len(), "substitution must keep the length");
+    let positions: Vec<usize> = bytes
+        .windows(from.len())
+        .enumerate()
+        .filter(|(_, window)| *window == from.as_bytes())
+        .map(|(index, _)| index)
+        .collect();
+    assert!(!positions.is_empty(), "`{from}` is encoded");
+    let position = if last {
+        positions[positions.len() - 1]
+    } else {
+        positions[0]
+    };
+    let mut mutated = bytes.to_vec();
+    mutated[position..position + to.len()].copy_from_slice(to.as_bytes());
+    mutated
+}
