@@ -1,5 +1,7 @@
 # SOMA visual atlas
 
+The canonical explanation of physical containment, dependency direction, required primitives, optional capabilities, and optimizations is [What makes one SOMA sandbox](sandbox-stack.md).
+
 This atlas shows the machine as nested shapes and directory trees.
 It uses plain text so the architecture remains readable in a terminal, source viewer, screen reader, or printed page.
 

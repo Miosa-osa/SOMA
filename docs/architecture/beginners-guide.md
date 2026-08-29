@@ -1,5 +1,7 @@
 # From hardware to an agent sandbox
 
+For the complete containment, dependency, device, command, network, and capability map, read [What makes one SOMA sandbox](sandbox-stack.md).
+
 This guide builds one mental model from the bottom up.
 It is for readers who need to understand what the sandbox actually is, which SOMA component creates it, where a Template fits, and how an agent reaches the workload.
 Use the [SOMA visual atlas](visual-atlas.md) for exploded machine views, filesystem anatomy, workload layering, and source-tree assembly diagrams.

@@ -1,5 +1,13 @@
 # Notes
 
+## 2026-08-29 - Canonical sandbox stack separates containment from dependency
+
+The beginner documentation now distinguishes physical containment, dependency direction, runtime primitives, code modules, Template modules, optional capabilities, and optimizations.
+The canonical stack reads from physical hardware through Host Linux, KVM, the VMM, virtual hardware, guest Linux, `soma-guest`, and the user workload.
+Separate filesystem, command, network, and Generation traces show what connects each layer and why.
+A capability activation rule makes optional networking, egress, ingress, storage, PTY, and checkpointing acquire mandatory isolation, policy, cleanup, and evidence requirements when enabled.
+Tickets remain implementation and verification slices converging on one production sandbox architecture rather than separate sandbox products.
+
 ## 2026-08-29 - Template implementation uses four separate planes
 
 The complete Template flow separates authoring, placement, Host Launch, and maintenance.
