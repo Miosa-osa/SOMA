@@ -46,6 +46,7 @@ An ignored live test must be explicitly given existing absolute fixture paths.
 That test must open the real `/dev/kvm`, boot the generated PID1 fixture, observe the exact sentinel through the crate-internal function, and verify the process file-descriptor count is unchanged after return.
 An ignored timeout regression must search for an unreachable sentinel, interrupt the running vCPU at a short test deadline, return a timeout error, and verify descriptor cleanup.
 Nested ARM64 elapsed time remains diagnostic evidence only under ADR 0013.
+The [retained 2026-08-28 result](../evidence/2026-08-28-arm64-kvm-cold-boot.md) binds the exact SOMA revision, fixture hashes, invocation, measured boundary, outcomes, and descriptor counts.
 
 ## Consequences
 
