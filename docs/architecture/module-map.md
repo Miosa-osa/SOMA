@@ -230,6 +230,8 @@ Its current depth includes a checked capability probe, an x86_64 machine floor t
 Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/` that is exercised only by host-side tests and is not yet wired to an MMIO bus, KVM exit, device model, or event loop.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
+It also owns the platform-neutral snapshot format v1 codec under `snapshot/`: the `SOMASNP` manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, per-device state, the memory-object descriptor, the fail-closed compatibility check, and the capture and restore ordering contracts.
+That codec performs no KVM ioctl; live capture and restore remain a later slice.
 
 The initial source map is:
 
@@ -280,6 +282,27 @@ crates/soma-kvm/src/
       tests.rs
       violation.rs
       write.rs
+  snapshot/
+    mod.rs
+    capture.rs
+    compatibility.rs
+    compatibility/reason.rs
+    device_state.rs
+    device_state/queue.rs
+    device_state/specific.rs
+    digest.rs
+    kvm_state.rs
+    kvm_state/bindings.rs
+    kvm_state/bindings/{clock,irqchip,nested,regs,tables,vcpu}.rs
+    kvm_state/{clock,cpu_config,events,fpu,irqchip,lapic,nested,regs,routing,vm}.rs
+    manifest.rs
+    manifest/header.rs
+    manifest/host.rs
+    memory.rs
+    memory/mapping.rs
+    restore.rs
+    section.rs
+    wire.rs
   arm64/
     command.rs
     control_uart.rs
@@ -349,6 +372,18 @@ Every read and write is range-checked against registered regions before any byte
 `device.rs` is the `VirtioDevice` seam that a block, network, vsock, or entropy model implements; the only implementation today is a crate-private echo test device.
 
 The module does not implement an MMIO bus, ioeventfd or irqfd registration, a device backend, an event loop, or the versioned snapshot container, and passing its tests proves none of those.
+### `snapshot/`
+
+`snapshot/` owns the snapshot format v1 encoding and validation policy from `docs/research/snapshot-format-v1.md`.
+`wire.rs` is the shared big-endian primitive layer: every read checks availability first, every length prefix is bounded before any slice or allocation, and presence bytes accept only zero or one.
+`manifest.rs` owns the `SOMASNP\0` header, schema version, architecture, page size, `GenerationId`, contract digests, host-profile requirements, memory descriptor, machine shape, and the canonical ascending section sequence.
+`section.rs` owns the role, version, length, digest, and critical-flag envelope and rejects unknown critical roles, duplicates, reordering, unsupported versions, digest mismatches, and trailing bytes.
+`kvm_state.rs` and its submodules own SOMA's explicit byte layouts for CPUID, MSRs, registers, segment descriptors, FPU, XCR, bounded XSAVE, LAPIC, MP state, vCPU events, optional nested state, PIC, IOAPIC, GSI routing, KVM clock, optional PIT, and the memory-slot layout.
+`kvm_state/bindings/` compiles only on Linux x86_64 and provides checked conversions to and from the `kvm-bindings` structs; union reads there are the only unsafe code besides the private mapping.
+`device_state.rs` owns the five fixed device states and excludes every host descriptor, path, socket, key, credit window, packet, and random byte by construction.
+`memory.rs` owns the memory-object descriptor and the Linux `MAP_PRIVATE | MAP_NORESERVE` mapping type accepted by ADR 0002.
+`compatibility.rs` compares a `HostProfile` with a decoded manifest using exact equality and typed rejection reasons, header fields before any section payload.
+`capture.rs` and `restore.rs` are typed ordering contracts only; they have no KVM or device effect and exist so the later live slice cannot reorder quiesce, capture, restore, or unwind steps silently.
 
 ### `tests/kvm_probe.rs`
 

@@ -33,6 +33,15 @@ Decision-map ticket #4 now has its kernel input: Linux `v6.12.107` built as an u
 Two consecutive builds on the same host produced byte-identical output; the evidence is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-build.md`.
 This is a build and layout proof only, not KVM boot evidence, device discovery evidence, or a Generation.
 A first build with `CONFIG_DEVMEM=n` was superseded the same day because the guest agent reads the launch page through `/dev/mem`; the retained evidence records both digests.
+## 2026-08-29 - Snapshot format v1 codec and ordering contracts
+
+Decision-map ticket #7 now has an implemented codec half under `crates/soma-kvm/src/snapshot/`.
+It encodes and decodes the `SOMASNP\0` schema v1 manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, the five device states, and the memory-object descriptor, with checked conversions to and from `kvm-bindings` on Linux x86_64.
+The compatibility check compares a host profile with a manifest by exact equality and returns one typed rejection reason per field, header fields before any section payload.
+Tests cover golden header bytes and a pinned whole-manifest digest, every single-byte flip and every prefix length of a full manifest, unknown critical and non-critical roles, absurd lengths, round trips of every state group, per-field compatibility rejection, and private-mapping divergence between two mappings of one file on Linux.
+This is a codec and ordering contract only.
+Nothing here opens `/dev/kvm`, captures a live machine, restores one, maps guest memory into a VM, or proves restore latency, and `capture.rs` and `restore.rs` are typed step orders rather than implementations.
+The crate compiled and passed its gates on Linux x86_64 only; macOS and Windows client compilation of the new module was not exercised in this slice.
 
 ## 2026-08-29 - Complete custom VMM architecture map
 
