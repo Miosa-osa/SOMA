@@ -1,16 +1,17 @@
 use vm_fdt::{Error, FdtWriter};
 
 use super::layout::{
-    BootLayout, GIC_DIST_BASE, GIC_DIST_SIZE, GIC_REDIST_BASE, GIC_REDIST_SIZE, RAM_BASE, RAM_SIZE,
-    UART_BASE, UART_SIZE, UART_SPI,
+    BootLayout, CONTROL_UART_BASE, CONTROL_UART_SPI, GIC_DIST_BASE, GIC_DIST_SIZE, GIC_REDIST_BASE,
+    GIC_REDIST_SIZE, RAM_BASE, RAM_SIZE, UART_BASE, UART_SIZE, UART_SPI,
 };
 
 const GIC_PHANDLE: u32 = 1;
 const IRQ_SPI: u32 = 0;
 const IRQ_PPI: u32 = 1;
 const IRQ_LEVEL_HIGH: u32 = 4;
+const IRQ_EDGE_RISING: u32 = 1;
 
-pub(crate) fn build(layout: BootLayout) -> Result<Vec<u8>, Error> {
+pub(crate) fn build(layout: BootLayout, include_control: bool) -> Result<Vec<u8>, Error> {
     let mut writer = FdtWriter::new()?;
     let root = writer.begin_node("")?;
     writer.property_string("compatible", "linux,dummy-virt")?;
@@ -18,16 +19,41 @@ pub(crate) fn build(layout: BootLayout) -> Result<Vec<u8>, Error> {
     writer.property_u32("#size-cells", 2)?;
     writer.property_u32("interrupt-parent", GIC_PHANDLE)?;
 
+    aliases(&mut writer, include_control)?;
     cpu(&mut writer)?;
     memory(&mut writer)?;
     chosen(&mut writer, layout)?;
     gic(&mut writer)?;
     timer(&mut writer)?;
     psci(&mut writer)?;
-    uart(&mut writer)?;
+    uart(
+        &mut writer,
+        "uart@9000000",
+        UART_BASE,
+        UART_SPI,
+        IRQ_LEVEL_HIGH,
+    )?;
+    if include_control {
+        uart(
+            &mut writer,
+            "uart@9010000",
+            CONTROL_UART_BASE,
+            CONTROL_UART_SPI,
+            IRQ_EDGE_RISING,
+        )?;
+    }
 
     writer.end_node(root)?;
     writer.finish()
+}
+
+fn aliases(writer: &mut FdtWriter, include_control: bool) -> Result<(), Error> {
+    let aliases = writer.begin_node("aliases")?;
+    writer.property_string("serial0", "/uart@9000000")?;
+    if include_control {
+        writer.property_string("serial1", "/uart@9010000")?;
+    }
+    writer.end_node(aliases)
 }
 
 fn cpu(writer: &mut FdtWriter) -> Result<(), Error> {
@@ -111,12 +137,33 @@ fn psci(writer: &mut FdtWriter) -> Result<(), Error> {
     writer.end_node(psci)
 }
 
-fn uart(writer: &mut FdtWriter) -> Result<(), Error> {
-    let uart = writer.begin_node("uart@9000000")?;
+fn uart(
+    writer: &mut FdtWriter,
+    name: &str,
+    base: u64,
+    spi: u32,
+    trigger: u32,
+) -> Result<(), Error> {
+    let uart = writer.begin_node(name)?;
     writer.property_string("compatible", "ns16550a")?;
-    writer.property_array_u64("reg", &[UART_BASE, UART_SIZE])?;
+    writer.property_array_u64("reg", &[base, UART_SIZE])?;
     writer.property_u32("clock-frequency", 24_000_000)?;
     writer.property_u32("current-speed", 115_200)?;
-    writer.property_array_u32("interrupts", &[IRQ_SPI, UART_SPI, IRQ_LEVEL_HIGH])?;
+    writer.property_array_u32("interrupts", &[IRQ_SPI, spi, trigger])?;
     writer.end_node(uart)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cold_boot_dtb_does_not_advertise_the_unemulated_control_uart() {
+        let layout = BootLayout::new(4096).unwrap();
+        let cold = build(layout, false).unwrap();
+        let command = build(layout, true).unwrap();
+        let name = b"uart@9010000";
+        assert!(!cold.windows(name.len()).any(|window| window == name));
+        assert!(command.windows(name.len()).any(|window| window == name));
+    }
 }

@@ -11,6 +11,8 @@ pub(crate) const GIC_REDIST_SIZE: u64 = 0x0002_0000;
 pub(crate) const UART_BASE: u64 = 0x0900_0000;
 pub(crate) const UART_SIZE: u64 = 0x1000;
 pub(crate) const UART_SPI: u32 = 1;
+pub(crate) const CONTROL_UART_BASE: u64 = 0x0901_0000;
+pub(crate) const CONTROL_UART_SPI: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BootLayout {

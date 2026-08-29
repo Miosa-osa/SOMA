@@ -19,4 +19,5 @@ libc = "=0.2.189"
 linux-loader = "=0.14.0"
 vm-fdt = "=0.3.0"
 vm-memory = { version = "=0.18.0", features = ["backend-mmap"] }
+vm-superio = "=0.8.1"
 vmm-sys-util = "=0.15.0"

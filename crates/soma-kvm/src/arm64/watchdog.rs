@@ -19,9 +19,38 @@ const CANCELLATION_GRACE: Duration = Duration::from_secs(2);
 const JOIN_POLL: Duration = Duration::from_millis(1);
 static SIGNAL_LOCK: Mutex<()> = Mutex::new(());
 
-enum WorkerEvent {
+enum WorkerEvent<T> {
     Ready,
-    Finished(Result<Arm64BootEvidence, Arm64BootError>),
+    Armed(Instant),
+    Finished(Result<T, Arm64BootError>),
+}
+
+pub(crate) struct DeadlineArm<T> {
+    sender: SyncSender<WorkerEvent<T>>,
+    armed: bool,
+}
+
+impl<T> DeadlineArm<T> {
+    pub(crate) fn arm(&mut self, timeout: Duration) -> Result<(), Arm64BootError> {
+        if self.armed || timeout.is_zero() {
+            return Err(Arm64BootError::message(
+                "command watchdog deadline was armed invalidly",
+            ));
+        }
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or_else(|| Arm64BootError::message("command watchdog deadline overflow"))?;
+        self.sender
+            .send(WorkerEvent::Armed(deadline))
+            .map_err(|error| Arm64BootError::at("arm command watchdog deadline", error))?;
+        self.armed = true;
+        Ok(())
+    }
+}
+
+pub(crate) enum TaskOutcome<T> {
+    Finished(T),
+    TimedOut,
 }
 
 pub(crate) fn run(
@@ -29,32 +58,57 @@ pub(crate) fn run(
     expected_sentinel: &'static [u8],
     timeout: Duration,
 ) -> Result<Arm64BootEvidence, Arm64BootError> {
+    match run_task(vcpu, timeout, move |vcpu, _deadline| {
+        super::run_vcpu(vcpu, expected_sentinel)
+    })? {
+        TaskOutcome::Finished(evidence) => Ok(evidence),
+        TaskOutcome::TimedOut => Err(Arm64BootError::message(format!(
+            "ARM64 fixture boot timed out after {} seconds",
+            timeout.as_secs_f64()
+        ))),
+    }
+}
+
+pub(crate) fn run_task<T, F>(
+    vcpu: VcpuFd,
+    timeout: Duration,
+    task: F,
+) -> Result<TaskOutcome<T>, Arm64BootError>
+where
+    T: Send + 'static,
+    F: FnOnce(VcpuFd, &mut DeadlineArm<T>) -> Result<T, Arm64BootError> + Send + 'static,
+{
     let _lock = SIGNAL_LOCK
         .try_lock()
         .map_err(|error| Arm64BootError::at("acquire exclusive ARM64 boot watchdog", error))?;
     let guard = ProcessSignalGuard::install()?;
-    let result = run_worker(vcpu, expected_sentinel, timeout, guard.number());
+    let result = run_worker(vcpu, timeout, guard.number(), task);
     guard.restore().and(result)
 }
 
-fn run_worker(
+fn run_worker<T, F>(
     vcpu: VcpuFd,
-    expected_sentinel: &'static [u8],
     timeout: Duration,
     signal_number: libc::c_int,
-) -> Result<Arm64BootEvidence, Arm64BootError> {
+    task: F,
+) -> Result<TaskOutcome<T>, Arm64BootError>
+where
+    T: Send + 'static,
+    F: FnOnce(VcpuFd, &mut DeadlineArm<T>) -> Result<T, Arm64BootError> + Send + 'static,
+{
     let (sender, receiver) = mpsc::sync_channel(2);
     let worker = thread::Builder::new()
         .name("soma-kvm-vcpu-0".to_owned())
-        .spawn(move || worker_main(vcpu, expected_sentinel, signal_number, &sender))
+        .spawn(move || worker_main(vcpu, signal_number, &sender, task))
         .map_err(|error| Arm64BootError::at("spawn vCPU watchdog thread", error))?;
 
     match receiver.recv_timeout(STARTUP_GRACE) {
         Ok(WorkerEvent::Ready) => wait_for_result(worker, &receiver, timeout, signal_number),
         Ok(WorkerEvent::Finished(result)) => {
             join_or_abort(worker)?;
-            result
+            result.map(TaskOutcome::Finished)
         }
+        Ok(WorkerEvent::Armed(_)) => std::process::abort(),
         Err(RecvTimeoutError::Disconnected) => {
             join_or_abort(worker)?;
             Err(Arm64BootError::message(
@@ -68,76 +122,100 @@ fn run_worker(
     }
 }
 
-fn worker_main(
+fn worker_main<T, F>(
     vcpu: VcpuFd,
-    expected_sentinel: &'static [u8],
     signal_number: libc::c_int,
-    sender: &SyncSender<WorkerEvent>,
-) {
-    let result = prepare_and_run(vcpu, expected_sentinel, signal_number, sender);
+    sender: &SyncSender<WorkerEvent<T>>,
+    task: F,
+) where
+    F: FnOnce(VcpuFd, &mut DeadlineArm<T>) -> Result<T, Arm64BootError>,
+{
+    let result = prepare_and_run(vcpu, signal_number, sender, task);
     let _ignored = sender.send(WorkerEvent::Finished(result));
 }
 
-fn prepare_and_run(
+fn prepare_and_run<T, F>(
     vcpu: VcpuFd,
-    expected_sentinel: &'static [u8],
     signal_number: libc::c_int,
-    sender: &SyncSender<WorkerEvent>,
-) -> Result<Arm64BootEvidence, Arm64BootError> {
+    sender: &SyncSender<WorkerEvent<T>>,
+    task: F,
+) -> Result<T, Arm64BootError>
+where
+    F: FnOnce(VcpuFd, &mut DeadlineArm<T>) -> Result<T, Arm64BootError>,
+{
     let mask_guard = WorkerMaskGuard::install(&vcpu, signal_number)?;
+    let mut deadline = DeadlineArm {
+        sender: sender.clone(),
+        armed: false,
+    };
     let result = sender
         .send(WorkerEvent::Ready)
         .map_err(|error| Arm64BootError::at("report ready vCPU watchdog", error))
-        .and_then(|()| super::run_vcpu(vcpu, expected_sentinel));
+        .and_then(|()| task(vcpu, &mut deadline));
     mask_guard.restore().and(result)
 }
 
-fn wait_for_result(
+fn wait_for_result<T>(
     worker: JoinHandle<()>,
-    receiver: &Receiver<WorkerEvent>,
+    receiver: &Receiver<WorkerEvent<T>>,
     timeout: Duration,
     signal_number: libc::c_int,
-) -> Result<Arm64BootEvidence, Arm64BootError> {
-    match receiver.recv_timeout(timeout) {
-        Ok(WorkerEvent::Finished(result)) => {
-            join_or_abort(worker)?;
-            result
+) -> Result<TaskOutcome<T>, Arm64BootError> {
+    let mut deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| Arm64BootError::message("initial watchdog deadline overflow"))?;
+    let mut armed = false;
+    loop {
+        match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(WorkerEvent::Finished(result)) => {
+                join_or_abort(worker)?;
+                return result.map(TaskOutcome::Finished);
+            }
+            Ok(WorkerEvent::Armed(next_deadline)) if !armed => {
+                armed = true;
+                deadline = next_deadline;
+            }
+            Ok(WorkerEvent::Ready | WorkerEvent::Armed(_)) => std::process::abort(),
+            Err(RecvTimeoutError::Disconnected) => {
+                join_or_abort(worker)?;
+                return Err(Arm64BootError::message(
+                    "vCPU worker disconnected before reporting a result",
+                ));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                return cancel(worker, receiver, signal_number);
+            }
         }
-        Ok(WorkerEvent::Ready) => std::process::abort(),
-        Err(RecvTimeoutError::Disconnected) => {
-            join_or_abort(worker)?;
-            Err(Arm64BootError::message(
-                "vCPU worker disconnected before reporting a result",
-            ))
-        }
-        Err(RecvTimeoutError::Timeout) => cancel(worker, receiver, timeout, signal_number),
     }
 }
 
-fn cancel(
+fn cancel<T>(
     worker: JoinHandle<()>,
-    receiver: &Receiver<WorkerEvent>,
-    timeout: Duration,
+    receiver: &Receiver<WorkerEvent<T>>,
     signal_number: libc::c_int,
-) -> Result<Arm64BootEvidence, Arm64BootError> {
+) -> Result<TaskOutcome<T>, Arm64BootError> {
     let kick_error = signal::kick(&worker, signal_number).err();
-    match receiver.recv_timeout(CANCELLATION_GRACE) {
-        Ok(WorkerEvent::Finished(_result)) => {
-            join_or_abort(worker)?;
-            if let Some(error) = kick_error {
-                return Err(Arm64BootError::at("signal timed-out vCPU", error));
+    let started = Instant::now();
+    loop {
+        let Some(remaining) = CANCELLATION_GRACE.checked_sub(started.elapsed()) else {
+            std::process::abort();
+        };
+        match receiver.recv_timeout(remaining) {
+            Ok(WorkerEvent::Finished(_result)) => {
+                join_or_abort(worker)?;
+                if let Some(error) = kick_error {
+                    return Err(Arm64BootError::at("signal timed-out vCPU", error));
+                }
+                return Ok(TaskOutcome::TimedOut);
             }
-            Err(Arm64BootError::message(format!(
-                "ARM64 fixture boot timed out after {} seconds",
-                timeout.as_secs_f64()
-            )))
-        }
-        Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
-        Err(RecvTimeoutError::Disconnected) => {
-            join_or_abort(worker)?;
-            Err(Arm64BootError::message(
-                "timed-out vCPU stopped without reporting cleanup",
-            ))
+            Ok(WorkerEvent::Armed(_)) => {}
+            Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
+            Err(RecvTimeoutError::Disconnected) => {
+                join_or_abort(worker)?;
+                return Err(Arm64BootError::message(
+                    "timed-out vCPU stopped without reporting cleanup",
+                ));
+            }
         }
     }
 }

@@ -233,3 +233,15 @@ Timeout containment blocks the reserved signal outside `KVM_RUN`, temporarily un
 The retained cold-boot evidence binds the tested SOMA revision, kernel, generated initramfs, nested runtime, timer boundary, sentinel result, forced timeout, and before-and-after descriptor counts.
 It remains diagnostic and does not establish product support or a public performance claim.
 The next honest VMM boundary is a bounded challenge-bound guest command proof, followed by Generation-bound guest identity and an authenticated production control channel.
+
+## 2026-08-28 - ARM64 KVM challenge-bound command proof
+
+ADR 0016 adds a test-only ARM64 KVM tracer bullet that boots a trusted static PID1 agent, waits for an exact Hello, sends one challenge-bound direct-exec request over a dedicated second 16550 UART, and accepts only strictly sequenced bounded output plus one typed terminal result.
+The diagnostic console has authority only before Hello and stops retaining bytes after the handshake.
+The workload never receives the control descriptor, no shell is invoked, and timeout or output containment kills and reaps the entire command process group.
+The first live run failed deterministically because the pinned Apple Containerization ARM64 kernel allowed only one 8250 UART, so Linux could not register `/dev/ttyS1`.
+A source-identical Linux 6.18.5 kernel with both `CONFIG_SERIAL_8250_NR_UARTS` and `CONFIG_SERIAL_8250_RUNTIME_UARTS` changed from 1 to 2 made the unchanged end-to-end command test pass.
+The corrected kernel SHA-256 is `1f750d412c3632a57c8cd6abb76bda53314bff14be5bdca24ece2b649424d0a5`.
+The final command fixture is rebuilt twice and compared byte-for-byte before live evidence is retained.
+The live matrix covers exact and metacharacter-bearing arguments, delayed and binary output, exit and signal outcomes, child deadlines, closed standard streams, descendant cleanup, exact and exceeded aggregate output limits, a legal 64 KiB response, typed `execve` failure, repeated host descriptor and task cleanup, normal cold boot, and forced watchdog containment.
+This remains a cold trusted-fixture proof and does not establish OCI execution, authenticated readiness, snapshot restore, production isolation, or a sandbox latency claim.

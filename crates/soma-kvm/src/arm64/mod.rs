@@ -1,7 +1,13 @@
+mod command;
+mod control_uart;
+mod executor;
 mod fdt;
 mod gic;
 mod host;
 mod layout;
+mod machine;
+mod protocol;
+mod response;
 mod uart;
 mod vcpu;
 mod watchdog;
@@ -9,17 +15,11 @@ mod watchdog;
 #[cfg(test)]
 mod tests;
 
-use std::{error::Error, fmt, fs::File, io::Read, path::Path, time::Duration};
+use std::{error::Error, fmt, path::Path, time::Duration};
 
-use kvm_bindings::kvm_userspace_memory_region;
-use kvm_ioctls::{Kvm, VcpuExit, VcpuFd, VmFd};
-use linux_loader::loader::{KernelLoader, pe::PE};
-use vm_memory::{Address, Bytes, GuestAddress, GuestMemoryBackend, GuestMemoryMmap};
+use kvm_ioctls::{VcpuExit, VcpuFd};
 
-use self::{
-    layout::{BootLayout, FDT_MAX_SIZE, KERNEL_BASE, RAM_BASE, RAM_SIZE},
-    uart::Uart,
-};
+use self::{machine::DeviceProfile, uart::Uart};
 
 const ARM64_BOOT_SENTINEL: &str = "SOMA_ARM64_OK";
 const BOOT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -108,105 +108,18 @@ fn boot_with(
     if expected_sentinel.is_empty() {
         return Err(Arm64BootError::message("expected sentinel is empty"));
     }
-    let initramfs = read_initramfs(initramfs_path)?;
-    let layout = BootLayout::new(initramfs.len()).map_err(Arm64BootError::message)?;
-    let ram_size = usize::try_from(RAM_SIZE)
-        .map_err(|error| Arm64BootError::at("convert guest RAM size", error))?;
-    let memory = GuestMemoryMmap::<()>::from_ranges(&[(GuestAddress(RAM_BASE), ram_size)])
-        .map_err(|error| Arm64BootError::at("map 128 MiB guest RAM", error))?;
-
-    let kernel = load_kernel(kernel_path, &memory)?;
-    if kernel.kernel_end > layout.initrd_start {
-        return Err(Arm64BootError::message(
-            "kernel overlaps the reserved initramfs region",
-        ));
-    }
-    memory
-        .write_slice(&initramfs, GuestAddress(layout.initrd_start))
-        .map_err(|error| Arm64BootError::at("copy initramfs into guest RAM", error))?;
-    let device_tree =
-        fdt::build(layout).map_err(|error| Arm64BootError::at("build ARM64 device tree", error))?;
-    let fdt_limit = usize::try_from(FDT_MAX_SIZE)
-        .map_err(|error| Arm64BootError::at("convert FDT size limit", error))?;
-    if device_tree.len() > fdt_limit {
-        return Err(Arm64BootError::message("device tree exceeds two MiB"));
-    }
-    memory
-        .write_slice(&device_tree, GuestAddress(layout.fdt_start))
-        .map_err(|error| Arm64BootError::at("copy device tree into guest RAM", error))?;
-
-    let kvm = Kvm::new().map_err(|error| Arm64BootError::at("open /dev/kvm", error))?;
-    host::validate(&kvm).map_err(|error| Arm64BootError::at("validate ARM64 boot host", error))?;
-    let vm = kvm
-        .create_vm()
-        .map_err(|error| Arm64BootError::at("create ARM64 VM", error))?;
-    register_memory(&vm, &memory)?;
-    let vcpu = vm
-        .create_vcpu(0)
-        .map_err(|error| Arm64BootError::at("create vCPU 0", error))?;
-    vcpu::initialize(&vm, &vcpu, kernel.kernel_load.raw_value(), layout.fdt_start)
-        .map_err(|error| Arm64BootError::at("initialize vCPU 0", error))?;
-    let _gic = gic::create(&vm)
-        .map_err(|error| Arm64BootError::at("create and initialize GICv3", error))?;
-    watchdog::run(vcpu, expected_sentinel, timeout)
-}
-
-fn read_initramfs(path: &Path) -> Result<Vec<u8>, Arm64BootError> {
-    let mut file = File::open(path)
-        .map_err(|error| Arm64BootError::at("open explicit initramfs fixture", error))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| Arm64BootError::at("inspect initramfs fixture", error))?;
-    if !metadata.is_file() {
-        return Err(Arm64BootError::message(
-            "initramfs fixture is not a regular file",
-        ));
-    }
-    let size = usize::try_from(metadata.len())
-        .map_err(|error| Arm64BootError::at("convert initramfs size", error))?;
-    BootLayout::new(size).map_err(Arm64BootError::message)?;
-    let mut bytes = vec![0; size];
-    file.read_exact(&mut bytes)
-        .map_err(|error| Arm64BootError::at("read initramfs fixture", error))?;
-    Ok(bytes)
-}
-
-fn load_kernel(
-    path: &Path,
-    memory: &GuestMemoryMmap<()>,
-) -> Result<linux_loader::loader::KernelLoaderResult, Arm64BootError> {
-    let mut file = File::open(path)
-        .map_err(|error| Arm64BootError::at("open explicit kernel fixture", error))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| Arm64BootError::at("inspect kernel fixture", error))?;
-    if !metadata.is_file() || metadata.len() == 0 || metadata.len() >= RAM_SIZE {
-        return Err(Arm64BootError::message(
-            "kernel fixture must be a nonempty regular file smaller than guest RAM",
-        ));
-    }
-    PE::load(memory, Some(GuestAddress(KERNEL_BASE)), &mut file, None)
-        .map_err(|error| Arm64BootError::at("load Linux ARM64 Image", error))
-}
-
-#[allow(unsafe_code)]
-fn register_memory(vm: &VmFd, memory: &GuestMemoryMmap<()>) -> Result<(), Arm64BootError> {
-    let host_pointer = memory
-        .get_host_address(GuestAddress(RAM_BASE))
-        .map_err(|error| Arm64BootError::at("resolve guest RAM host address", error))?;
-    let userspace_addr = u64::try_from(host_pointer.addr())
-        .map_err(|error| Arm64BootError::at("convert guest RAM host address", error))?;
-    let region = kvm_userspace_memory_region {
-        slot: 0,
-        guest_phys_addr: RAM_BASE,
-        memory_size: RAM_SIZE,
-        userspace_addr,
-        flags: 0,
-    };
-    // SAFETY: Slot 0 uniquely covers the checked 128 MiB mapping. `memory` was created before the
-    // KVM handles, is never resized, and therefore outlives the VM and vCPU that can access it.
-    unsafe { vm.set_user_memory_region(region) }
-        .map_err(|error| Arm64BootError::at("register guest RAM with KVM", error))
+    let machine = machine::prepare(kernel_path, initramfs_path, DeviceProfile::ConsoleOnly)?;
+    let machine::Machine {
+        vcpu,
+        vm,
+        gic,
+        memory,
+    } = machine;
+    let result = watchdog::run(vcpu, expected_sentinel, timeout);
+    drop(gic);
+    drop(vm);
+    drop(memory);
+    result
 }
 
 fn run_vcpu(

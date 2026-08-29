@@ -14,6 +14,7 @@ pub(crate) struct Uart {
     registers: [u8; 8],
     console: Vec<u8>,
     expected_sentinel: &'static [u8],
+    capture: bool,
 }
 
 impl Uart {
@@ -22,6 +23,7 @@ impl Uart {
             registers: [0; 8],
             console: Vec::new(),
             expected_sentinel,
+            capture: true,
         }
     }
 
@@ -46,10 +48,12 @@ impl Uart {
             return Ok(false);
         };
         if offset == DATA && self.registers[LINE_CONTROL] & DLAB == 0 {
-            if self.console.len() == MAX_CONSOLE_BYTES {
-                return Err("serial console exceeded one MiB before the sentinel");
+            if self.capture {
+                if self.console.len() == MAX_CONSOLE_BYTES {
+                    return Err("serial console exceeded one MiB before the sentinel");
+                }
+                self.console.push(value);
             }
-            self.console.push(value);
         } else if offset <= 7 {
             self.registers[offset] = value;
         }
@@ -58,6 +62,15 @@ impl Uart {
 
     pub(crate) fn into_console(self) -> Vec<u8> {
         self.console
+    }
+
+    pub(crate) fn console(&self) -> &[u8] {
+        &self.console
+    }
+
+    pub(crate) fn stop_capture(&mut self) {
+        self.console.clear();
+        self.capture = false;
     }
 
     fn offset(address: u64) -> Result<usize, &'static str> {
@@ -91,5 +104,19 @@ mod tests {
         let mut value = [0_u8; 4];
         uart.read(UART_BASE + 5, &mut value).unwrap();
         assert_eq!(value, [TX_EMPTY, 0, 0, 0]);
+    }
+
+    #[test]
+    fn stops_retaining_diagnostic_bytes_after_the_handshake() {
+        let mut uart = Uart::new(ARM64_BOOT_SENTINEL.as_bytes());
+        uart.write(UART_BASE, b"b").unwrap();
+        uart.stop_capture();
+        for _ in 0..=MAX_CONSOLE_BYTES {
+            assert!(!uart.write(UART_BASE, b"x").unwrap());
+        }
+        assert!(uart.console().is_empty());
+        let mut value = [0_u8];
+        uart.read(UART_BASE, &mut value).unwrap();
+        assert_eq!(value, [0]);
     }
 }

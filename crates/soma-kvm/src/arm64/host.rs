@@ -10,6 +10,7 @@ pub(crate) enum BootCapability {
     OneReg,
     DeviceCtrl,
     ArmPsci02,
+    Irqchip,
 }
 
 impl BootCapability {
@@ -19,6 +20,7 @@ impl BootCapability {
             Self::OneReg => Cap::OneReg,
             Self::DeviceCtrl => Cap::DeviceCtrl,
             Self::ArmPsci02 => Cap::ArmPsci02,
+            Self::Irqchip => Cap::Irqchip,
         }
     }
 }
@@ -28,6 +30,13 @@ const REQUIRED_CAPABILITIES: &[BootCapability] = &[
     BootCapability::OneReg,
     BootCapability::DeviceCtrl,
     BootCapability::ArmPsci02,
+];
+const COMMAND_CAPABILITIES: &[BootCapability] = &[
+    BootCapability::UserMemory,
+    BootCapability::OneReg,
+    BootCapability::DeviceCtrl,
+    BootCapability::ArmPsci02,
+    BootCapability::Irqchip,
 ];
 
 #[derive(Debug)]
@@ -62,13 +71,21 @@ impl fmt::Display for BootHostError {
 impl Error for BootHostError {}
 
 pub(crate) fn validate(kvm: &Kvm) -> Result<(), BootHostError> {
+    validate_capabilities(kvm, REQUIRED_CAPABILITIES)
+}
+
+pub(crate) fn validate_command(kvm: &Kvm) -> Result<(), BootHostError> {
+    validate_capabilities(kvm, COMMAND_CAPABILITIES)
+}
+
+fn validate_capabilities(kvm: &Kvm, capabilities: &[BootCapability]) -> Result<(), BootHostError> {
     let api_version = kvm.get_api_version();
     if api_version != KVM_API_VERSION {
         return Err(BootHostError::UnexpectedApiVersion {
             actual: api_version,
         });
     }
-    for &capability in REQUIRED_CAPABILITIES {
+    for &capability in capabilities {
         if !kvm.check_extension(capability.rust_vmm()) {
             return Err(BootHostError::MissingCapability(capability));
         }
@@ -95,6 +112,20 @@ mod tests {
                 BootCapability::OneReg,
                 BootCapability::DeviceCtrl,
                 BootCapability::ArmPsci02,
+            ]
+        );
+    }
+
+    #[test]
+    fn command_path_adds_only_the_irqchip_capability_it_uses() {
+        assert_eq!(
+            COMMAND_CAPABILITIES,
+            &[
+                BootCapability::UserMemory,
+                BootCapability::OneReg,
+                BootCapability::DeviceCtrl,
+                BootCapability::ArmPsci02,
+                BootCapability::Irqchip,
             ]
         );
     }

@@ -7,6 +7,8 @@ This file records the primary sources that constrain SOMA's design.
 - [Linux KVM API](https://www.kernel.org/doc/html/latest/virt/kvm/api.html) defines the file-descriptor, ioctl, memory-mapping, and vCPU execution contract.
 - [rust-vmm community](https://github.com/rust-vmm/community) catalogs reusable Rust virtualization crates and production consumers.
 - [rust-vmm kvm-ioctls](https://github.com/rust-vmm/kvm) provides Rust bindings and wrappers for KVM.
+- [rust-vmm vm-superio](https://github.com/rust-vmm/vm-superio) provides the bounded 16550 UART model used by the ARM64 command proof.
+- [Apple Containerization ARM64 kernel configuration](https://github.com/apple/containerization/blob/2faaf9b4aff48a4745ef3d26c3f1450c1228fdf0/kernel/config-arm64) pins the reviewed nested-development kernel inputs and exposes its 8250 device-count limits.
 
 ## Networking and host-isolation interfaces
 
