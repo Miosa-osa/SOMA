@@ -50,13 +50,20 @@ fn verify_all(
     maximum: u64,
 ) -> Result<Vec<LayerRecord>, ImportError> {
     let mut expanded_total = 0_u64;
+    let mut preflight_budget = layer_tar::preflight_budget();
+    let mut validation_budget = layer_tar::validation_budget();
     let mut records = Vec::with_capacity(pending.len());
     for layer in pending {
         let remaining = maximum
             .checked_sub(expanded_total)
             .ok_or_else(layer_limit)?;
-        let validated =
-            validate_layer_tar(&mut layer.staged, &layer.descriptor.media_type, remaining)?;
+        let validated = validate_layer_tar(
+            &mut layer.staged,
+            &layer.descriptor.media_type,
+            remaining,
+            &mut preflight_budget,
+            &mut validation_budget,
+        )?;
         if validated.diff_id != layer.expected_diff_id {
             return Err(ImportError::new(
                 ImportPhase::VerifyLayer,
@@ -80,12 +87,23 @@ fn validate_layer_tar(
     staged: &mut StagedObject<'_>,
     media_type: &str,
     maximum: u64,
+    preflight_budget: &mut crate::tar_preflight::PreflightBudget,
+    validation_budget: &mut layer_tar::ValidationBudget,
 ) -> Result<ValidatedLayerTar, ImportError> {
-    let file = staged.reader()?;
     if media_type == GZIP_LAYER {
-        layer_tar::validate(&mut MultiGzDecoder::new(file), maximum)
+        {
+            let file = staged.reader()?;
+            layer_tar::preflight(MultiGzDecoder::new(file), maximum, preflight_budget)?;
+        }
+        let file = staged.reader()?;
+        layer_tar::validate(&mut MultiGzDecoder::new(file), maximum, validation_budget)
     } else {
-        layer_tar::validate(file, maximum)
+        {
+            let file = staged.reader()?;
+            layer_tar::preflight(file, maximum, preflight_budget)?;
+        }
+        let file = staged.reader()?;
+        layer_tar::validate(file, maximum, validation_budget)
     }
 }
 

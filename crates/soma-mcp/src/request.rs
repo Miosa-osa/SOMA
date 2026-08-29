@@ -12,6 +12,7 @@ pub enum BackendTarget {
     Local,
     Kvm,
     Macos,
+    Docker,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

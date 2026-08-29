@@ -62,7 +62,7 @@ impl<P> ResolutionObservation<P> {
         }
     }
 
-    pub(crate) fn into_parts(self) -> (OperationId, RequestFingerprint, WorkloadIdentity, P, u64) {
+    pub fn into_parts(self) -> (OperationId, RequestFingerprint, WorkloadIdentity, P, u64) {
         (
             self.operation_id,
             self.source_fingerprint,

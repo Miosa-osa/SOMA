@@ -4,7 +4,10 @@ use sha2::{Digest as _, Sha256};
 
 use crate::{ImportErrorKind, ImportPhase, digest};
 
-use super::{MAX_ENTRIES, MAX_PATH_BYTES, MAX_PATH_METADATA_BYTES, PathPolicy, validate};
+use super::{
+    MAX_ENTRIES, MAX_PATH_BYTES, MAX_PATH_METADATA_BYTES, PathPolicy, ValidationBudget,
+    validate as validate_with_budget, validation_budget,
+};
 
 #[test]
 fn validates_a_chunked_archive_and_reports_its_exact_stream_identity() {
@@ -100,29 +103,51 @@ fn rejects_overlong_effective_gnu_path_and_enforces_stream_limit() {
 
 #[test]
 fn entry_and_aggregate_path_metadata_usage_are_bounded() {
-    let mut entries = PathPolicy {
-        entry_count: MAX_ENTRIES,
-        ..PathPolicy::default()
-    };
+    let mut entries = PathPolicy::default();
+    let mut entry_budget = ValidationBudget::new(0, MAX_PATH_METADATA_BYTES);
     assert_eq!(
-        entries.observe(b"next", None, false).unwrap_err(),
+        entries
+            .observe(b"next", None, false, &mut entry_budget)
+            .unwrap_err(),
         super::limit_error()
     );
 
-    let mut metadata = PathPolicy {
-        path_metadata_bytes: MAX_PATH_METADATA_BYTES,
-        ..PathPolicy::default()
-    };
+    let mut metadata = PathPolicy::default();
+    let mut metadata_budget = ValidationBudget::new(MAX_ENTRIES, 0);
     assert_eq!(
-        metadata.observe(b"next", None, false).unwrap_err(),
+        metadata
+            .observe(b"next", None, false, &mut metadata_budget)
+            .unwrap_err(),
         super::limit_error()
     );
+}
+
+#[test]
+fn validation_budget_stops_at_the_first_over_budget_entry_in_layer_two() {
+    let first = archive_with(&[(b"a", b"")]);
+    let mut first_reader = Cursor::new(&first);
+    let mut budget = ValidationBudget::new(2, 1);
+    validate_with_budget(&mut first_reader, first.len() as u64, &mut budget).unwrap();
+
+    let mut second = HeaderOnly::new(&regular_header(b"bb", 1 << 30));
+    let error = validate_with_budget(&mut second, 1 << 31, &mut budget).unwrap_err();
+
+    assert_eq!(error.phase(), ImportPhase::VerifyLayer);
+    assert_eq!(error.kind(), ImportErrorKind::LimitExceeded);
 }
 
 fn assert_error(bytes: &[u8], maximum: u64, kind: ImportErrorKind) {
     let error = validate(&mut Cursor::new(bytes), maximum).unwrap_err();
     assert_eq!(error.phase(), ImportPhase::VerifyLayer);
     assert_eq!(error.kind(), kind);
+}
+
+fn validate<R: Read>(
+    reader: &mut R,
+    maximum: u64,
+) -> Result<super::ValidatedLayerTar, crate::ImportError> {
+    let mut budget = validation_budget();
+    validate_with_budget(reader, maximum, &mut budget)
 }
 
 fn archive_with(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
@@ -198,6 +223,42 @@ fn rewrite_first_header(archive: &mut [u8], rewrite: impl FnOnce(&mut tar::Heade
     rewrite(&mut header);
     header.set_cksum();
     archive[..512].copy_from_slice(header.as_bytes());
+}
+
+fn regular_header(path: &[u8], size: u64) -> [u8; 512] {
+    let mut header = tar::Header::new_ustar();
+    set_raw_name(&mut header, path);
+    header.set_size(size);
+    header.set_mode(0o644);
+    header.set_cksum();
+    *header.as_bytes()
+}
+
+struct HeaderOnly {
+    header: [u8; 512],
+    position: usize,
+}
+
+impl HeaderOnly {
+    fn new(header: &[u8; 512]) -> Self {
+        Self {
+            header: *header,
+            position: 0,
+        }
+    }
+}
+
+impl Read for HeaderOnly {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        assert!(
+            self.position < self.header.len(),
+            "over-budget entry body was read"
+        );
+        let count = output.len().min(self.header.len() - self.position);
+        output[..count].copy_from_slice(&self.header[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
+    }
 }
 
 struct Chunked<'a> {

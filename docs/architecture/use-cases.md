@@ -116,7 +116,7 @@ The initial and planned modules have these owners:
 | `soma-kvm` | Linux x86_64 KVM ownership, restore mechanics, vCPU execution, and target safety invariants |
 | `soma-macos` | Development-only Apple VM-per-OCI lifecycle adapter |
 | `soma-host` | Future node-local admission, single-use worker allocation, sterile resource bundles, and replenishment |
-| `soma-generation` | Verified bounded OCI-layout import now, with root conversion, snapshot capture, certification, and compatibility metadata still to follow |
+| `soma-generation` | Verified bounded OCI-layout import and canonical logical rootfs normalization now, with disk compilation, snapshot capture, certification, and compatibility metadata still to follow |
 | `soma-protocol` | Future bounded canonical wire values shared by local and remote transports |
 | `soma-guest` | Portable authenticated-session primitives now, with the guest executable, secret injection, repair, and readiness still to follow |
 

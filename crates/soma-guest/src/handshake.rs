@@ -7,19 +7,19 @@ use crate::{
     ResponderPublicKey, SessionBinding, resolver,
 };
 
-const MAX_HANDSHAKE_MESSAGE: usize = 256;
+pub(crate) const MAX_HANDSHAKE_MESSAGE: usize = 256;
 
 /// Starts the host side of the fixed two-message authenticated handshake.
-pub struct InitiatorHandshake;
+pub(crate) struct InitiatorHandshake;
 
 /// Owns an initiator handshake after message one and before message two.
-pub struct InitiatorAwaitingResponse(HandshakeState);
+pub(crate) struct InitiatorAwaitingResponse(HandshakeState);
 
 /// Accepts message one on the guest responder side.
-pub struct ResponderHandshake;
+pub(crate) struct ResponderHandshake;
 
 /// Holds message two until the responder's transport writes it to the peer.
-pub struct ResponderPendingResponse {
+pub(crate) struct ResponderPendingResponse {
     state: HandshakeState,
     response: Vec<u8>,
 }
@@ -30,18 +30,19 @@ impl InitiatorHandshake {
     /// # Errors
     ///
     /// Returns a redacted setup error when the fixed suite cannot be initialized.
-    pub fn start(
+    pub(crate) fn start(
         binding: &SessionBinding,
         responder: &ResponderPublicKey,
-        psk: &InstancePsk,
+        psk: InstancePsk,
     ) -> Result<(InitiatorAwaitingResponse, Vec<u8>), Error> {
         psk.require_instance(binding.instance())?;
         let prologue = binding.prologue();
-        let mut state = builder(&prologue, psk)?
+        let mut state = builder(&prologue, &psk)?
             .remote_public_key(responder.as_bytes())
             .map_err(|_| Error::CryptoSetup)?
             .build_initiator()
             .map_err(|_| Error::CryptoSetup)?;
+        drop(psk);
         let first = write_empty_handshake(&mut state)?;
         Ok((InitiatorAwaitingResponse(state), frame(&first)?))
     }
@@ -53,7 +54,7 @@ impl InitiatorAwaitingResponse {
     /// # Errors
     ///
     /// Returns [`Error::AuthenticationFailed`] for any peer-controlled failure.
-    pub fn finish(mut self, second: &[u8]) -> Result<AuthenticatedSession, Error> {
+    pub(crate) fn finish(mut self, second: &[u8]) -> Result<AuthenticatedSession, Error> {
         let message = unframe(second).map_err(|_| Error::AuthenticationFailed)?;
         read_empty_handshake(&mut self.0, message)?;
         let transport = self
@@ -70,20 +71,21 @@ impl ResponderHandshake {
     /// # Errors
     ///
     /// Returns [`Error::AuthenticationFailed`] for any peer-controlled failure.
-    pub fn accept(
+    pub(crate) fn accept(
         binding: &SessionBinding,
         private_key: &ResponderPrivateKey,
-        psk: &InstancePsk,
+        psk: InstancePsk,
         first: &[u8],
     ) -> Result<ResponderPendingResponse, Error> {
         psk.require_instance(binding.instance())?;
         let message = unframe(first).map_err(|_| Error::AuthenticationFailed)?;
         let prologue = binding.prologue();
-        let mut state = builder(&prologue, psk)?
+        let mut state = builder(&prologue, &psk)?
             .local_private_key(private_key.as_bytes())
             .map_err(|_| Error::CryptoSetup)?
             .build_responder()
             .map_err(|_| Error::CryptoSetup)?;
+        drop(psk);
         read_empty_handshake(&mut state, message)?;
         let second = write_empty_handshake(&mut state)?;
         Ok(ResponderPendingResponse {
@@ -96,7 +98,7 @@ impl ResponderHandshake {
 impl ResponderPendingResponse {
     /// Borrows the exact bounded second message that must be sent before transition.
     #[must_use]
-    pub fn response(&self) -> &[u8] {
+    pub(crate) fn response(&self) -> &[u8] {
         &self.response
     }
 
@@ -105,7 +107,7 @@ impl ResponderPendingResponse {
     /// # Errors
     ///
     /// Returns a redacted setup error if Snow rejects its completed state.
-    pub fn finish(self) -> Result<AuthenticatedSession, Error> {
+    pub(crate) fn finish(self) -> Result<AuthenticatedSession, Error> {
         let transport = self
             .state
             .into_transport_mode()

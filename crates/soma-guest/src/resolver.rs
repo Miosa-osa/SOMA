@@ -31,6 +31,14 @@ pub(crate) fn validate_responder_public_key(public: &[u8; 32]) -> Result<(), Err
         .map_err(|_| Error::NonContributoryPublicKey)
 }
 
+pub(crate) fn fill_os_random(destination: &mut [u8]) -> Result<(), Error> {
+    let resolver = DefaultResolver;
+    let mut random = resolver.resolve_rng().ok_or(Error::RandomnessUnavailable)?;
+    random
+        .try_fill_bytes(destination)
+        .map_err(|_| Error::RandomnessUnavailable)
+}
+
 impl CryptoResolver for ContributoryResolver {
     fn resolve_rng(&self) -> Option<Box<dyn Random>> {
         self.0.resolve_rng()

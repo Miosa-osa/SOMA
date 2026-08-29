@@ -6,7 +6,7 @@ use zeroize::Zeroizing;
 use crate::{Error, NOISE_PATTERN, resolver};
 
 /// A fresh 256-bit secret scoped to one concrete Instance.
-pub struct InstancePsk {
+pub(crate) struct InstancePsk {
     instance: [u8; 16],
     secret: Zeroizing<[u8; 32]>,
 }
@@ -17,7 +17,8 @@ impl InstancePsk {
     /// # Errors
     ///
     /// Returns [`Error::InvalidKeyMaterial`] if either value is all zero.
-    pub fn provision_for(instance: [u8; 16], secret: [u8; 32]) -> Result<Self, Error> {
+    #[cfg(test)]
+    pub(crate) fn provision_for(instance: [u8; 16], secret: [u8; 32]) -> Result<Self, Error> {
         let instance = nonzero(instance)?;
         let secret = nonzero(secret)?;
         Ok(Self {
@@ -28,6 +29,17 @@ impl InstancePsk {
 
     pub(crate) fn as_bytes(&self) -> &[u8; 32] {
         &self.secret
+    }
+
+    pub(crate) fn from_zeroizing(
+        instance: [u8; 16],
+        secret: Zeroizing<[u8; 32]>,
+    ) -> Result<Self, Error> {
+        let instance = nonzero(instance)?;
+        if secret.iter().all(|byte| *byte == 0) {
+            return Err(Error::InvalidKeyMaterial);
+        }
+        Ok(Self { instance, secret })
     }
 
     pub(crate) fn require_instance(&self, instance: &[u8; 16]) -> Result<(), Error> {
@@ -164,3 +176,6 @@ fn nonzero<const N: usize>(bytes: [u8; N]) -> Result<[u8; N], Error> {
         .then_some(bytes)
         .ok_or(Error::InvalidKeyMaterial)
 }
+
+#[cfg(test)]
+mod tests;

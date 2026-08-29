@@ -1,0 +1,22 @@
+[package]
+name = "soma-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+soma-guest = { path = "../crates/soma-guest" }
+
+[[bin]]
+name = "application_codec"
+path = "fuzz_targets/application_codec.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

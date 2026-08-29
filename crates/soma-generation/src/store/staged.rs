@@ -46,6 +46,40 @@ impl Store {
         Ok(staged)
     }
 
+    pub(crate) fn put_content(
+        &self,
+        source: &mut impl Read,
+        expected_size: u64,
+        maximum: u64,
+        media_type: &str,
+        phase: ImportPhase,
+    ) -> Result<Descriptor, ImportError> {
+        if expected_size > maximum {
+            return Err(ImportError::new(phase, ImportErrorKind::LimitExceeded));
+        }
+        let placeholder = Descriptor {
+            media_type: media_type.to_owned(),
+            digest: digest::bytes(&[]),
+            size: expected_size,
+            platform: None,
+        };
+        let (name, file) = self.create_temporary()?;
+        let mut staged = StagedObject {
+            store: self,
+            name,
+            file: Some(file),
+            descriptor: placeholder,
+        };
+        let (actual_digest, actual_size) =
+            copy_hashed(source, staged.file_mut(phase)?, expected_size, phase)?;
+        staged.descriptor.digest = actual_digest;
+        staged.descriptor.size = actual_size;
+        staged.prepare()?;
+        let descriptor = staged.descriptor.clone();
+        staged.publish()?;
+        Ok(descriptor)
+    }
+
     fn create_temporary(&self) -> Result<(String, File), ImportError> {
         for _ in 0..32 {
             let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);

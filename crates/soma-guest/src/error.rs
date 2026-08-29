@@ -25,6 +25,24 @@ pub enum Error {
     SessionPoisoned,
     /// A directional sequence or cipher nonce could not advance safely.
     SessionExhausted,
+    /// The operating system did not provide fresh launch randomness.
+    RandomnessUnavailable,
+    /// A launch page was not the one exact supported encoding.
+    LaunchPageRejected,
+    /// An operation identity used the reserved all-zero value.
+    InvalidOperation,
+    /// A local direct command violated the bounded wire contract.
+    InvalidCommand,
+    /// A local application message exceeded one authenticated record.
+    ApplicationMessageTooLarge,
+    /// A peer application message was not the one exact supported encoding.
+    ApplicationMessageRejected,
+    /// A local output chunk violated the bounded streaming contract.
+    InvalidOutputChunk,
+    /// A local terminal status violated the Linux process-result contract.
+    InvalidTerminalStatus,
+    /// A local terminal report violated the authenticated output-count contract.
+    InvalidTerminalReport,
 }
 
 impl fmt::Debug for Error {
@@ -47,6 +65,15 @@ impl fmt::Display for Error {
             Self::PeerRecordRejected => "peer record rejected",
             Self::SessionPoisoned => "session is poisoned",
             Self::SessionExhausted => "session sequence exhausted",
+            Self::RandomnessUnavailable => "operating-system randomness unavailable",
+            Self::LaunchPageRejected => "launch page rejected",
+            Self::InvalidOperation => "invalid operation identity",
+            Self::InvalidCommand => "invalid guest command",
+            Self::ApplicationMessageTooLarge => "application message exceeds one record",
+            Self::ApplicationMessageRejected => "application message rejected",
+            Self::InvalidOutputChunk => "invalid output chunk",
+            Self::InvalidTerminalStatus => "invalid terminal status",
+            Self::InvalidTerminalReport => "invalid terminal report",
         })
     }
 }

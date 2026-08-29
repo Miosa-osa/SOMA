@@ -4,7 +4,7 @@ use crate::Error;
 
 const DOMAIN: &[u8] = b"SOMA-GUEST-CONTROL\0";
 const SCHEMA_VERSION: u16 = 1;
-const AUTH_PROFILE: u16 = 1;
+pub(crate) const AUTH_PROFILE: u16 = 1;
 pub(crate) const PROLOGUE_LEN: usize = DOMAIN.len() + 2 + 2 + 32 + 16 + 16 + 32;
 
 /// Canonical context bound into the Noise handshake transcript.
@@ -59,6 +59,18 @@ impl SessionBinding {
 
     pub(crate) const fn instance(&self) -> &[u8; 16] {
         &self.instance
+    }
+
+    pub(crate) const fn generation(&self) -> &[u8; 32] {
+        &self.generation
+    }
+
+    pub(crate) const fn operation(&self) -> &[u8; 16] {
+        &self.operation
+    }
+
+    pub(crate) const fn launch_nonce(&self) -> &[u8; 32] {
+        &self.launch_nonce
     }
 }
 

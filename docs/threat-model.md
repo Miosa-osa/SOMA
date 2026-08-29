@@ -83,9 +83,16 @@ It does not claim that the pre-alpha implementation currently satisfies it.
 
 ## Current pre-alpha gaps
 
-The OCI importer verifies bounded source artifacts and expanded tar structure, but it does not yet extract or normalize a root filesystem, apply whiteouts, certify a Generation, or protect a caller-supplied root whose ambient parent is controlled by an attacker.
+The OCI pipeline verifies bounded source artifacts and expanded tar structure, then applies whiteouts and supported metadata into a canonical logical tree without extracting guest names into a host filesystem.
+That logical artifact is not mounted, bootable, or a certified Generation, and the pipeline does not protect a caller-supplied root whose ambient parent is controlled by an attacker.
 Its content store requires exclusive trusted writer authority because portable hard-link publication cannot bind the already verified open handle directly to the final name.
-The current tar dependency can allocate a bounded extension body before SOMA observes its effective metadata, so arbitrary hostile-image admission remains prohibited until a certified build profile or parser seam constrains that allocation independently.
+A late-invalid normalization can leave unreferenced content objects, so the private pre-alpha builder also requires an operator-enforced job or store quota plus out-of-band garbage collection before tenant-triggered use.
+Internal reachability garbage collection and store-quota enforcement are not implemented yet.
+A raw streaming pass gives all selected layers checked aggregate ceilings for raw-header work and GNU or local PAX extension bytes before the complete tar parser can materialize those bodies.
+It rejects global PAX and GNU sparse entries from their raw headers before reading their bodies.
+The complete structural pass charges each logical entry and its path or link bytes to one cross-layer budget before advancing into that entry body.
+Normalization accepts only exact local `path` and `linkpath` values and rejects malformed, duplicate, xattr, timestamp, security, and unknown PAX metadata in schema version 1.
+Mixed local PAX and GNU naming extensions for one member are rejected rather than resolved with parser-specific precedence.
 The authenticated-session crate binds one Instance secret to an exact launch transcript, but the VMM cannot yet inject that secret after restore and no guest executable consumes the protocol.
 Snow does not guarantee complete erasure of every internal key copy, so process destruction remains part of the future one-Machine containment boundary.
 No current protocol result satisfies Ready, and no untrusted production workload should be admitted.

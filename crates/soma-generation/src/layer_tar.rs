@@ -13,12 +13,19 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use soma::OciDigest;
 
+use crate::tar_preflight::{
+    ExtensionPolicy, MAX_LOCAL_PAX_RECORD_BYTES, PreflightBudget, PreflightError,
+};
 use crate::{ImportError, ImportErrorKind, ImportPhase, digest};
 
+mod budget;
+
+pub(crate) use budget::{ValidationBudget, preflight_budget, validation_budget};
+
 const BLOCK_BYTES: u64 = 512;
-const MAX_ENTRIES: u32 = 1_000_000;
 const MAX_PATH_BYTES: usize = 4_096;
-const MAX_PATH_METADATA_BYTES: u64 = 64 * 1024 * 1024;
+#[cfg(test)]
+use budget::{MAX_ENTRIES, MAX_PATH_METADATA_BYTES};
 
 #[derive(Debug)]
 pub(crate) struct ValidatedLayerTar {
@@ -27,9 +34,28 @@ pub(crate) struct ValidatedLayerTar {
     pub(crate) entry_count: u32,
 }
 
+pub(crate) fn preflight<R: Read>(
+    reader: R,
+    maximum_expanded_bytes: u64,
+    budget: &mut PreflightBudget,
+) -> Result<(), ImportError> {
+    crate::tar_preflight::preflight(
+        reader,
+        maximum_expanded_bytes,
+        ExtensionPolicy {
+            long_record_ceiling: u64::try_from(MAX_PATH_BYTES).expect("maximum path bytes fit u64")
+                + 1,
+            pax_record_ceiling: MAX_LOCAL_PAX_RECORD_BYTES,
+        },
+        budget,
+    )
+    .map_err(map_preflight_error)
+}
+
 pub(crate) fn validate<R: Read>(
     reader: &mut R,
     maximum_expanded_bytes: u64,
+    budget: &mut ValidationBudget,
 ) -> Result<ValidatedLayerTar, ImportError> {
     let state = StreamState::default();
     let mut stream = LayerStream::new(reader, maximum_expanded_bytes, &state);
@@ -43,6 +69,7 @@ pub(crate) fn validate<R: Read>(
                 entry.path_bytes().as_ref(),
                 entry.link_name_bytes().as_deref(),
                 entry.header().entry_type().is_hard_link(),
+                budget,
             )?;
         }
     }
@@ -58,7 +85,6 @@ pub(crate) fn validate<R: Read>(
 #[derive(Default)]
 struct PathPolicy {
     logical_paths: BTreeSet<Vec<u8>>,
-    path_metadata_bytes: u64,
     entry_count: u32,
 }
 
@@ -68,35 +94,27 @@ impl PathPolicy {
         path: &[u8],
         link: Option<&[u8]>,
         hard_link: bool,
+        budget: &mut ValidationBudget,
     ) -> Result<(), ImportError> {
-        self.entry_count = self.entry_count.checked_add(1).ok_or_else(limit_error)?;
-        if self.entry_count > MAX_ENTRIES {
-            return Err(limit_error());
-        }
-        self.add_metadata(path.len())?;
         let logical_path = normalize_path(path)?;
-        if !self.logical_paths.insert(logical_path) {
+        if self.logical_paths.contains(&logical_path) {
             return Err(input_error());
         }
+        let mut metadata_bytes = path.len();
         if let Some(link) = link {
             if hard_link {
                 normalize_path(link)?;
             } else {
                 validate_metadata_path(link)?;
             }
-            self.add_metadata(link.len())?;
+            metadata_bytes = metadata_bytes
+                .checked_add(link.len())
+                .ok_or_else(limit_error)?;
         }
-        Ok(())
-    }
-
-    fn add_metadata(&mut self, length: usize) -> Result<(), ImportError> {
-        self.path_metadata_bytes = self
-            .path_metadata_bytes
-            .checked_add(u64::try_from(length).map_err(|_| limit_error())?)
-            .ok_or_else(limit_error)?;
-        if self.path_metadata_bytes > MAX_PATH_METADATA_BYTES {
-            return Err(limit_error());
-        }
+        let next_entry_count = self.entry_count.checked_add(1).ok_or_else(limit_error)?;
+        budget.observe(1, u64::try_from(metadata_bytes).map_err(|_| limit_error())?)?;
+        self.entry_count = next_entry_count;
+        self.logical_paths.insert(logical_path);
         Ok(())
     }
 }
@@ -249,6 +267,16 @@ const fn limit_error() -> ImportError {
 
 const fn integrity_error() -> ImportError {
     ImportError::new(ImportPhase::VerifyLayer, ImportErrorKind::Integrity)
+}
+
+const fn map_preflight_error(error: PreflightError) -> ImportError {
+    let kind = match error {
+        PreflightError::Unsupported => ImportErrorKind::Unsupported,
+        PreflightError::LimitExceeded => ImportErrorKind::LimitExceeded,
+        PreflightError::Integrity => ImportErrorKind::Integrity,
+        PreflightError::Io => ImportErrorKind::Io,
+    };
+    ImportError::new(ImportPhase::VerifyLayer, kind)
 }
 
 #[cfg(test)]

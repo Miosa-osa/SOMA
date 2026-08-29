@@ -29,18 +29,20 @@
 The name describes the role.
 The model is the mind, while SOMA is the disposable machine body that executes its work.
 
-For engineers, SOMA is an open-source hardware-isolated sandbox engine for Linux workloads from OCI images.
+For engineers, SOMA is an open-source sandbox engine for Linux workloads from OCI images.
 It provides a small CLI, a portable Rust interface, and an MCP server for agents, backed by explicit lifecycle and execution evidence.
 Start with the [architecture diagrams](docs/architecture/diagrams.md) for the complete flow or use the [SOMA glossary](GLOSSARY.md) to connect terminology across OCI, virtualization, security, and performance.
+Read [Local sandbox reality](docs/architecture/local-sandbox-reality.md) for the exact distinction between SOMA configuration, Docker containers, Apple VMs, and the future Linux custom VMM.
 
 > [!WARNING]
 > SOMA is alpha software and is not safe for untrusted production workloads.
-> The Apple Silicon backend runs real development VMs today, while the production Ubuntu KVM engine remains under construction.
+> The local Docker backend runs Linux containers for development today.
+> The Linux custom-VMM engine remains under construction.
 > Dedicated ignored tests can direct-boot a trusted ARM64 Linux fixture, execute one challenge-bound direct command, and prove bounded teardown, but that test-only path is not linked into the library, does not execute OCI workloads, and does not expose a sandbox lifecycle.
 
 ## What makes SOMA different
 
-- One hardware-isolated virtual machine per sandbox.
+- One explicitly identified Linux container per local Docker sandbox today, with a custom hardware-isolated VMM planned for Linux hosts.
 - Direct argument-vector execution without a host shell.
 - Bounded commands, time, output, and control responses.
 - User-selected CPU, memory, storage, image, and human-readable Machine metadata.
@@ -49,21 +51,32 @@ Start with the [architecture diagrams](docs/architecture/diagrams.md) for the co
 - Evidence-carrying receipts for workload identity, Instance identity, isolation, preparation, shape, timing, command outcome, and cleanup.
 - One portable use-case surface for humans, agents, and cloud control planes.
 
-## Try it on Apple Silicon
+## Try it locally with Docker Desktop
 
-The current working local path requires Apple Silicon and macOS 26.
-The bootstrap installs a checksum-pinned, signed Apple Container 1.3 runtime into a user-owned SOMA directory.
+The current working local path uses Docker Desktop on macOS or Docker Engine on Linux.
+Docker must be running and the host must be able to run Linux ARM64 images.
 
 ```sh
 git clone https://github.com/Miosa-osa/SOMA.git
 cd SOMA
-./scripts/bootstrap-macos.sh
-cargo run --locked -p soma-cli -- doctor --strict
+cargo run --locked -p soma-cli -- doctor
 cargo run --locked -p soma-cli -- run node:22 -- /usr/local/bin/node --version
 ```
 
-The final command pulls or reuses `node:22`, starts its own Linux VM, runs Node directly, returns its exact bytes, and proves sandbox cleanup.
+The final command pulls or reuses `node:22`, creates a constrained Docker container, runs Node directly, returns its exact bytes, and proves cleanup.
+Use `--backend docker` to select Docker explicitly.
 Ubuntu, Python, Kali, and other compatible Linux ARM64 OCI images use the same interface.
+This local path is a container boundary inside Docker Desktop's Linux VM, not a per-sandbox hardware VM.
+
+### What works on macOS
+
+The Apple backend creates a Linux VM through Apple Virtualization.
+The Docker backend creates a Linux container inside Docker Desktop's Linux VM.
+Both are usable local SOMA sandbox paths, with different isolation guarantees.
+
+The custom Rust KVM VMM and other Linux-KVM VMMs require Linux `/dev/kvm` and cannot run natively on macOS.
+A Docker image can compile the VMM and run KVM-independent tests, but Docker Desktop does not turn the Mac into a reliable nested-KVM host.
+Real VMM execution and latency benchmarks belong on a Linux KVM host.
 
 ## Shape and customize a sandbox
 
@@ -91,7 +104,7 @@ See the [agent integration guide](docs/integrations/agents.md) for exact setup a
 SOMA treats security state as evidence instead of a marketing label.
 The interface records what was observed, what was enforced, what remained unavailable, and whether owned resources were cleaned up.
 
-The current implementation includes VM-per-sandbox isolation on Apple Silicon, direct process invocation, strict input bounds, output and timeout enforcement, ownership checks before lifecycle mutations, redacted diagnostics, typed failures, and dependency and secret scanning.
+The current implementation includes constrained Docker-container execution for local development, direct process invocation, strict input bounds, output and timeout enforcement, ownership checks before lifecycle mutations, redacted diagnostics, typed failures, and dependency and secret scanning.
 The production design additionally requires authenticated guest readiness, fresh identity repair, private copy-on-write memory and disk state, a constrained VMM process, and certified immutable Generations before stable `1.0.0`.
 
 Read the [threat model](docs/threat-model.md) and [security policy](SECURITY.md) before evaluating trust claims.
@@ -104,7 +117,7 @@ An unsupported local engine returns an explicit error and never runs the workloa
 
 | Host | CLI, library, and MCP | Local sandbox engine | Current evidence |
 | --- | --- | --- | --- |
-| Apple Silicon macOS 26 | Native validation | Apple Container 1.3 VM per OCI sandbox | OCI development lifecycle plus retained test-only [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [challenge-bound command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) evidence |
+| macOS with Docker Desktop | Native validation | Linux container per OCI sandbox inside Docker's Linux VM | Live Ubuntu and Node 22 lifecycle, command, and cleanup validation |
 | Ubuntu 24.04 and 26.04 x86_64 | Native CI | KVM capability probe | Custom VMM lifecycle not implemented yet |
 | Windows Server 2025 x86_64 | Native CI | None | Portable client only |
 | Linux ARM64 | Native development validation | KVM capability probe | Explicit-fixture cold boot and direct command execution exist only as dedicated ignored tests, not a custom sandbox lifecycle |
@@ -151,10 +164,11 @@ The source version is `1.0.0-alpha.1`.
 The first stable release will be `1.0.0` only after the custom Ubuntu 24.04 x86_64 KVM path can build an OCI-derived Generation and complete real launch, authenticated command readiness, execution, cleanup, isolation, and burst-performance gates.
 The current custom-VMM tracer bullets are the test-only [ARM64 explicit-fixture cold-boot proof](docs/adr/0014-arm64-kvm-cold-boot-proof.md) and [challenge-bound guest-command proof](docs/adr/0016-challenge-bound-arm64-guest-command-proof.md).
 Their retained [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) results are diagnostic evidence, not published performance benchmarks.
-The workspace now also contains a bounded deterministic OCI-layout importer and a portable authenticated-session foundation.
-Those modules verify Generation inputs and protocol behavior, but they do not yet construct a bootable Generation, inject a fresh secret after snapshot restore, run the authenticated protocol inside a guest, or establish sandbox readiness.
+The workspace now also contains a bounded deterministic OCI-layout importer, a canonical logical rootfs normalizer, and an owned authenticated guest-control lifecycle.
+The normalizer applies supported OCI filesystem semantics without host extraction, streams file content into CAS, and reproduced one pinned real `node:22` rootfs identity across independent runs.
+Those modules verify Generation inputs, normalized tree identity, and protocol behavior, but they do not yet construct a bootable Generation, inject a fresh secret after snapshot restore, run the authenticated protocol inside a guest, or establish sandbox readiness.
 The retained [real Node 22 OCI-import verification](docs/evidence/2026-08-29-node22-oci-import.md) and [Apple hardware-VM one-shot validation](docs/evidence/2026-08-29-apple-node22-one-shot.md) document the exact current evidence and its nonclaims.
-The next implementation boundary is OCI root normalization plus a static Rust guest agent and snapshot-safe launch-secret injection, followed by real VMM wiring.
+The next implementation boundary is deterministic disk-filesystem compilation and read-only KVM block-device consumption, followed by a static Rust guest agent, snapshot-safe launch-secret injection, and real VMM control-channel wiring.
 
 The [roadmap](ROADMAP.md) lists the evidence required for each phase.
 The [competitor and prior-art ledger](COMPETITORS.md) separates primary-source facts, external claims, unknowns, transferable lessons, and measured results.

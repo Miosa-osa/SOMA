@@ -43,7 +43,8 @@ An exact request with a generic platform is refined to a known concrete effectiv
 
 The first slice supports uncompressed OCI tar layers and gzip-compressed OCI tar layers.
 It computes each expanded SHA-256 diff ID in manifest order without retaining expanded bytes and structurally validates the same expanded stream before publication.
-Structural validation checks tar headers and sizes through `tar` 0.4.46, requires complete zero termination, rejects nonzero or misaligned trailing bytes, bounds logical entries and path metadata, rejects duplicate normalized entry paths, and prevents absolute or parent-traversing entry paths and hard-link targets.
+Structural validation checks tar headers and sizes through `tar` 0.4.46, requires complete zero termination, rejects nonzero or misaligned trailing bytes, bounds logical entries and path metadata across all selected layers, rejects duplicate normalized entry paths, and prevents absolute or parent-traversing entry paths and hard-link targets.
+Each logical entry and its path or link bytes are charged to that shared validation budget as the entry is observed, before the parser advances into its body or any later header.
 Symlink targets remain bounded metadata because valid Linux images may contain absolute or parent-relative symlinks, and the later root filesystem applier must resolve them safely within its own destination authority.
 It enforces per-blob, total selected-source, total expanded, and descriptor-count limits with checked counters.
 Zstd layers, nondistributable layer media types, Docker schema media types, artifact manifests, and encrypted layers are rejected as unsupported.
@@ -83,12 +84,15 @@ A competing writer can cause denial of service, and a crash after hard-link crea
 This slice does not claim protection from an actor that can replace already opened directories, retain a writable handle to stored content, mutate the store with greater operating-system authority, or corrupt storage after successful return.
 
 The tar parser bounds the complete expanded stream and the effective path and link metadata it returns.
-`tar` 0.4.46 can internally materialize a GNU long-name, GNU long-link, or local PAX extension body before the importer observes the effective field, so the configured aggregate expanded-byte limit is also the upper allocation-abuse bound for one such extension record.
-Production admission must use a certified tighter build profile or replace this parser seam before arbitrary hostile images are accepted.
+A raw streaming preflight caps each GNU long-name and long-link record at 4,097 bytes and each local PAX record at 64 KiB before `tar` 0.4.46 can materialize an extension body.
+Local PAX and GNU naming bodies across all selected layers share a 64 MiB extension-byte budget, while every global PAX header is rejected before its body is read.
+All raw tar headers across all selected layers share a separate checked one-million-header work ceiling, including ordinary entries and extension records with empty bodies.
+GNU sparse entries are rejected from their raw header before their body is read.
+The verified staged handle is rewound before the complete structural parser and digest pass, so this allocation bound does not replace tar integrity verification.
 
 `ImportedOci` proves only that the selected OCI inputs and deterministic import manifest were verified and stored.
-It is not a Generation, root filesystem, disk image, kernel bundle, snapshot, signature verification result, authenticated guest identity, sandbox, or readiness result.
-Later construction must separately implement extraction beneath a root capability, whiteouts, ownership, permissions, symlink resolution, device-node policy, x86_64 guest artifacts, Generation certification, and KVM boot verification.
+It alone does not prove applied whiteouts, filesystem ownership or permissions, symlink policy, device-node policy, a Generation, disk image, kernel bundle, snapshot, signature verification result, authenticated guest identity, sandbox, or readiness result.
+ADR 0019 defines logical filesystem application without host extraction, while disk materialization, x86_64 guest artifacts, Generation certification, and KVM boot verification remain later boundaries.
 
 ## Consequences
 
@@ -100,7 +104,7 @@ The initial dependency surface remains synchronous and portable: `soma`, Serde J
 ## Verification
 
 Default tests cover direct and nested indexes, absent and exact index media types, absent descriptor platforms, nested and leaf ARM64 variant reconciliation for generic and exact requests, exact caller index provenance, plain and gzip diff IDs, annotation-order stability, deterministic repeated and concurrent imports, and atomic-last completion behavior.
-Hostile tests cover wrong index media types, unsupported operating-system requirements, negative sizes, size and digest corruption, concrete platform disagreement, malformed gzip and plain tar input, tar checksum and termination corruption, unsafe or duplicate paths, escaping hard links, layer and diff-ID count mismatch, marker, index, descriptor, compressed, total, and expanded bounds, ambiguous selection, conflicting duplicate descriptors, unknown auxiliary media, source and final-root symlinks, substituted staged paths, corrupted existing CAS objects, redacted paths, structural nested-index cycles, and rejection of preexisting Generation identity.
+Hostile tests cover wrong index media types, unsupported operating-system requirements, negative sizes, size and digest corruption, concrete platform disagreement, malformed gzip and plain tar input, tar checksum and termination corruption, incremental aggregate raw-header, extension-byte, logical-entry, and path-metadata bounds, sparse rejection before body reads, unsafe or duplicate paths, escaping hard links, layer and diff-ID count mismatch, marker, index, descriptor, compressed, total, and expanded bounds, ambiguous selection, conflicting duplicate descriptors, unknown auxiliary media, source and final-root symlinks, substituted staged paths, corrupted existing CAS objects, redacted paths, structural nested-index cycles, and rejection of preexisting Generation identity.
 A Windows-only publication test exercises the public import path without requiring unsupported directory fsync semantics.
 An ignored live test imports a real extracted Apple Container OCI archive with the top-index to nested-index to Linux ARM64 manifest shape.
 That Apple Silicon test proves only local OCI traversal, verification, deterministic manifest construction, and CAS publication.

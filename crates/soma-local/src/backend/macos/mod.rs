@@ -1,4 +1,5 @@
 mod adapter;
+mod boxed;
 mod config;
 mod evidence;
 mod execution;

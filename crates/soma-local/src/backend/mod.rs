@@ -1,14 +1,11 @@
-#[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "x86_64")
-))]
 mod clock;
+mod docker;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod kvm;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 mod macos;
 
-use std::path::PathBuf;
+use std::{any::Any, path::PathBuf};
 
 use soma::{
     Backend, BackendFailure, BackendKind, CleanupObservation, CleanupRequest, CommandObservation,
@@ -23,6 +20,7 @@ pub enum BackendSelection {
     #[default]
     Auto,
     Macos,
+    Docker,
     Kvm,
 }
 
@@ -62,12 +60,14 @@ pub fn probe_backend(
     let selection = resolve_selection(selection)?;
     match selection {
         BackendSelection::Macos => probe_macos(explicit_runtime),
+        BackendSelection::Docker => docker::probe(),
         BackendSelection::Kvm => probe_kvm(),
         BackendSelection::Auto => unreachable!("auto selection is resolved before probing"),
     }
 }
 
 pub(crate) enum LocalBackend {
+    Docker(docker::DockerBackend),
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     Macos(macos::MacBackend),
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -82,11 +82,7 @@ fn eliminate_uninhabited_backend<T>(backend: &LocalBackend) -> T {
     match *backend {}
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-type PreparedWorkload = macos::MacPreparedWorkload;
-
-#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-pub(crate) enum PreparedWorkload {}
+type PreparedWorkload = Box<dyn Any + Send>;
 
 impl LocalBackend {
     pub(crate) fn open(
@@ -95,6 +91,9 @@ impl LocalBackend {
     ) -> Result<(Self, BackendSelection), LocalFailure> {
         let resolved = resolve_selection(selection)?;
         match resolved {
+            BackendSelection::Docker => docker::DockerBackend::open()
+                .map(|backend| (Self::Docker(backend), resolved))
+                .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable)),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             BackendSelection::Macos => macos::MacBackend::open(explicit_runtime)
                 .map(|backend| (Self::Macos(backend), resolved))
@@ -117,6 +116,7 @@ impl Backend for LocalBackend {
 
     fn kind(&self) -> BackendKind {
         match self {
+            Self::Docker(_) => docker::DockerBackend::kind(),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(_) => macos::MacBackend::kind(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -134,8 +134,9 @@ impl Backend for LocalBackend {
         request: ResolutionRequest<'_>,
     ) -> Result<ResolutionObservation<Self::PreparedWorkload>, BackendFailure> {
         match self {
+            Self::Docker(backend) => backend.resolve(request),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            Self::Macos(backend) => backend.resolve(request),
+            Self::Macos(backend) => backend.resolve_box(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
             #[cfg(not(any(
@@ -154,8 +155,9 @@ impl Backend for LocalBackend {
         request: LaunchRequest<'_, Self::PreparedWorkload>,
     ) -> Result<LaunchObservation, BackendFailure> {
         match self {
+            Self::Docker(backend) => backend.launch(&request),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            Self::Macos(backend) => backend.launch(&request),
+            Self::Macos(backend) => backend.launch_box(&request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
             #[cfg(not(any(
@@ -174,6 +176,7 @@ impl Backend for LocalBackend {
         request: ExecutionRequest<'_>,
     ) -> Result<CommandObservation, BackendFailure> {
         match self {
+            Self::Docker(backend) => Ok(backend.execute(request)),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -194,6 +197,7 @@ impl Backend for LocalBackend {
         request: InspectionRequest<'_>,
     ) -> Result<InspectionObservation, BackendFailure> {
         match self {
+            Self::Docker(backend) => backend.inspect(request),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.inspect(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -214,6 +218,7 @@ impl Backend for LocalBackend {
         request: CleanupRequest<'_>,
     ) -> Result<CleanupObservation, BackendFailure> {
         match self {
+            Self::Docker(backend) => Ok(backend.cleanup(request)),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.cleanup(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -236,6 +241,9 @@ fn resolve_selection(selection: BackendSelection) -> Result<BackendSelection, Lo
     }
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
+        if docker::is_available() {
+            return Ok(BackendSelection::Docker);
+        }
         return Ok(BackendSelection::Macos);
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

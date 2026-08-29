@@ -15,6 +15,8 @@ pub const CONFIG: &str = "application/vnd.oci.image.config.v1+json";
 pub const PLAIN: &str = "application/vnd.oci.image.layer.v1.tar";
 pub const GZIP: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
 
+pub mod rootfs;
+
 pub struct Fixture {
     temporary: tempfile::TempDir,
     pub layout: PathBuf,

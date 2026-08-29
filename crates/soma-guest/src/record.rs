@@ -9,6 +9,8 @@ const OUTER_HEADER: usize = 2;
 const INNER_HEADER: usize = 8 + 2;
 const AEAD_TAG: usize = 16;
 const NOISE_MESSAGE_MAX: usize = 65_535;
+pub(crate) const MAX_RECORD_CIPHERTEXT: usize = NOISE_MESSAGE_MAX;
+pub(crate) const MIN_RECORD_CIPHERTEXT: usize = AEAD_TAG + INNER_HEADER;
 
 /// Largest caller payload accepted by one encrypted record.
 pub const MAX_RECORD_PAYLOAD: usize = NOISE_MESSAGE_MAX - AEAD_TAG - INNER_HEADER;
@@ -20,7 +22,7 @@ enum Role {
 }
 
 /// One authenticated, ordered, bidirectional Noise transport session.
-pub struct AuthenticatedSession {
+pub(crate) struct AuthenticatedSession {
     transport: TransportState,
     role: Role,
     next_send: u64,
@@ -50,7 +52,7 @@ impl AuthenticatedSession {
     ///
     /// Returns [`Error::RecordTooLarge`] for an oversized payload or
     /// [`Error::SessionExhausted`] when the directional sequence is exhausted.
-    pub fn seal(&mut self, payload: &[u8]) -> Result<Vec<u8>, Error> {
+    pub(crate) fn seal(&mut self, payload: &[u8]) -> Result<Vec<u8>, Error> {
         if self.poisoned {
             return Err(Error::SessionPoisoned);
         }
@@ -88,7 +90,7 @@ impl AuthenticatedSession {
     ///
     /// Returns [`Error::PeerRecordRejected`] for the first invalid peer record and
     /// [`Error::SessionPoisoned`] for every later attempt.
-    pub fn open(&mut self, framed: &[u8]) -> Result<Vec<u8>, Error> {
+    pub(crate) fn open(&mut self, framed: &[u8]) -> Result<Vec<u8>, Error> {
         if self.poisoned {
             return Err(Error::SessionPoisoned);
         }
@@ -122,7 +124,7 @@ fn exact_ciphertext(framed: &[u8]) -> Result<&[u8], ()> {
         .try_into()
         .map_err(|_| ())?;
     let length = usize::from(u16::from_be_bytes(header));
-    if length < AEAD_TAG + INNER_HEADER || framed.len() != OUTER_HEADER + length {
+    if length < MIN_RECORD_CIPHERTEXT || framed.len() != OUTER_HEADER + length {
         return Err(());
     }
     Ok(&framed[OUTER_HEADER..])

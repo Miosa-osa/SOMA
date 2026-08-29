@@ -15,6 +15,7 @@ pub(crate) enum BackendInput {
     Local,
     Kvm,
     Macos,
+    Docker,
 }
 
 impl From<BackendInput> for BackendTarget {
@@ -24,6 +25,7 @@ impl From<BackendInput> for BackendTarget {
             BackendInput::Local => Self::Local,
             BackendInput::Kvm => Self::Kvm,
             BackendInput::Macos => Self::Macos,
+            BackendInput::Docker => Self::Docker,
         }
     }
 }

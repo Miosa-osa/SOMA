@@ -54,6 +54,7 @@ const fn backend_name(selection: BackendSelection) -> &'static str {
     match selection {
         BackendSelection::Auto => "auto",
         BackendSelection::Macos => "macos",
+        BackendSelection::Docker => "docker",
         BackendSelection::Kvm => "kvm",
     }
 }

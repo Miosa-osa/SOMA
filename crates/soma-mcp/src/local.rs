@@ -285,6 +285,7 @@ const fn selection(target: BackendTarget) -> BackendSelection {
         BackendTarget::Auto | BackendTarget::Local => BackendSelection::Auto,
         BackendTarget::Kvm => BackendSelection::Kvm,
         BackendTarget::Macos => BackendSelection::Macos,
+        BackendTarget::Docker => BackendSelection::Docker,
     }
 }
 

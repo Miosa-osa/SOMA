@@ -1,5 +1,8 @@
 use super::{MAX_HANDSHAKE_MESSAGE, unframe};
 
+mod authentication;
+mod replay;
+
 #[test]
 fn every_handshake_u16_declaration_obeys_the_exact_length_rule() {
     let body = [0xA5; 32];

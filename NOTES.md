@@ -1,5 +1,12 @@
 # Notes
 
+## 2026-08-29 - Docker is the first local development backend
+
+The first working local SOMA lifecycle uses Docker Desktop's Linux ARM64 engine on macOS.
+It creates a constrained container with a read-only root, dropped capabilities, no-new-privileges, a PID limit, bounded command execution, and disabled networking by default.
+This is a Linux-container boundary inside Docker's utility VM, not the per-sandbox hardware VM targeted by the future custom Rust VMM on Linux.
+Five live `node:22` one-shot runs returned `v22.23.2` and complete cleanup, with approximately 1.19 to 1.24 seconds end to end on the development Mac.
+
 ## 2026-08-28 - Project foundation
 
 SOMA expands to Secure Optimized Machine Architecture.
@@ -250,8 +257,8 @@ This remains a cold trusted-fixture proof and does not establish OCI execution, 
 
 ADR 0018 creates a real independently tested `soma-generation` boundary for bounded import from an existing OCI image layout.
 The importer verifies descriptor sizes and SHA-256 digests, selected manifest and configuration identity, ordered layers and expanded `diff_ids`, traversal and byte budgets, descriptor-relative no-follow access, and atomic immutable content-store publication.
-Its output is `ImportedOci`, never `GenerationId`.
-Root filesystem normalization, whiteout application, kernel and guest-agent selection, snapshot capture, compatibility certification, signatures, and launch remain later Generation stages.
+Its import output is `ImportedOci`, never `GenerationId`.
+The later normalization slice now produces `NormalizedRootfs`, while disk compilation, kernel and guest-agent selection, snapshot capture, compatibility certification, signatures, and launch remain later Generation stages.
 
 Two Apple Container exports of the same cached `node:22` image produced identical selected manifest, configuration, and layer bytes but different synthesized traversal-index bytes because annotation map order changed.
 Canonical imported identity therefore excludes export-only traversal indexes while retaining a caller-supplied registry index digest for an exact immutable selection.
@@ -261,7 +268,10 @@ That import is an offline build-path check and is not sandbox launch, first-comm
 The importer now validates each expanded layer as a complete tar stream before any selected layer is published and records the logical entry count in its deterministic completion artifact.
 Two independently exported layouts produced the same structurally validated import digest `sha256:7f054135dc1553375fb1e798b902f5580c745741d45c4d6f3088e08bbaac110e` in 27.14 and 27.46 seconds on the development Mac.
 Those timings measure cold offline verification of 381 MiB, not Machine creation or command readiness.
-The `tar` 0.4.46 parser can materialize a GNU or PAX extension body before returning its effective field, so the aggregate expanded-byte limit remains the allocation-abuse bound for that record until the Generation builder adopts a tighter certified profile or parser seam.
+The importer now runs a raw streaming preflight before `tar` 0.4.46, limiting GNU long-name and long-link records to 4,097 bytes and each local PAX record to 64 KiB before the complete parser can materialize it.
+Local PAX and GNU naming bodies across selected layers share a 64 MiB import budget, and global PAX is rejected from its header before its body is read.
+Import also caps all raw tar headers across selected layers at one million, aggregates logical entry and path metadata totals across those layers, and rejects GNU sparse entries before reading their bodies.
+Logical entries and their path or link bytes are charged incrementally before validation advances into each entry body, so a later layer cannot consume another full per-layer allowance before aggregate rejection.
 
 ## 2026-08-28 - Private workspace crates stay out of public release bundles
 
@@ -287,3 +297,42 @@ Narrow duplicate-version exceptions cover Snow 0.10's older RustCrypto and getra
 Those exceptions remain dependency-specific and should be removed when their upstream graphs converge.
 The OCI content store is a single-writer authority boundary because portable Rust cannot hard-link an already verified open handle directly into the final namespace.
 Publication revalidates the destination and repairs its read-only attribute, while retained writable handles or an actor with competing store authority remain outside the guarantee.
+
+## 2026-08-29 - Owned authenticated guest control is one fail-closed lifecycle
+
+ADR 0020 defines a canonical 4,096-byte launch page, fixed bounded application messages, direct argument-vector commands, and exact output accounting.
+Host launch material and guest session material are single-use owned states, while raw PSKs, handshakes, and encrypted sessions remain crate-private.
+ADR 0021 composes the Noise handshake, byte transport, repair commit, fixed `/proc/self/exe --soma-ready-probe-v1` check, Execute exchanges, Shutdown, and poisoning behind `HostControl` and `GuestControl`.
+Every operation identity is single-use within one session and a private ledger caps the session at 65,536 identities, preventing a late terminal from becoming a later result through identity reuse.
+Every control read, write, and repair commit carries one absolute monotonic deadline that adapters must honor, with host ceilings of 10 seconds for handshake, 5 seconds for repair, 2 seconds for the fixed probe, 5 seconds for Shutdown, and command timeout plus 1 second for Execute delivery.
+Guest receive and report calls take caller-supplied absolute deadlines so the future VMM retains sandbox TTL and cancellation policy.
+An authenticated peer can still send a newly authenticated late record after any acknowledgement, so the static guest agent and exclusive control channel remain a trust boundary and the next owner read detects and poisons that violation.
+The current code does not map the launch page into non-snapshot guest memory, retire a KVM memory slot, perform real clone repair, execute inside a guest, or establish sandbox Ready.
+
+## 2026-08-29 - Normalized rootfs is a logical artifact, not a Generation
+
+ADR 0019 adds `normalize_oci_rootfs` as the deep portable seam from one verified `ImportedOci` to one immutable `NormalizedRootfs` completion artifact.
+The implementation reopens and verifies the import manifest and each selected layer, applies supported OCI whiteouts and filesystem metadata in a raw-byte logical tree, streams regular-file contents into CAS, and publishes a canonical binary tree manifest last.
+The canonical identity excludes OCI compression, layer partitioning, tar order, and traversal provenance while retaining hard-link topology, supported metadata, symlink targets, FIFO nodes, and content digests.
+Every input, extension record, expanded stream, path, entry, metadata total, file, aggregate content total, and completion manifest is explicitly bounded.
+All raw tar headers across selected layers share the rootfs entry ceiling, local PAX and GNU naming bodies share its metadata ceiling, and GNU sparse entries fail from their raw header before body processing.
+Version 1 accepts only byte-preserving local PAX `path` and `linkpath` values and rejects global, malformed, duplicate, xattr, timestamp, security, and unknown PAX metadata.
+It rejects mixed local PAX and GNU naming extensions instead of choosing tar 0.4.46's format-specific precedence.
+It also rejects devices, sockets, sparse and contiguous files, unknown node types, malformed whiteouts, unsafe paths, and unresolved or cyclic hard links.
+Same-layer hard-link chains resolve through an iterative reverse-dependency queue, so a one-million-entry ceiling cannot create recursive stack growth or quadratic rescanning.
+Two independent pinned `node:22` normalization runs produced the same rootfs digest `sha256:5dac6c571b970375a978c3f2f8777883e5bdd582fb4b43a5b872f929a2c7adf6`, 3,678,098 manifest bytes, 33,534 entries, and 1,125,654,269 logical file bytes.
+Their normalization sections took 537.280 and 508.693 seconds on the development Mac because this offline path revalidates, decompresses, hashes, fsyncs, and republishes file objects twice in the ignored determinism test.
+Those times are Generation build-path observations and make no claim about Machine launch, restore, readiness, or first-command latency.
+Late-invalid normalization can leave unreachable content objects without exposing a partial rootfs completion artifact.
+Private pre-alpha use therefore requires an operator-enforced job or store quota plus out-of-band garbage collection, and tenant admission remains prohibited until internal quota or reachability cleanup is implemented and tested.
+`NormalizedRootfs` is not a mounted filesystem, disk image, bootable root, `GenerationId`, snapshot, compatibility certificate, readiness result, or sandbox performance result.
+The next honest Generation step is a pinned deterministic disk-filesystem compiler and a separate KVM block-device mount and file-read proof.
+
+## 2026-08-29 - Authenticated control deadlines are absolute adapter contracts
+
+ADR 0021 now requires every control read, write, and host repair commit to receive an absolute `std::time::Instant` that the adapter MUST honor through cancellation and bounded teardown.
+One deadline covers both reads of a frame and the complete host exchange, so partial frames or repeated output chunks cannot renew a liveness budget.
+Host ceilings are ten seconds for Handshake, five seconds for Repair, fixed probe timeout plus one second of delivery grace, five seconds for Shutdown, and validated Execute timeout plus one second of delivery grace.
+These are failure-containment ceilings rather than latency targets.
+Guest connect, receive, and report calls take caller-supplied deadlines so sandbox TTL and control-plane cancellation remain outside the codec.
+An authenticated guest agent can still send a late record after any acknowledgement, so the guest-agent channel remains a trust boundary and the next owner read detects and poisons that violation.

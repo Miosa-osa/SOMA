@@ -21,7 +21,7 @@ crates/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, portable authenticated-session primitives, a command-line adapter, and a bounded stdio MCP adapter.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a command-line adapter, and a bounded stdio MCP adapter.
 It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, authenticated guest agent, snapshot-safe secret injection, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
@@ -55,7 +55,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-vmm` owns the provider-neutral Machine interface and the deep lifecycle implementation.
 `soma-kvm` owns target-gated access to Linux x86_64 production KVM capabilities and Linux ARM64 development KVM capabilities.
 `soma-macos` owns the development-only Apple VM-per-OCI lifecycle adapter.
-`soma-generation` verifies bounded OCI image-layout input and publishes immutable imported artifacts without minting a certified Generation.
+`soma-generation` verifies bounded OCI image-layout input and publishes immutable imported and normalized logical-tree artifacts without minting a certified Generation.
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 No provider adapter belongs below the public Machine seam.
@@ -330,9 +330,12 @@ It retains no second lifecycle implementation and invokes the same facade used b
 
 ## `soma-generation` responsibilities
 
-`soma-generation` owns deterministic import of one selected image from an existing OCI image layout into a descriptor-relative content-addressed store.
+`soma-generation` owns deterministic import of one selected image from an existing OCI image layout and normalization of its selected layers into one canonical logical tree in a descriptor-relative content-addressed store.
 It verifies the selected manifest, configuration, ordered layer descriptors, gzip expansion, and ordered `diff_ids` under explicit descriptor, blob, aggregate, expansion, and traversal bounds.
 It accepts exact immutable identity or unique platform selection, fails closed on ambiguity or disagreement, and records local traversal indexes as provenance rather than canonical registry identity.
+Normalization reopens and verifies the imported completion and selected layers, applies the supported bounded OCI filesystem semantics without unpacking guest names into a host tree, streams regular-file bodies into CAS, and publishes the canonical tree manifest last.
+Its bounded local PAX profile accepts only exact `path` and `linkpath` values, while global, malformed, duplicate, xattr, timestamp, security, and unknown PAX metadata fail closed.
+The importer rejects global PAX and mixed local PAX plus GNU naming extensions before normalization.
 
 The source map is:
 
@@ -343,46 +346,86 @@ crates/soma-generation/src/
   error.rs
   import.rs
   layer_tar.rs
+  layer_tar/budget.rs
   layout.rs
   manifest.rs
+  normalize.rs
+  normalize/entry.rs
+  normalize/error.rs
+  normalize/layer.rs
+  normalize/node_plan.rs
+  normalize/pax.rs
+  normalize/source.rs
+  normalize/stream.rs
+  normalize/tree.rs
+  normalize/tree/hardlinks.rs
+  normalize/tree/mutation.rs
+  normalize/tree_manifest.rs
+  normalize/tree_model.rs
+  normalize/types.rs
   oci.rs
   publish.rs
   publish/layers.rs
   root.rs
   store.rs
   store/staged.rs
+  tar_preflight.rs
   traversal.rs
   types.rs
   verify.rs
 ```
 
-The public result is `ImportedOci`.
-It is a verified input artifact for later Generation construction, not a `GenerationId`, bootable root filesystem, kernel, guest agent, snapshot, compatibility certificate, or sandbox.
-Registry authentication, tag resolution, tar extraction, root filesystem normalization, whiteouts, signing, SBOM generation, and certification remain outside this slice.
+The public results are `ImportedOci` and `NormalizedRootfs`.
+`NormalizedRootfs` identifies a canonical logical tree and retains its import provenance, but it is not a mounted or bootable root filesystem, `GenerationId`, kernel, guest agent, snapshot, compatibility certificate, or sandbox.
+Registry authentication, tag resolution, host extraction, disk-filesystem compilation, signing, SBOM generation, reachability garbage collection, internal store quotas, and certification remain outside this slice.
 The crate depends on the portable `soma` identity types and must not depend on `soma-vmm`, a provider adapter, or launch-time policy.
 
 ## `soma-guest` responsibilities
 
-`soma-guest` owns a fixed portable Noise handshake profile, canonical session binding, bounded encrypted records, directional sequencing, redacted errors, and secret wrapper boundaries.
-Its public typestate prevents callers from obtaining an authenticated transport before their side of the two-message handshake completes.
-The first rejected peer record poisons both directions of that local session object.
+`soma-guest` owns a fixed portable Noise handshake profile, canonical session binding, bounded encrypted records, canonical application messages, one-use launch-page material, the authenticated control lifecycle, absolute transport deadlines, operation replay protection, redacted errors, and secret wrapper boundaries.
+Its public typestate prevents callers from obtaining transport mode before their side of the two-message handshake completes or reusing an in-flight owner.
+The first handshake, transport, semantic, lifecycle, accounting, or deadline failure consumes the owner and irreversibly poisons its byte adapter.
 
 The source map is:
 
 ```text
 crates/soma-guest/src/
   lib.rs
+  application/command.rs
+  application/frame.rs
+  application/guest.rs
+  application/host.rs
+  application/mod.rs
+  application/operation.rs
+  application/output.rs
+  application/terminal.rs
   binding.rs
+  control/channel.rs
+  control/deadline.rs
+  control/error.rs
+  control/exchange.rs
+  control/guest.rs
+  control/guest_connect.rs
+  control/guest_state.rs
+  control/host.rs
+  control/host_connect.rs
+  control/io.rs
+  control/mod.rs
+  control/operation_ledger.rs
+  control/outcome.rs
+  control/request.rs
   error.rs
   handshake.rs
+  launch_page.rs
+  launch_page/wire.rs
   record.rs
   resolver.rs
   secret.rs
 ```
 
-The crate is an independent protocol foundation so the future host and guest implementations can share one encoding and test corpus.
-It does not contain a guest executable, VMM device transport, trusted Generation-manifest verifier, snapshot-safe per-Instance secret injection, Repair sequence, readiness proof, C ABI, or attestation mechanism.
-An authenticated session is not an `AuthenticatedGuest` and cannot authorize Ready by itself.
+The crate is an independent protocol and ownership foundation so the future host VMM adapter and static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
+It does not contain a guest executable, VMM device transport adapter, trusted Generation-manifest verifier, physical snapshot-safe secret injection, real clone repair, process executor, C ABI, or attestation mechanism.
+Its owned authenticated probe state is necessary but cannot authorize a Machine Ready result until those external repair and execution effects are wired and evidenced.
 
 ## Future node and protocol modules
 
@@ -404,8 +447,8 @@ Tests replace behavior at the deepest stable seam and continue to use the extern
 
 ## Generation construction
 
-OCI acquisition, root filesystem conversion, guest boot, quiescence, snapshot capture, certification, and provenance occur outside the request-time VMM.
-The implemented importer establishes the first bounded input workflow but deliberately stops before root filesystem conversion or Generation identity.
+OCI acquisition, logical rootfs normalization, disk-filesystem compilation, guest boot, quiescence, snapshot capture, certification, and provenance occur outside the request-time VMM.
+The implemented importer and normalizer establish bounded input and canonical logical-tree workflows but deliberately stop before disk construction or Generation identity.
 Later Generation stages remain behind the same independently tested module rather than entering Launch latency.
 
 The Launch path consumes a certified immutable Generation.

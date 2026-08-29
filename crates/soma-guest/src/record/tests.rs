@@ -3,8 +3,45 @@ use crate::{
 };
 
 use super::{
-    AEAD_TAG, AuthenticatedSession, INNER_HEADER, OUTER_HEADER, exact_ciphertext, exact_plaintext,
+    AEAD_TAG, AuthenticatedSession, INNER_HEADER, MAX_RECORD_PAYLOAD, OUTER_HEADER,
+    exact_ciphertext, exact_plaintext,
 };
+
+#[test]
+fn authenticated_records_reject_replay_and_reordering() {
+    let (mut host, mut guest) = connected_peers();
+    let first = host.seal(b"zero").expect("first record");
+    let second = host.seal(b"one").expect("second record");
+
+    assert_eq!(guest.open(&first).expect("first delivery"), b"zero");
+    assert_eq!(guest.open(&first), Err(Error::PeerRecordRejected));
+
+    let (_, mut fresh_guest) = connected_peers();
+    assert_eq!(fresh_guest.open(&second), Err(Error::PeerRecordRejected));
+}
+
+#[test]
+fn malformed_outer_records_fail_closed() {
+    for malformed in [vec![], vec![0], vec![0, 1, 0], vec![0, 26], vec![0, 0]] {
+        let (_, mut guest) = connected_peers();
+        assert_eq!(guest.open(&malformed), Err(Error::PeerRecordRejected));
+    }
+}
+
+#[test]
+fn maximum_payload_round_trips_and_local_oversize_does_not_poison() {
+    let (mut host, mut guest) = connected_peers();
+    let payload = vec![0xA5; MAX_RECORD_PAYLOAD];
+    let encrypted = host.seal(&payload).expect("maximum record");
+    assert_eq!(guest.open(&encrypted).expect("maximum payload"), payload);
+
+    assert_eq!(
+        host.seal(&vec![0; MAX_RECORD_PAYLOAD + 1]),
+        Err(Error::RecordTooLarge)
+    );
+    let next = host.seal(b"next").expect("session remains usable");
+    assert_eq!(guest.open(&next).expect("next payload"), b"next");
+}
 
 #[test]
 fn authenticated_peer_cannot_skip_the_inner_sequence() {
@@ -126,10 +163,11 @@ fn seal_raw(session: &mut AuthenticatedSession, plaintext: &[u8]) -> Vec<u8> {
 fn connected_peers() -> (AuthenticatedSession, AuthenticatedSession) {
     let binding = SessionBinding::new([1; 32], [2; 16], [3; 16], [4; 32]).expect("valid binding");
     let keypair = ResponderKeypair::generate().expect("responder keypair");
-    let psk = InstancePsk::provision_for([2; 16], [5; 32]).expect("instance PSK");
+    let host_psk = InstancePsk::provision_for([2; 16], [5; 32]).expect("host PSK");
+    let guest_psk = InstancePsk::provision_for([2; 16], [5; 32]).expect("guest PSK");
     let (waiting, first) =
-        InitiatorHandshake::start(&binding, keypair.public_key(), &psk).expect("first message");
-    let pending = ResponderHandshake::accept(&binding, keypair.private_key(), &psk, &first)
+        InitiatorHandshake::start(&binding, keypair.public_key(), host_psk).expect("first message");
+    let pending = ResponderHandshake::accept(&binding, keypair.private_key(), guest_psk, &first)
         .expect("second message");
     let second = pending.response().to_vec();
     let guest = pending.finish().expect("authenticated guest");

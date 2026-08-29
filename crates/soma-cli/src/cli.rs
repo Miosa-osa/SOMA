@@ -18,6 +18,7 @@ pub enum BackendSelection {
     #[default]
     Auto,
     Macos,
+    Docker,
     Kvm,
 }
 
@@ -26,16 +27,14 @@ impl From<BackendSelection> for soma_local::BackendSelection {
         match value {
             BackendSelection::Auto => Self::Auto,
             BackendSelection::Macos => Self::Macos,
+            BackendSelection::Docker => Self::Docker,
             BackendSelection::Kvm => Self::Kvm,
         }
     }
 }
 
 #[derive(Parser)]
-#[command(
-    name = "soma",
-    about = "Run and control hardware-isolated SOMA sandboxes"
-)]
+#[command(name = "soma", about = "Run and control SOMA sandboxes")]
 pub struct Cli {
     /// Output for people or the stable soma.cli.v1 machine envelope.
     #[arg(long, global = true, value_enum, default_value = "human")]

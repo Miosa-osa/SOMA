@@ -1180,6 +1180,8 @@ dependencies = [
 name = "soma-local"
 version = "1.0.0-alpha.1"
 dependencies = [
+ "serde",
+ "serde_json",
  "soma",
  "soma-kvm",
  "soma-macos",

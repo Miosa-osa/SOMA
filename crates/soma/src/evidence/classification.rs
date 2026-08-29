@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum BackendKind {
     LinuxKvm,
     MacosVirtualization,
+    DockerContainer,
     Remote,
 }
 
@@ -12,6 +13,7 @@ pub enum BackendKind {
 #[serde(rename_all = "snake_case")]
 pub enum IsolationClass {
     HardwareVirtualMachine,
+    LinuxContainer,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

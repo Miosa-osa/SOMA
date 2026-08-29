@@ -13,7 +13,7 @@ pub struct LaunchRequest<'a, P> {
 }
 
 impl<'a, P> LaunchRequest<'a, P> {
-    pub(crate) const fn new(
+    pub const fn new(
         operation_id: &'a OperationId,
         instance_id: &'a InstanceId,
         workload: &'a WorkloadIdentity,

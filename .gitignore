@@ -11,3 +11,5 @@ __pycache__/
 coverage/
 /result/
 benchmarks/results/
+/fuzz/artifacts/
+/fuzz/corpus/

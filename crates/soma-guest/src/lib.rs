@@ -1,24 +1,68 @@
-//! Test-oriented authenticated guest-control building blocks.
+//! Authenticated guest-control protocol and semantic session owner.
 //!
-//! This crate establishes a cryptographic protocol seam.
-//! It does not establish production key custody, snapshot-safe secret injection, guest
-//! attestation, or SOMA readiness.
+//! This crate owns the cryptographic session, byte transport, launch-page bytes, bounded
+//! application codec, repair gate, and one-operation exchange state.
+//! It does not map a confidential non-snapshot page, perform guest repair, execute a process,
+//! or attest a Generation.
+//!
+//! Raw PSKs and handshake factories are intentionally not public API.
+//!
+//! ```compile_fail
+//! use soma_guest::InstancePsk;
+//! ```
+//!
+//! ```compile_fail
+//! use soma_guest::InitiatorHandshake;
+//! ```
+//!
+//! ```compile_fail
+//! use soma_guest::ResponderHandshake;
+//! ```
+//!
+//! ```compile_fail
+//! use soma_guest::InitiatorAwaitingResponse;
+//! ```
+//!
+//! ```compile_fail
+//! use soma_guest::ResponderPendingResponse;
+//! ```
+//!
+//! ```compile_fail
+//! use soma_guest::AuthenticatedSession;
+//! ```
 
 #![forbid(unsafe_code)]
 
+mod application;
 mod binding;
+mod control;
 mod error;
 mod handshake;
+mod launch_page;
 mod record;
 mod resolver;
 mod secret;
 
+pub use application::{
+    GuestCommand, GuestMessage, HostMessage, OperationId, OutputChunk, TerminalReport,
+    TerminalStatus,
+};
 pub use binding::SessionBinding;
+pub use control::{
+    ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome, GuestControl,
+    GuestRequest, HostControl, HostControlIo, RepairedHostControl,
+};
 pub use error::Error;
-pub use handshake::{
+pub(crate) use handshake::{
     InitiatorAwaitingResponse, InitiatorHandshake, ResponderHandshake, ResponderPendingResponse,
 };
-pub use record::{AuthenticatedSession, MAX_RECORD_PAYLOAD};
-pub use secret::{InstancePsk, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey};
+pub use launch_page::{
+    DeliveredHostLaunchMaterial, GuestLaunchMaterial, GuestSessionMaterial, HostLaunchMaterial,
+    LAUNCH_PAGE_SIZE,
+};
+pub(crate) use record::AuthenticatedSession;
+pub use record::MAX_RECORD_PAYLOAD;
+pub(crate) use secret::InstancePsk;
+pub use secret::{ResponderKeypair, ResponderPrivateKey, ResponderPublicKey};
 
 const NOISE_PATTERN: &str = "Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s";

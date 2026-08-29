@@ -42,12 +42,12 @@ This file records the primary sources that constrain SOMA's design.
 ## Sandbox and restore references
 
 - [ComputeSDK benchmarks](https://github.com/computesdk/benchmarks) define the public create-through-first-command benchmark SOMA must reproduce exactly.
-- [OCI image specification](https://github.com/opencontainers/image-spec) defines immutable manifests, indexes, layers, configuration, and platform selection for input images.
-- [OCI image layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) defines `oci-layout`, the top-level index, and descriptor-addressed blob placement for local imports.
-- [OCI descriptor specification](https://github.com/opencontainers/image-spec/blob/main/descriptor.md) defines media type, digest, size, optional platform metadata, and artifact extensibility rules.
-- [OCI image manifest](https://github.com/opencontainers/image-spec/blob/main/manifest.md) defines the ordered configuration and layer descriptors selected by the importer.
-- [OCI image configuration](https://github.com/opencontainers/image-spec/blob/main/config.md) defines platform fields and the ordered uncompressed layer `diff_ids` that SOMA verifies.
-- [OCI image layer specification](https://github.com/opencontainers/image-spec/blob/main/layer.md) defines layer media types, compression, and digest relationships.
+- [OCI Image Specification v1.1.1](https://github.com/opencontainers/image-spec/tree/v1.1.1) defines immutable manifests, indexes, layers, configuration, and platform selection for input images.
+- [OCI image layout v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) defines `oci-layout`, the top-level index, and descriptor-addressed blob placement for local imports.
+- [OCI descriptor specification v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/descriptor.md) defines media type, digest, size, optional platform metadata, and artifact extensibility rules.
+- [OCI image manifest v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/manifest.md) defines the ordered configuration and layer descriptors selected by the importer.
+- [OCI image configuration v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/config.md) defines platform fields and the ordered uncompressed layer `diff_ids` that SOMA verifies.
+- [OCI image layer specification v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/layer.md) defines layer media types, compression, and digest relationships.
 - [OCI distribution specification](https://github.com/opencontainers/distribution-spec) defines registry distribution and digest-addressed content behavior.
 - [tar 0.4.46 documentation](https://docs.rs/tar/0.4.46/tar/) defines the streaming Rust archive parser used to validate expanded OCI layer structure without extracting it.
 - [CubeSandbox](https://github.com/TencentCloud/CubeSandbox) documents Tencent Cloud's CubeHypervisor, CubeShim, Cubelet, networking, and sandbox topology.

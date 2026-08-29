@@ -1,5 +1,5 @@
 use soma_guest::{
-    Error, InstancePsk, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey, SessionBinding,
+    Error, ResponderKeypair, ResponderPrivateKey, ResponderPublicKey, SessionBinding,
 };
 
 #[test]
@@ -18,12 +18,9 @@ fn generated_keys_cross_an_explicit_provisioning_boundary() {
 
 #[test]
 fn secret_debug_output_and_errors_never_include_key_bytes() {
-    let psk = InstancePsk::provision_for([2; 16], [0xAB; 32]).expect("instance PSK");
     let private = ResponderPrivateKey::new([0xCD; 32]).expect("private key");
 
-    assert_eq!(format!("{psk:?}"), "InstancePsk([REDACTED])");
     assert_eq!(format!("{private:?}"), "ResponderPrivateKey([REDACTED])");
-    assert!(!format!("{psk:?} {private:?}").contains("171"));
     assert_eq!(
         format!("{:?}", Error::AuthenticationFailed),
         "peer authentication failed"
@@ -32,14 +29,6 @@ fn secret_debug_output_and_errors_never_include_key_bytes() {
 
 #[test]
 fn zero_key_and_identity_material_is_rejected() {
-    assert_eq!(
-        InstancePsk::provision_for([2; 16], [0; 32]).expect_err("zero PSK"),
-        Error::InvalidKeyMaterial
-    );
-    assert_eq!(
-        InstancePsk::provision_for([0; 16], [5; 32]).expect_err("zero Instance"),
-        Error::InvalidKeyMaterial
-    );
     assert_eq!(
         ResponderPrivateKey::new([0; 32]).expect_err("zero private key"),
         Error::InvalidKeyMaterial

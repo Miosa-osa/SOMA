@@ -76,6 +76,25 @@ impl Store {
         self.open_blob_with(descriptor, phase, &options)
     }
 
+    pub(crate) fn open_verified_blob(
+        &self,
+        descriptor: &Descriptor,
+        maximum: u64,
+        phase: ImportPhase,
+    ) -> Result<File, ImportError> {
+        if descriptor.size > maximum {
+            return Err(ImportError::new(phase, ImportErrorKind::LimitExceeded));
+        }
+        let mut file = self.open_blob(descriptor, phase)?;
+        let (actual_digest, actual_size) = digest::reader(&mut file, descriptor.size, phase)?;
+        if actual_digest != descriptor.digest || actual_size != descriptor.size {
+            return Err(ImportError::new(phase, ImportErrorKind::StoreConflict));
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+        Ok(file)
+    }
+
     fn open_blob_with(
         &self,
         descriptor: &Descriptor,
