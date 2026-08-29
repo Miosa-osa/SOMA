@@ -9,6 +9,22 @@ The watchdog reuses the KVM signal-mask technique from the ARM64 proof: the vCPU
 The PVH `hvm_start_info`, memory map, and diagnostic command line are written at their contract addresses even though the raw guest ignores them, so the layout encoding is exercised before the kernel slice.
 The Docker backend now derives its OCI platform from the host architecture instead of assuming `linux/arm64`, and its macOS-only availability helper is target-gated so the workspace compiles on Linux under `-D warnings`.
 The retained result is in `docs/evidence/2026-08-29-x86_64-kvm-halt-guest.md` and proves the machine floor only, not a kernel boot, device, sandbox, or latency claim.
+## 2026-08-29 - Virtio transport and split queues are hostile-input seams, not devices
+
+`soma-kvm/src/virtio/` implements the modern virtio-mmio version 2 register file and split virtqueues from the minimal device surface as pure, `unsafe`-free, target-independent Rust with 43 host-side tests.
+The transport models `read(offset, width)` and `write(offset, width, value, mem)` over one 4 KiB page, and every rejection is a typed violation that is also recorded in a bounded saturating counter that never carries guest bytes.
+Status writes are accepted only one new bit at a time in `ACKNOWLEDGE`, `DRIVER`, `FEATURES_OK`, `DRIVER_OK` order, a driver can never clear a bit except by writing zero, and writing zero resets the device, queues, features, selection, and interrupt status.
+`FEATURES_OK` stays clear when the driver accepts any bit outside the device allowlist or omits `VIRTIO_F_VERSION_1`, so a modern driver observes the failure on read-back exactly as the specification requires.
+Queue geometry is validated at `QueueReady=1` for a power-of-two size within the device maximum, 16-, 2-, and 4-byte alignment, containment of the descriptor table, available ring, and used ring inside registered memory, and pairwise ring disjointness, which is stricter than the specification but costs nothing.
+A queue may be activated once per reset, queue configuration is locked after `DRIVER_OK`, and `QueueNotify` returns the bounded queue index only when the device is active and that queue is ready.
+`walk_chain` is a pure function over guest memory, a table address, a queue size, a head, and host limits so a later cargo-fuzz target is one line; it rejects out-of-range indexes, repeated indexes via a visited bitmap, chains longer than the limits, indirect and unknown flags, zero-length descriptors, address overflow, unregistered bytes, readable-after-writable order, and aggregate bytes over the limit.
+Zero-length descriptors are rejected deliberately so every accepted segment is a nonempty bounded range; Linux drivers never emit them, and a future device that needs them must argue for it.
+On a chain violation the available cursor still advances so a hostile head cannot pin the queue, and the device decides between reporting it used with length zero and setting `DEVICE_NEEDS_RESET`.
+`add_used` refuses a length above the chain's validated writable capacity rather than clamping, because a device that overstates a length is a device bug that must fail loudly.
+Event-index suppression is not negotiated, so only `VIRTQ_AVAIL_F_NO_INTERRUPT` is honored, and the queue issues acquire and release fences around the available-index read and used-index write so the same code stays correct over mapped guest memory later.
+`QueueState` and `TransportState` are fixed little-endian records with exact-length decoding, and restore revalidates status order, allowlisted features, interrupt bits, queue count, queue geometry against live memory, cursor consistency, and device activation before any state becomes visible.
+`InterruptACK` clears exactly the acknowledged known bits in one store; the atomicity claim rests on single-thread ownership of the transport, which the future event loop must preserve.
+Nothing here is an MMIO bus, ioeventfd, irqfd, device backend, event loop, snapshot container, or sandbox, and the tests prove transport and queue behavior only against in-memory guest RAM.
 
 ## 2026-08-29 - Complete custom VMM architecture map
 

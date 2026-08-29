@@ -227,6 +227,8 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 
 `soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
 Its current depth includes a checked capability probe, an x86_64 machine floor that maps one private memory slot, enters one protected-mode vCPU, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
+Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
+It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/` that is exercised only by host-side tests and is not yet wired to an MMIO bus, KVM exit, device model, or event loop.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
 
 The initial source map is:
@@ -247,6 +249,37 @@ crates/soma-kvm/src/
     run.rs
     vcpu.rs
     watchdog.rs
+  virtio/
+    mod.rs
+    device.rs
+    device/
+      test_device.rs
+    guest_memory.rs
+    guest_memory/
+      tests.rs
+    queue.rs
+    queue/
+      chain.rs
+      chain/
+        tests.rs
+      layout.rs
+      state.rs
+      state/
+        tests.rs
+      tests.rs
+      violation.rs
+    transport.rs
+    transport/
+      driver_model_tests.rs
+      host.rs
+      lifecycle_tests.rs
+      registers.rs
+      restore_tests.rs
+      state.rs
+      status.rs
+      tests.rs
+      violation.rs
+      write.rs
   arm64/
     command.rs
     control_uart.rs
@@ -302,6 +335,20 @@ Guest-controlled lengths, offsets, addresses, and queue data remain hostile even
 The file must split by cohesive KVM responsibility before it approaches the repository file-size limit.
 Likely deep modules include VM ownership, guest-memory registration, vCPU state, interrupt state, clock state, and run-loop exits.
 The names are extraction directions rather than empty modules required in advance.
+
+### `virtio/`
+
+`virtio/` owns the common virtio contract selected in the minimal device surface: the modern virtio-mmio version 2 register file, status lifecycle, explicit feature allowlists, split-virtqueue geometry and cursors, hostile descriptor-chain validation, interrupt status, configuration generation, and serializable transport and queue state.
+It is pure Rust with no KVM calls, no `unsafe`, and no target gate, so its tests run on every host.
+
+`guest_memory.rs` is the bounded guest-physical access seam.
+Every read and write is range-checked against registered regions before any byte moves, and the in-memory `VecGuestMemory` exists for tests and fuzz targets rather than production mapping.
+`queue.rs` owns one split virtqueue, while `queue/chain.rs` exposes `walk_chain` as a pure function over a table, head, size, and limits so a fuzz target can drive it directly.
+`queue/layout.rs` validates size, alignment, containment, and ring disjointness; `queue/state.rs` is the fixed-width snapshot record; `queue/violation.rs` is the typed rejection set with saturating counters.
+`transport.rs` owns the register file and reads, `transport/write.rs` owns driver writes and lifecycle enforcement, `transport/host.rs` owns device-thread completion and interrupt raising, and `transport/state.rs` owns the snapshot record and fail-closed restore.
+`device.rs` is the `VirtioDevice` seam that a block, network, vsock, or entropy model implements; the only implementation today is a crate-private echo test device.
+
+The module does not implement an MMIO bus, ioeventfd or irqfd registration, a device backend, an event loop, or the versioned snapshot container, and passing its tests proves none of those.
 
 ### `tests/kvm_probe.rs`
 
