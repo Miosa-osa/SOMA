@@ -5,7 +5,8 @@ Use the [custom VMM decision map](../research/vmm-decision-map.md) as the canoni
 
 ## Current repository state
 
-The current main branch is commit `08bf75e2439e788a6fea3a722fbb328860dc56a8`.
+This handoff was written at commit `08bf75e2439e788a6fea3a722fbb328860dc56a8`.
+Its implementation order has since been carried out through the x86_64 machine floor, the pinned PVH kernel boot, the five virtio devices, and the first authenticated sandbox command, so read [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md) for the current state.
 The working tree on the Mac was clean when this handoff was written.
 
 The repository contains two working Mac development backends.
@@ -15,7 +16,7 @@ The repository contains two working Mac development backends.
 
 The repository also contains the initial `soma-kvm` machine owner.
 It opens KVM, creates a VM, and creates vCPU descriptors on Linux.
-It does not yet boot a guest or expose a complete sandbox lifecycle.
+At the time of this handoff it did not yet boot a guest or expose a complete sandbox lifecycle.
 
 ## What was proven on the Mac
 

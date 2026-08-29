@@ -71,13 +71,14 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 ## Try it locally with Docker Desktop
 
 The current working local path uses Docker Desktop on macOS or Docker Engine on Linux.
-Docker must be running and the host must be able to run Linux ARM64 images.
+Docker must be running.
+The Docker Backend resolves the Host's own architecture, so an x86_64 Host uses `linux/amd64` images and an ARM64 Host uses `linux/arm64`.
 
 ```sh
 git clone https://github.com/Miosa-osa/SOMA.git
 cd SOMA
 cargo run --locked -p soma-cli -- doctor
-cargo run --locked -p soma-cli -- run node:22 -- /usr/local/bin/node --version
+cargo run --locked -p soma-cli -- --backend docker run node:22 -- /usr/local/bin/node --version
 ```
 
 The final command pulls or reuses `node:22`, creates a constrained Docker container, runs Node directly, returns its exact bytes, and proves cleanup.

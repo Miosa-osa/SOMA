@@ -1,8 +1,8 @@
 # Agent integration
 
 SOMA exposes a local stdio Model Context Protocol server through the `soma-mcp` binary.
-The protocol adapter is bounded and tested, but the checked-in binary must not be described as backend-ready until the shared `soma-local` runtime adapter is wired into `main`.
-The temporary `UnavailableRuntime` fails execution tools closed instead of pretending that a sandbox ran.
+The protocol adapter is bounded and tested, and `soma-mcp` now serves its tools through the shared `soma-local` runtime adapter.
+The exported `UnavailableRuntime` remains the fail-closed runtime for an unsupported Host, so an execution tool reports an unsupported Backend instead of pretending that a sandbox ran.
 
 ## Build
 
@@ -20,7 +20,7 @@ Do not put secrets in MCP arguments because tool inputs can be retained in an ag
 ## Client setup
 
 These examples reflect the locally installed CLI behavior as of August 28, 2026.
-Run them only after the real local runtime adapter has replaced `UnavailableRuntime`.
+Select an explicit Backend, because an unsupported local engine fails closed rather than downgrading.
 
 ### Claude Code
 
