@@ -1,0 +1,271 @@
+//! The single-winner, idempotent claim.
+//!
+//! The registry serializes bookkeeping per `OperationId`: a replay with the same fingerprint
+//! returns the identical outcome, a changed fingerprint conflicts, and a concurrent replay
+//! waits at most the claim deadline for the in-flight attempt.
+//! Ownership itself is decided by the one compare-and-swap in [`Slot::try_claim`], which the
+//! replenisher, the reconciler, and every other claimer contend on without the registry lock.
+
+mod registry;
+
+use std::{
+    fmt,
+    time::{Duration, Instant},
+};
+
+pub(crate) use registry::Registry;
+
+use crate::{
+    Claiming, ConstructionFailure, DestroyReason, Exhausted, ExhaustedBehavior, LeaseGeneration,
+    LedgerError, OperationId, Overloaded, Pool, Record, RecordKind, RequestFingerprint,
+    ResourceBroker, Slot, Worker, WorkerId, WorkerLauncher,
+    pool::{Prepared, release::Holdings},
+};
+
+/// Whether the claim took a prepared worker or built one inline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum ClaimClass {
+    /// A sterile worker prepared before the request.
+    Prepared = 1,
+    /// A worker constructed inline because the pool was empty; a separate measurement class.
+    OnDemand = 2,
+}
+
+/// The identical result every replay of one operation receives.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClaimOutcome {
+    /// The worker.
+    pub worker: WorkerId,
+    /// The lease generation the claim won.
+    pub lease_generation: LeaseGeneration,
+    /// The operation.
+    pub operation: OperationId,
+    /// The class.
+    pub class: ClaimClass,
+}
+
+/// Why a claim was refused; nothing was queued.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClaimError {
+    /// No sterile worker.
+    Exhausted(Exhausted),
+    /// A bounded structure is full.
+    Overloaded(Overloaded),
+    /// The operation already claimed with a different intent.
+    OperationConflict {
+        /// The operation.
+        operation: OperationId,
+        /// The fingerprint the ledger holds.
+        recorded: RequestFingerprint,
+        /// The fingerprint presented now.
+        presented: RequestFingerprint,
+    },
+    /// An in-flight claim for the same operation did not finish within the deadline.
+    Deadline {
+        /// The operation.
+        operation: OperationId,
+        /// How long the caller waited.
+        waited: Duration,
+    },
+    /// The claim could not be recorded; the worker was destroyed.
+    Ledger(LedgerError),
+    /// Inline construction failed.
+    Construction(ConstructionFailure),
+    /// A claimed slot had no prepared payload; the worker was destroyed.
+    MissingPayload(WorkerId),
+}
+
+impl fmt::Display for ClaimError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Exhausted(exhausted) => write!(formatter, "{exhausted}"),
+            Self::Overloaded(overloaded) => write!(formatter, "{overloaded}"),
+            Self::OperationConflict { operation, .. } => {
+                write!(formatter, "{operation:?} replayed with a different intent")
+            }
+            Self::Deadline { operation, waited } => {
+                write!(
+                    formatter,
+                    "{operation:?} waited {waited:?} for an in-flight claim"
+                )
+            }
+            Self::Ledger(error) => write!(formatter, "claim not recorded: {error}"),
+            Self::Construction(failure) => write!(formatter, "inline construction: {failure}"),
+            Self::MissingPayload(worker) => write!(formatter, "{worker:?} had no payload"),
+        }
+    }
+}
+
+impl std::error::Error for ClaimError {}
+
+/// The fresh winner's grant: the claimed worker and its sterile payload, which the caller
+/// must transfer before the claim deadline; dropping it destroys the worker.
+pub struct Claimed<'p, L: WorkerLauncher, R: ResourceBroker> {
+    pool: &'p Pool<L, R>,
+    pub(crate) worker: Option<Worker<Claiming>>,
+    pub(crate) prepared: Option<Prepared<L::Handle, R::Sterile>>,
+    pub(crate) won_at: Instant,
+    pub(crate) fingerprint: RequestFingerprint,
+    outcome: ClaimOutcome,
+}
+
+impl<L: WorkerLauncher, R: ResourceBroker> Claimed<'_, L, R> {
+    /// Returns the outcome.
+    #[must_use]
+    pub const fn outcome(&self) -> ClaimOutcome {
+        self.outcome
+    }
+
+    /// Returns when the claim won.
+    #[must_use]
+    pub const fn won_at(&self) -> Instant {
+        self.won_at
+    }
+}
+
+impl<L: WorkerLauncher, R: ResourceBroker> Drop for Claimed<'_, L, R> {
+    fn drop(&mut self) {
+        if let (Some(worker), Some(prepared)) = (self.worker.take(), self.prepared.take()) {
+            let _ = self.pool.destroy_claiming(
+                worker,
+                Some(prepared.handle),
+                prepared.identity,
+                Holdings::Sterile(prepared.sterile),
+                DestroyReason::Dropped,
+            );
+        }
+    }
+}
+
+/// One successful claim: the identical outcome plus the grant for the fresh winner only.
+pub struct Claim<'p, L: WorkerLauncher, R: ResourceBroker> {
+    /// The outcome every replay receives.
+    pub outcome: ClaimOutcome,
+    /// The transfer grant; `None` on replay.
+    pub grant: Option<Claimed<'p, L, R>>,
+}
+
+impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
+    /// Claims exactly one sterile worker for `operation`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed rejection; an exhausted pool never queues.
+    pub fn claim(
+        &self,
+        operation: OperationId,
+        fingerprint: RequestFingerprint,
+    ) -> Result<Claim<'_, L, R>, ClaimError> {
+        let started = Instant::now();
+        if let Some(outcome) = self.reserve_binding(operation, fingerprint, started)? {
+            return Ok(Claim {
+                outcome,
+                grant: None,
+            });
+        }
+        let (worker, class) = match self.win_slot() {
+            Some(worker) => (worker, ClaimClass::Prepared),
+            None => match self.limits().exhausted {
+                ExhaustedBehavior::Reject => {
+                    self.clear_binding(operation);
+                    return Err(ClaimError::Exhausted(self.exhausted()));
+                }
+                ExhaustedBehavior::ConstructInline => {
+                    let inline = self
+                        .construct_one()
+                        .map_err(ClaimError::Construction)
+                        .and_then(|id| {
+                            self.find_slot(id)
+                                .and_then(|slot| slot.try_claim())
+                                .ok_or_else(|| ClaimError::Exhausted(self.exhausted()))
+                        });
+                    match inline {
+                        Ok(worker) => (worker, ClaimClass::OnDemand),
+                        Err(error) => {
+                            self.clear_binding(operation);
+                            return Err(error);
+                        }
+                    }
+                }
+            },
+        };
+        let Some(prepared) = self
+            .prepared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&worker.id())
+        else {
+            let id = worker.id();
+            let _ = self.destroy_claiming(
+                worker,
+                None,
+                no_identity(),
+                Holdings::None,
+                DestroyReason::Ledger,
+            );
+            self.clear_binding(operation);
+            return Err(ClaimError::MissingPayload(id));
+        };
+        let outcome = ClaimOutcome {
+            worker: worker.id(),
+            lease_generation: worker.generation(),
+            operation,
+            class,
+        };
+        let record = Record::new(
+            RecordKind::Claiming,
+            outcome.worker,
+            outcome.lease_generation,
+            self.digest(),
+        )
+        .detail(class as u8)
+        .operation(operation)
+        .fingerprint(fingerprint)
+        .identity(prepared.identity)
+        .resources(prepared.refs);
+        if let Err(error) = self.record(&record) {
+            let _ = self.destroy_claiming(
+                worker,
+                Some(prepared.handle),
+                prepared.identity,
+                Holdings::Sterile(prepared.sterile),
+                DestroyReason::Ledger,
+            );
+            self.clear_binding(operation);
+            return Err(ClaimError::Ledger(error));
+        }
+        self.finish_binding(operation, fingerprint, outcome);
+        Ok(Claim {
+            outcome,
+            grant: Some(Claimed {
+                pool: self,
+                worker: Some(worker),
+                prepared: Some(prepared),
+                won_at: started,
+                fingerprint,
+                outcome,
+            }),
+        })
+    }
+
+    fn win_slot(&self) -> Option<Worker<Claiming>> {
+        self.slots().iter().find_map(Slot::try_claim)
+    }
+
+    pub(crate) fn exhausted(&self) -> Exhausted {
+        Exhausted {
+            key: self.digest(),
+            occupancy: self.occupancy(),
+            max: self.limits().max,
+            behavior: self.limits().exhausted,
+        }
+    }
+}
+
+const fn no_identity() -> crate::WorkerIdentity {
+    crate::WorkerIdentity {
+        process: 0,
+        token: [0; 16],
+    }
+}

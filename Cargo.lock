@@ -1182,6 +1182,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-hostd"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "libc",
+ "sha2",
+ "soma-guest",
+ "soma-netd",
+ "soma-storage",
+ "tempfile",
+]
+
+[[package]]
 name = "soma-jail"
 version = "1.0.0-alpha.1"
 dependencies = [
