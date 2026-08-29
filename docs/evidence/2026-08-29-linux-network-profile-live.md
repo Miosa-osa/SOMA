@@ -76,6 +76,8 @@ With one hundred samples the p99 is the largest sample.
 
 Two earlier runs of the same tests on the same host, before the world fixture deleted its uplink synchronously, gave p50 and p99 of prepare 31.1 and 44.3 ms then 30.4 and 43.7 ms, assign 21.1 and 31.1 ms then 20.2 and 30.3 ms, activate 4.1 and 5.8 ms then 3.8 and 5.1 ms, and release 53.5 and 91.0 ms then 52.0 and 71.1 ms, so the retained numbers are representative rather than a best case.
 
+A foreground confirmation run after the rebase, at revision `56e15d8` with image id `sha256:85efa24d84a65cdc6f90083b86fa40c6714ef9fc131cfc9b27596e50899f50e8` on the same base digest, host kernel, and userspace versions, passed both tests in 16.39 s with the same empty post-run namespace and table listing and gave p50 and p99 of prepare 32.4 and 48.3 ms, assign 16.9 and 36.0 ms, activate 4.2 and 6.1 ms, and release 51.1 and 65.4 ms; the crate content at that revision is identical to `77b8ec0`.
+
 `prepare` spawns `nft` twice, and `release` spawns `conntrack` once and `nft` up to three times, so the version 1 subprocess mechanism dominates both; `activate` performs only `ioctl` calls and `/proc/sys` writes.
 Replacing the subprocess seam with a netlink and libnftnl binding is the identified lever, not a kernel limit.
 
