@@ -267,26 +267,3 @@ fn an_exhausted_pool_rejects_immediately_without_queueing() {
     );
     assert!(harness.pool.ledger().claims().expect("claims").is_empty());
 }
-
-#[test]
-fn inline_construction_is_labelled_on_demand() {
-    let harness = harness(Limits {
-        target: 0,
-        exhausted: ExhaustedBehavior::ConstructInline,
-        ..limits(0, 1)
-    });
-    let claim = harness
-        .pool
-        .claim(op(1), intent(1).fingerprint())
-        .expect("claim");
-    assert_eq!(claim.outcome.class, ClaimClass::OnDemand);
-    assert_eq!(
-        harness
-            .pool
-            .claim(op(1), intent(1).fingerprint())
-            .expect("replay")
-            .outcome
-            .class,
-        ClaimClass::OnDemand
-    );
-}

@@ -79,7 +79,8 @@ impl<L: WorkerLauncher, R: ResourceBroker> Claimed<'_, L, R> {
         self.outcome
     }
 
-    /// Returns when the claim won.
+    /// Returns when the slot was actually won, which is after any inline construction; the
+    /// claim deadline is measured from this instant and not from the arrival of the request.
     #[must_use]
     pub const fn won_at(&self) -> Instant {
         self.won_at
@@ -147,6 +148,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 return Err(error);
             }
         };
+        let won_at = Instant::now();
         let Some(prepared) = self
             .prepared
             .lock()
@@ -206,7 +208,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 worker: Some(worker),
                 prepared: Some(prepared),
                 reservation,
-                won_at: started,
+                won_at,
                 fingerprint,
                 outcome,
             }),

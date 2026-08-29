@@ -1046,6 +1046,7 @@ crates/soma-hostd/tests/
   crash.rs
   daemon.rs
   foreign.rs
+  inline.rs
   latency.rs
   lifecycle.rs
   reconcile.rs
@@ -1057,7 +1058,7 @@ crates/soma-hostd/tests/
 
 `pool/key.rs` is the exact [`PoolKey`] digest; nothing is rounded or widened so a sterile worker can never be prepared for a different contract.
 `pool/state.rs` owns the `Constructing`, `Sterile`, `Claiming`, `Assigned`, `Running`, `Destroying`, and `Dead` phases, the legal transition table, the packed atomic state word that every ownership change is one compare-and-swap over, and the ledger projection; `pool/state/typestate.rs` makes only legal transitions compile and bumps the lease generation only on the claim.
-`pool/claim.rs` and `pool/claim/registry.rs` own the single-winner claim: the registry serializes idempotency per `OperationId`, a replay with the same fingerprint returns the identical outcome, a changed fingerprint conflicts, a concurrent replay waits at most the claim deadline, and an exhausted pool rejects at once instead of queueing.
+`pool/claim.rs` and `pool/claim/registry.rs` own the single-winner claim: the registry serializes idempotency per `OperationId`, a replay with the same fingerprint returns the identical outcome, a changed fingerprint conflicts, a concurrent replay waits at most the claim deadline, and an exhausted pool rejects at once instead of queueing; the claim deadline runs from the instant the slot is won, so an inline on-demand construction spends its own construction deadline and not the claim deadline of the worker it builds.
 `pool/transfer.rs` and its `run` module deliver the eight ordered authority frames, identity, deadline, entropy, launch page, disk head, TAP, control, and commit, each acknowledged before the next; any fault, timeout, partial acknowledgement, deadline, or intent mismatch destroys the worker, and a grant issued by another pool is refused and destroyed through the pool that issued it.
 `pool/replenish.rs`, `pool/replenish/background.rs`, and `pool/backpressure.rs` bound construction by concurrency, deadline, target, and maximum and return typed `Exhausted` and `Overloaded` results.
 `pool/ledger.rs`, `pool/ledger/record.rs`, and `pool/ledger/fold.rs` are the durable ledger of create-exclusive, checksummed, file-and-directory-synced records and the projection that fails closed on a sterile record after an assignment; the fresh per-Instance references are recorded before the first authority frame and refreshed by every transfer record, so a crash mid-transfer releases the leased head and the network bundle at the next reconciliation.
