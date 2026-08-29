@@ -17,6 +17,7 @@ crates/
   soma-generation/
   soma-guest/
   soma-guest-agent/
+  soma-hostd/
   soma-jail/
   soma-kvm/
   soma-local/
@@ -28,8 +29,8 @@ crates/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that boots inside a SOMA virtual machine and reaches an authenticated first command, a Template compiler slice that parses one versioned Template document, composes built-in modules, applies the required validation classes, and emits a canonical Template Lock, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a Linux x86_64 VMM jail launcher with retained privileged-container evidence that does not yet wrap the real VMM, a command-line adapter, and a bounded stdio MCP adapter.
-It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, a Generation built from a Template Lock, or remote transport.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that boots inside a SOMA virtual machine and reaches an authenticated first command, a Template compiler slice that parses one versioned Template document, composes built-in modules, applies the required validation classes, and emits a canonical Template Lock, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a node-local host allocator library with bounded sterile-worker pools, single-winner idempotent claims, exactly-once authority transfer, a durable lifecycle ledger, restart reconciliation, and multi-dimension capacity admission behind launcher and broker seams, a Linux x86_64 VMM jail launcher with retained privileged-container evidence that does not yet wrap the real VMM, a command-line adapter, and a bounded stdio MCP adapter.
+It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, jail launcher behind the host allocator, complete Generation builder, a Generation built from a Template Lock, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
 The only initial production target is Ubuntu 24.04 x86_64 with KVM.
@@ -59,6 +60,7 @@ human, agent, SDK, or operator
     soma-storage     independent Linux storage mechanism
     soma-kvm live tests -> soma-guest, soma-generation, soma (dev-dependencies only)
     soma-jail        -> libc only; the launcher that will exec soma-vmm
+    soma-hostd       -> soma-storage leases, soma-netd bundle types, soma-guest launch identity
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -73,8 +75,9 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
-`soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the future host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
+`soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
 `soma-jail` owns the privileged launcher that constrains one VMM process; it depends on `libc` alone and never on `soma-kvm`, `soma-vmm`, or a provider adapter, because it must stay auditable as the last privileged step before the VMM executes.
+`soma-hostd` is the node-local allocator accepted by ADR 0006; it consumes `soma-storage` leases, `soma-netd` bundle identities and intents, and the `soma-guest` launch network identity, defines the launcher and broker seams the jail adapter and the live brokers will implement, and never depends on the VMM, KVM, or provider crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 `soma-kvm` is a public package while `soma-guest` is private, so the sandbox machine exposes a byte-level control channel and launch-page slot, and the `soma-guest` protocol glue that turns them into an authenticated session lives in the crate's live test as a dev-dependency until `soma-vmm` owns it.
 No provider adapter belongs below the public Machine seam.
@@ -973,10 +976,90 @@ crates/soma-storage/tests/xfs_live.rs
 Every Linux module keeps its `unsafe` blocks behind `SAFETY` comments; the portable types, ledger, release, and reconciliation compile and test on every workspace target.
 The retained loop-backed result in `docs/evidence` is a decision input for prepared sterile heads, not a raw-partition or production-host latency claim.
 
+## `soma-hostd` responsibilities
+
+`soma-hostd` is the node-local host allocator accepted by ADR 0006 and specified in [the prepared worker protocol](../research/prepared-worker-protocol.md).
+It owns bounded pools of sterile single-use workers and resource bundles keyed by the exact host profile, Generation, CPU and memory class, overlay class, and network profile, the typestated worker state machine, the single-winner idempotent claim, the exactly-once transfer of fresh per-Instance authority, bounded replenishment and explicit backpressure, the durable append-only lifecycle ledger, restart reconciliation, and the multi-dimension capacity admission of the visual atlas.
+It never executes guest device logic, never proxies steady-state Machine commands, and never returns an assigned worker to a pool.
+
+The source map is:
+
+```text
+crates/soma-hostd/src/
+  lib.rs
+  ids.rs
+  admission.rs
+  admission/capacity.rs
+  admission/numa.rs
+  admission/profile.rs
+  admission/rejection.rs
+  admission/reserve.rs
+  admission/shape.rs
+  admission/usage.rs
+  pool.rs
+  pool/backpressure.rs
+  pool/claim.rs
+  pool/claim/registry.rs
+  pool/inspect.rs
+  pool/key.rs
+  pool/launcher.rs
+  pool/ledger.rs
+  pool/ledger/fold.rs
+  pool/ledger/record.rs
+  pool/ledger/tests.rs
+  pool/reconcile.rs
+  pool/release.rs
+  pool/release/types.rs
+  pool/replenish.rs
+  pool/replenish/background.rs
+  pool/resources.rs
+  pool/state.rs
+  pool/state/tests.rs
+  pool/state/typestate.rs
+  pool/transfer.rs
+  pool/transfer/run.rs
+  pool/transfer/run/frames.rs
+  protocol.rs
+  protocol/reply.rs
+  protocol/tests.rs
+  daemon.rs
+  testing.rs
+  testing/broker.rs
+  testing/broker/launch.rs
+  testing/launcher.rs
+  testing/table.rs
+  bin/soma-hostd.rs
+crates/soma-hostd/tests/
+  admission.rs
+  admission_gates.rs
+  atlas/mod.rs
+  bounds.rs
+  claim.rs
+  latency.rs
+  reconcile.rs
+  support/mod.rs
+  transfer.rs
+```
+
+`pool/key.rs` is the exact [`PoolKey`] digest; nothing is rounded or widened so a sterile worker can never be prepared for a different contract.
+`pool/state.rs` owns the `Constructing`, `Sterile`, `Claiming`, `Assigned`, `Running`, `Destroying`, and `Dead` phases, the legal transition table, the packed atomic state word that every ownership change is one compare-and-swap over, and the ledger projection; `pool/state/typestate.rs` makes only legal transitions compile and bumps the lease generation only on the claim.
+`pool/claim.rs` and `pool/claim/registry.rs` own the single-winner claim: the registry serializes idempotency per `OperationId`, a replay with the same fingerprint returns the identical outcome, a changed fingerprint conflicts, a concurrent replay waits at most the claim deadline, and an exhausted pool rejects at once instead of queueing.
+`pool/transfer.rs` and its `run` module deliver the eight ordered authority frames, identity, deadline, entropy, launch page, disk head, TAP, control, and commit, each acknowledged before the next; any fault, timeout, partial acknowledgement, deadline, or intent mismatch destroys the worker.
+`pool/replenish.rs`, `pool/replenish/background.rs`, and `pool/backpressure.rs` bound construction by concurrency, deadline, target, and maximum and return typed `Exhausted` and `Overloaded` results.
+`pool/ledger.rs`, `pool/ledger/record.rs`, and `pool/ledger/fold.rs` are the durable ledger of create-exclusive, checksummed, file-and-directory-synced records and the projection that fails closed on a sterile record after an assignment.
+`pool/reconcile.rs` treats every nonterminal entry without a live slot as suspect after a restart, probes the launcher and the brokers, terminates or releases, retains a live running Instance, and gates replenishment until it has run.
+`pool/release.rs` tears down assigned, running, claimed, and sterile workers by reason and never returns one to the pool.
+`pool/launcher.rs` and `pool/resources.rs` are the seams the jail adapter from decision-map ticket #9 and the live `soma-storage` and `soma-netd` brokers will implement; `testing/` is the in-process launcher with per-step fault injection over a shared process table and the in-process broker that leases heads through the real `soma-storage` ledger over socket pairs.
+`admission/` is the visual atlas capacity model: a certified host profile with host reserve, labelled measured per-VM overhead, per-dimension limits, and per-class overcommit ratios; checked demand arithmetic; an atomic multi-dimension reservation that rolls back on the first refusing gate; a typed rejection naming the gate and its numbers; explicit guaranteed and elastic memory classes; a single-node NUMA placement hook; and the capacity ladder estimate.
+`protocol.rs` and `daemon.rs` are the bounded typed claim, release, inspect, and reconcile protocol and the single-threaded `SOCK_SEQPACKET` skeleton over one pool; the daemon does not authenticate its peer and starts only with the explicitly requested in-process development launcher.
+
+Every module compiles on every workspace target except the Unix descriptor-carrying transfer payload, the Unix in-process testing implementations, and the Linux daemon; a non-Unix host cannot construct a transferable authority bundle at all.
+The integration tests prove one winner among 100 concurrent claimers fifty times, identical replay, changed-intent conflict, no reuse of an assigned worker, a fault at every transfer step, immediate exhaustion, bounded replenishment storms, 100-way fairness over ten workers, restart reconciliation, every admission gate, rollback, the atlas capacity ladder, and record claim latency over 1,000 claims without asserting it.
+No live VMM, jail, XFS head, or TAP bundle is exercised by this crate yet.
+
 ## Future node and protocol modules
 
-ADR 0006 reserves `soma-host` for node-local admission, unassigned single-use worker allocation, sterile resource bundles, descriptor transfer, and asynchronous replenishment.
-That module does not execute guest device logic and does not retain tenant workers for reuse.
+ADR 0006 reserved a node-local allocator for admission, unassigned single-use worker allocation, sterile resource bundles, descriptor transfer, and asynchronous replenishment; `soma-hostd` now implements that library and daemon skeleton, and the jail adapter, the live broker adapters, and the descriptor-passing transport remain future work behind its seams.
 
 `soma-protocol` becomes justified when local and remote callers share a bounded canonical encoding.
 
@@ -1021,6 +1104,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 - `soma-guest-agent` depends only on `soma-guest`, `zeroize`, and `libc`, and never on a host, VMM, or provider crate.
 - `soma-storage` depends only on `serde`, `serde_json`, `sha2`, `cap-std`, and Linux `libc`, and never on a VMM, KVM, guest, or provider crate.
 - `soma-jail` depends only on `libc`, with `kvm-bindings` as a test-only structure-size oracle, and never on `soma-kvm`, `soma-vmm`, or a provider crate.
+- `soma-hostd` depends only on `sha2`, `soma-guest`, `soma-netd`, `soma-storage`, and Linux `libc`, and never on a VMM, KVM, or provider crate.
 - `soma-template` depends only on `soma`, `toml`, and `sha2`, and never on a VMM, Backend, registry client, or provider crate; the Generation builder consumes its lock rather than the reverse.
 - Provider adapters and ComputeSDK integration never become dependencies of either VMM crate.
 

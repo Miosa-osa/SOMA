@@ -204,9 +204,10 @@ Which invariant work may move outside Launch, and how does one request atomicall
 
 ### Answer
 
-Resolved architecturally.
-Bounded pools hold only sterile invariant state, use one generation-counted single-winner claim, transfer fresh authority exactly once, destroy ambiguous workers, reject overload, and reconcile before replenishment.
-See [prepared worker protocol](prepared-worker-protocol.md) and [ADR 0006](../adr/0006-prepared-worker-allocation.md).
+Implemented as a node-local library and daemon skeleton.
+`crates/soma-hostd` holds bounded pools of sterile invariant state keyed by the exact host profile, Generation, CPU and memory class, overlay class, and network profile, decides ownership with one compare-and-swap over the worker and its monotonically increasing lease generation, returns the identical outcome to a replayed operation and a typed conflict to a changed intent, transfers identity, deadline, entropy, launch page, disk head, TAP, control, and commit exactly once with every fault destroying the worker, rejects exhaustion and overload without a queue, records every step in a durable checksummed ledger, reconciles every nonterminal entry before replenishing after a restart, and admits capacity atomically across every visual-atlas dimension with a typed rejection naming the gate.
+The jail launcher is pending ticket #9 and the live 100-way proof with a real VMM, XFS heads, and TAP bundles is pending ticket #13; until then the launcher and broker seams are exercised by in-process implementations and the daemon starts only with the explicitly requested development launcher.
+See [prepared worker protocol](prepared-worker-protocol.md), [ADR 0006](../adr/0006-prepared-worker-allocation.md), and [the module map](../architecture/module-map.md).
 
 ## #13: How is the complete KVM backend wired into SOMA?
 
