@@ -495,6 +495,7 @@ The kernel boot needs the in-kernel PIT: without it Linux still reaches `/init` 
 The CPUID template requires KVM's paravirtual signature leaf so the guest selects `kvm-clock`, and pins the bootstrap APIC identifiers to zero.
 The command line is composed only in `cmdline.rs` from the fixed contract set plus `rdinit=/init` and `soma.nonce=<hex>`, which is the seam that later becomes part of `GenerationId`.
 The retained result, including single-sample host residency numbers, is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-boot.md`; it proves the cold-boot machine contract only, not a device, root filesystem, guest agent, readiness, snapshot, or latency claim.
+
 ## 2026-08-29 - Generation compiler compiles uncertified x86_64 machine artifacts
 
 `soma-generation` now compiles one `TemplateRevision` plus one `NormalizedRootfs` into an immutable EROFS root, sterile ext4 overlay templates, a verified kernel, a deterministic `newc` initramfs, and a canonical `SOMAGEN` v1 manifest whose SHA-256 is the `GenerationId`.
