@@ -8,7 +8,7 @@ This document assigns responsibilities and dependency direction for the initial 
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains twelve implemented crates:
+The current workspace contains thirteen implemented crates:
 
 ```text
 crates/
@@ -17,6 +17,7 @@ crates/
   soma-generation/
   soma-guest/
   soma-guest-agent/
+  soma-jail/
   soma-kvm/
   soma-local/
   soma-macos/
@@ -26,7 +27,7 @@ crates/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a command-line adapter, and a bounded stdio MCP adapter.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a Linux x86_64 VMM jail launcher with retained privileged-container evidence that does not yet wrap the real VMM, a command-line adapter, and a bounded stdio MCP adapter.
 It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, VMM-side launch-page injection, in-VM guest-agent evidence, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
@@ -55,6 +56,7 @@ human, agent, SDK, or operator
     soma-netd        -> soma request types, soma-guest launch identity
     soma-storage     independent Linux storage mechanism
     soma-kvm live tests -> soma-guest, soma-generation, soma (dev-dependencies only)
+    soma-jail        -> libc only; the launcher that will exec soma-vmm
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -69,6 +71,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
 `soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the future host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
+`soma-jail` owns the privileged launcher that constrains one VMM process; it depends on `libc` alone and never on `soma-kvm`, `soma-vmm`, or a provider adapter, because it must stay auditable as the last privileged step before the VMM executes.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 `soma-kvm` is a public package while `soma-guest` is private, so the sandbox machine exposes a byte-level control channel and launch-page slot, and the `soma-guest` protocol glue that turns them into an authenticated session lives in the crate's live test as a dev-dependency until `soma-vmm` owns it.
 No provider adapter belongs below the public Machine seam.
@@ -716,6 +719,57 @@ Host tests cover the state machine, page consumption and erasure, output account
 Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the readiness probe, one Execute, and authenticated shutdown have each run once inside a cold-booted SOMA machine on x86_64, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md); the same path after a snapshot restore remains unproven.
 The stop path uses the restart command because the version 1 machine has no ACPI or paravirtual power-off, and `reboot=k` turns it into the reset pulse the VMM observes as the orderly exit.
 
+## `soma-jail` responsibilities
+
+`soma-jail` is the launcher from the [VMM jail profile](../research/vmm-jail-profile.md): it records ownership, creates one cgroup v2 leaf with `memory.max`, `memory.swap.max=0`, `memory.oom.group=1`, `cpu.max`, and `pids.max`, clones the child directly into fresh user, mount, PID, network, IPC, and UTS namespaces and into that leaf with a pidfd, writes single-entry identity maps, and releases the child only after namespace, interface, and membership evidence is read from the parent side.
+The pre-exec child sets the parent-death signal, drops to the ephemeral identity, clears dumpable, applies rlimits, enters an empty read-only tmpfs root through `pivot_root` with the old root detached, seals a fixed descriptor table with `dup3` and `close_range`, verifies every slot by `fstat` and device number, installs `no_new_privs` and the startup seccomp filter, and executes the VMM from an open descriptor with `execveat(AT_EMPTY_PATH)`.
+Seccomp filters are hand-assembled classic BPF with no libseccomp dependency: the default action is kill-process, `ioctl` is filtered on the request number to exactly the KVM requests the implementation uses, every table entry names whether it was measured or reserved, and the steady-state filter drops the setup-only syscalls and ioctls.
+
+The source map is:
+
+```text
+crates/soma-jail/src/
+  lib.rs
+  bin/jail-probe.rs
+  cgroup.rs
+  cgroup/error.rs
+  cgroup/files.rs
+  descriptors.rs
+  descriptors/inspect.rs
+  evidence.rs
+  manifest.rs
+  namespaces.rs
+  namespaces/root.rs
+  process.rs
+  process/child.rs
+  process/failure.rs
+  process/handle.rs
+  process/launch_error.rs
+  process/prepare.rs
+  process/spawn.rs
+  process/wait.rs
+  reconcile.rs
+  report.rs
+  seccomp/mod.rs
+  seccomp/bpf.rs
+  seccomp/denied.rs
+  seccomp/install.rs
+  seccomp/ioctls.rs
+  seccomp/policy.rs
+  spec.rs
+crates/soma-jail/tests/jail_live.rs
+crates/soma-jail/tests/jail_live/containment.rs
+crates/soma-jail/tests/jail_live/control.rs
+crates/soma-jail/tests/jail_live/failure.rs
+crates/soma-jail/tests/jail_live/harness.rs
+scripts/jail-live-tests.sh
+```
+
+`spec.rs` validates the `JailSpec`; `manifest.rs` fixes the typed descriptor slot order; `descriptors.rs` seals and verifies the table; `namespaces.rs` writes the identity maps, reads parent-side namespace evidence, and owns the `pivot_root` sequence; `cgroup.rs` creates, limits, reads back, kills, and removes one leaf with typed errors when cgroup2 is unavailable or undelegated; `seccomp/` holds the policy tables, the portable BPF assembler with golden-byte tests, and the Linux installer; `process/` is the launcher with its allocation-free pre-exec child, twelve-byte failure report, pidfd-only handle, and typed launch failures; `reconcile.rs` is the idempotent ledger that also recovers after a crashed launcher; `evidence.rs` and `report.rs` are the parent-side evidence type and the probe's line codec.
+`jail-probe` is the test stand-in for the VMM: it reports what it can see from inside the jail and executes containment commands over the control socket.
+The portable types compile on every target; the Linux mechanisms and the live tests compile only on Linux x86_64, and the live tests are ignored unless run as root inside the privileged container that `scripts/jail-live-tests.sh` prepares.
+The crate does not yet wrap the real `soma-vmm` binary, transfer a TAP endpoint, or serve prepared workers, and the allowlist is measured against the musl probe plus `soma-kvm` code rather than against a traced VMM.
+
 ## `soma-netd` responsibilities
 
 `soma-netd` is the privileged Linux network broker accepted by ADR 0012 and specified in [the Linux network profile](../research/linux-network-profile-v1.md).
@@ -878,6 +932,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 - `soma-kvm` never depends on `soma-vmm`.
 - `soma-guest-agent` depends only on `soma-guest`, `zeroize`, and `libc`, and never on a host, VMM, or provider crate.
 - `soma-storage` depends only on `serde`, `serde_json`, `sha2`, `cap-std`, and Linux `libc`, and never on a VMM, KVM, guest, or provider crate.
+- `soma-jail` depends only on `libc`, with `kvm-bindings` as a test-only structure-size oracle, and never on `soma-kvm`, `soma-vmm`, or a provider crate.
 - Provider adapters and ComputeSDK integration never become dependencies of either VMM crate.
 
 ## Review checklist

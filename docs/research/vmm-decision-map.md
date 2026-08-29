@@ -153,9 +153,10 @@ What user, namespace, cgroup, capability, seccomp, filesystem, descriptor, resou
 
 ### Answer
 
-Resolved architecturally.
+Resolved and implemented as the `soma-jail` launcher.
 One ephemeral UID, complete namespace and cgroup containment, descriptor-only resources, pidfd ownership, no ambient capability, empty root, and phase-derived seccomp constrain each single-use VMM.
-See [VMM jail profile](vmm-jail-profile.md) and [threat model](../threat-model.md).
+The launcher passed its fifteen privileged live acceptance tests on Ubuntu 24.04 x86_64 inside a privileged container on 2026-08-29; it constrains the static `jail-probe` stand-in and does not yet wrap the real `soma-vmm` binary, transfer a TAP endpoint, or serve prepared workers.
+See [VMM jail profile](vmm-jail-profile.md), [threat model](../threat-model.md), and [the live evidence](../evidence/2026-08-29-vmm-jail-live.md).
 
 ## #10: What networking path is both fast and fail closed?
 
