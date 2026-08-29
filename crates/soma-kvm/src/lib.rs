@@ -40,18 +40,29 @@ pub use linux::{
 pub use machine::{KvmMachine, KvmMachineError};
 
 pub use virtio::{
-    AccessWidth, ActivateError, ChainLimits, ChainSegment, ChainViolation, ConfigAccessError,
-    DESCRIPTOR_SIZE, Descriptor, DescriptorChain, DeviceStateError, DeviceStatus, GuestAddress,
-    GuestMemory, GuestMemoryError, GuestValue, INTERRUPT_CONFIG_CHANGE, INTERRUPT_USED_BUFFER,
-    LayoutViolation, MAX_CONFIG_LEN, MAX_QUEUE_SIZE, MAX_QUEUES, MMIO_PAGE_SIZE, MmioTransport,
-    QUEUE_STATE_LEN, Queue, QueueLayout, QueueState, QueueStateError, QueueViolation,
-    QueueViolationCounters, QueueViolationKind, RegionLayoutError, Register, RestoreError,
-    SOMA_VENDOR_ID, StatusViolation, StatusWrite, TRANSPORT_STATE_HEADER_LEN, TransportConfigError,
-    TransportEvent, TransportState, TransportStateError, TransportViolation,
-    TransportViolationCounters, TransportViolationKind, VIRTIO_F_VERSION_1,
+    AccessWidth, ActivateError, BLK_ID_LEN, BLOCK_CONFIG_LEN, BLOCK_QUEUE_MAX, BLOCK_SERIAL_LEN,
+    BLOCK_STATE_LEN, BLOCK_STATE_VERSION, BlockBackend, BlockBackendError, BlockConfigError,
+    BlockCounters, BlockDevice, BlockOp, BlockRequest, BlockRole, BlockState, ChainHandler,
+    ChainLimits, ChainSegment, ChainViolation, ConfigAccessError, DESCRIPTOR_SIZE, Descriptor,
+    DescriptorChain, DeviceFault, DeviceStateError, DeviceStatus, GuestAddress, GuestMemory,
+    GuestMemoryError, GuestValue, INTERRUPT_CONFIG_CHANGE, INTERRUPT_USED_BUFFER, LayoutViolation,
+    MAX_CONFIG_LEN, MAX_QUEUE_SIZE, MAX_QUEUES, MAX_REQUEST_BYTES, MMIO_PAGE_SIZE, MemoryBackend,
+    MmioTransport, QUEUE_STATE_LEN, Queue, QueueLayout, QueueState, QueueStateError,
+    QueueViolation, QueueViolationCounters, QueueViolationKind, REQUEST_HEADER_LEN,
+    RegionLayoutError, Register, RequestError, RequestLimits, RestoreError, SECTOR_SIZE,
+    SOMA_VENDOR_ID, ServiceError, ServiceReport, StatusViolation, StatusWrite,
+    TRANSPORT_STATE_HEADER_LEN, TransportConfigError, TransportEvent, TransportState,
+    TransportStateError, TransportViolation, TransportViolationCounters, TransportViolationKind,
+    VIRTIO_BLK_DEVICE_ID, VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO,
+    VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP, VIRTIO_BLK_T_FLUSH,
+    VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT, VIRTIO_F_VERSION_1,
     VIRTQ_AVAIL_F_NO_INTERRUPT, VIRTQ_DESC_F_INDIRECT, VIRTQ_DESC_F_NEXT, VIRTQ_DESC_F_WRITE,
-    VecGuestMemory, VirtioDevice, validate_size, walk_chain,
+    VecGuestMemory, VirtioDevice, parse_request, read_readable, service_queue, validate_size,
+    walk_chain, write_writable,
 };
+
+#[cfg(unix)]
+pub use virtio::FileBackend;
 
 /// Whether this build target can run SOMA's initial KVM capability probe.
 pub const SUPPORTED_TARGET: bool = cfg!(all(

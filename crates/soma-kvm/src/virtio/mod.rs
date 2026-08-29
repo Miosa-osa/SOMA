@@ -5,6 +5,7 @@
 //! device, bus, or sandbox.
 
 pub mod device;
+pub mod devices;
 pub mod guest_memory;
 pub mod queue;
 pub mod transport;
@@ -13,6 +14,22 @@ pub use device::{
     ActivateError, ConfigAccessError, DeviceStateError, MAX_CONFIG_LEN, MAX_QUEUES, SOMA_VENDOR_ID,
     VIRTIO_F_VERSION_1, VirtioDevice,
 };
+#[cfg(unix)]
+pub use devices::block::backend::FileBackend;
+pub use devices::block::backend::{BackendError as BlockBackendError, BlockBackend, MemoryBackend};
+pub use devices::block::request::{
+    BLK_ID_LEN, BlockOp, BlockRequest, MAX_REQUEST_BYTES, REQUEST_HEADER_LEN, RequestError,
+    RequestLimits, SECTOR_SIZE, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,
+    VIRTIO_BLK_T_FLUSH, VIRTIO_BLK_T_GET_ID, VIRTIO_BLK_T_IN, VIRTIO_BLK_T_OUT, parse_request,
+};
+pub use devices::block::state::{BLOCK_STATE_LEN, BLOCK_STATE_VERSION, BlockState};
+pub use devices::block::{
+    BLOCK_CONFIG_LEN, BLOCK_QUEUE_MAX, BLOCK_SERIAL_LEN, BlockConfigError, BlockCounters,
+    BlockDevice, BlockRole, VIRTIO_BLK_DEVICE_ID, VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH,
+    VIRTIO_BLK_F_RO,
+};
+pub use devices::segments::{read_readable, write_writable};
+pub use devices::service::{ChainHandler, DeviceFault, ServiceError, ServiceReport, service_queue};
 pub use guest_memory::{
     GuestAddress, GuestMemory, GuestMemoryError, GuestValue, RegionLayoutError, VecGuestMemory,
 };
