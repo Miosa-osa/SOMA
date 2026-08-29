@@ -41,6 +41,15 @@ The live container run proved a down guest link and no forwarding before activat
 The conntrack zone is bound with `ct original zone set` on the host veth so masqueraded replies still match, and the sandbox namespace's own conntrack table is the primary per-bundle isolation.
 The daemon skeleton does not authenticate its peer, ingress ports are reserved but never forwarded, proxy attachment is typed `Unimplemented`, and the broker's socket mechanisms have not been exercised from a jailed VMM; those are the next dependencies together with the virtio-net attach of the transferred TAP.
 
+## 2026-08-29 - Recent implementation audit requires corrective work
+
+The reviewed x86_64 KVM boot, launch-page identity, static guest-agent, Generation compiler, and Template-binding series has an agent-ready handoff in `docs/reviews/2026-08-29-implementation-audit.md`.
+The PVH kernel boot, modularity, OCI normalization, and guest protocol are strong foundations.
+Priority 0 corrections cover published responder authority, unbounded guest-output queues, incomplete Generation tool deadlines, premature Generation publication, and incomplete hostile manifest validation.
+Priority 1 corrections cover entropy crediting, target-specific ioctl layouts, unusable subnet addresses, executable provenance, and structured workload commands.
+Priority 2 work completes Host launch-page retirement, real virtio integration, real guest-agent readiness, Generation certification, narrow Template claims, and eventual performance evidence.
+The full portable validation profile passed on macOS, but Linux-only and ignored live tests remain outside that evidence.
+
 ## 2026-08-29 - Canonical sandbox stack separates containment from dependency
 
 The beginner documentation now distinguishes physical containment, dependency direction, runtime primitives, code modules, Template modules, optional capabilities, and optimizations.
