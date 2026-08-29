@@ -5,6 +5,7 @@ members = [
     "crates/soma-generation",
     "crates/soma-guest",
     "crates/soma-guest-agent",
+    "crates/soma-jail",
     "crates/soma-kvm",
     "crates/soma-local",
     "crates/soma-macos",

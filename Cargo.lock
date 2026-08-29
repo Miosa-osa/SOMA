@@ -1172,6 +1172,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-jail"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "kvm-bindings",
+ "libc",
+]
+
+[[package]]
 name = "soma-kvm"
 version = "1.0.0-alpha.1"
 dependencies = [

@@ -1,0 +1,21 @@
+[package]
+name = "soma-jail"
+description = "Launcher that constrains one soma-vmm process inside an ephemeral UID, namespaces, a cgroup v2 leaf, a sealed descriptor table, and phase-derived seccomp filters"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "jail-probe"
+path = "src/bin/jail-probe.rs"
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+libc = "=0.2.189"
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
+kvm-bindings = "=0.14.1"
