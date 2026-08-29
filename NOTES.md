@@ -392,3 +392,8 @@ This layered language prevents libraries, processes, build artifacts, and runnin
 The visual teaching order begins at physical virtualization, enters the Machine, distinguishes host-side Generation artifacts from the guest `/` tree, and only then adds a workload such as Node 22.
 Capacity education treats vCPU scheduling, resident memory, shared immutable pages, private dirty pages, sparse storage, network state, and host objects as independent limits whose minimum bounds safe admission.
 Capacity language now distinguishes cumulative creations, queued requests, resident Instances, and simultaneously active Instances because only the latter three consume concurrent Host capacity and they consume it differently.
+
+## 2026-08-29 - Repository-owned README branding
+
+The README header uses transparent brand assets committed under `assets/brand` rather than website app icons or remotely named wordmarks.
+Version and license metadata use plain linked text because split Shields labels visually compete with the SOMA identity and are not required for status signaling.

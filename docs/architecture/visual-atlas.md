@@ -565,6 +565,112 @@ With a validated 4:1 CPU overcommit policy, CPU admission could become 288 singl
 That policy does not manufacture additional CPU capacity.
 If all 288 become runnable together, they compete for 72 thread units.
 
+### How 200 sandboxes can fit on 80 hardware threads
+
+Isolation and simultaneous execution are different properties.
+KVM can maintain 200 isolated Machines even though the processor can run instructions for only about 80 vCPU threads at one instant.
+
+```text
+200 SANDBOXES
+200 virtual CPUs
+       |
+       | host scheduling and time slicing
+       v
+80 hardware threads
+```
+
+Using the illustrative reserve of 72 schedulable thread units:
+
+```text
+200 admitted vCPUs / 72 thread units = about 2.78 vCPUs per thread unit
+```
+
+The host scheduler rapidly switches between runnable vCPU threads.
+When one guest waits for a network response, disk operation, timer, or host command, another guest can use that hardware thread.
+
+```text
+ONE HARDWARE THREAD OVER TIME
+
+time  -------------------------------------------------------------->
+
+      Instance A    Instance B    host work    Instance C    Instance A
+      vCPU 0        vCPU 0                     vCPU 0        vCPU 0
+      [ running ]   [ running ]                [ running ]   [ running ]
+
+other Instances are runnable, sleeping, waiting for I/O, or paused
+```
+
+This works best for bursty agent workloads.
+Agents commonly wait for model responses, remote APIs, filesystem operations, subprocesses, or user input.
+It works poorly for 200 continuous CPU-bound compilers, encoders, or numerical jobs because the run queue remains full.
+
+SOMA can preserve isolation while oversubscribing CPU because each guest retains private vCPU state and KVM memory boundaries while only execution time is multiplexed.
+
+### Density mechanisms and their tradeoffs
+
+| Mechanism | What is shared or delayed | Why it increases density | Required safety rule |
+|---|---|---|---|
+| CPU time slicing | Hardware execution time | More vCPUs exist than hardware threads | Enforce quotas, weights, and starvation bounds |
+| CPU overcommit | Admission against expected utilization | Idle guests do not waste dedicated cores | Publish the ratio and reject overload beyond the profile |
+| Immutable root sharing | Read-only OCI-derived filesystem blocks | Node, Ubuntu, and libraries are stored once | Guests must never mutate shared backing |
+| Snapshot memory mapping | Immutable prepared memory pages | Launch avoids copying all guest RAM | Map privately and fail closed on incompatible state |
+| Copy-on-write memory | A page is copied only after one guest writes | Identical clean pages consume one physical backing | Every modification becomes Instance-private |
+| Lazy page faults | Snapshot pages are loaded when touched | Unused guest address space need not be resident immediately | Bound fault storms and retain enough backing capacity |
+| Sparse writable disks | Physical blocks are allocated when written | A 10 GiB logical disk need not consume 10 GiB immediately | Enforce logical and physical quotas plus emergency reserve |
+| Shared page cache | Host caches immutable files and snapshot pages | Repeated launches avoid storage reads | Cache content must remain immutable and identity-verified |
+| I/O multiplexing | Device and network service time | Waiting guests allow other guests to progress | Apply per-Instance fairness and throughput limits |
+| Prepared workers | Invariant VMM setup happens before Launch | Reduces latency without reusing tenant state | Assignment must be single-use with fresh authority |
+
+These mechanisms share immutable bytes, hardware time, caches, or unused capacity.
+They do not share mutable guest memory, credentials, writable filesystems, Instance identity, or authenticated control authority.
+
+### What should not be used casually
+
+```text
+unsafe or misleading shortcut             reason
+--------------------------------------------------------------------------
+shared writable root across tenants        one guest can affect another
+reused guest identity or session secret    breaks Instance isolation
+unbounded CPU overcommit                    destroys latency under a burst
+unbounded sparse-disk promises              host can run out after admission
+host swap as normal capacity                severe and unpredictable latency
+cross-tenant anonymous-page merging         creates side-channel concerns
+counting virtual RAM as guaranteed RAM      ignores the dirty-page worst case
+```
+
+SOMA should prefer explicit immutable sharing over transparent cross-tenant page-merging mechanisms.
+For example, mapping one verified snapshot file privately is understandable and auditable.
+Scanning unrelated guest memory and merging coincidentally equal anonymous pages creates a more complicated security boundary and should not be a default density mechanism.
+
+### A realistic 200-sandbox shape on the 256 GiB example Host
+
+The following is an explanatory configuration, not measured evidence:
+
+```text
+Host admissible pool
+  72 CPU thread units
+  232 GiB RAM
+
+200 admitted Machines
+  1 vCPU each
+  1 GiB guest RAM each
+  illustrative 64 MiB non-guest overhead each
+
+CPU
+  200 / 72 = 2.78:1 overcommit
+
+Memory
+  200 * (1 GiB + 64 MiB) = 212.5 GiB
+  232 GiB - 212.5 GiB = 19.5 GiB remaining admission headroom
+```
+
+This shape fits the illustrative CPU and memory policies.
+It still requires measured proof that storage, network, VMM processes, file descriptors, page-fault rate, Launch concurrency, and cleanup concurrency remain within their certified limits.
+
+On a 25 GiB Host, 200 Machines cannot each receive guaranteed 1 GiB memory.
+After a 5 GiB host reserve, 200 Machines divide 20 GiB into only about 102 MiB each before VMM overhead.
+That smaller Host would need a much smaller guest profile, elastic memory with explicitly weaker guarantees, fewer resident Machines, or more Hosts.
+
 ### Why shared snapshots do not remove the RAM limit
 
 Private copy-on-write memory can let many Instances initially share immutable snapshot pages.

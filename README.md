@@ -1,15 +1,15 @@
 <p align="center">
   <a href="https://miosa.ai">
-    <img alt="MIOSA orb" src="https://miosa.ai/apple-touch-icon.png" width="96" height="96">
+    <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="96">
   </a>
 </p>
 
 <p align="center">
   <a href="https://miosa.ai">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://miosa.ai/miosa-logo-white.png">
-      <source media="(prefers-color-scheme: light)" srcset="https://miosa.ai/miosa-logo-black.png">
-      <img alt="MIOSA" src="https://miosa.ai/miosa-logo-black.png" width="300" height="129">
+      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
+      <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
+      <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="300">
     </picture>
   </a>
 </p>
@@ -22,8 +22,11 @@
 </p>
 
 <p align="center">
-  <a href="VERSION"><img alt="Version 1.0.0 alpha 1" src="https://img.shields.io/badge/version-1.0.0--alpha.1-7c3aed?style=flat-square"></a>
-  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square"></a>
+  <sub>
+    <a href="VERSION">Version 1.0.0-alpha.1</a>
+    &nbsp;&middot;&nbsp;
+    <a href="LICENSE">Apache-2.0</a>
+  </sub>
 </p>
 
 The name describes the role.
