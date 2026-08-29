@@ -30,11 +30,11 @@ pub use protocol::{
 };
 
 pub use admission::{
-    Admission, CapacityEstimate, CapacityRejection, CpuInventory, Demand, Gate, HostProfile,
-    InstanceShape, MeasuredOverhead, MemoryClass, MemoryInventory, NetworkInventory, NodeDemand,
-    NodeFree, NodeId, NumaPlacement, NumaRejection, OperatorLimits, OvercommitPolicy,
+    Admission, CapacityEstimate, CapacityRejection, CertifiedProfile, CpuInventory, Demand, Gate,
+    HostProfile, InstanceShape, MeasuredOverhead, MemoryClass, MemoryInventory, NetworkInventory,
+    NodeDemand, NodeFree, NodeId, NumaPlacement, NumaRejection, OperatorLimits, OvercommitPolicy,
     ProcessInventory, ProfileError, Ratio, Reservation, ShapeError, SingleNode, StorageInventory,
-    Usage, WorkloadClass, estimate, reserve,
+    Usage, ValidShape, WorkloadClass, estimate, reserve,
 };
 pub use ids::{
     GenerationId, HostProfileDigest, IdError, InstanceId, LaunchMaterialHandle, LeaseGeneration,

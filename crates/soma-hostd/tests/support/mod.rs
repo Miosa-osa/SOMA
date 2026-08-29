@@ -9,7 +9,7 @@ use soma_hostd::{
     HostProfile, InstanceId, InstanceShape, LaunchMaterialHandle, Limits, MeasuredOverhead,
     MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId, OperatorLimits,
     OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, SingleNode,
-    StorageInventory, WorkloadClass,
+    StorageInventory, ValidShape, WorkloadClass,
     testing::{InProcessBroker, InProcessLauncher, ProcessTable},
 };
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
@@ -56,12 +56,10 @@ pub fn host_profile() -> HostProfile {
         },
         overcommit: OvercommitPolicy::STRICT,
     }
-    .validate()
-    .expect("profile")
 }
 
 /// The Machine shape every worker of the test pool is prepared for.
-pub fn shape() -> InstanceShape {
+pub fn shape() -> ValidShape {
     InstanceShape {
         vcpus: 1,
         guest_memory_bytes: 512 << 20,
@@ -76,7 +74,10 @@ pub fn shape() -> InstanceShape {
 }
 
 pub fn admission() -> Arc<Admission> {
-    Arc::new(Admission::new(host_profile(), SingleNode))
+    Arc::new(Admission::new(
+        host_profile().validate().expect("profile"),
+        SingleNode,
+    ))
 }
 
 /// A ledger directory on a memory-backed filesystem when one exists, so the fsync of every

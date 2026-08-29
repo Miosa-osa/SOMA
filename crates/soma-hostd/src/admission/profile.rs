@@ -5,31 +5,8 @@ use std::fmt;
 
 use sha2::{Digest, Sha256};
 
+use super::overhead::MeasuredOverhead;
 use crate::{HostProfileDigest, WorkloadClass};
-
-/// The measured host-side memory cost of one VM beyond its guest memory.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct MeasuredOverhead {
-    /// Bytes per resident Instance.
-    pub bytes_per_instance: u64,
-    /// Where the number comes from; a placeholder must say so.
-    pub evidence: &'static str,
-}
-
-impl MeasuredOverhead {
-    /// The 64 MiB explanatory placeholder from the visual atlas; not a measurement.
-    pub const ATLAS_PLACEHOLDER: Self = Self {
-        bytes_per_instance: 64 << 20,
-        evidence: "docs/architecture/visual-atlas.md section 15 placeholder; not measured",
-    };
-
-    /// The single-sample non-guest resident total of the `x86_64` PVH boot proof, rounded up
-    /// to 4 MiB; a debug-build diagnostic, not a certified per-VM figure.
-    pub const PVH_BOOT_SINGLE_SAMPLE: Self = Self {
-        bytes_per_instance: 4 << 20,
-        evidence: "docs/evidence/2026-08-29-x86_64-pvh-kernel-boot.md single-sample debug-build non-guest resident total of about 3.6 MiB; not certified",
-    };
-}
 
 /// Hardware threads and NUMA topology.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -192,13 +169,34 @@ pub struct HostProfile {
     pub overcommit: OvercommitPolicy,
 }
 
+/// A [`HostProfile`] that passed [`HostProfile::validate`].
+///
+/// Every admission and every estimate takes one, so no unvalidated inventory, reserve, or
+/// overcommit ratio can reach the capacity arithmetic.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct CertifiedProfile(HostProfile);
+
+impl CertifiedProfile {
+    /// The certified profile.
+    #[must_use]
+    pub const fn profile(&self) -> &HostProfile {
+        &self.0
+    }
+
+    /// Takes the certified profile back out.
+    #[must_use]
+    pub const fn into_profile(self) -> HostProfile {
+        self.0
+    }
+}
+
 impl HostProfile {
-    /// Validates the profile.
+    /// Certifies the profile.
     ///
     /// # Errors
     ///
     /// Returns the first violated rule.
-    pub const fn validate(self) -> Result<Self, ProfileError> {
+    pub const fn validate(self) -> Result<CertifiedProfile, ProfileError> {
         if self.cpu.hardware_threads <= self.cpu.reserved_threads {
             return Err(ProfileError::NoAdmissibleCpu);
         }
@@ -226,7 +224,7 @@ impl HostProfile {
         if self.memory.overhead.bytes_per_instance == 0 {
             return Err(ProfileError::ZeroOverhead);
         }
-        Ok(self)
+        Ok(CertifiedProfile(self))
     }
 
     /// Hardware thread units after the host reserve.

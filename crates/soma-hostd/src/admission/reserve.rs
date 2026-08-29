@@ -9,8 +9,8 @@ use std::sync::Mutex;
 use super::usage::{Usage, census_milli_units, gate};
 use crate::Demand;
 use crate::{
-    CapacityRejection, Gate, HostProfile, InstanceShape, NodeDemand, NodeFree, NodeId,
-    NumaPlacement, NumaRejection,
+    CapacityRejection, CertifiedProfile, Gate, HostProfile, NodeDemand, NodeFree, NodeId,
+    NumaPlacement, NumaRejection, ValidShape,
 };
 
 /// One committed reservation; it must be returned to [`Admission::release`].
@@ -38,6 +38,7 @@ impl Reservation {
 
 /// The host's admission state.
 pub struct Admission {
+    certified: CertifiedProfile,
     profile: HostProfile,
     placement: Box<dyn NumaPlacement>,
     state: Mutex<(Usage, u64)>,
@@ -46,7 +47,8 @@ pub struct Admission {
 impl Admission {
     /// Opens admission for `profile` with `placement`.
     #[must_use]
-    pub fn new(profile: HostProfile, placement: impl NumaPlacement + 'static) -> Self {
+    pub fn new(certified: CertifiedProfile, placement: impl NumaPlacement + 'static) -> Self {
+        let profile = certified.into_profile();
         let nodes = profile.cpu.numa_nodes.max(1) as usize;
         let usage = Usage {
             node_cpu: vec![0; nodes],
@@ -55,6 +57,7 @@ impl Admission {
             ..Usage::default()
         };
         Self {
+            certified,
             profile,
             placement: Box::new(placement),
             state: Mutex::new((usage, 1)),
@@ -82,8 +85,8 @@ impl Admission {
     /// # Errors
     ///
     /// Returns the first refusing gate; nothing is committed on error.
-    pub fn reserve(&self, shape: &InstanceShape) -> Result<Reservation, CapacityRejection> {
-        let demand = Demand::of(&self.profile, shape)?;
+    pub fn reserve(&self, shape: &ValidShape) -> Result<Reservation, CapacityRejection> {
+        let demand = Demand::of(&self.certified, shape)?;
         let mut state = self
             .state
             .lock()

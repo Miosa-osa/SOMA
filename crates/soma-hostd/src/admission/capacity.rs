@@ -1,7 +1,7 @@
 //! The capacity equation of the visual atlas: the safe count of one uniform shape is the
 //! minimum over every independent limit.
 
-use crate::{CapacityRejection, Demand, Gate, HostProfile, InstanceShape, MemoryClass};
+use crate::{CapacityRejection, CertifiedProfile, Demand, Gate, MemoryClass, ValidShape};
 
 /// The per-dimension bounds and their minimum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,10 +32,12 @@ pub struct CapacityEstimate {
 ///
 /// Returns [`Gate::Arithmetic`] on overflow.
 pub fn estimate(
-    profile: &HostProfile,
-    shape: &InstanceShape,
+    profile: &CertifiedProfile,
+    shape: &ValidShape,
 ) -> Result<CapacityEstimate, CapacityRejection> {
     let demand = Demand::of(profile, shape)?;
+    let profile = profile.profile();
+    let shape = shape.shape();
     let units = u64::from(profile.admissible_cpu_units());
     let ratio = profile.overcommit.ratio(shape.workload);
     let cpu_strict = divide(units, u64::from(shape.vcpus));
@@ -51,7 +53,7 @@ pub fn estimate(
         MemoryClass::Guaranteed => profile.admissible_memory_bytes(),
         MemoryClass::Elastic { .. } => profile.memory.elastic_budget_bytes,
     };
-    let memory = memory_budget / memory_cost.max(1);
+    let memory = divide(memory_budget, memory_cost);
     let storage = divide(profile.storage.private_budget_bytes, demand.storage_bytes);
     let network = divide(u64::from(profile.network.units), demand.network_units);
     let process = u64::from(profile.process.processes).min(divide(

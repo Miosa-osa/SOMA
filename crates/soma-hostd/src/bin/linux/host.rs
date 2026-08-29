@@ -4,9 +4,9 @@
 //! measurement, and the per-VM overhead carries the label that says where it came from.
 
 use soma_hostd::{
-    CpuInventory, HostProfile, InstanceShape, MeasuredOverhead, MemoryClass, MemoryInventory,
-    NetworkInventory, OperatorLimits, OvercommitPolicy, ProcessInventory, StorageInventory,
-    WorkloadClass,
+    CertifiedProfile, CpuInventory, HostProfile, InstanceShape, MeasuredOverhead, MemoryClass,
+    MemoryInventory, NetworkInventory, OperatorLimits, OvercommitPolicy, ProcessInventory,
+    StorageInventory, ValidShape, WorkloadClass,
 };
 
 use super::Config;
@@ -36,7 +36,7 @@ pub(super) struct Host {
     pub(super) cleanup_slots: u32,
 }
 
-pub(super) fn profile(host: &Host) -> Result<HostProfile, String> {
+pub(super) fn profile(host: &Host) -> Result<CertifiedProfile, String> {
     HostProfile {
         cpu: CpuInventory {
             hardware_threads: host.threads.ok_or("--host-threads is required")?,
@@ -75,7 +75,7 @@ pub(super) fn profile(host: &Host) -> Result<HostProfile, String> {
     .map_err(|error| error.to_string())
 }
 
-pub(super) fn shape(config: &Config) -> Result<InstanceShape, String> {
+pub(super) fn shape(config: &Config) -> Result<ValidShape, String> {
     InstanceShape {
         vcpus: config.vcpus,
         guest_memory_bytes: config.memory,

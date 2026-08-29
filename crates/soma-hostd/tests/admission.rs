@@ -2,14 +2,14 @@
 
 mod atlas;
 
-use atlas::{GIB, MIB, atlas_profile, atlas_shape};
+use atlas::{GIB, MIB, atlas_profile, atlas_shape, atlas_valid, certified, valid};
 use soma_hostd::{
     Admission, Gate, InstanceShape, MeasuredOverhead, Ratio, SingleNode, WorkloadClass, estimate,
 };
 
 #[test]
 fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
-    let medium = estimate(&atlas_profile(16, 2, 32, 4), &atlas_shape()).expect("estimate");
+    let medium = estimate(&atlas_profile(16, 2, 32, 4), &atlas_valid()).expect("estimate");
     assert_eq!(medium.memory, 49, "28,672 MiB / 576 MiB");
     assert_eq!(medium.cpu_strict, 14);
     assert_eq!(medium.cpu_overcommitted, 56, "14 units at 4:1");
@@ -24,7 +24,7 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
     ] {
         let row = estimate(
             &atlas_profile(threads, reserved, total, reserved_gib),
-            &atlas_shape(),
+            &atlas_valid(),
         )
         .expect("estimate");
         assert_eq!(
@@ -38,7 +38,7 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
         ..atlas_shape()
     };
     assert_eq!(
-        estimate(&atlas_profile(80, 8, 256, 24), &two_gib)
+        estimate(&atlas_profile(80, 8, 256, 24), &valid(two_gib))
             .expect("estimate")
             .memory,
         112
@@ -50,7 +50,7 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
             workload: WorkloadClass::Build,
             ..atlas_shape()
         };
-        let row = estimate(&small_host, &shape).expect("estimate");
+        let row = estimate(&small_host, &valid(shape)).expect("estimate");
         assert_eq!(row.memory, memory_bound);
         assert_eq!(row.cpu_strict, 72);
         assert_eq!(row.safe_count, memory_bound.min(72));
@@ -59,13 +59,13 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
 
 #[test]
 fn the_three_to_one_row_of_the_ladder_admits_forty_two_and_not_forty_one() {
-    let mut profile = atlas_profile(16, 2, 32, 4);
+    let mut profile = atlas_profile(16, 2, 32, 4).into_profile();
     profile.overcommit.api_waiting = Ratio {
         vcpus: 3,
         threads: 1,
     };
-    let profile = profile.validate().expect("profile");
-    let row = estimate(&profile, &atlas_shape()).expect("estimate");
+    let profile = certified(profile);
+    let row = estimate(&profile, &atlas_valid()).expect("estimate");
     assert_eq!(
         row.cpu_overcommitted, 42,
         "the atlas ladder reads 42 at 3:1 on 14 admissible units"
@@ -75,7 +75,7 @@ fn the_three_to_one_row_of_the_ladder_admits_forty_two_and_not_forty_one() {
     let admission = Admission::new(profile, SingleNode);
     let mut held = Vec::new();
     loop {
-        match admission.reserve(&atlas_shape()) {
+        match admission.reserve(&atlas_valid()) {
             Ok(reservation) => held.push(reservation),
             Err(rejection) => {
                 assert_eq!(rejection.gate, Gate::CpuUnits);
@@ -97,7 +97,7 @@ fn reservations_admit_exactly_the_memory_bound_then_reject_with_evidence() {
     let admission = Admission::new(atlas_profile(16, 2, 32, 4), SingleNode);
     let mut reservations = Vec::new();
     loop {
-        match admission.reserve(&atlas_shape()) {
+        match admission.reserve(&atlas_valid()) {
             Ok(reservation) => reservations.push(reservation),
             Err(rejection) => {
                 assert_eq!(reservations.len(), 49);
@@ -142,9 +142,12 @@ fn measured_overhead_inputs_are_labelled() {
         MeasuredOverhead::PVH_BOOT_SINGLE_SAMPLE.bytes_per_instance,
         4 * MIB
     );
-    let mut measured = atlas_profile(16, 2, 32, 4);
+    let mut measured = atlas_profile(16, 2, 32, 4).into_profile();
     measured.memory.overhead = MeasuredOverhead::PVH_BOOT_SINGLE_SAMPLE;
-    let row = estimate(&measured, &atlas_shape()).expect("estimate");
+    let row = estimate(&certified(measured), &atlas_valid()).expect("estimate");
     assert_eq!(row.memory, 28 * 1024 / 516);
-    assert_ne!(measured.digest(), atlas_profile(16, 2, 32, 4).digest());
+    assert_ne!(
+        measured.digest(),
+        atlas_profile(16, 2, 32, 4).profile().digest()
+    );
 }

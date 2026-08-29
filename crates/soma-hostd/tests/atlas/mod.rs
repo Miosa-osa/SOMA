@@ -3,9 +3,9 @@
 #![allow(dead_code)]
 
 use soma_hostd::{
-    CpuInventory, HostProfile, InstanceShape, MeasuredOverhead, MemoryClass, MemoryInventory,
-    NetworkInventory, OperatorLimits, OvercommitPolicy, ProcessInventory, Ratio, StorageInventory,
-    WorkloadClass,
+    CertifiedProfile, CpuInventory, HostProfile, InstanceShape, MeasuredOverhead, MemoryClass,
+    MemoryInventory, NetworkInventory, OperatorLimits, OvercommitPolicy, ProcessInventory, Ratio,
+    StorageInventory, ValidShape, WorkloadClass,
 };
 
 pub const GIB: u64 = 1 << 30;
@@ -16,7 +16,7 @@ pub fn atlas_profile(
     reserved: u32,
     total_gib: u64,
     reserved_gib: u64,
-) -> HostProfile {
+) -> CertifiedProfile {
     HostProfile {
         cpu: CpuInventory {
             hardware_threads: threads,
@@ -57,6 +57,21 @@ pub fn atlas_profile(
     .expect("profile")
 }
 
+/// Certifies a profile a test mutated.
+pub fn certified(profile: HostProfile) -> CertifiedProfile {
+    profile.validate().expect("profile")
+}
+
+/// Validates a shape a test built.
+pub fn valid(shape: InstanceShape) -> ValidShape {
+    shape.validate().expect("shape")
+}
+
+/// The atlas ladder shape, already validated.
+pub fn atlas_valid() -> ValidShape {
+    valid(atlas_shape())
+}
+
 pub fn atlas_shape() -> InstanceShape {
     InstanceShape {
         vcpus: 1,
@@ -67,6 +82,4 @@ pub fn atlas_shape() -> InstanceShape {
         network_units: 1,
         descriptors: 16,
     }
-    .validate()
-    .expect("shape")
 }

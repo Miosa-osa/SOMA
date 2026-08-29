@@ -13,9 +13,9 @@ mod linux {
     use std::{path::PathBuf, sync::Arc, time::Duration};
 
     use soma_hostd::{
-        Admission, CpuClass, ExhaustedBehavior, GenerationId, HostProfile, Limits, MemoryClass,
-        MemoryShape, OverlayIdentity, Pool, PoolAdmission, PoolKey, SingleNode, WorkloadClass,
-        daemon,
+        Admission, CertifiedProfile, CpuClass, ExhaustedBehavior, GenerationId, Limits,
+        MemoryClass, MemoryShape, OverlayIdentity, Pool, PoolAdmission, PoolKey, SingleNode,
+        WorkloadClass, daemon,
         testing::{InProcessBroker, InProcessLauncher, ProcessTable},
     };
 
@@ -118,9 +118,9 @@ mod linux {
         Ok(config)
     }
 
-    fn key(config: &Config, profile: &HostProfile) -> Result<PoolKey, String> {
+    fn key(config: &Config, profile: &CertifiedProfile) -> Result<PoolKey, String> {
         Ok(PoolKey {
-            host_profile: profile.digest(),
+            host_profile: profile.profile().digest(),
             generation: GenerationId::new(config.generation.ok_or("--generation is required")?)
                 .map_err(|error| error.to_string())?,
             cpu: CpuClass {

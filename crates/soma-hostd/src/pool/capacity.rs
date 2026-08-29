@@ -10,20 +10,20 @@
 use std::sync::Arc;
 
 use crate::{
-    Admission, CapacityRejection, InstanceShape, Pool, Reservation, ResourceBroker, WorkerLauncher,
+    Admission, CapacityRejection, Pool, Reservation, ResourceBroker, ValidShape, WorkerLauncher,
 };
 
 /// The host admission one pool reserves from, and the shape it reserves.
 #[derive(Clone)]
 pub struct PoolAdmission {
     admission: Arc<Admission>,
-    shape: InstanceShape,
+    shape: ValidShape,
 }
 
 impl PoolAdmission {
     /// Binds one pool's Machine shape to the host admission every pool shares.
     #[must_use]
-    pub const fn new(admission: Arc<Admission>, shape: InstanceShape) -> Self {
+    pub const fn new(admission: Arc<Admission>, shape: ValidShape) -> Self {
         Self { admission, shape }
     }
 
@@ -35,7 +35,7 @@ impl PoolAdmission {
 
     /// The shape every claim of this pool reserves.
     #[must_use]
-    pub const fn shape(&self) -> &InstanceShape {
+    pub const fn shape(&self) -> &ValidShape {
         &self.shape
     }
 }

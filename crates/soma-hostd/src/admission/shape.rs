@@ -109,13 +109,34 @@ impl fmt::Display for ShapeError {
 
 impl std::error::Error for ShapeError {}
 
+/// An [`InstanceShape`] that passed [`InstanceShape::validate`].
+///
+/// Every admission and every estimate takes one, so a shape with no vCPU, no memory, or an
+/// elastic expectation above its guest promise can never be accounted.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ValidShape(InstanceShape);
+
+impl ValidShape {
+    /// The validated shape.
+    #[must_use]
+    pub const fn shape(&self) -> &InstanceShape {
+        &self.0
+    }
+
+    /// Takes the validated shape back out.
+    #[must_use]
+    pub const fn into_shape(self) -> InstanceShape {
+        self.0
+    }
+}
+
 impl InstanceShape {
     /// Validates the shape.
     ///
     /// # Errors
     ///
     /// Returns the first violated rule.
-    pub const fn validate(self) -> Result<Self, ShapeError> {
+    pub const fn validate(self) -> Result<ValidShape, ShapeError> {
         if self.vcpus == 0 {
             return Err(ShapeError::NoVcpus);
         }
@@ -129,7 +150,7 @@ impl InstanceShape {
         {
             return Err(ShapeError::ElasticAboveGuest);
         }
-        Ok(self)
+        Ok(ValidShape(self))
     }
 }
 
@@ -151,7 +172,7 @@ mod tests {
 
     #[test]
     fn shapes_reject_empty_dimensions_and_over_promised_elastic_sets() {
-        assert!(shape().validate().is_ok());
+        assert_eq!(shape().validate().map(ValidShape::into_shape), Ok(shape()));
         assert_eq!(
             InstanceShape {
                 vcpus: 0,

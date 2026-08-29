@@ -90,7 +90,7 @@ impl Usage {
         demand: &Demand,
         profile: &HostProfile,
     ) -> Result<Self, CapacityRejection> {
-        let cpu_limit = u64::from(profile.admissible_cpu_units()) * 1000;
+        let cpu_limit = u64::from(profile.admissible_cpu_units()).saturating_mul(1000);
         let memory_limit = profile.admissible_memory_bytes();
         let limits = profile.limits;
         let mut next = self.clone();
@@ -191,9 +191,15 @@ impl Usage {
     }
 
     pub(super) fn free_nodes(&self, profile: &HostProfile) -> Vec<NodeFree> {
-        let nodes = u64::from(profile.cpu.numa_nodes.max(1));
-        let cpu_per_node = u64::from(profile.admissible_cpu_units()) * 1000 / nodes;
-        let memory_per_node = profile.admissible_memory_bytes() / nodes;
+        let nodes = u64::from(profile.cpu.numa_nodes).max(1);
+        let cpu_per_node = u64::from(profile.admissible_cpu_units())
+            .saturating_mul(1000)
+            .checked_div(nodes)
+            .unwrap_or(0);
+        let memory_per_node = profile
+            .admissible_memory_bytes()
+            .checked_div(nodes)
+            .unwrap_or(0);
         (0..profile.cpu.numa_nodes.max(1))
             .map(|node| NodeFree {
                 node: NodeId(node),

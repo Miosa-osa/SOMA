@@ -1,7 +1,7 @@
 //! What one Machine shape consumes, in the unit of every gate, with checked arithmetic.
 
 use super::usage::class_milli_units;
-use crate::{CapacityRejection, Gate, HostProfile, InstanceShape, MemoryClass, WorkloadClass};
+use crate::{CapacityRejection, CertifiedProfile, Gate, MemoryClass, ValidShape, WorkloadClass};
 
 /// What one shape consumes, in the units of every gate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,7 +34,9 @@ impl Demand {
     /// # Errors
     ///
     /// Returns [`Gate::Arithmetic`] on overflow.
-    pub fn of(profile: &HostProfile, shape: &InstanceShape) -> Result<Self, CapacityRejection> {
+    pub fn of(profile: &CertifiedProfile, shape: &ValidShape) -> Result<Self, CapacityRejection> {
+        let profile = profile.profile();
+        let shape = shape.shape();
         let overflow = |requested| CapacityRejection {
             gate: Gate::Arithmetic,
             requested,
