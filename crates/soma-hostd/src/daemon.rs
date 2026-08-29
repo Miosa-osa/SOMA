@@ -207,17 +207,31 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker>(
 /// Answers a replay from the disposition of the worker the operation is bound to.
 ///
 /// A replay whose worker was destroyed, by a failed transfer or by a release, is answered
-/// with the typed terminal failure rather than a reply naming a worker that is gone.
+/// with the typed terminal failure rather than a reply naming a worker that is gone, and a
+/// replay of a transfer this process performed repeats the launch-page values of the reply
+/// that was lost.
+/// Only a worker retained across a restart, whose delivery this process never saw, is
+/// answered with the reduced replay reply.
 fn replayed<L: WorkerLauncher, R: ResourceBroker>(
     pool: &Arc<Pool<L, R>>,
     outcome: ClaimOutcome,
 ) -> Reply {
     match pool.inspect(outcome.worker) {
-        Some(view) if !view.phase.is_terminal() => Reply::Replayed {
-            worker: outcome.worker,
-            lease_generation: outcome.lease_generation,
-        },
-        _ => Reply::Failed(failure_code(FailureCode::Terminated)),
+        Some(view) if view.phase.is_terminal() => {
+            Reply::Failed(failure_code(FailureCode::Terminated))
+        }
+        Some(view) => view.launch.map_or(
+            Reply::Replayed {
+                worker: outcome.worker,
+                lease_generation: outcome.lease_generation,
+            },
+            |launch| Reply::Claimed {
+                worker: outcome.worker,
+                lease_generation: outcome.lease_generation,
+                launch: launch_bytes(launch),
+            },
+        ),
+        None => Reply::Failed(failure_code(FailureCode::Terminated)),
     }
 }
 

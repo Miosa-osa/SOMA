@@ -15,7 +15,9 @@ pub enum Reply {
         /// CID, generation, MAC, address, prefix, gateway, resolver, time sample.
         launch: [u8; 35],
     },
-    /// The operation already holds this worker; the original reply carried the network.
+    /// The operation already holds this worker, but this process did not deliver its launch
+    /// page and cannot repeat it; the client releases the worker and launches again under a
+    /// fresh operation.
     Replayed {
         /// The worker.
         worker: WorkerId,

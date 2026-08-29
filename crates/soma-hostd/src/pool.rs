@@ -30,6 +30,7 @@ use std::{
 };
 
 use sha2::{Digest, Sha256};
+use soma_guest::LaunchNetwork;
 
 use capacity::PoolAdmission;
 use claim::Registry;
@@ -102,6 +103,10 @@ pub(crate) struct Owned<H> {
     pub(crate) instance: InstanceId,
     pub(crate) operation: OperationId,
     pub(crate) reservation: Option<Reservation>,
+    /// The exact launch-page network identity that was delivered, so a replayed claim can be
+    /// answered with the same values the lost reply carried; absent for a worker retained
+    /// across a restart, whose delivery this process never saw.
+    pub(crate) launch: Option<LaunchNetwork>,
 }
 
 /// What `inspect` reports about one worker.
@@ -117,6 +122,9 @@ pub struct WorkerView {
     pub operation: Option<OperationId>,
     /// The Instance, once assigned.
     pub instance: Option<InstanceId>,
+    /// The launch-page network identity delivered to the worker, when this process delivered
+    /// it.
+    pub launch: Option<LaunchNetwork>,
 }
 
 /// One bounded pool.

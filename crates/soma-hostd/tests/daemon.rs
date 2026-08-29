@@ -51,16 +51,18 @@ fn a_replay_of_an_operation_whose_transfer_failed_never_names_a_live_worker() {
 }
 
 #[test]
-fn a_replay_of_a_live_operation_is_answered_and_a_released_one_is_terminal() {
+fn a_replay_of_a_live_operation_repeats_its_launch_page_and_a_released_one_is_terminal() {
     let harness = harness(limits(2, 6));
     harness.pool.replenish_blocking().expect("replenish");
-    let Reply::Claimed { worker, .. } = daemon::handle(&harness.pool, claim_request(2)) else {
+    let first = daemon::handle(&harness.pool, claim_request(2));
+    let Reply::Claimed { worker, .. } = first else {
         panic!("the first claim transfers authority");
     };
-    assert!(matches!(
+    assert_eq!(
         daemon::handle(&harness.pool, claim_request(2)),
-        Reply::Replayed { .. }
-    ));
+        first,
+        "a retry after a lost reply receives the identical launch page"
+    );
     harness.pool.release(worker).expect("release");
     assert_eq!(
         daemon::handle(&harness.pool, claim_request(2)),

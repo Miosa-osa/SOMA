@@ -5,6 +5,8 @@ mod frames;
 
 use std::time::Instant;
 
+use soma_guest::LaunchNetwork;
+
 use failure::{TransferFailure, failure, refuse_foreign};
 use frames::{frames, fresh_entropy};
 
@@ -61,7 +63,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             }
             steps += 1;
         }
-        self.commit(attempt, intent)?;
+        self.commit(attempt, intent, launch)?;
         Ok(TransferEvidence {
             worker: id,
             lease_generation: generation,
@@ -234,6 +236,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         &self,
         mut attempt: Attempt<L::Handle>,
         intent: &AssignmentIntent,
+        launch: LaunchNetwork,
     ) -> Result<(), TransferFailure> {
         if attempt.won_at.elapsed() > self.limits().claim_deadline {
             return Err(self.abort(
@@ -267,6 +270,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             instance: intent.instance,
             operation: intent.operation,
             reservation,
+            launch: Some(launch),
         };
         let record = Record::new(RecordKind::Assigned, id, generation, self.digest())
             .operation(intent.operation)

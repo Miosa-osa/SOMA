@@ -37,15 +37,17 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             .owned
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let (operation, instance) = owned.get(&worker).map_or((None, None), |owned| {
-            (Some(owned.operation), Some(owned.instance))
-        });
+        let (operation, instance, launch) =
+            owned.get(&worker).map_or((None, None, None), |owned| {
+                (Some(owned.operation), Some(owned.instance), owned.launch)
+            });
         Some(WorkerView {
             worker,
             phase: observed.phase,
             lease_generation: observed.generation,
             operation,
             instance,
+            launch,
         })
     }
 

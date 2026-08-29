@@ -216,6 +216,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                     instance,
                     operation,
                     reservation,
+                    launch: None,
                 },
             );
         (true, reserved)
