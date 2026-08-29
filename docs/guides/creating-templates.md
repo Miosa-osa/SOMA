@@ -16,7 +16,7 @@ It is a TOML file that you can commit, review, and reuse.
 
 A Template is not a running sandbox.
 It is not a Snapshot, and it is not an image.
-Nothing in a Template runs until it has been compiled twice.
+Nothing in a Template runs until it has been compiled into a lock and then built into a Generation.
 
 ```text
 Template            what should be prepared        editable TOML
@@ -113,7 +113,7 @@ Every command in SOMA is an executable path plus an argument array.
 If you need shell behavior, name the shell as the program, for example `program = "/bin/sh"` with `args = ["-c", "echo hello"]`, and make sure the image has that shell.
 
 At this revision the Guest agent runs every command as root, with `/` as the working directory, with standard input closed, and with this fixed environment: `HOME=/root`, `LANG=C.UTF-8`, `PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`, `SOMA_SANDBOX=1`, and `TERM=dumb`.
-The application wire contract version 1 carries no environment, working-directory, or input fields, and the agent runs every command as root.
+The application wire contract version 1 carries no environment, working-directory, or input fields.
 The Template compiler locks `working_directory`, `user`, `[[environment]]`, and `[[secrets]]`, but no code delivers them into a guest yet; see section 7.
 
 ## 3. The `soma.template/v1alpha1` schema field by field
@@ -164,6 +164,7 @@ The whole table may be omitted.
 Composition then requires exactly one default command among the composed modules, and two modules that disagree are a rejection.
 The executable check accepts a bare name when a composed module exports an executable with that file name or when the filesystem oracle finds it by name, and accepts an absolute path when a module exports exactly that path or the oracle finds it.
 A relative path such as `bin/claude` is looked up as an exact path and fails.
+A bare name passes the executable check but cannot be executed: the application wire contract version 1 rejects any program that does not begin with `/`, so a bare-name command, including a module default command such as `claude`, is unrunnable until a build plan installs the program and the wire contract carries a resolved absolute path.
 Nothing checks that `working_directory` exists or that `user` exists in the image's `/etc/passwd`.
 
 ### `[resources]`
@@ -241,6 +242,13 @@ Write the mode as a TOML octal literal.
 Delivery targets are exclusive: two secrets may not share one environment name, guest file, or destination, a secret may not target a name that `[[environment]]` or a module seal already fills, and a file secret may not land inside a path a module owns.
 A Template stores references only; no secret value exists anywhere in the compiler.
 
+### Compiling a document today
+
+The library entry points are `soma_template::parse_template`, which turns document bytes into a `Template`, and `soma_template::resolve`, or `resolve_with` for a custom module registry, which turns a `Template` into a `TemplateLock`.
+There is no `soma template` command, and the `OciResolver` and `FilesystemOracle` traits have no production implementation anywhere in the workspace, so no shipped code can resolve a real Template against a registry or inspect a real root filesystem.
+The only way to compile a document today is a Rust test that supplies `TestResolver`, `PolicyCeiling`, `BackendCapabilities`, and `TestFilesystemOracle`; the pattern is in `crates/soma-template/tests/support/mod.rs`.
+`cargo test --locked -p soma-template` is the executable reference: 94 integration tests, all passing at this revision.
+
 ## 4. Modules
 
 A module is convenience configuration expressed as data.
@@ -253,10 +261,10 @@ No module carries VMM behavior, and no agent brand receives special treatment.
 
 | Module | Owns | Exports | Environment | Destinations | Health probe | Default command |
 |---|---|---|---|---|---|---|
-| `soma://agent/claude-code@1` | `/usr/local/bin/claude`, `/usr/local/lib/soma/agents/claude-code` | `/usr/local/bin/claude` | Requires `ANTHROPIC_API_KEY`, which must never be a literal | `api.anthropic.com:443` | `claude --version`, 30 s | `claude` |
-| `soma://agent/osa@1` | `/usr/local/bin/osa`, `/usr/local/lib/soma/agents/osa` | `/usr/local/bin/osa` | `OSA_API_KEY` must never be a literal; not required | none | `osa --version`, 30 s | `osa` |
-| `soma://tools/git@1` | `/usr/bin/git`, `/usr/lib/git-core` | `/usr/bin/git` | Seals `GIT_TERMINAL_PROMPT=0` | none | `git --version`, 10 s | none |
-| `soma://tools/shell@1` | `/usr/local/lib/soma/tools/shell` | `/bin/sh`, `/bin/bash` | none | none | `sh -c true`, 10 s | none |
+| `soma://agent/claude-code@1` | `/usr/local/bin/claude`, `/usr/local/lib/soma/agents/claude-code` | `/usr/local/bin/claude` | Requires `ANTHROPIC_API_KEY`, which must never be a literal | `api.anthropic.com:443` | `/usr/local/bin/claude --version`, 30 s | `claude` |
+| `soma://agent/osa@1` | `/usr/local/bin/osa`, `/usr/local/lib/soma/agents/osa` | `/usr/local/bin/osa` | `OSA_API_KEY` must never be a literal; not required | none | `/usr/local/bin/osa --version`, 30 s | `osa` |
+| `soma://tools/git@1` | `/usr/bin/git`, `/usr/lib/git-core` | `/usr/bin/git` | Seals `GIT_TERMINAL_PROMPT=0` | none | `/usr/bin/git --version`, 10 s | none |
+| `soma://tools/shell@1` | `/usr/local/lib/soma/tools/shell` | `/bin/sh`, `/bin/bash` | none | none | `/bin/sh -c true`, 10 s | none |
 
 Every built-in module supports `linux/amd64` and `linux/arm64`.
 
@@ -320,7 +328,8 @@ The 64 MiB per-VM placeholder in [the visual atlas](../architecture/visual-atlas
 The CLI and MCP shape default is 1 vCPU, 1,024 MiB of memory, and 10,240 MiB of writable storage.
 The Template document has no defaults, and the Generation compiler profile version 1 accepts one vCPU, 128 MiB through 3 GiB of memory, and writable storage of at least 64 MiB in 4 MiB units.
 The two live runs used 1 vCPU with 256 MiB and a 64 MiB writable class for busybox, and 1 vCPU with 1 GiB and a 1 GiB writable class for `node:22`.
-Writable storage is a size class: the sterile ext4 template is prepared once per class and each Instance gets a private copy-on-write head, so the number you write is a limit, not bytes consumed at Launch.
+In the production design, writable storage is a size class: the sterile ext4 template is prepared once per class, and [the XFS reflink storage profile](../research/xfs-reflink-profile.md) implemented in `crates/soma-storage` gives each Instance a private copy-on-write head cloned outside Launch, so the number you write is a limit rather than bytes consumed at Launch.
+The proven KVM run does not do this yet; it copies the whole 64 MiB sterile template into a private head before boot, so on that path the bytes really are spent.
 
 Memory is the resource to size carefully.
 The guest kernel touches only the pages it uses, but the Machine shape reserves the whole amount for admission, and for large language runtimes [the capacity model](../architecture/visual-atlas.md#16-can-one-host-create-100000-sandboxes) names resident RAM and private dirty pages as the likely first constraint.
@@ -357,7 +366,7 @@ The envelope is a maximum that the organization ceiling must permit and that Lau
 The production enforcement design is [the Linux network profile](../research/linux-network-profile-v1.md), whose live proof in a container showed public egress, declared DNS, and drops for cloud metadata, undeclared resolvers, the Host, and peer guests.
 Domain-level allowlists are not yet compiled into that enforcement, and the portable request contract has no allowlist class, so a locked allowlist envelope cannot be handed to the Generation compiler today; see section 7.
 
-## 6. The ten things the compiler will reject
+## 6. The ten things the Template compiler will reject
 
 The compiler reports exactly one rejection, the first in validation order, as `[<module> ]<field>: <reason>`.
 The field is a dotted path with list indexes, and the module prefix appears when a module rather than the Template is responsible.
@@ -418,11 +427,13 @@ The 10 ms targets in [the benchmark contract](../benchmark-contract.md) apply to
 
 The CLI has `soma run <image> -- <argv>`, `soma machine launch|exec|inspect|stop|destroy`, `soma doctor`, and `soma version`.
 The MCP server has `soma_doctor`, `soma_run`, `soma_launch`, `soma_exec`, `soma_inspect`, `soma_stop`, and `soma_destroy`.
-All of them take an OCI image reference and shape flags such as `--vcpus`, `--memory-mib`, `--storage-mib`, and `--network`; none of them reads a Template document, and the Docker and Apple Backends behind them create a container or an Apple VM directly from the image rather than from a Generation.
+`soma run` and `soma machine launch`, and the `soma_run` and `soma_launch` tools, take an OCI image reference and a Machine shape; `exec`, `inspect`, `stop`, and `destroy` take an Instance identity, and `doctor` takes only `--strict`.
+None of them reads a Template document, and the Docker and Apple Backends behind them create a container or an Apple VM directly from the image rather than from a Generation.
 On macOS a `node:22` one-shot through Docker Desktop took about 1.19 to 1.24 s end to end across five runs, and through the Apple Backend 1.995 s end to end with 17.2 ms from machine launched to command ready, both development-host measurements of a container and an Apple VM respectively, not of the SOMA VMM.
 
 Until a `soma template` command or a Template-accepting Launch exists, a Template is a reviewable statement of intent that the library can compile to a `LockId`.
 Everything the lock says about environment, secrets, working directory, user, and lifecycle is recorded but not yet delivered into a guest.
+A bare-name `program`, including the `claude` and `osa` module default commands, is locked but cannot be executed, because the application wire contract version 1 requires an absolute path.
 
 ## 8. Worked examples
 
@@ -576,7 +587,7 @@ The network device in that run sat behind a link-down loopback backend, so no fr
 | Template in E2B, or a golden image in Firecracker | Generation | A SOMA Template is the recipe; the Generation is the prepared immutable artifact |
 | Snapshot in Firecracker | Snapshot inside a Generation | Not launchable by itself, and none has been captured yet |
 | microVM or VM | Machine | One `soma-vmm` process per Machine in the production design |
-| Sandbox in E2B | Sandbox, which is one Instance | The user-facing word for one Instance lifetime |
+| Sandbox in E2B | Sandbox, which maps to one Machine | The user-facing word for one Machine; each Launch gives it a fresh Instance |
 | rootfs as one ext4 file | Immutable EROFS root plus a private ext4 overlay head | The root is shared read-only and byte-reproducible; the head is per-Instance |
 | `kernel_image_path` | The pinned Generation kernel | Not selectable per Template; the kernel and its command line are part of the `GenerationId` |
 | `docker exec` or `commands.run` | Execute | An argument vector with a timeout and an output limit, answered with a Receipt |

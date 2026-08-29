@@ -1,20 +1,30 @@
 # How one SOMA sandbox works today
 
-This guide follows one sandbox from a Template to cleanup on the Linux KVM path as it exists on `main`.
+This guide follows one sandbox from a Template document to cleanup on the Linux KVM path as it exists on `main`, and says where the chain is not yet joined.
 It is written for an engineer who has never opened the repository.
 It describes only what the code does and what the retained evidence shows.
 Every number is a single-sample, debug-build observation from one named evidence file unless the sentence says otherwise, and none of them is a benchmark.
 
-The vocabulary is the one in [CONTEXT.md](../../CONTEXT.md): Template, Template Lock, Generation, Snapshot, Machine, Instance, Launch, Ready, Repair, Backend, Receipt, Machine shape, vCPU, Host, Workload runtime, and Guest agent.
+The vocabulary is the one in [CONTEXT.md](../../CONTEXT.md): Template, Generation, Snapshot, Machine, Instance, Launch, Ready, Repair, Backend, Receipt, Machine shape, vCPU, Host, Workload runtime, and Guest agent.
+Template Lock is defined in [the template system](../architecture/template-system.md) and [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md), not in CONTEXT.md.
+
+This guide adds machine terms that neither CONTEXT.md nor [GLOSSARY.md](../../GLOSSARY.md) carries:
+
+- The launch page is one 4 KiB guest-physical page that carries fresh per-Instance material; the owner process writes it once and then retires it.
+- vsock is the host-to-guest socket transport, and virtio-mmio is the memory-mapped virtio transport that gives each device one 4 KiB register page.
+- An irqfd is a file descriptor that raises one guest interrupt when it is written, an ioeventfd is a file descriptor KVM signals instead of exiting when the guest writes one address, and a GSI is the global system interrupt number the in-kernel controller routes.
+- The PVH entry point is the paravirtualized boot entry an x86_64 Linux ELF image advertises in a Xen ELF note.
+- EROFS is the read-only Linux filesystem format of the immutable root, an initramfs is the archive the kernel unpacks into memory before the root switch, and OverlayFS is the union filesystem that stacks a writable head over a read-only lower layer.
 
 ## 1. The one-paragraph answer
 
-A SOMA sandbox is one hardware-isolated Linux virtual machine, the Machine, created and owned by one Host process for exactly one Instance lifetime.
-At build time an offline compiler turns a Template into an immutable Generation.
+A SOMA sandbox is one hardware-isolated Linux virtual machine, the Machine, created and owned by one host-side process for exactly one Instance lifetime.
+At build time the Template compiler turns a Template into a Template Lock.
+The Generation compiler then turns a lock and the normalized image tree into an immutable Generation.
 At Launch time the owner process creates the Machine through Linux KVM, boots the Generation, delivers fresh per-Instance material through a dedicated launch page, waits for the Guest agent inside the Machine to complete Repair and authenticate over vsock, runs one fixed readiness probe, and only then reports Ready.
 Commands are argument vectors executed by the Guest agent over the authenticated channel, and shutdown is an authenticated request followed by cleanup evidence.
 On `main` today the whole path above is proven once, on a real Ubuntu 24.04 x86_64 host, by one ignored test in `crates/soma-kvm` that cold-boots a compiled `busybox` Generation and a compiled `node:22` Generation, returns one bounded command from each, and proves cleanup, as recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
-The owner process in that proof is the test process, not the designed `soma-vmm` binary, and the design still lacks Snapshot restore, prepared workers, a jail around the real VMM, network attach to the Machine, and any KVM lifecycle behind the CLI or MCP server.
+The owner process in that proof is the test process, not the designed `soma-vmm` binary, and the implementation still lacks Snapshot restore, prepared workers, a jail around the real VMM, network attach to the Machine, and any KVM lifecycle behind the CLI or MCP server.
 Section 4 lists those gaps in the repository's own words.
 
 ## 2. Build time: Template to Template Lock to Generation
@@ -43,8 +53,9 @@ sha256:cb0a718c20a2bd31dc24490d4f06ec45a9dfbd56734cc7a3a9ab8ac3766c8194
 `crates/soma-template/src/revision.rs` projects a decoded lock onto the compiler's input as a `TemplateRevision` view.
 Two boundaries matter for the story below.
 The `OciResolver` and the filesystem oracle have deterministic test implementations only, so nothing on `main` contacts a registry or inspects a real root filesystem during resolution.
-No Generation has yet been built from a Template Lock: the live KVM test in section 3 constructs the compiler's `TemplateRevision` directly from an imported image, and the specification example's two vCPUs project to a Machine shape that compiler profile v1 rejects because it accepts exactly one vCPU.
-The compiler's own contract is in `crates/soma-generation/src/generation/template.rs`: platform `linux/amd64`, one vCPU, memory from 128 MiB through 3 GiB in 4 KiB units, writable storage of at least 64 MiB in 4 MiB units, and a lifetime of at most thirty days.
+No Generation has yet been built from a Template Lock: the live KVM test in section 3 constructs the compiler's `TemplateRevision` directly from an imported image, and the specification example's allowlist envelope makes `TemplateRevision::shape()` fail closed with `UnrepresentableNetwork` before its two vCPUs are considered.
+`crates/soma-generation/tests/template_boundary.rs` records the one-vCPU boundary over a fully denied document.
+The compiler's own contract is in `crates/soma-generation/src/generation/template.rs`: platform `linux/amd64`, one vCPU, memory from 128 MiB through 3 GiB, writable storage of at least 64 MiB in 4 MiB units, and a lifetime of at most thirty days.
 
 ### 2.2 Template Lock to Generation
 
@@ -73,7 +84,7 @@ The kernel command line is composed once, in `generation/contracts.rs`, and the 
 The Host build binds no builder-image digest, and the CPU template digest covers a declaration statement rather than defined CPUID masks; both are recorded in the compiler research status.
 
 The pinned kernel is its own build proof.
-[The kernel build evidence](../evidence/2026-08-29-x86_64-pvh-kernel-build.md) records Linux `v6.12.107` built inside a digest-pinned Ubuntu 24.04 image with no network, no modules, no PCI, no ACPI, the five virtio-mmio drivers, EROFS, ext4, OverlayFS, and `CONFIG_DEVMEM=y` so the Guest agent can map the launch page.
+[The kernel build evidence](../evidence/2026-08-29-x86_64-pvh-kernel-build.md) records Linux `v6.12.107` built with no network access inside a digest-pinned Ubuntu 24.04 image, with no loadable modules, no PCI, no ACPI, the five virtio-mmio drivers, EROFS, ext4, OverlayFS, and `CONFIG_DEVMEM=y` so the Guest agent can map the launch page.
 Two consecutive builds on the same 24-core host produced the byte-identical `vmlinux-6.12.107-soma-v1`, 21,530,432 bytes, SHA-256 `f1af3a142fa39916cfac425a01b16b5f328279823533421c9eec3f192c05b746`, with `make vmlinux` wall times of 49.9 s and 52.6 s; cross-host reproducibility is untested.
 
 Real artifacts from the retained `busybox:stable-musl` run in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), all on the Ubuntu 24.04 x86_64 host it names:
@@ -92,6 +103,11 @@ Real artifacts from the retained `busybox:stable-musl` run in [the first sandbox
 The same evidence shows why the identity moves.
 The immediately preceding run produced `GenerationId` `sha256:4a064668c586d94aa83643e86304f91278cb2e27549e47986d68dcfb9a72a73a` from the same tree, root, and overlay digests, because the responder key bound into the initramfs is generated per run.
 The EROFS root digest was identical in every run.
+
+A reader who reproduces the test will not see the Guest agent digest or either `GenerationId` above.
+The retained runs used the pre-split Guest agent.
+The same evidence records that `boot.rs` was later split into `boot/devices.rs` without changing behavior, and that the agent rebuilt from the committed source is 823,480 bytes with SHA-256 `d4c29837dd72c3fb8ec533e7c148a61aed1d890930dbe73eec558882a0e6b132`.
+That agent produces `GenerationId` `sha256:537c06203beb409333c11be41c379d7812237e16a95b3ad5652012dc14a3f795` and reached Ready 137.6 ms after `KVM_RUN`, outside the 164 ms to 193 ms range in section 3.8, which was not re-recorded against it.
 
 The `node:22` Generation from the same evidence is the realistic size.
 Its normalized tree is `sha256:2e48535fca4ce401af5271cd6df8e39fa6a723fe4ee0abd570dfcf02f2a1e41e` with 33,512 entries, its EROFS root is `sha256:48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48` at 1,129,172,992 bytes, its 1 GiB overlay template is `sha256:0a24f757ffd3e6208621593cdda61b0e9bb6c2bb6d5b59d5bf943a4379105cc2` at 1,073,741,824 bytes, and its `GenerationId` is `sha256:190ad2f23b4b9f0dd899e8b88d8c51dd7927f44a569fdad68bf53ab7170a978d`.
@@ -125,7 +141,7 @@ The order is the one in the code:
 
 The five virtio-mmio devices are at fixed addresses and interrupts, and the guest learns about them only from the command line:
 
-| Slot | MMIO page | GSI | Device | Backend in the proven path |
+| Slot | MMIO page | GSI | Device | Host-side backing in the proven path |
 | ---: | --- | ---: | --- | --- |
 | 0 | `0xd0000000` | 5 | Immutable root block, read-only | The EROFS root artifact, opened read-only |
 | 1 | `0xd0001000` | 6 | Private overlay block | A private copy of the sterile ext4 template, opened read-write |
@@ -202,7 +218,7 @@ Any failure poisons the controller and powers the Machine off.
 
 Launch page consumption.
 `crates/soma-guest-agent/src/launch_page.rs` maps guest-physical `0xd0100000` through `/dev/mem`, polls every 2 ms until the `SOMA-LAUNCH-PAGE` domain appears, copies the page once into locked zeroizing memory, overwrites the mapping with zeroes through volatile stores, re-reads every byte to verify the erase, and only then parses the locked copy.
-The Host observes the domain vanish by polling the slot every 1 ms, which is the `LaunchPageConsumed` milestone and lags the guest by up to 1 ms.
+The host side observes the domain vanish by polling the slot every 1 ms, which is the `LaunchPageConsumed` milestone and lags the guest by up to 1 ms.
 
 Entropy Repair.
 `crates/soma-guest-agent/src/entropy.rs` reads 64 bytes from `/dev/hwrng`, which the virtio entropy device serves, combines them with the 64-byte launch seed, credits the 128 bytes to the kernel with `RNDADDENTROPY`, forces a reseed with `RNDRESEEDCRNG`, and proves `getrandom` no longer blocks.
@@ -220,12 +236,12 @@ Zero transport violations were recorded even though the agent installs the MAC, 
 No frame left the Machine; the network device sits behind the link-down loopback backend.
 
 Authentication.
-The Host side calls `soma_guest::HostControl::connect` over the Machine's `ControlChannel`, and the guest side calls `GuestControl::connect` with the responder key it took from the initramfs.
+The host side calls `soma_guest::HostControl::connect` over the Machine's `ControlChannel`, and the guest side calls `GuestControl::connect` with the responder key it took from the initramfs.
 The protocol is `Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s`, pinned in `crates/soma-guest/src/lib.rs`, with the Instance pre-shared key from the launch page.
 The responder public key is carried by the test rather than bound into the manifest; that gap is listed in section 4.
 
 Repair commit and readiness probe.
-The Host sends `PrepareAndProbe`, the guest reports `RepairComplete`, and the Host commits Repair by verifying that all 4,096 bytes of the launch page read as zero and removing slot 1 with a zero-length `KVM_SET_USER_MEMORY_REGION`; that is the `LaunchPageRetired` milestone.
+The host side sends `PrepareAndProbe`, the guest reports `RepairComplete`, and the host side commits Repair by verifying that all 4,096 bytes of the launch page read as zero and removing slot 1 with a zero-length `KVM_SET_USER_MEMORY_REGION`; that is the `LaunchPageRetired` milestone.
 The guest then runs the fixed version 1 probe `/proc/self/exe --soma-ready-probe-v1` through the production executor with a 1,000 ms timeout and a one-byte output allowance, and Ready requires `Exited(0)`.
 Only after that does the agent print `soma-guest-agent: ready` and enter the request loop.
 Ready therefore means what [CONTEXT.md](../../CONTEXT.md) says: Repair is complete and an authenticated command succeeded inside the guest.
@@ -245,7 +261,7 @@ The `node:22` Generation returned `Exited(0)` and stdout exactly `v22.23.2\n` fr
 
 ### 3.7 Authenticated shutdown, exit, and cleanup
 
-The Host sends an authenticated `Shutdown`.
+The host side sends an authenticated `Shutdown`.
 `crates/soma-guest-agent/src/shutdown.rs` kills stray descendants, reaps orphans, syncs filesystems, acknowledges within a 5 s budget, prints `soma-guest-agent: shutdown acknowledged`, and calls `reboot(LINUX_REBOOT_CMD_RESTART)`.
 The Machine has no ACPI and no paravirtual power-off, so a power-off request would degrade to `halt` and park the vCPU inside KVM invisibly; `reboot=k` turns restart into the keyboard-controller reset pulse that the Machine already treats as the orderly `Reset` exit.
 `SandboxMachine::finish` then joins the vCPU thread within the exit deadline, stops the device thread, unregisters every ioeventfd and irqfd, retires the launch page if it was somehow still mapped, drops the VM, the KVM descriptor, and every mapping, and assembles the evidence.
@@ -355,7 +371,14 @@ It owns network namespaces, TAP and veth devices, `/30` IPAM, MAC derivation, nf
 The VMM side receives exactly one TAP descriptor over `SOCK_SEQPACKET` with `SCM_RIGHTS` and a fixed typed header.
 
 [The network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md) records a run as a privileged process inside the pinned Ubuntu 24.04 container on the real Host kernel.
-It proved that a sterile bundle's guest link is down and its namespace forwards nothing before activation, that assignment produced the exact `LaunchNetwork` values address `10.200.0.2` with prefix 30, gateway `10.200.0.1`, resolver `1.1.1.1`, vsock CID 5, and generation 1, that the TAP transfer delivered one descriptor with a matching header, and that after activation the gateway answered ARP and ICMP, a public TCP listener answered through masquerade, and the declared resolver answered while the cloud metadata address, an undeclared resolver, the Host address, a peer guest, and the peer's gateway all got silence.
+It proved:
+
+- A sterile bundle's guest link is down and its namespace forwards nothing before activation.
+- Assignment produced the exact `LaunchNetwork` values: address `10.200.0.2` with prefix 30, gateway `10.200.0.1`, resolver `1.1.1.1`, vsock CID 5, and generation 1.
+- The TAP transfer delivered one descriptor with a matching header.
+- After activation the gateway answered ARP and ICMP, a public TCP listener answered through masquerade, and the declared resolver answered.
+- The cloud metadata address, an undeclared resolver, the Host address, a peer guest, and the peer's gateway all got silence.
+
 Both bundles released completely, reconcile reported zero unowned objects, and one hundred prepare, assign, activate, release cycles left no namespace pin, link, or table behind.
 
 Per-operation wall times of that 100-way burst, debug build, one thread, inside the container, with p99 being the largest of one hundred samples:
@@ -387,7 +410,18 @@ The proven path in section 3 does not use this crate: the test creates the priva
 `crates/soma-jail` implements [the VMM jail profile](../research/vmm-jail-profile.md): one ephemeral UID and GID, fresh user, mount, PID, network, IPC, and UTS namespaces, one cgroup v2 leaf with `memory.max`, `memory.swap.max=0`, `memory.oom.group=1`, `cpu.max`, and `pids.max`, a sealed descriptor table, an empty read-only tmpfs root entered through `pivot_root`, `no_new_privs`, hand-assembled classic BPF seccomp filters with no libseccomp dependency, `execveat` from an open descriptor, pidfd ownership, a ledger, and reconciliation.
 
 [The jail evidence](../evidence/2026-08-29-vmm-jail-live.md) records fifteen live acceptance tests passing as root inside a privileged Ubuntu 24.04 container, because Ubuntu's AppArmor restriction blocks unprivileged user namespaces on the Host.
-They proved that only the manifest descriptors are visible, that the child runs as uid and gid 60001 with PID 1 inside six fresh namespaces with zero capabilities, that its root has zero entries and no procfs or sysfs, that the cgroup limits read back exactly, that `socket` and `execve` are `SIGSYS` kills recorded in the evidence, that `KVM_GET_API_VERSION` on the transferred `/dev/kvm` returned 12 while `TUNSETIFF` on the same descriptor was killed, that the steady-state filter drops setup-only syscalls while threads keep working, that pids and memory exhaustion stay inside the leaf, that a stuck child dies through its pidfd, that the child dies with its launching thread and with its launcher process, that a crashed launcher's leaf is recovered from the record alone, and that injected descriptors fail closed before seccomp.
+They proved:
+
+- Only the manifest descriptors are visible, and injected descriptors fail closed before seccomp.
+- The child runs as uid and gid 60001 with PID 1 inside six fresh namespaces with zero capabilities.
+- Its root has zero entries and no procfs or sysfs.
+- The cgroup limits read back exactly, and pids and memory exhaustion stay inside the leaf.
+- `socket` and `execve` are `SIGSYS` kills recorded in the evidence.
+- `KVM_GET_API_VERSION` on the transferred `/dev/kvm` returned 12 while `TUNSETIFF` on the same descriptor was killed.
+- The steady-state filter drops setup-only syscalls while threads keep working.
+- A stuck child dies through its pidfd, and the child dies with its launching thread and with its launcher process.
+- A crashed launcher's leaf is recovered from the record alone.
+
 The startup filter is 222 BPF instructions with fingerprint `0x40b7c33a9001c79b` and the steady-state filter 135 instructions with fingerprint `0xe748c586d5877538`, both pinned by a golden test.
 The constrained program is the static musl `jail-probe` stand-in, so the measured syscall inventory is musl's plus the Rust runtime's, and a glibc-linked VMM would need its own trace.
 It does not prove anything about the real `soma-vmm` binary, a transferred TAP endpoint, `io.max`, snapshot ioctls, a stuck `KVM_RUN`, prepared workers, or any latency objective.
@@ -402,13 +436,15 @@ The KVM Backend is a capability probe plus the ignored test in section 3.
 `crates/soma-cli` builds the `soma` binary.
 Its commands, from `crates/soma-cli/src/cli.rs`, are `run`, `machine launch`, `machine exec`, `machine inspect`, `machine stop`, `machine destroy`, `doctor [--strict]`, and `version`.
 The global options are `--format human|json`, `--backend auto|macos|docker|kvm`, `--runtime PATH` for an explicit Apple container executable, and `--state-root PATH` for the durable state shared with `soma-mcp`.
-Every run or launch carries a Machine shape through `--vcpus`, `--memory-mib`, and `--storage-mib`, with the defaults of 1 vCPU, 1,024 MiB, and 10,240 MiB, plus a three-state network policy.
+Every run or launch carries a Machine shape through `--vcpus`, `--memory-mib`, and `--storage-mib`, with the defaults of 1 vCPU, 1,024 MiB, and 10,240 MiB.
+The network policy is `--egress unspecified|denied|internet|unrestricted`, also spelled `--network`, `--dns unspecified|denied|system|custom`, a repeatable `--dns-server`, and a repeatable `--publish`, with egress and DNS both defaulting to denied.
+`run` and `exec` also carry `--timeout-ms` and `--max-output-bytes`, whose defaults are 30,000 ms and 1,048,576 bytes in `crates/soma/src/request/execution_limits.rs`.
 A command is an absolute guest executable and an argument vector after `--`; there is no shell string.
 
 Backend selection in `crates/soma-local/src/backend/mod.rs` is fail-closed.
 On Apple Silicon macOS, `auto` selects Docker when the Docker daemon answers and the Apple Backend otherwise.
 On Linux x86_64, `auto` selects the KVM Backend, and the KVM Backend answers every lifecycle operation with the `unsupported_backend` error and a Receipt whose terminal status is `failed`, so a Linux user must select Docker explicitly.
-On any other target the local engine returns `unsupported_target` and never runs the workload on the Host.
+On any other target the local engine fails closed with `UnsupportedTarget`, which the lifecycle commands report as `unsupported_backend` and `doctor` reports as `unsupported_target`, and it never runs the workload on the Host.
 
 The commands below are the ones from the README and the evidence files.
 Probe the selected Backend without overstating readiness:
@@ -425,7 +461,10 @@ Run one bounded command from an OCI image and prove cleanup on the Docker Backen
 cargo run --locked -p soma-cli -- --backend docker run node:22 -- /usr/local/bin/node --version
 ```
 
-The Docker Backend in `crates/soma-local/src/backend/docker` pulls the image for the Host's own Linux architecture, records the observed manifest digest, and creates the container with `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, a 64 MiB tmpfs on `/tmp`, the requested `--cpus` and `--memory`, and network mode `none` for denied egress or `bridge` for unrestricted egress.
+The Docker Backend in `crates/soma-local/src/backend/docker` pulls the image for the Host's own Linux architecture, records the observed manifest digest, and creates the container with `--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, `--pids-limit 256`, a 64 MiB tmpfs on `/tmp`, the requested `--cpus` and `--memory`, and one of exactly two network modes.
+It uses `none` only for denied egress with a denied resolver and no published ports, and `bridge` only for unrestricted egress with the system resolver and no published ports; every other combination, including any `--publish`, fails closed as unsupported.
+The unrestricted form is therefore `--backend docker run --egress unrestricted --dns system ...`.
+The Backend keeps the container alive with `/bin/sh` as the entrypoint, so on this Backend the image must contain a shell even though the requested command is executed directly through `docker exec` and never through one; that is a development-Backend limitation and does not apply to the KVM path.
 Its Receipt reports `docker_container`, `linux_container` isolation, on-demand preparation, and observed-only digest binding, and it reports writable storage as not verified.
 [The Docker evidence](../evidence/2026-08-29-docker-node22-local.md) records five consecutive `node:22` one-shot runs on the development Mac returning `v22.23.2` with complete cleanup in approximately 1.19 s to 1.24 s each from acceptance through cleanup, with the launch milestone about 1.01 s after acceptance because the path invokes the Docker CLI and resolves the image on demand.
 That is a container boundary inside Docker's Linux VM, not a per-sandbox hardware VM.
@@ -450,7 +489,7 @@ cargo run --locked -p soma-cli -- --backend docker machine stop --instance-id <i
 cargo run --locked -p soma-cli -- --backend docker machine destroy --instance-id <id>
 ```
 
-The Instance identity is the 32-character lowercase value printed by `launch`, or one supplied with `--instance-id`; a display name given with `--name` is metadata only.
+The Instance identity is the 32-character lowercase value printed by `launch`, or one supplied with `--instance-id`; a Machine name given with `--name` is metadata only and never selects or authorizes an Instance.
 
 ### 6.2 The MCP server
 
@@ -476,18 +515,21 @@ There is no CLI or MCP command that boots a Generation on KVM.
 The proven path is the ignored test, which needs a readable and writable `/dev/kvm`, the pinned kernel from `kernel/build.sh`, its configuration text, the pinned erofs-utils 1.9.4 directory, the static Guest agent from `scripts/build-guest-agent.sh`, the ext4 formatter from e2fsprogs 1.47.0, and Docker for `docker save`:
 
 ```sh
-SOMA_X86_64_VMLINUX=kernel/out/vmlinux-6.12.107-soma-v1 \
-SOMA_EROFS_TOOLS=/path/to/erofs-utils-1.9.4 \
-SOMA_GUEST_AGENT=target/x86_64-unknown-linux-musl/release/soma-guest-agent \
+SOMA_EROFS_TOOLS=/absolute/path/to/erofs-utils-1.9.4 \
   cargo test --locked -p soma-kvm --test x86_64_sandbox_boot -- --ignored --test-threads=1 --nocapture
 ```
 
+Cargo runs an integration test from the package root, so a relative path in any of the test's path variables resolves inside `crates/soma-kvm` rather than the repository root.
+Write absolute paths, or leave the kernel and agent variables unset and let their defaults find the artifacts.
+With `SOMA_GUEST_AGENT` unset the test looks for `target/x86_64-unknown-linux-musl/release/soma-guest-agent` under the workspace root, which is exactly what `scripts/build-guest-agent.sh` writes.
+With `SOMA_X86_64_VMLINUX` unset the test scans `kernel/out` under the workspace root and polls for a stable `vmlinux-<ver>-soma-v1` for up to 45 minutes before it fails.
+Both variables may name absolute paths to override those defaults.
 `SOMA_OCI_BUSYBOX_LAYOUT` and `SOMA_OCI_NODE_LAYOUT` may name pre-exported OCI layouts.
 The test fails explicitly when a prerequisite is missing, and the `node:22` test prints a skip when the image cannot be exported; a skipped KVM test is not a passing KVM test.
 
 ## 7. Where to read next
 
-- [CONTEXT.md](../../CONTEXT.md) and [GLOSSARY.md](../../GLOSSARY.md) for the vocabulary this guide uses.
+- [CONTEXT.md](../../CONTEXT.md) and [GLOSSARY.md](../../GLOSSARY.md) for the product vocabulary this guide builds on, which does not include the machine terms listed at the top of this guide.
 - [Beginner architecture guide](../architecture/beginners-guide.md) for the objects and layers, and [What makes one SOMA sandbox](../architecture/sandbox-stack.md) for the containment and dependency map.
 - [SOMA visual atlas](../architecture/visual-atlas.md) for the machine, filesystem, workload, and capacity pictures.
 - [Creating a Template](creating-templates.md), [SOMA template system](../architecture/template-system.md), [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md), and [the Template implementation map](../research/template-implementation-map.md) for the Template plane.
