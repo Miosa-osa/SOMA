@@ -20,13 +20,14 @@ mod verify;
 
 pub use error::{ImportError, ImportErrorKind, ImportPhase};
 pub use generation::{
-    ArtifactDescriptor, ArtifactRole, CompileError, CompileErrorKind, CompileGeneration,
+    ArtifactDescriptor, ArtifactRole, BuildHost, CompileError, CompileErrorKind, CompileGeneration,
     CompilePhase, CompiledGeneration, CompilerProfile, ContractBinding, ErofsEvidence,
-    GenerationManifest, InitramfsContents, MachineInputs, OverlayEvidence, PublishedGeneration,
-    Sha256Digest, SnapshotBinding, ToolOutcome, Toolchain, TreeBounds, VerifiedGeneration,
-    VerifiedKernel, VerifiedKernelConfig, compile_generation, contracts, derive_generation_id,
-    erofs, initramfs, kernel, kernel_config, manifest as generation_manifest, overlay,
-    verify_generation, verify_kernel_config,
+    GenerationManifest, InitramfsContents, LifetimeLimits, MachineInputs, OverlayEvidence,
+    PublishedGeneration, Sha256Digest, SnapshotBinding, StartupBehavior, TemplateImage,
+    TemplateRevision, ToolOutcome, Toolchain, TreeBounds, VerifiedGeneration, VerifiedKernel,
+    VerifiedKernelConfig, compile_generation, contracts, derive_generation_id, erofs, initramfs,
+    kernel, kernel_config, manifest as generation_manifest, overlay, template, verify_generation,
+    verify_kernel_config,
 };
 pub use import::import_oci_layout;
 pub use normalize::{

@@ -5,9 +5,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use soma::{MachineShape, OciImage};
 use soma_generation::{
-    CompileGeneration, CompiledGeneration, CompilerProfile, MachineInputs, NormalizedRootfs,
-    Toolchain, compile_generation,
+    BuildHost, CompileGeneration, CompiledGeneration, CompilerProfile, LifetimeLimits,
+    MachineInputs, NormalizedRootfs, StartupBehavior, TemplateImage, TemplateRevision, Toolchain,
+    compile_generation,
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -152,8 +154,45 @@ pub fn write_machine_inputs(directory: &Path, agent: &[u8]) -> [PathBuf; 4] {
     paths
 }
 
+/// A Template revision that selects the normalized tree, 256 MiB of memory, the 64 MiB
+/// writable class, the isolated network policy, readiness only, and the given lifetime.
+pub fn test_template(normalized: &NormalizedRootfs, ttl_seconds: u64) -> TemplateRevision {
+    let workload = normalized.workload();
+    TemplateRevision::new(
+        TemplateImage::new(
+            OciImage::parse("example.test/fixture:amd64").unwrap(),
+            workload.manifest_digest().clone(),
+            workload.platform().clone(),
+        ),
+        MachineShape::new(1, 256, 64).unwrap(),
+        StartupBehavior::readiness_only(),
+        LifetimeLimits::new(ttl_seconds).unwrap(),
+        1,
+    )
+    .unwrap()
+}
+
 /// Compiles one Generation with the test profile and synthetic machine inputs.
 pub fn compile(
+    normalized: &NormalizedRootfs,
+    store: &Path,
+    scratch: &Path,
+    tools: &(PathBuf, PathBuf),
+    agent: &[u8],
+) -> Result<CompiledGeneration, soma_generation::CompileError> {
+    compile_with_template(
+        &test_template(normalized, 3600),
+        normalized,
+        store,
+        scratch,
+        tools,
+        agent,
+    )
+}
+
+/// Compiles one Generation for an explicit Template revision.
+pub fn compile_with_template(
+    template: &TemplateRevision,
     normalized: &NormalizedRootfs,
     store: &Path,
     scratch: &Path,
@@ -165,11 +204,14 @@ pub fn compile(
     let inputs = write_machine_inputs(&scratch.join("inputs"), agent);
     let profile = test_profile();
     compile_generation(CompileGeneration::new(
+        template,
         normalized,
         store,
-        &staging,
         &profile,
-        Toolchain::new(&tools.0, &tools.1),
-        MachineInputs::new(&inputs[0], &inputs[1], &inputs[2], &inputs[3]),
+        BuildHost::new(
+            &staging,
+            Toolchain::new(&tools.0, &tools.1),
+            MachineInputs::new(&inputs[0], &inputs[1], &inputs[2], &inputs[3]),
+        ),
     ))
 }

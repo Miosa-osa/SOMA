@@ -3,13 +3,13 @@ use soma::OciPlatform;
 use super::{
     GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MAGIC,
     MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE, MAX_MANIFEST_BYTES, MAX_SHORT_STRING, MAX_TEMPLATES,
-    MachineShape, OverlayBinding, OverlayTemplate, RepairBinding, RootBinding, SnapshotBinding,
-    SourceBinding, TreeBinding,
+    MachineShapeBinding, OverlayBinding, OverlayTemplate, RepairBinding, RootBinding,
+    SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
 };
 use crate::generation::{
-    artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
-    contracts::ContractBinding,
+    artifacts::{ArtifactRole, Sha256Digest},
     error::{CompileError, CompileErrorKind, CompilePhase},
+    template::{MAX_WORKLOAD_PROBE_BYTES, NetworkPolicyClass},
 };
 
 /// Decodes canonical `SOMAGEN` v1 bytes while treating every field as hostile.
@@ -72,7 +72,7 @@ pub fn decode_manifest(bytes: &[u8]) -> Result<GenerationManifest, CompileError>
     let device_contract = decoder.contract(11)?;
     let cpu_template = decoder.contract(12)?;
     decoder.tag(13)?;
-    let shape = MachineShape {
+    let shape = MachineShapeBinding {
         memory_bytes: decoder.u64()?,
         vcpu_count: decoder.u16()?,
         memory_slot_layout_version: decoder.u16()?,
@@ -84,6 +84,7 @@ pub fn decode_manifest(bytes: &[u8]) -> Result<GenerationManifest, CompileError>
         policy_version: decoder.u16()?,
         readiness_command_digest: decoder.digest()?,
     };
+    let template = decoder.template()?;
     if decoder.offset != bytes.len() {
         return Err(invalid());
     }
@@ -103,16 +104,19 @@ pub fn decode_manifest(bytes: &[u8]) -> Result<GenerationManifest, CompileError>
         shape,
         snapshot,
         repair,
+        template,
     })
 }
 
-struct Decoder<'a> {
+mod primitives;
+
+pub(super) struct Decoder<'a> {
     bytes: &'a [u8],
     offset: usize,
     seen: Vec<Sha256Digest>,
 }
 
-impl<'a> Decoder<'a> {
+impl Decoder<'_> {
     fn source(&mut self) -> Result<SourceBinding, CompileError> {
         self.tag(2)?;
         let oci_manifest_digest = self.digest()?;
@@ -202,97 +206,41 @@ impl<'a> Decoder<'a> {
         }
     }
 
-    fn tag(&mut self, expected: u8) -> Result<(), CompileError> {
-        if self.u8()? != expected {
-            return Err(invalid());
-        }
-        Ok(())
-    }
-
-    fn contract(&mut self, tag: u8) -> Result<ContractBinding, CompileError> {
-        self.tag(tag)?;
-        Ok(ContractBinding {
-            version: self.u16()?,
-            digest: self.digest()?,
+    fn template(&mut self) -> Result<TemplateBinding, CompileError> {
+        self.tag(16)?;
+        let writable_storage_bytes = self.u64()?;
+        let network_policy_class = NetworkPolicyClass::from_code(self.u8()?).ok_or_else(invalid)?;
+        let network_policy_digest = self.digest()?;
+        let workload_probe = match self.u8()? {
+            0 => None,
+            1 => {
+                let length = usize::from(self.u16()?);
+                if length == 0 || length > MAX_WORKLOAD_PROBE_BYTES {
+                    return Err(limit());
+                }
+                let probe = self.consume(length)?.to_vec();
+                if probe.contains(&0) {
+                    return Err(invalid());
+                }
+                Some(probe)
+            }
+            _ => return Err(invalid()),
+        };
+        Ok(TemplateBinding {
+            writable_storage_bytes,
+            network_policy_class,
+            network_policy_digest,
+            workload_probe,
+            ttl_seconds: self.u64()?,
         })
-    }
-
-    fn descriptor(&mut self, expected: ArtifactRole) -> Result<ArtifactDescriptor, CompileError> {
-        let role = ArtifactRole::from_code(self.u8()?).ok_or_else(invalid)?;
-        let media_type = self.short_string()?;
-        if role != expected || media_type != role.media_type() {
-            return Err(invalid());
-        }
-        let digest = self.digest()?;
-        let size = self.u64()?;
-        if self.seen.contains(&digest) {
-            return Err(invalid());
-        }
-        self.seen.push(digest);
-        Ok(ArtifactDescriptor { role, digest, size })
-    }
-
-    fn optional_digest(&mut self) -> Result<Option<Sha256Digest>, CompileError> {
-        match self.u8()? {
-            0 => Ok(None),
-            1 => Ok(Some(self.digest()?)),
-            _ => Err(invalid()),
-        }
-    }
-
-    fn optional_string(&mut self) -> Result<Option<String>, CompileError> {
-        match self.u8()? {
-            0 => Ok(None),
-            1 => Ok(Some(self.short_string()?)),
-            _ => Err(invalid()),
-        }
-    }
-
-    fn short_string(&mut self) -> Result<String, CompileError> {
-        let length = usize::from(self.u16()?);
-        if length > MAX_SHORT_STRING {
-            return Err(limit());
-        }
-        let value = self.consume(length)?;
-        if value.contains(&0) {
-            return Err(invalid());
-        }
-        String::from_utf8(value.to_vec()).map_err(|_| invalid())
-    }
-
-    fn digest(&mut self) -> Result<Sha256Digest, CompileError> {
-        Ok(Sha256Digest::from_bytes(self.array()?))
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], CompileError> {
-        self.consume(N)?.try_into().map_err(|_| invalid())
-    }
-
-    fn consume(&mut self, count: usize) -> Result<&'a [u8], CompileError> {
-        let end = self.offset.checked_add(count).ok_or_else(invalid)?;
-        let value = self.bytes.get(self.offset..end).ok_or_else(invalid)?;
-        self.offset = end;
-        Ok(value)
-    }
-
-    fn u8(&mut self) -> Result<u8, CompileError> {
-        Ok(self.consume(1)?[0])
-    }
-
-    fn u16(&mut self) -> Result<u16, CompileError> {
-        Ok(u16::from_be_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> Result<u64, CompileError> {
-        Ok(u64::from_be_bytes(self.array()?))
     }
 }
 
-const fn invalid() -> CompileError {
+pub(super) const fn invalid() -> CompileError {
     CompileError::new(CompilePhase::EncodeManifest, CompileErrorKind::InvalidInput)
 }
 
-const fn limit() -> CompileError {
+pub(super) const fn limit() -> CompileError {
     CompileError::new(
         CompilePhase::EncodeManifest,
         CompileErrorKind::LimitExceeded,

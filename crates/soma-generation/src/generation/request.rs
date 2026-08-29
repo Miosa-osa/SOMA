@@ -2,14 +2,13 @@ use std::{fmt, path::Path, time::Duration};
 
 use super::{
     error::{CompileError, CompileErrorKind, CompilePhase},
+    template::TemplateRevision,
     tree_decoder::TreeBounds,
 };
 use crate::NormalizedRootfs;
 
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
-const MINIMUM_MEMORY: u64 = 128 * MIB;
-const MAXIMUM_MEMORY: u64 = 3 * GIB;
 
 /// The versioned, fully explicit compiler profile.
 ///
@@ -35,12 +34,10 @@ pub struct CompilerProfile {
     pub max_initramfs_bytes: u64,
     /// Wall-clock limit for one pinned tool invocation.
     pub tool_deadline: Duration,
-    /// Sterile overlay-template capacities in strictly ascending order.
+    /// Certified sterile overlay-template size classes in strictly ascending order.
+    ///
+    /// A Template revision selects exactly one of these as its writable-storage size class.
     pub overlay_capacities: Vec<u64>,
-    /// Guest memory in bytes.
-    pub memory_bytes: u64,
-    /// The vCPU count.
-    pub vcpu_count: u16,
     /// The bounded guest-agent build-provenance string.
     pub guest_agent_provenance: String,
     /// The guest application protocol version.
@@ -71,8 +68,6 @@ impl CompilerProfile {
             max_initramfs_bytes: 128 * MIB,
             tool_deadline: Duration::from_secs(3_600),
             overlay_capacities: vec![256 * MIB, GIB, 4 * GIB],
-            memory_bytes: 512 * MIB,
-            vcpu_count: 1,
             guest_agent_provenance: "soma-guest-agent:unpinned-development-input".to_owned(),
             application_protocol_version: 1,
             handshake_protocol_version: 1,
@@ -103,13 +98,9 @@ impl CompilerProfile {
                 .overlay_capacities
                 .iter()
                 .all(|capacity| *capacity >= 64 * MIB && capacity.is_multiple_of(4 * MIB));
-        let shape_valid = self.vcpu_count == 1
-            && (MINIMUM_MEMORY..=MAXIMUM_MEMORY).contains(&self.memory_bytes)
-            && self.memory_bytes.is_multiple_of(4_096);
         if zero
             || self.policy_version != 1
             || !capacities_valid
-            || !shape_valid
             || self.guest_agent_provenance.len() > 256
         {
             return Err(CompileError::new(
@@ -191,38 +182,73 @@ impl fmt::Debug for MachineInputs<'_> {
     }
 }
 
-/// One explicit Generation compilation request.
+/// Host-only build resources: the staging directory, the pinned tools, and the machine inputs.
+///
+/// None of these locations enters an artifact or a manifest.
 #[derive(Clone, Copy)]
-pub struct CompileGeneration<'a> {
-    pub(crate) normalized: &'a NormalizedRootfs,
-    pub(crate) store: &'a Path,
+pub struct BuildHost<'a> {
     pub(crate) staging: &'a Path,
-    pub(crate) profile: &'a CompilerProfile,
     pub(crate) toolchain: Toolchain<'a>,
     pub(crate) inputs: MachineInputs<'a>,
 }
 
-impl<'a> CompileGeneration<'a> {
-    /// Creates a request for an existing normalized tree in an existing content store.
+impl<'a> BuildHost<'a> {
+    /// Names the host resources.
     ///
     /// `staging` names an existing private directory on one bounded writable volume; the
     /// compiler creates and removes a unique subdirectory inside it for formatter output.
     #[must_use]
     pub const fn new(
-        normalized: &'a NormalizedRootfs,
-        store: &'a Path,
         staging: &'a Path,
-        profile: &'a CompilerProfile,
         toolchain: Toolchain<'a>,
         inputs: MachineInputs<'a>,
     ) -> Self {
         Self {
-            normalized,
-            store,
             staging,
-            profile,
             toolchain,
             inputs,
+        }
+    }
+}
+
+impl fmt::Debug for BuildHost<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BuildHost")
+            .field("staging", &"[REDACTED]")
+            .field("toolchain", &self.toolchain)
+            .field("inputs", &self.inputs)
+            .finish()
+    }
+}
+
+/// One explicit Generation compilation request: one Template revision, its normalized tree,
+/// the content store, the versioned profile, and host-only build resources.
+#[derive(Clone, Copy)]
+pub struct CompileGeneration<'a> {
+    pub(crate) template: &'a TemplateRevision,
+    pub(crate) normalized: &'a NormalizedRootfs,
+    pub(crate) store: &'a Path,
+    pub(crate) profile: &'a CompilerProfile,
+    pub(crate) host: BuildHost<'a>,
+}
+
+impl<'a> CompileGeneration<'a> {
+    /// Creates a request for an existing normalized tree in an existing content store.
+    #[must_use]
+    pub const fn new(
+        template: &'a TemplateRevision,
+        normalized: &'a NormalizedRootfs,
+        store: &'a Path,
+        profile: &'a CompilerProfile,
+        host: BuildHost<'a>,
+    ) -> Self {
+        Self {
+            template,
+            normalized,
+            store,
+            profile,
+            host,
         }
     }
 }
@@ -231,12 +257,11 @@ impl fmt::Debug for CompileGeneration<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CompileGeneration")
+            .field("template", &self.template)
             .field("normalized", &self.normalized)
             .field("store", &"[REDACTED]")
-            .field("staging", &"[REDACTED]")
             .field("profile", &self.profile)
-            .field("toolchain", &self.toolchain)
-            .field("inputs", &self.inputs)
+            .field("host", &self.host)
             .finish()
     }
 }

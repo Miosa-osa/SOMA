@@ -28,6 +28,8 @@ mod process;
 mod publish;
 mod request;
 mod tar_stream;
+/// Template revision inputs: image, Machine shape, startup, lifetime, and profile version.
+pub mod template;
 mod tree_decoder;
 mod verify;
 
@@ -44,6 +46,7 @@ pub use manifest::{GenerationManifest, SnapshotBinding};
 pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
 pub use publish::PublishedGeneration;
-pub use request::{CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
+pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
+pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use tree_decoder::TreeBounds;
 pub use verify::{VerifiedGeneration, verify_generation};

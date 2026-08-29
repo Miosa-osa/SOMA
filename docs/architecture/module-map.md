@@ -59,7 +59,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-vmm` owns the provider-neutral Machine interface and the deep lifecycle implementation.
 `soma-kvm` owns target-gated access to Linux x86_64 production KVM capabilities and Linux ARM64 development KVM capabilities.
 `soma-macos` owns the development-only Apple VM-per-OCI lifecycle adapter.
-`soma-generation` verifies bounded OCI image-layout input and publishes immutable imported and normalized logical-tree artifacts without minting a certified Generation.
+`soma-generation` verifies bounded OCI image-layout input, publishes immutable imported and normalized logical-tree artifacts, and compiles uncertified x86_64 machine artifacts plus a `SOMAGEN` manifest without booting, capturing, or certifying a Generation.
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
@@ -465,6 +465,8 @@ It accepts exact immutable identity or unique platform selection, fails closed o
 Normalization reopens and verifies the imported completion and selected layers, applies the supported bounded OCI filesystem semantics without unpacking guest names into a host tree, streams regular-file bodies into CAS, and publishes the canonical tree manifest last.
 Its bounded local PAX profile accepts only exact `path` and `linkpath` values, while global, malformed, duplicate, xattr, timestamp, security, and unknown PAX metadata fail closed.
 The importer rejects global PAX and mixed local PAX plus GNU naming extensions before normalization.
+The `generation/` modules implement Generation compiler phases 1 through 3 and 6 for x86_64: one `TemplateRevision` plus one `NormalizedRootfs` become an EROFS root, sterile ext4 overlay templates, a verified kernel, a deterministic initramfs, and a canonical `SOMAGEN` manifest whose SHA-256 is the `GenerationId`.
+Guest boot, snapshot capture, and certification are absent and appear only as typed absent state, so a compiled Generation is not launchable.
 
 The source map is:
 
@@ -502,9 +504,37 @@ crates/soma-generation/src/
   traversal.rs
   types.rs
   verify.rs
+  generation/mod.rs
+  generation/artifacts.rs
+  generation/compile.rs
+  generation/compile/inputs.rs
+  generation/contracts.rs
+  generation/erofs.rs
+  generation/erofs_reader.rs
+  generation/erofs_reader/dir.rs
+  generation/erofs_verify.rs
+  generation/error.rs
+  generation/identity.rs
+  generation/initramfs.rs
+  generation/kernel.rs
+  generation/kernel_config.rs
+  generation/manifest.rs
+  generation/manifest/decode.rs
+  generation/manifest/decode/primitives.rs
+  generation/manifest/encode.rs
+  generation/overlay.rs
+  generation/overlay/verify.rs
+  generation/process.rs
+  generation/publish.rs
+  generation/request.rs
+  generation/tar_stream.rs
+  generation/template.rs
+  generation/tree_decoder.rs
+  generation/verify.rs
 ```
 
-The public results are `ImportedOci` and `NormalizedRootfs`.
+The public results are `ImportedOci`, `NormalizedRootfs`, and `CompiledGeneration`.
+`CompiledGeneration` carries a published manifest, its `GenerationId`, formatter and checker evidence, and the typed list of unimplemented phases; `verify_generation` re-verifies every artifact and reports the Generation as not launchable while the snapshot binding is absent.
 `NormalizedRootfs` identifies a canonical logical tree and retains its import provenance, but it is not a mounted or bootable root filesystem, `GenerationId`, kernel, guest agent, snapshot, compatibility certificate, or sandbox.
 Registry authentication, tag resolution, host extraction, disk-filesystem compilation, signing, SBOM generation, reachability garbage collection, internal store quotas, and certification remain outside this slice.
 The crate depends on the portable `soma` identity types and must not depend on `soma-vmm`, a provider adapter, or launch-time policy.
@@ -624,7 +654,7 @@ Tests replace behavior at the deepest stable seam and continue to use the extern
 ## Generation construction
 
 OCI acquisition, logical rootfs normalization, disk-filesystem compilation, guest boot, quiescence, snapshot capture, certification, and provenance occur outside the request-time VMM.
-The implemented importer and normalizer establish bounded input and canonical logical-tree workflows but deliberately stop before disk construction or Generation identity.
+The implemented importer, normalizer, and compiler establish bounded input, canonical logical-tree, immutable disk-artifact, and manifest-identity workflows but deliberately stop before guest boot, snapshot capture, and certification.
 Later Generation stages remain behind the same independently tested module rather than entering Launch latency.
 
 The Launch path consumes a certified immutable Generation.

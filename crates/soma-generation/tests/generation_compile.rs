@@ -1,70 +1,17 @@
 mod support;
 
-use std::{fs, path::Path, process::Command, thread, time::Duration};
+use std::{fs, thread, time::Duration};
 
+use soma::{MachineShape, OciImage};
 use soma_generation::{
-    ArtifactRole, CompileErrorKind, CompilePhase, CompiledGeneration, SnapshotBinding,
-    erofs::format_uuid, verify_generation,
+    CompileErrorKind, CompilePhase, LifetimeLimits, SnapshotBinding, StartupBehavior,
+    TemplateImage, TemplateRevision, erofs::format_uuid, verify_generation,
 };
 use support::{
-    generation::{compile, test_profile, toolchains},
-    rootfs::{TarEntry, local_pax_layer, normalize_layers, normalize_layers_for, tar},
+    fixture_tree::{AGENT, digests, extraction_oracle, fixture_layers},
+    generation::{compile, compile_with_template, test_profile, toolchains},
+    rootfs::{TarEntry, normalize_layers, normalize_layers_for, tar},
 };
-
-const LONG_NAME: &[u8] =
-    b"long/component-name-that-exceeds-the-one-hundred-byte-ustar-field-and-forces-a-pax-path-record-0123456789";
-const AGENT: &[u8] = b"synthetic-guest-agent";
-
-fn big_body() -> Vec<u8> {
-    (0..10_240_u32).map(|value| (value % 251) as u8).collect()
-}
-
-fn fixture_layers() -> Vec<Vec<u8>> {
-    let big = big_body();
-    let exact = vec![0xab_u8; 4096];
-    let first = tar(&[
-        TarEntry::directory(b"etc")
-            .mode(0o750)
-            .ownership(5, 7)
-            .mtime(1_500_000_000),
-        TarEntry::file(b"etc/a", b"alpha").mtime(1_400_000_000),
-        TarEntry::hardlink(b"etc/a-hard", b"etc/a"),
-        TarEntry::file(b"etc/z", b"zulu")
-            .mode(0o4755)
-            .ownership(3_000_000, 80_000),
-        TarEntry::symlink(b"a-link", b"../etc/a"),
-        TarEntry::fifo(b"pipe").mode(0o600),
-        TarEntry::directory(b"tmp").mode(0o1777),
-        TarEntry::file(b"big", &big),
-        TarEntry::file(b"exact", &exact),
-        TarEntry::file(b"empty", b""),
-    ]);
-    let second = tar(&[
-        TarEntry::directory(b"usr"),
-        TarEntry::directory(b"usr/bin"),
-        TarEntry::file(b"usr/bin/x", b"#!/bin/sh\n").mode(0o755),
-        TarEntry::hardlink(b"usr/bin/x-hard", b"usr/bin/x"),
-        TarEntry::directory(b"long"),
-    ]);
-    let third = local_pax_layer(&TarEntry::file(b"long/x", b"pax"), &[("path", LONG_NAME)]);
-    vec![first, second, third]
-}
-
-fn digests(compiled: &CompiledGeneration) -> Vec<(ArtifactRole, String, u64)> {
-    compiled
-        .published
-        .manifest
-        .descriptors()
-        .iter()
-        .map(|descriptor| {
-            (
-                descriptor.role,
-                descriptor.digest.to_string(),
-                descriptor.size,
-            )
-        })
-        .collect()
-}
 
 #[test]
 fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
@@ -159,51 +106,6 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
     extraction_oracle(&tools.0, &fixture_a.store, &compiled_a);
 }
 
-fn extraction_oracle(erofs_tools: &Path, store: &Path, compiled: &CompiledGeneration) {
-    let root = &compiled.published.manifest.root.descriptor;
-    let image = store
-        .join("v1/blobs/sha256")
-        .join(&root.digest.to_string()[7..]);
-    let extract = tempfile::tempdir().unwrap();
-    let target = extract.path().join("tree");
-    let status = Command::new(erofs_tools.join("fsck.erofs"))
-        .arg(format!("--extract={}", target.display()))
-        .arg("--preserve-perms")
-        .arg(&image)
-        .status()
-        .unwrap();
-    assert!(status.success());
-    assert_eq!(fs::read(target.join("etc/a")).unwrap(), b"alpha");
-    assert_eq!(fs::read(target.join("etc/a-hard")).unwrap(), b"alpha");
-    assert_eq!(fs::read(target.join("big")).unwrap(), big_body());
-    assert_eq!(fs::read(target.join("exact")).unwrap(), vec![0xab_u8; 4096]);
-    assert_eq!(fs::read(target.join("empty")).unwrap(), b"");
-    assert_eq!(
-        fs::read(target.join(std::str::from_utf8(LONG_NAME).unwrap())).unwrap(),
-        b"pax"
-    );
-    assert_eq!(
-        fs::read_link(target.join("a-link")).unwrap(),
-        Path::new("../etc/a")
-    );
-    let pipe = fs::symlink_metadata(target.join("pipe")).unwrap();
-    assert!(std::os::unix::fs::FileTypeExt::is_fifo(&pipe.file_type()));
-    let count = walk_count(&target);
-    assert_eq!(count, u64::from(compiled.erofs.entries_verified) - 1);
-}
-
-fn walk_count(path: &Path) -> u64 {
-    let mut count = 0;
-    for entry in fs::read_dir(path).unwrap() {
-        let entry = entry.unwrap();
-        count += 1;
-        if entry.file_type().unwrap().is_dir() {
-            count += walk_count(&entry.path());
-        }
-    }
-    count
-}
-
 #[test]
 fn changing_bound_inputs_changes_identity_while_unchanged_artifacts_stay_equal() {
     let Some(tools) = toolchains("changing_bound_inputs_changes_identity") else {
@@ -268,7 +170,7 @@ fn tampered_artifact_fails_cross_artifact_verification() {
             .to_string()[7..],
     );
     let mut permissions = fs::metadata(&blob).unwrap().permissions();
-    permissions.set_readonly(false);
+    std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o600);
     fs::set_permissions(&blob, permissions).unwrap();
     let mut bytes = fs::read(&blob).unwrap();
     bytes[200] ^= 0xff;
@@ -282,16 +184,84 @@ fn tampered_artifact_fails_cross_artifact_verification() {
 }
 
 #[test]
-fn non_amd64_tree_is_rejected_before_any_tool_runs() {
-    let (fixture, normalized) = normalize_layers(&[tar(&[TarEntry::file(b"a", b"x")])]);
+fn non_amd64_image_is_rejected_before_any_tool_runs() {
+    let (_fixture, normalized) = normalize_layers(&[tar(&[TarEntry::file(b"a", b"x")])]);
+    let workload = normalized.workload();
+    let error = TemplateRevision::new(
+        TemplateImage::new(
+            OciImage::parse("example.test/fixture:arm64").unwrap(),
+            workload.manifest_digest().clone(),
+            workload.platform().clone(),
+        ),
+        MachineShape::new(1, 256, 64).unwrap(),
+        StartupBehavior::readiness_only(),
+        LifetimeLimits::new(60).unwrap(),
+        1,
+    )
+    .unwrap_err();
+    assert_eq!(error.phase(), CompilePhase::ResolveInputs);
+    assert_eq!(error.kind(), CompileErrorKind::Unsupported);
+}
+
+#[test]
+fn template_that_disagrees_with_the_tree_or_profile_is_rejected() {
+    let (fixture, normalized) =
+        normalize_layers_for(&[tar(&[TarEntry::file(b"a", b"x")])], "amd64");
     let scratch = tempfile::tempdir().unwrap();
     let missing = (
         scratch.path().join("no-erofs"),
         scratch.path().join("no-e2fs"),
     );
-    let error = compile(&normalized, &fixture.store, scratch.path(), &missing, AGENT).unwrap_err();
+    let workload = normalized.workload();
+    let image = |digest: &str| {
+        TemplateImage::new(
+            OciImage::parse("example.test/fixture:amd64").unwrap(),
+            soma::OciDigest::parse(digest).unwrap(),
+            workload.platform().clone(),
+        )
+    };
+    let other = image(&format!("sha256:{}", "ab".repeat(32)));
+    let mismatched = TemplateRevision::new(
+        other,
+        MachineShape::new(1, 256, 64).unwrap(),
+        StartupBehavior::readiness_only(),
+        LifetimeLimits::new(60).unwrap(),
+        1,
+    )
+    .unwrap();
+    let error = compile_with_template(
+        &mismatched,
+        &normalized,
+        &fixture.store,
+        scratch.path(),
+        &missing,
+        AGENT,
+    )
+    .unwrap_err();
+    assert_eq!(error.phase(), CompilePhase::ResolveInputs);
+    assert_eq!(error.kind(), CompileErrorKind::Integrity);
+
+    let unknown_class = TemplateRevision::new(
+        image(workload.manifest_digest().as_str()),
+        MachineShape::new(1, 256, 96).unwrap(),
+        StartupBehavior::readiness_only(),
+        LifetimeLimits::new(60).unwrap(),
+        1,
+    )
+    .unwrap();
+    let error = compile_with_template(
+        &unknown_class,
+        &normalized,
+        &fixture.store,
+        scratch.path(),
+        &missing,
+        AGENT,
+    )
+    .unwrap_err();
     assert_eq!(error.phase(), CompilePhase::ResolveInputs);
     assert_eq!(error.kind(), CompileErrorKind::Unsupported);
+    assert!(LifetimeLimits::new(0).is_err());
+    assert!(StartupBehavior::with_workload_probe(vec![0]).is_err());
 }
 
 #[test]

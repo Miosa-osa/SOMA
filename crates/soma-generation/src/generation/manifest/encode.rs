@@ -1,11 +1,12 @@
 use super::{
     GenerationManifest, MAGIC, MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE, MAX_MANIFEST_BYTES,
-    MAX_SHORT_STRING, MAX_TEMPLATES, SnapshotBinding,
+    MAX_SHORT_STRING, MAX_TEMPLATES, OverlayBinding, RootBinding, SnapshotBinding, TemplateBinding,
 };
 use crate::generation::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
     contracts::ContractBinding,
     error::{CompileError, CompileErrorKind, CompilePhase},
+    template::MAX_WORKLOAD_PROBE_BYTES,
 };
 
 /// Encodes the canonical `SOMAGEN` v1 bytes whose SHA-256 is the `GenerationId`.
@@ -37,34 +38,8 @@ pub fn encode_manifest(manifest: &GenerationManifest) -> Result<Vec<u8>, Compile
     encoder.u8(3)?;
     encoder.digest(&manifest.tree.digest)?;
     encoder.u64(manifest.tree.size)?;
-
-    encoder.u8(4)?;
-    encoder.descriptor(&manifest.root.descriptor, ArtifactRole::ErofsRoot)?;
-    encoder.bytes(&manifest.root.uuid)?;
-    encoder.short_string(manifest.root.format_profile.as_bytes())?;
-    encoder.digest(&manifest.root.formatter_digest)?;
-    encoder.short_string(manifest.root.formatter_revision.as_bytes())?;
-    encoder.optional_digest(manifest.root.builder_image_digest.as_ref())?;
-
-    encoder.u8(5)?;
-    let overlay = &manifest.overlay;
-    encoder.u16(overlay.uuid_derivation_version)?;
-    encoder.short_string(overlay.feature_profile.as_bytes())?;
-    encoder.u64(overlay.minimum_capacity)?;
-    encoder.u64(overlay.maximum_capacity)?;
-    if overlay.templates.len() > MAX_TEMPLATES
-        || overlay
-            .templates
-            .windows(2)
-            .any(|pair| pair[1].capacity <= pair[0].capacity)
-    {
-        return Err(invalid());
-    }
-    encoder.u16(u16::try_from(overlay.templates.len()).map_err(|_| limit())?)?;
-    for template in &overlay.templates {
-        encoder.u64(template.capacity)?;
-        encoder.descriptor(&template.descriptor, ArtifactRole::OverlayTemplate)?;
-    }
+    encoder.root(&manifest.root)?;
+    encoder.overlay(&manifest.overlay)?;
 
     encoder.u8(6)?;
     encoder.descriptor(&manifest.kernel.descriptor, ArtifactRole::Kernel)?;
@@ -121,6 +96,7 @@ pub fn encode_manifest(manifest: &GenerationManifest) -> Result<Vec<u8>, Compile
     encoder.u8(15)?;
     encoder.u16(manifest.repair.policy_version)?;
     encoder.digest(&manifest.repair.readiness_command_digest)?;
+    encoder.template(&manifest.template)?;
     Ok(encoder.bytes)
 }
 
@@ -129,6 +105,58 @@ struct Encoder {
 }
 
 impl Encoder {
+    fn root(&mut self, root: &RootBinding) -> Result<(), CompileError> {
+        self.u8(4)?;
+        self.descriptor(&root.descriptor, ArtifactRole::ErofsRoot)?;
+        self.bytes(&root.uuid)?;
+        self.short_string(root.format_profile.as_bytes())?;
+        self.digest(&root.formatter_digest)?;
+        self.short_string(root.formatter_revision.as_bytes())?;
+        self.optional_digest(root.builder_image_digest.as_ref())
+    }
+
+    fn overlay(&mut self, overlay: &OverlayBinding) -> Result<(), CompileError> {
+        self.u8(5)?;
+        self.u16(overlay.uuid_derivation_version)?;
+        self.short_string(overlay.feature_profile.as_bytes())?;
+        self.u64(overlay.minimum_capacity)?;
+        self.u64(overlay.maximum_capacity)?;
+        if overlay.templates.len() > MAX_TEMPLATES
+            || overlay
+                .templates
+                .windows(2)
+                .any(|pair| pair[1].capacity <= pair[0].capacity)
+        {
+            return Err(invalid());
+        }
+        self.u16(u16::try_from(overlay.templates.len()).map_err(|_| limit())?)?;
+        for template in &overlay.templates {
+            self.u64(template.capacity)?;
+            self.descriptor(&template.descriptor, ArtifactRole::OverlayTemplate)?;
+        }
+        Ok(())
+    }
+
+    fn template(&mut self, template: &TemplateBinding) -> Result<(), CompileError> {
+        self.u8(16)?;
+        self.u64(template.writable_storage_bytes)?;
+        self.u8(template.network_policy_class.code())?;
+        self.digest(&template.network_policy_digest)?;
+        match &template.workload_probe {
+            Some(probe) => {
+                if probe.is_empty() || probe.len() > MAX_WORKLOAD_PROBE_BYTES || probe.contains(&0)
+                {
+                    return Err(invalid());
+                }
+                self.u8(1)?;
+                self.u16(u16::try_from(probe.len()).map_err(|_| limit())?)?;
+                self.bytes(probe)?;
+            }
+            None => self.u8(0)?,
+        }
+        self.u64(template.ttl_seconds)
+    }
+
     fn contract(&mut self, tag: u8, binding: &ContractBinding) -> Result<(), CompileError> {
         self.u8(tag)?;
         self.u16(binding.version)?;

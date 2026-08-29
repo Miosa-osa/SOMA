@@ -25,7 +25,7 @@ impl MachineArtifacts {
         request: CompileGeneration<'_>,
         profile: &CompilerProfile,
     ) -> Result<Self, CompileError> {
-        let inputs = request.inputs;
+        let inputs = request.host.inputs;
         let kernel_bytes = read_bounded(
             inputs.kernel,
             profile.max_kernel_bytes,

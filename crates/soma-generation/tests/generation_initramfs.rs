@@ -10,7 +10,11 @@ const INIT: &[u8] = b"#!/bin/sh\nexec /bin/soma-guest-agent\n";
 const AGENT: &[u8] = b"synthetic-guest-agent-bytes";
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut output, byte| {
+        write!(output, "{byte:02x}").unwrap();
+        output
+    })
 }
 
 fn archive() -> Vec<u8> {

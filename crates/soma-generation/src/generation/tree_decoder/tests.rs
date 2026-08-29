@@ -1,9 +1,11 @@
+mod hostile;
+
 use super::{TreeBounds, TreeDecoder, TreeNode};
 use crate::generation::error::{CompileErrorKind, CompilePhase};
 
 const DIGEST: [u8; 32] = [0x5a; 32];
 
-fn bounds() -> TreeBounds {
+pub(super) fn bounds() -> TreeBounds {
     TreeBounds {
         max_entries: 64,
         max_path_bytes: 64,
@@ -14,7 +16,7 @@ fn bounds() -> TreeBounds {
     }
 }
 
-enum Node<'a> {
+pub(super) enum Node<'a> {
     Dir,
     File(u64),
     Link(&'a [u8]),
@@ -23,14 +25,14 @@ enum Node<'a> {
     Kind(u8),
 }
 
-struct Entry<'a> {
-    path: &'a [u8],
-    mode: u32,
-    node: Node<'a>,
-    xattrs: u32,
+pub(super) struct Entry<'a> {
+    pub(super) path: &'a [u8],
+    pub(super) mode: u32,
+    pub(super) node: Node<'a>,
+    pub(super) xattrs: u32,
 }
 
-fn entry<'a>(path: &'a [u8], mode: u32, node: Node<'a>) -> Entry<'a> {
+pub(super) fn entry<'a>(path: &'a [u8], mode: u32, node: Node<'a>) -> Entry<'a> {
     Entry {
         path,
         mode,
@@ -39,13 +41,13 @@ fn entry<'a>(path: &'a [u8], mode: u32, node: Node<'a>) -> Entry<'a> {
     }
 }
 
-fn manifest(count: u32, entries: &[Entry<'_>]) -> Vec<u8> {
+pub(super) fn manifest(count: u32, entries: &[Entry<'_>]) -> Vec<u8> {
     let mut bytes = b"SOMARFS\0".to_vec();
     bytes.extend_from_slice(&1_u16.to_be_bytes());
     bytes.extend_from_slice(&1_u16.to_be_bytes());
     bytes.extend_from_slice(&count.to_be_bytes());
     for item in entries {
-        bytes.extend_from_slice(&(item.path.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(&u32::try_from(item.path.len()).unwrap().to_be_bytes());
         bytes.extend_from_slice(item.path);
         let kind = match item.node {
             Node::Dir => 1,
@@ -67,7 +69,7 @@ fn manifest(count: u32, entries: &[Entry<'_>]) -> Vec<u8> {
                 bytes.extend_from_slice(&DIGEST);
             }
             Node::Link(value) | Node::Hard(value) => {
-                bytes.extend_from_slice(&(value.len() as u32).to_be_bytes());
+                bytes.extend_from_slice(&u32::try_from(value.len()).unwrap().to_be_bytes());
                 bytes.extend_from_slice(value);
             }
             Node::Dir | Node::Fifo | Node::Kind(_) => {}
@@ -76,7 +78,7 @@ fn manifest(count: u32, entries: &[Entry<'_>]) -> Vec<u8> {
     bytes
 }
 
-fn decode(bytes: &[u8]) -> Result<Vec<TreeNode>, (CompilePhase, CompileErrorKind)> {
+pub(super) fn decode(bytes: &[u8]) -> Result<Vec<TreeNode>, (CompilePhase, CompileErrorKind)> {
     let redact = |error: crate::CompileError| (error.phase(), error.kind());
     let mut decoder = TreeDecoder::new(bytes, bounds()).map_err(redact)?;
     let mut nodes = Vec::new();
@@ -87,7 +89,7 @@ fn decode(bytes: &[u8]) -> Result<Vec<TreeNode>, (CompilePhase, CompileErrorKind
     Ok(nodes)
 }
 
-fn good() -> Vec<u8> {
+pub(super) fn good() -> Vec<u8> {
     manifest(
         6,
         &[
@@ -109,11 +111,11 @@ fn decodes_every_supported_node_kind_in_order() {
     assert!(matches!(nodes[4], TreeNode::Symlink { ref target } if target == b"../a"));
 }
 
-fn invalid() -> (CompilePhase, CompileErrorKind) {
+pub(super) fn invalid() -> (CompilePhase, CompileErrorKind) {
     (CompilePhase::DecodeTree, CompileErrorKind::InvalidInput)
 }
 
-fn limit() -> (CompilePhase, CompileErrorKind) {
+pub(super) fn limit() -> (CompilePhase, CompileErrorKind) {
     (CompilePhase::DecodeTree, CompileErrorKind::LimitExceeded)
 }
 
@@ -203,111 +205,4 @@ fn rejects_unsafe_paths_and_missing_or_non_directory_parents() {
         ],
     );
     assert_eq!(decode(&file_parent).unwrap_err(), invalid());
-}
-
-#[test]
-fn rejects_metadata_and_link_violations() {
-    let mode = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"a", 0o10_644, Node::File(1)),
-        ],
-    );
-    assert_eq!(decode(&mode).unwrap_err(), invalid());
-    let mut with_xattr = entry(b"a", 0o644, Node::File(1));
-    with_xattr.xattrs = 1;
-    let xattr = manifest(2, &[entry(b"", 0o755, Node::Dir), with_xattr]);
-    assert_eq!(decode(&xattr).unwrap_err(), invalid());
-    let kind = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"a", 0o644, Node::Kind(9)),
-        ],
-    );
-    assert_eq!(
-        decode(&kind).unwrap_err(),
-        (CompilePhase::DecodeTree, CompileErrorKind::Unsupported)
-    );
-    let dangling = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"b", 0o644, Node::Hard(b"a")),
-        ],
-    );
-    assert_eq!(decode(&dangling).unwrap_err(), invalid());
-    let forward = manifest(
-        3,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"a", 0o644, Node::Hard(b"b")),
-            entry(b"b", 0o644, Node::File(1)),
-        ],
-    );
-    assert_eq!(decode(&forward).unwrap_err(), invalid());
-    let empty_link = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"l", 0o777, Node::Link(b"")),
-        ],
-    );
-    assert_eq!(decode(&empty_link).unwrap_err(), invalid());
-    let nul_link = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"l", 0o777, Node::Link(b"a\0")),
-        ],
-    );
-    assert_eq!(decode(&nul_link).unwrap_err(), invalid());
-}
-
-#[test]
-fn enforces_every_configured_bound() {
-    let long = [b'x'; 65];
-    let path = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(&long, 0o644, Node::File(1)),
-        ],
-    );
-    assert_eq!(decode(&path).unwrap_err(), limit());
-    let link = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"l", 0o777, Node::Link(&long)),
-        ],
-    );
-    assert_eq!(decode(&link).unwrap_err(), limit());
-    let file = manifest(
-        2,
-        &[
-            entry(b"", 0o755, Node::Dir),
-            entry(b"a", 0o644, Node::File(1 << 21)),
-        ],
-    );
-    assert_eq!(decode(&file).unwrap_err(), limit());
-    let mut entries = vec![entry(b"", 0o755, Node::Dir)];
-    let names: Vec<[u8; 1]> = (b'a'..=b'e').map(|byte| [byte]).collect();
-    for name in &names {
-        entries.push(entry(name, 0o644, Node::File(1 << 20)));
-    }
-    let aggregate = manifest(6, &entries);
-    assert_eq!(decode(&aggregate).unwrap_err(), limit());
-    let bytes = good();
-    let mut wide = TreeDecoder::new(
-        &bytes,
-        TreeBounds {
-            max_metadata_bytes: 8,
-            ..bounds()
-        },
-    )
-    .unwrap();
-    let outcome: Result<Vec<_>, _> = wide.by_ref().collect();
-    assert_eq!(outcome.unwrap_err().kind(), CompileErrorKind::LimitExceeded);
 }

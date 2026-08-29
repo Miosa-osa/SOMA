@@ -168,6 +168,11 @@ fn require_profile(
         || manifest.cpu_template != contracts::cpu_template_v1()
         || manifest.repair.readiness_command_digest != contracts::readiness_command_digest()
         || manifest.shape.vcpu_count != 1
+        || !manifest
+            .overlay
+            .templates
+            .iter()
+            .any(|template| template.capacity == manifest.template.writable_storage_bytes)
     {
         return Err(CompileError::new(
             CompilePhase::VerifyGeneration,

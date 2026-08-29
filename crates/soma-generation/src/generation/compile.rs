@@ -14,18 +14,19 @@ use super::{
     initramfs::INITRAMFS_LAYOUT_VERSION,
     kernel::{ELF_PVH_CONTRACT_VERSION, VerifiedKernel},
     manifest::{
-        GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MachineShape,
-        OverlayBinding, OverlayTemplate, RepairBinding, RootBinding, SnapshotBinding,
-        SourceBinding, TreeBinding,
+        GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding,
+        MachineShapeBinding, OverlayBinding, OverlayTemplate, RepairBinding, RootBinding,
+        SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
     },
     overlay::{self, OverlayEvidence},
     publish::{PublishedGeneration, publish_manifest},
-    request::CompileGeneration,
+    request::{CompileGeneration, CompilerProfile},
+    template::{NetworkPolicyClass, TemplateRevision, network_policy_digest},
 };
+use crate::{ImportPhase, store::Store};
 
 mod inputs;
 
-use crate::{ImportPhase, store::Store};
 use inputs::{MachineArtifacts, read_tree};
 
 const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
@@ -63,8 +64,8 @@ impl CompiledGeneration {
     }
 }
 
-/// Compiles immutable machine artifacts from one verified normalized tree and publishes the
-/// canonical manifest last.
+/// Compiles immutable machine artifacts from one Template revision and its verified normalized
+/// tree, then publishes the canonical manifest last.
 ///
 /// # Errors
 ///
@@ -77,6 +78,8 @@ pub fn compile_generation(
     profile.validate()?;
     let workload = request.normalized.workload();
     require_x86_64_workload(workload)?;
+    let template = request.template;
+    require_template_matches(template, workload, profile)?;
     let store = Store::open(request.store)
         .map_err(|error| CompileError::from_import(CompilePhase::ResolveInputs, error))?;
     let tree_digest = Sha256Digest::from_oci(request.normalized.tree_manifest_digest());
@@ -84,9 +87,9 @@ pub fn compile_generation(
     let tree_bytes = read_tree(&store, &tree_digest, tree_size)?;
     let machine = MachineArtifacts::build(request, profile)?;
 
-    let staging = Staging::create(request.staging)?;
-    let (root_descriptor, erofs_evidence) = erofs::compile_root(
-        request.toolchain.erofs_utils,
+    let staging = Staging::create(request.host.staging)?;
+    let (root, erofs_evidence) = erofs::compile_root(
+        request.host.toolchain.erofs_utils,
         profile,
         &tree_bytes,
         &tree_digest,
@@ -94,69 +97,37 @@ pub fn compile_generation(
         &staging.path,
     )?;
     let (templates, overlay_evidence) = overlay::compile_overlay_templates(
-        request.toolchain.e2fsprogs,
+        request.host.toolchain.e2fsprogs,
         profile,
         &store,
         &staging.path,
     )?;
     drop(staging);
 
-    let kernel_descriptor = store_bytes(&store, &machine.kernel_bytes, ArtifactRole::Kernel)?;
-    let initramfs_descriptor = store_bytes(&store, &machine.initramfs, ArtifactRole::Initramfs)?;
-    let agent_descriptor = store_bytes(&store, &machine.guest_agent, ArtifactRole::GuestAgent)?;
-
-    let manifest = GenerationManifest {
-        compiler_policy_version: profile.policy_version,
-        source: SourceBinding {
-            oci_manifest_digest: Sha256Digest::from_oci(workload.manifest_digest()),
-            platform: workload.platform().clone(),
-        },
+    let parts = ManifestParts {
+        template,
+        workload,
+        profile,
         tree: TreeBinding {
             digest: tree_digest,
             size: tree_size,
         },
         root: RootBinding {
-            descriptor: root_descriptor,
+            descriptor: root,
             uuid: derive_root_uuid(&tree_digest),
             format_profile: erofs::EROFS_FORMAT_PROFILE.to_owned(),
             formatter_digest: erofs_evidence.formatter_digest,
             formatter_revision: erofs_evidence.formatter_revision.clone(),
             builder_image_digest: None,
         },
-        overlay: overlay_binding(templates),
-        kernel: KernelBinding {
-            descriptor: kernel_descriptor,
-            elf_pvh_contract_version: ELF_PVH_CONTRACT_VERSION,
-            config_digest: machine.config.digest,
-            cpu_architecture: "x86_64".to_owned(),
-        },
-        initramfs: InitramfsBinding {
-            descriptor: initramfs_descriptor,
-            layout_version: INITRAMFS_LAYOUT_VERSION,
-            early_init_digest: machine.contents.early_init_digest,
-        },
-        guest_agent: GuestAgentBinding {
-            descriptor: agent_descriptor,
-            build_provenance: profile.guest_agent_provenance.clone(),
-            application_protocol_version: profile.application_protocol_version,
-            handshake_protocol_version: profile.handshake_protocol_version,
-        },
-        command_line: contracts::kernel_command_line_v1(),
-        machine_contract: contracts::machine_contract_v1(),
-        device_contract: contracts::device_contract_v1(),
-        cpu_template: contracts::cpu_template_v1(),
-        shape: MachineShape {
-            memory_bytes: profile.memory_bytes,
-            vcpu_count: profile.vcpu_count,
-            memory_slot_layout_version: 1,
-            launch_page_layout_version: 1,
-        },
-        snapshot: SnapshotBinding::Absent,
-        repair: RepairBinding {
-            policy_version: 1,
-            readiness_command_digest: contracts::readiness_command_digest(),
-        },
+        templates,
+        kernel: store_bytes(&store, &machine.kernel_bytes, ArtifactRole::Kernel)?,
+        initramfs: store_bytes(&store, &machine.initramfs, ArtifactRole::Initramfs)?,
+        guest_agent: store_bytes(&store, &machine.guest_agent, ArtifactRole::GuestAgent)?,
+        config_digest: machine.config.digest,
+        early_init_digest: machine.contents.early_init_digest,
     };
+    let manifest = parts.build()?;
     let published = publish_manifest(&store, &manifest)?;
     Ok(CompiledGeneration {
         published,
@@ -168,6 +139,82 @@ pub fn compile_generation(
             UnimplementedPhase::Certification,
         ],
     })
+}
+
+struct ManifestParts<'a> {
+    template: &'a TemplateRevision,
+    workload: &'a WorkloadIdentity,
+    profile: &'a CompilerProfile,
+    tree: TreeBinding,
+    root: RootBinding,
+    templates: Vec<OverlayTemplate>,
+    kernel: ArtifactDescriptor,
+    initramfs: ArtifactDescriptor,
+    guest_agent: ArtifactDescriptor,
+    config_digest: Sha256Digest,
+    early_init_digest: Sha256Digest,
+}
+
+impl ManifestParts<'_> {
+    fn build(self) -> Result<GenerationManifest, CompileError> {
+        let template = self.template;
+        let profile = self.profile;
+        Ok(GenerationManifest {
+            compiler_policy_version: profile.policy_version,
+            source: SourceBinding {
+                oci_manifest_digest: Sha256Digest::from_oci(self.workload.manifest_digest()),
+                platform: self.workload.platform().clone(),
+            },
+            tree: self.tree,
+            root: self.root,
+            overlay: OverlayBinding {
+                uuid_derivation_version: overlay::OVERLAY_UUID_DERIVATION_VERSION,
+                feature_profile: overlay::overlay_feature_profile(),
+                minimum_capacity: self.templates.first().map_or(0, |t| t.capacity),
+                maximum_capacity: self.templates.last().map_or(0, |t| t.capacity),
+                templates: self.templates,
+            },
+            kernel: KernelBinding {
+                descriptor: self.kernel,
+                elf_pvh_contract_version: ELF_PVH_CONTRACT_VERSION,
+                config_digest: self.config_digest,
+                cpu_architecture: "x86_64".to_owned(),
+            },
+            initramfs: InitramfsBinding {
+                descriptor: self.initramfs,
+                layout_version: INITRAMFS_LAYOUT_VERSION,
+                early_init_digest: self.early_init_digest,
+            },
+            guest_agent: GuestAgentBinding {
+                descriptor: self.guest_agent,
+                build_provenance: profile.guest_agent_provenance.clone(),
+                application_protocol_version: profile.application_protocol_version,
+                handshake_protocol_version: profile.handshake_protocol_version,
+            },
+            command_line: contracts::kernel_command_line_v1(),
+            machine_contract: contracts::machine_contract_v1(),
+            device_contract: contracts::device_contract_v1(),
+            cpu_template: contracts::cpu_template_v1(),
+            shape: MachineShapeBinding {
+                memory_bytes: template.memory_bytes(),
+                vcpu_count: template.shape().vcpu_count(),
+                memory_slot_layout_version: 1,
+                launch_page_layout_version: 1,
+            },
+            snapshot: SnapshotBinding::Absent,
+            repair: RepairBinding {
+                policy_version: 1,
+                readiness_command_digest: template.startup().readiness_command_digest(),
+            },
+            template: TemplateBinding {
+                writable_storage_bytes: template.writable_storage_bytes(),
+                network_policy_class: NetworkPolicyClass::of(template.network_policy()),
+                network_policy_digest: network_policy_digest(template.network_policy())?,
+                workload_probe: template.startup().workload_probe().map(<[u8]>::to_vec),
+                ttl_seconds: template.lifetime().ttl_seconds(),
+            },
+        })
+    }
 }
 
 fn require_x86_64_workload(workload: &WorkloadIdentity) -> Result<(), CompileError> {
@@ -185,14 +232,30 @@ fn require_x86_64_workload(workload: &WorkloadIdentity) -> Result<(), CompileErr
     Ok(())
 }
 
-fn overlay_binding(templates: Vec<OverlayTemplate>) -> OverlayBinding {
-    OverlayBinding {
-        uuid_derivation_version: overlay::OVERLAY_UUID_DERIVATION_VERSION,
-        feature_profile: overlay::overlay_feature_profile(),
-        minimum_capacity: templates.first().map_or(0, |template| template.capacity),
-        maximum_capacity: templates.last().map_or(0, |template| template.capacity),
-        templates,
+fn require_template_matches(
+    template: &TemplateRevision,
+    workload: &WorkloadIdentity,
+    profile: &CompilerProfile,
+) -> Result<(), CompileError> {
+    if template.image().manifest_digest() != workload.manifest_digest()
+        || template.image().platform() != workload.platform()
+    {
+        return Err(CompileError::new(
+            CompilePhase::ResolveInputs,
+            CompileErrorKind::Integrity,
+        ));
     }
+    if template.profile_version() != profile.policy_version
+        || !profile
+            .overlay_capacities
+            .contains(&template.writable_storage_bytes())
+    {
+        return Err(CompileError::new(
+            CompilePhase::ResolveInputs,
+            CompileErrorKind::Unsupported,
+        ));
+    }
+    Ok(())
 }
 
 fn store_bytes(

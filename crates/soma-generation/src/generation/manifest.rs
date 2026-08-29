@@ -3,6 +3,7 @@ use soma::OciPlatform;
 use super::{
     artifacts::{ArtifactDescriptor, Sha256Digest},
     contracts::ContractBinding,
+    template::NetworkPolicyClass,
 };
 
 mod decode;
@@ -116,9 +117,9 @@ pub struct GuestAgentBinding {
     pub handshake_protocol_version: u16,
 }
 
-/// Group 13: the exact machine shape.
+/// Group 13: the exact Machine shape bound into the immutable machine bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MachineShape {
+pub struct MachineShapeBinding {
     /// Guest memory in bytes.
     pub memory_bytes: u64,
     /// The vCPU count.
@@ -145,6 +146,21 @@ pub enum SnapshotBinding {
         /// The capture-point version.
         capture_point_version: u16,
     },
+}
+
+/// Group 16: the Template revision fields not already bound by another group.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TemplateBinding {
+    /// The selected writable-storage size class in bytes; must name one overlay template.
+    pub writable_storage_bytes: u64,
+    /// The network policy class.
+    pub network_policy_class: NetworkPolicyClass,
+    /// The digest of the canonical network policy serialization.
+    pub network_policy_digest: Sha256Digest,
+    /// The optional explicit workload probe command line.
+    pub workload_probe: Option<Vec<u8>>,
+    /// The Instance time-to-live in seconds.
+    pub ttl_seconds: u64,
 }
 
 /// Group 15: the repair policy and readiness command.
@@ -184,11 +200,13 @@ pub struct GenerationManifest {
     /// Group 12.
     pub cpu_template: ContractBinding,
     /// Group 13.
-    pub shape: MachineShape,
+    pub shape: MachineShapeBinding,
     /// Group 14.
     pub snapshot: SnapshotBinding,
     /// Group 15.
     pub repair: RepairBinding,
+    /// Group 16.
+    pub template: TemplateBinding,
 }
 
 impl GenerationManifest {

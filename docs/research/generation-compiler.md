@@ -314,6 +314,15 @@ generation/
 No module may accept an arbitrary command line, shell string, host path embedded in an artifact, unbounded reader, or untyped artifact role.
 The formatter process adapter is replaceable, but the canonical SOMA input and output contracts are not delegated to the formatter.
 
+## x86_64 production-module status
+
+The modules above exist under `crates/soma-generation/src/generation/` and implement phases 1 through 3 and 6 on Linux x86_64 with the pinned host toolchain; phases 4 and 5 have no implementation and are represented only as `SnapshotBinding::Absent` and `UnimplementedPhase` values, so a compiled Generation is never launchable.
+The compiler input is one `TemplateRevision` (selected image reference plus resolved digest and platform, Machine shape with vCPU count, memory, and writable-storage size class, network policy intent inside the shape capabilities, startup and readiness behavior, lifetime limits, and preparation profile version) together with its `NormalizedRootfs`; every field except the image reference is bound by the manifest, and the manifest therefore carries a sixteenth group for the Template fields not already covered by the fifteen listed above.
+The formatter consumes the canonical tar stream through its standard input rather than a host tar file or host directory, and the independent verifier is a crate-private bounded EROFS reader that parses the superblock, directories, inodes, and data without mounting or extracting; `fsck.erofs --extract` is used only as a test oracle.
+Measured deviations: `mke2fs -d` copied host change times even under `E2FSPROGS_FAKE_TIME`, so the empty `upper` and `work` directories are created by `debugfs -w -R mkdir` under the same fake time, which was byte-reproducible across seconds; the pinned `--all-time` option flattens every per-file modification time to the profile epoch, which the verifier checks instead of the per-entry tree time.
+The host build binds no builder-image digest, the CPU-template digest covers a declaration statement rather than defined CPUID masks, and the fixture proof covers a small synthetic tree because the normalized `node:22` store was not present on the Linux host.
+Gates 1, 4, 5, and the atomic-last and timeout portions of 8 have test evidence; gate 2 lacks a `node:22` run on this host; gate 3 holds for the machine artifacts while the `GenerationId` still differs through the bound source OCI manifest digest; gates 6, 7, 9, and the disk-exhaustion and crash cases of 8 remain untested.
+
 ## Acceptance gates
 
 Ticket #6 is implemented, rather than merely designed, only when all of these gates pass:
