@@ -32,7 +32,7 @@ Decision-map ticket #4 now has its kernel input: Linux `v6.12.107` built as an u
 `kernel/verify-pvh.py` parses the ELF with the standard library only and rejects a missing note, a segment below the contract floor, overlapping segments, or an entry outside executable loaded bytes.
 Two consecutive builds on the same host produced byte-identical output; the evidence is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-build.md`.
 This is a build and layout proof only, not KVM boot evidence, device discovery evidence, or a Generation.
-The built kernel lacks `CONFIG_DEVMEM`, which the guest agent needs to read the launch page; the fragment now requests it and a reviewed regeneration plus rebuild is the next kernel step.
+A first build with `CONFIG_DEVMEM=n` was superseded the same day because the guest agent reads the launch page through `/dev/mem`; the retained evidence records both digests.
 
 ## 2026-08-29 - Complete custom VMM architecture map
 

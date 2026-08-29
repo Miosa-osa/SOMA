@@ -54,7 +54,7 @@ The script performs, in order:
 
 | Path | Content |
 | --- | --- |
-| `kernel/out/vmlinux-6.12.107-soma-v1` | Uncompressed ELF64 x86_64 kernel with the PVH note; the 2026-08-29 reproducible digest is `cf071d83d5461a0b739a5c361825f994a528e0b5bee1b9b78350e5f07b22755c` (21,530,056 bytes) |
+| `kernel/out/vmlinux-6.12.107-soma-v1` | Uncompressed ELF64 x86_64 kernel with the PVH note; the 2026-08-29 reproducible digest is `f1af3a142fa39916cfac425a01b16b5f328279823533421c9eec3f192c05b746` (21,530,432 bytes) |
 | `kernel/out/vmlinux-6.12.107-soma-v1.sha256` | SHA-256 of the kernel |
 | `kernel/out/manifest.json` | Source tag and digest, config digests, builder image identity and package versions, build environment, job count, timings, output digest and size, and the PVH verification report |
 | `kernel/out/final.config` | The `.config` after `make olddefconfig`, which must be identical to the pinned config for every pinned symbol |
@@ -88,6 +88,7 @@ The full config is the artifact; `soma-v1.fragment` documents every intended del
 - `CONFIG_NET=y` with IPv4 and IPv6, `CONFIG_NETFILTER=n` because the host profile enforces policy, and no Ethernet, wireless, or Bluetooth drivers.
 - `CONFIG_SERIAL_8250=y` with one UART and console support for the diagnostic `ttyS0`; `CONFIG_VT=n` and `CONFIG_INPUT=n`.
 - `CONFIG_SECCOMP_FILTER=y`, namespaces, and a minimal cgroup set (`pids`, `memory`, `cpu`, `cpuset`).
+- `CONFIG_DEVMEM=y` with `CONFIG_STRICT_DEVMEM=n` and `CONFIG_IO_STRICT_DEVMEM=n` because the guest agent reads the SOMA launch page through `/dev/mem`; as a consequence Kconfig drops `CONFIG_EXCLUSIVE_SYSTEM_RAM` and `CONFIG_PAGE_TABLE_CHECK`.
 - No USB, sound, DRM, framebuffer, SCSI, ATA, MD, device mapper, loop, NVMe, RTC, HPET device, watchdog, hotplug memory, or hardware monitoring.
 - `CONFIG_DEBUG_INFO_NONE=y`, no BTF, no ftrace, no kprobes, no profiling, no KUnit, no runtime tests.
 - `CONFIG_IKCONFIG_PROC=y` exposes the exact configuration at `/proc/config.gz` for later Generation verification.
@@ -95,12 +96,6 @@ The full config is the artifact; `soma-v1.fragment` documents every intended del
 Symbols the fragment cannot disable in Linux 6.12 because Kconfig forces them: `CONFIG_MICROCODE` (`def_bool y`), `CONFIG_HOTPLUG_CPU` (`def_bool y` when `SMP`), `CONFIG_HPET_TIMER` (`def_bool X86_64`), `CONFIG_PERF_EVENTS` (selected by `X86`), `CONFIG_DEBUG_KERNEL` (selected by `EXPERT`, gates only the debug menu), and `CONFIG_NET_FAILOVER` (selected by `VIRTIO_NET`).
 `CONFIG_RANDOM_TRUST_CPU` no longer exists in 6.12; the kernel trusts the CPU by default and the machine-contract command line disables that with `random.trust_cpu=off`.
 `CONFIG_SMP=y` remains so a later machine-contract version can add vCPUs without a different kernel; version 1 boots one vCPU and the SMP kernel does not require an MP table for that.
-
-## Pending change: `/dev/mem` for the guest agent
-
-The built kernel has `CONFIG_DEVMEM=n`, but the guest agent must read the SOMA launch page through `/dev/mem`.
-`soma-v1.fragment` now requests `CONFIG_DEVMEM=y` with `CONFIG_STRICT_DEVMEM=n`, while `config-x86_64-soma-v1`, the manifest, and the retained evidence still describe the `CONFIG_DEVMEM=n` build.
-The next step is `kernel/build.sh regen-config`, review of the config diff, a rebuild, and a new evidence document; until then the recorded digest `cf071d83d5461a0b739a5c361825f994a528e0b5bee1b9b78350e5f07b22755c` is the only built artifact and it cannot serve the launch-page contract.
 
 ## What this does not claim
 

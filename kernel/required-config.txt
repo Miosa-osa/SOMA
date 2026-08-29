@@ -51,6 +51,11 @@ CONFIG_UNIX=y
 CONFIG_SERIAL_8250=y
 CONFIG_SERIAL_8250_CONSOLE=y
 
+# Launch page access for the guest agent
+CONFIG_DEVMEM=y
+# CONFIG_STRICT_DEVMEM is not set
+# CONFIG_IO_STRICT_DEVMEM is not set
+
 # Process isolation
 CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y

@@ -121,9 +121,7 @@ CONFIG_UNIX98_PTYS=y
 # CONFIG_GAMEPORT is not set
 # CONFIG_HID_SUPPORT is not set
 # /dev/mem is required: the guest agent reads the SOMA launch page through it.
-# Added 2026-08-29 after the first reproducible build; config-x86_64-soma-v1 and
-# the retained evidence still reflect CONFIG_DEVMEM=n until `build.sh regen-config`
-# and a rebuild are reviewed.
+# Unrestricted DEVMEM also turns off EXCLUSIVE_SYSTEM_RAM and PAGE_TABLE_CHECK.
 CONFIG_DEVMEM=y
 # CONFIG_STRICT_DEVMEM is not set
 # CONFIG_IO_STRICT_DEVMEM is not set
