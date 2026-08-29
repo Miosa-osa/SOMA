@@ -64,9 +64,10 @@ What guest-physical layout, Linux boot protocol, vCPU register state, interrupt 
 
 ### Answer
 
-Open.
-Produce `docs/research/x86_64-machine-contract.md` with primary-source citations, a byte-level memory map, required KVM capabilities and ioctls, restore ordering, failure behavior, and an explicit list of unsupported PC devices.
-The first prototype must boot a pinned kernel directly without BIOS, UEFI, PCI, ACPI, graphics, USB, or hotplug.
+Resolved.
+Version 1 uses a pinned uncompressed x86_64 Linux ELF kernel with a PVH entry note, one bootstrap vCPU, a fixed low-memory layout, no firmware, and no general PC platform.
+It defines exact boot structures, initial register state, required KVM capabilities, cold-boot and restore ordering, failure behavior, and unsupported devices.
+See [x86_64 machine contract](x86_64-machine-contract.md).
 
 ## #5: What is the minimal device surface?
 

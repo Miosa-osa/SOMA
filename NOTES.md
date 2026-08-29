@@ -1,5 +1,12 @@
 # Notes
 
+## 2026-08-29 - x86_64 machine contract v1 uses PVH direct boot
+
+Decision-map ticket #4 selects a pinned uncompressed Linux ELF kernel carrying `XEN_ELFNOTE_PHYS32_ENTRY`.
+The first contract enters one bootstrap vCPU in 32-bit protected mode through PVH, uses a fixed low-memory boot layout, and excludes BIOS, UEFI, ACPI, PCI, and general PC emulation.
+Snapshot compatibility binds the kernel, command line, CPU template, KVM and host profile, device state, and all immutable artifact digests.
+The cold-boot proof is diagnostic evidence only and cannot be presented as a working OCI sandbox or 10 ms restore result.
+
 ## 2026-08-29 - Custom VMM research is sequenced by a decision map
 
 The custom VMM work now uses `docs/research/vmm-decision-map.md` as its canonical dependency graph.

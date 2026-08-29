@@ -5,6 +5,9 @@ This file records the primary sources that constrain SOMA's design.
 ## Kernel and virtualization interfaces
 
 - [Linux KVM API](https://www.kernel.org/doc/html/latest/virt/kvm/api.html) defines the file-descriptor, ioctl, memory-mapping, and vCPU execution contract.
+- [Linux x86 boot protocol](https://docs.kernel.org/arch/x86/boot.html) defines protected-mode and 64-bit direct kernel entry.
+- [Xen HVM direct-boot ABI](https://xenbits.xen.org/docs/4.10-testing/misc/pvh.html) defines the legacy-free x86 PVH entry state used by the first SOMA machine contract.
+- [Xen hvm_start_info](https://xenbits.xen.org/docs/unstable/hypercall/x86_64/include%2Cpublic%2Carch-x86%2Chvm%2Cstart_info.h.html) defines PVH start information, modules, command line, and memory map.
 - [rust-vmm community](https://github.com/rust-vmm/community) catalogs reusable Rust virtualization crates and production consumers.
 - [rust-vmm kvm-ioctls](https://github.com/rust-vmm/kvm) provides Rust bindings and wrappers for KVM.
 - [rust-vmm vm-superio](https://github.com/rust-vmm/vm-superio) provides the bounded 16550 UART model used by the ARM64 command proof.
