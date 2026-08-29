@@ -28,14 +28,16 @@ pub use module::{
 };
 pub use rejection::{InvalidReason, Rejection, RejectionClass};
 pub use resolve::{OciResolver, ResolveError, ResolvedImage, TestResolver, resolve, resolve_with};
-pub use revision::TemplateRevision;
+pub use revision::{RevisionError, RevisionImage, TemplateRevision};
 pub use schema::{
-    Command, DEFAULT_USER, DEFAULT_WORKING_DIRECTORY, EgressIntent, EnvironmentEntry, IdleAction,
-    IngressIntent, Lifecycle, MAX_ARGUMENTS, MAX_CIDRS, MAX_DOCUMENT_BYTES, MAX_DOMAINS,
-    MAX_ENVIRONMENT, MAX_MODULES, MAX_NAME_BYTES, MAX_SECRETS, MAX_STRING_BYTES, Network,
-    Resources, SCHEMA, SecretDelivery, SecretReference, Template, Workload, parse_template,
+    Command, DEFAULT_SECRET_FILE_MODE, DEFAULT_USER, DEFAULT_WORKING_DIRECTORY, EgressIntent,
+    EnvironmentEntry, IdleAction, IngressIntent, Lifecycle, MAX_ARGUMENTS, MAX_CIDRS,
+    MAX_DOCUMENT_BYTES, MAX_DOMAINS, MAX_ENVIRONMENT, MAX_MODULES, MAX_NAME_BYTES, MAX_SECRETS,
+    MAX_STRING_BYTES, Network, Resources, SCHEMA, SecretDelivery, SecretReference, Template,
+    Workload, parse_template,
 };
 pub use validate::{
     BackendCapabilities, EgressEnvelope, FilesystemOracle, MAX_BACKEND_PLATFORMS, NetworkEnvelope,
     OracleError, PolicyCeiling, ResourceLimits, TestFilesystemOracle,
 };
+pub use wire::WireError;

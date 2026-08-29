@@ -1,11 +1,13 @@
 //! The content projection of a Template document and its SHA-256 digest.
 //!
-//! The projection binds every content-affecting authored value in schema order.
+//! The projection binds every content-affecting authored value in schema order after the
+//! documented defaults and normalizations are applied, so two documents that select the
+//! same logical inputs share one digest.
 //! It excludes `name`, `description`, the mutable `workload.image` text, and TOML layout.
 
 use sha2::{Digest as _, Sha256};
 
-use super::Template;
+use super::{EgressIntent, Network, SecretDelivery, Template};
 use crate::{module::digest::put_command, wire::Writer};
 
 const MAGIC: &[u8; 8] = b"SOMATMPL";
@@ -32,9 +34,9 @@ pub(super) fn content_digest(template: &Template) -> [u8; 32] {
     writer.put_u64(resources.memory_mib);
     writer.put_u64(resources.writable_storage_mib);
     let network = template.network();
-    writer.put_u8(network.egress.code());
-    writer.put_strings(&network.allow_domains);
-    writer.put_strings(&network.allow_cidrs);
+    writer.put_u8(logical_egress(network).code());
+    writer.put_strings(&sorted(&network.allow_domains));
+    writer.put_strings(&sorted(&network.allow_cidrs));
     writer.put_u8(network.ingress.code());
     let lifecycle = template.lifecycle();
     writer.put_u64(lifecycle.idle_timeout_seconds);
@@ -50,11 +52,35 @@ pub(super) fn content_digest(template: &Template) -> [u8; 32] {
         writer.put_string(&secret.name);
         writer.put_string(&secret.source);
         writer.put_u8(secret.delivery.code());
-        writer.put_optional_string(secret.scope.as_deref());
-        writer.put_presence(secret.mode.is_some());
-        if let Some(mode) = secret.mode {
+        let scope = match (secret.delivery, secret.scope.as_deref()) {
+            (SecretDelivery::Environment, None) => Some(secret.name.as_str()),
+            (_, scope) => scope,
+        };
+        writer.put_optional_string(scope);
+        let mode = match (secret.delivery, secret.mode) {
+            (SecretDelivery::File, None) => Some(super::DEFAULT_SECRET_FILE_MODE),
+            (_, mode) => mode,
+        };
+        writer.put_presence(mode.is_some());
+        if let Some(mode) = mode {
             writer.put_u32(mode);
         }
     }
     Sha256::digest(writer.finish()).into()
+}
+
+/// `deny` with explicit destinations is the same selection as `allowlist` with them.
+fn logical_egress(network: &Network) -> EgressIntent {
+    let has_destinations = !network.allow_domains.is_empty() || !network.allow_cidrs.is_empty();
+    match network.egress {
+        EgressIntent::Deny if has_destinations => EgressIntent::Allowlist,
+        intent => intent,
+    }
+}
+
+fn sorted(values: &[String]) -> Vec<String> {
+    let mut values = values.to_vec();
+    values.sort();
+    values.dedup();
+    values
 }

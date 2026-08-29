@@ -28,10 +28,15 @@ impl Command {
             });
         }
         for arg in args {
-            if arg.len() > MAX_STRING_BYTES || arg.contains('\0') {
+            if arg.len() > MAX_STRING_BYTES {
                 return Err(BoundError::TooLong {
                     field: "command.args".to_owned(),
                     maximum: MAX_STRING_BYTES,
+                });
+            }
+            if arg.contains('\0') {
+                return Err(BoundError::ForbiddenCharacter {
+                    field: "command.args".to_owned(),
                 });
             }
         }

@@ -42,7 +42,13 @@ pub fn parse_template(bytes: &[u8]) -> Result<Template, ParseError> {
         });
     }
     let name = root.string("name")?;
-    if name.is_empty() || name.len() > MAX_NAME_BYTES {
+    if name.is_empty() {
+        return Err(BoundError::Empty {
+            field: "name".to_owned(),
+        }
+        .into());
+    }
+    if name.len() > MAX_NAME_BYTES {
         return Err(BoundError::TooLong {
             field: "name".to_owned(),
             maximum: MAX_NAME_BYTES,

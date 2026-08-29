@@ -8,7 +8,7 @@ use crate::{
     lock::{LockedEnvironment, LockedSecret, MAX_LOCK_ENVIRONMENT},
     module::EnvironmentName,
     rejection::{InvalidReason, Rejection},
-    schema::{SecretDelivery, Template},
+    schema::{DEFAULT_SECRET_FILE_MODE, SecretDelivery, Template},
 };
 
 pub(super) fn environment(
@@ -103,7 +103,7 @@ pub(super) fn secrets(
                 syntax::secret_mode(mode).map_err(|reason| invalid(mode_field, reason))?;
                 Some(mode)
             }
-            (SecretDelivery::File, None) => Some(0o400),
+            (SecretDelivery::File, None) => Some(DEFAULT_SECRET_FILE_MODE),
             (_, Some(_)) => return Err(invalid(mode_field, InvalidReason::InvalidMode)),
             (_, None) => None,
         };

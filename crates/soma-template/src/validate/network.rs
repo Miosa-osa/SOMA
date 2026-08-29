@@ -83,7 +83,10 @@ impl NetworkEnvelope {
             Some(EgressIntent::Allowlist) => {
                 let domains = reader.strings(MAX_DOMAINS, MAX_STRING_BYTES)?;
                 let cidrs = reader.strings(MAX_CIDRS, MAX_STRING_BYTES)?;
-                if domains.is_empty() && cidrs.is_empty() {
+                if (domains.is_empty() && cidrs.is_empty())
+                    || !canonical(&domains)
+                    || !canonical(&cidrs)
+                {
                     return Err(LockError::InvalidField {
                         field: "network.egress",
                     });
@@ -219,14 +222,18 @@ fn cidr_contains(outer: &str, inner: &str) -> bool {
     let Some((inner_address, inner_prefix)) = split(inner) else {
         return false;
     };
-    if outer_address.is_ipv4() != inner_address.is_ipv4() || outer_prefix > inner_prefix {
+    if outer_address.is_ipv4() != inner_address.is_ipv4()
+        || outer_prefix > inner_prefix
+        || outer_prefix > 128
+    {
         return false;
     }
-    let bits: u32 = if outer_address.is_ipv4() { 32 } else { 128 };
+    // Both families are left-aligned in 128 bits by `numeric`, so the prefix mask always
+    // starts at the top bit regardless of family.
     let mask = if outer_prefix == 0 {
         0
     } else {
-        u128::MAX << (bits - outer_prefix)
+        u128::MAX << (128 - outer_prefix)
     };
     (numeric(outer_address) & mask) == (numeric(inner_address) & mask)
 }
@@ -241,6 +248,10 @@ fn numeric(address: IpAddr) -> u128 {
         IpAddr::V4(v4) => u128::from(u32::from(v4)) << 96,
         IpAddr::V6(v6) => u128::from(v6),
     }
+}
+
+fn canonical(values: &[String]) -> bool {
+    values.is_sorted() && values.windows(2).all(|pair| pair[0] != pair[1])
 }
 
 fn sorted(values: &[String]) -> Vec<String> {

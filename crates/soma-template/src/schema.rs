@@ -39,6 +39,8 @@ pub const MAX_DOMAINS: usize = 256;
 pub const MAX_CIDRS: usize = 256;
 pub const DEFAULT_WORKING_DIRECTORY: &str = "/";
 pub const DEFAULT_USER: &str = "root";
+/// Owner-read-only, the mode applied to a file-delivered secret without an explicit `mode`.
+pub const DEFAULT_SECRET_FILE_MODE: u32 = 0o400;
 
 /// One parsed Template document.
 #[derive(Clone, Debug, Eq, PartialEq)]

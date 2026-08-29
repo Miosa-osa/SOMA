@@ -54,7 +54,7 @@ pub(super) fn resources(
     dimension(
         "resources.vcpus",
         u64::from(resources.vcpus),
-        u64::from(limits.max_vcpus),
+        u64::from(limits.max_vcpus.min(u32::from(u16::MAX))),
     )?;
     dimension(
         "resources.memory_mib",

@@ -3,7 +3,10 @@
 use sha2::{Digest as _, Sha256};
 
 use super::{HealthProbe, ModuleSpec};
-use crate::{schema::Command, wire::Writer};
+use crate::{
+    schema::{Command, DEFAULT_USER, DEFAULT_WORKING_DIRECTORY},
+    wire::Writer,
+};
 
 const MAGIC: &[u8; 8] = b"SOMAMODL";
 const ENCODING_VERSION: u16 = 1;
@@ -77,9 +80,14 @@ pub(super) fn digest(spec: &ModuleSpec) -> [u8; 32] {
     Sha256::digest(writer.finish()).into()
 }
 
+/// Encodes a command with the version 1 working-directory and user defaults applied.
 pub(crate) fn put_command(writer: &mut Writer, command: &Command) {
     writer.put_string(command.program());
     writer.put_strings(command.args());
-    writer.put_optional_string(command.working_directory());
-    writer.put_optional_string(command.user());
+    writer.put_string(
+        command
+            .working_directory()
+            .unwrap_or(DEFAULT_WORKING_DIRECTORY),
+    );
+    writer.put_string(command.user().unwrap_or(DEFAULT_USER));
 }
