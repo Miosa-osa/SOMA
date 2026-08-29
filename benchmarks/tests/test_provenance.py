@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from benchmarks.local_alpha.provenance import (
+    RELEASE_BUILD_COMMAND,
     BuildManifest,
     build_child_environment,
     source_fingerprint,
@@ -23,7 +24,7 @@ def _manifest_document() -> dict[str, object]:
         "benchmark_sha256": "2" * 64,
         "git_revision": "a" * 40,
         "worktree_clean": True,
-        "build_argv": ["cargo", "build", "--locked", "--release"],
+        "build_argv": list(RELEASE_BUILD_COMMAND),
         "binaries": {
             "soma": binary("$SOMA_BIN", "soma", "3" * 64),
             "soma_mcp": binary("$SOMA_MCP_BIN", "soma-mcp", "4" * 64),
@@ -51,7 +52,7 @@ class ProvenanceTests(unittest.TestCase):
                 root,
                 soma,
                 mcp,
-                ["cargo", "build", "--locked", "--release"],
+                RELEASE_BUILD_COMMAND,
                 git_revision="a" * 40,
                 worktree_clean=True,
             )
@@ -62,6 +63,8 @@ class ProvenanceTests(unittest.TestCase):
 
             self.assertEqual(loaded, manifest)
             validate_release_build(root, loaded, soma, mcp)
+            with self.assertRaises(FileExistsError):
+                manifest.write(path)
 
     def test_manifest_loader_rejects_duplicate_json_keys(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -77,6 +80,16 @@ class ProvenanceTests(unittest.TestCase):
             path = Path(temporary) / "manifest.json"
             document = _manifest_document()
             document["created_at_utc"] = "whenever"
+            path.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "fields"):
+                BuildManifest.load(path)
+
+    def test_manifest_loader_rejects_any_other_build_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "manifest.json"
+            document = _manifest_document()
+            document["build_argv"] = ["cargo", "build", "--release"]
             path.write_text(json.dumps(document), encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "fields"):
@@ -137,7 +150,7 @@ class ProvenanceTests(unittest.TestCase):
                 root,
                 soma,
                 mcp,
-                ["cargo", "build", "--release"],
+                RELEASE_BUILD_COMMAND,
                 git_revision="a" * 40,
                 worktree_clean=True,
             )
@@ -177,7 +190,7 @@ class ProvenanceTests(unittest.TestCase):
                 root,
                 soma,
                 mcp,
-                ["cargo", "build"],
+                RELEASE_BUILD_COMMAND,
                 git_revision="a" * 40,
                 worktree_clean=True,
             )

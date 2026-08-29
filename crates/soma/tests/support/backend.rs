@@ -163,10 +163,8 @@ impl Backend for TestBackend {
         request: soma::InspectionRequest<'_>,
     ) -> Result<soma::InspectionObservation, BackendFailure> {
         self.record("inspect");
-        Ok(soma::InspectionObservation::new(
-            request.operation_id().clone(),
-            request.instance_id().clone(),
-            request.workload().clone(),
+        Ok(soma::InspectionObservation::observed(
+            request,
             BackendKind::MacosVirtualization,
             soma::MachineState::Ready,
             observed_network(request.shape().capabilities().network_policy()),

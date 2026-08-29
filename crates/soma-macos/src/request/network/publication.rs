@@ -37,16 +37,22 @@ impl PublishedPort {
                 RequestErrorReason::InvalidCharacter,
             ));
         }
-        if host_port < 2 || guest_port < 2 {
+        let Some(host_port) = NonZeroU16::new(host_port).filter(|port| port.get() >= 2) else {
             return Err(RequestError::new(
                 "published_port",
                 RequestErrorReason::Zero,
             ));
-        }
+        };
+        let Some(guest_port) = NonZeroU16::new(guest_port).filter(|port| port.get() >= 2) else {
+            return Err(RequestError::new(
+                "published_port",
+                RequestErrorReason::Zero,
+            ));
+        };
         Ok(Self {
             host_address,
-            host_port: NonZeroU16::new(host_port).expect("ports below two were rejected"),
-            guest_port: NonZeroU16::new(guest_port).expect("ports below two were rejected"),
+            host_port,
+            guest_port,
             protocol,
         })
     }

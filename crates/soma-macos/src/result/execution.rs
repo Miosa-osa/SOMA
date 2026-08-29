@@ -161,6 +161,10 @@ impl fmt::Debug for ExecutionResult {
             .field("elapsed_millis", &self.elapsed_millis)
             .field("cleanup", &self.cleanup)
             .field("resources", &self.resources)
+            .field(
+                "cleanup_published_ports",
+                &self.cleanup_published_ports.as_ref().map(Vec::len),
+            )
             .finish()
     }
 }

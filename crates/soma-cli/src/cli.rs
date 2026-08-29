@@ -91,11 +91,11 @@ pub enum MachineCommand {
 
 #[derive(Args)]
 pub struct IdentityArgs {
-    /// Caller-selected idempotency identity. A UUIDv4 simple value is generated when omitted.
+    /// Caller-selected idempotency identity. A `UUIDv4` simple value is generated when omitted.
     #[arg(long, value_name = "ID")]
     pub operation_id: Option<String>,
 
-    /// Caller-selected sandbox identity. A UUIDv4 simple value is generated when omitted.
+    /// Caller-selected sandbox identity. A `UUIDv4` simple value is generated when omitted.
     #[arg(long, value_name = "ID")]
     pub instance_id: Option<String>,
 }
@@ -165,7 +165,7 @@ pub struct LaunchArgs {
 
 #[derive(Args)]
 pub struct ExecArgs {
-    /// Caller-selected idempotency identity. A UUIDv4 simple value is generated when omitted.
+    /// Caller-selected idempotency identity. A `UUIDv4` simple value is generated when omitted.
     #[arg(long, value_name = "ID")]
     pub operation_id: Option<String>,
 
@@ -183,7 +183,7 @@ pub struct ExecArgs {
 
 #[derive(Args)]
 pub struct ControlArgs {
-    /// Caller-selected idempotency identity. A UUIDv4 simple value is generated when omitted.
+    /// Caller-selected idempotency identity. A `UUIDv4` simple value is generated when omitted.
     #[arg(long, value_name = "ID")]
     pub operation_id: Option<String>,
 

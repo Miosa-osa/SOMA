@@ -69,7 +69,7 @@ pub struct NetworkArgs {
     #[arg(long = "dns-server", value_name = "IP")]
     pub dns_servers: Vec<IpAddr>,
 
-    /// Publish [BIND:]HOST_PORT:GUEST_PORT[/tcp|udp][?v6_only=true|false]. Repeat as needed.
+    /// Publish `[BIND:]HOST_PORT:GUEST_PORT[/tcp|udp][?v6_only=true|false]`. Repeat as needed.
     #[arg(long = "publish", value_name = "SPEC")]
     pub publications: Vec<PublicationInput>,
 }

@@ -5,6 +5,36 @@
 SOMA optimizes end-to-end command readiness rather than one internal restore phase.
 Every published result must be reproducible from raw samples.
 
+## Controlled local-alpha build provenance
+
+Local-alpha measurement must use the two explicit release binaries from a separate controlled build step.
+The build step refuses a dirty or non-Git checkout, removes only the prior `target/release/soma` and `target/release/soma-mcp` outputs, and runs exactly `cargo build --locked --release -p soma-cli -p soma-mcp`.
+It writes the v2 build manifest with create-exclusive semantics only after Cargo succeeds and recreates both executable outputs.
+The manifest destination must be absolute, must have an existing parent directory, and must not already exist.
+
+Create the build evidence before starting measurement:
+
+```sh
+python3 -m benchmarks.local_alpha.build_release \
+    --build-manifest /absolute/path/soma-local-alpha-build.json
+```
+
+Every measured invocation requires that same external manifest through an absolute path:
+
+```sh
+python3 -m benchmarks.local_alpha \
+    --scenario-id base-cli-one-shot-node-22-1vcpu-1024mib-10240mib-denied \
+    --repetitions 100 \
+    --build-manifest /absolute/path/soma-local-alpha-build.json \
+    --soma-bin /absolute/path/SOMA/target/release/soma \
+    --soma-mcp-bin /absolute/path/SOMA/target/release/soma-mcp \
+    --apple-runtime /absolute/path/container \
+    --result-dir /absolute/new/soma-local-alpha-results \
+    --cache-state cached
+```
+
+The measured runner loads and validates the manifest and never invokes Cargo or creates build provenance.
+
 ## Exact public benchmark
 
 The initial external target is the ComputeSDK Burst TTI benchmark.

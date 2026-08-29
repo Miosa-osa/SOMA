@@ -127,10 +127,6 @@ while IFS= read -r artifact; do
     fi
 done < <(find "$output_dir" -maxdepth 1 -type f ! -name SHA256SUMS -print | LC_ALL=C sort)
 
-if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$output_dir" && sha256sum --check SHA256SUMS)
-else
-    (cd "$output_dir" && shasum -a 256 --check SHA256SUMS)
-fi
+"${REPO_ROOT}/scripts/verify-release-artifacts.sh" crates "$output_dir"
 
 printf 'release bundle ready: %s\n' "$output_dir"

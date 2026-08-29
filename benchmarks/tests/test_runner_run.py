@@ -1,9 +1,13 @@
+import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from benchmarks.local_alpha.capture import StreamCapture
 from benchmarks.local_alpha.mcp_stdio import McpFrameCapture
+from benchmarks.local_alpha.provenance import BuildManifest
 from benchmarks.local_alpha.runner.model import SampleOutcome
 from benchmarks.local_alpha.runner.run import run_benchmark
 from benchmarks.tests.runner_fixtures import (
@@ -24,11 +28,17 @@ class BenchmarkRunTests(unittest.TestCase):
                 state_roots.append(os.fspath(state_root))
                 return sample_outcome(identities)
 
-            summary = run_benchmark(
-                config,
-                cli_sampler=sample,
-                build_manifest=build_manifest(config),
-            )
+            manifest = build_manifest(config)
+            with patch.object(
+                BuildManifest,
+                "create",
+                side_effect=AssertionError("measured execution must not build"),
+            ):
+                summary = run_benchmark(
+                    config,
+                    cli_sampler=sample,
+                    build_manifest=manifest,
+                )
 
             raw = (root / "results" / "raw.ndjson").read_text(encoding="utf-8")
             self.assertTrue(summary["all_samples_accepted"])
@@ -103,12 +113,20 @@ class BenchmarkRunTests(unittest.TestCase):
             class Session:
                 def __init__(self, *_args, **kwargs) -> None:
                     self.display_argv = kwargs["display_argv"]
+                    self.exit_code = None
                     sessions.append(self)
 
                 def __enter__(self):
                     return self
 
                 def __exit__(self, *_args) -> None:
+                    self.exit_code = 0
+                    self.stderr_capture = StreamCapture(
+                        observed_bytes=4,
+                        retained=b"safe",
+                        sha256="a" * 64,
+                        truncated=False,
+                    )
                     return None
 
                 def initialize(self, _version: str) -> McpFrameCapture:
@@ -128,6 +146,19 @@ class BenchmarkRunTests(unittest.TestCase):
             self.assertEqual(len(sessions), 1)
             self.assertEqual(sampled_sessions, [sessions[0]] * 3)
             self.assertEqual(sessions[0].display_argv[-1], "$STATE_ROOT")
+            records = [
+                json.loads(line)
+                for line in (root / "results/raw.ndjson").read_text(
+                    encoding="utf-8"
+                ).splitlines()
+            ]
+            process_records = [
+                record
+                for record in records
+                if record["record_type"] == "mcp_process"
+            ]
+            self.assertEqual(len(process_records), 1)
+            self.assertEqual(process_records[0]["stderr"]["data_base64"], "c2FmZQ==")
 
 
 if __name__ == "__main__":

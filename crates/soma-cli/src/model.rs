@@ -5,7 +5,14 @@ use serde::{Serialize, Serializer, ser::SerializeStruct as _};
 use soma::{BackendKind, CommandStatus, ExecutionReceipt, InstanceId, MachineState};
 
 pub const ENVELOPE_SCHEMA: &str = "soma.cli.v1";
-pub const MAX_OUTPUT_BYTES_USIZE: usize = soma::ExecutionLimits::MAX_OUTPUT_BYTES as usize;
+pub const MAX_OUTPUT_BYTES_USIZE: usize = 16 * 1024 * 1024;
+
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "this compile-time guard fails if the portable facade limit stops fitting usize"
+)]
+const FACADE_MAX_OUTPUT_BYTES_USIZE: usize = soma::ExecutionLimits::MAX_OUTPUT_BYTES as usize;
+const _: () = assert!(MAX_OUTPUT_BYTES_USIZE == FACADE_MAX_OUTPUT_BYTES_USIZE);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]

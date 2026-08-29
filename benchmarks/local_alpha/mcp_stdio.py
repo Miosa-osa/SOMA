@@ -109,6 +109,7 @@ class McpStdioSession:
         self._reader: threading.Thread | None = None
         self._stderr_drain: _StderrDrain | None = None
         self._stderr_capture: StreamCapture | None = None
+        self._exit_code: int | None = None
 
     def __enter__(self) -> "McpStdioSession":
         self._process = subprocess.Popen(
@@ -143,6 +144,7 @@ class McpStdioSession:
             self._reader.join(timeout=5)
         if self._stderr_drain is not None:
             self._stderr_capture = self._stderr_drain.finish()
+        self._exit_code = process.returncode
         if process.stdout is not None:
             process.stdout.close()
         if process.stderr is not None:
@@ -153,6 +155,12 @@ class McpStdioSession:
         if self._stderr_capture is None:
             raise RuntimeError("MCP stderr capture is available only after session close")
         return self._stderr_capture
+
+    @property
+    def exit_code(self) -> int:
+        if self._exit_code is None:
+            raise RuntimeError("MCP exit code is available only after session close")
+        return self._exit_code
 
     def initialize(self, protocol_version: str) -> McpFrameCapture:
         capture = self._call(

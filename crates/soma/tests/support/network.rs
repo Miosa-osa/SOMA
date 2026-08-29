@@ -70,7 +70,7 @@ fn observed_publications(policy: &NetworkPolicy) -> Vec<EffectivePortPublication
         .published_ports()
         .iter()
         .filter_map(|publication| publication.host_port().requested())
-        .map(|port| port.get())
+        .map(std::num::NonZeroU16::get)
         .collect::<BTreeSet<_>>();
     let mut candidate = 49_152_u16;
 

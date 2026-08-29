@@ -1,9 +1,13 @@
 import os
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
-from benchmarks.local_alpha.runner.command import parse_arguments
+from benchmarks.local_alpha.provenance import BuildManifest
+from benchmarks.local_alpha.runner.command import main, parse_arguments
 from benchmarks.local_alpha.runner.config import canonical_scenario
 from benchmarks.local_alpha.runner.identities import IdentityGenerator
 
@@ -35,6 +39,8 @@ class RunnerConfigurationTests(unittest.TestCase):
                 "base-cli-one-shot-node-22-1vcpu-1024mib-10240mib-denied",
                 "--repetitions",
                 "2",
+                "--build-manifest",
+                os.fspath(root / "build-manifest.json"),
                 "--soma-bin",
                 os.fspath(soma),
                 "--soma-mcp-bin",
@@ -49,8 +55,35 @@ class RunnerConfigurationTests(unittest.TestCase):
 
             config = parse_arguments(arguments)
             self.assertEqual(config.repetitions, 2)
+            self.assertEqual(config.build_manifest, root / "build-manifest.json")
             with self.assertRaises(SystemExit):
                 parse_arguments([value if value != "2" else "0" for value in arguments])
+
+            relative = list(arguments)
+            relative[relative.index("--build-manifest") + 1] = "manifest.json"
+            with self.assertRaises(SystemExit):
+                parse_arguments(relative)
+
+            loaded_manifest = object()
+            summary = {"all_samples_accepted": True}
+            with (
+                patch.object(BuildManifest, "load", return_value=loaded_manifest) as load,
+                patch.object(
+                    BuildManifest,
+                    "create",
+                    side_effect=AssertionError("measured execution must not build"),
+                ),
+                patch(
+                    "benchmarks.local_alpha.runner.command.run_benchmark",
+                    return_value=summary,
+                ) as run,
+                redirect_stdout(StringIO()),
+            ):
+                self.assertEqual(main(arguments), 0)
+
+            load.assert_called_once_with(root / "build-manifest.json")
+            run.assert_called_once()
+            self.assertIs(run.call_args.kwargs["build_manifest"], loaded_manifest)
 
 
 class RunnerIdentityTests(unittest.TestCase):

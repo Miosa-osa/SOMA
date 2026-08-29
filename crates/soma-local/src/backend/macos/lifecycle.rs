@@ -137,10 +137,8 @@ impl MacBackend {
             &network_expectation,
         )
         .map_err(|kind| self.failure(operation, kind))?;
-        Ok(InspectionObservation::new(
-            operation.clone(),
-            request.instance_id().clone(),
-            request.workload().clone(),
+        Ok(InspectionObservation::observed(
+            request,
             BackendKind::MacosVirtualization,
             state,
             network,
@@ -162,15 +160,9 @@ impl MacBackend {
                 .map_err(|_| self.failure(operation, BackendFailureKind::WorkloadRejected))?;
             self.release(operation, instance, request.reason())?
         };
-        let network = NetworkCleanupEvidence::new(
-            CleanupDisposition::NotOwned,
-            CleanupDisposition::Complete,
-            CleanupDisposition::Complete,
-            CleanupDisposition::Complete,
-            CleanupDisposition::Complete,
-            CleanupDisposition::NotOwned,
-            CleanupDisposition::Complete,
-        );
+        let network = NetworkCleanupEvidence::uniform(CleanupDisposition::Complete)
+            .with_lease(CleanupDisposition::NotOwned)
+            .with_proxy_policy(CleanupDisposition::NotOwned);
         let evidence = CleanupEvidence::complete_owned_machine()
             .with_network(network)
             .with_method(method);

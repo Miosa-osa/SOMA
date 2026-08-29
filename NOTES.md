@@ -202,3 +202,24 @@ PNG brand assets are explicitly binary.
 The dependency policy accepts the OSI-approved Unicode License v3 required by `unicode-ident`.
 It records a narrow temporary duplicate-version exception for `syn` 2 because `tracing-attributes` has not yet converged on the `syn` 3 line used by the rest of the current macro graph.
 The exception should be removed as soon as the dependency graph converges.
+
+## 2026-08-28 - External benchmark build provenance
+
+The local-alpha runner requires an absolute externally generated v2 build-manifest path and never invokes Cargo during measurement.
+A separate controlled entry point runs only the locked release build for `soma-cli` and `soma-mcp`, then writes the manifest with create-exclusive semantics.
+The builder removes only those two prior release outputs before Cargo so a false-success or failed build cannot be attributed to stale executables.
+Dirty and non-Git checkouts, changed revisions, invalid destinations, failed builds, and missing replacement outputs fail closed before a manifest is published.
+
+## 2026-08-28 - Release artifact integrity
+
+Every public crate carries package-root copies of the repository `LICENSE` and `NOTICE` while retaining the SPDX `Apache-2.0` package metadata.
+The release verifier compares those packaged files byte-for-byte with the repository root and rejects missing, changed, duplicated, or unexpectedly rooted entries.
+Native client deliveries contain only one compressed tar archive and an outer checksum manifest so GitHub artifact transport cannot discard the executable modes stored by tar.
+Each client archive has one target-specific root containing both binaries, `LICENSE`, `NOTICE`, build provenance, and an internal checksum manifest that covers every payload file except itself.
+The outer checksum manifest covers the exact tar archive shipped to the artifact uploader.
+Release packaging fails closed on unexpected archive structure, incomplete checksum coverage, changed legal files, or binaries without mode `0755`.
+
+## 2026-08-28 - Evidence construction contracts
+
+ADR 0015 makes the original inspection request the source of operation, instance, and workload identity in backend observations.
+Network cleanup evidence uses named per-resource builders so the API avoids positional mistakes without losing the independent dispositions required by ADR 0012.

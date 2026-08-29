@@ -66,9 +66,21 @@ check_format() {
     cargo fmt --all --check
 }
 
+check_benchmark_harness() {
+    require_command python3
+
+    log "benchmark harness tests"
+    PYTHONDONTWRITEBYTECODE=1 python3 -W error::ResourceWarning \
+        -m unittest discover -s benchmarks/tests -p 'test_*.py' -v
+
+    log "benchmark harness syntax"
+    PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q -f benchmarks
+}
+
 check_portable_rust() {
     check_workspace
     check_format
+    check_benchmark_harness
 
     log "portable clippy"
     cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -89,6 +101,7 @@ check_linux_rust() {
 
     check_workspace
     check_format
+    check_benchmark_harness
 
     log "Linux clippy"
     cargo clippy --workspace --all-targets --all-features --locked -- -D warnings

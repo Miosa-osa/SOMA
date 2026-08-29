@@ -70,19 +70,17 @@ pub(crate) struct InspectionObservationParts {
 
 impl InspectionObservation {
     #[must_use]
-    pub const fn new(
-        operation_id: OperationId,
-        instance_id: InstanceId,
-        workload: WorkloadIdentity,
+    pub fn observed(
+        request: InspectionRequest<'_>,
         backend: BackendKind,
         state: MachineState,
         effective_network: EffectiveNetwork,
         observed_at_ns: u64,
     ) -> Self {
         Self {
-            operation_id,
-            instance_id,
-            workload,
+            operation_id: request.operation_id().clone(),
+            instance_id: request.instance_id().clone(),
+            workload: request.workload().clone(),
             backend,
             state,
             effective_network,

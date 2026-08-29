@@ -7,10 +7,10 @@ use crate::{NetworkAttachment, PublishedPort, TransportProtocol};
 use super::super::fixtures::{INSTANCE, backend, control_limits, instance, success};
 
 fn inspection_document(
-    configured_networks: Value,
-    active_networks: Value,
-    nameservers: Value,
-    published_ports: Value,
+    configured_networks: &Value,
+    active_networks: &Value,
+    nameservers: &Value,
+    published_ports: &Value,
 ) -> Vec<u8> {
     serde_json::to_vec(&json!([{
         "configuration": {
@@ -36,17 +36,17 @@ fn inspect(document: Vec<u8>) -> crate::InspectedMachine {
 #[test]
 fn inspect_reports_network_attachment_only_when_configured_and_active_sets_agree() {
     let attached = inspection_document(
-        json!([{"network": "default"}]),
-        json!([{"network": "default"}]),
-        json!([]),
-        json!([]),
+        &json!([{"network": "default"}]),
+        &json!([{"network": "default"}]),
+        &json!([]),
+        &json!([]),
     );
-    let detached = inspection_document(json!([]), json!([]), json!([]), json!([]));
+    let detached = inspection_document(&json!([]), &json!([]), &json!([]), &json!([]));
     let inconsistent = inspection_document(
-        json!([]),
-        json!([{"network": "default"}]),
-        json!([]),
-        json!([]),
+        &json!([]),
+        &json!([{"network": "default"}]),
+        &json!([]),
+        &json!([]),
     );
 
     for (document, expected) in [
@@ -61,14 +61,14 @@ fn inspect_reports_network_attachment_only_when_configured_and_active_sets_agree
 #[test]
 fn inspect_reports_exact_apple_container_1_3_network_evidence() {
     let document = inspection_document(
-        json!([{"network": "default"}]),
-        json!([{
+        &json!([{"network": "default"}]),
+        &json!([{
             "network": "default",
             "ipv4Address": "192.168.64.7/24",
             "ipv6Address": "fd00::7/64"
         }]),
-        json!(["2606:4700:4700::1111", "1.1.1.1"]),
-        json!([
+        &json!(["2606:4700:4700::1111", "1.1.1.1"]),
+        &json!([
             {
                 "containerPort": 53,
                 "count": 1,
@@ -137,10 +137,10 @@ fn inspect_fails_closed_for_malformed_published_port_records() {
         }),
     ] {
         let inspection = inspect(inspection_document(
-            json!([{"network": "default"}]),
-            json!([{"network": "default"}]),
-            json!([]),
-            json!([publication]),
+            &json!([{"network": "default"}]),
+            &json!([{"network": "default"}]),
+            &json!([]),
+            &json!([publication]),
         ));
 
         assert_eq!(inspection.network().published_ports(), None);
@@ -150,18 +150,18 @@ fn inspect_fails_closed_for_malformed_published_port_records() {
 #[test]
 fn inspect_fails_closed_for_malformed_cidr_or_network_set_mismatch() {
     let malformed_cidr = inspect(inspection_document(
-        json!([{"network": "default"}]),
-        json!([{"network": "default", "ipv4Address": "192.168.64.7/33"}]),
-        json!([]),
-        json!([]),
+        &json!([{"network": "default"}]),
+        &json!([{"network": "default", "ipv4Address": "192.168.64.7/33"}]),
+        &json!([]),
+        &json!([]),
     ));
     assert_eq!(malformed_cidr.network().addresses(), None);
 
     let mismatched = inspect(inspection_document(
-        json!([{"network": "default"}]),
-        json!([{"network": "private", "ipv4Address": "192.168.64.7/24"}]),
-        json!([]),
-        json!([]),
+        &json!([{"network": "default"}]),
+        &json!([{"network": "private", "ipv4Address": "192.168.64.7/24"}]),
+        &json!([]),
+        &json!([]),
     ));
     assert_eq!(mismatched.network().attachment(), None);
     assert_eq!(mismatched.network().addresses(), None);

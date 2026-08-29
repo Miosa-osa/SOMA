@@ -110,10 +110,30 @@ class ArtifactTests(unittest.TestCase):
                             "duration_ns": 1,
                         }
                     )
-                writer.finish({"schema": "soma.local-alpha.summary.v1", "run_id": "run-1"})
+                with self.assertRaises(ValueError):
+                    writer.finish(
+                        {"schema": "soma.local-alpha.summary.v1", "run_id": "run-1"}
+                    )
 
-            with self.assertRaises(ValueError):
-                validate_artifact_directory(destination)
+            self.assertFalse((destination / "summary.json").exists())
+
+    def test_writer_validates_summary_identity_before_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / "evidence"
+            with ArtifactWriter(destination) as writer:
+                writer.append(
+                    {
+                        "record_type": "run_metadata",
+                        "schema": "soma.local-alpha.raw.v1",
+                        "run_id": "run-1",
+                    }
+                )
+                with self.assertRaisesRegex(ValueError, "identity"):
+                    writer.finish(
+                        {"schema": "soma.local-alpha.summary.v1", "run_id": "run-2"}
+                    )
+
+            self.assertFalse((destination / "summary.json").exists())
 
     def test_writer_rejects_hardware_identity_fields(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

@@ -92,36 +92,20 @@ jobs:
         shell: bash
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
 
-      - name: Validate version and build native client
+      - name: Validate, build, package, and verify native client
         shell: bash
         env:
-          RELEASE_CLI_BINARY: ${{ matrix.cli_binary }}
-          RELEASE_MCP_BINARY: ${{ matrix.mcp_binary }}
-          RELEASE_TARGET: ${{ matrix.target }}
-        run: |
-          test "$(tr -d '\r\n' < VERSION)" = "${RELEASE_TAG#v}"
-          cargo build --release --locked -p soma-cli -p soma-mcp
-          bundle="target/client-bundle/${RELEASE_TARGET}"
-          mkdir -p "$bundle"
-          cp "target/release/${RELEASE_CLI_BINARY}" "$bundle/"
-          cp "target/release/${RELEASE_MCP_BINARY}" "$bundle/"
-          {
-            printf 'release_tag=%s\n' "$RELEASE_TAG"
-            printf 'target=%s\n' "$RELEASE_TARGET"
-            rustc --version
-            cargo --version
-          } > "$bundle/BUILD-INFO.txt"
-          if command -v sha256sum >/dev/null 2>&1; then
-            (cd "$bundle" && sha256sum "$RELEASE_CLI_BINARY" "$RELEASE_MCP_BINARY") > "$bundle/SHA256SUMS"
-          else
-            (cd "$bundle" && shasum -a 256 "$RELEASE_CLI_BINARY" "$RELEASE_MCP_BINARY") > "$bundle/SHA256SUMS"
-          fi
+          SOMA_RELEASE_CLI_BINARY: ${{ matrix.cli_binary }}
+          SOMA_RELEASE_MCP_BINARY: ${{ matrix.mcp_binary }}
+          SOMA_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          SOMA_RELEASE_TARGET: ${{ matrix.target }}
+        run: ./scripts/package-client-release.sh
 
       - name: Upload native client
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: soma-${{ env.RELEASE_TAG }}-${{ matrix.target }}
-          path: target/client-bundle/${{ matrix.target }}
+          path: target/release-clients/${{ env.RELEASE_TAG }}/${{ matrix.target }}
           if-no-files-found: error
           compression-level: 6
           retention-days: 30

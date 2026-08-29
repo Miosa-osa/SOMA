@@ -129,6 +129,7 @@ def run_benchmark(
                             raise ValueError("observed receipt preparation classes differ")
                         if not sample.cleanup_validated:
                             break
+                writer.append(_mcp_process_record(run_id, session))
 
             summary = _summary(config, run_id, samples)
             writer.finish(summary)
@@ -194,6 +195,17 @@ def _metadata(
         ]
         document["mcp_initialization"] = initialization
     return document
+
+
+def _mcp_process_record(run_id: str, session: Any) -> dict[str, object]:
+    return {
+        "schema": RAW_SCHEMA,
+        "record_type": "mcp_process",
+        "run_id": run_id,
+        "argv": list(session.display_argv),
+        "exit_code": session.exit_code,
+        "stderr": session.stderr_capture.as_dict(),
+    }
 
 
 def _summary(

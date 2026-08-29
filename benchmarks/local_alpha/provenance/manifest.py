@@ -15,6 +15,16 @@ from .fingerprint import benchmark_fingerprint, file_sha256, source_fingerprint
 
 MANIFEST_SCHEMA = "soma.local-alpha.build.v2"
 MAXIMUM_MANIFEST_BYTES = 64 * 1024
+RELEASE_BUILD_COMMAND = (
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "soma-cli",
+    "-p",
+    "soma-mcp",
+)
 
 
 def _fixed_hex(value: object, lengths: set[int]) -> bool:
@@ -46,6 +56,13 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
 
 
 def _git_metadata(root: Path) -> tuple[str, bool]:
+    top_level = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     revision = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=root,
@@ -60,7 +77,12 @@ def _git_metadata(root: Path) -> tuple[str, bool]:
         text=True,
         check=False,
     )
-    if revision.returncode != 0 or status.returncode != 0:
+    if (
+        top_level.returncode != 0
+        or revision.returncode != 0
+        or status.returncode != 0
+        or Path(top_level.stdout.strip()).resolve() != root.resolve()
+    ):
         raise ValueError("build manifest requires an exact Git checkout")
     return revision.stdout.strip(), not bool(status.stdout)
 
@@ -166,11 +188,7 @@ class BuildManifest:
         if not isinstance(value, dict) or set(value) != keys:
             raise ValueError("build manifest has an invalid shape")
         binaries, argv = value["binaries"], value["build_argv"]
-        valid_argv = (
-            type(argv) is list
-            and 0 < len(argv) <= 256
-            and all(type(item) is str and item and "\x00" not in item for item in argv)
-        )
+        valid_argv = type(argv) is list and tuple(argv) == RELEASE_BUILD_COMMAND
         if not isinstance(binaries, dict) or set(binaries) != {"soma", "soma_mcp"}:
             raise ValueError("build manifest binaries are invalid")
         if (

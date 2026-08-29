@@ -108,7 +108,7 @@ impl NetworkInput {
         };
         let publications = self
             .published_ports
-            .into_iter()
+            .iter()
             .map(publication)
             .collect::<Result<Vec<_>, _>>()?;
         let policy =
@@ -117,7 +117,7 @@ impl NetworkInput {
     }
 }
 
-fn publication(input: PublicationInput) -> Result<PortPublication, InputError> {
+fn publication(input: &PublicationInput) -> Result<PortPublication, InputError> {
     let address = input
         .bind_address
         .parse::<IpAddr>()

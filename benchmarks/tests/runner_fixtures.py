@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from benchmarks.local_alpha.provenance import BuildManifest
+from benchmarks.local_alpha.provenance import RELEASE_BUILD_COMMAND, BuildManifest
 from benchmarks.local_alpha.runner.command import parse_arguments
 from benchmarks.local_alpha.runner.model import SampleOutcome
 
@@ -23,6 +23,8 @@ def make_config(root: Path, *, caller: str = "cli", repetitions: int = 2):
             f"base-{caller}-one-shot-node-22-1vcpu-1024mib-10240mib-denied",
             "--repetitions",
             str(repetitions),
+            "--build-manifest",
+            os.fspath(root / "build-manifest.json"),
             "--soma-bin",
             os.fspath(release / "soma"),
             "--soma-mcp-bin",
@@ -42,7 +44,7 @@ def build_manifest(config) -> BuildManifest:
         config.root,
         config.soma_binary,
         config.mcp_binary,
-        ["fixture-build"],
+        RELEASE_BUILD_COMMAND,
         git_revision="a" * 40,
         worktree_clean=True,
     )

@@ -31,7 +31,7 @@ impl LocalToolRuntime {
 
     fn invoke_blocking(self, request: RuntimeRequest) -> Result<RuntimeResponse, RuntimeFailure> {
         if let RuntimeRequest::Doctor { backend } = request {
-            return self.doctor(backend).map(RuntimeResponse::Doctor);
+            return Ok(RuntimeResponse::Doctor(self.doctor(backend)));
         }
         let backend = request_backend(&request);
         let config =
@@ -41,16 +41,16 @@ impl LocalToolRuntime {
         invoke_runtime(&mut runtime, request)
     }
 
-    fn doctor(&self, backend: BackendTarget) -> Result<DoctorReport, RuntimeFailure> {
+    fn doctor(&self, backend: BackendTarget) -> DoctorReport {
         match probe_backend(selection(backend), self.runtime_path.clone()) {
-            Ok(probe) => Ok(DoctorReport {
+            Ok(probe) => DoctorReport {
                 backend,
                 status: DoctorStatus::ProbePassed,
                 supported_target: true,
                 runtime_ready: true,
                 production_ready: probe.production_ready(),
-            }),
-            Err(failure) => Ok(DoctorReport {
+            },
+            Err(failure) => DoctorReport {
                 backend,
                 status: if failure.kind() == LocalFailureKind::UnsupportedTarget {
                     DoctorStatus::Unsupported
@@ -60,7 +60,7 @@ impl LocalToolRuntime {
                 supported_target: failure.kind() != LocalFailureKind::UnsupportedTarget,
                 runtime_ready: false,
                 production_ready: false,
-            }),
+            },
         }
     }
 }
@@ -155,7 +155,7 @@ fn command_result(
     evidence: &soma::ExecutionReceipt,
     output: &soma::CapturedOutput,
 ) -> Result<CommandResult, RuntimeFailure> {
-    let status = terminal_status(evidence.terminal_status())
+    let status = terminal_status(*evidence.terminal_status())
         .ok_or_else(|| RuntimeFailure::new(RuntimeFailureKind::Internal))?;
     Ok(CommandResult::new(
         instance,
@@ -190,7 +190,7 @@ fn map_run_failure(failure: &RunFailure) -> RuntimeFailure {
     };
     if let (Some(output), Some(status)) = (
         failure.output(),
-        terminal_status(failure.receipt().terminal_status()),
+        terminal_status(*failure.receipt().terminal_status()),
     ) {
         RuntimeFailure::with_command_evidence(
             kind,
@@ -251,8 +251,8 @@ const fn map_run_failure_kind(kind: RunFailureKind) -> RuntimeFailureKind {
     }
 }
 
-const fn terminal_status(status: &TerminalStatus) -> Option<CommandStatus> {
-    match *status {
+const fn terminal_status(status: TerminalStatus) -> Option<CommandStatus> {
+    match status {
         TerminalStatus::Exited { code } => Some(CommandStatus::Exited { code }),
         TerminalStatus::Signaled { signal } => Some(CommandStatus::Signaled { signal }),
         TerminalStatus::TimedOut => Some(CommandStatus::TimedOut),

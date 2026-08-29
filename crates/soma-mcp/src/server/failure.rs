@@ -5,17 +5,19 @@ pub(super) fn runtime_failure_result(
     operation: &'static str,
     operation_id: Option<&crate::OperationId>,
     instance_id: Option<&crate::InstanceId>,
-    failure: RuntimeFailure,
+    failure: &RuntimeFailure,
     max_output_bytes: Option<u64>,
 ) -> CallToolResult {
     crate::result::failure_result(
         operation,
         operation_id,
         instance_id,
-        runtime_failure_code(&failure),
-        runtime_failure_message(&failure),
-        runtime_failure_retryable(&failure),
-        &failure,
+        crate::result::FailureDescriptor::new(
+            runtime_failure_code(failure),
+            runtime_failure_message(failure),
+            runtime_failure_retryable(failure),
+        ),
+        failure,
         max_output_bytes,
     )
     .unwrap_or_else(|_| {

@@ -18,7 +18,7 @@ pub(super) fn run_failure(
 ) -> Execution {
     let (body, exit) = failure_details(failure.kind());
     let result = failure.output().and_then(|output| {
-        command_status(failure.receipt().terminal_status()).map(|status| {
+        command_status(*failure.receipt().terminal_status()).map(|status| {
             ResultBody::Command(CommandReport {
                 instance_id,
                 execution: status,

@@ -44,7 +44,7 @@ impl<R: ToolRuntime> SomaMcpServer<R> {
                 "destroy",
                 Some(&operation_id),
                 Some(&instance_id),
-                failure,
+                &failure,
                 None,
             )),
         }

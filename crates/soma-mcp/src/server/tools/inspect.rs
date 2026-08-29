@@ -43,7 +43,7 @@ impl<R: ToolRuntime> SomaMcpServer<R> {
                 "inspect",
                 Some(&operation_id),
                 Some(&instance_id),
-                failure,
+                &failure,
                 None,
             )),
         }

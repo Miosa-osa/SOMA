@@ -25,6 +25,7 @@ class RunnerConfig:
     root: Path
     scenario: Scenario
     repetitions: int
+    build_manifest: Path
     soma_binary: Path
     mcp_binary: Path
     apple_runtime: Path
@@ -37,6 +38,7 @@ class RunnerConfig:
         *,
         scenario_id: str,
         repetitions: int,
+        build_manifest: Path,
         soma_binary: Path,
         mcp_binary: Path,
         apple_runtime: Path,
@@ -47,6 +49,8 @@ class RunnerConfig:
             raise ValueError("repetitions must be positive")
         if cache_state != "cached":
             raise ValueError("cache state must be caller-supplied cached")
+        if not build_manifest.is_absolute():
+            raise ValueError("build manifest path must be absolute")
         _release_binary(soma_binary, "soma")
         _release_binary(mcp_binary, "soma-mcp")
         _executable(apple_runtime, "Apple runtime")
@@ -60,6 +64,7 @@ class RunnerConfig:
             root=Path(__file__).resolve().parents[3],
             scenario=canonical_scenario(scenario_id),
             repetitions=repetitions,
+            build_manifest=build_manifest,
             soma_binary=soma_binary,
             mcp_binary=mcp_binary,
             apple_runtime=apple_runtime,

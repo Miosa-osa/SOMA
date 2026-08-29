@@ -31,7 +31,7 @@ impl<R: ToolRuntime> SomaMcpServer<R> {
             Ok(RuntimeResponse::Doctor(report)) => crate::result::doctor_result(&report)
                 .map_err(|_| ErrorData::internal_error("failed to encode SOMA response", None)),
             Ok(_) => Err(super::super::failure::wrong_result_type()),
-            Err(failure) => Ok(runtime_failure_result("doctor", None, None, failure, None)),
+            Err(failure) => Ok(runtime_failure_result("doctor", None, None, &failure, None)),
         }
     }
 }

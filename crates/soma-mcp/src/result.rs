@@ -33,6 +33,23 @@ struct FailureBody<'a> {
     instance_id: Option<&'a str>,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct FailureDescriptor {
+    code: &'static str,
+    message: &'static str,
+    retryable: bool,
+}
+
+impl FailureDescriptor {
+    pub(crate) const fn new(code: &'static str, message: &'static str, retryable: bool) -> Self {
+        Self {
+            code,
+            message,
+            retryable,
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct CommandEnvelope<'a> {
     schema: &'static str,
@@ -116,9 +133,7 @@ pub(crate) fn failure_result(
     operation: &'static str,
     operation_id: Option<&OperationId>,
     instance_id: Option<&InstanceId>,
-    code: &'static str,
-    message: &'static str,
-    retryable: bool,
+    descriptor: FailureDescriptor,
     failure: &crate::RuntimeFailure,
     max_output_bytes: Option<u64>,
 ) -> Result<CallToolResult, ResultContractError> {
@@ -142,9 +157,9 @@ pub(crate) fn failure_result(
         operation_id: operation_id.map(OperationId::as_str),
         result,
         error: FailureBody {
-            code,
-            message,
-            retryable,
+            code: descriptor.code,
+            message: descriptor.message,
+            retryable: descriptor.retryable,
             instance_id: instance_id.map(InstanceId::as_str),
         },
         receipt: failure.receipt().map(crate::ExecutionReceipt::as_value),

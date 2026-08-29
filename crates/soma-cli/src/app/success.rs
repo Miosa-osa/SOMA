@@ -13,7 +13,7 @@ pub(super) fn command_success(
     receipt: &ExecutionReceipt,
     output: &CapturedOutput,
 ) -> Execution {
-    let Some(status) = command_status(receipt.terminal_status()) else {
+    let Some(status) = command_status(*receipt.terminal_status()) else {
         return super::failure::software_failure(command, "invalid_terminal_status");
     };
     let (error, exit) = command_result_status(status);
@@ -57,8 +57,8 @@ pub(super) fn success(command: &'static str, result: ResultBody) -> Execution {
     }
 }
 
-pub(super) fn command_status(terminal: &TerminalStatus) -> Option<CommandStatus> {
-    match *terminal {
+pub(super) const fn command_status(terminal: TerminalStatus) -> Option<CommandStatus> {
+    match terminal {
         TerminalStatus::Exited { code } => Some(CommandStatus::Exited { code }),
         TerminalStatus::Signaled { signal } => Some(CommandStatus::Signaled { signal }),
         TerminalStatus::TimedOut => Some(CommandStatus::TimedOut),

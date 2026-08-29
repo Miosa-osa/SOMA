@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from benchmarks.local_alpha.provenance import BuildManifest
+
 from .config import RunnerConfig
 from .run import run_benchmark
 
@@ -29,6 +31,7 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument("--scenario-id", action="append", required=True)
     result.add_argument("--repetitions", type=_positive, required=True)
+    result.add_argument("--build-manifest", type=Path, required=True)
     result.add_argument("--soma-bin", "--soma-binary", type=Path, required=True)
     result.add_argument(
         "--soma-mcp-bin", "--soma-mcp-binary", type=Path, required=True
@@ -48,6 +51,7 @@ def parse_arguments(argv: Sequence[str] | None = None) -> RunnerConfig:
         return RunnerConfig.create(
             scenario_id=arguments.scenario_id[0],
             repetitions=arguments.repetitions,
+            build_manifest=arguments.build_manifest,
             soma_binary=arguments.soma_bin,
             mcp_binary=arguments.soma_mcp_bin,
             apple_runtime=arguments.apple_runtime,
@@ -60,7 +64,9 @@ def parse_arguments(argv: Sequence[str] | None = None) -> RunnerConfig:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    summary = run_benchmark(parse_arguments(argv))
+    config = parse_arguments(argv)
+    manifest = BuildManifest.load(config.build_manifest)
+    summary = run_benchmark(config, build_manifest=manifest)
     json.dump(summary, sys.stdout, sort_keys=True, separators=(",", ":"))
     sys.stdout.write("\n")
     return 0 if summary["all_samples_accepted"] is True else 1

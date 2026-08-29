@@ -98,8 +98,10 @@ pub(super) fn effective_network(
                 .iter()
                 .map(|value| AssignedAddress::new(value.address(), value.prefix_length()))
                 .collect::<Result<Vec<_>, _>>()
-                .map(Observation::Observed)
-                .unwrap_or_else(|_| Observation::Unavailable(ObservationUnavailable::NotVerified))
+                .map_or_else(
+                    |_| Observation::Unavailable(ObservationUnavailable::NotVerified),
+                    Observation::Observed,
+                )
         },
     );
     EffectiveNetwork::new(

@@ -46,7 +46,7 @@ impl<R: ToolRuntime> SomaMcpServer<R> {
                 "exec",
                 Some(&operation_id),
                 Some(&instance_id),
-                failure,
+                &failure,
                 Some(max_output_bytes),
             )),
         }

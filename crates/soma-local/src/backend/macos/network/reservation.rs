@@ -13,17 +13,20 @@ impl PortReservation {
         port: HostPort,
         protocol: TransportProtocol,
     ) -> Result<(Self, u16), BackendFailureKind> {
-        let endpoint = SocketAddrV4::new(address, port.requested().map_or(0, |value| value.get()));
+        let endpoint = SocketAddrV4::new(
+            address,
+            port.requested().map_or(0, std::num::NonZeroU16::get),
+        );
         match protocol {
             TransportProtocol::Tcp => {
-                let socket = TcpListener::bind(endpoint).map_err(bind_failure)?;
+                let socket = TcpListener::bind(endpoint).map_err(|error| bind_failure(&error))?;
                 let selected = socket
                     .local_addr()
                     .map_err(|_| BackendFailureKind::Unavailable)?;
                 Ok((Self::Tcp(socket), selected.port()))
             }
             TransportProtocol::Udp => {
-                let socket = UdpSocket::bind(endpoint).map_err(bind_failure)?;
+                let socket = UdpSocket::bind(endpoint).map_err(|error| bind_failure(&error))?;
                 let selected = socket
                     .local_addr()
                     .map_err(|_| BackendFailureKind::Unavailable)?;
@@ -40,7 +43,7 @@ impl PortReservation {
     }
 }
 
-fn bind_failure(error: std::io::Error) -> BackendFailureKind {
+fn bind_failure(error: &std::io::Error) -> BackendFailureKind {
     if error.kind() == std::io::ErrorKind::AddrInUse {
         BackendFailureKind::ResourceConflict
     } else {

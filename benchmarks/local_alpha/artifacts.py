@@ -149,6 +149,7 @@ class ArtifactWriter:
                 stream.write(encoded)
                 stream.flush()
                 os.fsync(stream.fileno())
+            _validate_artifact_files(self._raw_path, temporary)
             os.replace(temporary, self.destination / "summary.json")
             _sync_directory(self.destination)
             self._finished = True
@@ -191,6 +192,12 @@ def validate_artifact_directory(destination: Path) -> None:
         raise ValueError("artifact directory is incomplete")
     if (destination / ".summary.json.tmp").exists():
         raise ValueError("artifact directory contains an interrupted summary")
+
+    _validate_artifact_files(raw_path, summary_path)
+
+
+def _validate_artifact_files(raw_path: Path, summary_path: Path) -> None:
+    """Validate raw evidence and its summary before or after publication."""
 
     metadata_count = 0
     sample_ids: set[str] = set()
