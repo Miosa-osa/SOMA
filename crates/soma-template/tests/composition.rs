@@ -31,9 +31,23 @@ fn template_may_not_override_a_sealed_value() {
         "value = \"true\"",
         "value = \"true\"\n\n[[environment]]\nname = \"GIT_TERMINAL_PROMPT\"\nvalue = \"0\"",
     );
-    let lock = lock(&same);
-    assert_eq!(lock.environment().len(), 2);
-    assert_eq!(lock.environment()[1].value(), Some("0"));
+    let restated = lock(&same);
+    let baseline = support::example();
+    assert_eq!(restated.environment().len(), 2);
+    let sealed = restated
+        .environment()
+        .iter()
+        .find(|entry| entry.name() == "GIT_TERMINAL_PROMPT")
+        .expect("sealed name is locked");
+    assert_eq!(sealed.value(), Some("0"));
+    assert_eq!(
+        sealed.sealed_by().map(ToString::to_string).as_deref(),
+        Some("soma://tools/git@1"),
+        "restating a seal must not unseal it"
+    );
+    assert_eq!(restated.environment(), baseline.environment());
+    assert_eq!(restated.encode(), baseline.encode());
+    assert_eq!(restated.id(), baseline.id());
 }
 
 #[test]

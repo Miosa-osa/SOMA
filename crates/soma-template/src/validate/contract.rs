@@ -11,6 +11,12 @@ use crate::{
     schema::{DEFAULT_SECRET_FILE_MODE, SecretDelivery, Template},
 };
 
+/// The effective environment contract: Template literals and Launch-required names, plus
+/// every module seal.
+///
+/// A Template entry that restates a sealed name is dropped in favour of the seal, which
+/// composition already proved carries the same value, so the lock records the sealing module
+/// and the bytes are identical whether or not the Template repeats the value.
 pub(super) fn environment(
     template: &Template,
     composition: &Composition<'_>,
@@ -39,6 +45,13 @@ pub(super) fn environment(
                 name: entry.name.clone(),
             });
         }
+        let sealed = composition
+            .sealed
+            .iter()
+            .any(|seal| seal.name.as_str() == entry.name);
+        if sealed {
+            continue;
+        }
         locked.push(LockedEnvironment {
             name: entry.name.clone(),
             value: entry.value.clone(),
@@ -46,9 +59,6 @@ pub(super) fn environment(
         });
     }
     for seal in &composition.sealed {
-        if names.contains(seal.name.as_str()) {
-            continue;
-        }
         locked.push(LockedEnvironment {
             name: seal.name.as_str().to_owned(),
             value: Some(seal.value.clone()),
