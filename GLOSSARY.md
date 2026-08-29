@@ -11,9 +11,9 @@ It does not redefine an external standard, turn an accepted design into an imple
 | Layer | Start with |
 | --- | --- |
 | Product | [SOMA](#soma), [sandbox](#sandbox), [Machine](#machine) |
-| Workload | [OCI image](#oci-image), [workload identity](#workload-identity), [Generation](#generation) |
+| Workload | [OCI image](#oci-image), [workload identity](#workload-identity), [Template](#template), [Generation](#generation) |
 | Lifecycle | [Operation](#operation), [Instance](#instance), [Repair](#repair), [command readiness](#command-readiness) |
-| Resources | [Machine shape](#machine-shape), [requested shape](#requested-shape), [effective shape](#effective-shape) |
+| Resources | [Machine shape](#machine-shape), [vCPU](#vcpu), [requested shape](#requested-shape), [effective shape](#effective-shape) |
 | Runtime | [VMM](#vmm), [microVM](#microvm), [KVM](#kvm), [backend](#backend) |
 | Deployment | [client adapter](#client-adapter), [engine host](#engine-host), [certified host profile](#certified-host-profile), [remote engine](#remote-engine) |
 | Performance | [prepared worker](#prepared-worker), [warm path](#warm-path), [measurement boundary](#measurement-boundary) |
@@ -382,6 +382,14 @@ A Snapshot is not itself a Generation because it does not name every root, kerne
 
 Related: [Generation](#generation), [Restore](#restore).
 
+### Template
+
+A Template is a reusable user-authored recipe for producing a Generation.
+It may select an OCI image, Machine shape, startup behavior, network policy, and other preparation inputs.
+A Template is not a running sandbox and is not itself a Snapshot.
+
+Related: [Generation](#generation), [OCI image](#oci-image), [Machine shape](#machine-shape).
+
 ### SOMA
 
 SOMA is the Secure Optimized Machine Architecture by MIOSA.
@@ -412,6 +420,14 @@ SOMA's production design uses one constrained native `soma-vmm` process per Mach
 A VMM is one technical layer inside the complete sandbox product.
 
 Related: [KVM](#kvm), [microVM](#microvm), [Backend](#backend).
+
+### vCPU
+
+A vCPU is one virtual processor visible to a guest Machine.
+The VMM represents it as virtual register and execution state, while the Host scheduler runs its host thread on an available hardware thread.
+A vCPU does not automatically reserve one physical core forever.
+
+Related: [Machine shape](#machine-shape), [Host](#host), [VMM](#vmm).
 
 ### Warm path
 

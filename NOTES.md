@@ -382,3 +382,12 @@ Host ceilings are ten seconds for Handshake, five seconds for Repair, fixed prob
 These are failure-containment ceilings rather than latency targets.
 Guest connect, receive, and report calls take caller-supplied deadlines so sandbox TTL and control-plane cancellation remain outside the codec.
 An authenticated guest agent can still send a late record after any acknowledgement, so the guest-agent channel remains a trust boundary and the next owner read detects and poisons that violation.
+
+## 2026-08-29 - Beginner architecture model
+
+The architecture now distinguishes four different meanings of foundation.
+CPU virtualization and the Linux kernel are the physical foundation, `soma-kvm` is the lowest SOMA-owned production KVM layer, `soma-vmm` is the center of one sandbox data plane, and the lifecycle facade is the center of the public product.
+A user-facing Template is a recipe that produces an immutable Generation, while Launch realizes that Generation as a fresh Instance of a Machine.
+This layered language prevents libraries, processes, build artifacts, and running sandboxes from being treated as synonyms.
+The visual teaching order begins at physical virtualization, enters the Machine, distinguishes host-side Generation artifacts from the guest `/` tree, and only then adds a workload such as Node 22.
+Capacity education treats vCPU scheduling, resident memory, shared immutable pages, private dirty pages, sparse storage, network state, and host objects as independent limits whose minimum bounds safe admission.

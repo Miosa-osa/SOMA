@@ -1,5 +1,7 @@
 # SOMA module map
 
+Read [From hardware to an agent sandbox](beginners-guide.md) first if the distinction between a sandbox, Machine, Instance, VMM, KVM, Template, Generation, and Snapshot is not already clear.
+
 ## Purpose and status
 
 This document assigns responsibilities and dependency direction for the initial pre-alpha workspace.

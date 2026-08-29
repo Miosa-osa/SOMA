@@ -25,6 +25,7 @@ An operator may build a sandbox, function, computer, runner, or agent environmen
 
 | Term | Exact meaning | Do not substitute |
 |---|---|---|
+| Template | A reusable user-authored recipe that is compiled and certified into a Generation | Generation, snapshot, Instance |
 | Generation | A certified immutable set of kernel, root filesystem, memory, machine state, guest-agent, device-layout, and compatibility metadata | Image, template, snapshot |
 | Artifact | One immutable content-addressed file within a Generation | Asset, blob |
 | Snapshot | The captured memory and machine state within a Generation | Generation |
@@ -40,6 +41,9 @@ The word `sandbox` remains a product-level term owned by callers.
 The VMM does not decide tenant plans, billing, placement, pooling policy, or public resource semantics.
 An operator may retain a stable resource identity across multiple Instance lifetimes, but that identity remains outside the per-Machine VMM interface.
 An `InstanceId` must never be reused for another Machine lifetime.
+
+The authoritative product glossary is [CONTEXT.md](../../CONTEXT.md).
+The beginner-first relationship between these terms is explained in [From hardware to an agent sandbox](beginners-guide.md).
 
 ## Name rationale
 
