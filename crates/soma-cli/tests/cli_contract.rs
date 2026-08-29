@@ -62,9 +62,7 @@ fn explicit_kvm_lifecycle_fails_closed_for_the_alpha() {
     ]);
     let response = json(&output);
 
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    assert_eq!(output.status.code(), Some(76));
-    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
     assert_eq!(output.status.code(), Some(78));
     assert!(response["result"].is_null());
+    assert_eq!(response["error"]["code"], "unsupported_backend");
 }

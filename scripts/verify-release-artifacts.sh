@@ -28,6 +28,14 @@ checksum_manifest_names() {
         if [[ ! "$digest" =~ ^[0-9a-f]{64}$ || -z "$filename" || -n "${extra:-}" ]]; then
             fail "invalid checksum record in ${manifest}"
         fi
+        # GNU checksum manifests prefix binary-mode file names with one `*` marker.
+        # Normalize only the coverage copy and leave the manifest untouched for --check.
+        if [[ "$filename" == \** ]]; then
+            filename="${filename#\*}"
+        fi
+        if [[ -z "$filename" ]]; then
+            fail "invalid checksum record in ${manifest}"
+        fi
         if [[ "$filename" == -* || "$filename" == */* || "$filename" == *\\* ]]; then
             fail "unsafe checksum path in ${manifest}: ${filename}"
         fi

@@ -47,6 +47,9 @@ check_repository_contract() {
     log "workflow policy"
     "${SCRIPT_DIR}/check-workflows.sh"
 
+    log "release artifact verifier tests"
+    "${SCRIPT_DIR}/tests/verify-release-artifacts.sh"
+
     log "shell scripts"
     require_command shellcheck
     local shellcheck_failed=0
