@@ -6,7 +6,7 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use soma_hostd::{
     Admission, AssignmentIntent, CpuClass, CpuInventory, ExhaustedBehavior, GenerationId,
-    HostProfile, InstanceId, InstanceShape, LaunchMaterialHandle, Limits, MeasuredOverhead,
+    HostProfile, InstanceId, LaunchMaterialHandle, Limits, MachineShape, MeasuredOverhead,
     MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId, OperatorLimits,
     OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, Request,
     SingleNode, StorageInventory, ValidShape, WorkloadClass,
@@ -67,7 +67,7 @@ pub fn host_profile() -> HostProfile {
 
 /// The Machine shape every worker of the test pool is prepared for.
 pub fn shape() -> ValidShape {
-    InstanceShape {
+    MachineShape {
         vcpus: 1,
         guest_memory_bytes: 512 << 20,
         memory_class: MemoryClass::Guaranteed,
@@ -126,7 +126,7 @@ pub fn key() -> PoolKey {
             name: ClassName::new("small").expect("name"),
             version: 1,
             logical_bytes: 4 << 30,
-            template: TemplateDigest::from_bytes([3; 32]),
+            template_digest: TemplateDigest::from_bytes([3; 32]),
         },
         network: ProfileDigest([4; 32]),
     }

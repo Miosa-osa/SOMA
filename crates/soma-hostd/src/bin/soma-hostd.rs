@@ -31,7 +31,7 @@ mod linux {
         launcher: Option<String>,
         generation: Option<[u8; 32]>,
         network_profile: Option<[u8; 32]>,
-        template: Option<[u8; 32]>,
+        template_digest: Option<[u8; 32]>,
         class: String,
         version: u32,
         logical_bytes: u64,
@@ -50,7 +50,7 @@ mod linux {
             launcher: None,
             generation: None,
             network_profile: None,
-            template: None,
+            template_digest: None,
             class: String::from("default"),
             version: 1,
             logical_bytes: 4 << 30,
@@ -103,7 +103,9 @@ mod linux {
                 "--dirty-memory-bytes" => config.host.dirty_memory = number(&value()?, &flag)?,
                 "--cleanup-slots" => config.host.cleanup_slots = number(&value()?, &flag)?,
                 "--network-profile" => config.network_profile = Some(hex32(&value()?, &flag)?),
-                "--overlay-template" => config.template = Some(hex32(&value()?, &flag)?),
+                "--overlay-template-digest" => {
+                    config.template_digest = Some(hex32(&value()?, &flag)?);
+                }
                 "--overlay-class" => config.class = value()?,
                 "--overlay-version" => config.version = number(&value()?, &flag)?,
                 "--overlay-bytes" => config.logical_bytes = number(&value()?, &flag)?,
@@ -135,8 +137,10 @@ mod linux {
                 name: ClassName::new(config.class.clone()).map_err(|error| error.to_string())?,
                 version: config.version,
                 logical_bytes: config.logical_bytes,
-                template: TemplateDigest::from_bytes(
-                    config.template.ok_or("--overlay-template is required")?,
+                template_digest: TemplateDigest::from_bytes(
+                    config
+                        .template_digest
+                        .ok_or("--overlay-template-digest is required")?,
                 ),
             },
             network: ProfileDigest(

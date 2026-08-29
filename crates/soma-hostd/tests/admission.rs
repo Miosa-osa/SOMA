@@ -4,7 +4,7 @@ mod atlas;
 
 use atlas::{GIB, MIB, atlas_profile, atlas_shape, atlas_valid, certified, valid};
 use soma_hostd::{
-    Admission, Gate, InstanceShape, MeasuredOverhead, Ratio, SingleNode, WorkloadClass, estimate,
+    Admission, Gate, MachineShape, MeasuredOverhead, Ratio, SingleNode, WorkloadClass, estimate,
 };
 
 #[test]
@@ -33,7 +33,7 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
             "{threads} threads"
         );
     }
-    let two_gib = InstanceShape {
+    let two_gib = MachineShape {
         guest_memory_bytes: 2 * GIB,
         ..atlas_shape()
     };
@@ -45,7 +45,7 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
     );
     let small_host = atlas_profile(80, 8, 25, 5);
     for (guest_mib, memory_bound) in [(1024, 18), (512, 35), (256, 64), (128, 106)] {
-        let shape = InstanceShape {
+        let shape = MachineShape {
             guest_memory_bytes: guest_mib * MIB,
             workload: WorkloadClass::Build,
             ..atlas_shape()

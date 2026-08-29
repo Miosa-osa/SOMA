@@ -26,5 +26,5 @@ pub use profile::{
 };
 pub use rejection::{CapacityRejection, Gate};
 pub use reserve::{Admission, Reservation};
-pub use shape::{InstanceShape, MemoryClass, ShapeError, ValidShape, WorkloadClass};
+pub use shape::{MachineShape, MemoryClass, ShapeError, ValidShape, WorkloadClass};
 pub use usage::Usage;

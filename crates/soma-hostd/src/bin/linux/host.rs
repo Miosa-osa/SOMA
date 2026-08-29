@@ -4,7 +4,7 @@
 //! measurement, and the per-VM overhead carries the label that says where it came from.
 
 use soma_hostd::{
-    CertifiedProfile, CpuInventory, HostProfile, InstanceShape, MeasuredOverhead, MemoryClass,
+    CertifiedProfile, CpuInventory, HostProfile, MachineShape, MeasuredOverhead, MemoryClass,
     MemoryInventory, NetworkInventory, OperatorLimits, OvercommitPolicy, ProcessInventory,
     StorageInventory, ValidShape, WorkloadClass,
 };
@@ -76,7 +76,7 @@ pub(super) fn profile(host: &Host) -> Result<CertifiedProfile, String> {
 }
 
 pub(super) fn shape(config: &Config) -> Result<ValidShape, String> {
-    InstanceShape {
+    MachineShape {
         vcpus: config.vcpus,
         guest_memory_bytes: config.memory,
         memory_class: MemoryClass::Guaranteed,

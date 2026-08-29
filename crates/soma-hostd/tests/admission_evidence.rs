@@ -3,7 +3,7 @@
 mod atlas;
 
 use atlas::{GIB, MIB, atlas_profile, atlas_shape, atlas_valid, certified, valid};
-use soma_hostd::{Admission, Gate, InstanceShape, MemoryClass, SingleNode, WorkloadClass};
+use soma_hostd::{Admission, Gate, MachineShape, MemoryClass, SingleNode, WorkloadClass};
 
 #[test]
 fn overflowing_capacity_arithmetic_is_a_typed_rejection_and_never_a_panic() {
@@ -13,7 +13,7 @@ fn overflowing_capacity_arithmetic_is_a_typed_rejection_and_never_a_panic() {
         threads: u32::MAX,
     };
     let profile = certified(profile);
-    let huge = valid(InstanceShape {
+    let huge = valid(MachineShape {
         vcpus: u32::MAX,
         workload: WorkloadClass::Build,
         ..atlas_shape()
@@ -43,7 +43,7 @@ fn overflowing_capacity_arithmetic_is_a_typed_rejection_and_never_a_panic() {
         "a zero-sided ratio can never be certified into an admission"
     );
     assert_eq!(
-        InstanceShape {
+        MachineShape {
             vcpus: 0,
             ..atlas_shape()
         }
@@ -52,7 +52,7 @@ fn overflowing_capacity_arithmetic_is_a_typed_rejection_and_never_a_panic() {
         "a shape with no vCPU can never be validated into a reservation"
     );
     assert_eq!(
-        InstanceShape {
+        MachineShape {
             guest_memory_bytes: 512 << 20,
             memory_class: MemoryClass::Elastic {
                 expected_resident_bytes: 4 * GIB,
@@ -70,7 +70,7 @@ fn a_rejection_names_the_pool_it_refused_in_one_comparable_dimension() {
     let admission = Admission::new(atlas_profile(16, 2, 32, 4), SingleNode);
     while admission.reserve(&atlas_valid()).is_ok() {}
     assert_eq!(admission.usage().residents, 49);
-    let elastic = valid(InstanceShape {
+    let elastic = valid(MachineShape {
         memory_class: MemoryClass::Elastic {
             expected_resident_bytes: 400 * MIB,
         },

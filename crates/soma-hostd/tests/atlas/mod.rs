@@ -3,7 +3,7 @@
 #![allow(dead_code)]
 
 use soma_hostd::{
-    CertifiedProfile, CpuInventory, HostProfile, InstanceShape, MeasuredOverhead, MemoryClass,
+    CertifiedProfile, CpuInventory, HostProfile, MachineShape, MeasuredOverhead, MemoryClass,
     MemoryInventory, NetworkInventory, OperatorLimits, OvercommitPolicy, ProcessInventory, Ratio,
     StorageInventory, ValidShape, WorkloadClass,
 };
@@ -63,7 +63,7 @@ pub fn certified(profile: HostProfile) -> CertifiedProfile {
 }
 
 /// Validates a shape a test built.
-pub fn valid(shape: InstanceShape) -> ValidShape {
+pub fn valid(shape: MachineShape) -> ValidShape {
     shape.validate().expect("shape")
 }
 
@@ -72,8 +72,8 @@ pub fn atlas_valid() -> ValidShape {
     valid(atlas_shape())
 }
 
-pub fn atlas_shape() -> InstanceShape {
-    InstanceShape {
+pub fn atlas_shape() -> MachineShape {
+    MachineShape {
         vcpus: 1,
         guest_memory_bytes: 512 * MIB,
         memory_class: MemoryClass::Guaranteed,

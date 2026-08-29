@@ -4,7 +4,7 @@ mod atlas;
 
 use atlas::{GIB, atlas_profile, atlas_shape, atlas_valid, certified, valid};
 use soma_hostd::{
-    Admission, CertifiedProfile, Gate, InstanceShape, MemoryClass, NumaRejection, SingleNode,
+    Admission, CertifiedProfile, Gate, MachineShape, MemoryClass, NumaRejection, SingleNode,
     WorkloadClass,
 };
 
@@ -25,11 +25,11 @@ fn gated_profile() -> CertifiedProfile {
 #[test]
 fn every_gate_rejects_by_name_and_a_rejection_leaves_usage_unchanged() {
     let admission = Admission::new(gated_profile(), SingleNode);
-    let shape = |f: fn(InstanceShape) -> InstanceShape| f(atlas_shape());
-    let cases: [(Gate, InstanceShape); 10] = [
+    let shape = |f: fn(MachineShape) -> MachineShape| f(atlas_shape());
+    let cases: [(Gate, MachineShape); 10] = [
         (
             Gate::CpuUnits,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 vcpus: 57,
                 workload: WorkloadClass::Build,
                 ..s
@@ -37,14 +37,14 @@ fn every_gate_rejects_by_name_and_a_rejection_leaves_usage_unchanged() {
         ),
         (
             Gate::HostMemory,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 guest_memory_bytes: 29 * GIB,
                 ..s
             }),
         ),
         (
             Gate::ElasticMemory,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 guest_memory_bytes: 8 * GIB,
                 memory_class: MemoryClass::Elastic {
                     expected_resident_bytes: 8 * GIB,
@@ -54,46 +54,46 @@ fn every_gate_rejects_by_name_and_a_rejection_leaves_usage_unchanged() {
         ),
         (
             Gate::PrivateStorage,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 private_storage_bytes: 11 * GIB,
                 ..s
             }),
         ),
         (
             Gate::NetworkInventory,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 network_units: 101,
                 ..s
             }),
         ),
         (
             Gate::DescriptorLimit,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 descriptors: 201,
                 ..s
             }),
         ),
         (
             Gate::RunnableVcpus,
-            shape(|s| InstanceShape { vcpus: 7, ..s }),
+            shape(|s| MachineShape { vcpus: 7, ..s }),
         ),
         (
             Gate::DirtyMemory,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 guest_memory_bytes: 4 * GIB,
                 ..s
             }),
         ),
         (
             Gate::Arithmetic,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 guest_memory_bytes: u64::MAX,
                 ..s
             }),
         ),
         (
             Gate::CpuUnits,
-            shape(|s| InstanceShape {
+            shape(|s| MachineShape {
                 vcpus: 15,
                 workload: WorkloadClass::Build,
                 ..s

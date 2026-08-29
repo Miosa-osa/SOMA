@@ -37,8 +37,11 @@ pub struct OverlayIdentity {
     pub version: u32,
     /// Logical head size.
     pub logical_bytes: u64,
-    /// Digest of the sterile template bytes.
-    pub template: TemplateDigest,
+    /// Digest of the sterile ext4 template bytes the head is cloned from.
+    ///
+    /// This is the storage crate's sterile template, not the user-authored Template of the
+    /// glossary, which produces a Generation.
+    pub template_digest: TemplateDigest,
 }
 
 impl OverlayIdentity {
@@ -49,7 +52,7 @@ impl OverlayIdentity {
             name: class.recipe().name.clone(),
             version: class.recipe().version,
             logical_bytes: class.logical_bytes().get(),
-            template: class.template_digest(),
+            template_digest: class.template_digest(),
         }
     }
 }
@@ -121,7 +124,7 @@ impl PoolKey {
         out.extend_from_slice(&expected.to_be_bytes());
         out.extend_from_slice(&self.overlay.version.to_be_bytes());
         out.extend_from_slice(&self.overlay.logical_bytes.to_be_bytes());
-        out.extend_from_slice(self.overlay.template.as_bytes());
+        out.extend_from_slice(self.overlay.template_digest.as_bytes());
         out.extend_from_slice(&self.network.0);
         out.extend_from_slice(&u16::try_from(name.len()).unwrap_or(u16::MAX).to_be_bytes());
         out.extend_from_slice(name);
@@ -155,7 +158,7 @@ mod tests {
                 name: ClassName::new("small").expect("name"),
                 version: 1,
                 logical_bytes: 4 << 30,
-                template: TemplateDigest::from_bytes([3; 32]),
+                template_digest: TemplateDigest::from_bytes([3; 32]),
             },
             network: ProfileDigest([4; 32]),
         }

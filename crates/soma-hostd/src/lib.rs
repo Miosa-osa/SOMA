@@ -31,7 +31,7 @@ pub use protocol::{
 
 pub use admission::{
     Admission, CapacityEstimate, CapacityRejection, CertifiedProfile, CpuInventory, Demand, Gate,
-    HostProfile, InstanceShape, MeasuredOverhead, MemoryClass, MemoryInventory, NetworkInventory,
+    HostProfile, MachineShape, MeasuredOverhead, MemoryClass, MemoryInventory, NetworkInventory,
     NodeDemand, NodeFree, NodeId, NumaPlacement, NumaRejection, OperatorLimits, OvercommitPolicy,
     ProcessInventory, ProfileError, Ratio, Reservation, ShapeError, SingleNode, StorageInventory,
     Usage, ValidShape, WorkloadClass, estimate, reserve,

@@ -1,4 +1,5 @@
-//! The requested Machine shape, its workload class, and the explicit memory class.
+//! The requested Machine shape of one Instance, its workload class, and the explicit
+//! memory class.
 
 use std::fmt;
 
@@ -67,7 +68,7 @@ impl MemoryClass {
 
 /// One requested Machine shape.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct InstanceShape {
+pub struct MachineShape {
     /// Virtual processors visible to the guest.
     pub vcpus: u32,
     /// Guest memory in bytes.
@@ -109,28 +110,28 @@ impl fmt::Display for ShapeError {
 
 impl std::error::Error for ShapeError {}
 
-/// An [`InstanceShape`] that passed [`InstanceShape::validate`].
+/// A [`MachineShape`] that passed [`MachineShape::validate`].
 ///
 /// Every admission and every estimate takes one, so a shape with no vCPU, no memory, or an
 /// elastic expectation above its guest promise can never be accounted.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ValidShape(InstanceShape);
+pub struct ValidShape(MachineShape);
 
 impl ValidShape {
     /// The validated shape.
     #[must_use]
-    pub const fn shape(&self) -> &InstanceShape {
+    pub const fn shape(&self) -> &MachineShape {
         &self.0
     }
 
     /// Takes the validated shape back out.
     #[must_use]
-    pub const fn into_shape(self) -> InstanceShape {
+    pub const fn into_shape(self) -> MachineShape {
         self.0
     }
 }
 
-impl InstanceShape {
+impl MachineShape {
     /// Validates the shape.
     ///
     /// # Errors
@@ -158,8 +159,8 @@ impl InstanceShape {
 mod tests {
     use super::*;
 
-    const fn shape() -> InstanceShape {
-        InstanceShape {
+    const fn shape() -> MachineShape {
+        MachineShape {
             vcpus: 1,
             guest_memory_bytes: 512 << 20,
             memory_class: MemoryClass::Guaranteed,
@@ -174,7 +175,7 @@ mod tests {
     fn shapes_reject_empty_dimensions_and_over_promised_elastic_sets() {
         assert_eq!(shape().validate().map(ValidShape::into_shape), Ok(shape()));
         assert_eq!(
-            InstanceShape {
+            MachineShape {
                 vcpus: 0,
                 ..shape()
             }
@@ -182,7 +183,7 @@ mod tests {
             Err(ShapeError::NoVcpus)
         );
         assert_eq!(
-            InstanceShape {
+            MachineShape {
                 guest_memory_bytes: 0,
                 ..shape()
             }
@@ -190,7 +191,7 @@ mod tests {
             Err(ShapeError::NoMemory)
         );
         assert_eq!(
-            InstanceShape {
+            MachineShape {
                 memory_class: MemoryClass::Elastic {
                     expected_resident_bytes: 1 << 30
                 },
