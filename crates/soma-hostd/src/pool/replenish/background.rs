@@ -22,6 +22,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 spawned: 0,
                 in_flight: self.in_flight.load(Ordering::Acquire),
                 limited_by: Some(ReplenishLimit::Unreconciled),
+                urgent: self.occupancy().sterile < self.limits().min,
             };
         }
         self.reap_replenishment();
@@ -63,14 +64,16 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         }
         drop(gate);
         self.reap_replenishment();
+        let occupancy = self.occupancy();
         ReplenishReport {
             deficit: self
                 .limits()
                 .target
-                .saturating_sub(self.occupancy().sterile + self.in_flight.load(Ordering::Acquire)),
+                .saturating_sub(occupancy.sterile + self.in_flight.load(Ordering::Acquire)),
             spawned,
             in_flight: self.in_flight.load(Ordering::Acquire),
             limited_by,
+            urgent: occupancy.sterile < self.limits().min,
         }
     }
 

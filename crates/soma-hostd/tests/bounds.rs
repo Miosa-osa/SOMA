@@ -178,3 +178,46 @@ fn one_hundred_operations_over_ten_workers_all_complete_without_starvation() {
     eprintln!("fairness: 100 operations over 10 workers in {elapsed:?}, max retries {max_retries}");
     assert_eq!(harness.table.alive(), harness.pool.occupancy().sterile);
 }
+
+#[test]
+fn a_pass_that_ends_below_the_minimum_reports_the_urgency() {
+    let harness = harness(Limits {
+        min: 2,
+        target: 3,
+        replenish_concurrency: 1,
+        ..limits(3, 4)
+    });
+    harness.pool.launcher().set_plan(FaultPlan {
+        construct_delay: Duration::from_millis(20),
+        ..FaultPlan::default()
+    });
+    let first = harness.pool.replenish();
+    assert!(
+        first.urgent,
+        "an empty pool below its minimum reports the urgency"
+    );
+    assert_eq!(first.spawned, 1, "the concurrency bound still holds");
+    loop {
+        harness.pool.wait_replenishment();
+        let report = harness.pool.replenish();
+        if report.deficit == 0 && report.spawned == 0 {
+            assert!(!report.urgent, "a replenished pool is no longer urgent");
+            assert_eq!(harness.pool.occupancy().sterile, 3);
+            break;
+        }
+    }
+    for index in 0..2_u32 {
+        let claim = harness
+            .pool
+            .claim(op(index), intent(index).fingerprint())
+            .expect("claim");
+        harness
+            .pool
+            .transfer(claim.grant.expect("grant"), &intent(index))
+            .expect("transfer");
+    }
+    assert!(
+        harness.pool.replenish().urgent,
+        "one sterile worker is below the minimum of two"
+    );
+}

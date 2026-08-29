@@ -18,7 +18,9 @@ pub enum ExhaustedBehavior {
 /// The bounded policy of one pool.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Limits {
-    /// Sterile workers below which replenishment is urgent.
+    /// Sterile workers below which replenishment is urgent; a pass that ends under it says
+    /// so in [`crate::ReplenishReport::urgent`] so an operator can act, and it is validated
+    /// as the lower bound of `min <= target <= max`.
     pub min: usize,
     /// Sterile plus constructing workers replenishment aims for.
     pub target: usize,

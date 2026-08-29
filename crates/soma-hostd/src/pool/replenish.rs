@@ -40,6 +40,8 @@ pub struct ReplenishReport {
     pub in_flight: usize,
     /// What stopped the pass from covering the deficit.
     pub limited_by: Option<ReplenishLimit>,
+    /// Whether the pool ended the pass with fewer sterile workers than its minimum.
+    pub urgent: bool,
 }
 
 /// Why one construction failed.
