@@ -14,7 +14,7 @@ fn the_capacity_ladder_of_the_visual_atlas_reproduces() {
     assert_eq!(medium.cpu_strict, 14);
     assert_eq!(medium.cpu_overcommitted, 56, "14 units at 4:1");
     assert_eq!(medium.safe_count, 49);
-    assert_eq!(medium.binding, Gate::GuaranteedMemory);
+    assert_eq!(medium.binding, Gate::HostMemory);
     for (threads, reserved, total, reserved_gib, strict, memory) in [
         (4, 1, 8, 2, 3, 10),
         (8, 2, 16, 3, 6, 23),
@@ -101,7 +101,7 @@ fn reservations_admit_exactly_the_memory_bound_then_reject_with_evidence() {
             Ok(reservation) => reservations.push(reservation),
             Err(rejection) => {
                 assert_eq!(reservations.len(), 49);
-                assert_eq!(rejection.gate, Gate::GuaranteedMemory);
+                assert_eq!(rejection.gate, Gate::HostMemory);
                 assert_eq!(rejection.requested, 576 * MIB);
                 assert_eq!(rejection.committed, 49 * 576 * MIB);
                 assert_eq!(rejection.limit, 28 * GIB);

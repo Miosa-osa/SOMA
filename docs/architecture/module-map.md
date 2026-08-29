@@ -1038,6 +1038,7 @@ crates/soma-hostd/src/
   bin/linux/host.rs
 crates/soma-hostd/tests/
   admission.rs
+  admission_evidence.rs
   admission_gates.rs
   atlas/mod.rs
   bounds.rs

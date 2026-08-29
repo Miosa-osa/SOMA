@@ -110,16 +110,21 @@ impl Admission {
             .saturating_sub(state.0.cpu_milli_units);
         let free = state.0.free_nodes(&self.profile);
         let memory = demand.guaranteed_bytes.saturating_add(demand.elastic_bytes);
+        let node_demand = NodeDemand {
+            cpu_milli_units: marginal,
+            memory_bytes: memory,
+        };
         let node = self
             .placement
-            .place(
-                NodeDemand {
-                    cpu_milli_units: marginal,
-                    memory_bytes: memory,
-                },
-                &free,
-            )
-            .map_err(|rejection| numa_rejection(rejection, &free, marginal))?;
+            .place(node_demand, &free)
+            .map_err(|rejection| {
+                numa_rejection(
+                    rejection,
+                    &free,
+                    node_demand,
+                    Usage::node_capacity(&self.profile),
+                )
+            })?;
         let index = demand.workload.index();
         if let Some(census) = candidate.node_vcpus.get_mut(node.0 as usize) {
             census[index] = census[index].saturating_add(demand.vcpus);
@@ -200,17 +205,37 @@ impl Admission {
     }
 }
 
+/// Reports a placement refusal in exactly one dimension, so the three numbers compare.
+///
+/// A fragmented host reports the dimension the roomiest node lacked, in that dimension's
+/// unit; an unsupported topology reports node counts.
 fn numa_rejection(
     rejection: NumaRejection,
     free: &[NodeFree],
-    requested: u64,
+    demand: NodeDemand,
+    capacity: (u64, u64),
 ) -> CapacityRejection {
-    let (committed, limit) = match rejection {
-        NumaRejection::Fragmented { .. } => free
-            .first()
-            .map_or((0, 0), |node| (0, node.cpu_milli_units)),
-        NumaRejection::NoNodes => (0, 0),
-        NumaRejection::MultiNodeUnsupported { nodes } => (u64::from(nodes), 1),
+    let best = |dimension: fn(&NodeFree) -> u64| free.iter().map(dimension).max().unwrap_or(0);
+    let (requested, committed, limit) = match rejection {
+        NumaRejection::Fragmented { .. } => {
+            let free_cpu = best(|node| node.cpu_milli_units);
+            if free_cpu < demand.cpu_milli_units {
+                (
+                    demand.cpu_milli_units,
+                    capacity.0.saturating_sub(free_cpu),
+                    capacity.0,
+                )
+            } else {
+                let free_memory = best(|node| node.memory_bytes);
+                (
+                    demand.memory_bytes,
+                    capacity.1.saturating_sub(free_memory),
+                    capacity.1,
+                )
+            }
+        }
+        NumaRejection::NoNodes => (1, 0, 0),
+        NumaRejection::MultiNodeUnsupported { nodes } => (u64::from(nodes), 0, 1),
     };
     CapacityRejection {
         gate: Gate::NumaFit,

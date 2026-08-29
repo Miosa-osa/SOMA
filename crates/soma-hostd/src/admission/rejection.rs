@@ -7,9 +7,9 @@ use std::fmt;
 pub enum Gate {
     /// Effective CPU units under the class overcommit ratio.
     CpuUnits,
-    /// Guaranteed memory including measured per-VM overhead.
-    GuaranteedMemory,
-    /// The elastic memory budget.
+    /// Admissible host memory: guaranteed plus elastic, including measured per-VM overhead.
+    HostMemory,
+    /// The elastic memory budget, which only the elastic class draws on.
     ElasticMemory,
     /// Private writable storage reserve.
     PrivateStorage,

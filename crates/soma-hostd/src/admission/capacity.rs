@@ -76,7 +76,7 @@ pub fn estimate(
     let launches = u64::from(profile.limits.concurrent_launches);
     let bounds = [
         (Gate::CpuUnits, cpu_overcommitted),
-        (Gate::GuaranteedMemory, memory),
+        (Gate::HostMemory, memory),
         (Gate::PrivateStorage, storage),
         (Gate::NetworkInventory, network),
         (Gate::ProcessLimit, process),
@@ -103,7 +103,7 @@ pub fn estimate(
         launches,
         safe_count,
         binding: if matches!(shape.memory_class, MemoryClass::Elastic { .. })
-            && binding == Gate::GuaranteedMemory
+            && binding == Gate::HostMemory
         {
             Gate::ElasticMemory
         } else {

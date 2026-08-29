@@ -119,7 +119,7 @@ impl Usage {
         let memory_committed = self.guaranteed_bytes.saturating_add(self.elastic_bytes);
         let memory_requested = demand.guaranteed_bytes.saturating_add(demand.elastic_bytes);
         gate(
-            Gate::GuaranteedMemory,
+            Gate::HostMemory,
             memory_committed,
             memory_requested,
             memory_limit,
@@ -190,16 +190,23 @@ impl Usage {
         Ok(next)
     }
 
-    pub(super) fn free_nodes(&self, profile: &HostProfile) -> Vec<NodeFree> {
+    /// The CPU milli-units and memory bytes one node of `profile` holds.
+    pub(super) fn node_capacity(profile: &HostProfile) -> (u64, u64) {
         let nodes = u64::from(profile.cpu.numa_nodes).max(1);
-        let cpu_per_node = u64::from(profile.admissible_cpu_units())
-            .saturating_mul(1000)
-            .checked_div(nodes)
-            .unwrap_or(0);
-        let memory_per_node = profile
-            .admissible_memory_bytes()
-            .checked_div(nodes)
-            .unwrap_or(0);
+        (
+            u64::from(profile.admissible_cpu_units())
+                .saturating_mul(1000)
+                .checked_div(nodes)
+                .unwrap_or(0),
+            profile
+                .admissible_memory_bytes()
+                .checked_div(nodes)
+                .unwrap_or(0),
+        )
+    }
+
+    pub(super) fn free_nodes(&self, profile: &HostProfile) -> Vec<NodeFree> {
+        let (cpu_per_node, memory_per_node) = Self::node_capacity(profile);
         (0..profile.cpu.numa_nodes.max(1))
             .map(|node| NodeFree {
                 node: NodeId(node),
