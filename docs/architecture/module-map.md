@@ -6,21 +6,21 @@ This document assigns responsibilities and dependency direction for the initial 
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains four implemented crates and one planned portable facade:
+The current workspace contains seven implemented crates:
 
 ```text
 crates/
+  soma/
   soma-cli/
   soma-kvm/
+  soma-local/
   soma-macos/
+  soma-mcp/
   soma-vmm/
-
-planned when its first deep implementation lands:
-  soma/
 ```
 
-The current alpha contains a semantic Machine-contract slice, a Linux KVM host-capability probe, a development-only macOS VM-per-OCI backend, and a command-line adapter.
-It does not yet contain the production guest boot path, snapshot restore implementation, device model, host allocator, Generation builder, guest agent, or remote transport.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, an explicit-fixture ARM64 KVM cold-boot proof, a development-only macOS VM-per-OCI backend, a command-line adapter, and a bounded stdio MCP adapter.
+It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, Generation builder, authenticated guest agent, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
 The only initial production target is Ubuntu 24.04 x86_64 with KVM.
@@ -33,21 +33,20 @@ human, agent, SDK, or operator
                |
                v
        soma portable facade
-        |             |
-        v             v
- local backend    remote backend
-        |
-        v
-    soma-vmm semantic contract
-        |
-        +----------------+
-        |                |
-        v                v
-    soma-kvm         soma-macos
+                 |
+                 v
+          soma-local adapter
+           /             \
+          v               v
+     soma-macos       soma-kvm
+
+    soma-vmm semantic lifecycle prototype
 ```
 
-The portable `soma` facade will own use-case orchestration, backend selection, and execution-receipt construction when its first implementation lands.
+The portable `soma` facade owns use-case orchestration and execution-receipt construction.
 `soma-cli` owns only command-line parsing, human and JSON rendering, and process exit behavior over that facade.
+`soma-mcp` maps bounded MCP tools onto that same facade.
+`soma-local` owns durable local lifecycle state, backend selection, and target-gated local composition.
 `soma-vmm` owns the provider-neutral Machine interface and the deep lifecycle implementation.
 `soma-kvm` owns target-gated access to Linux x86_64 production KVM capabilities and Linux ARM64 development KVM capabilities.
 `soma-macos` owns the development-only Apple VM-per-OCI lifecycle adapter.
@@ -217,8 +216,8 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 
 ## `soma-kvm` responsibilities
 
-`soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development probes.
-Its initial depth is a checked capability probe that hides architecture gating, `/dev/kvm` access, KVM interface verification, VM creation, and descriptor cleanup behind one result.
+`soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
+Its current depth includes a checked capability probe plus an explicit-fixture ARM64 direct-boot path with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, serial emulation, and bounded teardown.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
 
 The initial source map is:
@@ -227,8 +226,19 @@ The initial source map is:
 crates/soma-kvm/src/
   lib.rs
   linux.rs
+  arm64/
+    mod.rs
+    fdt.rs
+    gic.rs
+    layout.rs
+    uart.rs
+    vcpu.rs
+    watchdog.rs
+    watchdog/
+      signal.rs
 crates/soma-kvm/tests/
   kvm_probe.rs
+  fixtures/
 ```
 
 ### `soma-kvm/src/lib.rs`
@@ -239,8 +249,10 @@ It must remain free of provider policy and per-Machine public contract types.
 
 ### `linux.rs`
 
-`linux.rs` owns target-gated Linux KVM calls and architecture-specific capability requirements.
-ARM64 probe support does not imply ARM64 guest boot, device, restore, isolation, or production-engine support.
+`linux.rs` owns target-gated Linux KVM capability calls and architecture-specific probe requirements.
+The `arm64/` modules own only the explicit-fixture cold-boot proof accepted by ADR 0014.
+That abort-capable proof is crate-internal and reachable only from ignored live tests run in dedicated test processes.
+That proof does not imply authenticated readiness, OCI execution, networking, snapshot restore, isolation certification, or production-engine support.
 Every unsafe operation requires a `SAFETY` explanation and tests that exercise its complete invariant.
 Guest-controlled lengths, offsets, addresses, and queue data remain hostile even after KVM validates VM creation.
 
@@ -274,17 +286,20 @@ The CLI does not become the reusable client library.
 Shared lifecycle transactions, backend selection, portable errors, and execution receipts move into the `soma` facade so agents, SDKs, and the CLI call one implementation.
 The CLI never inserts an implicit shell and never reports a requested backend as the effective isolation result.
 
-## Planned `soma` facade responsibilities
+## `soma`, `soma-local`, and `soma-mcp` responsibilities
 
 The portable `soma` library is justified by multiple independent callers: the CLI, agents, SDKs, and control planes.
 It owns use cases rather than hypervisor primitives.
 
-Its initial deep modules are one-shot execution, managed Machine lifecycle, backend selection, and evidence-carrying receipt construction.
-It depends only on portable contracts plus target-gated built-in adapters.
+Its initial deep modules are one-shot execution, managed Machine lifecycle, network intent, validation, and evidence-carrying receipt construction.
+It depends only on portable contracts and does not select a host implementation.
 It does not own KVM ioctls, Apple command construction, provider billing, fleet placement, or user-interface rendering.
 
-The facade becomes an implemented crate only with real tests and at least one real backend.
-It is not introduced as an empty package or a collection of forwarding wrappers.
+`soma-local` composes the facade with target-gated built-in adapters and the durable compare-and-swap lifecycle store accepted by ADR 0011.
+An unsupported target fails closed during backend selection and cannot construct a weaker fallback.
+
+`soma-mcp` owns bounded stdio framing, tool schemas, cancellation at the caller boundary, and MCP response rendering.
+It retains no second lifecycle implementation and invokes the same facade used by the CLI.
 
 ## Future node and image modules
 

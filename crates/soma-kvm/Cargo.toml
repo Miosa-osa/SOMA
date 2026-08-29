@@ -1,6 +1,6 @@
 [package]
 name = "soma-kvm"
-description = "Linux KVM host capability probe for SOMA"
+description = "Linux KVM capability and ARM64 cold-boot proofs for SOMA"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -12,3 +12,11 @@ workspace = true
 
 [target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
 kvm-ioctls = "=0.25.0"
+
+[target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dev-dependencies]
+kvm-bindings = "=0.14.1"
+libc = "=0.2.189"
+linux-loader = "=0.14.0"
+vm-fdt = "=0.3.0"
+vm-memory = { version = "=0.18.0", features = ["backend-mmap"] }
+vmm-sys-util = "=0.15.0"

@@ -38,6 +38,7 @@ Start with the [architecture diagrams](docs/architecture/diagrams.md) for the co
 > [!WARNING]
 > SOMA is alpha software and is not safe for untrusted production workloads.
 > The Apple Silicon backend runs real development VMs today, while the production Ubuntu KVM engine remains under construction.
+> A dedicated ignored test can direct-boot a trusted ARM64 Linux fixture with bounded teardown, but that test-only path is not linked into the library, does not execute OCI workloads, and does not expose a sandbox lifecycle.
 
 ## What makes SOMA different
 
@@ -105,10 +106,10 @@ An unsupported local engine returns an explicit error and never runs the workloa
 
 | Host | CLI, library, and MCP | Local sandbox engine | Current evidence |
 | --- | --- | --- | --- |
-| Apple Silicon macOS 26 | Native validation | Apple Container 1.3 VM per OCI sandbox | Development lifecycle and nested ARM64 KVM probe work |
+| Apple Silicon macOS 26 | Native validation | Apple Container 1.3 VM per OCI sandbox | OCI development lifecycle; nested ARM64 KVM cold boot remains a test-only diagnostic pending retained release evidence |
 | Ubuntu 24.04 and 26.04 x86_64 | Native CI | KVM capability probe | Custom VMM lifecycle not implemented yet |
 | Windows Server 2025 x86_64 | Native CI | None | Portable client only |
-| Linux ARM64 | Native development validation | KVM capability probe | Nested empty-VM probe only, with no custom VMM lifecycle yet |
+| Linux ARM64 | Native development validation | KVM capability probe | Explicit-fixture cold boot exists only as a dedicated ignored test, not a custom sandbox lifecycle |
 | Intel macOS, Windows ARM64 | Compile gate | None | Portable client only |
 
 Linux OCI guests are the first workload contract.
@@ -150,6 +151,8 @@ Every published result must retain raw samples, failures, cleanup outcomes, cach
 
 The source version is `1.0.0-alpha.1`.
 The first stable release will be `1.0.0` only after the custom Ubuntu 24.04 x86_64 KVM path can build an OCI-derived Generation and complete real launch, authenticated command readiness, execution, cleanup, isolation, and burst-performance gates.
+The current custom-VMM tracer bullet is the narrower test-only [ARM64 explicit-fixture cold-boot proof](docs/adr/0014-arm64-kvm-cold-boot-proof.md).
+Its serial sentinel is not authenticated readiness, its diagnostic runtime is not a published performance result, and the next implementation boundary is bounded guest command execution.
 
 The [roadmap](ROADMAP.md) lists the evidence required for each phase.
 The [competitor and prior-art ledger](COMPETITORS.md) separates primary-source facts, external claims, unknowns, transferable lessons, and measured results.

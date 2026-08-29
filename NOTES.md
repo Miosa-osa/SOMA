@@ -223,3 +223,12 @@ Release packaging fails closed on unexpected archive structure, incomplete check
 
 ADR 0015 makes the original inspection request the source of operation, instance, and workload identity in backend observations.
 Network cleanup evidence uses named per-resource builders so the API avoids positional mistakes without losing the independent dispositions required by ADR 0012.
+
+## 2026-08-28 - ARM64 KVM cold-boot proof
+
+ADR 0014 advances the local nested ARM64 KVM profile from empty-VM creation to direct Linux boot with guest RAM registration, vCPU state, GICv3, an architectural timer, a generated device tree, an explicit initramfs, and transmit-only serial emulation.
+The proof accepts explicit trusted fixture paths, observes only an unauthenticated serial sentinel, and cannot be described as OCI execution, sandbox readiness, snapshot restore, production cleanup, or a performance result.
+The vCPU runs on a sole-owner thread with a fixed boot deadline and bounded cancellation grace.
+Timeout containment blocks the reserved signal outside `KVM_RUN`, temporarily unmasks it through KVM's eight-byte signal-mask ioctl, delivers a targeted real-time kick, joins the vCPU thread, and aborts the dedicated VMM process if KVM cannot be contained before registered memory would be released.
+Retained cold-boot release evidence is pending the code commit, so local live-test reruns remain diagnostic and do not establish product support.
+The next honest VMM boundary is a bounded challenge-bound guest command proof, followed by Generation-bound guest identity and an authenticated production control channel.
