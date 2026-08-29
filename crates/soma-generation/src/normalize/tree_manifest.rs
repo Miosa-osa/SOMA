@@ -7,7 +7,7 @@ use super::{
 };
 use crate::{NormalizeError, NormalizeErrorKind, NormalizePhase};
 
-pub(super) const MEDIA_TYPE: &str = "application/vnd.soma.rootfs-tree.v1";
+pub(crate) const MEDIA_TYPE: &str = "application/vnd.soma.rootfs-tree.v1";
 const MAGIC: &[u8; 8] = b"SOMARFS\0";
 
 pub(super) fn encode(tree: &Tree, maximum: u64) -> Result<Vec<u8>, NormalizeError> {

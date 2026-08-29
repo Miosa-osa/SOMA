@@ -101,6 +101,10 @@ pub fn tar(entries: &[TarEntry<'_>]) -> Vec<u8> {
 }
 
 pub fn add_layers(fixture: &Fixture, layers: &[Vec<u8>]) -> Image {
+    add_layers_for(fixture, layers, "arm64")
+}
+
+pub fn add_layers_for(fixture: &Fixture, layers: &[Vec<u8>], architecture: &str) -> Image {
     let layer_descriptors: Vec<_> = layers
         .iter()
         .map(|layer| {
@@ -109,7 +113,7 @@ pub fn add_layers(fixture: &Fixture, layers: &[Vec<u8>]) -> Image {
         })
         .collect();
     let config = serde_json::to_vec(&json!({
-        "architecture": "arm64",
+        "architecture": architecture,
         "os": "linux",
         "rootfs": {
             "type": "layers",
@@ -137,10 +141,18 @@ pub fn add_layers(fixture: &Fixture, layers: &[Vec<u8>]) -> Image {
 }
 
 pub fn normalize_layers(layers: &[Vec<u8>]) -> (Fixture, NormalizedRootfs) {
+    normalize_layers_for(layers, "arm64")
+}
+
+pub fn normalize_layers_for(layers: &[Vec<u8>], architecture: &str) -> (Fixture, NormalizedRootfs) {
     let fixture = Fixture::new();
-    let image = add_layers(&fixture, layers);
-    fixture.write_direct_index(&image, true);
-    let platform = OciPlatform::linux_arm64();
+    let image = add_layers_for(&fixture, layers, architecture);
+    fixture.write_direct_index(&image, architecture == "arm64");
+    let platform = if architecture == "amd64" {
+        OciPlatform::linux_amd64()
+    } else {
+        OciPlatform::linux_arm64()
+    };
     let imported = import_oci_layout(ImportOciLayout::new(
         &fixture.layout,
         &fixture.store,

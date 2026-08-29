@@ -95,6 +95,38 @@ impl Store {
         Ok(file)
     }
 
+    /// Reads one small object completely, rejecting anything above `maximum` bytes.
+    pub(crate) fn read_bounded(
+        &self,
+        digest: &soma::OciDigest,
+        maximum: usize,
+        phase: ImportPhase,
+    ) -> Result<Vec<u8>, ImportError> {
+        let mut options = OpenOptions::new();
+        options.read(true).follow(FollowSymlinks::No);
+        let file = self
+            .blobs
+            .open_with(digest::hex(digest), &options)
+            .map_err(|_| ImportError::new(phase, ImportErrorKind::StoreConflict))?;
+        let metadata = file
+            .metadata()
+            .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+        let size = usize::try_from(metadata.len())
+            .map_err(|_| ImportError::new(phase, ImportErrorKind::LimitExceeded))?;
+        if !metadata.is_file() || size > maximum {
+            return Err(ImportError::new(phase, ImportErrorKind::LimitExceeded));
+        }
+        let mut bytes = Vec::with_capacity(size);
+        (&file)
+            .take(metadata.len())
+            .read_to_end(&mut bytes)
+            .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+        if bytes.len() != size {
+            return Err(ImportError::new(phase, ImportErrorKind::Integrity));
+        }
+        Ok(bytes)
+    }
+
     fn open_blob_with(
         &self,
         descriptor: &Descriptor,

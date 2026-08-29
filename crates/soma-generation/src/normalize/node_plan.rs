@@ -8,7 +8,7 @@ use crate::{
     RootfsLimits, store::Store,
 };
 
-const CONTENT_MEDIA_TYPE: &str = "application/vnd.soma.rootfs.file.v1";
+pub(crate) const CONTENT_MEDIA_TYPE: &str = "application/vnd.soma.rootfs.file.v1";
 
 pub(super) fn parse<R: Read>(
     entry: &mut tar::Entry<'_, R>,

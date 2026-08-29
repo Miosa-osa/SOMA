@@ -15,6 +15,7 @@ pub const CONFIG: &str = "application/vnd.oci.image.config.v1+json";
 pub const PLAIN: &str = "application/vnd.oci.image.layer.v1.tar";
 pub const GZIP: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
 
+pub mod generation;
 pub mod rootfs;
 
 pub struct Fixture {

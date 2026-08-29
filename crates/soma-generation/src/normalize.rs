@@ -13,6 +13,9 @@ mod types;
 pub use error::{NormalizeError, NormalizeErrorKind, NormalizePhase};
 pub use types::{NormalizeOciRootfs, NormalizedRootfs, RootfsLimits};
 
+pub(crate) use node_plan::CONTENT_MEDIA_TYPE;
+pub(crate) use tree_manifest::MEDIA_TYPE as TREE_MEDIA_TYPE;
+
 /// Converts verified OCI layers into one deterministic logical rootfs tree artifact.
 ///
 /// # Errors
