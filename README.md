@@ -46,7 +46,6 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Compare Docker, Apple VMs, and Linux KVM honestly | [Local sandbox reality](docs/architecture/local-sandbox-reality.md) |
 | Implement or continue the Linux custom VMM | [Linux VMM handoff](docs/operations/linux-vmm-handoff.md) |
 | Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
-| Review what Declaw publicly discloses and what remains unknown | [Declaw research](docs/research/declaw.md) |
 | Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
 | Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
 | Understand performance measurements and claims | [Benchmark contract](docs/benchmark-contract.md) |
