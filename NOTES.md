@@ -1,5 +1,11 @@
 # Notes
 
+## 2026-08-29 - Custom VMM research is sequenced by a decision map
+
+The custom VMM work now uses `docs/research/vmm-decision-map.md` as its canonical dependency graph.
+Resolved architecture decisions remain linked to their ADRs and architecture assets, while unresolved Linux work is split into focused research or prototype tickets.
+The frontier begins with the exact x86_64 machine contract, minimal device surface, and deterministic Generation compiler before snapshot, guest integration, network, disk, allocator, backend wiring, and fleet work.
+
 ## 2026-08-29 - Docker is the first local development backend
 
 The first working local SOMA lifecycle uses Docker Desktop's Linux ARM64 engine on macOS.

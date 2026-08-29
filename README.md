@@ -34,6 +34,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 Start with the [architecture diagrams](docs/architecture/diagrams.md) for the complete flow or use the [SOMA glossary](GLOSSARY.md) to connect terminology across OCI, virtualization, security, and performance.
 Read [Local sandbox reality](docs/architecture/local-sandbox-reality.md) for the exact distinction between SOMA configuration, Docker containers, Apple VMs, and the future Linux custom VMM.
 Linux implementation work should start with the [custom VMM handoff](docs/operations/linux-vmm-handoff.md).
+The [custom VMM decision map](docs/research/vmm-decision-map.md) sequences the remaining research and implementation work by dependency.
 
 > [!WARNING]
 > SOMA is alpha software and is not safe for untrusted production workloads.

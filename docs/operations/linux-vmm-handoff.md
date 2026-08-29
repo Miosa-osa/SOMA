@@ -1,6 +1,7 @@
 # Linux custom VMM handoff
 
 This is the handoff for continuing SOMA's custom Rust VMM on a Linux host.
+Use the [custom VMM decision map](../research/vmm-decision-map.md) as the canonical dependency order for research and implementation tickets.
 
 ## Current repository state
 
