@@ -8,7 +8,7 @@ This document assigns responsibilities and dependency direction for the initial 
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains eleven implemented crates:
+The current workspace contains twelve implemented crates:
 
 ```text
 crates/
@@ -22,10 +22,12 @@ crates/
   soma-macos/
   soma-mcp/
   soma-netd/
+
+  soma-storage/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a command-line adapter, and a bounded stdio MCP adapter.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a command-line adapter, and a bounded stdio MCP adapter.
 It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, VMM-side launch-page injection, in-VM guest-agent evidence, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
@@ -52,6 +54,8 @@ human, agent, SDK, or operator
     soma-guest       independent protocol foundation
     soma-guest-agent -> soma-guest
     soma-netd        -> soma request types, soma-guest launch identity
+
+    soma-storage     independent Linux storage mechanism
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -65,6 +69,8 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
+
+`soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the future host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 No provider adapter belongs below the public Machine seam.
 The current low-level crates remain independent while `soma-vmm` uses an unavailable production platform adapter.
@@ -757,6 +763,56 @@ Portable modules compile and test on every workspace target; every kernel mechan
 Live proofs run only inside the pinned privileged Ubuntu 24.04 container through `scripts/netd-live-tests.sh` and are retained in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md).
 Proxy attachment, ingress forwarding, peer authentication of the daemon socket, IPv6 guest addressing, and the libnftnl replacement for the `nft` subprocess remain later slices.
 
+## `soma-storage` responsibilities
+
+`soma-storage` owns the writable disk-head mechanism from the XFS reflink profile: published overlay size classes, exact-class admission, sterile ext4 template creation with a pinned `mke2fs` invocation, descriptor-only `FICLONE` head creation with extent-sharing verification, the two-clone isolation conformance proof, single-use head ownership, durable release, directory reconciliation, and the retained clone-latency matrix.
+It is a mechanism crate for the future host allocator and prepared-worker path; it does not decide placement, quotas, or tenant policy and does not touch a Machine.
+
+The source map is:
+
+```text
+crates/soma-storage/src/
+  lib.rs
+  head.rs
+  profile.rs
+  profile/dimensions.rs
+  profile/naming.rs
+  profile/storage.rs
+  profile/storage/probe.rs
+  profile/tests.rs
+  template.rs
+  template/recipe.rs
+  template/tests.rs
+  fiemap.rs
+  clone.rs
+  verify.rs
+  lease.rs
+  release.rs
+  reconcile.rs
+  bench.rs
+  bench/burst.rs
+  bench/cell.rs
+  bench/identity.rs
+  bench/matrix.rs
+  bench/pressure.rs
+  bench/record.rs
+  bench/report.rs
+  bench/stats.rs
+  bench/templates.rs
+  bin/soma-storage-bench.rs
+crates/soma-storage/tests/xfs_live.rs
+```
+
+`profile.rs` and its submodules own validated class dimensions, the published `OverlayClass` with its template digest and free-space evidence, the exact-size `ClassCatalog`, and the Linux `StorageProfile::probe` that proves XFS plus a working tiny `FICLONE` before any head is created; a mount without reflink is a typed rejection, never a copy fallback.
+`template.rs` runs the pinned `mke2fs` and `e2fsck -fn` subprocesses with a closed environment, a private `mke2fs.conf`, derived UUID and hash seed, and a fixed creation time, then records the SHA-256 of the template; it is operator-side build work and the only module that accepts a template store path.
+`clone.rs` takes a template descriptor, a capability directory descriptor, and a validated `HeadName`, creates the destination exclusively, issues `FICLONE`, syncs the file and the directory, proves the apparent size and that every extent is shared through `fiemap.rs`, and transfers the open descriptor; any later failure unlinks the destination and the VMM never learns a path.
+`verify.rs` is the conformance proof: two clones of one template take different written patterns, `fdatasync` forces allocation, the template and each peer read back unchanged, and copy-on-write is observed through the extent flags; it also proves that exhausting a clone yields `ENOSPC` with the template digest intact.
+`lease.rs` is the single-use ledger: one token owns at most one head in its lifetime and one name is assigned at most once; `release.rs` unlinks under the directory descriptor, syncs the directory, and only then retires the token; `reconcile.rs` reports consistent, orphan, missing, and foreign entries and never deletes.
+`bench/` and the `soma-storage-bench` executable run the matrix from the research note with raw JSONL samples and nearest-rank percentiles, and `scripts/xfs-reflink-bench.sh` runs it inside a privileged pinned Ubuntu 24.04 container on a loop-backed XFS image because the development host root filesystem has no reflink support.
+
+Every Linux module keeps its `unsafe` blocks behind `SAFETY` comments; the portable types, ledger, release, and reconciliation compile and test on every workspace target.
+The retained loop-backed result in `docs/evidence` is a decision input for prepared sterile heads, not a raw-partition or production-host latency claim.
+
 ## Future node and protocol modules
 
 ADR 0006 reserves `soma-host` for node-local admission, unassigned single-use worker allocation, sterile resource bundles, descriptor transfer, and asynchronous replenishment.
@@ -801,6 +857,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 - Target-only dependencies remain gated so Linux, macOS, and Windows clients can compile without another host's runtime.
 - `soma-kvm` never depends on `soma-vmm`.
 - `soma-guest-agent` depends only on `soma-guest`, `zeroize`, and `libc`, and never on a host, VMM, or provider crate.
+- `soma-storage` depends only on `serde`, `serde_json`, `sha2`, `cap-std`, and Linux `libc`, and never on a VMM, KVM, guest, or provider crate.
 - Provider adapters and ComputeSDK integration never become dependencies of either VMM crate.
 
 ## Review checklist

@@ -10,6 +10,7 @@ members = [
     "crates/soma-macos",
     "crates/soma-mcp",
     "crates/soma-netd",
+    "crates/soma-storage",
     "crates/soma-vmm",
 ]
 resolver = "3"

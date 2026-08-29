@@ -1237,6 +1237,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-storage"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "cap-std",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "soma-vmm"
 version = "1.0.0-alpha.1"
 
