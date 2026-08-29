@@ -4,63 +4,87 @@ use soma::GenerationId;
 
 use super::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
-    error::{CompileError, CompilePhase},
+    candidate::{CandidateId, Certification, PublishedCandidate, PublishedGeneration},
+    error::{CompileError, CompileErrorKind, CompilePhase},
     identity::derive_generation_id,
-    manifest::{GenerationManifest, MAX_MANIFEST_BYTES, SnapshotBinding, encode_manifest},
+    manifest::{
+        GenerationManifest, MAX_MANIFEST_BYTES, SnapshotBinding, encode_candidate, encode_manifest,
+    },
 };
 use crate::{ImportPhase, store::Store};
 
-/// One Generation manifest that has been published under its identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PublishedGeneration {
-    /// The identity derived from the exact manifest bytes.
-    pub id: GenerationId,
-    /// The manifest artifact descriptor.
-    pub descriptor: ArtifactDescriptor,
-    /// The decoded manifest that was published.
-    pub manifest: GenerationManifest,
-}
-
-impl PublishedGeneration {
-    /// Returns whether a certified snapshot is bound; without one the Generation cannot Launch.
-    #[must_use]
-    pub const fn launchable(&self) -> bool {
-        matches!(self.manifest.snapshot, SnapshotBinding::Captured { .. })
-    }
-}
-
-/// Publishes the canonical manifest as the last object of a Generation build.
+/// Publishes the Candidate manifest as the last object of a Generation build.
 ///
 /// Every artifact the manifest references must already be published.
-/// The manifest object is linked into the store with create-exclusive semantics; an existing
+/// The Candidate object is linked into the store with create-exclusive semantics; an existing
 /// object with the same digest is re-verified byte for byte rather than overwritten, so two
 /// concurrent identical builds converge and a differing byte sequence fails closed.
-pub(crate) fn publish_manifest(
+/// Nothing published here is resolvable as a Generation: the bytes carry the Candidate magic
+/// and the identity is a `CandidateId`.
+pub(crate) fn publish_candidate(
     store: &Store,
     manifest: &GenerationManifest,
+) -> Result<PublishedCandidate, CompileError> {
+    if manifest.snapshot != SnapshotBinding::Absent {
+        return Err(CompileError::new(
+            CompilePhase::Publish,
+            CompileErrorKind::InvalidInput,
+        ));
+    }
+    let bytes = encode_candidate(manifest)?;
+    let descriptor = link_last(store, manifest, &bytes, ArtifactRole::GenerationCandidate)?;
+    Ok(PublishedCandidate {
+        id: CandidateId::of(&bytes),
+        descriptor,
+        manifest: manifest.clone(),
+    })
+}
+
+/// Publishes the ready Generation manifest as the last object of a certified build.
+///
+/// Only [`Certification`] reaches this function, so no failure before certification can leave a
+/// ready Generation identity in the store.
+pub(crate) fn publish_certified(
+    store: &Store,
+    manifest: &GenerationManifest,
+    certification: &Certification,
 ) -> Result<PublishedGeneration, CompileError> {
-    let bytes = encode_manifest(manifest)?;
+    let mut ready = manifest.clone();
+    ready.snapshot = certification.snapshot();
+    if ready.snapshot == SnapshotBinding::Absent {
+        return Err(CompileError::new(
+            CompilePhase::Publish,
+            CompileErrorKind::InvalidInput,
+        ));
+    }
+    let bytes = encode_manifest(&ready)?;
+    let descriptor = link_last(store, &ready, &bytes, ArtifactRole::GenerationManifest)?;
+    Ok(PublishedGeneration {
+        id: derive_generation_id(&bytes),
+        descriptor,
+        manifest: ready,
+    })
+}
+
+/// Requires every referenced artifact to exist, then links the manifest object last.
+fn link_last(
+    store: &Store,
+    manifest: &GenerationManifest,
+    bytes: &[u8],
+    role: ArtifactRole,
+) -> Result<ArtifactDescriptor, CompileError> {
     for descriptor in manifest.descriptors() {
         store
             .open_blob(&descriptor.to_store_descriptor(), ImportPhase::Publish)
             .map_err(|error| CompileError::from_import(CompilePhase::Publish, error))?;
     }
     let stored = store
-        .put_bytes(
-            &bytes,
-            ArtifactRole::GenerationManifest.media_type(),
-            ImportPhase::Publish,
-        )
+        .put_bytes(bytes, role.media_type(), ImportPhase::Publish)
         .map_err(|error| CompileError::from_import(CompilePhase::Publish, error))?;
-    let descriptor = ArtifactDescriptor {
-        role: ArtifactRole::GenerationManifest,
+    Ok(ArtifactDescriptor {
+        role,
         digest: Sha256Digest::from_oci(&stored.digest),
         size: stored.size,
-    };
-    Ok(PublishedGeneration {
-        id: derive_generation_id(&bytes),
-        descriptor,
-        manifest: manifest.clone(),
     })
 }
 
@@ -83,35 +107,41 @@ pub fn open_artifact(store: &Path, descriptor: &ArtifactDescriptor) -> Result<Fi
         .map_err(|error| CompileError::from_import(CompilePhase::VerifyGeneration, error))?;
     let length = file
         .metadata()
-        .map_err(|_| {
-            CompileError::new(
-                CompilePhase::VerifyGeneration,
-                super::error::CompileErrorKind::Io,
-            )
-        })?
+        .map_err(|_| CompileError::new(CompilePhase::VerifyGeneration, CompileErrorKind::Io))?
         .len();
     if length != descriptor.size {
         return Err(CompileError::new(
             CompilePhase::VerifyGeneration,
-            super::error::CompileErrorKind::Integrity,
+            CompileErrorKind::Integrity,
         ));
     }
     Ok(file.into_std())
 }
 
-/// Reads and digest-checks the manifest bytes named by a `GenerationId`.
+/// Reads and digest-checks the ready manifest bytes named by a `GenerationId`.
 pub(crate) fn read_manifest_bytes(
     store: &Store,
     id: &GenerationId,
 ) -> Result<Vec<u8>, CompileError> {
-    let digest = super::identity::generation_id_digest(id);
+    read_object(store, super::identity::generation_id_digest(id))
+}
+
+/// Reads and digest-checks the Candidate manifest bytes named by a `CandidateId`.
+pub(crate) fn read_candidate_bytes(
+    store: &Store,
+    id: &CandidateId,
+) -> Result<Vec<u8>, CompileError> {
+    read_object(store, id.digest())
+}
+
+fn read_object(store: &Store, digest: Sha256Digest) -> Result<Vec<u8>, CompileError> {
     let bytes = store
         .read_bounded(&digest.to_oci(), MAX_MANIFEST_BYTES, ImportPhase::Publish)
         .map_err(|error| CompileError::from_import(CompilePhase::VerifyGeneration, error))?;
     if Sha256Digest::of(&bytes) != digest {
         return Err(CompileError::new(
             CompilePhase::VerifyGeneration,
-            super::error::CompileErrorKind::Integrity,
+            CompileErrorKind::Integrity,
         ));
     }
     Ok(bytes)

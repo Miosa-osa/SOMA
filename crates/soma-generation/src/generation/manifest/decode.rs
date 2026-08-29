@@ -1,7 +1,7 @@
 use soma::OciPlatform;
 
 use super::{
-    GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MAGIC,
+    CANDIDATE_MAGIC, GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MAGIC,
     MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE, MAX_MANIFEST_BYTES, MAX_SHORT_STRING, MAX_TEMPLATES,
     MachineShapeBinding, OverlayBinding, OverlayTemplate, RepairBinding, RootBinding,
     SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
@@ -21,6 +21,19 @@ use crate::generation::{
 /// unsupported platform, trailing bytes, or truncation, [`CompileErrorKind::Unsupported`] for
 /// another schema version, and [`CompileErrorKind::LimitExceeded`] for oversized fields.
 pub fn decode_manifest(bytes: &[u8]) -> Result<GenerationManifest, CompileError> {
+    decode_with(bytes, *MAGIC)
+}
+
+/// Decodes canonical `SOMACAN` Candidate bytes; a ready manifest is rejected here.
+///
+/// # Errors
+///
+/// Returns the same classifications as [`decode_manifest`].
+pub fn decode_candidate(bytes: &[u8]) -> Result<GenerationManifest, CompileError> {
+    decode_with(bytes, *CANDIDATE_MAGIC)
+}
+
+fn decode_with(bytes: &[u8], magic: [u8; 8]) -> Result<GenerationManifest, CompileError> {
     if bytes.len() > MAX_MANIFEST_BYTES {
         return Err(limit());
     }
@@ -29,7 +42,7 @@ pub fn decode_manifest(bytes: &[u8]) -> Result<GenerationManifest, CompileError>
         offset: 0,
         seen: Vec::new(),
     };
-    if decoder.consume(8)? != MAGIC {
+    if decoder.consume(8)? != magic {
         return Err(invalid());
     }
     if decoder.u16()? != MANIFEST_SCHEMA_VERSION {

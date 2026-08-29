@@ -5,7 +5,7 @@ use std::{fs, thread, time::Duration};
 use soma::{MachineShape, OciImage};
 use soma_generation::{
     CompileErrorKind, CompilePhase, LifetimeLimits, SnapshotBinding, StartupBehavior,
-    TemplateImage, TemplateRevision, erofs::format_uuid, verify_generation,
+    TemplateImage, TemplateRevision, erofs::format_uuid, verify_candidate,
 };
 use support::{
     fixture_tree::{AGENT, digests, extraction_oracle, fixture_layers},
@@ -44,7 +44,7 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
     .unwrap();
     assert_eq!(digests(&compiled_a), digests(&compiled_b));
     assert_eq!(compiled_a.id(), compiled_b.id());
-    assert_eq!(compiled_a.published.manifest, compiled_b.published.manifest);
+    assert_eq!(compiled_a.candidate.manifest, compiled_b.candidate.manifest);
 
     let reversed: Vec<Vec<u8>> = layers.iter().rev().cloned().collect();
     let (fixture_c, normalized_c) = normalize_layers_for(&reversed, "amd64");
@@ -63,12 +63,12 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
     );
     assert_eq!(digests(&compiled_a), digests(&compiled_c));
     assert_ne!(
-        compiled_a.published.manifest.source.oci_manifest_digest,
-        compiled_c.published.manifest.source.oci_manifest_digest
+        compiled_a.candidate.manifest.source.oci_manifest_digest,
+        compiled_c.candidate.manifest.source.oci_manifest_digest
     );
-    let mut same_source = compiled_c.published.manifest.clone();
-    same_source.source = compiled_a.published.manifest.source.clone();
-    assert_eq!(same_source, compiled_a.published.manifest);
+    let mut same_source = compiled_c.candidate.manifest.clone();
+    same_source.source = compiled_a.candidate.manifest.source.clone();
+    assert_eq!(same_source, compiled_a.candidate.manifest);
     assert_ne!(compiled_a.id(), compiled_c.id());
 
     assert_eq!(compiled_a.erofs.formatter_revision, "1.9.4");
@@ -80,11 +80,11 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
     );
     assert_eq!(
         compiled_a.erofs.uuid,
-        compiled_a.published.manifest.root.uuid
+        compiled_a.candidate.manifest.root.uuid
     );
-    assert!(!compiled_a.published.launchable());
+    assert!(!compiled_a.candidate.launchable());
     assert_eq!(
-        compiled_a.published.manifest.snapshot,
+        compiled_a.candidate.manifest.snapshot,
         SnapshotBinding::Absent
     );
     assert_eq!(compiled_a.overlay.classes.len(), 2);
@@ -99,10 +99,10 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
         digests(&compiled_a)
     );
 
-    let verified = verify_generation(&fixture_a.store, compiled_a.id(), &test_profile()).unwrap();
-    assert!(!verified.launchable);
+    let verified = verify_candidate(&fixture_a.store, compiled_a.id(), &test_profile()).unwrap();
     assert_eq!(verified.artifacts_verified, 6);
-    assert_eq!(verified.manifest, compiled_a.published.manifest);
+    assert_eq!(verified.manifest, compiled_a.candidate.manifest);
+    assert!(!compiled_a.candidate.launchable());
     extraction_oracle(&tools.0, &fixture_a.store, &compiled_a);
 }
 
@@ -126,8 +126,8 @@ fn changing_bound_inputs_changes_identity_while_unchanged_artifacts_stay_equal()
     .unwrap();
     assert_ne!(other_agent.id(), baseline.id());
     assert_eq!(
-        other_agent.published.manifest.root.descriptor,
-        baseline.published.manifest.root.descriptor
+        other_agent.candidate.manifest.root.descriptor,
+        baseline.candidate.manifest.root.descriptor
     );
 
     layers.push(tar(&[TarEntry::file(b"etc/extra", b"more")]));
@@ -143,12 +143,12 @@ fn changing_bound_inputs_changes_identity_while_unchanged_artifacts_stay_equal()
     .unwrap();
     assert_ne!(changed.id(), baseline.id());
     assert_ne!(
-        changed.published.manifest.root.descriptor.digest,
-        baseline.published.manifest.root.descriptor.digest
+        changed.candidate.manifest.root.descriptor.digest,
+        baseline.candidate.manifest.root.descriptor.digest
     );
     assert_eq!(
-        changed.published.manifest.overlay.templates,
-        baseline.published.manifest.overlay.templates
+        changed.candidate.manifest.overlay.templates,
+        baseline.candidate.manifest.overlay.templates
     );
 }
 
@@ -162,7 +162,7 @@ fn tampered_artifact_fails_cross_artifact_verification() {
     let compiled = compile(&normalized, &fixture.store, scratch.path(), &tools, AGENT).unwrap();
     let blob = fixture.store.join("v1/blobs/sha256").join(
         &compiled
-            .published
+            .candidate
             .manifest
             .initramfs
             .descriptor
@@ -175,7 +175,7 @@ fn tampered_artifact_fails_cross_artifact_verification() {
     let mut bytes = fs::read(&blob).unwrap();
     bytes[200] ^= 0xff;
     fs::write(&blob, bytes).unwrap();
-    let error = verify_generation(&fixture.store, compiled.id(), &test_profile()).unwrap_err();
+    let error = verify_candidate(&fixture.store, compiled.id(), &test_profile()).unwrap_err();
     assert_eq!(error.phase(), CompilePhase::VerifyGeneration);
     assert!(matches!(
         error.kind(),

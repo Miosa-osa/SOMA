@@ -1,13 +1,9 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
-
-use soma::{GenerationId, WorkloadIdentity};
+use soma::WorkloadIdentity;
 
 use super::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
+    candidate::CandidateId,
+    candidate::PublishedCandidate,
     contracts,
     erofs::{self, ErofsEvidence, derive_root_uuid},
     error::{CompileError, CompileErrorKind, CompilePhase},
@@ -19,18 +15,19 @@ use super::{
         SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
     },
     overlay::{self, OverlayEvidence},
-    publish::{PublishedGeneration, publish_manifest},
+    publish::publish_candidate,
     request::{CompileGeneration, CompilerProfile},
     template::{NetworkPolicyClass, TemplateRevision, network_policy_digest},
 };
 use crate::{ImportPhase, store::Store};
 
 mod inputs;
+mod staging;
 
 use inputs::{MachineArtifacts, read_tree};
+use staging::Staging;
 
 const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
-static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// Typed state for the compiler phases that have no implementation yet.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,10 +39,13 @@ pub enum UnimplementedPhase {
 }
 
 /// The outcome of one Generation compilation without boot, capture, or certification.
+///
+/// The result is a Candidate, not a Generation: nothing published here is resolvable for
+/// Launch, and only `certify_candidate` followed by `promote_candidate` can make it one.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CompiledGeneration {
-    /// The published manifest and its identity.
-    pub published: PublishedGeneration,
+pub struct CompiledCandidate {
+    /// The published Candidate manifest and its Candidate identity.
+    pub candidate: PublishedCandidate,
     /// The verified kernel facts.
     pub kernel: VerifiedKernel,
     /// EROFS build evidence.
@@ -56,24 +56,27 @@ pub struct CompiledGeneration {
     pub unimplemented: [UnimplementedPhase; 2],
 }
 
-impl CompiledGeneration {
-    /// Returns the identity derived from the published manifest bytes.
+impl CompiledCandidate {
+    /// Returns the Candidate identity derived from the published Candidate manifest bytes.
     #[must_use]
-    pub const fn id(&self) -> &GenerationId {
-        &self.published.id
+    pub const fn id(&self) -> &CandidateId {
+        &self.candidate.id
     }
 }
 
 /// Compiles immutable machine artifacts from one Template revision and its verified normalized
-/// tree, then publishes the canonical manifest last.
+/// tree, then publishes the canonical Candidate manifest last.
+///
+/// No failure path and no success path of this function publishes a ready Generation: boot and
+/// capture, compatibility, security, and certification all remain ahead of that.
 ///
 /// # Errors
 ///
 /// Returns a redacted [`CompileError`] naming the phase and classification of the first failure.
-/// Failure leaves no discoverable Generation manifest.
+/// Failure leaves no discoverable Candidate or Generation manifest.
 pub fn compile_generation(
     request: CompileGeneration<'_>,
-) -> Result<CompiledGeneration, CompileError> {
+) -> Result<CompiledCandidate, CompileError> {
     let profile = request.profile;
     profile.validate()?;
     let workload = request.normalized.workload();
@@ -128,9 +131,9 @@ pub fn compile_generation(
         early_init_digest: machine.contents.early_init_digest,
     };
     let manifest = parts.build()?;
-    let published = publish_manifest(&store, &manifest)?;
-    Ok(CompiledGeneration {
-        published,
+    let candidate = publish_candidate(&store, &manifest)?;
+    Ok(CompiledCandidate {
+        candidate,
         kernel: machine.kernel,
         erofs: erofs_evidence,
         overlay: overlay_evidence,
@@ -271,24 +274,4 @@ fn store_bytes(
         digest: Sha256Digest::from_oci(&stored.digest),
         size: stored.size,
     })
-}
-
-struct Staging {
-    path: PathBuf,
-}
-
-impl Staging {
-    fn create(parent: &Path) -> Result<Self, CompileError> {
-        let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = parent.join(format!("soma-generation-{}-{sequence}", std::process::id()));
-        fs::create_dir(&path)
-            .map_err(|_| CompileError::new(CompilePhase::ResolveInputs, CompileErrorKind::Io))?;
-        Ok(Self { path })
-    }
-}
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
 }

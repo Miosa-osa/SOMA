@@ -4,19 +4,23 @@ use soma::GenerationId;
 
 use super::{
     artifacts::{ArtifactDescriptor, ArtifactRole},
-    contracts,
-    erofs::{self, derive_root_uuid},
+    candidate::CandidateId,
+    erofs::{self},
     erofs_reader::ErofsImage,
     erofs_verify::{RootExpectation, verify_root_image},
     error::{CompileError, CompileErrorKind, CompilePhase},
-    initramfs::{INITRAMFS_LAYOUT_VERSION, verify_initramfs},
-    kernel::{ELF_PVH_CONTRACT_VERSION, verify_kernel},
-    manifest::{GenerationManifest, SnapshotBinding, decode_manifest},
-    overlay::{OVERLAY_UUID_DERIVATION_VERSION, derive_overlay_hash_seed, derive_overlay_uuid},
-    publish::read_manifest_bytes,
+    initramfs::verify_initramfs,
+    kernel::verify_kernel,
+    manifest::{GenerationManifest, SnapshotBinding, decode_candidate, decode_manifest},
+    overlay::{derive_overlay_hash_seed, derive_overlay_uuid},
+    publish::{read_candidate_bytes, read_manifest_bytes},
     request::CompilerProfile,
 };
 use crate::{ImportPhase, normalize::TREE_MEDIA_TYPE, oci::Descriptor, store::Store};
+
+mod profile;
+
+use profile::require_profile;
 
 const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 const EXT4_MAGIC: u16 = 0xEF53;
@@ -32,6 +36,19 @@ pub struct VerifiedGeneration {
     pub artifacts_verified: u32,
     /// Whether a certified snapshot is bound; `false` means Launch must refuse it.
     pub launchable: bool,
+}
+
+/// One published Candidate whose manifest and every referenced artifact re-verified.
+///
+/// There is deliberately no `launchable` field: a Candidate is never launchable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VerifiedCandidate {
+    /// The verified Candidate identity.
+    pub id: CandidateId,
+    /// The decoded manifest.
+    pub manifest: GenerationManifest,
+    /// The number of artifact objects whose size and digest were re-checked.
+    pub artifacts_verified: u32,
 }
 
 /// Re-verifies a published Generation across all of its artifacts.
@@ -56,7 +73,56 @@ pub fn verify_generation(
     let store = Store::open(store).map_err(from_import)?;
     let bytes = read_manifest_bytes(&store, id)?;
     let manifest = decode_manifest(&bytes)?;
-    require_profile(&manifest, profile)?;
+    // The artifact walk runs before the snapshot decision so a tampered ready manifest is
+    // rejected on its content rather than on its shape alone.
+    let _artifacts_verified = verify_decoded(&store, &manifest, profile)?;
+    if manifest.snapshot == SnapshotBinding::Absent {
+        // Publishing a ready manifest requires the certification token, and that token carries
+        // the snapshot binding, so a ready manifest without one was never produced here.
+        return Err(integrity());
+    }
+    // Verifying a captured snapshot is phase 5 work. Until it exists no Generation can be
+    // reported launchable, so this resolution fails closed instead of guessing.
+    Err(CompileError::new(
+        CompilePhase::VerifyGeneration,
+        CompileErrorKind::Unimplemented,
+    ))
+}
+
+/// Re-verifies a published Candidate across all of its artifacts.
+///
+/// A Candidate is build-time state: this never reports launchability and never accepts a ready
+/// Generation manifest.
+///
+/// # Errors
+///
+/// Returns the first failing phase and kind.
+pub fn verify_candidate(
+    store: &Path,
+    id: &CandidateId,
+    profile: &CompilerProfile,
+) -> Result<VerifiedCandidate, CompileError> {
+    profile.validate()?;
+    let store = Store::open(store).map_err(from_import)?;
+    let bytes = read_candidate_bytes(&store, id)?;
+    let manifest = decode_candidate(&bytes)?;
+    if manifest.snapshot != SnapshotBinding::Absent {
+        return Err(integrity());
+    }
+    let verified = verify_decoded(&store, &manifest, profile)?;
+    Ok(VerifiedCandidate {
+        id: id.clone(),
+        manifest,
+        artifacts_verified: verified,
+    })
+}
+
+fn verify_decoded(
+    store: &Store,
+    manifest: &GenerationManifest,
+    profile: &CompilerProfile,
+) -> Result<u32, CompileError> {
+    require_profile(manifest, profile)?;
     let mut verified = 0_u32;
     for descriptor in manifest.descriptors() {
         store
@@ -68,17 +134,13 @@ pub fn verify_generation(
             .map_err(from_import)?;
         verified += 1;
     }
-    let kernel = read_artifact(
-        &store,
-        &manifest.kernel.descriptor,
-        profile.max_kernel_bytes,
-    )?;
+    let kernel = read_artifact(store, &manifest.kernel.descriptor, profile.max_kernel_bytes)?;
     let kernel = verify_kernel(&kernel)?;
     if kernel.digest != manifest.kernel.descriptor.digest {
         return Err(integrity());
     }
     let initramfs = read_artifact(
-        &store,
+        store,
         &manifest.initramfs.descriptor,
         profile.max_initramfs_bytes,
     )?;
@@ -129,57 +191,7 @@ pub fn verify_generation(
         file.read_exact(&mut superblock).map_err(|_| io_error())?;
         verify_ext4_superblock(&superblock[1024..], template.capacity)?;
     }
-    let launchable = match manifest.snapshot {
-        SnapshotBinding::Absent => false,
-        SnapshotBinding::Captured { .. } => {
-            return Err(CompileError::new(
-                CompilePhase::VerifyGeneration,
-                CompileErrorKind::Unimplemented,
-            ));
-        }
-    };
-    Ok(VerifiedGeneration {
-        id: id.clone(),
-        manifest,
-        artifacts_verified: verified,
-        launchable,
-    })
-}
-
-fn require_profile(
-    manifest: &GenerationManifest,
-    profile: &CompilerProfile,
-) -> Result<(), CompileError> {
-    let root_uuid = derive_root_uuid(&manifest.tree.digest);
-    let expected_features = super::overlay::overlay_feature_profile();
-    if manifest.compiler_policy_version != profile.policy_version
-        || manifest.root.uuid != root_uuid
-        || manifest.root.format_profile != erofs::EROFS_FORMAT_PROFILE
-        || manifest.root.formatter_revision != erofs::EROFS_UTILS_REVISION
-        || manifest.overlay.uuid_derivation_version != OVERLAY_UUID_DERIVATION_VERSION
-        || manifest.overlay.feature_profile != expected_features
-        || manifest.overlay.templates.is_empty()
-        || manifest.kernel.elf_pvh_contract_version != ELF_PVH_CONTRACT_VERSION
-        || manifest.kernel.cpu_architecture != "x86_64"
-        || manifest.initramfs.layout_version != INITRAMFS_LAYOUT_VERSION
-        || manifest.command_line != contracts::kernel_command_line_v1()
-        || manifest.machine_contract != contracts::machine_contract_v1()
-        || manifest.device_contract != contracts::device_contract_v1()
-        || manifest.cpu_template != contracts::cpu_template_v1()
-        || manifest.repair.readiness_command_digest != contracts::readiness_command_digest()
-        || manifest.shape.vcpu_count != 1
-        || !manifest
-            .overlay
-            .templates
-            .iter()
-            .any(|template| template.capacity == manifest.template.writable_storage_bytes)
-    {
-        return Err(CompileError::new(
-            CompilePhase::VerifyGeneration,
-            CompileErrorKind::Unsupported,
-        ));
-    }
-    Ok(())
+    Ok(verified)
 }
 
 fn verify_ext4_superblock(raw: &[u8], capacity: u64) -> Result<(), CompileError> {

@@ -5,6 +5,9 @@
 //! are represented only as typed absent state in the manifest and result types.
 
 mod artifacts;
+mod candidate;
+/// The gate between a Candidate and a certified, ready Generation.
+pub mod certify;
 mod compile;
 /// Canonical contract statements, their digests, and the fixed kernel command line.
 pub mod contracts;
@@ -34,7 +37,9 @@ mod tree_decoder;
 mod verify;
 
 pub use artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest};
-pub use compile::{CompiledGeneration, compile_generation};
+pub use candidate::{CandidateId, Certification, PublishedCandidate, PublishedGeneration};
+pub use certify::{certify_candidate, promote_candidate};
+pub use compile::{CompiledCandidate, compile_generation};
 pub use contracts::ContractBinding;
 pub use erofs::ErofsEvidence;
 pub use error::{CompileError, CompileErrorKind, CompilePhase};
@@ -45,8 +50,8 @@ pub use kernel_config::{VerifiedKernelConfig, verify_kernel_config};
 pub use manifest::{GenerationManifest, SnapshotBinding};
 pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
-pub use publish::{PublishedGeneration, open_artifact};
+pub use publish::open_artifact;
 pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use tree_decoder::TreeBounds;
-pub use verify::{VerifiedGeneration, verify_generation};
+pub use verify::{VerifiedCandidate, VerifiedGeneration, verify_candidate, verify_generation};

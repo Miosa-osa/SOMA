@@ -9,7 +9,7 @@ mod support;
 use std::{convert::Infallible, fs, path::Path};
 
 use soma_generation::{
-    CompiledGeneration, SnapshotBinding, generation_manifest::encode_manifest,
+    CompiledCandidate, SnapshotBinding, generation_manifest::encode_manifest,
     initramfs::INITRAMFS_LAYOUT_VERSION,
 };
 use soma_guest::{HostLaunchMaterial, LAUNCH_PAGE_SIZE, LaunchNetwork};
@@ -50,7 +50,7 @@ fn launch_page(generation: [u8; 32], instance: [u8; 16]) -> [u8; LAUNCH_PAGE_SIZ
     page
 }
 
-fn generation_bytes(compiled: &CompiledGeneration) -> [u8; 32] {
+fn generation_bytes(compiled: &CompiledCandidate) -> [u8; 32] {
     let hex = compiled
         .id()
         .as_str()
@@ -95,7 +95,7 @@ fn no_published_generation_artifact_contains_instance_launch_secrets() {
     let scratch = tempfile::tempdir().unwrap();
     let compiled = compile(&normalized, &fixture.store, scratch.path(), &tools, AGENT)
         .expect("compiled Generation");
-    let manifest = &compiled.published.manifest;
+    let manifest = &compiled.candidate.manifest;
     assert_eq!(manifest.snapshot, SnapshotBinding::Absent);
     assert_eq!(manifest.initramfs.layout_version, INITRAMFS_LAYOUT_VERSION);
 

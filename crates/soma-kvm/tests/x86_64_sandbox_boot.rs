@@ -96,7 +96,7 @@ mod live {
             &inputs,
             &scratch,
         );
-        let manifest = &compiled.generation.published.manifest;
+        let manifest = &compiled.generation.candidate.manifest;
         eprintln!(
             "[{name}] generation_id={} tree={} entries={} root={} ({} bytes) initramfs={} agent={} kernel={} overlay_template={} ({} bytes)",
             compiled.generation.id().as_str(),

@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path, process::Command};
 
-use soma_generation::{ArtifactRole, CompiledGeneration};
+use soma_generation::{ArtifactRole, CompiledCandidate};
 
 use super::rootfs::{TarEntry, local_pax_layer, tar};
 
@@ -45,8 +45,8 @@ pub fn fixture_layers() -> Vec<Vec<u8>> {
     vec![first, second, third]
 }
 
-pub fn extraction_oracle(erofs_tools: &Path, store: &Path, compiled: &CompiledGeneration) {
-    let root = &compiled.published.manifest.root.descriptor;
+pub fn extraction_oracle(erofs_tools: &Path, store: &Path, compiled: &CompiledCandidate) {
+    let root = &compiled.candidate.manifest.root.descriptor;
     let image = store
         .join("v1/blobs/sha256")
         .join(&root.digest.to_string()[7..]);
@@ -90,9 +90,9 @@ pub fn walk_count(path: &Path) -> u64 {
     count
 }
 
-pub fn digests(compiled: &CompiledGeneration) -> Vec<(ArtifactRole, String, u64)> {
+pub fn digests(compiled: &CompiledCandidate) -> Vec<(ArtifactRole, String, u64)> {
     compiled
-        .published
+        .candidate
         .manifest
         .descriptors()
         .iter()

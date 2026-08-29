@@ -14,7 +14,7 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use soma::{MachineShape, OciImage, OciPlatform};
 use soma_generation::{
-    BuildHost, CompileGeneration, CompiledGeneration, CompilerProfile, ImportLimits,
+    BuildHost, CompileGeneration, CompiledCandidate, CompilerProfile, ImportLimits,
     ImportOciLayout, LifetimeLimits, MachineInputs, NormalizeOciRootfs, NormalizedRootfs,
     OciSelection, RootfsLimits, StartupBehavior, TemplateImage, TemplateRevision, Toolchain,
     compile_generation, import_oci_layout, normalize_oci_rootfs,
@@ -127,10 +127,10 @@ pub fn oci_layout(image: &str, override_var: &str, dir: &Path) -> Option<PathBuf
     Some(layout)
 }
 
-/// One compiled Generation and the store that holds its artifacts.
+/// One compiled Generation Candidate and the store that holds its artifacts.
 pub struct Compiled {
     pub store: PathBuf,
-    pub generation: CompiledGeneration,
+    pub generation: CompiledCandidate,
     pub normalized: NormalizedRootfs,
 }
 

@@ -22,8 +22,10 @@ pub enum ArtifactRole {
     MemorySnapshot,
     /// Canonical snapshot state manifest.
     StateManifest,
-    /// Canonical `SOMAGEN` Generation manifest.
+    /// Canonical `SOMAGEN` Generation manifest of a certified, ready Generation.
     GenerationManifest,
+    /// Canonical `SOMACAN` manifest of a Generation Candidate, which is never launchable.
+    GenerationCandidate,
 }
 
 impl ArtifactRole {
@@ -40,6 +42,7 @@ impl ArtifactRole {
             Self::MemorySnapshot => "application/vnd.soma.snapshot.memory.v1",
             Self::StateManifest => "application/vnd.soma.snapshot.state.v1",
             Self::GenerationManifest => "application/vnd.soma.generation.v1",
+            Self::GenerationCandidate => "application/vnd.soma.generation-candidate.v1",
         }
     }
 
@@ -54,6 +57,7 @@ impl ArtifactRole {
             Self::MemorySnapshot => 7,
             Self::StateManifest => 8,
             Self::GenerationManifest => 9,
+            Self::GenerationCandidate => 10,
         }
     }
 
@@ -68,6 +72,7 @@ impl ArtifactRole {
             7 => Self::MemorySnapshot,
             8 => Self::StateManifest,
             9 => Self::GenerationManifest,
+            10 => Self::GenerationCandidate,
             _ => return None,
         })
     }

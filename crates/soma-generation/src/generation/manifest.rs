@@ -8,15 +8,20 @@ use super::{
 
 mod decode;
 mod encode;
+#[cfg(test)]
+pub(crate) mod fixture;
 
-pub use decode::decode_manifest;
-pub use encode::encode_manifest;
+pub use decode::{decode_candidate, decode_manifest};
+pub use encode::{encode_candidate, encode_manifest};
 
 /// The `SOMAGEN` manifest schema version produced and accepted by this module.
 pub const MANIFEST_SCHEMA_VERSION: u16 = 1;
 /// Maximum encoded manifest size.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
+/// Magic of a certified, ready Generation manifest.
 pub(crate) const MAGIC: &[u8; 8] = b"SOMAGEN\0";
+/// Magic of a Generation Candidate manifest, which no Launch resolution accepts.
+pub(crate) const CANDIDATE_MAGIC: &[u8; 8] = b"SOMACAN\0";
 pub(crate) const MAX_SHORT_STRING: usize = 256;
 pub(crate) const MAX_COMMAND_LINE: usize = 8191;
 pub(crate) const MAX_TEMPLATES: usize = 16;

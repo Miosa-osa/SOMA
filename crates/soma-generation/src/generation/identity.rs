@@ -21,10 +21,19 @@ pub fn derive_generation_id(manifest_bytes: &[u8]) -> GenerationId {
 /// Returns the raw digest that a `GenerationId` names.
 #[must_use]
 pub fn generation_id_digest(id: &GenerationId) -> Sha256Digest {
-    let hex = id
-        .as_str()
+    digest_of(id.as_str())
+}
+
+/// Returns the raw digest a canonical `sha256:` identity names.
+///
+/// # Panics
+///
+/// Cannot panic for a `GenerationId` or `CandidateId`, whose constructors already enforce the
+/// exact `sha256:` plus 64 lowercase hex form.
+pub(super) fn digest_of(identity: &str) -> Sha256Digest {
+    let hex = identity
         .strip_prefix("sha256:")
-        .expect("GenerationId always has a sha256 prefix");
+        .expect("a content identity always has a sha256 prefix");
     let mut value = [0_u8; 32];
     for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         value[index] = (nibble(pair[0]) << 4) | nibble(pair[1]);

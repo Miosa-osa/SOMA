@@ -27,9 +27,13 @@ pub enum CompilePhase {
     VerifyInitramfs,
     /// Canonical `SOMAGEN` manifest encoding or decoding.
     EncodeManifest,
+    /// Guest boot, authenticated repair, quiesce, and snapshot capture.
+    BootAndCapture,
+    /// Host-profile compatibility, security, and certification gates.
+    Certify,
     /// Atomic-last content-store publication.
     Publish,
-    /// Cross-artifact verification of a published Generation.
+    /// Cross-artifact verification of a published Candidate or Generation.
     VerifyGeneration,
 }
 

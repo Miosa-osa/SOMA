@@ -7,7 +7,7 @@ use std::{
 
 use soma::{MachineShape, OciImage};
 use soma_generation::{
-    BuildHost, CompileGeneration, CompiledGeneration, CompilerProfile, LifetimeLimits,
+    BuildHost, CompileGeneration, CompiledCandidate, CompilerProfile, LifetimeLimits,
     MachineInputs, NormalizedRootfs, StartupBehavior, TemplateImage, TemplateRevision, Toolchain,
     compile_generation,
 };
@@ -179,7 +179,7 @@ pub fn compile(
     scratch: &Path,
     tools: &(PathBuf, PathBuf),
     agent: &[u8],
-) -> Result<CompiledGeneration, soma_generation::CompileError> {
+) -> Result<CompiledCandidate, soma_generation::CompileError> {
     compile_with_template(
         &test_template(normalized, 3600),
         normalized,
@@ -198,7 +198,7 @@ pub fn compile_with_template(
     scratch: &Path,
     tools: &(PathBuf, PathBuf),
     agent: &[u8],
-) -> Result<CompiledGeneration, soma_generation::CompileError> {
+) -> Result<CompiledCandidate, soma_generation::CompileError> {
     let staging = scratch.join("staging");
     fs::create_dir_all(&staging).unwrap();
     let inputs = write_machine_inputs(&scratch.join("inputs"), agent);

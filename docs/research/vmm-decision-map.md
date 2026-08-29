@@ -106,7 +106,8 @@ Version 1 compiles the normalized OCI tree into a deterministic immutable EROFS 
 The pipeline consumes a canonical Template Lock that has already resolved the exact OCI platform digest, modules, command, declared launch inputs, policy ceiling, resource defaults, lifecycle defaults, and provenance.
 Kernel, deterministic initramfs, guest agent, root and overlay artifacts, machine and device contracts, CPU template, command line, guest protocols, snapshot state, repair policy, builder provenance, and artifact descriptors are bound into one canonical `GenerationId` manifest.
 The retained prototype proved byte-identical EROFS output from logically identical trees created in opposite insertion orders and recorded the populated-ext4 reproducibility failure that caused the two-device correction.
-Status: phases 1 through 3 and 6 are implemented, and phase 4 is partial, because a compiled Generation now cold-boots on KVM to an authenticated guest agent and one bounded command, while the quiesce, memory capture, certification, and launchable-manifest steps remain unimplemented.
+Status: phases 1 through 3 and 6 are implemented, and phase 4 is partial, because a compiled Generation Candidate now cold-boots on KVM to an authenticated guest agent and one bounded command, while the quiesce, memory capture, certification, and ready-manifest steps remain unimplemented.
+ADR 0026 keeps that incomplete work in the Candidate namespace, so nothing resolvable as a Generation exists yet.
 Under ADR 0024 no responder key belongs in the manifest at all: the Generation carries public identity only and the Host generates fresh responder authority for every Instance.
 See [Generation compiler](generation-compiler.md), [ADR 0018](../adr/0018-content-addressed-oci-import.md), [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md), and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 

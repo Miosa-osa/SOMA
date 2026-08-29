@@ -1,6 +1,7 @@
 use super::{
-    GenerationManifest, MAGIC, MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE, MAX_MANIFEST_BYTES,
-    MAX_SHORT_STRING, MAX_TEMPLATES, OverlayBinding, RootBinding, SnapshotBinding, TemplateBinding,
+    CANDIDATE_MAGIC, GenerationManifest, MAGIC, MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE,
+    MAX_MANIFEST_BYTES, MAX_SHORT_STRING, MAX_TEMPLATES, OverlayBinding, RootBinding,
+    SnapshotBinding, TemplateBinding,
 };
 use crate::generation::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
@@ -20,8 +21,24 @@ use crate::generation::{
 /// exceeds its bound, and [`CompileErrorKind::InvalidInput`] for an unsupported platform, a
 /// descriptor with the wrong role, or overlay templates that are not strictly ascending.
 pub fn encode_manifest(manifest: &GenerationManifest) -> Result<Vec<u8>, CompileError> {
+    encode_with(manifest, *MAGIC)
+}
+
+/// Encodes the same canonical fields under the Candidate magic.
+///
+/// The bytes are deliberately not decodable as a ready Generation manifest, so a Candidate can
+/// never be resolved for Launch even when its digest is known.
+///
+/// # Errors
+///
+/// Returns the same classifications as [`encode_manifest`].
+pub fn encode_candidate(manifest: &GenerationManifest) -> Result<Vec<u8>, CompileError> {
+    encode_with(manifest, *CANDIDATE_MAGIC)
+}
+
+fn encode_with(manifest: &GenerationManifest, magic: [u8; 8]) -> Result<Vec<u8>, CompileError> {
     let mut encoder = Encoder { bytes: Vec::new() };
-    encoder.bytes(MAGIC)?;
+    encoder.bytes(&magic)?;
     encoder.u16(MANIFEST_SCHEMA_VERSION)?;
     encoder.u16(manifest.compiler_policy_version)?;
 
