@@ -4,12 +4,18 @@
 //! It is a transport and queue implementation with tests, not a working
 //! device, bus, or sandbox.
 
+pub mod bus;
 pub mod device;
 pub mod devices;
 pub mod guest_memory;
 pub mod queue;
 pub mod transport;
 
+pub use bus::slots::{SlotRestoreError, SlotSnapshot};
+pub use bus::{
+    BusConfigError, BusDevices, BusEvent, BusViolation, FIRST_GSI, IrqSink, MMIO_WINDOW_BASE,
+    MmioBus, NotifySource, SLOT_COUNT, Slot, kernel_command_line,
+};
 pub use device::{
     ActivateError, ConfigAccessError, DeviceStateError, MAX_CONFIG_LEN, MAX_QUEUES, SOMA_VENDOR_ID,
     VIRTIO_F_VERSION_1, VirtioDevice,
