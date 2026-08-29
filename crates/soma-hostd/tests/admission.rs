@@ -129,6 +129,39 @@ fn reservations_admit_exactly_the_memory_bound_then_reject_with_evidence() {
 }
 
 #[test]
+fn the_estimate_names_the_burst_limit_a_reservation_will_actually_hit() {
+    for (row_bound, gate, adjust) in [
+        (10_u64, Gate::RunnableVcpus, 0_u64),
+        (10, Gate::DirtyMemory, 5 * GIB),
+    ] {
+        let mut profile = atlas_profile(16, 2, 32, 4).into_profile();
+        if adjust == 0 {
+            profile.limits.runnable_vcpus = 10;
+        } else {
+            profile.limits.dirty_memory_bytes = adjust;
+        }
+        let profile = certified(profile);
+        let row = estimate(&profile, &atlas_valid()).expect("estimate");
+        assert_eq!(row.safe_count, row_bound, "{gate:?}");
+        assert_eq!(row.binding, gate);
+        let admission = Admission::new(profile, SingleNode);
+        let mut held = Vec::new();
+        let rejection = loop {
+            match admission.reserve(&atlas_valid()) {
+                Ok(reservation) => held.push(reservation),
+                Err(rejection) => break rejection,
+            }
+        };
+        assert_eq!(
+            u64::try_from(held.len()).expect("count"),
+            row_bound,
+            "the estimate and the admitted count agree"
+        );
+        assert_eq!(rejection.gate, gate);
+    }
+}
+
+#[test]
 fn measured_overhead_inputs_are_labelled() {
     assert!(
         MeasuredOverhead::ATLAS_PLACEHOLDER

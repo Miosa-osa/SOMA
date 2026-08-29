@@ -1,5 +1,6 @@
 //! The capacity equation of the visual atlas: the safe count of one uniform shape is the
-//! minimum over every independent limit.
+//! minimum over every independent limit, including the section 14 burst limits that
+//! [`Admission::reserve`] enforces, so the estimate and the admitted count agree.
 
 use crate::{CapacityRejection, CertifiedProfile, Demand, Gate, MemoryClass, ValidShape};
 
@@ -20,6 +21,12 @@ pub struct CapacityEstimate {
     pub process: u64,
     /// Operator resident limit.
     pub operator: u64,
+    /// Runnable vCPU burst bound.
+    pub runnable: u64,
+    /// Private dirty memory burst bound.
+    pub dirty: u64,
+    /// Concurrent Launch bound.
+    pub launches: u64,
     /// The minimum.
     pub safe_count: u64,
     /// The first gate that produced the minimum.
@@ -61,6 +68,12 @@ pub fn estimate(
         demand.descriptors,
     ));
     let operator = u64::from(profile.limits.resident_instances);
+    let runnable = divide(
+        u64::from(profile.limits.runnable_vcpus),
+        demand.runnable_vcpus,
+    );
+    let dirty = divide(profile.limits.dirty_memory_bytes, demand.dirty_bytes);
+    let launches = u64::from(profile.limits.concurrent_launches);
     let bounds = [
         (Gate::CpuUnits, cpu_overcommitted),
         (Gate::GuaranteedMemory, memory),
@@ -68,6 +81,9 @@ pub fn estimate(
         (Gate::NetworkInventory, network),
         (Gate::ProcessLimit, process),
         (Gate::OperatorSafetyLimit, operator),
+        (Gate::RunnableVcpus, runnable),
+        (Gate::DirtyMemory, dirty),
+        (Gate::ConcurrentLaunches, launches),
     ];
     let (binding, safe_count) = bounds
         .iter()
@@ -82,6 +98,9 @@ pub fn estimate(
         network,
         process,
         operator,
+        runnable,
+        dirty,
+        launches,
         safe_count,
         binding: if matches!(shape.memory_class, MemoryClass::Elastic { .. })
             && binding == Gate::GuaranteedMemory
