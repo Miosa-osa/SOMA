@@ -625,11 +625,11 @@ The public results are `ImportedOci`, `NormalizedRootfs`, and `CompiledGeneratio
 `CompiledGeneration` carries a published manifest, its `GenerationId`, formatter and checker evidence, and the typed list of unimplemented phases; `verify_generation` re-verifies every artifact and reports the Generation as not launchable while the snapshot binding is absent.
 `NormalizedRootfs` identifies a canonical logical tree and retains its import provenance, but it is not a mounted or bootable root filesystem, `GenerationId`, kernel, guest agent, snapshot, compatibility certificate, or sandbox.
 Registry authentication, tag resolution, host extraction, disk-filesystem compilation, signing, SBOM generation, reachability garbage collection, internal store quotas, and certification remain outside this slice.
-The crate depends on the portable `soma` identity types and must not depend on `soma-vmm`, a provider adapter, or launch-time policy.
+The crate depends on the portable `soma` identity types and must not depend on `soma-vmm`, a provider adapter, or launch-time policy; its tests additionally depend on `soma-template` so `tests/template_boundary.rs` proves that the `TemplateRevision` view builds this crate's revision and records where the two contracts disagree.
 
 ## `soma-template` responsibilities
 
-`soma-template` is the Template compiler slice accepted by ADR 0022 and sequenced as tickets T1 through T5 of the [Template implementation map](../research/template-implementation-map.md).
+`soma-template` is the first slice of the Template compiler accepted by ADR 0022, covering tickets T1 through T5 of the [Template implementation map](../research/template-implementation-map.md) in part; the open T1 through T5 deliverables are listed below with T6 through T18.
 It parses one `soma.template/v1alpha1` TOML document with unknown-field and unknown-schema rejection, resolves a flat ordered module list plus transitive requirements from a bounded in-memory registry of data-defined modules, composes exclusive ownership, sealed environment values, and one default command, validates the ten rejection classes from the template system design against a policy ceiling, Backend capabilities, an `OciResolver`, and a `FilesystemOracle`, and emits the canonical `SOMALOCK` version 1 lock whose SHA-256 is the `LockId`.
 Every rejection names the module and the exact dotted field responsible.
 The `TemplateRevision` view projects a lock onto the input contract of the Generation compiler and fails closed where the portable network contract cannot yet state the locked envelope.
@@ -640,6 +640,7 @@ The source map is:
 crates/soma-template/src/
   lib.rs
   compose.rs
+  compose/digest.rs
   compose/graph.rs
   error.rs
   identity.rs
@@ -647,6 +648,7 @@ crates/soma-template/src/
   lock/decode.rs
   lock/encode.rs
   lock/fields.rs
+  lock/verify.rs
   module.rs
   module/builtin.rs
   module/digest.rs
@@ -662,12 +664,12 @@ crates/soma-template/src/
   schema.rs
   schema/choice.rs
   schema/command.rs
-  schema/digest.rs
   schema/parse.rs
   schema/reader.rs
   validate.rs
   validate/backend.rs
   validate/checks.rs
+  validate/cidr.rs
   validate/contract.rs
   validate/network.rs
   validate/policy.rs
@@ -679,11 +681,15 @@ crates/soma-template/tests/
   lock_golden.rs
   lock_hostile.rs
   lock_identity.rs
+  lock_shapes.rs
   modules.rs
+  network_shapes.rs
   parse.rs
   parse_hostile.rs
   rejections_graph.rs
   rejections_policy.rs
+  rejections_secrets.rs
+  rejections_targets.rs
   rejections_values.rs
   revision.rs
   support/mod.rs
@@ -692,16 +698,17 @@ crates/soma-template/tests/
 ```
 
 `lib.rs` is the export map only.
-`schema.rs` and its submodules own the document model: `schema/reader.rs` is the claim-tracking table reader whose `finish` reports the first unclaimed key with its full path, `schema/parse.rs` maps tables to typed fields with bounds only, `schema/choice.rs` holds the closed choice sets with their stable wire discriminants, `schema/command.rs` is the bounded default command, and `schema/digest.rs` is the content projection that binds the logical selection after defaults and network normalization.
+`schema.rs` and its submodules own the document model: `schema/reader.rs` is the claim-tracking table reader whose `finish` reports the first unclaimed key with its full path, `schema/parse.rs` maps tables to typed fields with bounds only, `schema/choice.rs` holds the closed choice sets with their stable wire discriminants, and `schema/command.rs` is the bounded default command; unknown keys are rejected during parsing, before validation, with a missing or mistyped required field of the same table reported first.
 `module.rs` and its submodules own the common module contract: `module/spec.rs` is the data contract and its builder, `module/reference.rs` parses `soma://<kind>/<name>@<version>`, `module/path.rs` validates guest paths and environment names, `module/registry.rs` is the bounded lookup seam a later content-addressed store implements, `module/builtin.rs` holds the four example modules as data, and `module/digest.rs` is the canonical module encoding whose SHA-256 enters the lock.
-`compose.rs` and `compose/graph.rs` own deterministic ordering with cycle, unpinned-input, unknown-module, and duplicate detection, then exclusive-field, owned-path, sealed-environment, and default-command conflict rules.
-`validate.rs` and its submodules run the fixed-order checks: `validate/checks.rs` for platforms, resources, lifecycle, command shape, module values, and the executable check, `validate/contract.rs` for environment, secret, and required-environment contracts, `validate/network.rs` for envelope normalization and ceiling comparison including domain-pattern and CIDR containment, `validate/policy.rs` for the `PolicyCeiling` input, `validate/backend.rs` for `BackendCapabilities`, `validate/secret.rs` for conservative secret-literal detection, and `validate/syntax.rs` for domain, CIDR, user, mode, path, port, and timeout shapes.
+`compose.rs` and `compose/graph.rs` own deterministic ordering with cycle, unpinned-input, unknown-module, and duplicate detection, then exclusive-field, owned-path, sealed-environment, and default-command conflict rules, and `compose/digest.rs` is the content digest of the composed selection that the lock binds and `TemplateRevision::with_provenance` recomputes.
+`validate.rs` and its submodules run the fixed-order checks: `validate/checks.rs` for platforms, resources, lifecycle, command shape, module values, and the executable check, `validate/contract.rs` for environment, secret, exclusive delivery-target, and required-environment contracts, `validate/network.rs` for envelope normalization and ceiling comparison including domain-pattern and CIDR containment, `validate/cidr.rs` for canonical CIDR text and containment, `validate/policy.rs` for the `PolicyCeiling` input, `validate/backend.rs` for `BackendCapabilities`, `validate/secret.rs` for conservative secret-literal detection over every bound literal, and `validate/syntax.rs` for domain, CIDR, user, mode, path, port, and timeout shapes.
 `resolve.rs` owns the `OciResolver` seam, the deterministic `TestResolver`, and the `resolve` entry point that composes, pins, validates, and assembles the lock.
-`lock.rs` documents the fixed field order, `lock/encode.rs` and `lock/decode.rs` are the canonical encoder and the hostile bounded decoder, `lock/fields.rs` holds the typed locked records, `identity.rs` is `LockId`, `wire.rs` is the shared big-endian primitive layer, and `rejection.rs` is the typed rejection vocabulary with its class mapping and display.
+`lock.rs` documents the fixed field order, `lock/encode.rs` and `lock/decode.rs` are the canonical encoder and the hostile bounded decoder, `lock/verify.rs` re-applies the validator's shape rules to every decoded record, `lock/fields.rs` holds the typed locked records, `identity.rs` is `LockId`, `wire.rs` is the shared big-endian primitive layer, and `rejection.rs` is the typed rejection vocabulary with its class mapping and display.
 `revision.rs` carries the documented field-by-field mapping onto `soma_generation::generation::template::TemplateRevision`, and `revision/network.rs` is the exact envelope-to-`NetworkPolicy` projection.
 
 The crate depends on `soma`, `toml`, and `sha2` only.
-It does not pull an OCI registry, inspect a normalized rootfs, plan a build, construct a Generation, publish anything, or hold a secret value; the resolver and oracle are seams with deterministic test implementations, and the lock records secret references, delivery, and scope only.
+It does not pull an OCI registry, inspect a normalized rootfs, plan a build, construct a Generation, publish anything, or hold a resolved secret value; the resolver and oracle are seams with deterministic test implementations, and the lock records secret references, delivery, and scope only.
+Within tickets T1 through T5 the multi-workload golden corpus (T1), module resolution from a content-addressed store (T2), the user, port, process-name, and mount-destination conflict fields and the field-origin `explain` result (T3), the proof that a Launch override narrows but cannot widen the locked ceiling (T4), and the workspace binding (T5) remain open alongside T6 through T18.
 
 ## `soma-guest` responsibilities
 

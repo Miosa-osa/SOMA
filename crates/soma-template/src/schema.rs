@@ -1,8 +1,10 @@
 //! The `soma.template/v1alpha1` document model.
 //!
 //! The document is authored as TOML.
-//! Unknown fields and unknown schema versions are rejected before any other rule runs, so
-//! a field name typo can never silently disable a policy.
+//! An unsupported schema version is rejected before any other rule, and unknown fields are
+//! rejected during parsing, before any validation rule runs, so a field name typo can never
+//! silently disable a policy; within one table a missing or mistyped required field is
+//! reported before an unknown key.
 //!
 //! Field notes that go beyond the minimum example in the template system design:
 //!
@@ -12,6 +14,10 @@
 //! - `[[secrets]] scope` is required for `file` and `egress-proxy` delivery, and defaults to
 //!   the secret name for `environment` delivery; `mode` applies only to `file` delivery.
 //! - `[[environment]]` entries carry either a literal `value` or `required = true`.
+//! - `[resources]` carries vCPUs, memory, and writable storage only; the process count, open
+//!   file, and output limits of the design are not yet accepted.
+//! - `[network]` carries egress, domain and CIDR destinations, and ingress only; DNS
+//!   behavior, protocols, and ports are not yet accepted.
 //!
 //! A document has no content digest of its own: the digest bound into a lock is computed
 //! from the composed selection, so the authored spelling of one selection never splits it.

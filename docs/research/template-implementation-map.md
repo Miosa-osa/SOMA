@@ -195,6 +195,11 @@ T5 + T9 + T10 + T11 + T12 + T13 + T14
                             +--> T18 end-to-end performance evidence
 ```
 
+## Status on 2026-08-29
+
+`crates/soma-template` implements the first slice of T1 through T5: the bounded `v1alpha1` parser with unknown-field rejection and secret-literal detection (T1), immutable module identity, schema version, platform requirements, filesystem effects, command contributions, environment names, network requests, and readiness probes with cycle, unknown, duplicate, and unpinned-input rejection over an in-memory registry (T2), flat ordered composition with exclusive-field, owned-path, sealed-environment, default-command, and secret-delivery-target conflicts (T3), the policy ceiling and Backend capability intersection (T4), and the canonical `SOMALOCK` version 1 lock with its content identity (T5).
+Still open within those tickets: the multi-workload golden corpus (T1), module resolution from a content-addressed store (T2), user, port, process-name, and mount-destination conflict fields and the field-origin `explain` result (T3), the proof that a Launch override narrows but cannot widen the locked ceiling (T4), and the workspace binding (T5).
+
 ## T1: Versioned Template schema and parser
 
 Deliver one bounded parser for `soma.template/v1alpha1` with typed diagnostics, unknown-field rejection, input-size limits, path validation, and no secret literals.
