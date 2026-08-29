@@ -397,3 +397,4 @@ Capacity language now distinguishes cumulative creations, queued requests, resid
 
 The README header uses transparent brand assets committed under `assets/brand` rather than website app icons or remotely named wordmarks.
 Version and license metadata use plain linked text because split Shields labels visually compete with the SOMA identity and are not required for status signaling.
+The orb and MIOSA wordmark form one centered horizontal lockup rather than two vertically stacked marks.

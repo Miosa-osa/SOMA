@@ -1,15 +1,11 @@
 <p align="center">
   <a href="https://miosa.ai">
-    <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="96">
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://miosa.ai">
+    <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="72" align="middle">
+    &nbsp;&nbsp;&nbsp;
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
       <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
-      <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="300">
+      <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="260" align="middle">
     </picture>
   </a>
 </p>
