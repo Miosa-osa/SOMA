@@ -24,11 +24,12 @@ crates/
   soma-mcp/
   soma-netd/
   soma-storage/
+  soma-template/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a Linux x86_64 VMM jail launcher with retained privileged-container evidence that does not yet wrap the real VMM, a command-line adapter, and a bounded stdio MCP adapter.
-It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, VMM-side launch-page injection, in-VM guest-agent evidence, or remote transport.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that has not yet run inside a SOMA virtual machine, a Template compiler slice that parses one versioned Template document, composes built-in modules, applies the required validation classes, and emits a canonical Template Lock, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a Linux x86_64 VMM jail launcher with retained privileged-container evidence that does not yet wrap the real VMM, a command-line adapter, and a bounded stdio MCP adapter.
+It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, a Generation built from a Template Lock, VMM-side launch-page injection, in-VM guest-agent evidence, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
 The only initial production target is Ubuntu 24.04 x86_64 with KVM.
@@ -51,6 +52,7 @@ human, agent, SDK, or operator
     soma-vmm semantic lifecycle prototype
 
     soma-generation -> soma identity types
+    soma-template   -> soma request types
     soma-guest       independent protocol foundation
     soma-guest-agent -> soma-guest
     soma-netd        -> soma request types, soma-guest launch identity
@@ -67,6 +69,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-kvm` owns target-gated access to Linux x86_64 production KVM capabilities and Linux ARM64 development KVM capabilities.
 `soma-macos` owns the development-only Apple VM-per-OCI lifecycle adapter.
 `soma-generation` verifies bounded OCI image-layout input, publishes immutable imported and normalized logical-tree artifacts, and compiles uncertified x86_64 machine artifacts plus a `SOMAGEN` manifest without booting, capturing, or certifying a Generation.
+`soma-template` owns Template parsing, module composition, required validation, and canonical Template Lock construction in the preparation plane beside `soma-generation`; it depends on the portable `soma` request types only, and the Generation builder consumes its lock rather than the reverse.
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
 `soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
@@ -624,6 +627,82 @@ The public results are `ImportedOci`, `NormalizedRootfs`, and `CompiledGeneratio
 Registry authentication, tag resolution, host extraction, disk-filesystem compilation, signing, SBOM generation, reachability garbage collection, internal store quotas, and certification remain outside this slice.
 The crate depends on the portable `soma` identity types and must not depend on `soma-vmm`, a provider adapter, or launch-time policy.
 
+## `soma-template` responsibilities
+
+`soma-template` is the Template compiler slice accepted by ADR 0022 and sequenced as tickets T1 through T5 of the [Template implementation map](../research/template-implementation-map.md).
+It parses one `soma.template/v1alpha1` TOML document with unknown-field and unknown-schema rejection, resolves a flat ordered module list plus transitive requirements from a bounded in-memory registry of data-defined modules, composes exclusive ownership, sealed environment values, and one default command, validates the ten rejection classes from the template system design against a policy ceiling, Backend capabilities, an `OciResolver`, and a `FilesystemOracle`, and emits the canonical `SOMALOCK` version 1 lock whose SHA-256 is the `LockId`.
+Every rejection names the module and the exact dotted field responsible.
+The `TemplateRevision` view projects a lock onto the input contract of the Generation compiler and fails closed where the portable network contract cannot yet state the locked envelope.
+
+The source map is:
+
+```text
+crates/soma-template/src/
+  lib.rs
+  compose.rs
+  compose/graph.rs
+  error.rs
+  identity.rs
+  lock.rs
+  lock/decode.rs
+  lock/encode.rs
+  lock/fields.rs
+  module.rs
+  module/builtin.rs
+  module/digest.rs
+  module/path.rs
+  module/reference.rs
+  module/registry.rs
+  module/spec.rs
+  rejection.rs
+  rejection/display.rs
+  resolve.rs
+  revision.rs
+  revision/network.rs
+  schema.rs
+  schema/choice.rs
+  schema/command.rs
+  schema/digest.rs
+  schema/parse.rs
+  schema/reader.rs
+  validate.rs
+  validate/backend.rs
+  validate/checks.rs
+  validate/contract.rs
+  validate/network.rs
+  validate/policy.rs
+  validate/secret.rs
+  validate/syntax.rs
+  wire.rs
+crates/soma-template/tests/
+  composition.rs
+  lock_golden.rs
+  lock_hostile.rs
+  lock_identity.rs
+  modules.rs
+  parse.rs
+  parse_hostile.rs
+  rejections_graph.rs
+  rejections_policy.rs
+  rejections_values.rs
+  revision.rs
+  support/mod.rs
+  fixtures/example-lock.hex
+  fixtures/example-lock.id
+```
+
+`lib.rs` is the export map only.
+`schema.rs` and its submodules own the document model: `schema/reader.rs` is the claim-tracking table reader whose `finish` reports the first unclaimed key with its full path, `schema/parse.rs` maps tables to typed fields with bounds only, `schema/choice.rs` holds the closed choice sets with their stable wire discriminants, `schema/command.rs` is the bounded default command, and `schema/digest.rs` is the content projection that binds the logical selection after defaults and network normalization.
+`module.rs` and its submodules own the common module contract: `module/spec.rs` is the data contract and its builder, `module/reference.rs` parses `soma://<kind>/<name>@<version>`, `module/path.rs` validates guest paths and environment names, `module/registry.rs` is the bounded lookup seam a later content-addressed store implements, `module/builtin.rs` holds the four example modules as data, and `module/digest.rs` is the canonical module encoding whose SHA-256 enters the lock.
+`compose.rs` and `compose/graph.rs` own deterministic ordering with cycle, unpinned-input, unknown-module, and duplicate detection, then exclusive-field, owned-path, sealed-environment, and default-command conflict rules.
+`validate.rs` and its submodules run the fixed-order checks: `validate/checks.rs` for platforms, resources, lifecycle, command shape, module values, and the executable check, `validate/contract.rs` for environment, secret, and required-environment contracts, `validate/network.rs` for envelope normalization and ceiling comparison including domain-pattern and CIDR containment, `validate/policy.rs` for the `PolicyCeiling` input, `validate/backend.rs` for `BackendCapabilities`, `validate/secret.rs` for conservative secret-literal detection, and `validate/syntax.rs` for domain, CIDR, user, mode, path, port, and timeout shapes.
+`resolve.rs` owns the `OciResolver` seam, the deterministic `TestResolver`, and the `resolve` entry point that composes, pins, validates, and assembles the lock.
+`lock.rs` documents the fixed field order, `lock/encode.rs` and `lock/decode.rs` are the canonical encoder and the hostile bounded decoder, `lock/fields.rs` holds the typed locked records, `identity.rs` is `LockId`, `wire.rs` is the shared big-endian primitive layer, and `rejection.rs` is the typed rejection vocabulary with its class mapping and display.
+`revision.rs` carries the documented field-by-field mapping onto `soma_generation::generation::template::TemplateRevision`, and `revision/network.rs` is the exact envelope-to-`NetworkPolicy` projection.
+
+The crate depends on `soma`, `toml`, and `sha2` only.
+It does not pull an OCI registry, inspect a normalized rootfs, plan a build, construct a Generation, publish anything, or hold a secret value; the resolver and oracle are seams with deterministic test implementations, and the lock records secret references, delivery, and scope only.
+
 ## `soma-guest` responsibilities
 
 `soma-guest` owns a fixed portable Noise handshake profile, canonical session binding, bounded encrypted records, canonical application messages, one-use launch-page material, the authenticated control lifecycle, absolute transport deadlines, operation replay protection, redacted errors, and secret wrapper boundaries.
@@ -911,6 +990,8 @@ OCI acquisition, logical rootfs normalization, disk-filesystem compilation, gues
 The implemented importer, normalizer, and compiler establish bounded input, canonical logical-tree, immutable disk-artifact, and manifest-identity workflows but deliberately stop before guest boot, snapshot capture, and certification.
 Later Generation stages remain behind the same independently tested module rather than entering Launch latency.
 
+The Template compiler in `soma-template` resolves and locks every mutable or composable input before any of that work begins, and its lock is the only Template artifact the builder accepts.
+
 The Launch path consumes a certified immutable Generation.
 It never pulls an OCI image, resolves a mutable tag, installs packages, or hides a Generation build inside warm-start latency.
 
@@ -933,6 +1014,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 - `soma-guest-agent` depends only on `soma-guest`, `zeroize`, and `libc`, and never on a host, VMM, or provider crate.
 - `soma-storage` depends only on `serde`, `serde_json`, `sha2`, `cap-std`, and Linux `libc`, and never on a VMM, KVM, guest, or provider crate.
 - `soma-jail` depends only on `libc`, with `kvm-bindings` as a test-only structure-size oracle, and never on `soma-kvm`, `soma-vmm`, or a provider crate.
+- `soma-template` depends only on `soma`, `toml`, and `sha2`, and never on a VMM, Backend, registry client, or provider crate; the Generation builder consumes its lock rather than the reverse.
 - Provider adapters and ComputeSDK integration never become dependencies of either VMM crate.
 
 ## Review checklist

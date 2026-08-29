@@ -24,12 +24,13 @@ Direct registry dependencies are pinned exactly:
 | `semver` | 1.0.28 | Apple runtime compatibility policy |
 | `serde` | 1.0.229 | Stable structured values and receipts |
 | `serde_json` | 1.0.151 | CLI envelopes, Apple runtime documents, and test fixtures |
-| `sha2` | 0.11.0 | Canonical request fingerprints, network profile and intent digests, and sterile template digests |
+| `sha2` | 0.11.0 | Canonical request fingerprints, network profile and intent digests, sterile template digests, module and Template content digests, and the Template Lock identity |
 | `snow` | 0.10.0 | Fixed Noise guest-session handshake and transport implementation |
 | `tar` | 0.4.46 | Streaming structural validation of expanded OCI layer archives |
 | `tempfile` | 3.27.0 | Isolated OCI importer content stores and network broker ledger directories in tests |
 | `tokio` | 1.53.1 | Bounded asynchronous MCP runtime |
 | `tokio-util` | 0.7.19 | Length-delimited MCP framing |
+| `toml` | 1.1.4 | Parsing `soma.template/v1alpha1` documents into a generic table that the claim-tracking reader checks for unknown fields; only the `parse`, `serde`, and `std` features are enabled |
 | `uuid` | 1.26.0 | Fresh command-line operation and Instance identifiers |
 | `vm-fdt` | 0.3.0 | Generated ARM64 flattened device trees |
 | `vm-memory` | 0.18.0 | Checked guest-address and anonymous-memory mappings |
@@ -39,6 +40,9 @@ Direct registry dependencies are pinned exactly:
 
 The versions in this table were the latest registry releases returned by the project verification on the research date.
 That statement is historical evidence, not permission to assume they remain latest later.
+`toml` was added on 2026-08-29 for the Template compiler and pulls `serde_spanned`, `toml_datetime`, `toml_parser`, `toml_writer`, and `winnow` 1.0.4 plus the already present `indexmap` and `serde_core`, all under MIT or Apache-2.0 and passing `cargo deny`.
+`toml`, `toml_datetime`, `serde_spanned`, and `toml_writer` carry `forbid(unsafe_code)`, and `toml_parser` does so unless its `unsafe` feature is enabled, which SOMA does not enable; `winnow` 1.0.4 contains 24 `unsafe` blocks confined to its `stream` modules, which is the one reviewed unsafe surface this dependency adds.
+The Template document size is bounded to 256 KiB before the parser sees a byte, and hostile tests cover garbage, every prefix, single-byte mutations, and deep nesting.
 
 ## Selection rules
 

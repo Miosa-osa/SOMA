@@ -73,14 +73,14 @@ This makes the complete result inspectable and prevents distant parent changes f
 schema = "soma.template/v1alpha1"
 name = "claude-code-python"
 
-[workload]
-image = "python:3.12-slim"
-platform = "linux/amd64"
-
 modules = [
   "soma://agent/claude-code@1",
   "soma://tools/git@1",
 ]
+
+[workload]
+image = "python:3.12-slim"
+platform = "linux/amd64"
 
 [command]
 program = "claude"
@@ -114,6 +114,9 @@ delivery = "environment"
 
 Mutable tags such as `python:3.12-slim` are authoring conveniences only.
 Resolution must pin the exact OCI manifest digest and platform in the Template Lock before a Generation build begins.
+
+The root-level `modules` list precedes the first table header because TOML assigns every later key to the most recent table.
+Unknown fields and unknown `schema` values are rejected with the full dotted path of the offending key.
 
 ## Focused modules
 
@@ -282,6 +285,9 @@ The portable public surface may accept a Template reference for convenience, but
 The first implementation slice should compile one local Template document into a canonical Template Lock without building a VM.
 The next slice should resolve an OCI digest and validate one agent module.
 Later slices add deterministic filesystem construction, Generation certification, registry publication, and remote resolution.
+
+Status on 2026-08-29: the first slice is implemented in `crates/soma-template`, which parses one `soma.template/v1alpha1` document, composes the built-in `agent/claude-code@1`, `agent/osa@1`, `tools/git@1`, and `tools/shell@1` modules from an in-memory registry, applies every rejection class listed under required validation against a policy ceiling, Backend capabilities, an OCI resolver, and a filesystem oracle, and emits the canonical `SOMALOCK` version 1 lock whose SHA-256 is the `LockId`.
+The OCI resolver and filesystem oracle are seams with deterministic test implementations only; resolution against a registry, an oracle over a normalized rootfs, the deterministic build plan, Generation construction from a lock, registry publication, and remote resolution remain open under tickets T6 through T18 of the implementation map.
 
 ## Clean-room research note
 

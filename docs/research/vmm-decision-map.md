@@ -254,3 +254,22 @@ Resolved architecturally.
 The fleet uses bounded independent cells, capability-filtered placement, host-authoritative admission, idempotent operations, signed Generation distribution, reserved capacity, explicit overload, reconciliation, and staged scale gates up to 100,000 concurrent sandboxes.
 The fleet also distributes immutable Template Locks, Generation readiness and revocation state, compatibility evidence, leases, and cache intent while resolving aliases before placement and keeping mutable Template logic off Hosts.
 See [fleet control plane](fleet-control-plane.md).
+
+## #16: How does an authored Template become a canonical Template Lock?
+
+Blocked by: #6
+Type: Prototype
+
+### Question
+
+How is one versioned Template document parsed, composed with focused modules, validated against organization policy and Backend capability, and reduced to one deterministic content identity that the Generation compiler consumes?
+
+### Answer
+
+Slice 1 implemented; later slices open.
+`crates/soma-template` parses one `soma.template/v1alpha1` document with unknown-field and unknown-schema rejection, composes a flat ordered module list with transitive requirements from a bounded in-memory registry, rejects duplicate exclusive ownership, conflicting default commands, conflicting sealed environment values, cycles, unpinned inputs, and every other class listed under required validation with the module and field named, pins the OCI platform digest through an `OciResolver` seam, and emits the canonical `SOMALOCK` version 1 lock whose SHA-256 is the `LockId`.
+The lock binds the resolved digest and platform, ordered module identities and digests, the effective command, resources, normalized network envelope, lifecycle, environment contract, secret references, the policy ceiling, and the Backend capabilities; it excludes the Template name, description, mutable image text, and every secret value.
+Golden bytes, repeated-resolution equality, reordering and renaming identity tests, one test per rejection class, and lock prefix, bit-flip, and garbage sweeps are retained in the crate.
+The registry, resolver, and filesystem oracle are seams with deterministic test implementations only, so no registry pull, rootfs inspection, build plan, Generation construction from a lock, publication, or remote resolution has been implemented.
+Those are tickets T6 through T18 of the [Template implementation map](template-implementation-map.md), and #6 consumes the lock through the `TemplateRevision` view documented in the crate.
+See [SOMA template system](../architecture/template-system.md) and [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md).
