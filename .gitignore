@@ -9,5 +9,5 @@ __pycache__/
 *.profdata
 *.snap.new
 coverage/
-result/
+/result/
 benchmarks/results/

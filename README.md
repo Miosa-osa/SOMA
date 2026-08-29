@@ -1,9 +1,14 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
-    <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="340">
-  </picture>
+  <a href="https://miosa.ai">
+    <img alt="MIOSA orb" src="https://github.com/Miosa-osa/SOMA/raw/refs/heads/main/assets/brand/miosa-icon.png" width="96">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://miosa.ai">
+    <img alt="MIOSA" src="https://github.com/Miosa-osa/SOMA/raw/refs/heads/main/assets/brand/miosa-logo-black-text.png#gh-light-mode-only" width="300">
+    <img alt="MIOSA" src="https://github.com/Miosa-osa/SOMA/raw/refs/heads/main/assets/brand/miosa-logo-white-text.png#gh-dark-mode-only" width="300">
+  </a>
 </p>
 
 <h1 align="center">SOMA</h1>
@@ -14,8 +19,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Miosa-osa/SOMA/ci.yml?branch=main&style=flat-square&label=CI"></a>
-  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security" src="https://img.shields.io/github/actions/workflow/status/Miosa-osa/SOMA/security.yml?branch=main&style=flat-square&label=security"></a>
+  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security" src="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml/badge.svg?branch=main"></a>
   <a href="VERSION"><img alt="Version 1.0.0 alpha 1" src="https://img.shields.io/badge/version-1.0.0--alpha.1-7c3aed?style=flat-square"></a>
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square"></a>
 </p>
