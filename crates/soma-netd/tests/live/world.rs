@@ -135,6 +135,9 @@ impl Drop for World {
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }
+        // The uplink end lives in the host namespace; deleting it synchronously removes the
+        // pair instead of waiting for the kernel's deferred namespace teardown.
+        let _ = Command::new("ip").args(["link", "del", UPLINK]).output();
         let _ = Command::new("ip").args(["netns", "del", NAME]).output();
     }
 }
