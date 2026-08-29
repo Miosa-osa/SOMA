@@ -1,4 +1,8 @@
 //! Background construction threads bounded by the replenishment concurrency.
+//!
+//! Every pass reaps the threads that have finished before it starts more, so a long-lived
+//! daemon retains one join handle per construction still running and never one per
+//! construction ever started.
 
 use std::{
     sync::{Arc, atomic::Ordering},
@@ -20,6 +24,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
                 limited_by: Some(ReplenishLimit::Unreconciled),
             };
         }
+        self.reap_replenishment();
         let mut spawned = 0;
         let mut limited_by = None;
         let gate = self
@@ -57,6 +62,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             spawned += 1;
         }
         drop(gate);
+        self.reap_replenishment();
         ReplenishReport {
             deficit: self
                 .limits()
@@ -65,6 +71,38 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
             spawned,
             in_flight: self.in_flight.load(Ordering::Acquire),
             limited_by,
+        }
+    }
+
+    /// Construction threads this pool has started and not yet joined.
+    #[must_use]
+    pub fn pending_replenishment(&self) -> usize {
+        self.threads
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
+    }
+
+    /// Joins every construction thread that has already finished.
+    pub fn reap_replenishment(&self) {
+        let finished: Vec<_> = {
+            let mut threads = self
+                .threads
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut finished = Vec::new();
+            let mut index = 0;
+            while index < threads.len() {
+                if threads[index].is_finished() {
+                    finished.push(threads.swap_remove(index));
+                } else {
+                    index += 1;
+                }
+            }
+            finished
+        };
+        for handle in finished {
+            let _ = handle.join();
         }
     }
 
