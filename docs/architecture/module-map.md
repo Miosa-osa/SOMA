@@ -19,7 +19,7 @@ crates/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, an explicit-fixture ARM64 KVM cold-boot proof, a development-only macOS VM-per-OCI backend, a command-line adapter, and a bounded stdio MCP adapter.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a command-line adapter, and a bounded stdio MCP adapter.
 It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, Generation builder, authenticated guest agent, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
@@ -217,7 +217,7 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 ## `soma-kvm` responsibilities
 
 `soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
-Its current depth includes a checked capability probe plus an explicit-fixture ARM64 direct-boot path with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, serial emulation, and bounded teardown.
+Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
 
 The initial source map is:
@@ -227,10 +227,22 @@ crates/soma-kvm/src/
   lib.rs
   linux.rs
   arm64/
+    command.rs
+    control_uart.rs
+    control_uart/
+      tests.rs
+    executor.rs
     mod.rs
     fdt.rs
     gic.rs
     layout.rs
+    machine.rs
+    protocol.rs
+    protocol/
+      tests.rs
+    response.rs
+    response/
+      tests.rs
     uart.rs
     vcpu.rs
     watchdog.rs
@@ -239,6 +251,14 @@ crates/soma-kvm/src/
 crates/soma-kvm/tests/
   kvm_probe.rs
   fixtures/
+    arm64_agent.c
+    arm64_init.S
+    arm64_probe.c
+    arm64_process.c
+    arm64_process.h
+    arm64_process_test.c
+    build_command_initramfs.py
+    build_initramfs.py
 ```
 
 ### `soma-kvm/src/lib.rs`
@@ -250,9 +270,9 @@ It must remain free of provider policy and per-Machine public contract types.
 ### `linux.rs`
 
 `linux.rs` owns target-gated Linux KVM capability calls and architecture-specific probe requirements.
-The `arm64/` modules own only the explicit-fixture cold-boot proof accepted by ADR 0014.
-That abort-capable proof is crate-internal and reachable only from ignored live tests run in dedicated test processes.
-That proof does not imply authenticated readiness, OCI execution, networking, snapshot restore, isolation certification, or production-engine support.
+The `arm64/` modules own only the explicit-fixture cold-boot and challenge-bound command proofs accepted by ADRs 0014 and 0016.
+Those abort-capable proofs are crate-internal and reachable only from ignored live tests run in dedicated test processes.
+They do not imply authenticated readiness, OCI execution, networking, snapshot restore, isolation certification, or production-engine support.
 Every unsafe operation requires a `SAFETY` explanation and tests that exercise its complete invariant.
 Guest-controlled lengths, offsets, addresses, and queue data remain hostile even after KVM validates VM creation.
 

@@ -16,6 +16,7 @@ Exit evidence:
 - Monotonic milestones and typed recovery directives.
 - Deterministic tests proving Ready is impossible before the complete repair and readiness sequence.
 - Target-gated Ubuntu 24.04 x86_64 production KVM probe and Linux ARM64 development KVM probe.
+- Test-only Linux ARM64 direct-boot and challenge-bound command tracer bullets with retained teardown evidence.
 - Development-only Apple Silicon VM-per-OCI execution for local lifecycle conformance.
 - Portable Linux, macOS, and Windows client-library and command-line compilation gates.
 - One-shot and managed-Machine use cases with typed backend selection.

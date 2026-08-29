@@ -38,7 +38,7 @@ Start with the [architecture diagrams](docs/architecture/diagrams.md) for the co
 > [!WARNING]
 > SOMA is alpha software and is not safe for untrusted production workloads.
 > The Apple Silicon backend runs real development VMs today, while the production Ubuntu KVM engine remains under construction.
-> A dedicated ignored test can direct-boot a trusted ARM64 Linux fixture with bounded teardown, but that test-only path is not linked into the library, does not execute OCI workloads, and does not expose a sandbox lifecycle.
+> Dedicated ignored tests can direct-boot a trusted ARM64 Linux fixture, execute one challenge-bound direct command, and prove bounded teardown, but that test-only path is not linked into the library, does not execute OCI workloads, and does not expose a sandbox lifecycle.
 
 ## What makes SOMA different
 
@@ -106,10 +106,10 @@ An unsupported local engine returns an explicit error and never runs the workloa
 
 | Host | CLI, library, and MCP | Local sandbox engine | Current evidence |
 | --- | --- | --- | --- |
-| Apple Silicon macOS 26 | Native validation | Apple Container 1.3 VM per OCI sandbox | OCI development lifecycle plus [retained test-only nested ARM64 KVM cold-boot evidence](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) |
+| Apple Silicon macOS 26 | Native validation | Apple Container 1.3 VM per OCI sandbox | OCI development lifecycle plus retained test-only [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [challenge-bound command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) evidence |
 | Ubuntu 24.04 and 26.04 x86_64 | Native CI | KVM capability probe | Custom VMM lifecycle not implemented yet |
 | Windows Server 2025 x86_64 | Native CI | None | Portable client only |
-| Linux ARM64 | Native development validation | KVM capability probe | Explicit-fixture cold boot exists only as a dedicated ignored test, not a custom sandbox lifecycle |
+| Linux ARM64 | Native development validation | KVM capability probe | Explicit-fixture cold boot and direct command execution exist only as dedicated ignored tests, not a custom sandbox lifecycle |
 | Intel macOS, Windows ARM64 | Compile gate | None | Portable client only |
 
 Linux OCI guests are the first workload contract.
@@ -151,8 +151,9 @@ Every published result must retain raw samples, failures, cleanup outcomes, cach
 
 The source version is `1.0.0-alpha.1`.
 The first stable release will be `1.0.0` only after the custom Ubuntu 24.04 x86_64 KVM path can build an OCI-derived Generation and complete real launch, authenticated command readiness, execution, cleanup, isolation, and burst-performance gates.
-The current custom-VMM tracer bullet is the narrower test-only [ARM64 explicit-fixture cold-boot proof](docs/adr/0014-arm64-kvm-cold-boot-proof.md).
-Its [retained diagnostic result](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) is not a published performance benchmark, and the next implementation boundary is bounded guest command execution.
+The current custom-VMM tracer bullets are the test-only [ARM64 explicit-fixture cold-boot proof](docs/adr/0014-arm64-kvm-cold-boot-proof.md) and [challenge-bound guest-command proof](docs/adr/0016-challenge-bound-arm64-guest-command-proof.md).
+Their retained [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) results are diagnostic evidence, not published performance benchmarks.
+The next implementation boundary is an OCI-derived Generation with authenticated guest identity and control.
 
 The [roadmap](ROADMAP.md) lists the evidence required for each phase.
 The [competitor and prior-art ledger](COMPETITORS.md) separates primary-source facts, external claims, unknowns, transferable lessons, and measured results.
