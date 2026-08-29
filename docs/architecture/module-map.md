@@ -231,7 +231,7 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 `soma-kvm` is the target adapter for Ubuntu 24.04 x86_64 production KVM host access and Linux ARM64 development proofs.
 Its current depth includes a checked capability probe, an x86_64 machine that maps one private memory slot, enters one protected-mode vCPU, boots the pinned PVH kernel to a challenge-bound serial sentinel through a diagnostic 16550 model, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 Its current depth includes a checked capability probe plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
-It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/` that is exercised only by host-side tests and is not yet wired to an MMIO bus, KVM exit, device model, or event loop.
+It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/`, the five v1 device models under `virtio/devices/`, and the fixed five-slot MMIO bus under `virtio/bus.rs`, all exercised only by host-side tests against in-memory guest RAM and not yet wired to a KVM exit, ioeventfd, irqfd, event loop, or real guest.
 As real restore work arrives, the crate will own KVM VM creation, vCPU creation, memory-slot registration, register restoration, interrupt-controller state, clock state, and the target-specific execution loop.
 The `x86_64/` modules now also boot the pinned PVH kernel to a challenge-bound serial sentinel through an owned bounded ELF parser, a loader, a diagnostic 16550 model, and a checked port bus; the retained proof is [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md).
 It also owns the platform-neutral snapshot format v1 codec under `snapshot/`: the `SOMASNP` manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, per-device state, the memory-object descriptor, the fail-closed compatibility check, and the capture and restore ordering contracts.
@@ -275,9 +275,54 @@ crates/soma-kvm/src/
     watchdog.rs
   virtio/
     mod.rs
+    bus.rs
+    bus/
+      slots.rs
+      table.rs
+      tests.rs
     device.rs
     device/
       test_device.rs
+    devices/
+      mod.rs
+      harness.rs
+      segments.rs
+      service.rs
+      block.rs
+      block/
+        backend.rs
+        execute.rs
+        hostile_tests.rs
+        identity_tests.rs
+        request.rs
+        state.rs
+        tests.rs
+      net.rs
+      net/
+        backend.rs
+        frame.rs
+        hostile_tests.rs
+        rx.rs
+        state.rs
+        tests.rs
+      rng.rs
+      rng/
+        backend.rs
+        state.rs
+        tests.rs
+      vsock.rs
+      vsock/
+        connection.rs
+        credit.rs
+        guest_driver.rs
+        hostile_tests.rs
+        lifecycle_tests.rs
+        outbound.rs
+        packet.rs
+        rx.rs
+        state.rs
+        tests.rs
+        tx.rs
     guest_memory.rs
     guest_memory/
       tests.rs
@@ -399,9 +444,18 @@ Every read and write is range-checked against registered regions before any byte
 `queue.rs` owns one split virtqueue, while `queue/chain.rs` exposes `walk_chain` as a pure function over a table, head, size, and limits so a fuzz target can drive it directly.
 `queue/layout.rs` validates size, alignment, containment, and ring disjointness; `queue/state.rs` is the fixed-width snapshot record; `queue/violation.rs` is the typed rejection set with saturating counters.
 `transport.rs` owns the register file and reads, `transport/write.rs` owns driver writes and lifecycle enforcement, `transport/host.rs` owns device-thread completion and interrupt raising, and `transport/state.rs` owns the snapshot record and fail-closed restore.
-`device.rs` is the `VirtioDevice` seam that a block, network, vsock, or entropy model implements; the only implementation today is a crate-private echo test device.
+`device.rs` is the `VirtioDevice` seam that every device model implements; the crate-private echo test device still exercises the transport alone.
 
-The module does not implement an MMIO bus, ioeventfd or irqfd registration, a device backend, an event loop, or the versioned snapshot container, and passing its tests proves none of those.
+`devices/` holds the five v1 device models behind that seam, each as one parser over validated chains, one backend seam that accepts only validated operations, and one fixed little-endian identity record with a version byte.
+`devices/segments.rs` copies bytes between validated chain segments and host buffers through the checked guest-memory seam, and `devices/service.rs` is the budgeted loop that pops chains, hands them to a `ChainHandler`, publishes used lengths, skips hostile chains with a counter, and stops the device with `DEVICE_NEEDS_RESET` on a fault.
+`devices/block.rs` is virtio-blk for the immutable root and private overlay roles with a request parser in `block/request.rs`, execution in `block/execute.rs`, and the `BlockBackend` seam with a positional-I/O file backend in `block/backend.rs`.
+`devices/net.rs` is virtio-net with the all-zero 12-byte header check in `net/frame.rs`, the `NetBackend` seam with a preopened TAP backend and a shared-queue loopback in `net/backend.rs`, and buffer-first receive delivery in `net/rx.rs` behind a host-controlled link gate.
+`devices/vsock.rs` is virtio-vsock with header validation in `vsock/packet.rs`, checked credit accounting in `vsock/credit.rs`, the single-connection `HostEndpoint` in `vsock/connection.rs`, guest-to-host handling in `vsock/tx.rs`, packet selection in `vsock/outbound.rs`, and receive and event delivery in `vsock/rx.rs`.
+`devices/rng.rs` is virtio-rng with the `EntropyBackend` seam and the `/dev/urandom` source in `rng/backend.rs`.
+`bus.rs` is the checked interval dispatcher over the five transports; `bus/table.rs` is the single source of every address, GSI, device identifier, queue count, and the kernel command-line fragment, and `bus/slots.rs` routes notifications and inbound delivery per slot and captures or restores all five slots with device identity validated before transport state.
+The `IrqSink` and `NotifySource` traits are the seams the `x86_64` machine implements with irqfd and ioeventfd later.
+
+The module does not register an ioeventfd or irqfd, decode a KVM exit, run an event loop, own the versioned snapshot container, or talk to a real guest, and passing its tests proves none of those.
 
 ### `snapshot/`
 

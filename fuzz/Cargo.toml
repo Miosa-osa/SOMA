@@ -10,10 +10,18 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "=0.4.13"
 soma-guest = { path = "../crates/soma-guest" }
+soma-kvm = { path = "../crates/soma-kvm" }
 
 [[bin]]
 name = "application_codec"
 path = "fuzz_targets/application_codec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "virtio_device_parsers"
+path = "fuzz_targets/virtio_device_parsers.rs"
 test = false
 doc = false
 bench = false
