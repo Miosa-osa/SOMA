@@ -15,11 +15,12 @@ use crate::virtio::queue::chain::DescriptorChain;
 pub const VIRTIO_VSOCK_DEVICE_ID: u32 = 19;
 /// The well-known host context identifier.
 pub const HOST_CID: u64 = 2;
-/// The fixed SOMA control port the host endpoint accepts.
+/// The fixed SOMA control port the host endpoint accepts: `"SOMA"` as ASCII.
 ///
-/// No earlier branch fixed a value, so v1 selects 5001; the guest agent and
-/// Generation manifest must use the same constant.
-pub const SOMA_CONTROL_PORT: u32 = 5001;
+/// This is the same value as `soma_guest::CONTROL_VSOCK_PORT`; the two
+/// constants are one machine-contract field and must change together.
+/// `soma-kvm` restates the literal rather than depending on `soma-guest`.
+pub const SOMA_CONTROL_PORT: u32 = 0x534f_4d41;
 /// Header length.
 pub const VSOCK_HDR_LEN: usize = 44;
 /// Largest payload one packet may carry in either direction.
@@ -206,4 +207,34 @@ pub fn parse_tx<M: GuestMemory + ?Sized>(
         });
     }
     Ok(header)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_control_port_is_the_machine_contract_value_shared_with_the_guest() {
+        assert_eq!(SOMA_CONTROL_PORT, 0x534f_4d41);
+        assert_eq!(SOMA_CONTROL_PORT.to_be_bytes(), *b"SOMA");
+    }
+
+    #[test]
+    fn header_encoding_round_trips_every_field() {
+        let header = VsockHeader {
+            src_cid: 0x0102_0304_0506_0708,
+            dst_cid: HOST_CID,
+            src_port: 0x1111_2222,
+            dst_port: SOMA_CONTROL_PORT,
+            len: 7,
+            ty: VSOCK_TYPE_STREAM,
+            op: VSOCK_OP_RW,
+            flags: 3,
+            buf_alloc: 0xabcd,
+            fwd_cnt: 0xef01,
+        };
+        let raw = header.to_bytes();
+        assert_eq!(&raw[0..8], &0x0102_0304_0506_0708u64.to_le_bytes());
+        assert_eq!(VsockHeader::from_bytes(&raw), header);
+    }
 }
