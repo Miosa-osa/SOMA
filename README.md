@@ -155,6 +155,7 @@ The current custom-VMM tracer bullets are the test-only [ARM64 explicit-fixture 
 Their retained [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) results are diagnostic evidence, not published performance benchmarks.
 The workspace now also contains a bounded deterministic OCI-layout importer and a portable authenticated-session foundation.
 Those modules verify Generation inputs and protocol behavior, but they do not yet construct a bootable Generation, inject a fresh secret after snapshot restore, run the authenticated protocol inside a guest, or establish sandbox readiness.
+The retained [real Node 22 OCI-import verification](docs/evidence/2026-08-29-node22-oci-import.md) and [Apple hardware-VM one-shot validation](docs/evidence/2026-08-29-apple-node22-one-shot.md) document the exact current evidence and its nonclaims.
 The next implementation boundary is OCI root normalization plus a static Rust guest agent and snapshot-safe launch-secret injection, followed by real VMM wiring.
 
 The [roadmap](ROADMAP.md) lists the evidence required for each phase.
