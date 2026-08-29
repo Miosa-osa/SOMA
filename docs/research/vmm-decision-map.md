@@ -80,9 +80,11 @@ Which devices are required for immutable root storage, private writable state, n
 
 ### Answer
 
-Open.
-Produce `docs/research/minimal-device-surface.md` comparing virtio-mmio and PCI transport for x86_64 and selecting only the required block, net, vsock, rng, and control mechanisms.
-Every selected device must include queue bounds, interrupt behavior, hostile-input validation, snapshot state, and restore order.
+Resolved.
+Version 1 exposes exactly four modern virtio-mmio version 2 devices at fixed addresses with dedicated interrupts: one private-copy-on-write root block device, one network device, one vsock control device, and one entropy device.
+It uses split queues with fixed limits, explicit feature allowlists, ioeventfd notifications, irqfd interrupts, hostile descriptor validation, quiescent capture, and a fail-closed restore order.
+PCI, legacy virtio, hotplug, vhost, optional high-complexity features, and separate control or shutdown devices are excluded.
+See [minimal device surface](minimal-device-surface.md).
 
 ## #6: How is an OCI image turned into a bootable Generation?
 

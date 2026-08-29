@@ -1,5 +1,12 @@
 # Notes
 
+## 2026-08-29 - Minimal device surface uses fixed modern virtio-mmio
+
+Decision-map ticket #5 selects exactly four virtio-mmio version 2 devices for machine contract v1: a private-copy-on-write root block device, network, vsock control, and entropy.
+Each device has one fixed 4 KiB MMIO page above the 3 GiB RAM ceiling, one dedicated GSI, bounded split queues, and an explicit feature allowlist.
+PCI, legacy virtio, hotplug, vhost, packed queues, optional offloads, and separate control or shutdown devices remain outside version 1.
+Queue and device state are hostile input, transient I/O and authority never enter a snapshot, and restore attaches fresh disk, TAP, vsock, and entropy resources before vCPU resume.
+
 ## 2026-08-29 - x86_64 machine contract v1 uses PVH direct boot
 
 Decision-map ticket #4 selects a pinned uncompressed Linux ELF kernel carrying `XEN_ELFNOTE_PHYS32_ENTRY`.

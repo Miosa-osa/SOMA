@@ -4,6 +4,11 @@ This file records the primary sources that constrain SOMA's design.
 
 ## Kernel and virtualization interfaces
 
+- [Virtio 1.4 specification](https://docs.oasis-open.org/virtio/virtio/v1.4/virtio-v1.4.html) defines SOMA's modern MMIO transport, split queues, device lifecycle, block, network, vsock, and entropy contracts.
+- [Linux virtio-mmio driver](https://github.com/torvalds/linux/blob/master/drivers/virtio/virtio_mmio.c) defines command-line device discovery and modern transport negotiation.
+- [Linux kernel parameter reference](https://www.kernel.org/doc/html/latest/admin-guide/kernel-parameters.html) defines the repeatable `virtio_mmio.device` discovery syntax used by the fixed machine contract.
+- [rust-vmm vm-virtio](https://github.com/rust-vmm/vm-virtio) provides modern virtio device and queue components while leaving backends and event handling to the integrating VMM.
+- [rust-vmm virtio-queue](https://github.com/rust-vmm/vm-virtio/blob/main/virtio-queue/README.md) documents split-queue state, save and restore, notification suppression, and device-side buffer-validation responsibilities.
 - [Linux KVM API](https://www.kernel.org/doc/html/latest/virt/kvm/api.html) defines the file-descriptor, ioctl, memory-mapping, and vCPU execution contract.
 - [Linux x86 boot protocol](https://docs.kernel.org/arch/x86/boot.html) defines protected-mode and 64-bit direct kernel entry.
 - [Xen HVM direct-boot ABI](https://xenbits.xen.org/docs/4.10-testing/misc/pvh.html) defines the legacy-free x86 PVH entry state used by the first SOMA machine contract.
