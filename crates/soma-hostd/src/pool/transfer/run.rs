@@ -228,11 +228,20 @@ impl<L: WorkerLauncher, R: ResourceBroker> Pool<L, R> {
         failure(id, step, fault, disposition)
     }
 
+    /// Assigns the worker to its Instance, after one last check that the claim deadline the
+    /// caller was promised has not passed while the final frame was acknowledged.
     fn commit(
         &self,
         mut attempt: Attempt<L::Handle>,
         intent: &AssignmentIntent,
     ) -> Result<(), TransferFailure> {
+        if attempt.won_at.elapsed() > self.limits().claim_deadline {
+            return Err(self.abort(
+                attempt,
+                Some(TransferStep::Commit),
+                TransferFault::ClaimDeadline,
+            ));
+        }
         let id = attempt.worker.id();
         let generation = attempt.worker.generation();
         let mut reservation = attempt.reservation.take();

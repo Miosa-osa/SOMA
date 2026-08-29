@@ -168,6 +168,48 @@ fn a_stall_past_the_claim_deadline_destroys_the_worker() {
 }
 
 #[test]
+fn a_stall_in_the_last_frame_destroys_the_worker_instead_of_assigning_it() {
+    let harness = harness(Limits {
+        claim_deadline: Duration::from_millis(40),
+        ..limits(1, 1)
+    });
+    harness.pool.launcher().set_plan(FaultPlan {
+        transfer: Some((
+            TransferStep::Commit,
+            InjectedFault::Stall(Duration::from_millis(120)),
+        )),
+        ..FaultPlan::default()
+    });
+    harness.pool.replenish_blocking().expect("replenish");
+    let claim = harness
+        .pool
+        .claim(op(1), intent(1).fingerprint())
+        .expect("claim");
+    let worker = claim.outcome.worker;
+    let failure = harness
+        .pool
+        .transfer(claim.grant.expect("grant"), &intent(1))
+        .expect_err("the claim deadline passed during the last frame");
+    assert_eq!(failure.step, Some(TransferStep::Commit));
+    assert_eq!(failure.fault, TransferFault::ClaimDeadline);
+    assert_eq!(
+        harness.pool.inspect(worker).map(|view| view.phase),
+        Some(Phase::Dead)
+    );
+    let records = harness.pool.ledger().records().expect("records");
+    assert!(records.iter().any(|(_, record)| {
+        record.kind == RecordKind::Destroying && record.detail == DestroyReason::ClaimDeadline as u8
+    }));
+    assert!(
+        !records
+            .iter()
+            .any(|(_, record)| record.kind == RecordKind::Assigned),
+        "an overrun transfer never assigns the worker"
+    );
+    assert_eq!(harness.pool.broker().leased_heads(), 0);
+}
+
+#[test]
 fn a_resource_assignment_fault_destroys_the_worker_before_any_frame() {
     let harness = harness(limits(1, 1));
     harness.pool.replenish_blocking().expect("replenish");
