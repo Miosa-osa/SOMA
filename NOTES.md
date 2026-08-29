@@ -194,3 +194,11 @@ Both proof containers exited successfully and were removed automatically.
 These checks prove a usable local ARM64 KVM development environment only.
 They do not prove that SOMA can boot a guest, execute a command, restore a snapshot, isolate a workload, or meet a latency target.
 The release profile remains Ubuntu 24.04 x86_64 KVM and requires separate retained certification evidence.
+
+## 2026-08-28 - Cross-platform checkout and dependency policy
+
+Repository text is forced to LF through `.gitattributes` so Windows checkout settings cannot invalidate the pinned rustfmt contract.
+PNG brand assets are explicitly binary.
+The dependency policy accepts the OSI-approved Unicode License v3 required by `unicode-ident`.
+It records a narrow temporary duplicate-version exception for `syn` 2 because `tracing-attributes` has not yet converged on the `syn` 3 line used by the rest of the current macro graph.
+The exception should be removed as soon as the dependency graph converges.
