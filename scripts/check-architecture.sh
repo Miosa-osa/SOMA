@@ -27,7 +27,7 @@ done < <(
 
 is_exempt_path() {
     case "$1" in
-        ./.git/*|./target/*|*/generated/*|*/fixtures/*|*/third_party/*|*/vendor/*)
+        ./.git/*|*/target/*|*/generated/*|*/fixtures/*|*/third_party/*|*/vendor/*)
             return 0
             ;;
         *)

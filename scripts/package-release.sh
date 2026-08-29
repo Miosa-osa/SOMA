@@ -65,7 +65,7 @@ if (( package_count == 0 )); then
     fail 'cargo metadata reported no workspace packages'
 fi
 
-package_arguments=()
+package_arguments=(--workspace --locked)
 if [[ "$allow_dirty" == "1" ]]; then
     package_arguments+=(--allow-dirty)
 else
@@ -88,7 +88,26 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$output_dir"
-cargo package --workspace --locked --target-dir "$stage_dir" "${package_arguments[@]}"
+public_package_count=0
+while IFS= read -r package_name; do
+    public_package_count=$((public_package_count + 1))
+done < <(
+    printf '%s\n' "$metadata" |
+        jq -r '.workspace_members as $members | .packages[] | select(.id as $id | $members | index($id)) | select(.publish != []) | .name'
+)
+
+if (( public_package_count == 0 )); then
+    fail 'cargo metadata reported no public workspace packages'
+fi
+
+while IFS= read -r package_name; do
+    package_arguments+=(--exclude "$package_name")
+done < <(
+    printf '%s\n' "$metadata" |
+        jq -r '.workspace_members as $members | .packages[] | select(.id as $id | $members | index($id)) | select(.publish == []) | .name'
+)
+
+cargo package --target-dir "$stage_dir" "${package_arguments[@]}"
 
 while IFS=$'\t' read -r package_name package_version; do
     archive="${stage_dir}/package/${package_name}-${package_version}.crate"
@@ -98,7 +117,7 @@ while IFS=$'\t' read -r package_name package_version; do
     cp "$archive" "$output_dir/"
 done < <(
     printf '%s\n' "$metadata" |
-        jq -r '.workspace_members as $members | .packages[] | select(.id as $id | $members | index($id)) | [.name, .version] | @tsv'
+        jq -r '.workspace_members as $members | .packages[] | select(.id as $id | $members | index($id)) | select(.publish != []) | [.name, .version] | @tsv'
 )
 
 if git rev-parse --verify HEAD >/dev/null 2>&1; then

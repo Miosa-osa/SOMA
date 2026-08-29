@@ -153,7 +153,9 @@ The source version is `1.0.0-alpha.1`.
 The first stable release will be `1.0.0` only after the custom Ubuntu 24.04 x86_64 KVM path can build an OCI-derived Generation and complete real launch, authenticated command readiness, execution, cleanup, isolation, and burst-performance gates.
 The current custom-VMM tracer bullets are the test-only [ARM64 explicit-fixture cold-boot proof](docs/adr/0014-arm64-kvm-cold-boot-proof.md) and [challenge-bound guest-command proof](docs/adr/0016-challenge-bound-arm64-guest-command-proof.md).
 Their retained [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) results are diagnostic evidence, not published performance benchmarks.
-The next implementation boundary is an OCI-derived Generation with authenticated guest identity and control.
+The workspace now also contains a bounded deterministic OCI-layout importer and a portable authenticated-session foundation.
+Those modules verify Generation inputs and protocol behavior, but they do not yet construct a bootable Generation, inject a fresh secret after snapshot restore, run the authenticated protocol inside a guest, or establish sandbox readiness.
+The next implementation boundary is OCI root normalization plus a static Rust guest agent and snapshot-safe launch-secret injection, followed by real VMM wiring.
 
 The [roadmap](ROADMAP.md) lists the evidence required for each phase.
 The [competitor and prior-art ledger](COMPETITORS.md) separates primary-source facts, external claims, unknowns, transferable lessons, and measured results.

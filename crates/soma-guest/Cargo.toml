@@ -1,0 +1,21 @@
+[package]
+name = "soma-guest"
+description = "Authenticated guest-control protocol foundation for SOMA"
+edition.workspace = true
+license.workspace = true
+publish = false
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+snow = { version = "=0.10.0", default-features = false, features = [
+    "use-blake2",
+    "use-chacha20poly1305",
+    "use-curve25519",
+    "use-getrandom",
+] }
+zeroize = "=1.9.0"
+
+[lints]
+workspace = true

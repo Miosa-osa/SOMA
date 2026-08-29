@@ -80,3 +80,12 @@ It does not claim that the pre-alpha implementation currently satisfies it.
 - Identity uniqueness tests across repeated and concurrent restores.
 - Resource exhaustion, timeout, crash, parent-death, and ambiguous-outcome tests.
 - Reproducible builds, dependency policy, SBOM, provenance, and signed releases.
+
+## Current pre-alpha gaps
+
+The OCI importer verifies bounded source artifacts and expanded tar structure, but it does not yet extract or normalize a root filesystem, apply whiteouts, certify a Generation, or protect a caller-supplied root whose ambient parent is controlled by an attacker.
+Its content store requires exclusive trusted writer authority because portable hard-link publication cannot bind the already verified open handle directly to the final name.
+The current tar dependency can allocate a bounded extension body before SOMA observes its effective metadata, so arbitrary hostile-image admission remains prohibited until a certified build profile or parser seam constrains that allocation independently.
+The authenticated-session crate binds one Instance secret to an exact launch transcript, but the VMM cannot yet inject that secret after restore and no guest executable consumes the protocol.
+Snow does not guarantee complete erasure of every internal key copy, so process destruction remains part of the future one-Machine containment boundary.
+No current protocol result satisfies Ready, and no untrusted production workload should be admitted.

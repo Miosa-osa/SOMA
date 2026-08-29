@@ -43,7 +43,13 @@ This file records the primary sources that constrain SOMA's design.
 
 - [ComputeSDK benchmarks](https://github.com/computesdk/benchmarks) define the public create-through-first-command benchmark SOMA must reproduce exactly.
 - [OCI image specification](https://github.com/opencontainers/image-spec) defines immutable manifests, indexes, layers, configuration, and platform selection for input images.
+- [OCI image layout](https://github.com/opencontainers/image-spec/blob/main/image-layout.md) defines `oci-layout`, the top-level index, and descriptor-addressed blob placement for local imports.
+- [OCI descriptor specification](https://github.com/opencontainers/image-spec/blob/main/descriptor.md) defines media type, digest, size, optional platform metadata, and artifact extensibility rules.
+- [OCI image manifest](https://github.com/opencontainers/image-spec/blob/main/manifest.md) defines the ordered configuration and layer descriptors selected by the importer.
+- [OCI image configuration](https://github.com/opencontainers/image-spec/blob/main/config.md) defines platform fields and the ordered uncompressed layer `diff_ids` that SOMA verifies.
+- [OCI image layer specification](https://github.com/opencontainers/image-spec/blob/main/layer.md) defines layer media types, compression, and digest relationships.
 - [OCI distribution specification](https://github.com/opencontainers/distribution-spec) defines registry distribution and digest-addressed content behavior.
+- [tar 0.4.46 documentation](https://docs.rs/tar/0.4.46/tar/) defines the streaming Rust archive parser used to validate expanded OCI layer structure without extracting it.
 - [CubeSandbox](https://github.com/TencentCloud/CubeSandbox) documents Tencent Cloud's CubeHypervisor, CubeShim, Cubelet, networking, and sandbox topology.
 - [Kuasar](https://github.com/kuasar-io/kuasar) separates a multi-sandbox runtime from the VMMs it launches.
 - [Quark](https://github.com/QuarkContainer/Quark) pairs its QVisor VMM with a specialized QKernel guest.
@@ -77,6 +83,10 @@ This file records the primary sources that constrain SOMA's design.
 
 ## Security references
 
+- [Noise Protocol Framework](https://noiseprotocol.org/noise.html) defines handshake patterns, pre-shared-key modifiers, transcript hashing, transport split, and message bounds for the guest-session profile.
+- [Snow](https://github.com/mcginty/snow) is the reviewed Rust implementation used for the fixed Noise profile and documents its own security-review limitations.
+- [curve25519-dalek X25519 low-order constants](https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-5.0.0/curve25519-dalek/src/constants.rs) provide the complete frozen non-contributory public-key test corpus.
+- [Bytecode Alliance cap-std](https://github.com/bytecodealliance/cap-std) provides capability-oriented filesystem handles for descriptor-relative OCI layout and content-store access.
 - [Dragonball virtio-blk advisory](https://github.com/kata-containers/kata-containers/security/advisories/GHSA-fgm4-mv68-h344) demonstrates why guest-controlled lengths require checked bounds before host I/O.
 - [Erlang NIF documentation](https://www.erlang.org/docs/26/man/erl_nif.html) explains why unsafe VMM state must not live inside the BEAM process.
 - [seccomp userspace API](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html) defines the Linux syscall filtering mechanism.

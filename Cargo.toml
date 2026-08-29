@@ -2,6 +2,8 @@
 members = [
     "crates/soma",
     "crates/soma-cli",
+    "crates/soma-generation",
+    "crates/soma-guest",
     "crates/soma-kvm",
     "crates/soma-local",
     "crates/soma-macos",

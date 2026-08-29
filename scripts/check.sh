@@ -50,6 +50,9 @@ check_repository_contract() {
     log "release artifact verifier tests"
     "${SCRIPT_DIR}/tests/verify-release-artifacts.sh"
 
+    log "release packager tests"
+    "${SCRIPT_DIR}/tests/package-release.sh"
+
     log "shell scripts"
     require_command shellcheck
     local shellcheck_failed=0

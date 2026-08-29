@@ -10,7 +10,10 @@ Direct registry dependencies are pinned exactly:
 | Crate | Version | Role |
 |---|---:|---|
 | `base64` | 0.23.1 | Lossless binary output transport through JSON interfaces |
+| `cap-fs-ext` | 4.0.3 | Descriptor-relative no-follow filesystem operations for OCI import |
+| `cap-std` | 4.0.3 | Capability-oriented OCI layout and content-store access |
 | `clap` | 4.6.6 | Command-line parsing |
+| `flate2` | 1.1.10 | Bounded gzip OCI layer decoding with the pure Rust backend |
 | `futures-util` | 0.3.34 | Bounded asynchronous MCP stream adapters |
 | `kvm-bindings` | 0.14.1 | Linux KVM ABI structures and ARM constants |
 | `kvm-ioctls` | 0.25.0 | Linux KVM ownership and ioctl wrappers |
@@ -22,12 +25,17 @@ Direct registry dependencies are pinned exactly:
 | `serde` | 1.0.229 | Stable structured values and receipts |
 | `serde_json` | 1.0.151 | CLI envelopes, Apple runtime documents, and test fixtures |
 | `sha2` | 0.11.0 | Canonical request fingerprints |
+| `snow` | 0.10.0 | Fixed Noise guest-session handshake and transport implementation |
+| `tar` | 0.4.46 | Streaming structural validation of expanded OCI layer archives |
+| `tempfile` | 3.27.0 | Isolated OCI importer content stores in tests |
 | `tokio` | 1.53.1 | Bounded asynchronous MCP runtime |
 | `tokio-util` | 0.7.19 | Length-delimited MCP framing |
 | `uuid` | 1.26.0 | Fresh command-line operation and Instance identifiers |
 | `vm-fdt` | 0.3.0 | Generated ARM64 flattened device trees |
 | `vm-memory` | 0.18.0 | Checked guest-address and anonymous-memory mappings |
+| `vm-superio` | 0.8.1 | Bounded 16550 UART model for the ARM64 proof path |
 | `vmm-sys-util` | 0.15.0 | Targeted vCPU thread signaling |
+| `zeroize` | 1.9.0 | Best-effort erasure of crate-owned secret wrapper buffers |
 
 The versions in this table were the latest registry releases returned by the project verification on the research date.
 That statement is historical evidence, not permission to assume they remain latest later.

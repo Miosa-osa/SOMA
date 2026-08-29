@@ -6,12 +6,14 @@ This document assigns responsibilities and dependency direction for the initial 
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains seven implemented crates:
+The current workspace contains nine implemented crates:
 
 ```text
 crates/
   soma/
   soma-cli/
+  soma-generation/
+  soma-guest/
   soma-kvm/
   soma-local/
   soma-macos/
@@ -19,8 +21,8 @@ crates/
   soma-vmm/
 ```
 
-The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a command-line adapter, and a bounded stdio MCP adapter.
-It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, Generation builder, authenticated guest agent, or remote transport.
+The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, portable authenticated-session primitives, a command-line adapter, and a bounded stdio MCP adapter.
+It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, host allocator, complete Generation builder, authenticated guest agent, snapshot-safe secret injection, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
 The only initial production target is Ubuntu 24.04 x86_64 with KVM.
@@ -41,6 +43,9 @@ human, agent, SDK, or operator
      soma-macos       soma-kvm
 
     soma-vmm semantic lifecycle prototype
+
+    soma-generation -> soma identity types
+    soma-guest       independent protocol foundation
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -50,6 +55,8 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-vmm` owns the provider-neutral Machine interface and the deep lifecycle implementation.
 `soma-kvm` owns target-gated access to Linux x86_64 production KVM capabilities and Linux ARM64 development KVM capabilities.
 `soma-macos` owns the development-only Apple VM-per-OCI lifecycle adapter.
+`soma-generation` verifies bounded OCI image-layout input and publishes immutable imported artifacts without minting a certified Generation.
+`soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 No provider adapter belongs below the public Machine seam.
 The current low-level crates remain independent while `soma-vmm` uses an unavailable production platform adapter.
@@ -321,14 +328,68 @@ An unsupported target fails closed during backend selection and cannot construct
 `soma-mcp` owns bounded stdio framing, tool schemas, cancellation at the caller boundary, and MCP response rendering.
 It retains no second lifecycle implementation and invokes the same facade used by the CLI.
 
-## Future node and image modules
+## `soma-generation` responsibilities
+
+`soma-generation` owns deterministic import of one selected image from an existing OCI image layout into a descriptor-relative content-addressed store.
+It verifies the selected manifest, configuration, ordered layer descriptors, gzip expansion, and ordered `diff_ids` under explicit descriptor, blob, aggregate, expansion, and traversal bounds.
+It accepts exact immutable identity or unique platform selection, fails closed on ambiguity or disagreement, and records local traversal indexes as provenance rather than canonical registry identity.
+
+The source map is:
+
+```text
+crates/soma-generation/src/
+  lib.rs
+  digest.rs
+  error.rs
+  import.rs
+  layer_tar.rs
+  layout.rs
+  manifest.rs
+  oci.rs
+  publish.rs
+  publish/layers.rs
+  root.rs
+  store.rs
+  store/staged.rs
+  traversal.rs
+  types.rs
+  verify.rs
+```
+
+The public result is `ImportedOci`.
+It is a verified input artifact for later Generation construction, not a `GenerationId`, bootable root filesystem, kernel, guest agent, snapshot, compatibility certificate, or sandbox.
+Registry authentication, tag resolution, tar extraction, root filesystem normalization, whiteouts, signing, SBOM generation, and certification remain outside this slice.
+The crate depends on the portable `soma` identity types and must not depend on `soma-vmm`, a provider adapter, or launch-time policy.
+
+## `soma-guest` responsibilities
+
+`soma-guest` owns a fixed portable Noise handshake profile, canonical session binding, bounded encrypted records, directional sequencing, redacted errors, and secret wrapper boundaries.
+Its public typestate prevents callers from obtaining an authenticated transport before their side of the two-message handshake completes.
+The first rejected peer record poisons both directions of that local session object.
+
+The source map is:
+
+```text
+crates/soma-guest/src/
+  lib.rs
+  binding.rs
+  error.rs
+  handshake.rs
+  record.rs
+  resolver.rs
+  secret.rs
+```
+
+The crate is an independent protocol foundation so the future host and guest implementations can share one encoding and test corpus.
+It does not contain a guest executable, VMM device transport, trusted Generation-manifest verifier, snapshot-safe per-Instance secret injection, Repair sequence, readiness proof, C ABI, or attestation mechanism.
+An authenticated session is not an `AuthenticatedGuest` and cannot authorize Ready by itself.
+
+## Future node and protocol modules
 
 ADR 0006 reserves `soma-host` for node-local admission, unassigned single-use worker allocation, sterile resource bundles, descriptor transfer, and asynchronous replenishment.
 That module does not execute guest device logic and does not retain tenant workers for reuse.
 
-`soma-generation` becomes justified when OCI resolution, conversion, boot, quiescence, snapshot capture, certification, and compatibility metadata form a real independently tested workflow.
 `soma-protocol` becomes justified when local and remote callers share a bounded canonical encoding.
-`soma-guest` becomes justified when the authenticated Repair and command protocol has an implementation shared with the guest binary.
 
 These names are ownership decisions rather than permission to create empty crates.
 
@@ -344,8 +405,8 @@ Tests replace behavior at the deepest stable seam and continue to use the extern
 ## Generation construction
 
 OCI acquisition, root filesystem conversion, guest boot, quiescence, snapshot capture, certification, and provenance occur outside the request-time VMM.
-The current workspace does not create a speculative `soma-generation` crate before that workflow has a real implementation and interface.
-When Generation construction becomes independently deployable, independently versioned, or shared by multiple callers, it may earn its own crate through a new module-map update and ADR.
+The implemented importer establishes the first bounded input workflow but deliberately stops before root filesystem conversion or Generation identity.
+Later Generation stages remain behind the same independently tested module rather than entering Launch latency.
 
 The Launch path consumes a certified immutable Generation.
 It never pulls an OCI image, resolves a mutable tag, installs packages, or hides a Generation build inside warm-start latency.
@@ -358,7 +419,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 
 ## File and dependency guardrails
 
-- Authored Rust source files stay below 500 lines.
+- Authored source files stay at or below 300 lines.
 - Generated files are isolated and clearly marked rather than mixed with authored behavior.
 - `lib.rs` files export and compose but do not accumulate implementation logic.
 - Generic `utils.rs`, `helpers.rs`, `common.rs`, `manager.rs`, and `core.rs` dumping grounds are prohibited.

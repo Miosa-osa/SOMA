@@ -25,17 +25,27 @@ write_binary_manifest() {
     local directory="$1"
     local manifest_name="$2"
     shift 2
-    local file
+    local digest file
 
     : > "$directory/$manifest_name"
     for file in "$@"; do
-        (cd "$directory" && sha256sum --binary -- "$file") >> "$directory/$manifest_name"
+        digest="$(sha256_digest "$directory/$file")"
+        printf '%s *%s\n' "$digest" "$file" >> "$directory/$manifest_name"
     done
+}
+
+sha256_digest() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum -- "$1" | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 -- "$1" | awk '{ print $1 }'
+    else
+        fail 'sha256sum or shasum is required'
+    fi
 }
 
 require_command cmp
 require_command grep
-require_command sha256sum
 require_command tar
 
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/soma-verifier-test.XXXXXX")"
@@ -87,7 +97,7 @@ cmp -s "$test_root/outer-before" "$delivery_dir/SHA256SUMS" ||
     fail 'outer checksum manifest changed during verification'
 
 cp "$delivery_dir/$archive_name" "$bad_delivery_dir/"
-archive_digest="$(sha256sum -- "$bad_delivery_dir/$archive_name" | awk '{ print $1 }')"
+archive_digest="$(sha256_digest "$bad_delivery_dir/$archive_name")"
 printf '%s **%s\n' "$archive_digest" "$archive_name" > "$bad_delivery_dir/SHA256SUMS"
 if "$VERIFIER" client \
     "$bad_delivery_dir" "$release_tag" "$release_target" "$cli_binary" "$mcp_binary" \

@@ -19,6 +19,7 @@ ignore = []
 confidence-threshold = 0.93
 allow = [
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
     "MIT",
     "Unicode-3.0",
@@ -38,9 +39,18 @@ allow = []
 deny = []
 skip = [
     { crate = "bitflags@1.3.2", reason = "vmm-sys-util still requires bitflags 1 while kvm-ioctls uses bitflags 2" },
+    { crate = "block-buffer@0.10.4", reason = "snow 0.10 still uses the RustCrypto digest 0.10 line" },
+    { crate = "cpufeatures@0.2.17", reason = "snow 0.10 still uses the RustCrypto 0.10 cipher line" },
+    { crate = "crypto-common@0.1.7", reason = "snow 0.10 still uses the RustCrypto 0.10 cipher and digest lines" },
+    { crate = "digest@0.10.7", reason = "snow 0.10 still uses the RustCrypto digest 0.10 line" },
+    { crate = "getrandom@0.3.4", reason = "snow 0.10 has not converged on the getrandom 0.4 line used elsewhere" },
+    { crate = "io-lifetimes@2.0.4", reason = "cap-primitives 4 uses fs-set-times before its io-lifetimes 3 migration" },
     { crate = "syn@2.0.119", reason = "tracing-attributes still requires syn 2 while the current macro dependency set uses syn 3" },
 ]
-skip-tree = []
+skip-tree = [
+    { crate = "windows-sys@0.59.0", depth = 3, reason = "cap-primitives 4 dependencies have not converged on windows-sys 0.61" },
+    { crate = "windows-sys@0.60.2", depth = 3, reason = "cap-primitives 4 dependencies have not converged on windows-sys 0.61" },
+]
 
 [sources]
 unknown-registry = "deny"

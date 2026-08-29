@@ -245,3 +245,45 @@ The corrected kernel SHA-256 is `1f750d412c3632a57c8cd6abb76bda53314bff14be5bdca
 The final command fixture is rebuilt twice and compared byte-for-byte before live evidence is retained.
 The live matrix covers exact and metacharacter-bearing arguments, delayed and binary output, exit and signal outcomes, child deadlines, closed standard streams, descendant cleanup, exact and exceeded aggregate output limits, a legal 64 KiB response, typed `execve` failure, repeated host descriptor and task cleanup, normal cold boot, and forced watchdog containment.
 This remains a cold trusted-fixture proof and does not establish OCI execution, authenticated readiness, snapshot restore, production isolation, or a sandbox latency claim.
+
+## 2026-08-28 - OCI import is not Generation certification
+
+ADR 0018 creates a real independently tested `soma-generation` boundary for bounded import from an existing OCI image layout.
+The importer verifies descriptor sizes and SHA-256 digests, selected manifest and configuration identity, ordered layers and expanded `diff_ids`, traversal and byte budgets, descriptor-relative no-follow access, and atomic immutable content-store publication.
+Its output is `ImportedOci`, never `GenerationId`.
+Root filesystem normalization, whiteout application, kernel and guest-agent selection, snapshot capture, compatibility certification, signatures, and launch remain later Generation stages.
+
+Two Apple Container exports of the same cached `node:22` image produced identical selected manifest, configuration, and layer bytes but different synthesized traversal-index bytes because annotation map order changed.
+Canonical imported identity therefore excludes export-only traversal indexes while retaining a caller-supplied registry index digest for an exact immutable selection.
+The imported traversal index digests remain provenance evidence.
+The integrated importer successfully consumed the real 381 MiB nested Apple `node:22` OCI layout and verified all eight compressed layers against their configuration `diff_ids`.
+That import is an offline build-path check and is not sandbox launch, first-command, or latency evidence.
+The importer now validates each expanded layer as a complete tar stream before any selected layer is published and records the logical entry count in its deterministic completion artifact.
+Two independently exported layouts produced the same structurally validated import digest `sha256:7f054135dc1553375fb1e798b902f5580c745741d45c4d6f3088e08bbaac110e` in 27.14 and 27.46 seconds on the development Mac.
+Those timings measure cold offline verification of 381 MiB, not Machine creation or command readiness.
+The `tar` 0.4.46 parser can materialize a GNU or PAX extension body before returning its effective field, so the aggregate expanded-byte limit remains the allocation-abuse bound for that record until the Generation builder adopts a tighter certified profile or parser seam.
+
+## 2026-08-28 - Private workspace crates stay out of public release bundles
+
+Cargo can create a crate archive for a workspace member marked `publish = false`.
+The release packager now validates the version of every member, runs one workspace-aware Cargo packaging operation that excludes private members, and copies only public archives using the same Cargo-metadata predicate as the verifier.
+A clean temporary Git-workspace regression test proves that an intentionally unbuildable private crate is never packaged, that one public crate can depend on another unpublished-version workspace crate, and that the macOS Bash 3.2 clean-release path works.
+
+## 2026-08-28 - Instance-bound authenticated guest session
+
+ADR 0017 fixes the first authenticated guest-control profile to Noise `NKpsk0` with Curve25519, ChaChaPoly, and BLAKE2s.
+The transcript binds exact Generation, Instance, operation, and launch-nonce bytes, while every PSK wrapper is separately scoped to the same Instance identity.
+A focused Snow resolver rejects non-contributory X25519 exchanges during public-key admission and every handshake Diffie-Hellman operation.
+Bounded encrypted records carry exact directional sequence and payload lengths, and the first peer-controlled rejection poisons both directions of the session.
+The crate is only a portable protocol foundation because no guest executable, snapshot-safe secret injection, Repair sequence, or VMM transport integration exists yet.
+Snow does not guarantee erasure of every internal key copy, so complete key erasure and production security are not claimed.
+
+## 2026-08-28 - OCI portability and dependency exceptions
+
+Native Windows cannot portably fsync a directory entry through the current capability library, so the OCI store claims synced staged bytes and atomic create-exclusive visibility there but not directory-entry crash durability.
+Final OCI layout and store roots are opened without following their final component, while resolution above each ambiently opened parent remains an explicit trusted-parent boundary.
+Cargo-deny permits the LLVM exception used by the current capability dependency graph.
+Narrow duplicate-version exceptions cover Snow 0.10's older RustCrypto and getrandom lines plus cap-primitives 4's current io-lifetimes and Windows support graph.
+Those exceptions remain dependency-specific and should be removed when their upstream graphs converge.
+The OCI content store is a single-writer authority boundary because portable Rust cannot hard-link an already verified open handle directly into the final namespace.
+Publication revalidates the destination and repairs its read-only attribute, while retained writable handles or an actor with competing store authority remain outside the guarantee.
