@@ -28,6 +28,8 @@ The agent opens only the fixed vsock control port and completes the pinned Noise
 Every request carries operation identity, sequence, absolute deadline, command and argument vector, bounded environment, working-directory policy, input allowance, output allowance, and cancellation generation.
 There is no implicit shell.
 The agent uses a bounded child process, process group, pipe set, output accounting, and terminal result, and reaps every descendant before acknowledging completion.
+Both pipes are read by one bounded poll loop with no queue and no reader thread, and every read is bounded by the unspent output allowance plus one probe byte, so the resident cost of a command is one fixed chunk buffer whatever the child writes.
+Reaching the allowance, a sink failure, or the deadline kills the complete process group at once and switches the loop to a drain bounded by a fixed grace.
 
 Ready requires authenticated repair plus one fixed no-op command through the same production executor.
 Shutdown requires an authenticated request, refusal of new work, child termination, filesystem sync, exact acknowledgement, and orderly poweroff.

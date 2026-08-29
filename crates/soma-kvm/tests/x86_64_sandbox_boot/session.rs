@@ -9,7 +9,8 @@ use std::{
 };
 
 use soma_guest::{
-    GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, TerminalStatus,
+    GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, RepairedHostControl,
+    TerminalStatus,
 };
 use soma_kvm::x86_64::{
     DeviceIdentity, GuestExit, Milestone, SandboxConfig, SandboxDisks, SandboxEvidence,
@@ -23,6 +24,10 @@ const GUEST_CID: u32 = 3;
 const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 pub const BOOT_DEADLINE: Duration = Duration::from_secs(60);
 const EXIT_GRACE: Duration = Duration::from_secs(10);
+/// Two descendants of one shell, each holding one pipe and writing without end.
+const HOSTILE_BOTH_PIPES: &str = "/bin/cat /dev/zero & /bin/cat /dev/zero >&2";
+/// Combined allowance the hostile step is given before PID 1 must close it down.
+pub const HOSTILE_ALLOWANCE: u64 = 65_536;
 
 /// What the session must do once the guest is Ready.
 pub struct Command<'a> {
@@ -66,15 +71,15 @@ fn now_unix_nanos() -> u64 {
     .unwrap()
 }
 
-/// Boots `config`, completes the session with fresh per-Instance authority, executes
-/// `command`, shuts down, and cleans up.
+/// Boots `config`, completes the session with fresh per-Instance authority, runs one hostile
+/// unbounded-output step, executes `command`, shuts down, and cleans up.
 ///
-/// Returns the evidence together with the command result, or the evidence and the failure.
+/// Returns the evidence together with both command results, or the evidence and the failure.
 pub fn run(
     config: SandboxConfig,
     generation_id: &str,
     command: &Command<'_>,
-) -> (SandboxEvidence, Result<Executed, String>) {
+) -> (SandboxEvidence, Result<(Executed, Executed), String>) {
     let network = LaunchNetwork::new(
         GUEST_CID,
         1,
@@ -118,7 +123,7 @@ fn drive(
     sandbox: &mut SandboxMachine,
     material: HostLaunchMaterial,
     command: &Command<'_>,
-) -> Result<Executed, String> {
+) -> Result<(Executed, Executed), String> {
     let delivered = material
         .deliver_with(|page| sandbox.write_launch_page(page))
         .map_err(|error| format!("launch page delivery: {error}"))?;
@@ -139,6 +144,31 @@ fn drive(
         .prepare_and_probe()
         .map_err(|error| format!("repair and probe: {error}"))?;
     sandbox.mark(Milestone::Ready);
+    // PID 1 must survive a hostile unbounded producer on both pipes and still accept the next
+    // lifecycle operation, so the ordinary command runs second on the same session.
+    let (repaired, hostile) = execute_one(
+        repaired,
+        &Command {
+            program: b"/bin/sh",
+            arguments: &[b"-c", HOSTILE_BOTH_PIPES.as_bytes()],
+            timeout_millis: 20_000,
+            output_bytes: HOSTILE_ALLOWANCE,
+        },
+    )?;
+    let (repaired, executed) = execute_one(repaired, command)?;
+    sandbox.mark(Milestone::Execute);
+    repaired
+        .shutdown(OperationId::new(random16()).unwrap())
+        .map_err(|error| format!("shutdown: {error}"))?;
+    sandbox.mark(Milestone::Shutdown);
+    Ok((hostile, executed))
+}
+
+/// Runs one bounded command over the authenticated session and retains its typed result.
+fn execute_one<'a>(
+    repaired: RepairedHostControl<HostIo<'a>>,
+    command: &Command<'_>,
+) -> Result<(RepairedHostControl<HostIo<'a>>, Executed), String> {
     let guest_command = GuestCommand::new(
         command.program.to_vec(),
         command.arguments.iter().map(|arg| arg.to_vec()).collect(),
@@ -149,17 +179,14 @@ fn drive(
     let (repaired, outcome) = repaired
         .execute(OperationId::new(random16()).unwrap(), guest_command)
         .map_err(|error| format!("execute: {error}"))?;
-    sandbox.mark(Milestone::Execute);
-    let executed = Executed {
-        status: outcome.status(),
-        stdout: outcome.stdout().to_vec(),
-        stderr: outcome.stderr().to_vec(),
-    };
-    repaired
-        .shutdown(OperationId::new(random16()).unwrap())
-        .map_err(|error| format!("shutdown: {error}"))?;
-    sandbox.mark(Milestone::Shutdown);
-    Ok(executed)
+    Ok((
+        repaired,
+        Executed {
+            status: outcome.status(),
+            stdout: outcome.stdout().to_vec(),
+            stderr: outcome.stderr().to_vec(),
+        },
+    ))
 }
 
 /// Assembles the sandbox inputs from opened artifacts.

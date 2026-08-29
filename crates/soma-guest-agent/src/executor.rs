@@ -1,10 +1,12 @@
 //! Bounded direct command execution: argv `execve`, fixed environment, own process group,
-//! piped output with exact accounting, absolute deadline, and complete descendant reaping.
+//! one bounded poll loop over both pipes with exact accounting, absolute deadline, and
+//! complete descendant reaping.
+//!
+//! No output is queued and no reader thread exists, so a hostile process that writes without
+//! end cannot grow the agent beyond one fixed buffer plus one admitted chunk.
 
-use std::io::Read;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -12,26 +14,37 @@ use soma_guest::{GuestCommand, TerminalStatus};
 
 use crate::descendants;
 use crate::environment::{ENVIRONMENT, InvalidInvocation, Invocation, WORKING_DIRECTORY};
-use crate::output::{Admission, Ending, MAX_CHUNK_BYTES, OutputBudget, terminal_status};
+use crate::output::{Ending, OutputBudget, terminal_status};
 use crate::pid1;
 
-const KILL_GRACE: Duration = Duration::from_millis(500);
+mod pipes;
+
+/// Time the killed process group is given to die while its pipes are drained.
+pub const KILL_GRACE: Duration = Duration::from_millis(500);
+/// Resident bytes one command may cost the agent beyond its fixed stacks and the sink.
+///
+/// The bounded loop owns one `MAX_CHUNK_BYTES` read buffer and hands the sink one borrowed
+/// prefix of that same buffer, so nothing scales with the volume a child produces.
+pub const RESIDENT_OUTPUT_BYTES: usize = crate::output::MAX_CHUNK_BYTES;
+
 const WAIT_POLL: Duration = Duration::from_millis(5);
 
 /// Destination for admitted output chunks.
+///
+/// The slice borrows the executor's fixed buffer and is valid only for the call.
 pub trait OutputSink {
     /// Delivers one nonempty admitted stdout chunk.
     ///
     /// # Errors
     ///
     /// Returns [`SinkFault`] if the chunk could not be delivered; execution is then aborted.
-    fn stdout(&mut self, bytes: Vec<u8>) -> Result<(), SinkFault>;
+    fn stdout(&mut self, bytes: &[u8]) -> Result<(), SinkFault>;
     /// Delivers one nonempty admitted stderr chunk.
     ///
     /// # Errors
     ///
     /// Returns [`SinkFault`] if the chunk could not be delivered; execution is then aborted.
-    fn stderr(&mut self, bytes: Vec<u8>) -> Result<(), SinkFault>;
+    fn stderr(&mut self, bytes: &[u8]) -> Result<(), SinkFault>;
 }
 
 /// The sink rejected output and the command must be aborted.
@@ -56,17 +69,10 @@ pub struct Completion {
     pub status: TerminalStatus,
     /// The process group that was created, killed, and reaped.
     pub process_group: i32,
-}
-
-#[derive(Clone, Copy)]
-enum Stream {
-    Stdout,
-    Stderr,
-}
-
-enum Event {
-    Data(Stream, Vec<u8>),
-    Closed,
+    /// Stdout bytes delivered to the sink.
+    pub stdout_bytes: u64,
+    /// Stderr bytes delivered to the sink.
+    pub stderr_bytes: u64,
 }
 
 /// Executes one command to completion, streaming admitted output into the sink.
@@ -86,6 +92,8 @@ pub fn execute(
             return Ok(Completion {
                 status: terminal_status(false, false, Ending::ExecFailed(errno)),
                 process_group: 0,
+                stdout_bytes: 0,
+                stderr_bytes: 0,
             });
         }
     };
@@ -95,9 +103,15 @@ pub fn execute(
         let _ = child.wait();
         return Err(ExecutorFault::ProcessGroup);
     }
-    let receiver = pump(&mut child);
     let mut budget = OutputBudget::new(command.output_bytes());
-    let streamed = stream_output(&receiver, &mut budget, sink, deadline, process_group);
+    let streamed = pipes::stream(
+        child.stdout.take(),
+        child.stderr.take(),
+        &mut budget,
+        sink,
+        deadline,
+        process_group,
+    );
     let ending = wait_for_child(&mut child, streamed.kill_by, process_group);
     descendants::kill_group(process_group);
     descendants::reap_group(process_group);
@@ -109,6 +123,8 @@ pub fn execute(
     Ok(Completion {
         status: terminal_status(streamed.limit_hit, streamed.timed_out, ending),
         process_group,
+        stdout_bytes: streamed.stdout_bytes,
+        stderr_bytes: streamed.stderr_bytes,
     })
 }
 
@@ -124,108 +140,6 @@ fn spawn(invocation: &Invocation) -> Result<Child, i32> {
         .process_group(0)
         .spawn()
         .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))
-}
-
-fn pump(child: &mut Child) -> Receiver<Event> {
-    let (sender, receiver) = mpsc::channel();
-    if let Some(stdout) = child.stdout.take() {
-        spawn_reader(stdout, Stream::Stdout, sender.clone());
-    } else {
-        let _ = sender.send(Event::Closed);
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_reader(stderr, Stream::Stderr, sender);
-    } else {
-        let _ = sender.send(Event::Closed);
-    }
-    receiver
-}
-
-fn spawn_reader(mut source: impl Read + Send + 'static, stream: Stream, sender: Sender<Event>) {
-    thread::spawn(move || {
-        let mut buffer = [0; MAX_CHUNK_BYTES];
-        loop {
-            match source.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(count) => {
-                    if sender
-                        .send(Event::Data(stream, buffer[..count].to_vec()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            }
-        }
-        let _ = sender.send(Event::Closed);
-    });
-}
-
-struct Streamed {
-    limit_hit: bool,
-    timed_out: bool,
-    sink_failed: bool,
-    kill_by: Instant,
-}
-
-fn stream_output(
-    receiver: &Receiver<Event>,
-    budget: &mut OutputBudget,
-    sink: &mut impl OutputSink,
-    deadline: Instant,
-    process_group: i32,
-) -> Streamed {
-    let mut streamed = Streamed {
-        limit_hit: false,
-        timed_out: false,
-        sink_failed: false,
-        kill_by: deadline,
-    };
-    let mut open = 2;
-    let mut killed = false;
-    let kill = |streamed: &mut Streamed| {
-        descendants::kill_group(process_group);
-        streamed.kill_by = Instant::now() + KILL_GRACE;
-    };
-    while open > 0 {
-        let remaining = streamed.kill_by.saturating_duration_since(Instant::now());
-        match receiver.recv_timeout(remaining) {
-            Ok(Event::Closed) => open -= 1,
-            Ok(Event::Data(..)) if killed => {}
-            Ok(Event::Data(stream, bytes)) => {
-                let (chunk, reached_limit) = match budget.admit(bytes) {
-                    Admission::Admitted(chunk) => (chunk, false),
-                    Admission::Limit(chunk) => (chunk, true),
-                    Admission::Exhausted => (Vec::new(), true),
-                };
-                if !chunk.is_empty() && deliver(sink, stream, chunk).is_err() {
-                    streamed.sink_failed = true;
-                    killed = true;
-                    kill(&mut streamed);
-                }
-                if reached_limit {
-                    streamed.limit_hit = true;
-                    killed = true;
-                    kill(&mut streamed);
-                }
-            }
-            Err(RecvTimeoutError::Timeout) if killed => break,
-            Err(RecvTimeoutError::Timeout) => {
-                streamed.timed_out = true;
-                killed = true;
-                kill(&mut streamed);
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
-    }
-    streamed
-}
-
-fn deliver(sink: &mut impl OutputSink, stream: Stream, chunk: Vec<u8>) -> Result<(), SinkFault> {
-    match stream {
-        Stream::Stdout => sink.stdout(chunk),
-        Stream::Stderr => sink.stderr(chunk),
-    }
 }
 
 fn wait_for_child(child: &mut Child, until: Instant, process_group: i32) -> Ending {

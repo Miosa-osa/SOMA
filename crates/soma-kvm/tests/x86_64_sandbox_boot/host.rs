@@ -49,6 +49,7 @@ pub fn scratch_dir(name: &str) -> PathBuf {
 /// Everything one successful run must leave behind.
 pub struct Proof {
     pub evidence: SandboxEvidence,
+    pub hostile: session::Executed,
     pub executed: session::Executed,
     pub fd_before: usize,
     pub fd_after: usize,
@@ -62,6 +63,19 @@ pub struct Proof {
 
 pub fn assert_proof(proof: &Proof) {
     session::assert_orderly(&proof.evidence);
+    // The hostile step ran first: PID 1 bounded it at the exact allowance, killed its process
+    // group, and then accepted the next lifecycle operation on the same authenticated session.
+    assert_eq!(proof.hostile.status, TerminalStatus::OutputLimit);
+    let hostile_bytes = proof.hostile.stdout.len() + proof.hostile.stderr.len();
+    assert_eq!(
+        u64::try_from(hostile_bytes).unwrap(),
+        session::HOSTILE_ALLOWANCE,
+        "the hostile step must deliver exactly its allowance"
+    );
+    assert!(
+        !proof.hostile.stdout.is_empty() && !proof.hostile.stderr.is_empty(),
+        "both hostile pipes must have competed"
+    );
     assert_eq!(proof.executed.status, TerminalStatus::Exited(0));
     assert_eq!(
         proof.fd_after, proof.fd_before,

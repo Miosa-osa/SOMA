@@ -147,10 +147,16 @@ mod live {
         eprintln!(
             "[{name}] fd_before={fd_before} fd_after={fd_after} threads_before={threads_before} threads_after={threads_after}"
         );
-        let executed = match outcome {
+        let (hostile, executed) = match outcome {
             Ok(executed) => executed,
             Err(error) => panic!("[{name}] session failed: {error}; exit={:?}", evidence.exit),
         };
+        eprintln!(
+            "[{name}] hostile status={:?} stdout={} stderr={} bytes",
+            hostile.status,
+            hostile.stdout.len(),
+            hostile.stderr.len()
+        );
         eprintln!(
             "[{name}] command status={:?} stdout={:?} stderr={:?}",
             executed.status,
@@ -167,6 +173,7 @@ mod live {
             root_after: generation::sha256_file(&root),
             head_after: generation::sha256_file(&head),
             evidence,
+            hostile,
             executed,
             fd_before,
             fd_after,

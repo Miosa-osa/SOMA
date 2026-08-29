@@ -48,9 +48,13 @@ struct ControlSink<I: ControlIo> {
 }
 
 impl<I: ControlIo> ControlSink<I> {
-    fn send(&mut self, bytes: Vec<u8>, send: SendChunk<I>) -> Result<(), SinkFault> {
+    /// Copies one already admitted chunk into the record the protocol crate owns.
+    ///
+    /// The copy is bounded by the executor's fixed chunk size and is released as soon as the
+    /// record is sealed, so no queue forms behind a slow or hostile peer.
+    fn send(&mut self, bytes: &[u8], send: SendChunk<I>) -> Result<(), SinkFault> {
         let control = self.control.take().ok_or(SinkFault)?;
-        match send(control, bytes, self.deadline) {
+        match send(control, bytes.to_vec(), self.deadline) {
             Ok(control) => {
                 self.control = Some(control);
                 Ok(())
@@ -61,11 +65,11 @@ impl<I: ControlIo> ControlSink<I> {
 }
 
 impl<I: ControlIo> OutputSink for ControlSink<I> {
-    fn stdout(&mut self, bytes: Vec<u8>) -> Result<(), SinkFault> {
+    fn stdout(&mut self, bytes: &[u8]) -> Result<(), SinkFault> {
         self.send(bytes, GuestControl::stdout)
     }
 
-    fn stderr(&mut self, bytes: Vec<u8>) -> Result<(), SinkFault> {
+    fn stderr(&mut self, bytes: &[u8]) -> Result<(), SinkFault> {
         self.send(bytes, GuestControl::stderr)
     }
 }

@@ -1,10 +1,24 @@
 #![allow(unsafe_code)]
 
+use std::fs;
+use std::thread;
 use std::time::{Duration, Instant};
 
 use soma_guest::{GuestCommand, TerminalStatus};
 
-use super::{Completion, ExecutorFault, OutputSink, SinkFault, execute};
+use super::{Completion, ExecutorFault, KILL_GRACE, OutputSink, SinkFault, execute};
+
+mod hostile;
+
+/// Combined allowance the hostile fixtures are given before the limit closes them down.
+const HOSTILE_ALLOWANCE: u64 = 8 * 1024 * 1024;
+/// Declared resident growth one hostile command may cost the agent.
+///
+/// The bounded loop owns one fixed read buffer and one borrowed chunk, so the real growth is
+/// far below this ceiling; an unbounded queue behind a slow sink exceeds it within a second.
+const MAX_RESIDENT_GROWTH_BYTES: u64 = 32 * 1024 * 1024;
+/// Two descendants of one shell, each holding one pipe and writing at memory speed.
+const HOSTILE_BOTH_PIPES: &str = "/bin/cat /dev/zero & /bin/cat /dev/zero >&2";
 
 #[derive(Default)]
 struct RecordingSink {
@@ -15,18 +29,59 @@ struct RecordingSink {
 }
 
 impl OutputSink for RecordingSink {
-    fn stdout(&mut self, bytes: Vec<u8>) -> Result<(), SinkFault> {
+    fn stdout(&mut self, bytes: &[u8]) -> Result<(), SinkFault> {
         self.chunks += 1;
         if self.fail_after.is_some_and(|limit| self.chunks > limit) {
             return Err(SinkFault);
         }
-        self.stdout.extend_from_slice(&bytes);
+        self.stdout.extend_from_slice(bytes);
         Ok(())
     }
 
-    fn stderr(&mut self, bytes: Vec<u8>) -> Result<(), SinkFault> {
+    fn stderr(&mut self, bytes: &[u8]) -> Result<(), SinkFault> {
         self.chunks += 1;
-        self.stderr.extend_from_slice(&bytes);
+        if self.fail_after.is_some_and(|limit| self.chunks > limit) {
+            return Err(SinkFault);
+        }
+        self.stderr.extend_from_slice(bytes);
+        Ok(())
+    }
+}
+
+/// Counts and paces delivery without retaining a byte, so only the executor bounds memory.
+struct SlowCountingSink {
+    stdout: u64,
+    stderr: u64,
+    largest_chunk: usize,
+    delay: Duration,
+}
+
+impl SlowCountingSink {
+    const fn new(delay: Duration) -> Self {
+        Self {
+            stdout: 0,
+            stderr: 0,
+            largest_chunk: 0,
+            delay,
+        }
+    }
+
+    fn count(&mut self, bytes: &[u8]) {
+        self.largest_chunk = self.largest_chunk.max(bytes.len());
+        thread::sleep(self.delay);
+    }
+}
+
+impl OutputSink for SlowCountingSink {
+    fn stdout(&mut self, bytes: &[u8]) -> Result<(), SinkFault> {
+        self.count(bytes);
+        self.stdout += bytes.len() as u64;
+        Ok(())
+    }
+
+    fn stderr(&mut self, bytes: &[u8]) -> Result<(), SinkFault> {
+        self.count(bytes);
+        self.stderr += bytes.len() as u64;
         Ok(())
     }
 }
@@ -67,12 +122,24 @@ fn group_is_gone(process_group: i32) -> bool {
     }
 }
 
+/// Peak resident set size of this process in bytes, as the kernel reports it.
+fn resident_high_water() -> u64 {
+    fs::read_to_string("/proc/self/status")
+        .expect("process status")
+        .lines()
+        .find_map(|line| line.strip_prefix("VmHWM:"))
+        .and_then(|value| value.split_whitespace().next()?.parse::<u64>().ok())
+        .expect("VmHWM in kibibytes")
+        * 1024
+}
+
 #[test]
 fn a_successful_command_exits_zero_without_output() {
     let (completion, sink) = run(&command("/bin/true", &[], 5_000, 1));
 
     assert_eq!(completion.status, TerminalStatus::Exited(0));
     assert!(sink.stdout.is_empty() && sink.stderr.is_empty());
+    assert_eq!((completion.stdout_bytes, completion.stderr_bytes), (0, 0));
     assert!(completion.process_group > 1);
     assert!(group_is_gone(completion.process_group));
 }
@@ -83,6 +150,8 @@ fn arguments_reach_the_program_verbatim_and_output_is_streamed() {
 
     assert_eq!(completion.status, TerminalStatus::Exited(0));
     assert_eq!(sink.stdout, b"$HOME a b\n");
+    assert_eq!(completion.stdout_bytes, 10);
+    assert_eq!(completion.stderr_bytes, 0);
 }
 
 #[test]
@@ -97,6 +166,8 @@ fn nonzero_exit_and_stderr_are_reported() {
     assert_eq!(completion.status, TerminalStatus::Exited(2));
     assert!(!sink.stderr.is_empty());
     assert!(sink.stdout.is_empty());
+    assert_eq!(completion.stderr_bytes, sink.stderr.len() as u64);
+    assert_eq!(completion.stdout_bytes, 0);
 }
 
 #[test]
@@ -137,6 +208,7 @@ fn the_output_allowance_is_filled_exactly_then_the_command_is_killed() {
 
     assert_eq!(completion.status, TerminalStatus::OutputLimit);
     assert_eq!(sink.stdout.len(), 10_000);
+    assert_eq!(completion.stdout_bytes, 10_000);
     assert!(group_is_gone(completion.process_group));
 }
 
@@ -146,6 +218,7 @@ fn output_exactly_at_the_allowance_is_a_normal_exit() {
 
     assert_eq!(completion.status, TerminalStatus::Exited(0));
     assert_eq!(sink.stdout, b"abcd");
+    assert_eq!(completion.stdout_bytes, 4);
 }
 
 #[test]
@@ -161,6 +234,7 @@ fn a_failing_sink_aborts_and_reaps_the_command() {
         fail_after: Some(0),
         ..RecordingSink::default()
     };
+    let started = Instant::now();
     let error = execute(
         &command("/bin/cat", &["/dev/zero"], 5_000, 1 << 20),
         &mut sink,
@@ -168,6 +242,28 @@ fn a_failing_sink_aborts_and_reaps_the_command() {
     .expect_err("sink failure");
 
     assert_eq!(error, ExecutorFault::Sink);
+    assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn a_sink_that_disconnects_mid_stream_kills_the_group_within_the_grace() {
+    let mut sink = RecordingSink {
+        fail_after: Some(2),
+        ..RecordingSink::default()
+    };
+    let started = Instant::now();
+    let error = execute(
+        &command("/bin/sh", &["-c", HOSTILE_BOTH_PIPES], 60_000, 1 << 24),
+        &mut sink,
+    )
+    .expect_err("sink disconnect");
+
+    assert_eq!(error, ExecutorFault::Sink);
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "a disconnect must complete within the kill grace, not the command timeout"
+    );
+    assert!(KILL_GRACE < Duration::from_secs(5));
 }
 
 #[test]
