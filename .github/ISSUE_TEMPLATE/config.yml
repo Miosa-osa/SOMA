@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Miosa-osa/SOMA/security/policy
+    about: Follow SECURITY.md and report vulnerabilities privately instead of opening a public issue.

@@ -1,0 +1,52 @@
+[graph]
+all-features = true
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-pc-windows-msvc",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+
+[advisories]
+yanked = "deny"
+unmaintained = "all"
+unused-ignored-advisory = "deny"
+ignore = []
+
+[licenses]
+confidence-threshold = 0.93
+allow = [
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "MIT",
+]
+exceptions = []
+
+[licenses.private]
+ignore = false
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+skip = [
+    { crate = "bitflags@1.3.2", reason = "vmm-sys-util still requires bitflags 1 while kvm-ioctls uses bitflags 2" },
+]
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[sources.allow-org]
+github = []
+gitlab = []
+bitbucket = []

@@ -1,0 +1,14 @@
+[package]
+name = "soma-kvm"
+description = "Linux KVM host capability probe for SOMA"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
+kvm-ioctls = "=0.25.0"

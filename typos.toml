@@ -1,0 +1,13 @@
+[files]
+extend-exclude = [
+    "Cargo.lock",
+    "LICENSE",
+    "target/",
+]
+
+[default.extend-identifiers]
+AF_UNIX = "AF_UNIX"
+KVM_GET_API_VERSION = "KVM_GET_API_VERSION"
+MAP_PRIVATE = "MAP_PRIVATE"
+PNGs = "PNGs"
+SOCK_SEQPACKET = "SOCK_SEQPACKET"

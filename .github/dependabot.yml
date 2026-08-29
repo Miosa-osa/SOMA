@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:17"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+    groups:
+      rust-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:47"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch

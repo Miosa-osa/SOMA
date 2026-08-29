@@ -1,0 +1,30 @@
+[
+  {
+    "configuration": {
+      "creationDate": "2026-08-25T03:18:46Z",
+      "descriptor": {
+        "digest": "sha256:8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
+        "mediaType": "application/vnd.oci.image.index.v1+json",
+        "size": 5154
+      },
+      "name": "docker.io/library/node:22"
+    },
+    "id": "8a34c4ab3ea2c5cd194f07e317b2a8f09461d3c8b05c4e34c8ccd56d56024c4d",
+    "variants": [
+      {
+        "config": {
+          "architecture": "arm64",
+          "os": "linux",
+          "variant": "v8"
+        },
+        "digest": "sha256:2f22d3b5ec6552b890773a152030b1360d35da0c4369799319523ccdb2d78e0e",
+        "platform": {
+          "architecture": "arm64",
+          "os": "linux",
+          "variant": "v8"
+        },
+        "size": 399647497
+      }
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+self-hosted-runner:
+  labels:
+    - soma-kvm
+
+# actionlint 1.7.12 predates the official Ubuntu 26.04 preview runner label.
+paths:
+  .github/workflows/ci.yml:
+    ignore:
+      - 'label "ubuntu-26\.04" is unknown'

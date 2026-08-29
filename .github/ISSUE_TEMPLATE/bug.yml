@@ -1,0 +1,77 @@
+name: Bug report
+description: Report reproducible incorrect behavior in SOMA.
+title: "[Bug]: "
+labels: []
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        SOMA is pre-alpha and is not safe for untrusted production workloads.
+        Report vulnerabilities privately through the route in SECURITY.md, not through this public form.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the incorrect behavior and its effect on a caller.
+    validations:
+      required: true
+
+  - type: input
+    id: revision
+    attributes:
+      label: Revision
+      description: Provide the exact commit or tag that was tested.
+      placeholder: Full commit SHA or tag
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the operating system, architecture, kernel, CPU class, and whether accessible KVM hardware was present.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest complete sequence that reproduces the behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: State the interface result or invariant you expected.
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: State what happened, including typed errors and sanitized logs when useful.
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation evidence
+      description: List commands run and distinguish macOS platform-neutral evidence from Linux x86_64 KVM evidence.
+
+  - type: checkboxes
+    id: hygiene
+    attributes:
+      label: Public report hygiene
+      options:
+        - label: I removed secrets, tenant data, private hostnames, personal paths, and proprietary artifacts.
+          required: true
+        - label: I am not using a skipped or unavailable KVM test as passing KVM evidence.
+          required: true

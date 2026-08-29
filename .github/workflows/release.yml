@@ -1,0 +1,127 @@
+name: Release bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: SemVer tag to validate without publishing
+        required: true
+        default: v1.0.0-alpha.1
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-bundle-${{ github.ref }}-${{ inputs.release_tag }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  RUST_BACKTRACE: "1"
+  RUST_TOOLCHAIN: "1.98.0"
+
+jobs:
+  bundle:
+    name: Validate tag and build source artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+
+      - name: Ensure validation tools are available
+        run: |
+          if ! command -v jq >/dev/null 2>&1 || ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends jq shellcheck
+          fi
+
+      - name: Validate and package the release bundle
+        env:
+          SOMA_RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: ./scripts/check.sh release
+
+      - name: Upload crates and checksums
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: soma-${{ env.RELEASE_TAG }}
+          path: target/release-bundles/${{ env.RELEASE_TAG }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  client-binaries:
+    name: Build ${{ matrix.target }} client bundle
+    needs: bundle
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            cli_binary: soma
+            mcp_binary: soma-mcp
+          - runner: macos-26
+            target: aarch64-apple-darwin
+            cli_binary: soma
+            mcp_binary: soma-mcp
+          - runner: windows-2025
+            target: x86_64-pc-windows-msvc
+            cli_binary: soma.exe
+            mcp_binary: soma-mcp.exe
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+
+      - name: Validate version and build native client
+        shell: bash
+        env:
+          RELEASE_CLI_BINARY: ${{ matrix.cli_binary }}
+          RELEASE_MCP_BINARY: ${{ matrix.mcp_binary }}
+          RELEASE_TARGET: ${{ matrix.target }}
+        run: |
+          test "$(tr -d '\r\n' < VERSION)" = "${RELEASE_TAG#v}"
+          cargo build --release --locked -p soma-cli -p soma-mcp
+          bundle="target/client-bundle/${RELEASE_TARGET}"
+          mkdir -p "$bundle"
+          cp "target/release/${RELEASE_CLI_BINARY}" "$bundle/"
+          cp "target/release/${RELEASE_MCP_BINARY}" "$bundle/"
+          {
+            printf 'release_tag=%s\n' "$RELEASE_TAG"
+            printf 'target=%s\n' "$RELEASE_TARGET"
+            rustc --version
+            cargo --version
+          } > "$bundle/BUILD-INFO.txt"
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd "$bundle" && sha256sum "$RELEASE_CLI_BINARY" "$RELEASE_MCP_BINARY") > "$bundle/SHA256SUMS"
+          else
+            (cd "$bundle" && shasum -a 256 "$RELEASE_CLI_BINARY" "$RELEASE_MCP_BINARY") > "$bundle/SHA256SUMS"
+          fi
+
+      - name: Upload native client
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: soma-${{ env.RELEASE_TAG }}-${{ matrix.target }}
+          path: target/client-bundle/${{ matrix.target }}
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 30

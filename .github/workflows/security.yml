@@ -1,0 +1,73 @@
+name: Security and dependencies
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.98.0"
+
+jobs:
+  audit:
+    name: Supply-chain policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+
+      - name: Install checksum-verified Rust security tools
+        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        with:
+          fallback: none
+          tool: cargo-audit@0.22.2,cargo-deny@0.20.2,zizmor@1.29.0
+
+      # typos 1.50.0 is newer than the current install-action checksum manifest.
+      # Cargo installs the exact locked crate through the checksummed registry.
+      - name: Install pinned spelling checker
+        run: cargo install --locked --version 1.50.0 typos-cli
+
+      - name: Install pinned Go toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          cache: false
+          go-version: "1.27.0"
+
+      - name: Install workflow and secret scanners
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
+          echo "$GOBIN" >> "$GITHUB_PATH"
+
+      - name: Ensure ShellCheck is available
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends shellcheck
+          fi
+
+      - name: Run security validation
+        run: ./scripts/check.sh security

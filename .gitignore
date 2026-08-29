@@ -1,0 +1,13 @@
+/target/
+__pycache__/
+*.py[cod]
+/.cache/
+/.idea/
+/.vscode/
+.DS_Store
+*.profraw
+*.profdata
+*.snap.new
+coverage/
+result/
+benchmarks/results/

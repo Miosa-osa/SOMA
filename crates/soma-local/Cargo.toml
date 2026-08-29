@@ -1,0 +1,20 @@
+[package]
+name = "soma-local"
+description = "Durable local state and host adapters for SOMA"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+soma = { path = "../soma", version = "=1.0.0-alpha.1" }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+soma-macos = { path = "../soma-macos", version = "=1.0.0-alpha.1" }
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.1" }
+
+[lints]
+workspace = true

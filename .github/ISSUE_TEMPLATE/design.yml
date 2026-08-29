@@ -1,0 +1,70 @@
+name: Design or feature proposal
+description: Propose a provider-neutral behavior or a change to a SOMA interface.
+title: "[Design]: "
+labels: []
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lead with the problem and the caller-visible contract.
+        Significant interface, topology, snapshot, compatibility, or trust changes require an ADR before implementation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe the operator or caller problem without assuming a particular provider implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: State the observable behavior and the use case it enables.
+    validations:
+      required: true
+
+  - type: textarea
+    id: interface
+    attributes:
+      label: Interface and seam
+      description: Identify the module interface, seam, and adapters that would change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Safety and compatibility invariants
+      description: Explain isolation, recovery, readiness, artifact, and fail-closed requirements affected by the proposal.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Compare at least one materially different design and explain the tradeoff.
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: Describe interface tests, failure tests, Linux KVM evidence, and benchmarks required to establish the outcome.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope confirmation
+      options:
+        - label: This proposal keeps provider placement, billing, tenant policy, and proprietary integration outside SOMA.
+          required: true
+        - label: I identified whether an ADR is required before implementation.
+          required: true

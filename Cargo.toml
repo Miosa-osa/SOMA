@@ -1,0 +1,26 @@
+[workspace]
+members = [
+    "crates/soma",
+    "crates/soma-cli",
+    "crates/soma-kvm",
+    "crates/soma-local",
+    "crates/soma-macos",
+    "crates/soma-mcp",
+    "crates/soma-vmm",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/Miosa-osa/SOMA"
+rust-version = "1.98"
+version = "1.0.0-alpha.1"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+warnings = "deny"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"

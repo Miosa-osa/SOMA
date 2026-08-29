@@ -1,0 +1,54 @@
+name: KVM smoke
+
+# Never run untrusted pull request code on the self-hosted KVM runner.
+# The soma-kvm label must identify an ephemeral runner that is isolated from production hosts.
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - crates/**
+      - scripts/check.sh
+      - scripts/kvm-smoke.sh
+      - .github/workflows/kvm-smoke.yml
+permissions:
+  contents: read
+
+concurrency:
+  group: kvm-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: "0"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  RUST_TOOLCHAIN: "1.98.0"
+
+jobs:
+  real-kvm:
+    name: Ubuntu 24.04 x86_64 real KVM
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - soma-kvm
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require runner toolchain manager
+        run: command -v rustup >/dev/null 2>&1
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+
+      - name: Run the real KVM probe
+        run: ./scripts/check.sh kvm
