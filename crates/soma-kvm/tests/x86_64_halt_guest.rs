@@ -15,8 +15,8 @@ mod live {
     };
 
     use soma_kvm::x86_64::{
-        EXPECTED_SERIAL, GuestExit, HaltGuestConfig, HaltGuestErrorKind, InterruptController,
-        Phase, run_halt_guest,
+        EXPECTED_SERIAL, GuestExit, HaltGuestConfig, InterruptController, MachineErrorKind, Phase,
+        run_halt_guest,
     };
 
     const RAM_BYTES: u64 = 128 * 1024 * 1024;
@@ -93,7 +93,7 @@ mod live {
 
         println!("error={error} fd_before={fd_before} fd_after={fd_after}");
         assert_eq!(error.phase(), Phase::Run);
-        assert_eq!(error.kind(), &HaltGuestErrorKind::Timeout);
+        assert_eq!(error.kind(), &MachineErrorKind::Timeout);
         assert_eq!(
             fd_after, fd_before,
             "the timed-out proof leaked file descriptors"

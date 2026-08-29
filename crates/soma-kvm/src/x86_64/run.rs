@@ -1,66 +1,69 @@
-//! The bounded `KVM_RUN` loop for the halt guest.
+//! The bounded `KVM_RUN` loop shared by the halt guest and the kernel boot.
 
 use kvm_ioctls::{VcpuExit, VcpuFd};
 
 use super::{
-    error::{HaltGuestError, HaltGuestErrorKind, Phase},
-    guest::SERIAL_PORT,
+    error::{MachineError, MachineErrorKind, Phase},
+    ports::{PortBus, PortEvent},
 };
-
-/// Upper bound on captured serial bytes before the proof fails closed.
-pub(crate) const SERIAL_CAPTURE_LIMIT: usize = 4096;
 
 /// How the guest stopped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GuestExit {
     /// The guest executed `hlt` and KVM returned `KVM_EXIT_HLT`.
     Halt,
+    /// The guest triple-faulted or otherwise reached `KVM_EXIT_SHUTDOWN`.
+    Shutdown,
+    /// The guest pulsed the keyboard-controller CPU-reset line, as `reboot=k` does.
+    Reset,
+    /// SOMA stopped the vCPU because the expected serial sentinel arrived.
+    Sentinel,
 }
 
-/// The vCPU thread's result: captured console bytes plus the terminal exit.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunOutcome {
-    pub(crate) serial: Vec<u8>,
-    pub(crate) exit: GuestExit,
-}
-
-/// Runs the vCPU until it halts, an unexpected exit occurs, or the watchdog interrupts it.
-pub(crate) fn run(vcpu: &mut VcpuFd) -> Result<RunOutcome, HaltGuestError> {
-    let mut serial = Vec::new();
+/// Runs the vCPU until it stops, an unexpected exit occurs, or the watchdog interrupts it.
+///
+/// Port I/O is dispatched through `bus`; when `sentinel` is given the loop stops as soon as the
+/// captured serial output ends with it.
+pub(crate) fn run(
+    vcpu: &mut VcpuFd,
+    bus: &mut PortBus,
+    sentinel: Option<&[u8]>,
+) -> Result<GuestExit, MachineError> {
     loop {
         match vcpu.run() {
-            Ok(VcpuExit::IoOut(SERIAL_PORT, data)) => capture(&mut serial, data)?,
-            Ok(VcpuExit::Hlt) => {
-                return Ok(RunOutcome {
-                    serial,
-                    exit: GuestExit::Halt,
-                });
-            }
+            Ok(VcpuExit::IoIn(port, data)) => bus.io_in(port, data),
+            Ok(VcpuExit::IoOut(port, data)) => match bus.io_out(port, data)? {
+                PortEvent::Reset => return Ok(GuestExit::Reset),
+                PortEvent::Continue => {
+                    if sentinel.is_some_and(|expected| ends_with(bus.serial().output(), expected)) {
+                        return Ok(GuestExit::Sentinel);
+                    }
+                }
+            },
+            Ok(VcpuExit::Hlt) => return Ok(GuestExit::Halt),
+            Ok(VcpuExit::Shutdown) => return Ok(GuestExit::Shutdown),
             Ok(VcpuExit::Intr) => {}
             Ok(exit) => {
-                return Err(HaltGuestError::new(
+                return Err(MachineError::new(
                     Phase::Run,
-                    HaltGuestErrorKind::UnexpectedExit(classify(&exit)),
+                    MachineErrorKind::UnexpectedExit(classify(&exit)),
                 ));
             }
             Err(error) if error.errno() == libc::EINTR => {
-                return Err(HaltGuestError::new(Phase::Run, HaltGuestErrorKind::Timeout));
+                return Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout));
             }
-            Err(error) => return Err(HaltGuestError::os(Phase::Run, error)),
+            Err(error) => return Err(MachineError::os(Phase::Run, error)),
         }
     }
 }
 
-pub(crate) fn capture(serial: &mut Vec<u8>, data: &[u8]) -> Result<(), HaltGuestError> {
-    let remaining = SERIAL_CAPTURE_LIMIT.saturating_sub(serial.len());
-    if data.len() > remaining {
-        return Err(HaltGuestError::invalid(
-            Phase::Run,
-            "serial capture exceeded 4 KiB before the guest halted",
-        ));
-    }
-    serial.extend_from_slice(data);
-    Ok(())
+/// True when `output` ends with `expected` followed by at most one line terminator.
+fn ends_with(output: &[u8], expected: &[u8]) -> bool {
+    let trimmed = output
+        .strip_suffix(b"\r\n")
+        .or_else(|| output.strip_suffix(b"\n"))
+        .unwrap_or(output);
+    !expected.is_empty() && trimmed.ends_with(expected)
 }
 
 /// Names an exit without copying guest data into error text.
@@ -86,14 +89,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capture_is_bounded() {
-        let mut serial = Vec::new();
-        capture(&mut serial, b"SOMA").unwrap();
-        assert_eq!(serial, b"SOMA");
-        let filler = vec![b'x'; SERIAL_CAPTURE_LIMIT - 4];
-        capture(&mut serial, &filler).unwrap();
-        assert_eq!(serial.len(), SERIAL_CAPTURE_LIMIT);
-        assert!(capture(&mut serial, b"y").is_err());
+    fn sentinel_match_tolerates_one_trailing_newline() {
+        assert!(ends_with(b"boot log\nSOMA-BOOT-ab\n", b"SOMA-BOOT-ab"));
+        assert!(ends_with(b"SOMA-BOOT-ab\r\n", b"SOMA-BOOT-ab"));
+        assert!(ends_with(b"SOMA-BOOT-ab", b"SOMA-BOOT-ab"));
+        assert!(!ends_with(b"SOMA-BOOT-ab\n\n", b"SOMA-BOOT-ab"));
+        assert!(!ends_with(b"SOMA-BOOT-a", b"SOMA-BOOT-ab"));
+        assert!(!ends_with(b"anything", b""));
     }
 
     #[test]

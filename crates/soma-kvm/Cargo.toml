@@ -15,6 +15,7 @@ sha2 = { version = "=0.11.0", default-features = false }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 kvm-bindings = "=0.14.1"
+vmm-sys-util = "=0.15.0"
 
 [target.'cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))'.dependencies]
 kvm-ioctls = "=0.25.0"

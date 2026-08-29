@@ -16,7 +16,7 @@ use kvm_bindings::KVMIO;
 use kvm_ioctls::VcpuFd;
 use libc::{SA_SIGINFO, c_int, c_void, sigaction, siginfo_t, sigset_t};
 
-use super::error::{HaltGuestError, HaltGuestErrorKind, Phase};
+use super::error::{MachineError, MachineErrorKind, Phase};
 
 const SIGNAL_OFFSET: c_int = 7;
 const KERNEL_MASK_BYTES: usize = 8;
@@ -36,14 +36,14 @@ pub(crate) const fn kvm_set_signal_mask_request() -> u64 {
 }
 
 /// The real-time signal reserved for interrupting `KVM_RUN`.
-pub(crate) fn signal_number() -> Result<c_int, HaltGuestError> {
+pub(crate) fn signal_number() -> Result<c_int, MachineError> {
     let signal = libc::SIGRTMIN()
         .checked_add(SIGNAL_OFFSET)
-        .ok_or_else(|| HaltGuestError::invalid(Phase::Run, "watchdog signal overflow"))?;
+        .ok_or_else(|| MachineError::invalid(Phase::Run, "watchdog signal overflow"))?;
     let mask_bits = c_int::try_from(KERNEL_MASK_BYTES * 8)
-        .map_err(|_| HaltGuestError::invalid(Phase::Run, "signal mask width overflow"))?;
+        .map_err(|_| MachineError::invalid(Phase::Run, "signal mask width overflow"))?;
     if signal > libc::SIGRTMAX() || signal > mask_bits {
-        return Err(HaltGuestError::invalid(
+        return Err(MachineError::invalid(
             Phase::Run,
             "no KVM-compatible real-time signal is available",
         ));
@@ -59,7 +59,7 @@ pub(crate) struct HandlerGuard {
 
 impl HandlerGuard {
     #[allow(unsafe_code)]
-    pub(crate) fn install(signal: c_int) -> Result<Self, HaltGuestError> {
+    pub(crate) fn install(signal: c_int) -> Result<Self, MachineError> {
         // SAFETY: `action` and `previous` are zero-initialized sigaction storage that libc
         // fully writes. The handler is async-signal-safe (it does nothing). Return values are
         // checked, and the previous action is restored in `Drop`.
@@ -68,11 +68,11 @@ impl HandlerGuard {
             action.sa_sigaction = noop_handler as *const () as usize;
             action.sa_flags = SA_SIGINFO;
             if libc::sigfillset(&raw mut action.sa_mask) != 0 {
-                return Err(HaltGuestError::last_os(Phase::Run));
+                return Err(MachineError::last_os(Phase::Run));
             }
             let mut previous: sigaction = mem::zeroed();
             if libc::sigaction(signal, &raw const action, &raw mut previous) != 0 {
-                return Err(HaltGuestError::last_os(Phase::Run));
+                return Err(MachineError::last_os(Phase::Run));
             }
             Ok(Self { signal, previous })
         }
@@ -95,9 +95,9 @@ pub(crate) struct RunMaskGuard {
 
 impl RunMaskGuard {
     #[allow(unsafe_code)]
-    pub(crate) fn install(vcpu: &VcpuFd, signal: c_int) -> Result<Self, HaltGuestError> {
+    pub(crate) fn install(vcpu: &VcpuFd, signal: c_int) -> Result<Self, MachineError> {
         if mem::size_of::<sigset_t>() < KERNEL_MASK_BYTES {
-            return Err(HaltGuestError::invalid(
+            return Err(MachineError::invalid(
                 Phase::Run,
                 "pthread signal mask is narrower than the KVM signal mask",
             ));
@@ -108,14 +108,14 @@ impl RunMaskGuard {
         unsafe {
             let mut original: sigset_t = mem::zeroed();
             if libc::pthread_sigmask(libc::SIG_BLOCK, ptr::null(), &raw mut original) != 0 {
-                return Err(HaltGuestError::last_os(Phase::Run));
+                return Err(MachineError::last_os(Phase::Run));
             }
             let mut blocked = original;
             if libc::sigaddset(&raw mut blocked, signal) != 0 {
-                return Err(HaltGuestError::last_os(Phase::Run));
+                return Err(MachineError::last_os(Phase::Run));
             }
             if libc::pthread_sigmask(libc::SIG_SETMASK, &raw const blocked, ptr::null_mut()) != 0 {
-                return Err(HaltGuestError::last_os(Phase::Run));
+                return Err(MachineError::last_os(Phase::Run));
             }
             let guard = Self { original };
             let mut run_mask = [0_u8; KERNEL_MASK_BYTES];
@@ -143,42 +143,36 @@ impl Drop for RunMaskGuard {
 
 /// Sends the reserved signal to the vCPU thread.
 #[allow(unsafe_code)]
-pub(crate) fn kick(worker: &JoinHandle<()>, signal: c_int) -> Result<(), HaltGuestError> {
+pub(crate) fn kick(worker: &JoinHandle<()>, signal: c_int) -> Result<(), MachineError> {
     // SAFETY: The unconsumed JoinHandle keeps the target pthread valid, and the process handler
     // for `signal` stays installed until after the thread is joined.
     let result = unsafe { libc::pthread_kill(worker.as_pthread_t(), signal) };
     if result == 0 {
         Ok(())
     } else {
-        Err(HaltGuestError::new(
-            Phase::Run,
-            HaltGuestErrorKind::Os(result),
-        ))
+        Err(MachineError::new(Phase::Run, MachineErrorKind::Os(result)))
     }
 }
 
 pub(crate) fn clear_bit(
     mask: &mut [u8; KERNEL_MASK_BYTES],
     signal: c_int,
-) -> Result<(), HaltGuestError> {
+) -> Result<(), MachineError> {
     let bit = u32::try_from(signal.checked_sub(1).unwrap_or(-1))
-        .map_err(|_| HaltGuestError::invalid(Phase::Run, "invalid signal number"))?;
+        .map_err(|_| MachineError::invalid(Phase::Run, "invalid signal number"))?;
     let bit_mask = 1_u64
         .checked_shl(bit)
         .filter(|_| bit < 64)
-        .ok_or_else(|| HaltGuestError::invalid(Phase::Run, "signal outside KVM mask"))?;
+        .ok_or_else(|| MachineError::invalid(Phase::Run, "signal outside KVM mask"))?;
     *mask = (u64::from_ne_bytes(*mask) & !bit_mask).to_ne_bytes();
     Ok(())
 }
 
 #[allow(unsafe_code)]
-fn set_kvm_signal_mask(
-    vcpu: &VcpuFd,
-    mask: &[u8; KERNEL_MASK_BYTES],
-) -> Result<(), HaltGuestError> {
+fn set_kvm_signal_mask(vcpu: &VcpuFd, mask: &[u8; KERNEL_MASK_BYTES]) -> Result<(), MachineError> {
     let mut payload = [0_u8; mem::size_of::<u32>() + KERNEL_MASK_BYTES];
     let len = u32::try_from(KERNEL_MASK_BYTES)
-        .map_err(|_| HaltGuestError::invalid(Phase::Run, "mask length overflow"))?;
+        .map_err(|_| MachineError::invalid(Phase::Run, "mask length overflow"))?;
     payload[..4].copy_from_slice(&len.to_ne_bytes());
     payload[4..].copy_from_slice(mask);
     // SAFETY: The calling thread exclusively owns `vcpu`. KVM reads the four-byte length header
@@ -194,7 +188,7 @@ fn set_kvm_signal_mask(
     if result == 0 {
         Ok(())
     } else {
-        Err(HaltGuestError::last_os(Phase::Run))
+        Err(MachineError::last_os(Phase::Run))
     }
 }
 

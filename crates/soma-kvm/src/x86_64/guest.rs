@@ -2,13 +2,11 @@
 
 use super::{
     boot_info::{self, DIAGNOSTIC_CMDLINE},
-    error::HaltGuestError,
+    error::MachineError,
     layout::{CMDLINE_ADDRESS, KERNEL_START, MEMMAP_ADDRESS, START_INFO_ADDRESS},
     memory::GuestRam,
 };
 
-/// The I/O port the halt guest writes to and the proof captures as its serial console.
-pub(crate) const SERIAL_PORT: u16 = 0x3f8;
 /// The bytes the halt guest emits before executing `hlt`.
 pub const EXPECTED_SERIAL: &[u8] = b"SOMA";
 
@@ -24,10 +22,10 @@ pub(crate) const HALT_PROGRAM: [u8; 18] = [
 ];
 
 /// Writes the boot structures and the halt program into guest RAM and returns the entry point.
-pub(crate) fn load(ram: &mut GuestRam) -> Result<u64, HaltGuestError> {
+pub(crate) fn load(ram: &mut GuestRam) -> Result<u64, MachineError> {
     let memmap = boot_info::memmap(ram.layout())?;
     let entries = u32::try_from(memmap.len() / boot_info::MEMMAP_ENTRY_BYTES)
-        .map_err(|_| HaltGuestError::invalid(super::error::Phase::LoadGuest, "memmap overflow"))?;
+        .map_err(|_| MachineError::invalid(super::error::Phase::LoadGuest, "memmap overflow"))?;
     ram.write(START_INFO_ADDRESS, &boot_info::start_info(entries, 0))?;
     ram.write(MEMMAP_ADDRESS, &memmap)?;
     ram.write(CMDLINE_ADDRESS, &boot_info::cmdline(DIAGNOSTIC_CMDLINE)?)?;
@@ -51,7 +49,7 @@ mod tests {
         assert_eq!(&HALT_PROGRAM[..5], &[0xba, 0xf8, 0x03, 0x00, 0x00]);
         assert_eq!(
             u16::from_le_bytes([HALT_PROGRAM[1], HALT_PROGRAM[2]]),
-            SERIAL_PORT
+            crate::x86_64::serial::SERIAL_BASE
         );
     }
 

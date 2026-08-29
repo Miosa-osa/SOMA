@@ -3,7 +3,7 @@
 //! Every constant is a guest-physical byte address. Callers validate overflow, overlap, and
 //! containment through [`GuestLayout`] before any byte is published to guest RAM.
 
-use super::error::{HaltGuestError, Phase};
+use super::error::{MachineError, Phase};
 
 pub(crate) const PAGE_SIZE: u64 = 4096;
 pub(crate) const MIN_RAM_BYTES: u64 = 128 * 1024 * 1024;
@@ -44,21 +44,21 @@ pub(crate) struct GuestLayout {
 }
 
 impl GuestLayout {
-    pub(crate) fn new(ram_bytes: u64) -> Result<Self, HaltGuestError> {
+    pub(crate) fn new(ram_bytes: u64) -> Result<Self, MachineError> {
         if !ram_bytes.is_multiple_of(PAGE_SIZE) {
-            return Err(HaltGuestError::invalid(
+            return Err(MachineError::invalid(
                 Phase::MapMemory,
                 "guest RAM size must be a multiple of 4 KiB",
             ));
         }
         if !(MIN_RAM_BYTES..=MAX_RAM_BYTES).contains(&ram_bytes) {
-            return Err(HaltGuestError::invalid(
+            return Err(MachineError::invalid(
                 Phase::MapMemory,
                 "guest RAM size must be between 128 MiB and 3 GiB",
             ));
         }
         if ram_bytes > TSS_ADDRESS {
-            return Err(HaltGuestError::invalid(
+            return Err(MachineError::invalid(
                 Phase::MapMemory,
                 "guest RAM overlaps the TSS window",
             ));
@@ -71,12 +71,12 @@ impl GuestLayout {
     }
 
     /// Returns the two RAM entries the contract reports when RAM crosses the legacy hole.
-    pub(crate) fn ram_ranges(self) -> Result<[(u64, u64); 2], HaltGuestError> {
+    pub(crate) fn ram_ranges(self) -> Result<[(u64, u64); 2], MachineError> {
         let high = self
             .ram_bytes
             .checked_sub(HIGH_MEMORY_START)
             .ok_or_else(|| {
-                HaltGuestError::invalid(Phase::LoadGuest, "guest RAM ends below high memory")
+                MachineError::invalid(Phase::LoadGuest, "guest RAM ends below high memory")
             })?;
         Ok([(0, LEGACY_HOLE_START), (HIGH_MEMORY_START, high)])
     }

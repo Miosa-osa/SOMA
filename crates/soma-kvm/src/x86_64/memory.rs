@@ -6,7 +6,7 @@ use kvm_bindings::kvm_userspace_memory_region;
 use kvm_ioctls::VmFd;
 
 use super::{
-    error::{HaltGuestError, Phase},
+    error::{MachineError, Phase},
     layout::GuestLayout,
 };
 
@@ -18,9 +18,9 @@ pub(crate) struct GuestRam {
 
 impl GuestRam {
     #[allow(unsafe_code)]
-    pub(crate) fn map(layout: GuestLayout) -> Result<Self, HaltGuestError> {
+    pub(crate) fn map(layout: GuestLayout) -> Result<Self, MachineError> {
         let length = usize::try_from(layout.ram_bytes())
-            .map_err(|_| HaltGuestError::invalid(Phase::MapMemory, "guest RAM exceeds usize"))?;
+            .map_err(|_| MachineError::invalid(Phase::MapMemory, "guest RAM exceeds usize"))?;
         // SAFETY: An anonymous private mapping with a null hint has no aliasing requirements.
         // The returned pointer is checked against MAP_FAILED before it is retained, and the
         // mapping is unmapped exactly once in `Drop` after the VM that references it is gone.
@@ -35,10 +35,10 @@ impl GuestRam {
             )
         };
         if raw == libc::MAP_FAILED {
-            return Err(HaltGuestError::last_os(Phase::MapMemory));
+            return Err(MachineError::last_os(Phase::MapMemory));
         }
         let base = ptr::NonNull::new(raw.cast::<u8>())
-            .ok_or_else(|| HaltGuestError::invalid(Phase::MapMemory, "mmap returned null"))?;
+            .ok_or_else(|| MachineError::invalid(Phase::MapMemory, "mmap returned null"))?;
         Ok(Self { base, layout })
     }
 
@@ -48,17 +48,17 @@ impl GuestRam {
 
     /// Copies `bytes` to guest-physical `address`, rejecting any byte outside RAM.
     #[allow(unsafe_code)]
-    pub(crate) fn write(&mut self, address: u64, bytes: &[u8]) -> Result<(), HaltGuestError> {
+    pub(crate) fn write(&mut self, address: u64, bytes: &[u8]) -> Result<(), MachineError> {
         let length = u64::try_from(bytes.len())
-            .map_err(|_| HaltGuestError::invalid(Phase::LoadGuest, "write length overflow"))?;
+            .map_err(|_| MachineError::invalid(Phase::LoadGuest, "write length overflow"))?;
         if !self.layout.contains(address, length) {
-            return Err(HaltGuestError::invalid(
+            return Err(MachineError::invalid(
                 Phase::LoadGuest,
                 "guest write is outside registered RAM",
             ));
         }
         let offset = usize::try_from(address)
-            .map_err(|_| HaltGuestError::invalid(Phase::LoadGuest, "guest address overflow"))?;
+            .map_err(|_| MachineError::invalid(Phase::LoadGuest, "guest address overflow"))?;
         // SAFETY: `contains` proved `[address, address + len)` lies inside the live mapping of
         // `layout.ram_bytes()` bytes starting at `base`, so `base + offset` is in bounds for
         // `bytes.len()` bytes. The source is a distinct Rust slice, so the ranges do not overlap.
@@ -69,11 +69,32 @@ impl GuestRam {
         Ok(())
     }
 
+    /// Zero-fills `[address, address + length)`, rejecting any byte outside RAM.
+    #[allow(unsafe_code)]
+    pub(crate) fn zero(&mut self, address: u64, length: u64) -> Result<(), MachineError> {
+        if !self.layout.contains(address, length) {
+            return Err(MachineError::invalid(
+                Phase::LoadGuest,
+                "guest zero-fill is outside registered RAM",
+            ));
+        }
+        let offset = usize::try_from(address)
+            .map_err(|_| MachineError::invalid(Phase::LoadGuest, "guest address overflow"))?;
+        let count = usize::try_from(length)
+            .map_err(|_| MachineError::invalid(Phase::LoadGuest, "zero-fill length overflow"))?;
+        // SAFETY: `contains` proved `[address, address + length)` lies inside the live mapping,
+        // so `base + offset` is valid for `count` bytes, and no vCPU runs before loading ends.
+        unsafe {
+            ptr::write_bytes(self.base.as_ptr().add(offset), 0, count);
+        }
+        Ok(())
+    }
+
     /// Registers the whole mapping as KVM user-memory slot 0 at guest-physical address 0.
     #[allow(unsafe_code)]
-    pub(crate) fn register(&self, vm: &VmFd) -> Result<(), HaltGuestError> {
+    pub(crate) fn register(&self, vm: &VmFd) -> Result<(), MachineError> {
         let userspace_addr = u64::try_from(self.base.as_ptr().addr())
-            .map_err(|_| HaltGuestError::invalid(Phase::RegisterMemory, "host address overflow"))?;
+            .map_err(|_| MachineError::invalid(Phase::RegisterMemory, "host address overflow"))?;
         let region = kvm_userspace_memory_region {
             slot: 0,
             flags: 0,
@@ -85,7 +106,7 @@ impl GuestRam {
         // orchestrator drops the vCPU and the VM before this `GuestRam`, so KVM never references
         // the range after it is unmapped.
         unsafe { vm.set_user_memory_region(region) }
-            .map_err(|error| HaltGuestError::os(Phase::RegisterMemory, error))
+            .map_err(|error| MachineError::os(Phase::RegisterMemory, error))
     }
 }
 

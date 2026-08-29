@@ -3,11 +3,11 @@
 //! The vCPU enters 32-bit protected mode with paging disabled, flat code and data segments, a
 //! present 32-bit TSS, `RIP` at the entry point, and `RBX` pointing at `hvm_start_info`.
 
-use kvm_bindings::{KVM_MAX_CPUID_ENTRIES, kvm_regs, kvm_segment, kvm_sregs};
-use kvm_ioctls::{Kvm, VcpuFd};
+use kvm_bindings::{kvm_regs, kvm_segment, kvm_sregs};
+use kvm_ioctls::VcpuFd;
 
 use super::{
-    error::{HaltGuestError, Phase},
+    error::{MachineError, Phase},
     layout::START_INFO_ADDRESS,
 };
 
@@ -21,23 +21,15 @@ const DATA_TYPE: u8 = 0x3;
 const TSS_32_BUSY_TYPE: u8 = 0xb;
 const TSS_LIMIT: u32 = 0x67;
 
-pub(crate) fn install_cpuid(kvm: &Kvm, vcpu: &VcpuFd) -> Result<(), HaltGuestError> {
-    let cpuid = kvm
-        .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
-        .map_err(|error| HaltGuestError::os(Phase::Cpuid, error))?;
-    vcpu.set_cpuid2(&cpuid)
-        .map_err(|error| HaltGuestError::os(Phase::Cpuid, error))
-}
-
-pub(crate) fn install_registers(vcpu: &VcpuFd, entry: u64) -> Result<(), HaltGuestError> {
+pub(crate) fn install_registers(vcpu: &VcpuFd, entry: u64) -> Result<(), MachineError> {
     let mut sregs = vcpu
         .get_sregs()
-        .map_err(|error| HaltGuestError::os(Phase::Sregs, error))?;
+        .map_err(|error| MachineError::os(Phase::Sregs, error))?;
     apply_protected_mode(&mut sregs);
     vcpu.set_sregs(&sregs)
-        .map_err(|error| HaltGuestError::os(Phase::Sregs, error))?;
+        .map_err(|error| MachineError::os(Phase::Sregs, error))?;
     vcpu.set_regs(&boot_regs(entry))
-        .map_err(|error| HaltGuestError::os(Phase::Regs, error))
+        .map_err(|error| MachineError::os(Phase::Regs, error))
 }
 
 pub(crate) fn apply_protected_mode(sregs: &mut kvm_sregs) {

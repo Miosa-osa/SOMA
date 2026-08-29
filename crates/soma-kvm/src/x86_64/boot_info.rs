@@ -4,15 +4,20 @@
 //! pinned PVH kernel will consume in the next slice.
 
 use super::{
-    error::{HaltGuestError, Phase},
-    layout::{CMDLINE_ADDRESS, CMDLINE_MAX_BYTES, GuestLayout, MEMMAP_ADDRESS, MODULE_ADDRESS},
+    error::{MachineError, Phase},
+    layout::{
+        CMDLINE_ADDRESS, CMDLINE_MAX_BYTES, GuestLayout, LEGACY_HOLE_START, MEMMAP_ADDRESS,
+        MODULE_ADDRESS,
+    },
 };
 
 pub(crate) const START_INFO_MAGIC: u32 = 0x336e_c578;
 pub(crate) const START_INFO_VERSION: u32 = 1;
 pub(crate) const START_INFO_BYTES: usize = 56;
 pub(crate) const MEMMAP_ENTRY_BYTES: usize = 24;
+pub(crate) const MODULE_ENTRY_BYTES: usize = 32;
 const MEMMAP_TYPE_RAM: u32 = 1;
+const MEMMAP_TYPE_RESERVED: u32 = 2;
 
 /// The fixed diagnostic command line from the machine contract.
 pub(crate) const DIAGNOSTIC_CMDLINE: &str = "console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off noapic cryptomgr.notests";
@@ -34,35 +39,52 @@ pub(crate) fn start_info(memmap_entries: u32, module_count: u32) -> [u8; START_I
     bytes
 }
 
-/// Encodes the contract's RAM entries as `hvm_memmap_table_entry` values.
-pub(crate) fn memmap(layout: GuestLayout) -> Result<Vec<u8>, HaltGuestError> {
-    let mut bytes = Vec::with_capacity(2 * MEMMAP_ENTRY_BYTES);
-    for (address, size) in layout.ram_ranges()? {
+/// Encodes the contract's memory map: low RAM, the reserved legacy hole, then high RAM.
+pub(crate) fn memmap(layout: GuestLayout) -> Result<Vec<u8>, MachineError> {
+    let [(low_start, low_size), (high_start, high_size)] = layout.ram_ranges()?;
+    let hole_size = high_start
+        .checked_sub(LEGACY_HOLE_START)
+        .ok_or_else(|| MachineError::invalid(Phase::LoadGuest, "legacy hole overflow"))?;
+    let entries = [
+        (low_start, low_size, MEMMAP_TYPE_RAM),
+        (LEGACY_HOLE_START, hole_size, MEMMAP_TYPE_RESERVED),
+        (high_start, high_size, MEMMAP_TYPE_RAM),
+    ];
+    let mut bytes = Vec::with_capacity(entries.len() * MEMMAP_ENTRY_BYTES);
+    for (address, size, kind) in entries {
         bytes.extend_from_slice(&address.to_le_bytes());
         bytes.extend_from_slice(&size.to_le_bytes());
-        bytes.extend_from_slice(&MEMMAP_TYPE_RAM.to_le_bytes());
+        bytes.extend_from_slice(&kind.to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
     }
     Ok(bytes)
 }
 
+/// Encodes the sole `hvm_modlist_entry` for an initramfs at `address` with `size` bytes.
+pub(crate) fn module_entry(address: u64, size: u64) -> [u8; MODULE_ENTRY_BYTES] {
+    let mut bytes = [0_u8; MODULE_ENTRY_BYTES];
+    bytes[0..8].copy_from_slice(&address.to_le_bytes());
+    bytes[8..16].copy_from_slice(&size.to_le_bytes());
+    bytes
+}
+
 /// Encodes a NUL-terminated ASCII command line within the contract bound.
-pub(crate) fn cmdline(text: &str) -> Result<Vec<u8>, HaltGuestError> {
+pub(crate) fn cmdline(text: &str) -> Result<Vec<u8>, MachineError> {
     if !text.is_ascii()
         || text
             .bytes()
             .any(|byte| byte == 0 || byte.is_ascii_control())
     {
-        return Err(HaltGuestError::invalid(
+        return Err(MachineError::invalid(
             Phase::LoadGuest,
             "kernel command line must be printable ASCII",
         ));
     }
     let limit = usize::try_from(CMDLINE_MAX_BYTES)
-        .map_err(|_| HaltGuestError::invalid(Phase::LoadGuest, "command line bound overflow"))?;
+        .map_err(|_| MachineError::invalid(Phase::LoadGuest, "command line bound overflow"))?;
     // The contract bounds the terminated line, so the text plus its NUL must stay under 8 KiB.
     if text.len().saturating_add(1) >= limit {
-        return Err(HaltGuestError::invalid(
+        return Err(MachineError::invalid(
             Phase::LoadGuest,
             "kernel command line exceeds 8,191 bytes including its terminator",
         ));
@@ -76,7 +98,7 @@ pub(crate) fn cmdline(text: &str) -> Result<Vec<u8>, HaltGuestError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::x86_64::layout::{HIGH_MEMORY_START, LEGACY_HOLE_START, MIN_RAM_BYTES};
+    use crate::x86_64::layout::{HIGH_MEMORY_START, MIN_RAM_BYTES};
 
     #[test]
     fn start_info_matches_the_contract_fields() {
@@ -94,17 +116,29 @@ mod tests {
     }
 
     #[test]
-    fn memmap_encodes_two_ram_entries() {
+    fn memmap_encodes_ram_hole_and_ram() {
         let bytes = memmap(GuestLayout::new(MIN_RAM_BYTES).unwrap()).unwrap();
-        assert_eq!(bytes.len(), 2 * MEMMAP_ENTRY_BYTES);
+        assert_eq!(bytes.len(), 3 * MEMMAP_ENTRY_BYTES);
         assert_eq!(&bytes[0..8], &0_u64.to_le_bytes());
         assert_eq!(&bytes[8..16], &LEGACY_HOLE_START.to_le_bytes());
         assert_eq!(&bytes[16..20], &MEMMAP_TYPE_RAM.to_le_bytes());
-        assert_eq!(&bytes[24..32], &HIGH_MEMORY_START.to_le_bytes());
+        assert_eq!(&bytes[24..32], &LEGACY_HOLE_START.to_le_bytes());
+        assert_eq!(&bytes[32..40], &0x6_0000_u64.to_le_bytes());
+        assert_eq!(&bytes[40..44], &MEMMAP_TYPE_RESERVED.to_le_bytes());
+        assert_eq!(&bytes[48..56], &HIGH_MEMORY_START.to_le_bytes());
         assert_eq!(
-            &bytes[32..40],
+            &bytes[56..64],
             &(MIN_RAM_BYTES - HIGH_MEMORY_START).to_le_bytes()
         );
+        assert_eq!(&bytes[64..68], &MEMMAP_TYPE_RAM.to_le_bytes());
+    }
+
+    #[test]
+    fn module_entry_carries_address_and_size_only() {
+        let bytes = module_entry(0x0700_0000, 4096);
+        assert_eq!(&bytes[0..8], &0x0700_0000_u64.to_le_bytes());
+        assert_eq!(&bytes[8..16], &4096_u64.to_le_bytes());
+        assert!(bytes[16..].iter().all(|byte| *byte == 0));
     }
 
     #[test]
