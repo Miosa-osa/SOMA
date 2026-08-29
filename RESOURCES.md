@@ -49,6 +49,8 @@ This file records the primary sources that constrain SOMA's design.
 
 ## Sandbox and restore references
 
+- [Firecracker snapshot support](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/snapshot-support.md) documents quiescent capture, complete memory and device state, private file-backed restore, and clone-identity hazards.
+- [Firecracker snapshot versioning](https://github.com/firecracker-microvm/firecracker/blob/main/docs/snapshotting/versioning.md) documents independent snapshot schemas, CPU compatibility, persisted device state, and external-resource limitations.
 - [ComputeSDK benchmarks](https://github.com/computesdk/benchmarks) define the public create-through-first-command benchmark SOMA must reproduce exactly.
 - [OCI Image Specification v1.1.1](https://github.com/opencontainers/image-spec/tree/v1.1.1) defines immutable manifests, indexes, layers, configuration, and platform selection for input images.
 - [OCI image layout v1.1.1](https://github.com/opencontainers/image-spec/blob/v1.1.1/image-layout.md) defines `oci-layout`, the top-level index, and descriptor-addressed blob placement for local imports.
@@ -97,6 +99,8 @@ This file records the primary sources that constrain SOMA's design.
 
 ## Security references
 
+- [Linux cgroup v2](https://docs.kernel.org/admin-guide/cgroup-v2.html) defines hierarchical CPU, memory, process, and I/O resource containment.
+- [Linux pidfd](https://docs.kernel.org/userspace-api/pidfd.html) defines process identity and signaling without numeric-PID reuse races.
 - [Noise Protocol Framework](https://noiseprotocol.org/noise.html) defines handshake patterns, pre-shared-key modifiers, transcript hashing, transport split, and message bounds for the guest-session profile.
 - [Snow](https://github.com/mcginty/snow) is the reviewed Rust implementation used for the fixed Noise profile and documents its own security-review limitations.
 - [curve25519-dalek X25519 low-order constants](https://github.com/dalek-cryptography/curve25519-dalek/blob/curve25519-5.0.0/curve25519-dalek/src/constants.rs) provide the complete frozen non-contributory public-key test corpus.

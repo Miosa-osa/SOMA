@@ -115,10 +115,9 @@ How are memory, vCPU, interrupt, clock, and device states captured, authenticate
 
 ### Answer
 
-Partially resolved.
-Immutable file-backed `MAP_PRIVATE | MAP_NORESERVE` memory is the first design, while `userfaultfd` remains experimental.
-Produce `docs/research/snapshot-format-v1.md` defining canonical metadata, artifact digests, compatibility rejection, restore ordering, private writable state, crash consistency, and rollback.
-See [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md) and [fast path](../architecture/fast-path.md).
+Resolved architecturally.
+Version 1 uses one immutable page-aligned memory object mapped `MAP_PRIVATE | MAP_NORESERVE`, one canonical typed state manifest, separately managed disks, exact compatibility rejection, authority exclusion, quiescent capture, and fixed fail-closed restore ordering.
+See [snapshot format v1](snapshot-format-v1.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), and [fast path](../architecture/fast-path.md).
 
 ## #8: How does the guest become a fresh authenticated Instance?
 
@@ -131,10 +130,9 @@ How does a cloned guest replace identity, entropy assumptions, time state, netwo
 
 ### Answer
 
-Partially resolved.
-The bounded application protocol, launch page, Noise-based authenticated session, repair exchange, readiness probe, and control ownership model exist as portable code.
-Produce `docs/research/linux-guest-agent-integration.md` and run the current guest protocol inside the pinned Linux guest.
-Ready requires a fresh authenticated session, completed repair, and one successful bounded command.
+Resolved architecturally.
+The static guest agent owns early mounts, one-use launch material, entropy and identity repair, fresh Noise-authenticated vsock control, direct bounded execution, shutdown, and the only path to Ready.
+See [Linux guest integration](linux-guest-agent-integration.md).
 See [ADR 0017](../adr/0017-authenticated-guest-session.md), [ADR 0020](../adr/0020-launch-page-and-application-wire-contracts.md), and [ADR 0021](../adr/0021-own-authenticated-control-lifecycle.md).
 
 ## #9: What host isolation contains a compromised guest-facing VMM?
@@ -148,10 +146,9 @@ What user, namespace, cgroup, capability, seccomp, filesystem, descriptor, resou
 
 ### Answer
 
-Open.
-Produce `docs/research/vmm-jail-profile.md` with the exact syscall inventory derived from the implemented fast path, not a copied generic allowlist.
-The profile must cover startup, steady state, failure, timeout, cleanup, crash, and diagnostic collection.
-See [threat model](../threat-model.md).
+Resolved architecturally.
+One ephemeral UID, complete namespace and cgroup containment, descriptor-only resources, pidfd ownership, no ambient capability, empty root, and phase-derived seccomp constrain each single-use VMM.
+See [VMM jail profile](vmm-jail-profile.md) and [threat model](../threat-model.md).
 
 ## #10: What networking path is both fast and fail closed?
 
@@ -164,10 +161,9 @@ How are namespace, TAP, address, route, DNS, egress, proxy, ingress, metadata pr
 
 ### Answer
 
-Partially resolved.
-The portable network contract and fail-closed evidence model exist.
-Produce `docs/research/linux-network-profile-v1.md` and a Linux prototype with a preallocated sterile resource bundle, atomic assignment, explicit metadata blocking, and idempotent cleanup.
-See [ADR 0012](../adr/0012-fail-closed-networking.md) and [topology](../architecture/topology.md).
+Resolved architecturally.
+The privileged broker owns sterile network bundles, atomic Instance assignment, protected destinations, readiness-gated activation, typed evidence, idempotent release, and crash reconciliation while the VMM receives only one TAP descriptor.
+See [Linux network profile](linux-network-profile-v1.md), [ADR 0012](../adr/0012-fail-closed-networking.md), and [topology](../architecture/topology.md).
 
 ## #11: How are writable disks created privately within the tail budget?
 
@@ -180,9 +176,9 @@ Can XFS `FICLONE` create isolated writable heads with acceptable p99 under reali
 
 ### Answer
 
-Open.
-Produce `docs/research/xfs-reflink-profile.md`, raw benchmark samples, filesystem and mount identity, isolation tests, crash tests, and a decision between on-demand cloning and sterile precreated heads.
-Failure to prove copy-on-write isolation must reject the host profile.
+Resolved architecturally.
+Writable state uses certified sterile ext4 size classes cloned privately through XFS `FICLONE`, with on-demand versus precreated selection determined by retained p99 evidence.
+See [XFS reflink profile](xfs-reflink-profile.md).
 
 ## #12: How are prepared workers allocated without reusing tenant state?
 
@@ -195,10 +191,9 @@ Which invariant work may move outside Launch, and how does one request atomicall
 
 ### Answer
 
-Partially resolved.
-Prepared workers may contain invariant executable, jail, descriptor, allocator, and read-only Generation state only.
-Produce `docs/research/prepared-worker-protocol.md` and a bounded node-local prototype proving single-winner assignment, no tenant-state reuse, replenishment, crash recovery, and backpressure.
-See [ADR 0006](../adr/0006-prepared-worker-allocation.md).
+Resolved architecturally.
+Bounded pools hold only sterile invariant state, use one generation-counted single-winner claim, transfer fresh authority exactly once, destroy ambiguous workers, reject overload, and reconcile before replenishment.
+See [prepared worker protocol](prepared-worker-protocol.md) and [ADR 0006](../adr/0006-prepared-worker-allocation.md).
 
 ## #13: How is the complete KVM backend wired into SOMA?
 
@@ -211,10 +206,9 @@ How does the Linux implementation satisfy the existing portable Resolve, Launch,
 
 ### Answer
 
-Open.
-Replace the current unsupported KVM lifecycle with an adapter over `soma-vmm`, `soma-kvm`, the Generation store, authenticated guest control, network ownership, and cleanup evidence.
-Add real Linux-only end-to-end tests for Ubuntu and Node 22.
-Do not change the portable contract merely to expose KVM sequencing.
+Resolved architecturally.
+The KVM adapter composes Generation resolution, admission, prepared ownership, restore, repair, execution, inspection, shutdown, cleanup, evidence, retries, and reconciliation behind the unchanged portable lifecycle.
+See [KVM backend integration](kvm-backend-integration.md).
 
 ## #14: What evidence admits the first production host profile?
 
@@ -227,11 +221,9 @@ Which correctness, isolation, cleanup, adversarial, concurrency, compatibility, 
 
 ### Answer
 
-Partially resolved.
-The benchmark boundary and post-deployment checklist exist.
-Produce a completed validation report containing raw samples for cold boot, warm restore, authenticated readiness, first command, cleanup, 100-way bursts, failures, and resource leakage.
-No skipped KVM test counts as passing evidence.
-See [benchmark contract](../benchmark-contract.md), [post-deployment validation](../operations/post-deployment-validation.md), and [validation template](../operations/validation-report-template.md).
+Resolved architecturally.
+A signed immutable report binds exact provenance and admits a HostProfile only after mandatory correctness, isolation, failure, cleanup, concurrency, compatibility, and raw performance gates pass with no skipped KVM tests.
+See [production admission evidence](production-admission-evidence.md), [benchmark contract](../benchmark-contract.md), and [validation template](../operations/validation-report-template.md).
 
 ## #15: How does one certified node become a scalable service?
 
@@ -244,6 +236,6 @@ How should admission, placement, cells, capacity reservations, Generation distri
 
 ### Answer
 
-Open.
-Produce `docs/research/fleet-control-plane.md` only after the node-local lifecycle passes #14.
-The control plane remains outside the VMM and must preserve caller operation identity, host-profile compatibility, bounded admission, cell isolation, and explicit capacity exhaustion.
+Resolved architecturally.
+The fleet uses bounded independent cells, capability-filtered placement, host-authoritative admission, idempotent operations, signed Generation distribution, reserved capacity, explicit overload, reconciliation, and staged scale gates up to 100,000 concurrent sandboxes.
+See [fleet control plane](fleet-control-plane.md).

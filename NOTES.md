@@ -1,5 +1,13 @@
 # Notes
 
+## 2026-08-29 - Complete custom VMM architecture map
+
+Decision-map tickets #1 through #15 now have linked architecture assets.
+The remaining implementation order is virtio, EROFS and OverlayFS boot, authenticated guest repair, private snapshot restore, VMM jail, Linux networking, reflink storage, prepared workers, complete backend wiring, production admission, and fleet scaling.
+Architecture resolution is not implementation evidence.
+Linux prototypes, hostile tests, end-to-end lifecycle results, raw latency samples, and signed HostProfile admission remain required by each document's gates.
+The implementation roadmap gives coding agents the dependency order and a uniform handoff contract without weakening the portable lifecycle.
+
 ## 2026-08-29 - Generation v1 uses immutable EROFS plus private ext4
 
 Decision-map ticket #6 selects a deterministic EROFS image as the immutable OCI-derived root and a separate Instance-private ext4 filesystem as the OverlayFS upper and work storage.
