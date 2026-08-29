@@ -88,8 +88,14 @@ impl LocalBackend {
                 .map(|backend| (Self::Macos(backend), resolved))
                 .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable)),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            BackendSelection::Kvm => Ok((Self::Kvm(kvm::KvmBackend::new()), resolved)),
-            _ => Err(LocalFailure::new(LocalFailureKind::UnsupportedTarget)),
+            BackendSelection::Kvm => {
+                drop(explicit_runtime);
+                Ok((Self::Kvm(kvm::KvmBackend::new()), resolved))
+            }
+            _ => {
+                drop(explicit_runtime);
+                Err(LocalFailure::new(LocalFailureKind::UnsupportedTarget))
+            }
         }
     }
 }

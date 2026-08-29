@@ -2,7 +2,7 @@ use soma::{BackendFailure, BackendFailureKind, BackendKind, OperationId};
 
 use super::clock::OperationClocks;
 
-pub(super) struct KvmBackend {
+pub(crate) struct KvmBackend {
     clocks: OperationClocks,
 }
 
