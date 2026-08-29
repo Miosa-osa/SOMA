@@ -19,6 +19,17 @@ const COMMAND: &str = "docker";
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(60);
 const CONTROL_OUTPUT_LIMIT: usize = 1_048_576;
 
+/// The only OCI architecture this host can execute through Docker without emulation.
+///
+/// Docker Desktop on Apple Silicon and Docker Engine on `x86_64` run their native Linux
+/// architecture; any other image platform is rejected rather than silently emulated.
+#[cfg(target_arch = "x86_64")]
+const HOST_OCI_ARCHITECTURE: Option<&str> = Some("amd64");
+#[cfg(target_arch = "aarch64")]
+const HOST_OCI_ARCHITECTURE: Option<&str> = Some("arm64");
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+const HOST_OCI_ARCHITECTURE: Option<&str> = None;
+
 pub(crate) struct DockerBackend {
     already_cleaned: std::collections::BTreeSet<String>,
     clocks: OperationClocks,
@@ -43,6 +54,7 @@ struct ImageInspection {
     repo_digests: Vec<String>,
 }
 
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) fn is_available() -> bool {
     process::run(
         COMMAND,
@@ -100,10 +112,11 @@ impl DockerBackend {
         let operation = request.operation_id();
         self.clocks.elapsed_ns(operation);
         let image = request.image().as_str().to_owned();
-        let pull = command(
-            &["pull", "--platform", "linux/arm64", &image],
-            CONTROL_TIMEOUT,
-        );
+        let Some(architecture) = HOST_OCI_ARCHITECTURE else {
+            return Err(failure(operation, BackendFailureKind::Unsupported));
+        };
+        let platform = format!("linux/{architecture}");
+        let pull = command(&["pull", "--platform", &platform, &image], CONTROL_TIMEOUT);
         if !pull.status.is_some_and(|status| status.success()) {
             return Err(failure(operation, BackendFailureKind::Unavailable));
         }
@@ -116,7 +129,7 @@ impl DockerBackend {
         }
         let record: ImageInspection = serde_json::from_slice(&inspected.stdout)
             .map_err(|_| failure(operation, BackendFailureKind::WorkloadRejected))?;
-        if record.os != "linux" || record.architecture != "arm64" {
+        if record.os != "linux" || record.architecture != architecture {
             return Err(failure(operation, BackendFailureKind::WorkloadRejected));
         }
         let digest = record
@@ -128,7 +141,7 @@ impl DockerBackend {
             .map_err(|_| failure(operation, BackendFailureKind::WorkloadRejected))?;
         let platform = OciPlatform::new(
             "linux",
-            "arm64",
+            architecture,
             record.variant.filter(|value| !value.is_empty()),
         )
         .map_err(|_| failure(operation, BackendFailureKind::WorkloadRejected))?;
