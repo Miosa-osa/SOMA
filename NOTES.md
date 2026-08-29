@@ -1,5 +1,17 @@
 # Notes
 
+## 2026-08-29 - soma-netd prepares sterile bundles and activates only after repair
+
+Decision-map ticket #10 now has a first implementation: `soma-netd` owns namespaces, TAP and veth devices, `/30` IPAM, MAC derivation, nftables text, conntrack zones, resolver policy, exclusive port reservations, the durable ledger, repair-gated activation, ordered release, and reconciliation, while the VMM side receives one TAP descriptor through `SOCK_SEQPACKET` plus `SCM_RIGHTS` with a fixed typed header.
+Namespaces, TAP devices, link flags, addresses, routes, and veth pairs use direct syscalls and a minimal `RTM_NEWLINK` encoder over `libc` only; no netlink or nftables crate was added.
+The version 1 firewall mechanism is generated ruleset text fed to the pinned `/usr/sbin/nft -f -` on standard input, and zone flushing shells to the pinned `/usr/sbin/conntrack -D -w <zone>`; both are documented interim seams because a libnftnl binding would add an unreviewed dependency graph before the ruleset shape has stabilised, and the generators are unit tested independently of the binary.
+The protected destination list is the ADR 0012 and threat-model set plus the cloud metadata endpoints named in `RESOURCES.md`: AWS `169.254.169.254`, `169.254.169.253`, `169.254.169.123`, `169.254.170.2`, and `fd00:ec2::254`; Google `169.254.169.254`; Azure `169.254.169.254` and `168.63.129.16`; together with `0.0.0.0/8`, RFC 1918, `100.64.0.0/10`, loopback, `169.254.0.0/16`, `192.0.0.0/24`, `198.18.0.0/15`, multicast, `240.0.0.0/4`, broadcast, `::/128`, `::1/128`, `::ffff:0:0/96`, `fc00::/7`, `fe80::/10`, `ff00::/8`, every lease and transit plan, every host address, and every control-plane prefix an operator adds.
+Google's IPv6 metadata address is covered by the ULA block rather than listed as a separate literal because the exact literal was not verified from a primary source during this slice.
+A denied DNS policy delivers the gateway as the launch-page resolver so the guest never learns an operator resolver, and the ruleset drops every port 53 packet regardless.
+The live container run proved a down guest link and no forwarding before activation, gateway ARP and ICMP plus public TCP egress and declared DNS after activation, metadata, undeclared DNS, host, peer guest, and peer gateway drops in `PublicInternet` mode, complete release, and a clean 100-way prepare, assign, activate, release burst; the retained result is `docs/evidence/2026-08-29-linux-network-profile-live.md`.
+The conntrack zone is bound with `ct original zone set` on the host veth so masqueraded replies still match, and the sandbox namespace's own conntrack table is the primary per-bundle isolation.
+The daemon skeleton does not authenticate its peer, ingress ports are reserved but never forwarded, proxy attachment is typed `Unimplemented`, and the broker's socket mechanisms have not been exercised from a jailed VMM; those are the next dependencies together with the virtio-net attach of the transferred TAP.
+
 ## 2026-08-29 - Canonical sandbox stack separates containment from dependency
 
 The beginner documentation now distinguishes physical containment, dependency direction, runtime primitives, code modules, Template modules, optional capabilities, and optimizations.

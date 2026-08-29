@@ -166,9 +166,11 @@ How are namespace, TAP, address, route, DNS, egress, proxy, ingress, metadata pr
 
 ### Answer
 
-Resolved architecturally.
+Resolved architecturally; first implementation retained.
 The privileged broker owns sterile network bundles, atomic Instance assignment, protected destinations, readiness-gated activation, typed evidence, idempotent release, and crash reconciliation while the VMM receives only one TAP descriptor.
 It enforces an effective policy that placement already narrowed against the Template ceiling, organization policy, caller authority, and Backend capabilities.
+`crates/soma-netd` implements the broker library and a minimal daemon, and the privileged-container run in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md) proves the down-until-activation, metadata, peer, and DNS policy, complete release, and the 100-way burst.
+Proxy attachment, ingress forwarding, daemon peer authentication, jailed VMM transfer, and virtio-net attach remain open.
 See [Linux network profile](linux-network-profile-v1.md), [ADR 0012](../adr/0012-fail-closed-networking.md), and [topology](../architecture/topology.md).
 
 ## #11: How are writable disks created privately within the tail budget?

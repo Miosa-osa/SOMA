@@ -8,7 +8,7 @@ This document assigns responsibilities and dependency direction for the initial 
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains ten implemented crates:
+The current workspace contains eleven implemented crates:
 
 ```text
 crates/
@@ -21,6 +21,7 @@ crates/
   soma-local/
   soma-macos/
   soma-mcp/
+  soma-netd/
   soma-vmm/
 ```
 
@@ -50,6 +51,7 @@ human, agent, SDK, or operator
     soma-generation -> soma identity types
     soma-guest       independent protocol foundation
     soma-guest-agent -> soma-guest
+    soma-netd        -> soma request types, soma-guest launch identity
 ```
 
 The portable `soma` facade owns use-case orchestration and execution-receipt construction.
@@ -62,6 +64,7 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-generation` verifies bounded OCI image-layout input, publishes immutable imported and normalized logical-tree artifacts, and compiles uncertified x86_64 machine artifacts plus a `SOMAGEN` manifest without booting, capturing, or certifying a Generation.
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
+`soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
 `soma-kvm` must not depend on `soma-vmm`, provider control planes, OCI clients, or benchmark code.
 No provider adapter belongs below the public Machine seam.
 The current low-level crates remain independent while `soma-vmm` uses an unavailable production platform adapter.
@@ -686,6 +689,73 @@ crates/soma-guest-agent/tests/fixtures/README.md
 The crate compiles on every workspace target but only the Linux modules do work; other targets exit with an unsupported result.
 Host tests cover the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries.
 Booting as PID 1, mapping the launch page, kernel entropy credit, network installation, vsock connection, and shutdown have not run inside a SOMA virtual machine and remain unproven until the VMM supplies the launch-page slot and vsock device.
+
+## `soma-netd` responsibilities
+
+`soma-netd` is the privileged Linux network broker accepted by ADR 0012 and specified in [the Linux network profile](../research/linux-network-profile-v1.md).
+It owns network namespaces, TAP and veth devices, IPAM, routes, nftables rulesets, conntrack zones, resolver policy, ingress port reservations, the durable ownership ledger, repair-gated activation, idempotent release, and reconciliation.
+The unprivileged VMM receives exactly one already-open TAP descriptor over `SOCK_SEQPACKET` with `SCM_RIGHTS` and can never create or reconfigure a host device.
+
+The source map is:
+
+```text
+crates/soma-netd/src/
+  lib.rs
+  activate.rs
+  bundle.rs
+  bundle/prepare.rs
+  bundle/types.rs
+  cidr.rs
+  daemon.rs
+  dns.rs
+  error.rs
+  firewall.rs
+  firewall/host.rs
+  firewall/tests.rs
+  ids.rs
+  ingress.rs
+  ingress/socket.rs
+  intent.rs
+  intent/codec.rs
+  ipam.rs
+  ledger.rs
+  ledger/record.rs
+  link.rs
+  namespace.rs
+  netlink.rs
+  nft.rs
+  profile.rs
+  protected.rs
+  protocol.rs
+  protocol/reply.rs
+  reconcile.rs
+  release.rs
+  sysctl.rs
+  tap.rs
+  transfer.rs
+  transfer/scm.rs
+  bin/soma-netd.rs
+crates/soma-netd/tests/
+  live_linux.rs
+  live/codec.rs
+  live/frames.rs
+  live/mod.rs
+  live/world.rs
+```
+
+`intent.rs` admits one portable `NetworkPolicy` against the served `NetworkProfile` and fails closed on an unspecified egress or DNS dimension, a proxy profile, a static or IPv6 guest address, a resolver inside the protected set, or a foreign profile selector.
+`profile.rs` and `protected.rs` own the operator profile, its content digest, and the certified protected destination set that every egress class drops before any accept.
+`ipam.rs` carves `/30` guest and transit leases from the profile plans without index reuse inside one cleanup generation and derives the locally administered MAC pair from the bundle identity.
+`firewall.rs` renders the per-bundle sandbox and host `inet` tables as text; `nft.rs` is the version 1 mechanism that feeds that text to the pinned `nft` binary and flushes conntrack zones through the pinned `conntrack` binary.
+`namespace.rs`, `tap.rs`, `link.rs`, `netlink.rs`, and `sysctl.rs` are the direct syscall mechanisms: `unshare` plus a bind-mounted pin, `TUNSETIFF`, `ifreq` and `rtentry` `ioctl` calls, a minimal `RTM_NEWLINK` and `RTM_DELLINK` encoder, and `/proc/sys/net` writes inside the namespace of a dedicated thread.
+`ledger.rs` is the durable append-only ownership ledger of create-exclusive, synced, hard-linked records; `bundle.rs` prepares sterile bundles and assigns them by recording ownership before any intent-specific kernel change and producing the exact `LaunchNetwork` values.
+`activate.rs` verifies namespace, links, rulesets, and forwarding against the ledger after the caller attests authenticated repair and only then raises links, installs routes, and enables forwarding.
+`release.rs` and `reconcile.rs` tear down in the specification order with per-step dispositions and compare ledger intent with kernel reality without removing unowned objects.
+`transfer.rs` and `daemon.rs` own the bounded typed descriptor handoff and the smallest honest single-threaded daemon over one Unix `SOCK_SEQPACKET` socket.
+
+Portable modules compile and test on every workspace target; every kernel mechanism is Linux-only and the daemon exits with a typed message elsewhere.
+Live proofs run only inside the pinned privileged Ubuntu 24.04 container through `scripts/netd-live-tests.sh` and are retained in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md).
+Proxy attachment, ingress forwarding, peer authentication of the daemon socket, IPv6 guest addressing, and the libnftnl replacement for the `nft` subprocess remain later slices.
 
 ## Future node and protocol modules
 

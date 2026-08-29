@@ -17,17 +17,17 @@ Direct registry dependencies are pinned exactly:
 | `futures-util` | 0.3.34 | Bounded asynchronous MCP stream adapters |
 | `kvm-bindings` | 0.14.1 | Linux KVM ABI structures for the x86_64 machine floor and ARM constants |
 | `kvm-ioctls` | 0.25.0 | Linux KVM ownership and ioctl wrappers |
-| `libc` | 0.2.189 | Narrow Linux descriptor, signal, mount, socket, and ioctl operations for the KVM adapter and the static guest agent |
+| `libc` | 0.2.189 | Narrow Linux descriptor, signal, mount, socket, and ioctl operations for the KVM adapter, the static guest agent, and the network broker's namespace, TAP, netlink, and descriptor-transfer mechanisms |
 | `linux-loader` | 0.14.0 | Checked Linux ARM64 Image loading |
 | `rmcp` | 3.1.4 | Model Context Protocol server and test client |
 | `schemars` | 1.2.2 | MCP tool input schemas |
 | `semver` | 1.0.28 | Apple runtime compatibility policy |
 | `serde` | 1.0.229 | Stable structured values and receipts |
 | `serde_json` | 1.0.151 | CLI envelopes, Apple runtime documents, and test fixtures |
-| `sha2` | 0.11.0 | Canonical request fingerprints |
+| `sha2` | 0.11.0 | Canonical request fingerprints and network profile and intent digests |
 | `snow` | 0.10.0 | Fixed Noise guest-session handshake and transport implementation |
 | `tar` | 0.4.46 | Streaming structural validation of expanded OCI layer archives |
-| `tempfile` | 3.27.0 | Isolated OCI importer content stores in tests |
+| `tempfile` | 3.27.0 | Isolated OCI importer content stores and network broker ledger directories in tests |
 | `tokio` | 1.53.1 | Bounded asynchronous MCP runtime |
 | `tokio-util` | 0.7.19 | Length-delimited MCP framing |
 | `uuid` | 1.26.0 | Fresh command-line operation and Instance identifiers |
