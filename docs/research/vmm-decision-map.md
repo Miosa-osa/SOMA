@@ -81,7 +81,7 @@ Which devices are required for immutable root storage, private writable state, n
 ### Answer
 
 Resolved.
-Version 1 exposes exactly four modern virtio-mmio version 2 devices at fixed addresses with dedicated interrupts: one private-copy-on-write root block device, one network device, one vsock control device, and one entropy device.
+Version 1 exposes exactly five modern virtio-mmio version 2 devices at fixed addresses with dedicated interrupts: one immutable EROFS root block device, one private ext4 overlay block device, one network device, one vsock control device, and one entropy device.
 It uses split queues with fixed limits, explicit feature allowlists, ioeventfd notifications, irqfd interrupts, hostile descriptor validation, quiescent capture, and a fail-closed restore order.
 PCI, legacy virtio, hotplug, vhost, optional high-complexity features, and separate control or shutdown devices are excluded.
 See [minimal device surface](minimal-device-surface.md).
@@ -97,11 +97,12 @@ How do the existing verified OCI import and normalized rootfs become a determini
 
 ### Answer
 
-Partially resolved.
-OCI selection, content verification, and deterministic logical rootfs normalization exist.
-Produce `docs/research/generation-compiler.md` and a prototype deterministic filesystem compiler with reproducibility tests.
-The output must bind kernel, command line, filesystem identity, machine contract, guest protocol, and snapshot format into one content-addressed `GenerationId`.
-See [ADR 0018](../adr/0018-content-addressed-oci-import.md) and [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md).
+Resolved at the architecture and prototype boundary.
+Version 1 compiles the normalized OCI tree into a deterministic immutable EROFS lower filesystem and gives each Instance a private ext4 OverlayFS upper device selected from certified size classes.
+Kernel, deterministic initramfs, guest agent, root and overlay artifacts, machine and device contracts, CPU template, command line, guest protocols, snapshot state, repair policy, builder provenance, and artifact descriptors are bound into one canonical `GenerationId` manifest.
+The retained prototype proved byte-identical EROFS output from logically identical trees created in opposite insertion orders and recorded the populated-ext4 reproducibility failure that caused the two-device correction.
+Production implementation and x86_64 boot evidence remain explicit acceptance gates rather than completed claims.
+See [Generation compiler](generation-compiler.md), [ADR 0018](../adr/0018-content-addressed-oci-import.md), and [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md).
 
 ## #7: What snapshot format and memory restore mechanism meet the target?
 

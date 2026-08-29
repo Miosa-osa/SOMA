@@ -46,7 +46,7 @@ one soma-vmm process
      | main control and device event loop
      | one dedicated KVM_RUN OS thread per vCPU
      | private memory mapping over shared immutable snapshot backing
-     | private copy-on-write disk head
+     | shared immutable EROFS root and private ext4 overlay head
      | minimal virtio block, net, vsock, and rng devices
      v
 managed Linux guest
@@ -111,9 +111,10 @@ Userfaultfd and live write-protection are later experiments rather than first-ge
 
 ## Disk topology
 
-The root filesystem base is immutable.
-Each Instance receives a private copy-on-write disk head on a filesystem with a proven reflink contract.
-The initial MIOSA deployment target uses XFS `FICLONE` for this operation.
+The EROFS root filesystem base is immutable and shared read-only.
+Each Instance receives a private copy-on-write ext4 overlay head on a filesystem with a proven reflink contract.
+The pinned guest init combines the immutable lower and private upper through OverlayFS before starting the guest agent.
+The initial MIOSA deployment target uses XFS `FICLONE` to create the private overlay head.
 SOMA reports an explicit error if the requested storage topology cannot provide the required isolation semantics.
 
 ## Network topology

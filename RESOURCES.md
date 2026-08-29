@@ -85,6 +85,12 @@ This file records the primary sources that constrain SOMA's design.
 
 ## Linux memory and storage mechanisms
 
+- [EROFS build documentation](https://erofs.docs.kernel.org/en/latest/mkfs.html) defines deterministic image construction, fixed timestamps, fixed UUIDs, and tar input.
+- [erofs-utils](https://github.com/erofs/erofs-utils) provides the formatter and independent filesystem checker selected by the Generation compiler.
+- [Containerd EROFS snapshotter](https://github.com/containerd/containerd/blob/main/docs/snapshotters/erofs.md) documents EROFS integration and reproducible-build configuration in a production container runtime.
+- [Linux OverlayFS documentation](https://docs.kernel.org/filesystems/overlayfs.html) defines the immutable lower, private upper, work directory, copy-up, and whiteout model.
+- [Linux ext4 documentation](https://docs.kernel.org/filesystems/ext4/index.html) defines the private writable upper filesystem used by the first Generation profile.
+- [e2fsprogs mke2fs manual](https://github.com/tytso/e2fsprogs/blob/master/misc/mke2fs.8.in) defines ext4 creation options including deterministic directory hash seeds and lazy initialization.
 - [Linux mmap API](https://www.man7.org/linux/man-pages/man2/mmap.2.html) defines private mappings, no-reserve behavior, and their failure semantics.
 - [Linux userfaultfd documentation](https://docs.kernel.org/admin-guide/mm/userfaultfd.html) defines userspace-managed page faults and their scheduling and registration costs.
 - [Linux FICLONE documentation](https://man7.org/linux/man-pages/man2/FICLONE.2const.html) defines shared-extent copy-on-write semantics without promising a constant latency distribution.

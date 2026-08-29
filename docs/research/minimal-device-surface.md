@@ -2,8 +2,8 @@
 
 ## Decision
 
-SOMA machine contract v1 exposes four modern virtio 1.0-or-later devices over fixed virtio-mmio version 2 transports.
-The devices are one writable root block device backed by an Instance-private copy-on-write head, one network device, one vsock device, and one entropy device.
+SOMA machine contract v1 exposes five modern virtio 1.0-or-later devices over fixed virtio-mmio version 2 transports.
+The devices are one immutable EROFS root block device, one Instance-private writable overlay block device, one network device, one vsock device, and one entropy device.
 Authenticated control and orderly shutdown share the vsock device and do not create another virtual device.
 
 Version 1 has no PCI or PCIe bus, device enumeration, hotplug, MSI, MSI-X, IOMMU, packed virtqueues, vhost backend, virtio console, balloon, memory device, filesystem device, SCSI controller, or generic user-configurable device.
@@ -51,15 +51,16 @@ Each address, interrupt, device identifier, queue count, queue limit, feature al
 
 | Slot | MMIO range | GSI | Device | Virtio ID | Queues |
 | ---: | --- | ---: | --- | ---: | --- |
-| 0 | `0xd0000000` to `0xd0000fff` | 5 | Root block | 2 | request: 256 |
-| 1 | `0xd0001000` to `0xd0001fff` | 6 | Network | 1 | receive: 256, transmit: 256 |
-| 2 | `0xd0002000` to `0xd0002fff` | 7 | Vsock control | 19 | receive: 256, transmit: 256, event: 64 |
-| 3 | `0xd0003000` to `0xd0003fff` | 8 | Entropy | 4 | request: 64 |
+| 0 | `0xd0000000` to `0xd0000fff` | 5 | Immutable root block | 2 | request: 256 |
+| 1 | `0xd0001000` to `0xd0001fff` | 6 | Writable overlay block | 2 | request: 256 |
+| 2 | `0xd0002000` to `0xd0002fff` | 7 | Network | 1 | receive: 256, transmit: 256 |
+| 3 | `0xd0003000` to `0xd0003fff` | 8 | Vsock control | 19 | receive: 256, transmit: 256, event: 64 |
+| 4 | `0xd0004000` to `0xd0004fff` | 9 | Entropy | 4 | request: 64 |
 
 The fixed guest command-line fragment is:
 
 ```text
-virtio_mmio.device=4K@0xd0000000:5:0 virtio_mmio.device=4K@0xd0001000:6:1 virtio_mmio.device=4K@0xd0002000:7:2 virtio_mmio.device=4K@0xd0003000:8:3
+virtio_mmio.device=4K@0xd0000000:5:0 virtio_mmio.device=4K@0xd0001000:6:1 virtio_mmio.device=4K@0xd0002000:7:2 virtio_mmio.device=4K@0xd0003000:8:3 virtio_mmio.device=4K@0xd0004000:9:4
 ```
 
 Every interrupt is a distinct edge-triggered IOAPIC route in version 1.
@@ -134,14 +135,16 @@ Reset cannot close or replace another Instance's backing resources.
 The VMM process is single-use, so reset is a guest protocol operation rather than a tenant-reuse mechanism.
 Destroy still closes every backend and descriptor even if reset did not complete.
 
-## Root block device
+## Block devices
 
-The guest sees one writable raw block device.
-Its host backing file is a fresh private copy-on-write head cloned from the immutable Generation root-disk base before assignment.
-The immutable base is never opened writable by `soma-vmm`, and no two Instances share a writable head.
+The guest sees one read-only raw block device containing the deterministic EROFS Generation root and one writable raw block device containing an Instance-private ext4 overlay.
+The immutable EROFS base is shared read-only and is never opened writable by `soma-vmm`.
+The overlay is a fresh private copy-on-write head cloned from a sterile filesystem image before assignment, and no two Instances share a writable head.
+The pinned guest init mounts EROFS read-only, mounts the private ext4 filesystem as the OverlayFS upper and work storage, and pivots to the combined writable root before starting the guest agent.
 
-Version 1 exposes one request queue of at most 256 entries.
-It exposes only `VIRTIO_BLK_F_BLK_SIZE` and `VIRTIO_BLK_F_FLUSH` in addition to the common modern feature.
+Each block device exposes one request queue of at most 256 entries.
+The root device exposes `VIRTIO_BLK_F_RO` and `VIRTIO_BLK_F_BLK_SIZE` in addition to the common modern feature.
+The overlay device exposes `VIRTIO_BLK_F_BLK_SIZE` and `VIRTIO_BLK_F_FLUSH` in addition to the common modern feature.
 The logical block size is fixed in the Generation manifest.
 Discard, write-zeroes, secure erase, SCSI passthrough, multiqueue, topology, geometry, writeback-cache negotiation, and host-dependent features are absent.
 
@@ -153,9 +156,9 @@ Read and write completion report only after the host operation finishes.
 Flush completion reports only after the private head satisfies the selected durability policy.
 The guest filesystem must issue a flush at the Generation quiesce boundary before snapshot capture.
 
-Snapshot state contains transport state, negotiated features, queue configuration and cursors, interrupt status, configuration generation, capacity, logical block size, private-head identity, immutable-base digest, and the durability boundary.
+Snapshot state contains both transports, negotiated features, queue configuration and cursors, interrupt status, configuration generation, capacities, logical block sizes, private-head identity, immutable-root digest, sterile-overlay digest, and the durability boundary.
 No host file descriptor number or host path enters the snapshot.
-Restore opens and verifies the assigned private head, proves its base and size match, installs the backend, restores queue state, registers queue ioeventfd and irqfd, and only then permits vCPU resume.
+Restore opens and verifies the immutable root and assigned private overlay, proves their identities and sizes match, installs both backends, restores both queue states, registers queue ioeventfds and irqfds, and only then permits vCPU resume.
 
 ## Network device
 
@@ -221,7 +224,7 @@ The guest's entropy repair remains mandatory because a device alone does not pro
 Device capture is permitted only at the certified guest repair point.
 At that point:
 
-- The block queue has no in-flight request and the required durability boundary has completed.
+- Both block queues have no in-flight request and the writable overlay's required durability boundary has completed.
 - The network queues have no partially consumed chain and host packet buffers are empty.
 - Vsock has no connection, credit state, unread packet, or authenticated session.
 - The entropy queue has no in-flight request or buffered random bytes.
@@ -237,8 +240,8 @@ The device portion of restore follows this exact order:
 
 1. Verify the Generation, machine-contract, device-contract, feature-set, queue-limit, and artifact identities.
 2. Create the VM, private memory mapping, memory slots, irqchip, and fixed interrupt routes.
-3. Open and verify the private root-disk head, fresh TAP, fresh vsock endpoint, and fresh entropy backend without exposing them to the guest.
-4. Construct all four transports and device models at their fixed MMIO addresses.
+3. Open and verify the immutable root disk, private overlay head, fresh TAP, fresh vsock endpoint, and fresh entropy backend without exposing them to the guest.
+4. Construct all five transports and device models at their fixed MMIO addresses.
 5. Restore configuration, negotiated features, queue geometry, queue cursors, and captured interrupt status through validated state constructors.
 6. Register queue ioeventfds and device irqfds.
 7. Restore the IOAPIC and other machine interrupt state consistently with the captured device interrupt bits.
@@ -262,7 +265,7 @@ soma-kvm
   bus/mmio              checked interval dispatch only
   virtio/transport      modern MMIO registers, status, features, reset
   virtio/queue          split-ring state, bounded descriptor access
-  devices/block         request parser plus private-head backend
+  devices/block         request parser plus immutable and private backends
   devices/net           frame parser plus preopened TAP backend
   devices/vsock         packet and credit parser plus control endpoint
   devices/rng           bounded fill plus fresh CSPRNG backend
@@ -283,8 +286,8 @@ SOMA still owns the feature policy, backend safety, event loop, device lifecycle
 
 The device surface is implementation-complete only after Linux x86_64 tests prove:
 
-1. The pinned guest discovers exactly four modern MMIO devices and no PCI bus.
-2. The root disk mounts, reads a known Generation file, writes privately, flushes, and leaves the immutable base unchanged.
+1. The pinned guest discovers exactly five modern MMIO devices and no PCI bus.
+2. The EROFS root and ext4 upper compose into a writable root, read a known Generation file, write privately, flush, and leave both shared base artifacts unchanged.
 3. Network transmit and receive work through the supplied TAP while denied traffic remains denied by the host profile.
 4. A fresh vsock session completes authenticated repair, one command, and orderly shutdown.
 5. Entropy requests return fresh bytes across at least two restores of the same snapshot.

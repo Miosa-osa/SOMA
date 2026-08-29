@@ -1,8 +1,16 @@
 # Notes
 
+## 2026-08-29 - Generation v1 uses immutable EROFS plus private ext4
+
+Decision-map ticket #6 selects a deterministic EROFS image as the immutable OCI-derived root and a separate Instance-private ext4 filesystem as the OverlayFS upper and work storage.
+The offline Generation compiler binds the kernel, initramfs, guest agent, both filesystem contracts, machine and device contracts, CPU template, command line, guest protocols, snapshot state, repair policy, and exact builder provenance into one canonical `GenerationId` manifest.
+A retained Docker prototype built erofs-utils 1.9.4 at commit `f36cadb5c563995ab3aa8572a60ed6b721b9557d` and proved byte-identical fixture images across opposite host insertion orders.
+An ext4 population experiment changed bytes across build seconds because host inode change time leaked into the image, so populated ext4 is rejected as the immutable reproducible root.
+The five-device correction keeps Generation bytes immutable and independently reproducible while allowing writable disk capacity to remain an Instance shape selected from certified preformatted overlay classes.
+
 ## 2026-08-29 - Minimal device surface uses fixed modern virtio-mmio
 
-Decision-map ticket #5 selects exactly four virtio-mmio version 2 devices for machine contract v1: a private-copy-on-write root block device, network, vsock control, and entropy.
+Decision-map tickets #5 and #6 select exactly five virtio-mmio version 2 devices for machine contract v1: an immutable EROFS root block device, a private ext4 overlay block device, network, vsock control, and entropy.
 Each device has one fixed 4 KiB MMIO page above the 3 GiB RAM ceiling, one dedicated GSI, bounded split queues, and an explicit feature allowlist.
 PCI, legacy virtio, hotplug, vhost, packed queues, optional offloads, and separate control or shutdown devices remain outside version 1.
 Queue and device state are hostile input, transient I/O and authority never enter a snapshot, and restore attaches fresh disk, TAP, vsock, and entropy resources before vCPU resume.
