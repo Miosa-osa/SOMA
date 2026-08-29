@@ -555,7 +555,7 @@ crates/soma-guest/src/
 ```
 
 The crate is an independent protocol and ownership foundation so the host VMM adapter and the static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
-It also fixes the machine-contract constants shared by both peers: the launch-page guest-physical address, the vsock control port, and the schema 2 non-secret `LaunchNetwork` identity accepted by ADR 0022.
+It also fixes the machine-contract constants shared by both peers: the launch-page guest-physical address, the vsock control port, and the schema 2 non-secret `LaunchNetwork` identity accepted by ADR 0023.
 It does not contain a guest executable, VMM device transport adapter, trusted Generation-manifest verifier, physical snapshot-safe secret injection, real clone repair, process executor, C ABI, or attestation mechanism.
 Its owned authenticated probe state is necessary but cannot authorize a Machine Ready result until those external repair and execution effects are wired and evidenced.
 
