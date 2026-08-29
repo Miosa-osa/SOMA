@@ -1155,6 +1155,7 @@ dependencies = [
  "cap-fs-ext",
  "cap-std",
  "flate2",
+ "libc",
  "serde",
  "serde_json",
  "sha2",

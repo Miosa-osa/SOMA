@@ -1,10 +1,17 @@
+//! One bounded, contained invocation of one pinned external tool.
+//!
+//! Every tool leads its own process group, so a deadline, a feed failure, a capture failure, or
+//! a cancellation terminates the tool and every descendant it forked rather than only the
+//! direct child.
+//! Termination, draining, waiting, and collection are each bounded, and every error carries the
+//! phase that actually invoked the tool.
+
 use std::{
     ffi::OsString,
     fs::File,
-    io::{Read, Write},
+    io::{Read as _, Write},
     path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    thread,
+    process::{ChildStdin, Command, Stdio},
     time::{Duration, Instant},
 };
 
@@ -15,9 +22,30 @@ use super::{
     error::{CompileError, CompileErrorKind, CompilePhase},
 };
 
-const CAPTURE_LIMIT: usize = 64 * 1024;
+mod capture;
+mod control;
+mod supervise;
+
+use capture::Readers;
+use control::Group;
+use supervise::Supervisor;
+
 const MAX_TOOL_BYTES: u64 = 256 * 1024 * 1024;
-const POLL_INTERVAL: Duration = Duration::from_millis(5);
+/// Grace the process group is given to honor the polite termination signal.
+const TERM_GRACE: Duration = Duration::from_secs(2);
+/// Grace the process group is given to die after the force signal.
+const KILL_GRACE: Duration = Duration::from_secs(2);
+/// Grace the detached readers are given to report before they are abandoned.
+const CAPTURE_GRACE: Duration = Duration::from_secs(2);
+
+/// The complete bounded overrun one invocation may add to its own deadline.
+///
+/// A tool that ignores its deadline costs at most this long in polite termination, forced
+/// termination, and output collection before the phase reports its failure.
+pub(crate) const TERMINATION_GRACE: Duration = TERM_GRACE
+    .saturating_add(KILL_GRACE)
+    .saturating_add(CAPTURE_GRACE)
+    .saturating_add(CAPTURE_GRACE);
 
 /// Retained evidence from one bounded pinned-tool invocation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -58,11 +86,45 @@ impl Invocation<'_> {
     }
 
     /// Runs the tool while `feed` writes its standard input from the calling thread.
+    ///
+    /// The feed is bounded by the same supervisor: when the deadline passes, the group is
+    /// terminated, the tool's read end closes, and a blocked write fails instead of hanging.
     pub(crate) fn run_with_stdin(
         self,
         feed: impl FnOnce(&mut dyn Write) -> Result<(), CompileError>,
     ) -> Result<ToolOutcome, CompileError> {
         let phase = self.phase;
+        let mut child = self.spawn()?;
+        let group = Group::new(child.id());
+        let deadline = Instant::now() + self.deadline;
+        let mut readers = Readers::spawn(child.stdout.take(), child.stderr.take());
+        let stdin = child.stdin.take();
+        let supervisor = Supervisor::start(child, group, deadline, (TERM_GRACE, KILL_GRACE));
+        let feed_result = feed_stdin(stdin, feed);
+        if feed_result.is_err() {
+            supervisor.cancel();
+        }
+        let collected = supervisor.finish(deadline + TERMINATION_GRACE);
+        // An incomplete collection proves a descendant still holds a build pipe, which also
+        // proves the group still has a member and its identifier is still reserved, so forcing
+        // the group here can never reach an unrelated process.
+        let contained = readers.collect(Instant::now() + CAPTURE_GRACE);
+        if !contained {
+            group.signal(control::Signal::Force);
+            readers.collect(Instant::now() + CAPTURE_GRACE);
+        }
+        let captured = readers.take();
+        feed_result?;
+        let Some(supervised) = collected else {
+            return Err(CompileError::new(phase, CompileErrorKind::Io));
+        };
+        if supervised.terminated || !contained {
+            return Err(CompileError::new(phase, CompileErrorKind::Toolchain));
+        }
+        Ok(self.outcome(supervised.exit_code, captured.stdout, captured.stderr))
+    }
+
+    fn spawn(&self) -> Result<std::process::Child, CompileError> {
         let mut command = Command::new(self.program);
         command
             .args(&self.arguments)
@@ -72,32 +134,14 @@ impl Invocation<'_> {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command
+        control::isolate(&mut command);
+        command
             .spawn()
-            .map_err(|_| CompileError::new(phase, CompileErrorKind::Toolchain))?;
-        let mut stdin = child.stdin.take();
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        let (feed_result, stdout, stderr) = thread::scope(|scope| {
-            let out = scope.spawn(move || drain(stdout));
-            let err = scope.spawn(move || drain(stderr));
-            let feed_result = match stdin.as_mut() {
-                Some(pipe) => feed(pipe),
-                None => Ok(()),
-            };
-            drop(stdin);
-            if feed_result.is_err() {
-                let _ = child.kill();
-            }
-            let outcome = wait_bounded(&mut child, self.deadline);
-            (
-                feed_result.and(outcome),
-                out.join().unwrap_or_default(),
-                err.join().unwrap_or_default(),
-            )
-        });
-        let exit_code = feed_result?;
-        Ok(ToolOutcome {
+            .map_err(|_| CompileError::new(self.phase, CompileErrorKind::Toolchain))
+    }
+
+    fn outcome(self, exit_code: Option<i32>, stdout: Vec<u8>, stderr: Vec<u8>) -> ToolOutcome {
+        ToolOutcome {
             program: self
                 .program
                 .file_name()
@@ -112,49 +156,20 @@ impl Invocation<'_> {
             exit_code,
             stdout,
             stderr,
-        })
-    }
-}
-
-fn wait_bounded(child: &mut Child, deadline: Duration) -> Result<Option<i32>, CompileError> {
-    let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status.code()),
-            Ok(None) if started.elapsed() < deadline => thread::sleep(POLL_INTERVAL),
-            Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(CompileError::new(
-                    CompilePhase::FormatRoot,
-                    CompileErrorKind::Toolchain,
-                ));
-            }
-            Err(_) => {
-                return Err(CompileError::new(
-                    CompilePhase::FormatRoot,
-                    CompileErrorKind::Io,
-                ));
-            }
         }
     }
 }
 
-fn drain(source: Option<impl Read>) -> Vec<u8> {
-    let Some(mut source) = source else {
-        return Vec::new();
+fn feed_stdin(
+    stdin: Option<ChildStdin>,
+    feed: impl FnOnce(&mut dyn Write) -> Result<(), CompileError>,
+) -> Result<(), CompileError> {
+    let Some(mut pipe) = stdin else {
+        return feed(&mut std::io::sink());
     };
-    let mut retained = Vec::new();
-    let mut buffer = [0_u8; 8192];
-    loop {
-        match source.read(&mut buffer) {
-            Ok(0) | Err(_) => return retained,
-            Ok(count) => {
-                let room = CAPTURE_LIMIT.saturating_sub(retained.len());
-                retained.extend_from_slice(&buffer[..count.min(room)]);
-            }
-        }
-    }
+    let result = feed(&mut pipe);
+    drop(pipe);
+    result
 }
 
 /// Hashes the bytes of one pinned tool executable so evidence binds the exact binary used.
@@ -218,3 +233,6 @@ pub(crate) fn version_line(
 pub(crate) fn tool_path(directory: &Path, name: &str) -> PathBuf {
     directory.join(name)
 }
+
+#[cfg(test)]
+mod tests;

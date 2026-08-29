@@ -313,6 +313,7 @@ generation/
 
 No module may accept an arbitrary command line, shell string, host path embedded in an artifact, unbounded reader, or untyped artifact role.
 The formatter process adapter is replaceable, but the canonical SOMA input and output contracts are not delegated to the formatter.
+Under ADR 0025 every external tool leads its own process group, one supervising thread owns its deadline, termination, and reaping, and a deadline, feed failure, capture failure, or cancellation terminates the complete group inside a declared grace with the invoking phase in the error.
 
 ## x86_64 production-module status
 

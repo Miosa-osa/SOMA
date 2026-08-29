@@ -1,5 +1,5 @@
 #![doc = "Verified OCI input, normalized rootfs, and Generation compiler artifacts for SOMA."]
-#![forbid(unsafe_code)]
+#![deny(unsafe_code)]
 
 mod digest;
 mod error;
