@@ -11,6 +11,10 @@ const MAX_USER_BYTES: usize = 32;
 pub(crate) const MAX_TIMEOUT_SECONDS: u64 = 365 * 24 * 60 * 60;
 
 /// A lowercase DNS name, optionally prefixed by `*.` to allow every subdomain.
+///
+/// The final label must not be all digits (RFC 3696 section 2), which also keeps an IPv4
+/// literal such as `169.254.169.254` from passing as a domain and bypassing a CIDR ceiling;
+/// an address is declared under `allow_cidrs` with an explicit prefix.
 pub(crate) fn domain(value: &str) -> Result<(), InvalidReason> {
     let name = value.strip_prefix("*.").unwrap_or(value);
     if name.is_empty() || value.len() > MAX_DOMAIN_BYTES || name.ends_with('.') {
@@ -25,7 +29,11 @@ pub(crate) fn domain(value: &str) -> Result<(), InvalidReason> {
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     });
-    if !labels_valid {
+    let numeric_final_label = name
+        .rsplit('.')
+        .next()
+        .is_some_and(|label| label.bytes().all(|byte| byte.is_ascii_digit()));
+    if !labels_valid || numeric_final_label {
         return Err(InvalidReason::InvalidDomain);
     }
     Ok(())
