@@ -222,3 +222,296 @@ The following earlier audit blockers also remain open and must not disappear fro
 9. Correct stale README and guide statements.
 10. Fix every required CI, security, portability, and evidence gate before publishing performance claims.
 
+## Road from the working VMM to production admission
+
+SOMA now has a working cold-boot VMM path: the CLI can select the KVM Backend, create a VM, boot the guest, establish an authenticated control session, complete the fixed readiness probe, execute a bounded command, and clean up the in-process machine.
+That is the machine floor and a real product milestone.
+It is not yet the complete secure, scalable, prepared-restore sandbox described by the SOMA mission.
+
+The stages below are cumulative.
+A later stage is not complete when an earlier stage still has an open invariant.
+
+### Stage 1 - Correct public sandbox identity and admission
+
+The current lifecycle must first become semantically truthful.
+
+Required work:
+
+- Launch only installed certified Generations and make it structurally impossible to pass a Candidate into Launch.
+- Bind the public Instance ID to the exact bytes in the launch page, authenticated guest transcript, ownership record, Execute request, Inspect result, Cleanup request, and terminal receipt.
+- Reject a second Launch while the single-Instance Backend is occupied.
+- Permanently poison and reclaim a session after any command timeout or uncertain protocol result.
+- Resolve one unique immutable Generation instead of selecting the first mutable reference match.
+- Report only observations proven by the implementation.
+
+Definition of done:
+
+- The same Instance identity is proved at every public, host, VMM, launch-page, guest-session, and receipt boundary.
+- No Candidate can reach VM creation.
+- No operation can replace, impersonate, or consume the response of another Instance or operation.
+- Every uncertain response terminates the affected session before another operation is accepted.
+
+### Stage 2 - Prove the cold-boot development lifecycle
+
+The current cold-boot path should remain available as an explicitly named development and diagnostic profile.
+It must be proven before it becomes a dependable fallback.
+
+Required workload coverage:
+
+- `node:22`
+- Ubuntu
+- Alpine
+- BusyBox
+- A representative coding agent workload
+- A hostile or malformed workload fixture
+
+Required behavioral coverage:
+
+- Successful boot, authentication, readiness, Execute, shutdown, and cleanup
+- Missing, damaged, incompatible, uncertified, and replaced Generation artifacts
+- Guest boot failure and readiness failure
+- Missing executable and command invocation failure
+- Command timeout and late command completion
+- Output-limit termination
+- Guest crash and VMM crash
+- Forced shutdown and incomplete cleanup
+- Host process restart and state reconstruction
+- Repeated Resolve, Launch, Execute, Inspect, and Cleanup operations
+- Operation replay with equal and conflicting request fingerprints
+
+Required leak checks:
+
+- File descriptors
+- Threads and child processes
+- KVM VM and vCPU descriptors
+- Guest memory mappings
+- Writable storage heads
+- Temporary names and directories
+- Launch secrets and responder authority
+- Network resources when networking is introduced
+
+Definition of done:
+
+- Every failure is typed and fail closed.
+- Every test proves cleanup independently rather than inferring cleanup from thread exit.
+- Sequential repetition and bounded concurrency show no accumulating descriptors, memory, storage, processes, identities, or named files.
+- Retained evidence identifies the exact commit, host, kernel, toolchain, Generation, commands, failures, and cleanup results.
+
+### Stage 3 - Complete the isolation boundary
+
+The in-process thread is useful for development, but production isolation requires the VMM to become a separately contained process.
+
+Required work:
+
+- Run one native `soma-vmm` process per Machine.
+- Launch it through `soma-jail` rather than directly inside the public Backend process.
+- Apply an ephemeral identity, namespaces, cgroups, seccomp, capability removal, parent-death behavior, resource limits, an empty filesystem view, and an explicit descriptor allowlist.
+- Transfer only verified kernel, memory, storage, TAP, control, and evidence descriptors.
+- Ensure the VMM cannot open arbitrary host paths after confinement.
+- Bound and supervise the VMM process through pidfd-backed ownership and deterministic cleanup.
+
+Required hostile tests:
+
+- Attempts to open host files and directories
+- Attempts to access host devices other than transferred descriptors
+- Attempts to connect to host or production sockets
+- Attempts to reach cloud metadata
+- Attempts to escape namespaces or acquire capabilities
+- Fork, thread, memory, file-descriptor, and output exhaustion
+- Malformed MMIO, virtqueue, block, network, vsock, entropy, snapshot, and launch-page inputs
+- One sandbox attempting to observe or affect another sandbox
+- VMM process crash during every lifecycle transition
+
+Definition of done:
+
+- A compromised guest-facing VMM remains inside the declared jail boundary.
+- No sandbox can observe or mutate another sandbox's memory, disk, network, identity, control session, or cleanup record.
+- The parent can always identify, terminate, reap, and reconcile the exact process and resources it owns.
+
+### Stage 4 - Build the prepared production fast path
+
+The production latency target depends on moving construction out of the Launch boundary.
+The existing cold-boot lifecycle must not be mislabeled as this path.
+
+Required prepared resources:
+
+- Certified installed Generation
+- Captured immutable snapshot state
+- Privately mapped copy-on-write guest memory
+- Prepared sterile writable storage head
+- Prepared sterile network bundle
+- Reserved vCPU, memory, storage, descriptor, and network capacity
+- Fresh per-Instance identity, entropy, launch authority, network identity, and time repair material
+
+Required production transaction:
+
+1. Admit the request against exact host capacity.
+2. Resolve an immutable certified Generation.
+3. Claim one prepared worker and its resource leases.
+4. Bind the public Instance and Operation identities.
+5. Restore private memory, vCPU, interrupt, clock, and device state.
+6. Attach the prepared private storage head.
+7. Transfer the sterile TAP and other required descriptors into the jailed VMM.
+8. Publish fresh launch material that was never present in the snapshot.
+9. Resume the guest.
+10. Complete authenticated repair and the fixed readiness probe.
+11. Activate networking only after the verified Ready transition.
+12. Return a receipt covering the exact boundary and every effective capability.
+
+Pool depletion behavior must be explicit.
+The Backend may return overload, wait inside a declared bound, or use a separately named slower preparation class.
+It must never silently perform cold construction while reporting prepared restore.
+
+Definition of done:
+
+- Launch performs no OCI acquisition, Generation compilation, full overlay copy, or snapshot capture.
+- Replenishment happens asynchronously outside the measured Launch path.
+- A failed claim returns every partially acquired resource or leaves a durable reconciliation record.
+- Ready is impossible before exact-Instance authenticated repair and the fixed probe complete.
+
+### Stage 5 - Complete production networking
+
+Networking is part of the sandbox security boundary rather than an optional afterthought.
+
+Required work:
+
+- Attach a prepared TAP descriptor to the guest's virtio-net device.
+- Keep forwarding disabled before authenticated readiness.
+- Enforce egress denied by default.
+- Apply explicit destination, port, protocol, DNS, proxy, and ingress policy.
+- Block cloud metadata and host-control destinations independently of caller policy.
+- Support optional proxy and ingress attachment without giving the VMM network-administration capability.
+- Bind activation and release to the exact Instance and Operation capability rather than only a shared UID.
+- Make network release durable, idempotent, and reconcilable after crashes.
+
+Definition of done:
+
+- No packet leaves before authenticated Ready and policy activation.
+- Denied destinations remain denied under DNS changes, redirects, IPv4 and IPv6 variants, and guest-crafted packets.
+- Network activation cannot be forged by the lifecycle claimant without guest-produced evidence.
+- Cleanup proves TAP, namespace, nftables, conntrack, address, route, proxy, ingress, and reservation disposition separately.
+
+### Stage 6 - Add multi-Instance scale and admission
+
+The single `Option<Live>` is a development constraint, not the production ownership model.
+
+Required work:
+
+- Replace it with an explicit bounded Instance ownership table.
+- Give every Instance independent process, session, storage, network, and cleanup ownership.
+- Enforce admission across vCPUs, host threads, RAM, copy-on-write pressure, disk, IOPS, file descriptors, KVM limits, network capacity, and prepared-pool inventory.
+- Apply backpressure before host exhaustion.
+- Preserve operation idempotency and cleanup during concurrent Launch, Execute, Inspect, and Cleanup calls.
+- Reconstruct ownership and continue cleanup after daemon or host restart.
+
+Required scale ladder:
+
+- 1 Instance
+- 10 concurrent Instances
+- 100 concurrent Instances
+- 1,000 concurrent Instances where the certified host shape permits it
+- Higher fleet-scale campaigns across multiple hosts after the node contract passes
+
+The host must never promise one dedicated vCPU per sandbox merely because it admits more sandboxes than physical threads.
+CPU overcommit, memory overcommit, idle-worker density, and workload service levels must be explicit policies with measured consequences.
+
+Definition of done:
+
+- Admission refuses or queues work before an invariant is violated.
+- One slow, hostile, or failed Instance cannot block unrelated Instances.
+- Burst cleanup returns the host to its measured baseline.
+- Restart recovery neither leaks resources nor allocates an identity or lease twice.
+
+### Stage 7 - Repair portability and CI
+
+No capability is admissible while required repository gates are red.
+
+Required gates:
+
+- Ubuntu 24.04 x86_64 build, lint, unit, integration, and KVM tests
+- Ubuntu preview compatibility without treating it as the production authority
+- macOS ARM64 platform-neutral build and tests
+- Windows portable client build and tests
+- Security and dependency policy
+- KVM smoke
+- Architecture checks
+- Documentation links and status vocabulary
+- Benchmark and evidence regeneration
+
+Required corrections include removing the brittle 8 GiB requirement from the ordinary Ubuntu test path, fixing warnings-as-errors on Windows and macOS, making the architecture checker portable instead of using GNU-only `find -printf`, and teaching the spell checker the repository's legitimate technical vocabulary.
+
+Definition of done:
+
+- Every required check is green on the same commit.
+- A skipped KVM test is visibly skipped and never counted as a passing KVM proof.
+- Linux-specific behavior is proved on the declared Linux production target.
+- Portable clients compile without importing Linux host implementation details.
+
+### Stage 8 - Produce admissible performance evidence
+
+Performance optimization follows correctness, identity, isolation, and cleanup.
+
+Required campaign rules:
+
+- Use release builds.
+- Record exact commit, host, CPU, memory, storage, filesystem, kernel, KVM, toolchain, Generation, snapshot, preparation state, and command.
+- Retain raw samples, failures, timeouts, cleanup outcomes, and billing or capacity scope where applicable.
+- Separate cold build, cold boot, cold-cache restore, warm-cache restore, prepared restore, and already-Ready lease measurements.
+- State the precise timer start and stop boundaries.
+- Report p50, p95, p99, maximum, success rate, and cleanup rate.
+- Measure sequential and concurrent cohorts independently.
+- Run the unmodified ComputeSDK benchmark through an external SOMA adapter.
+
+Required scale evidence:
+
+- Small correctness cohorts during development
+- 1, 10, and 100 concurrency rungs
+- At least 10,000 accepted warm samples before publishing a stable 10 ms claim
+- Repeated campaigns across more than one suitable production host before claiming generality
+
+Definition of done:
+
+- Complete server-side prepared Launch reaches the declared p50 and p99 objectives without weakening isolation or cleanup.
+- First bounded command completion reaches its separate objective.
+- The exact ComputeSDK Burst TTI campaign reaches its declared objective with 100 percent creation, command, and cleanup success.
+- Every public number can be regenerated from retained raw evidence without provider credentials.
+
+### Stage 9 - Finish the public agent product surface
+
+The sandbox must be usable by agents without exposing VMM internals.
+
+Required work:
+
+- Stable CLI and Rust lifecycle interfaces
+- MCP tools usable by Codex, Claude Code, OSA, Hermes, and other MCP-capable agents
+- Template-based workload preparation
+- Environment and secret delivery only after authenticated Ready
+- Upload, download, and workspace attachment
+- Configurable vCPU, RAM, storage, lifetime, command timeout, output limit, networking, egress, ingress, proxy, snapshot, Stop, and destruction policy
+- Accurate capability negotiation and unsupported-feature failures
+- Operator deployment guides for MIOSA, AWS, GCP, and custom Linux hosts
+- Control-plane reference design for placement, admission, pools, reconciliation, and fleet-scale operation
+
+Definition of done:
+
+- An agent can create, execute in, inspect, and destroy a sandbox through the same semantic lifecycle on every supported client platform.
+- The selected remote Linux Backend supplies the hardware-isolated execution where the client platform cannot.
+- Documentation clearly separates local Docker or Apple development behavior from Linux KVM production isolation.
+- Every option has one canonical contract, bounded validation, and truthful effective-value evidence.
+
+## Final definition of done
+
+SOMA is production-admitted only when all of the following are true on one identified release commit:
+
+- Only certified immutable Generations launch.
+- Public, host, VMM, and guest identities are exactly bound.
+- One jailed native VMM process owns one Machine.
+- Prepared restore reaches authenticated Ready without cold construction in the timed path.
+- Storage and networking are private, policy-bound, durable, and reconcilable.
+- Execute, Inspect, Cleanup, timeout, crash, and replay behavior are deterministic and evidence-backed.
+- Multi-Instance admission protects the host under burst load.
+- Every required CI, security, portability, KVM, and architecture gate passes.
+- Retained release-build evidence supports every published latency and success claim.
+- CLI, library, MCP, templates, configuration, and deployment documentation let agents and operators use the system without depending on internal implementation details.
+
+Until then, the accurate public description is: SOMA has a working Linux KVM cold-boot development sandbox and strong component foundations, while production isolation, prepared restore, network composition, scale admission, and performance admission remain in progress.
