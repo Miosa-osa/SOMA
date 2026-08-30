@@ -142,8 +142,10 @@ impl Ledger {
         };
         let written = file
             .write_all(&record.encode())
-            .and_then(|()| file.sync_all())
-            .and_then(|()| File::open(&self.root)?.sync_all());
+            .and_then(|()| file.sync_all());
+        drop(file);
+        #[cfg(unix)]
+        let written = written.and_then(|()| sync_directory(&self.root));
         if let Err(error) = written {
             let _ = fs::remove_file(&path);
             return Err(LedgerError::Write {
@@ -225,6 +227,11 @@ impl Ledger {
             .into_iter()
             .find(|claim| claim.operation == operation))
     }
+}
+
+#[cfg(unix)]
+fn sync_directory(root: &Path) -> io::Result<()> {
+    File::open(root)?.sync_all()
 }
 
 fn sequences(root: &Path) -> Result<Vec<u64>, LedgerError> {
