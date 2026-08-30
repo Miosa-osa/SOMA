@@ -84,7 +84,14 @@ mod agent {
     /// A snapshot builder waits for this exact line before it quiesces and captures.
     pub const REPAIR_POINT_LINE: &str = "awaiting launch material";
 
-    const PAGE_POLL: Duration = Duration::from_millis(2);
+    /// Interval between launch-page probes while the agent is parked at the repair point.
+    ///
+    /// The host writes the fresh page into its slot before it resumes the vCPU, so the page is
+    /// already present the moment the restored guest runs again and the only cost left is how
+    /// long the interrupted sleep still had to run. That remainder is bounded by this
+    /// interval, so it is short; the wakeups it buys are paid only while the machine is parked
+    /// waiting to be captured, never by a running Instance.
+    const PAGE_POLL: Duration = Duration::from_micros(100);
     const ENTROPY_BUDGET: Duration = Duration::from_secs(5);
     const TRANSPORT_BUDGET: Duration = Duration::from_secs(10);
     const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);

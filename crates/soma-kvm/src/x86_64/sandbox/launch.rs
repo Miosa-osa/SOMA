@@ -12,7 +12,12 @@ use crate::x86_64::{
     launch_page::LAUNCH_PAGE_SIZE,
 };
 
-const CONSUME_POLL: Duration = Duration::from_millis(1);
+/// Interval between reads of the launch-page slot while waiting for the guest to consume it.
+///
+/// The guest reaches the page within a fraction of a millisecond of the resume, so a coarse
+/// interval here would be most of the observed pickup; the read is sixteen bytes under one
+/// uncontended lock and is paid only over that short window.
+const CONSUME_POLL: Duration = Duration::from_micros(100);
 
 impl SandboxMachine {
     /// Publishes one launch page before the guest runs.
