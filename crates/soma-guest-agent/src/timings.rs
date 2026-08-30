@@ -4,10 +4,14 @@
 //! is the guest half of that measurement, so each interval can be attributed to waiting or to
 //! work without guessing.
 //! One step costs two monotonic reads and one relaxed store, the slots are a fixed array that
-//! never allocates or grows, and nothing is rendered until the agent has already announced
-//! readiness, so the instrumentation is outside the interval it measures.
+//! never allocates or grows, and nothing is rendered at all unless the `timing-report` feature
+//! is on, which the shipped agent does not build with: the rendering is investigation
+//! scaffolding, and an Instance should not spend its console on it between readiness and its
+//! first request. Rebuild with `SOMA_GUEST_AGENT_FEATURES=timing-report
+//! ./scripts/build-guest-agent.sh` to read the steps again.
 //! Every value is a duration in microseconds and carries no identity, key, or peer byte.
 
+#[cfg(any(test, feature = "timing-report"))]
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -64,9 +68,11 @@ pub enum Step {
 /// Slots, one per [`Step`].
 const STEPS: usize = 22;
 /// Steps rendered on one console line; two lines cover every slot.
+#[cfg(any(test, feature = "timing-report"))]
 const PER_LINE: usize = STEPS / 2;
 
 /// Short console label of each slot, in [`Step`] order.
+#[cfg(any(test, feature = "timing-report"))]
 const LABELS: [&str; STEPS] = [
     "wake", "look", "copy", "erase", "parse", "hwrng", "mix", "crng", "cid", "vsock", "ident",
     "net", "hswait", "hssend", "hswork", "req", "report", "spawn", "stream", "wait", "reap",
@@ -140,6 +146,7 @@ fn timed<T>(total: &AtomicU64, work: impl FnOnce() -> T) -> T {
 }
 
 /// Renders every slot as two bounded console lines of microsecond values.
+#[cfg(any(test, feature = "timing-report"))]
 #[must_use]
 pub fn lines() -> [String; 2] {
     let mut lines = [String::new(), String::new()];

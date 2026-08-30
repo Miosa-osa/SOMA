@@ -29,8 +29,13 @@ if ! rustup target list --installed | grep -qx "${TARGET}"; then
     exit 1
 fi
 
+# Optional cargo features, e.g. SOMA_GUEST_AGENT_FEATURES=timing-report to render the
+# repair-step timings on the guest console. Empty for the shipped agent.
+readonly FEATURES="${SOMA_GUEST_AGENT_FEATURES:-}"
+
 RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=static -C strip=symbols" \
-    cargo build --locked --release --target "${TARGET}" -p soma-guest-agent
+    cargo build --locked --release --target "${TARGET}" -p soma-guest-agent \
+    --features "${FEATURES}"
 
 if [[ ! -f "${BINARY}" ]]; then
     printf 'expected binary is missing: %s\n' "${BINARY}" >&2

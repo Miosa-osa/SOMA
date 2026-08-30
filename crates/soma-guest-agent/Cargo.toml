@@ -12,6 +12,11 @@ version.workspace = true
 name = "soma-guest-agent"
 path = "src/main.rs"
 
+[features]
+# Renders the repair-step timings on the console once the agent is ready. Off by default: the
+# shipped agent records the steps but never spends the console on them.
+timing-report = []
+
 [dependencies]
 soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
 zeroize = "=1.9.0"

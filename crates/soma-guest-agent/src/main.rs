@@ -157,6 +157,7 @@ mod agent {
         let (controller, probed) = advance(controller.probe(lifecycle::probe(authenticated)));
         let (controller, ()) = advance(controller.ready(Ok(())));
         console::report("ready");
+        #[cfg(feature = "timing-report")]
         for line in timings::lines() {
             console::report(&line);
         }
