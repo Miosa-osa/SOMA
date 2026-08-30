@@ -5,7 +5,7 @@ Every row uses exactly one of the five status terms defined in [the engineering 
 
 Rules for this table:
 
-- A live-proved row names the exact commit the run was made on and links the retained evidence artifact.
+- A live-proved row names a commit whose relevant code is identical to the one the run was made on, and links the retained evidence artifact. Where the artifact records its own run revision, that revision is what the reader should check the row against.
 - When the code changed after a run, the row says historical, keeps the original observation, and states the status of the current bytes.
 - No row may claim a higher term than its evidence supports, and no capability is integrated or production-admitted today.
 
@@ -18,7 +18,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 |---|---|---|
 | Portable facade, CLI, Rust library, and MCP server | Component-tested | Workspace tests under `./scripts/check.sh portable` |
 | Durable managed lifecycle state | Component-tested | `crates/soma-local` tests |
-| Docker Backend local sandbox lifecycle | Live-proved at `08bf75e` | [Docker Node 22 local run](evidence/2026-08-29-docker-node22-local.md) |
+| Docker Backend local sandbox lifecycle | Live-proved at `08bf75e` | [Docker Node 22 local run](evidence/2026-08-29-docker-node22-local.md); the artifact records no run revision, so the named commit is the retention point rather than a checked run identity |
 | Apple Virtualization Backend one-shot | Live-proved at `4d10493` | [Apple Node 22 one-shot](evidence/2026-08-29-apple-node22-one-shot.md) |
 | Linux KVM Backend lifecycle behind the public contract | Designed | [KVM backend integration](research/kvm-backend-integration.md); `crates/soma-local/src/backend/kvm.rs` answers every lifecycle call with a typed unavailable failure |
 
