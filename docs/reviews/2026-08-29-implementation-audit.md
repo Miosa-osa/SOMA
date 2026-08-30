@@ -1,5 +1,7 @@
 # Implementation audit handoff
 
+> Follow-up: [Implementation re-audit](2026-08-29-implementation-reaudit.md) reviews commits `4879517...d790555`, verifies which findings below were fixed, and records defects introduced by the newer networking, restore, and benchmark work.
+
 - Date: 2026-08-29
 - Repository: `Miosa-osa/SOMA`
 - Review fixed point: `e0b894b`

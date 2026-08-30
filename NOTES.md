@@ -652,3 +652,12 @@ Two musl facts changed the table during the run: musl issues the legacy `open` a
 The KVM ioctl allowlist is exactly the set the current `soma-kvm` code issues plus the snapshot state groups reserved for restore; `TUNSETIFF` and every other request are killed, and `FIONBIO` is the only non-KVM request.
 The launcher constrains the static `jail-probe` stand-in and has not wrapped the real `soma-vmm` binary, transferred a TAP endpoint, bounded `io.max`, installed a filter into a multi-threaded process, or served prepared workers; a glibc-linked VMM must be traced before its startup can be trusted, and the vsock accept path and `SCM_RIGHTS` claim transfer still need an allowlist decision.
 The next dependency is wrapping the real `soma-vmm` executable and the prepared-worker claim path behind this launcher.
+
+## 2026-08-29 - Second implementation audit blocks production networking
+
+The fixed review range `4879517...d790555` materially closes the previous responder-authority, output-bounding, process-tree, Candidate-publication, hostile-validation, entropy, architecture, address-validation, provenance, and structured-command findings.
+The new privileged network broker nevertheless has two production blockers: activation fabricates a repair attestation without authenticated guest evidence, and the daemon socket authorizes no peer before granting TAP and lifecycle authority.
+Restore readiness is still caller-asserted, privileged network tools have no complete deadline and capture bounds, network reply delivery does not reject a short send, and the new burst tests break the portable repository gate through incompatible relative imports.
+Two accepted ADR files also share number 0024 while specifying incompatible responder-key models, and retained snapshot evidence describes the obsolete reusable-key implementation rather than current bytes.
+The required order is to restore the portable gate, secure the network authority boundary, bind readiness to authenticated evidence, repair the decision record, rerun current snapshot evidence, and then integrate one complete KVM lifecycle before adding more subsystems or publishing performance claims.
+The detailed handoff is `docs/reviews/2026-08-29-implementation-reaudit.md`.
