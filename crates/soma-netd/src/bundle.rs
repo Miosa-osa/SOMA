@@ -120,14 +120,8 @@ impl Broker {
             }),
             Err(error) => {
                 drop(namespace);
-                let _ = release::teardown(
-                    self,
-                    &names,
-                    zone,
-                    &self.ns_dir.join(&short),
-                    None,
-                    Vec::new(),
-                );
+                let _ =
+                    release::teardown(&names, zone, &self.ns_dir.join(&short), None, Vec::new());
                 Err(error)
             }
         }

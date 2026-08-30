@@ -180,7 +180,7 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                     Reply::Activated
                 }
                 Err(error) => {
-                    let _ = release(&state.broker, owned.assigned);
+                    drop(release(&state.broker, owned.assigned));
                     Reply::Failed(error_code(&error))
                 }
             }
@@ -191,9 +191,9 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                     state.own(owned);
                     Err(Error::Unauthorized("assignment owner"))
                 }
-                Some(owned) => release(&state.broker, owned.assigned),
+                Some(owned) => Ok(release(&state.broker, owned.assigned)),
                 None => match state.broker.ledger().lookup(bundle, generation) {
-                    Ok(entry) => release_record(&state.broker, &entry.record),
+                    Ok(entry) => Ok(release_record(&state.broker, &entry.record)),
                     Err(error) => Err(error),
                 },
             };

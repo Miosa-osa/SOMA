@@ -2,7 +2,13 @@
 //!
 //! Ingress, forwarding, conntrack zone, routes and addresses, veth, TAP, namespace, host
 //! ruleset, reservations, and finally the ledger record; every step reports whether it removed
-//! something or found it already absent, and a final live inspection decides `complete`.
+//! something, found it already absent, or failed, and a final live inspection decides
+//! `complete`.
+//!
+//! Teardown is total rather than fail-fast: a step that fails is recorded and the remaining
+//! steps still run, so one wedged tool can never leave the namespace, the veth, and the host
+//! ruleset behind. An incomplete release writes no ledger release record, so reconciliation
+//! still owns the remains and a replayed release retries exactly the steps that failed.
 
 use std::{os::fd::OwnedFd, path::Path};
 
@@ -24,6 +30,8 @@ pub enum StepResult {
     RemovedWithParent,
     /// The step was skipped because a prerequisite was absent.
     Skipped,
+    /// The step failed; the resource may still exist.
+    Failed,
 }
 
 /// What release did, in order.
@@ -47,16 +55,15 @@ pub struct ReleaseEvidence {
     pub host_ruleset: StepResult,
     /// Whether the ledger recorded the release.
     pub ledger: bool,
-    /// Whether the final live inspection found no owned resource.
+    /// Whether the final live inspection found no owned resource and every step succeeded.
     pub complete: bool,
+    /// The first step failure, if any; the later steps ran regardless.
+    pub failure: Option<Error>,
 }
 
 /// Releases one assigned bundle.
-///
-/// # Errors
-///
-/// Returns the first hard kernel or ledger failure; absent resources are not failures.
-pub fn release(broker: &Broker, assigned: Assigned) -> Result<ReleaseEvidence, Error> {
+#[must_use]
+pub fn release(broker: &Broker, assigned: Assigned) -> ReleaseEvidence {
     let Assigned {
         bundle,
         reservations,
@@ -66,15 +73,12 @@ pub fn release(broker: &Broker, assigned: Assigned) -> Result<ReleaseEvidence, E
 }
 
 /// Releases one sterile bundle that was never assigned.
-///
-/// # Errors
-///
-/// Returns the first hard kernel failure.
+#[must_use]
 pub fn release_sterile(
     broker: &Broker,
     bundle: SterileBundle,
     reservations: Vec<PortReservation>,
-) -> Result<ReleaseEvidence, Error> {
+) -> ReleaseEvidence {
     let SterileBundle {
         id,
         generation,
@@ -86,26 +90,24 @@ pub fn release_sterile(
     } = bundle;
     let path = namespace.path().to_path_buf();
     drop(namespace);
-    let mut evidence = teardown(broker, &names, zone, &path, Some(tap), reservations)?;
-    evidence.ledger = record(broker, id, generation);
-    Ok(evidence)
+    let mut evidence = teardown(&names, zone, &path, Some(tap), reservations);
+    if evidence.complete {
+        evidence.ledger = record(broker, id, generation);
+    }
+    evidence
 }
 
 /// Releases whatever the ledger record still owns after a crash; the TAP descriptor is gone
 /// with the process that held it.
-///
-/// # Errors
-///
-/// Returns the first hard kernel failure.
-pub fn release_record(
-    broker: &Broker,
-    record_entry: &AssignmentRecord,
-) -> Result<ReleaseEvidence, Error> {
+#[must_use]
+pub fn release_record(broker: &Broker, record_entry: &AssignmentRecord) -> ReleaseEvidence {
     let names = BundleNames::new(&record_entry.bundle.short_hex());
     let path = broker.namespace_dir().join(record_entry.bundle.short_hex());
-    let mut evidence = teardown(broker, &names, record_entry.zone, &path, None, Vec::new())?;
-    evidence.ledger = record(broker, record_entry.bundle, record_entry.generation);
-    Ok(evidence)
+    let mut evidence = teardown(&names, record_entry.zone, &path, None, Vec::new());
+    if evidence.complete {
+        evidence.ledger = record(broker, record_entry.bundle, record_entry.generation);
+    }
+    evidence
 }
 
 fn record(broker: &Broker, id: BundleId, generation: CleanupGeneration) -> bool {
@@ -113,28 +115,28 @@ fn record(broker: &Broker, id: BundleId, generation: CleanupGeneration) -> bool 
 }
 
 pub(crate) fn teardown(
-    _broker: &Broker,
     names: &BundleNames,
     zone: ConntrackZone,
     pin: &Path,
     tap: Option<OwnedFd>,
     reservations: Vec<PortReservation>,
-) -> Result<ReleaseEvidence, Error> {
+) -> ReleaseEvidence {
     let ingress = reservations.len();
     drop(reservations);
-    let forwarding = if pin.exists() {
-        let namespace = NetNamespace::open(pin)?;
-        namespace.within(|| sysctl::set_forwarding(false))?;
-        StepResult::Removed
-    } else {
-        StepResult::Skipped
-    };
-    nft::flush_zone(zone)?;
-    let veth = if netlink::delete_link(&names.host_veth)? {
-        StepResult::Removed
-    } else {
-        StepResult::AlreadyAbsent
-    };
+    let mut failure = None;
+    let forwarding = step(&mut failure, || {
+        if !pin.exists() {
+            return Ok(StepResult::Skipped);
+        }
+        NetNamespace::open(pin)?.within(|| sysctl::set_forwarding(false))?;
+        Ok(StepResult::Removed)
+    });
+    let conntrack = step(&mut failure, || {
+        nft::flush_zone(zone).map(|()| StepResult::Removed)
+    });
+    let veth = step(&mut failure, || {
+        Ok(removed(netlink::delete_link(&names.host_veth)?))
+    });
     let tap = match tap {
         Some(fd) => {
             drop(fd);
@@ -142,28 +144,61 @@ pub(crate) fn teardown(
         }
         None => StepResult::Skipped,
     };
-    let namespace = match NetNamespace::unpin(pin)? {
-        Unpinned::Removed => StepResult::Removed,
-        Unpinned::AlreadyAbsent => StepResult::AlreadyAbsent,
-    };
-    let host_ruleset = if nft::delete_table(&names.host_table)? {
-        StepResult::Removed
-    } else {
-        StepResult::AlreadyAbsent
-    };
-    let complete = !pin.exists()
-        && !link::list_links()?.contains(&names.host_veth)
-        && !nft::list_tables()?.contains(&names.host_table);
-    Ok(ReleaseEvidence {
+    let namespace = step(&mut failure, || {
+        Ok(match NetNamespace::unpin(pin)? {
+            Unpinned::Removed => StepResult::Removed,
+            Unpinned::AlreadyAbsent => StepResult::AlreadyAbsent,
+        })
+    });
+    let host_ruleset = step(&mut failure, || {
+        Ok(removed(nft::delete_table(&names.host_table)?))
+    });
+    let inspected = step(&mut failure, || {
+        let clean = !pin.exists()
+            && !link::list_links()?.contains(&names.host_veth)
+            && !nft::table_exists(&names.host_table)?;
+        Ok(if clean {
+            StepResult::Removed
+        } else {
+            StepResult::Failed
+        })
+    });
+    ReleaseEvidence {
         ingress,
         forwarding,
-        conntrack: StepResult::Removed,
+        conntrack,
         routes: StepResult::RemovedWithParent,
         veth,
         tap,
         namespace,
         host_ruleset,
         ledger: false,
-        complete,
-    })
+        complete: failure.is_none() && inspected == StepResult::Removed,
+        failure,
+    }
 }
+
+/// Runs one teardown step, recording the first failure and never aborting the sequence.
+fn step(
+    failure: &mut Option<Error>,
+    run: impl FnOnce() -> Result<StepResult, Error>,
+) -> StepResult {
+    match run() {
+        Ok(result) => result,
+        Err(error) => {
+            failure.get_or_insert(error);
+            StepResult::Failed
+        }
+    }
+}
+
+const fn removed(deleted: bool) -> StepResult {
+    if deleted {
+        StepResult::Removed
+    } else {
+        StepResult::AlreadyAbsent
+    }
+}
+
+#[cfg(test)]
+mod tests;

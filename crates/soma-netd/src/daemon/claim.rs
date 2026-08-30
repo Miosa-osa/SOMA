@@ -47,7 +47,7 @@ pub(super) fn claim(
     {
         Ok(assigned) => assigned,
         Err(AssignFailure { bundle, error }) => {
-            let _ = release_sterile(&state.broker, *bundle, Vec::new());
+            drop(release_sterile(&state.broker, *bundle, Vec::new()));
             return Reply::Failed(error_code(&error));
         }
     };
@@ -60,7 +60,7 @@ pub(super) fn claim(
             reply
         }
         Err(error) => {
-            let _ = release(&state.broker, assigned);
+            drop(release(&state.broker, assigned));
             Reply::Failed(error_code(&error))
         }
     }

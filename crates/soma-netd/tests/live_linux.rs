@@ -95,7 +95,7 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
     );
     assert_ne!(assigned.bundle().zone(), assigned_b.bundle().zone());
 
-    let released = release(&broker, assigned).expect("release a");
+    let released = release(&broker, assigned);
     assert!(released.complete && released.ledger, "{released:?}");
     let report = reconcile(&broker).expect("reconcile");
     assert_eq!(report.entries.len(), 2);
@@ -112,7 +112,7 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
             .any(|(id, _, d)| *id == bundle_b && *d == Disposition::Consistent)
     );
     assert_eq!(report.unowned(), 0, "{report:?}");
-    let released_b = release(&broker, assigned_b).expect("release b");
+    let released_b = release(&broker, assigned_b);
     assert!(released_b.complete);
     assert!(
         NetNamespace::list(broker.namespace_dir())
@@ -177,7 +177,7 @@ fn forwarding_stays_off_for_every_unauthorized_activation() {
         );
         assert_forwarding_off(&assigned);
         refused += 1;
-        assert!(release(&broker, assigned).expect("release").complete);
+        assert!(release(&broker, assigned).complete);
     }
     assert_eq!(refused, 3);
 
@@ -195,7 +195,7 @@ fn forwarding_stays_off_for_every_unauthorized_activation() {
             .expect("authorized activation")
             .forwarding
     );
-    assert!(release(&broker, assigned).expect("release").complete);
+    assert!(release(&broker, assigned).complete);
 }
 
 #[test]

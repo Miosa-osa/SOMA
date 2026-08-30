@@ -41,7 +41,7 @@ pub fn hundred_way() {
         activate(&mut assigned, &receipt).expect("activate");
         samples[2].push(start.elapsed().as_nanos());
         let start = Instant::now();
-        let evidence = release(&broker, assigned).expect("release");
+        let evidence = release(&broker, assigned);
         samples[3].push(start.elapsed().as_nanos());
         assert!(evidence.complete, "bundle {index} incomplete: {evidence:?}");
     }
