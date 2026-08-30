@@ -4,6 +4,8 @@ This is an independent observation of a third-party service, recorded so that SO
 It measures Isorun only.
 It proves nothing about SOMA.
 
+The evidence and claim-language corrections required before this result is treated as reproducible are recorded in [the review of this measurement](../reviews/2026-08-30-isorun-evidence-review.md).
+
 ## Why this exists
 
 `COMPETITORS.md` recorded two Isorun performance statements that cannot be compared with each other:

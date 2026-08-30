@@ -59,6 +59,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
 | Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
 | Read the current overall engineering assessment | [Dated engineering assessment](docs/reviews/2026-08-29-overall-engineering-assessment.md) |
+| Review and repair the independently collected Isorun telemetry before relying on it | [Isorun evidence review](docs/reviews/2026-08-30-isorun-evidence-review.md) |
 | Understand performance measurements and claims | [Benchmark contract](docs/benchmark-contract.md) |
 | Contribute code or documentation | [Contribution guide](CONTRIBUTING.md) |
 

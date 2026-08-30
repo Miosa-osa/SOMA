@@ -1,5 +1,12 @@
 # Notes
 
+## 2026-08-30 - Isorun telemetry strengthens the prepared-worker priority
+
+The new Isorun experiment is a valuable burst signal but currently records provider-reported `create_ms` without a retained harness or raw samples, so it must be classified as independently collected vendor telemetry rather than independently measured server timing.
+Its observed Node cohorts returned 22 ms p50 sequentially and 73 ms p50 in two concurrency-100 runs, which does not prove the cause but demonstrates that sequential behavior did not predict burst behavior in those cohorts.
+SOMA should respond by finishing the real jailed prepared-worker transaction, reserving every bottleneck before claim, bounding replenishment outside Launch, returning explicit overload or a named slower preparation class on depletion, and measuring concurrency rungs with per-stage evidence.
+The required evidence corrections are in `docs/reviews/2026-08-30-isorun-evidence-review.md`, and the architectural consequences are in `docs/research/competitive-module-adoption-audit.md`.
+
 ## 2026-08-29 - Adversarial GitHub pass found Amber and code-signature-only VMMs
 
 A second GitHub pass searched raw virtualization implementation fingerprints rather than repository names, including KVM creation and memory ioctls, dirty-log constants, vhost and virtio constants, Apple `hv_vm_create`, Windows `WHvCreatePartition`, userfaultfd snapshot combinations, and fully qualified rust-vmm types.

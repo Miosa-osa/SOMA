@@ -470,6 +470,30 @@ These repositories mostly confirm existing SOMA decisions rather than reveal a b
 
 ## Priority adoption plan
 
+## How the 2026-08-30 Isorun observation changes the plan
+
+The retained Isorun experiment observed a vendor-reported `create_ms` p50 of 22 ms in a ten-request sequential Node cohort and 73 ms in each of two 100-request Node cohorts.
+The vendor timer endpoints are undocumented, the raw records are not yet retained, and the quantity is not equivalent to SOMA authenticated Ready.
+The values therefore inform architecture and test design but do not establish a directly comparable performance result.
+
+The important signal is that sequential performance did not predict burst performance in the observed service cohorts.
+SOMA must treat concurrency as a first-class workload dimension across all preparation classes.
+
+Required implementation consequences:
+
+1. `soma-hostd` must claim prepared workers without constructing them on the request path.
+2. Pool admission must reserve CPU, memory, private-dirty memory, storage, network, file-descriptor, process, and concurrent-repair capacity before a claim wins.
+3. Replenishment must run behind bounded background work and must not compete without limits against active Launch repair.
+4. A depleted pool must return explicit overload or a separately named slower preparation class rather than silently moving work into the timer.
+5. Per-stage telemetry must identify whether burst degradation came from claim contention, page faults, KVM resume, guest repair, authentication, command execution, or cleanup pressure.
+6. Benchmark cohorts must cover concurrency 1, 10, 25, 50, 100, and capacity-edge rungs instead of reporting only a sequential best case and one final burst.
+7. Each rung must retain raw success, failure, cleanup, preparation, and scheduling evidence.
+
+The new observation strengthens Priority 0 rather than adding a new architectural module.
+The real jailed `WorkerLauncher`, prepared pool, authenticated repair, and complete receipt remain the shortest path to a defensible advantage.
+
+The evidence-specific corrections are tracked in [the Isorun evidence review](../reviews/2026-08-30-isorun-evidence-review.md).
+
 ### Priority 0: finish the actual product path
 
 Implement and prove the real jailed `WorkerLauncher` that composes the modules SOMA already owns.
