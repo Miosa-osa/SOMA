@@ -4,6 +4,8 @@
 //! ever reach a process-group identifier the caller has already released.
 //! The thread is bounded by construction: it waits at most until the deadline, then spends at
 //! most the termination and force graces before it reaps the leader and reports.
+//! Every exit path forces the group once, including the leader's own normal exit, so a
+//! descendant that kept an inherited pipe can never outlive the invocation or block its feed.
 
 use std::process::Child;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -76,6 +78,12 @@ fn supervise(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
+                // The leader is gone, but a descendant it forked can still hold the inherited
+                // pipes; forcing the group once here closes them, so a caller blocked writing
+                // standard input fails at once instead of waiting for a process no bound
+                // covers. The identifier is still reserved exactly while such a member exists,
+                // so this can only reach the tool's own descendants.
+                group.signal(Signal::Force);
                 let _ = report.send(Supervised {
                     exit_code: status.code(),
                     terminated: false,

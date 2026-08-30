@@ -76,8 +76,9 @@ impl Contained {
 
     /// Runs the tool while `feed` writes its standard input from the calling thread.
     ///
-    /// The feed is bounded by the same supervisor: when the deadline passes, the group is
-    /// terminated, the tool's read end closes, and a blocked write fails instead of hanging.
+    /// The feed is bounded by the same supervisor: the group is forced when the leader exits
+    /// and when the deadline passes, so every read end closes, and a blocked write fails
+    /// instead of hanging even when a descendant kept the pipe.
     /// A tool that is spawned always ends: it exits, or the group is signalled and reaped.
     ///
     /// # Errors

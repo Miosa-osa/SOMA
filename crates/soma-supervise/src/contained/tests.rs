@@ -144,9 +144,9 @@ fn a_descendant_holding_both_pipes_cannot_outlive_the_invocation() {
     );
     let started = Instant::now();
 
-    let failure = shell(&script, DEADLINE).expect_err("stray descendant");
+    let output = shell(&script, DEADLINE).expect("the leader exited on its own");
 
-    assert_eq!(failure, Uncontained::Terminated);
+    assert_eq!(output.exit_code, Some(0));
     assert!(
         started.elapsed() <= DEADLINE + TERMINATION_GRACE,
         "the invocation took {:?}, beyond the deadline plus the declared grace",
@@ -155,7 +155,50 @@ fn a_descendant_holding_both_pipes_cannot_outlive_the_invocation() {
     #[cfg(target_os = "linux")]
     assert!(
         process_is_gone(&pid_file),
-        "a descendant survived a failed invocation"
+        "a descendant survived the invocation that forked it"
+    );
+}
+
+/// The leader exits zero at once while a descendant keeps only the standard-input read end and
+/// never reads it, so nothing but the group signal can unblock the caller's feed.
+#[test]
+fn a_descendant_holding_the_input_pipe_cannot_block_the_feed() {
+    let pid_file = scratch("input-holder.pid");
+    let _ = fs::remove_file(&pid_file);
+    let script = format!(
+        "exec 3<&0; {{ /bin/sleep 300; }} <&3 & echo $! > {}; exit 0",
+        pid_file.to_string_lossy()
+    );
+    let (report, outcome) = std::sync::mpsc::channel();
+    let started = Instant::now();
+    let feeder = std::thread::spawn(move || {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", &script]);
+        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let result = Contained::new(command, Duration::from_secs(120))
+            .run(|stdin| stdin.write_all(&payload).map_err(|_| "write refused"));
+        let _ = report.send(());
+        result
+    });
+
+    outcome
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the invocation must end even though a descendant holds the input pipe");
+    let failure = feeder
+        .join()
+        .expect("the feeding thread")
+        .expect_err("the descendant never read the payload");
+
+    assert_eq!(failure, Uncontained::Input("write refused"));
+    assert!(
+        started.elapsed() <= TERMINATION_GRACE + Duration::from_secs(5),
+        "the invocation took {:?}, so the feed was not bounded",
+        started.elapsed()
+    );
+    #[cfg(target_os = "linux")]
+    assert!(
+        process_is_gone(&pid_file),
+        "a descendant holding the input pipe survived the invocation"
     );
 }
 

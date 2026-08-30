@@ -95,11 +95,9 @@ fn descendants_that_hold_both_pipes_cannot_outlive_the_bounded_invocation() {
     let before = open_pipes();
     let started = Instant::now();
 
-    let error = shell(&script, CompilePhase::FormatRoot, DEADLINE).expect_err("stray descendant");
+    shell(&script, CompilePhase::FormatRoot, DEADLINE).expect("the tool exited on its own");
 
     let elapsed = started.elapsed();
-    assert_eq!(error.phase(), CompilePhase::FormatRoot);
-    assert_eq!(error.kind(), CompileErrorKind::Toolchain);
     assert!(
         elapsed <= DEADLINE + TERMINATION_GRACE,
         "the invocation took {elapsed:?}, beyond the deadline plus the declared grace"
@@ -107,7 +105,7 @@ fn descendants_that_hold_both_pipes_cannot_outlive_the_bounded_invocation() {
     #[cfg(target_os = "linux")]
     assert!(
         process_is_gone(&pid_file),
-        "a descendant survived a failed build"
+        "a descendant survived the invocation that forked it"
     );
     assert_eq!(
         open_pipes(),

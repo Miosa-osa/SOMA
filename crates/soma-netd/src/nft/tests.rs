@@ -107,17 +107,11 @@ fn a_descendant_holding_the_pipes_cannot_wedge_the_broker() {
     );
     let started = Instant::now();
 
-    let error = shell(&["-c", &script], TEST_DEADLINE)
+    let output = shell(&["-c", &script], TEST_DEADLINE)
         .run("")
-        .expect_err("a stray descendant");
+        .expect("the tool exited on its own");
 
-    assert_eq!(
-        error,
-        Error::Tool {
-            tool: Tool::Nft,
-            status: None
-        }
-    );
+    assert!(output.succeeded());
     assert!(
         started.elapsed() <= TEST_DEADLINE + TERMINATION_GRACE,
         "the broker waited {:?}, beyond the deadline plus the declared grace",
@@ -125,7 +119,7 @@ fn a_descendant_holding_the_pipes_cannot_wedge_the_broker() {
     );
     assert!(
         process_is_gone(&pid_file),
-        "a descendant survived a failed invocation"
+        "a descendant survived the invocation that forked it"
     );
 }
 
