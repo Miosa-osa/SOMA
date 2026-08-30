@@ -2,7 +2,7 @@
 
 - Date: 2026-08-29
 - Scope: Public GitHub repositories related to custom Rust VMMs, microVMs, hardware-isolated sandboxes, snapshot runtimes, and supporting hypervisor backends
-- Search coverage: Repository metadata search and code search across 25 query families, followed by source inspection of more than 30 repositories
+- Search coverage: Repository metadata search and code search across more than 35 query families, followed by source inspection of more than 40 repositories
 - Status: Broad public-source census, not a mathematical enumeration of every GitHub object and not a security certification
 
 ## Honest scope
@@ -44,6 +44,14 @@ Code searches covered:
 - `hv_vm_create` call sites.
 - `WHvCreatePartition` call sites.
 - `userfaultfd` combined with snapshot terminology.
+- Raw `KVM_CREATE_VM`, `KVM_SET_USER_MEMORY_REGION`, and `KVM_GET_DIRTY_LOG` constants.
+- Raw `VHOST_SET_OWNER` and `VIRTIO_F_VERSION_1` constants.
+- Fully qualified `kvm_ioctls::VmFd` and `vm_memory::GuestMemoryMmap` types.
+- Apple `hv_vm_create` and Windows `WHvCreatePartition` entry points.
+
+The second adversarial pass deliberately searched implementation fingerprints rather than project descriptions.
+This found one-star and zero-star projects that ordinary `VMM` and `microVM` repository searches missed, including Amber, plyvm, and Barista.
+It also found Tarit, AgentENV, SigmaOS, Aleph, Yobo, FCVM, and a tenant-networking libkrun fork for classification and source inspection.
 
 The overlapping code searches found projects that repository descriptions did not identify as VMMs.
 They also exposed false positives such as software keyboard-video-mouse tools, QEMU management panels, dependency mirrors, and ordinary container runtimes.
@@ -59,12 +67,14 @@ There are four different diamonds because each solves a different layer well.
 | Complete low-level type-2 VMM | [Alioth](https://github.com/google/alioth/tree/0fd12118c74b8d3d35a92e331e56df369f8abac7) | From-scratch KVM and HVF interfaces, split and packed virtqueues, confidential computing, vhost-user, and clean subsystem modules |
 | Co-designed density architecture | [Nanvix](https://github.com/nanvix/nanvix/tree/65bac84d1019e219c753c725451e4700ca37d97f) | Custom microVM plus guest microkernel and host macro-kernel that remove ordinary device emulation from the guest boundary |
 | Warm-fork mechanism | [Clone](https://github.com/unixshells/clone/tree/a9525154846e709bd46a7aeb64ceb1fb43547ee2) | Template VMs, private snapshot mappings, per-instance identity injection, incremental memory, KSM, and ballooning |
+| Cross-platform disposable microVM | [Amber](https://github.com/lupodevelop/amber/tree/54cebedae733633ceb9f633b8f99c349d81e941e) | One backend-neutral ARM64 machine core over Apple HVF and Linux KVM, including OCI input, software GIC snapshots, warm CoW workers, vsock exec, and userspace networking |
 
 Panorama remains the most useful obscure dirty-reset test reference.
 Vibemon remains the broadest mechanism quarry.
 Hyperlight remains the strongest deliberately narrow function-VM reference.
 
 SOMA should combine lessons from these projects rather than adopt any repository wholesale.
+For direct judgments against SOMA's current modules and a sequenced adoption plan, see the [competitive module adoption audit](competitive-module-adoption-audit.md).
 
 ## Source-inspected candidate inventory
 
@@ -89,6 +99,9 @@ SOMA should combine lessons from these projects rather than adopt any repository
 | MiniHype | [`57215bf`](https://github.com/64bit/miniHype/tree/57215bf7b0e38bc71e71452cc50a9b669fb4b963) | KVM and HVF example | Tiny comparison of Host virtualization APIs | Demonstration rather than sandbox architecture |
 | alvm | [`ea6d3a1`](https://github.com/mathetake/alvm/tree/ea6d3a125d4c34653c2c936fea7bafba19de0eb5) | Kernel-less HVF runtime | Run static Linux AArch64 ELF through trapped syscalls | Syscall emulation becomes a large compatibility boundary |
 | Zeroboot | [`87ca9c0`](https://github.com/zerobootdev/zeroboot/tree/87ca9c018a9c2a343ece768eec508e16497753f9) | Firecracker snapshot restorer using raw KVM | Compact CoW KVM restoration | Prototype ignores critical restore errors and times a narrow boundary |
+| Amber | [`54cebed`](https://github.com/lupodevelop/amber/tree/54cebedae733633ceb9f633b8f99c349d81e941e) | ARM64 HVF and KVM microVM | Shared machine core, software GIC snapshotability, OCI-to-squashfs path, warm CoW workers, vsock exec, and rootless userspace network | Five-run HVF headline sample, no real KVM performance result, warning-only GIC restore failures, and several god files |
+| plyvm | [`9f41d84`](https://github.com/iluxav/plyvm/tree/9f41d84e33df89058c6307841c3130be3cbdbfc9) | Small Apple HVF Linux VMM | Stepwise teaching path from one vCPU to virtio block, userspace networking, and OCI-like images | Zero-star educational project with pervasive unwraps and no production containment proof |
+| Tarit | [`81757b5`](https://github.com/instavm/tarit/tree/81757b54fee03fc75c59c73af06da392c8aa164e) | x86_64 KVM VMM and orchestrator | Separate wire-contract crate, one process per VM, explicit device-DMA dirty tracking, live pre-copy bounds, and reflink-aware snapshot policy | Large young codebase whose sub-15ms source comment is not a retained end-to-end benchmark result |
 
 ### Existing-VMM runtimes and forks
 
@@ -102,6 +115,10 @@ SOMA should combine lessons from these projects rather than adopt any repository
 | mvm | [`f91c7c4`](https://github.com/tinylabscom/mvm/tree/f91c7c4bdb5af56c59ee9ce2b128893704253e64) | In-house HVF on new macOS, libkrun on older macOS, Firecracker on Linux | No-NIC egress broker and signed execution plans | One portable VMM implementation |
 | smolvm | [`5a43fca`](https://github.com/smol-machines/smolvm/tree/5a43fca52dfa34ede5f174a8e5c507488c9f9ac5) | libkrun and extensive runtime machinery | Explicit benchmark controls and GPU state sharing | A small custom VMM |
 | BoxLite | [`2e41a58`](https://github.com/boxlite-ai/boxlite/tree/2e41a585a076bbe76593c17e035b156ebbe5e7f2) | Multi-backend runtime | Deep snapshot-clone integration testing | A simple machine-core reference |
+| AgentENV | Current source inspected 2026-08-29 | Firecracker-based distributed agent environment | Content-addressed environment storage and userfaultfd-backed restoration are useful control-plane references | A platform around Firecracker rather than a new VMM core |
+| Yobo | [`4573707`](https://github.com/ahimsalabs/yobo/tree/4573707135b1e005b985952f6cbc0f73c1f4010f) | libkrun-based OCI runtime | Filesystem and process observation around an embedded VMM | A libkrun integration, not a custom machine monitor |
+| FCVM | [`57c3d24`](https://github.com/ejc3/fcvm/tree/57c3d249816f9ebce248fc8b59f012c2ba314796) | Firecracker runtime | Broad clone, disk, nested virtualization, and health-test surface | Firecracker orchestration rather than a from-scratch VMM |
+| Barista | [`current source`](https://github.com/mpuig/barista.sh) | Session-compute architecture with a Firecracker adapter | Capability negotiation, restore compatibility keys, hook evidence, and explicit degraded fallback | Zero-star project with broader session-platform goals and no custom VMM core |
 
 ### Large production references
 

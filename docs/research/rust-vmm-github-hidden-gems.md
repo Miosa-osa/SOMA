@@ -12,6 +12,7 @@ Dillo remains the strongest minimal backend-interface example.
 Alioth is the strongest newly found low-level custom VMM reference.
 Nanvix is the strongest co-designed density architecture.
 Clone is the strongest newly found warm-fork mechanism reference, although its inspected snapshot paths also contain important fail-open lessons.
+The second adversarial search found Amber, a one-star ARM64 VMM that is now the strongest compact cross-platform disposable-microVM reference in the census.
 See [Rust VMM GitHub census and failure atlas](rust-vmm-github-census-and-failure-atlas.md) for the expanded repository inventory, exact source findings, mistakes, and revised SOMA guardrails.
 
 There is no single repository that SOMA should copy.
@@ -38,6 +39,8 @@ The practical synthesis is:
 ```text
 Dillo boundaries
       +
+Amber cross-platform disposable-machine flow
+      +
 Vibemon mechanisms selected one at a time
       +
 Panorama dirty-only reset testing
@@ -48,6 +51,44 @@ SOMA's own minimal Linux KVM machine contract
       =
 The best current direction for SOMA
 ```
+
+## New find: Amber
+
+Pinned source: [commit `54cebed`](https://github.com/lupodevelop/amber/tree/54cebedae733633ceb9f633b8f99c349d81e941e).
+
+Amber had one GitHub star when inspected, but it is not a toy repository.
+The pinned tree contains about 13,000 lines of Rust and 133 Rust tests across separate core, HVF, KVM, image, network, guest-agent, and CLI crates.
+Its backend-neutral core owns direct Linux boot, device-tree construction, PL011, virtio MMIO block, RNG, network, balloon, vsock, snapshot format, and the vCPU run loop.
+Separate crates implement Apple Hypervisor.framework and Linux KVM behind the same narrow `Hypervisor` and `Vcpu` traits.
+
+The most important Apple-specific idea is a serializable software GICv2.
+Amber documents that the Apple in-kernel interrupt-controller path could not restore a working timer, so it moved the GIC model into userspace and added periodic vCPU exits for timer injection.
+That is concrete evidence that a portable VMM cannot assume interrupt-controller snapshot semantics are equivalent across HVF and KVM.
+
+Its disposable-sandbox path is also directly relevant to SOMA:
+
+- Pull and flatten an OCI image into a read-only squashfs base with an ephemeral tmpfs overlay.
+- Boot a trimmed ARM64 Linux kernel to a tiny guest agent.
+- Capture RAM, every vCPU, interrupt-controller state, device queues, and machine metadata at an agent marker.
+- Restore RAM through a private file mapping so unchanged pages share the page cache.
+- Keep pre-restored workers paused in a warm pool.
+- Resume one worker, establish a fresh host connection over virtio-vsock, stream a framed command, and discard the worker afterward.
+- Recreate userspace network state instead of serializing live host sockets.
+
+Its committed M1 Pro result reports five warm `exec` runs of 30, 30, 31, 31, and 32 ms from CLI invocation through exit code, plus about 16 MiB resident memory per idle 512 MiB-cap fork.
+This is useful third-party evidence, not a SOMA benchmark and not evidence of 10 ms readiness.
+The sample has only five latency runs, uses a trivial `echo` workload, contains no cold-cache distribution, and has no real-hardware Linux KVM result.
+
+The failure lessons matter as much as the mechanism:
+
+- The KVM GIC restore loop logs and skips failed device attributes instead of rejecting the restore.
+- Several guest-agent writes, joins, and cleanup operations discard errors.
+- The daemon, virtio model, CLI, VM loop, software GIC, and vsock implementation each exceed SOMA's 500-line source-file target, with the largest file at 1,395 lines.
+- Its benchmark record explicitly leaves sustained churn, heavier workloads, and Linux KVM performance unmeasured.
+- Its security design is promising but source inspection is not a security certification.
+
+SOMA should borrow Amber's software-interrupt-controller lesson, host-neutral core shape, OCI-to-template flow, fresh post-restore vsock connection, and end-to-end measurement boundary.
+SOMA must retain its stricter fail-closed restore contract, smaller deep modules, authenticated repair state machine, complete evidence bundle, and Linux-first production proof.
 
 ## Classification matters
 

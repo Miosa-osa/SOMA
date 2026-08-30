@@ -1,5 +1,15 @@
 # Notes
 
+## 2026-08-29 - Adversarial GitHub pass found Amber and code-signature-only VMMs
+
+A second GitHub pass searched raw virtualization implementation fingerprints rather than repository names, including KVM creation and memory ioctls, dirty-log constants, vhost and virtio constants, Apple `hv_vm_create`, Windows `WHvCreatePartition`, userfaultfd snapshot combinations, and fully qualified rust-vmm types.
+It found Amber, plyvm, Tarit, AgentENV, SigmaOS, Aleph, Barista, Yobo, FCVM, and tenant-networking libkrun variants that the original repository-description search did not surface.
+Amber is the strongest new reference: a one-star ARM64 VMM with a shared machine core over Apple HVF and Linux KVM, a userspace GICv2 that makes Apple snapshot timers restorable, OCI-to-squashfs images, private-mapped CoW restores, warm workers, framed vsock exec, userspace networking, memory admission, and one-process-per-VM isolation.
+Its retained M1 Pro evidence reports five warm exec samples between 30 and 32 ms and about 16 MiB idle RSS per 512 MiB-cap fork, but it provides no real-hardware KVM performance numbers, no large latency distribution, and no 10 ms result.
+Source inspection also found warning-only KVM GIC restore failures, ignored agent I/O results, and several files above 1,000 lines, so SOMA should import the mechanisms and cross-platform lessons while keeping fail-closed restoration, authenticated repair, smaller modules, and stronger benchmark evidence.
+The comparative adoption decision is to prioritize the real jailed worker integration, public evidence-bound runtime capabilities, a unified dirty-producer ledger, and live resource feedback.
+Amber's software GIC and userspace network belong to a later native macOS research profile, not the Linux version 1 critical path.
+
 ## 2026-08-30 - soma-hostd review: durable replay, admitted claims, and exact capacity
 
 A line-by-line review of `crates/soma-hostd` produced twenty-six confirmed findings against the crate and one against `soma-netd`; every one of the crate findings is now fixed with a regression test, and the review outcome is recorded here rather than in a separate report.
