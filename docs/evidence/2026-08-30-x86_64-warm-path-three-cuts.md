@@ -21,6 +21,7 @@ Every number is a single-host, in-container observation of one machine shape on 
 - Guest kernel: `vmlinux-6.12.107-soma-v1`, SHA-256 `f1af3a142fa39916cfac425a01b16b5f328279823533421c9eec3f192c05b746`.
 - Guest agent before these changes: 766,128 bytes, SHA-256 `22d6d7b909788f0d353db874e5ea1c688b6fcce2016caf104150d90380e989c6`.
 - Guest agent after them: 766,128 bytes, SHA-256 `db037ea3345f90717961853ba6cf4fb30b1df555a1e328cc537b31e87bb2328c`. Statically linked and stripped.
+- Guest agent at the branch head, which no longer renders the timing report: 766,128 bytes, SHA-256 `b687587abff9614b502044a5bc260c5d401604f0e6f34fe8192ef60a47644cbd`. The third session below was measured with it.
 - Machine shape: 1 vCPU, 1 GiB RAM, 256 MiB writable class, captured guest CID 3, EROFS root `sha256:48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48`.
 
 ## Reproduction
@@ -65,7 +66,16 @@ Nanoseconds since the restore began reading the manifest.
 | **ready** | **19,076,348** | **29,774,813** | **16,494,712** | **26,403,302** | **14,206,348** | **15,275,296** | **11,699,029** | **13,386,794** |
 | execute done | 67,305,372 | 92,183,780 | 67,968,634 | 85,100,141 | 53,074,019 | 57,138,671 | 53,253,398 | 62,651,128 |
 
-Cumulative: `Ready` p50 **19.08 ms to 11.70 ms**, p99 **29.77 ms to 13.39 ms**, both measured from the first byte of the manifest.
+Cumulative, from the first byte of the manifest, `Ready` p50 fell from about **19 ms to about 12 ms**.
+Neither endpoint reproduces to the four figures printed above.
+A second session on the same machine, the same two commits and the same profile measured 18.44 ms to 12.97 ms.
+A third, at the branch head after the corrections below, measured ten restores at p50 12.20 ms with a spread of 10.78 ms to 13.86 ms.
+What the three sessions support is the reduction, between 30% and 39%, and that the result is below Isorun's 22 ms; they do not support either endpoint as a point estimate.
+
+The p99 columns are not a cumulative claim and are not quoted as one.
+With twenty samples the nearest-rank p99 is index 19, the largest of the twenty, so every p99 printed here is a single worst-case draw rather than an interior order statistic.
+The 29.77 ms in the before column is one pathological restore: the second session re-measured the same two endpoints at 21.59 ms and 14.95 ms, a 31% reduction rather than the 55% those two figures imply.
+Read the p99 columns as the maximum of the samples behind them, per run, and take the spread rather than a merged percentile; an interior p99 would need about a hundred samples.
 
 ## A. The launch-page pickup was two poll intervals
 
