@@ -171,7 +171,11 @@ impl Ledger {
         let result = write_temp(&temp, bytes).and_then(|()| fs::hard_link(&temp, path));
         let _ = fs::remove_file(&temp);
         result?;
-        File::open(&self.root).and_then(|dir| dir.sync_all())
+        #[cfg(unix)]
+        {
+            File::open(&self.root)?.sync_all()?;
+        }
+        Ok(())
     }
 }
 
