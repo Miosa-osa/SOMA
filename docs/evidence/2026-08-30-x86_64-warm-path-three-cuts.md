@@ -138,8 +138,10 @@ What it measures is that a memory-slot addition costs two milliseconds at that p
 The slot is now added immediately after the memory object is mapped, and it is bound before the machine adopts the VM so that on any later failure the VM is released before the mapping is, which is the ownership order `RamMapping` documents.
 It is still the machine's own slot, still absent from every snapshot, still empty until the material is published just before the resume, and still consumed, verified, and retired exactly as before.
 
-`launch page slot mapped` costs 27 us at p50 in its new position.
-`Ready` p50 fell 14.21 ms to 11.70 ms, p99 15.28 ms to 13.39 ms.
+In its new position the slot costs well under a millisecond: 27 us at p50 in the session tabulated above, 86 us at p50 and 303 us on iteration 0 in an independent session at the branch head, against roughly two milliseconds in the old one.
+The single figure is session-specific and the order of magnitude is the claim.
+Only iteration 0 yields a paired interval, because the percentile printer sorts each milestone's samples independently, so a difference of two medians is not the median of a difference.
+`Ready` p50 fell 14.21 ms to 11.70 ms across these two columns.
 
 ## The guest half, before and after
 
