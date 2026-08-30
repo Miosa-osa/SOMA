@@ -17,7 +17,8 @@ Every number is a debug-build, single-host, in-container observation and is not 
 - Rust toolchain: `1.98.0 (88d9e12ae 2026-08-18)`, debug profile for the test process, `x86_64-unknown-linux-musl` release profile for the guest agent.
 - Test process container: the host's interactive seat session ended earlier in this work and `systemd-logind` moved the `uaccess` ACL on `/dev/kvm` to the display-manager user, so the prebuilt test binary was executed inside an `ubuntu:24.04` container (image `sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517`) started with `--device /dev/kvm --user 1000:1000 --group-add 993 --security-opt seccomp=unconfined`, with the repository, the pinned-kernel checkout, and the scratch directory bind-mounted at their host paths.
   The container adds no privilege beyond the device node and runs on the same host kernel and KVM module.
-- The existing live proofs were re-run on the same tree and container: the halt guest, the PVH kernel boot, and the busybox sandbox boot all passed.
+- The existing live proofs were re-run on the same tree and in the same container and all passed: the KVM probe, both halt-guest tests, both PVH kernel-boot tests, and both sandbox-boot tests including the `node:22` cold boot.
+  The container image carries no `python3`, so the kernel-boot proof's init fixture was built on the host and supplied through `SOMA_X86_64_INITRAMFS`, which is the prebuilt-archive input that proof already accepts; before that it failed on its stated prerequisite rather than passing silently.
 
 ## Identities
 
@@ -26,17 +27,17 @@ Every number is a debug-build, single-host, in-container observation and is not 
 - Source image: `docker.io/library/node:22`, exported by `docker save` into an OCI layout; the importer selected `linux/amd64`.
 - EROFS root: `sha256:48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48`, 1,129,172,992 bytes, the same digest the cold-boot proof recorded for this image.
 - Sterile overlay template from the compiler, 256 MiB class: `sha256:ecfecc597f7dfa7b98dec28adb5eeb3a15357e090cbadf62fb1c627dc41fb790`, 268,435,456 bytes.
-- Initramfs, layout v2: `sha256:7fb437573d057a4080caa3556392683872def8c7c7ca8ff19752fcbcc7d104f6`.
-- `GenerationId`: `sha256:0f482644d20e016240fae112e786a0ed101ff7398bbe4deed9b1f7209b7d10b0`; it changes between runs because the responder key bound into the initramfs is generated per run.
+- Initramfs, layout v2: `sha256:39ecd2b7dbb990cb67dafc1aabfa05225b1c73fa341a7c58c9a5445909e0d4ba`.
+- `GenerationId`: `sha256:3caf8011e81ccf796d36e27e189cf0fb7549ad389fca76e806e97b02be3edcb0`; it changes between runs because the responder key bound into the initramfs is generated per run.
 - Machine shape: 1 vCPU, 1 GiB RAM, 256 MiB writable class, captured guest CID 3.
 
 ## Published snapshot
 
 | Object | SHA-256 | Bytes |
 | --- | --- | ---: |
-| `memory.raw` | `6f9c24e7ddbe7c6d3a5f860fb9ea5408f6fd3d17fd3399daa278406984c7bbca` | 1,073,741,824 |
-| `overlay.raw` | `672b7cc39b81f0b452787708d852b6209338b1238b18e6d37178d6d3ac6d3bcc` | 268,435,456 |
-| `state.somasnap` | `88daf80e3fbb9cd5e6c0dd7c1676dd659fe5e6e46f1c4651aa78a4d2951e817b` | 9,566 |
+| `memory.raw` | `dc167bd130cf58297e780ae5dbcdc9cc814025d0eb2bf5d6db002bc90cb74085` | 1,073,741,824 |
+| `overlay.raw` | `153bb488cac42faf536ad35ae1f2e64caeb7ab50bf15314f19d5ca55e61832b4` | 268,435,456 |
+| `state.somasnap` | `0db80403eb7e367d0da7deec720b724751a59e598ab5065d7c78ffa6cb824295` | 9,566 |
 
 `memory.raw` is exactly the certified guest RAM size and covers guest-physical `[0, 0x40000000)`.
 The launch-page slot is at `0xd0100000`, far above that range, so the slot the snapshot must not contain cannot be inside the image by construction.
@@ -51,14 +52,14 @@ The state manifest was decoded independently from its staged bytes and compared 
 
 The machine was created and started with **no launch page written at all**.
 The console tap observed `soma-guest-agent: awaiting launch material`, which the agent prints immediately after flushing filesystems and immediately before it blocks in the launch-page wait.
-The retained console is 12,113 bytes and ends at that line.
+The retained console is 12,110 bytes and ends at that line.
 
 The quiesce preconditions were proven in the fixed order: the Generation's agent booted and announced the repair point, ingress was disabled (network link down, no vsock connection, packet, or event), the device thread was joined, the overlay was flushed, vCPU 0 was kicked out of `KVM_RUN` and its descriptor reclaimed, a final bounded drain ran on the capture thread, and every guest-driven queue was proven to hold no head the device had not taken.
 The receive and event queues held buffers the driver had posted in advance: network 0, vsock receive 256, vsock event 8.
 Those are ordinary posted capacity, not unserviced work, and they are restored with the queue.
 
 State was then read in the certified order: memory-slot layout, vCPU state, interrupt controller, SOMA-owned routing, KVM clock, PIT, and the five device states.
-The source machine had entered `KVM_RUN` 40,424,127 ns after its creation began, and the capture point is reached about 190 ms of guest time later.
+The source machine had entered `KVM_RUN` 30,217,426 ns after its creation began, and the capture point is reached about 190 ms of guest time later.
 
 ## Restore: one Instance to an executed command
 
@@ -69,30 +70,30 @@ WARM timeline, single sample, debug build, in the container described above, in 
 
 | Milestone | ns since restore began | delta ns |
 | --- | ---: | ---: |
-| validate manifest | 985,282 | 985,282 |
-| create VM | 1,575,293 | 590,011 |
-| map memory privately | 1,596,300 | 21,007 |
-| register memory slots | 1,635,885 | 39,585 |
-| irqchip, PIT, routes | 1,706,101 | 70,216 |
-| devices restored | 1,774,340 | 68,239 |
-| vCPU created | 3,004,797 | 1,230,457 |
-| vCPU state restored | 3,369,557 | 364,760 |
-| eventfds and interrupt state | 3,420,883 | 51,326 |
-| launch page slot mapped | 4,973,769 | 1,552,886 |
-| fresh launch page written | 5,234,702 | 260,933 |
-| device thread serving | 5,672,348 | 437,646 |
-| resume | 6,101,351 | 429,003 |
-| launch page consumed | 17,438,844 | 11,337,493 |
-| vsock connected | 17,441,726 | 2,882 |
-| handshake done | 29,205,354 | 11,763,628 |
-| repair done | 29,845,762 | 640,408 |
-| ready | 33,024,843 | 3,179,081 |
-| execute done | 135,176,777 | 102,151,934 |
-| shutdown acknowledged | 186,606,864 | 51,430,087 |
-| guest exit | 188,180,615 | 1,573,751 |
-| cleanup | 206,649,422 | 18,468,807 |
+| validate manifest | 496,420 | 496,420 |
+| create VM | 1,242,274 | 745,854 |
+| map memory privately | 1,264,452 | 22,178 |
+| register memory slots | 1,299,737 | 35,285 |
+| irqchip, PIT, routes | 1,382,164 | 82,427 |
+| devices restored | 1,438,252 | 56,088 |
+| vCPU created | 2,431,960 | 993,708 |
+| vCPU state restored | 2,514,469 | 82,509 |
+| eventfds and interrupt state | 2,560,578 | 46,109 |
+| launch page slot mapped | 4,379,311 | 1,818,733 |
+| fresh launch page written | 4,486,913 | 107,602 |
+| device thread serving | 4,533,324 | 46,411 |
+| resume | 4,666,571 | 133,247 |
+| launch page consumed | 13,575,846 | 8,909,275 |
+| vsock connected | 13,578,481 | 2,635 |
+| handshake done | 23,595,492 | 10,017,011 |
+| repair done | 24,152,334 | 556,842 |
+| ready | 31,527,640 | 7,375,306 |
+| execute done | 83,677,392 | 52,149,752 |
+| shutdown acknowledged | 143,144,549 | 59,467,157 |
+| guest exit | 144,917,159 | 1,772,610 |
+| cleanup | 171,601,241 | 26,684,082 |
 
-Mapping the 1 GiB memory object took 21,007 ns because nothing is copied: it is one `MAP_PRIVATE | MAP_NORESERVE` mapping of the published file, handed to the machine, and registered as one KVM slot.
+Mapping the 1 GiB memory object took 22,178 ns because nothing is copied: it is one `MAP_PRIVATE | MAP_NORESERVE` mapping of the published file, handed to the machine, and registered as one KVM slot.
 `launch page consumed` lags the guest by up to 1 ms because the host polls the slot at that interval.
 
 ## WARM percentiles over ten sequential restores
@@ -102,30 +103,30 @@ Nearest-rank percentiles over the raw samples, no interpolation and no averaging
 
 | Milestone | p50 ns | p99 ns | min ns | max ns |
 | --- | ---: | ---: | ---: | ---: |
-| validate manifest | 458,042 | 528,473 | 410,435 | 528,473 |
-| create VM | 1,160,126 | 1,301,297 | 1,062,461 | 1,301,297 |
-| map memory privately | 1,177,897 | 1,319,790 | 1,078,632 | 1,319,790 |
-| register memory slots | 1,209,946 | 1,379,862 | 1,109,412 | 1,379,862 |
-| irqchip, PIT, routes | 1,451,878 | 1,723,555 | 1,263,545 | 1,723,555 |
-| devices restored | 1,502,987 | 1,784,940 | 1,310,219 | 1,784,940 |
-| vCPU created | 3,080,337 | 4,237,434 | 2,386,664 | 4,237,434 |
-| vCPU state restored | 3,196,339 | 4,315,971 | 2,460,826 | 4,315,971 |
-| eventfds and interrupt state | 3,242,037 | 4,357,088 | 2,501,985 | 4,357,088 |
-| launch page slot mapped | 5,061,410 | 7,019,483 | 4,356,625 | 7,019,483 |
-| fresh launch page written | 5,194,054 | 7,113,295 | 4,479,955 | 7,113,295 |
-| device thread serving | 5,239,791 | 7,152,330 | 4,521,959 | 7,152,330 |
-| resume | 5,372,448 | 7,236,619 | 4,614,848 | 7,236,619 |
-| launch page consumed | 13,450,259 | 14,985,973 | 12,418,352 | 14,985,973 |
-| vsock connected | 13,452,810 | 14,990,375 | 12,420,945 | 14,990,375 |
-| handshake done | 23,106,530 | 24,000,527 | 20,633,746 | 24,000,527 |
-| repair done | 23,851,648 | 24,746,739 | 21,234,215 | 24,746,739 |
-| ready | 26,985,771 | 31,963,989 | 23,525,745 | 31,963,989 |
-| execute done | 79,869,264 | 124,241,554 | 70,767,939 | 124,241,554 |
-| shutdown acknowledged | 122,700,729 | 168,789,316 | 114,236,690 | 168,789,316 |
-| guest exit | 123,820,372 | 170,485,530 | 114,620,349 | 170,485,530 |
-| cleanup | 142,319,666 | 189,410,410 | 135,031,875 | 189,410,410 |
+| validate manifest | 385,735 | 478,497 | 370,665 | 478,497 |
+| create VM | 1,141,846 | 2,251,200 | 1,009,554 | 2,251,200 |
+| map memory privately | 1,159,567 | 2,269,585 | 1,026,814 | 2,269,585 |
+| register memory slots | 1,187,867 | 2,717,327 | 1,057,634 | 2,717,327 |
+| irqchip, PIT, routes | 1,673,203 | 2,795,848 | 1,133,689 | 2,795,848 |
+| devices restored | 1,723,999 | 2,846,874 | 1,178,138 | 2,846,874 |
+| vCPU created | 2,708,117 | 5,339,140 | 2,277,736 | 5,339,140 |
+| vCPU state restored | 2,778,664 | 5,421,822 | 2,380,295 | 5,421,822 |
+| eventfds and interrupt state | 2,816,470 | 5,460,013 | 2,422,900 | 5,460,013 |
+| launch page slot mapped | 4,663,792 | 7,219,829 | 4,224,628 | 7,219,829 |
+| fresh launch page written | 4,796,691 | 7,304,929 | 4,360,781 | 7,304,929 |
+| device thread serving | 4,842,356 | 7,345,638 | 4,406,173 | 7,345,638 |
+| resume | 5,140,512 | 7,653,055 | 4,631,162 | 7,653,055 |
+| launch page consumed | 12,095,626 | 14,036,129 | 11,114,744 | 14,036,129 |
+| vsock connected | 12,098,169 | 16,466,480 | 11,116,896 | 16,466,480 |
+| handshake done | 19,958,986 | 26,233,071 | 18,848,449 | 26,233,071 |
+| repair done | 20,480,019 | 27,093,747 | 19,621,898 | 27,093,747 |
+| ready | 27,182,350 | 29,996,251 | 22,084,903 | 29,996,251 |
+| execute done | 73,402,052 | 131,787,795 | 69,132,110 | 131,787,795 |
+| shutdown acknowledged | 120,890,346 | 183,182,666 | 113,967,715 | 183,182,666 |
+| guest exit | 122,384,294 | 184,651,979 | 115,265,836 | 184,651,979 |
+| cleanup | 146,406,857 | 201,165,907 | 134,198,792 | 201,165,907 |
 
-The host-side `restore` call itself, from the first manifest byte to a machine waiting for its launch page, had p50 5,164,715 ns and p99 7,120,250 ns over the same ten iterations.
+The host-side `restore` call itself, from the first manifest byte to a machine waiting for its launch page, had p50 4,768,311 ns and p99 7,309,806 ns over the same ten iterations.
 
 Work kept outside these numbers: compiling the Generation, publishing the snapshot, and cloning the private overlay head from `overlay.raw`.
 The head clone is a full 256 MiB copy here because the scratch filesystem is ext4; the [XFS reflink profile](2026-08-29-xfs-reflink-profile.md) already established that heads must come from a prepared pool rather than from an on-demand clone, and this run does not change that.
@@ -137,14 +138,14 @@ That machine had a 1 GiB writable class where this one has 256 MiB; the class af
 
 | Milestone | COLD, ns since creation began | WARM p50, ns since restore began |
 | --- | ---: | ---: |
-| vCPU running | 32,443,455 | 5,372,448 |
-| guest agent authenticated | 160,131,840 | 23,106,530 |
-| repair committed | 160,930,085 | 23,851,648 |
-| `Ready` | 161,583,495 | 26,985,771 |
-| command returned | 201,423,884 | 79,869,264 |
-| cleanup complete | 218,847,957 | 142,319,666 |
+| vCPU running | 32,443,455 | 5,140,512 |
+| guest agent authenticated | 160,131,840 | 19,958,986 |
+| repair committed | 160,930,085 | 20,480,019 |
+| `Ready` | 161,583,495 | 27,182,350 |
+| command returned | 201,423,884 | 73,402,052 |
+| cleanup complete | 218,847,957 | 146,406,857 |
 
-Reaching `Ready` took about 6.0 times as long from a cold boot as from a restore on this host and build, and the interval that disappears is the kernel boot: the cold machine spent 108 ms between entering `KVM_RUN` and running `/init`, and the restored machine spends none.
+Reaching `Ready` took about 5.9 times as long from a cold boot as from a restore on this host and build, and the interval that disappears is the kernel boot: the cold machine spent 108 ms between entering `KVM_RUN` and running `/init`, and the restored machine spends none.
 These are debug-build, single-host, in-container numbers with a warm host page cache for `memory.raw` after the first restore.
 They are not a certified budget, not a production-host measurement, and not a claim about the 10 ms objective.
 
@@ -152,10 +153,11 @@ They are not a certified budget, not a production-host measurement, and not a cl
 
 Two restores of the same snapshot ran sequentially with context identifiers 5 and 6 against a captured identifier of 3.
 
-- Instance identities differ, and so do the values derived from them: machine identities `27dffd73ac1f34e452696e32c712d8e0` and `ba46d5f6b111290bb556ceb1de68fa3c`, hostnames `soma-27dffd73ac1f` and `soma-ba46d5f6b111`, read from `/etc/machine-id` and `/proc/sys/kernel/hostname` inside each guest through the authenticated channel.
+- Instance identities differ, and so do the values derived from them: machine identities `f37cbb337c5e9a49265e703825b6c68e` and `79e22914d486f8b1f9333be4a411e494`, hostnames `soma-f37cbb337c5e` and `soma-79e22914d486`, read from `/etc/machine-id` and `/proc/sys/kernel/hostname` inside each guest through the authenticated channel.
 - Context identifiers differ and neither is the captured one.
   Reaching `Ready` is itself the proof that each guest kernel adopted its own assignment: the agent refuses to connect while the vsock device reports a context identifier other than the one on its launch page, so an Instance that kept the captured identifier could not have authenticated.
 - The first Instance created `/soma-first-instance` on its writable root and could see it; the second Instance looked for the same path and its `ls` exited non-zero.
+- The restored Instance left the test process with exactly the open descriptors and live threads it started with, so the file-backed private mapping, the opened memory object, the two disk handles, the vCPU and device threads, and every eventfd and route were released.
 - The two private heads have different digests, and the first head differs from the sterile template it was cloned from.
 - `memory.raw` has the same digest before and after both Instances ran, so writes through the private mapping never reached the shared object.
 
@@ -164,7 +166,7 @@ Two restores of the same snapshot ran sequentially with context identifiers 5 an
 Each of these was produced from a sibling directory holding hard links to the untouched objects and one replaced object, and each was refused before any VM, vCPU, or mapping of the replaced object existed.
 
 - One flipped byte in `state.somasnap`: `section role 0x0002 digest mismatch`, from the codec's per-section digest.
-- One flipped byte in `memory.raw` under installation-time verification: `memory digest sha256:620c7cdd... does not match sha256:6f9c24e7...`.
+- One flipped byte in `memory.raw` under installation-time verification: `memory digest sha256:2292ad12... does not match sha256:dc167bd1...`.
   Without that verification the same object maps and runs, which the test also asserts: re-hashing a gigabyte is the installation and audit boundary that [snapshot format v1](../research/snapshot-format-v1.md) places outside the request path, not a warm-restore check.
 - One flipped byte in the manifest's CPU-template digest: `CpuTemplate { expected: sha256:214170df..., actual: sha256:204170df... }`, from the constant-size header comparison that runs before any section payload is decoded.
 
@@ -204,7 +206,7 @@ SOMA_OCI_NODE_LAYOUT=/path/to/oci-node22 \
 
 The six tests share one compiled Generation and one captured snapshot, so the suite must run single-threaded in one process.
 Every test fails explicitly when `/dev/kvm`, the pinned kernel, its configuration text, the erofs-utils directory, or the guest agent is missing, and prints a skip when the `node:22` layout cannot be exported.
-The whole suite took 483 s of wall time in this run, most of it compiling the Generation from the 1.1 GB image.
+The whole suite took 415 s of wall time in this run, most of it compiling the Generation from the 1.1 GB image.
 
 ## What this does not prove
 
