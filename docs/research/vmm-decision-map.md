@@ -122,9 +122,10 @@ How are memory, vCPU, interrupt, clock, and device states captured, authenticate
 
 ### Answer
 
-Resolved architecturally.
+Resolved; live capture and restore proven on `x86_64`.
 Version 1 uses one immutable page-aligned memory object mapped `MAP_PRIVATE | MAP_NORESERVE`, one canonical typed state manifest, separately managed disks, exact compatibility rejection, authority exclusion, quiescent capture, and fixed fail-closed restore ordering.
-See [snapshot format v1](snapshot-format-v1.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), and [fast path](../architecture/fast-path.md).
+A real `node:22` Generation was booted to its disconnected repair point, captured before any launch material existed, and restored repeatedly into independent authenticated Instances that executed a command; the retained result is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+See [snapshot format v1](snapshot-format-v1.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), [ADR 0024](../adr/0024-pre-launch-snapshot-capture-point.md), and [fast path](../architecture/fast-path.md).
 
 ## #8: How does the guest become a fresh authenticated Instance?
 

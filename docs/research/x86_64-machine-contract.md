@@ -108,6 +108,13 @@ The bootstrap vCPU enters 32-bit protected mode with paging disabled.
 The VMM obtains the supported CPUID set from KVM, applies a versioned SOMA CPU template, and installs it with `KVM_SET_CPUID2` before vCPU execution.
 The exact CPUID leaves, MSR index list, LAPIC state, FPU state, XCR state, and clock state become certified snapshot fields rather than host-dependent defaults.
 
+`KVM_GET_SUPPORTED_CPUID` answers from whichever host processor services the call, so on a hybrid processor the same host returns different values between calls.
+The version 1 template therefore pins every field that describes the answering core rather than the host: the initial APIC identifier in leaf `0x1`, the x2APIC identifier in the topology leaves `0xb` and `0x1f`, the core and thread sharing counts and the cache geometry in leaf `0x4`, and the cache description in leaf `0x80000006`.
+Version 1 exposes one vCPU with no topology and certifies no host cache geometry, so a guest that reports no cache dimensions is correct for this contract, and the certified CPU-template digest becomes reproducible.
+
+A snapshot also carries a bounded allowlist of model-specific registers, intersected with `KVM_GET_MSR_INDEX_LIST`.
+`IA32_XSS` and `IA32_SPEC_CTRL` are part of it: a machine restored with the extended-supervisor-state register back at zero faults in `XRSTORS` the first time a task returns to user mode, and a machine restored without the speculation-control register would run with weaker mitigations than the machine that was captured.
+
 ## Required KVM capabilities
 
 The host profile must report KVM API version 12 and provide:
@@ -158,6 +165,11 @@ The restore order is:
 
 The snapshot format must distinguish absent optional state from silently defaulted state.
 An unsupported ioctl, CPUID feature, MSR, state size, device version, or clock mode rejects restore before vCPU execution.
+
+KVM has no ioctl that reads the GSI routing table back, so the routing section records the overrides SOMA installed rather than a table read from the kernel.
+Version 1 installs none: the in-kernel interrupt controller creates the default routes for GSIs 0 through 23 and the five device lines use them, so an empty routing section means the certified default routing.
+
+Steps 1 through 9 have live `x86_64` evidence, and step 10 through 12 are proven by the restored Instance reaching an authenticated command; the retained result is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
 
 ## Failure and cleanup contract
 

@@ -302,5 +302,7 @@ Until those results exist, SOMA must describe this document as the selected devi
 ## Implementation status
 
 Items 1, 2, and 4 have live x86_64 evidence from a cold boot of a compiled Generation: the pinned guest registered exactly the five modern MMIO devices and no PCI bus, composed the EROFS root and the private ext4 upper into a writable root, executed a Generation file, changed only the private head, and completed one authenticated vsock session with repair, one command, and orderly shutdown.
-The entropy device served the guest's `/dev/hwrng` reseed once, which is not the two-restore proof of item 5, and the network device has run only behind the link-down loopback backend, so item 3 is untouched.
-Items 6 through 10 remain open, and the retained result is [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
+The network device has run only behind the link-down loopback backend, so item 3 is untouched.
+Item 5 now has live evidence as well: one captured snapshot was restored repeatedly, each Instance reseeded from a fresh entropy backend, and no two Instances shared identity or writable state.
+Item 8 has live evidence for the restore direction: queue and interrupt state survives a capture and restore while every transient connection, packet, credit window, and backend is excluded and replaced, and the vsock transport-reset event is what makes the guest driver adopt its fresh context identifier.
+Items 6, 7, 9, and 10 remain open, and the retained results are [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md) and [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).

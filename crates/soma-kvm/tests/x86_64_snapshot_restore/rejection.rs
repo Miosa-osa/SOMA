@@ -6,6 +6,7 @@
 
 use std::{fs, path::Path, time::Duration};
 
+use soma_guest::{GuestLaunchMaterial, LAUNCH_PAGE_SIZE};
 use soma_kvm::snapshot::compatibility::Incompatibility;
 use soma_kvm::x86_64::{
     LAUNCH_PAGE_GPA, Milestone, RestoreRequest, SandboxDisks, SnapshotError, SnapshotPaths, restore,
@@ -100,17 +101,40 @@ fn the_published_objects_carry_no_launch_material() {
     let state = report::read(&fixture.paths.state());
     let key = fixture.responder_private;
 
-    for (name, bytes) in [
-        ("memory.raw", &memory),
-        ("overlay.raw", &overlay),
-        ("state.somasnap", &state),
-    ] {
+    for (name, bytes) in [("overlay.raw", &overlay), ("state.somasnap", &state)] {
         assert_eq!(
             report::occurrences(bytes, LAUNCH_PAGE_MAGIC),
             0,
             "{name} carries launch-page material"
         );
     }
+    // The magic does occur in guest RAM, because the pinned agent's own code contains the
+    // constant it compares against. What must not exist is a page: every occurrence is fed to
+    // the production decoder, and none of them is a launch page.
+    let agent = report::read(&fixture.agent);
+    let in_agent = report::occurrences(&agent, LAUNCH_PAGE_MAGIC);
+    let offsets = report::offsets(&memory, LAUNCH_PAGE_MAGIC);
+    assert!(
+        in_agent > 0,
+        "the pinned guest agent does not contain the launch-page domain, so the count in \
+         guest RAM has no innocent explanation"
+    );
+    for offset in &offsets {
+        let Some(window) = memory.get(*offset..offset + LAUNCH_PAGE_SIZE) else {
+            continue;
+        };
+        let mut page = [0_u8; LAUNCH_PAGE_SIZE];
+        page.copy_from_slice(window);
+        assert!(
+            GuestLaunchMaterial::take_from_page(&mut page).is_err(),
+            "a valid launch page exists at offset {offset} of the captured memory"
+        );
+    }
+    eprintln!(
+        "[scan] the launch-page domain occurs {} times in memory.raw and {in_agent} times in \
+         the pinned agent binary; none of them decodes as a launch page",
+        offsets.len()
+    );
     for (name, bytes) in [("overlay.raw", &overlay), ("state.somasnap", &state)] {
         assert_eq!(
             report::occurrences(bytes, &key),

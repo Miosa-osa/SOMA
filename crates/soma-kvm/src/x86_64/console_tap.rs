@@ -1,10 +1,13 @@
-//! A live view of one console line while the guest is still running.
+//! A live view of one console marker while the guest is still running.
 //!
 //! The captured console lives inside the port bus on the vCPU thread and is returned only
 //! when the machine stops, which is too late for a snapshot builder: it must know that the
 //! guest agent reached its repair point while the machine is still up. The tap is the
 //! narrowest thing that answers that question - one fixed needle, one instant, no buffer the
 //! guest can grow.
+//!
+//! Matching is over the byte stream rather than over completed lines, so nothing depends on
+//! where the guest's tty decided to break a line or on how many lines came before.
 
 use std::{
     sync::{Condvar, Mutex, PoisonError},
@@ -29,17 +32,13 @@ impl ConsoleTap {
         }
     }
 
-    /// Offers one completed console line; the first match wins and later lines are ignored.
-    pub(crate) fn observe_line(&self, line: &[u8], at: Instant) {
-        if self.needle.is_empty() || line.len() < self.needle.len() {
-            return;
-        }
-        if !line
-            .windows(self.needle.len())
-            .any(|window| window == self.needle)
-        {
-            return;
-        }
+    /// The exact byte sequence the tap is watching for.
+    pub(crate) fn needle(&self) -> &[u8] {
+        &self.needle
+    }
+
+    /// Records that the needle completed at `at`; the first match wins.
+    pub(crate) fn record(&self, at: Instant) {
         let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
         if seen.is_none() {
             *seen = Some(at);
@@ -74,27 +73,13 @@ mod tests {
     use super::ConsoleTap;
 
     #[test]
-    fn the_first_matching_line_is_recorded_once_and_others_are_ignored() {
+    fn the_first_match_is_recorded_once_and_later_ones_are_ignored() {
         let tap = ConsoleTap::watching(b"awaiting launch material");
-        assert!(tap.wait(Instant::now()).is_none());
-        tap.observe_line(b"soma-guest-agent: ready\n", Instant::now());
+        assert_eq!(tap.needle(), b"awaiting launch material");
         assert!(tap.wait(Instant::now()).is_none());
         let first = Instant::now();
-        tap.observe_line(b"soma-guest-agent: awaiting launch material\n", first);
-        tap.observe_line(
-            b"soma-guest-agent: awaiting launch material\n",
-            first + Duration::from_secs(1),
-        );
+        tap.record(first);
+        tap.record(first + Duration::from_secs(1));
         assert_eq!(tap.wait(Instant::now()), Some(first));
-    }
-
-    #[test]
-    fn an_empty_or_short_line_never_matches() {
-        let tap = ConsoleTap::watching(b"marker");
-        tap.observe_line(b"mark", Instant::now());
-        assert!(tap.wait(Instant::now()).is_none());
-        let never = ConsoleTap::watching(b"");
-        never.observe_line(b"anything", Instant::now());
-        assert!(never.wait(Instant::now()).is_none());
     }
 }

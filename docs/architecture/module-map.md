@@ -249,9 +249,8 @@ A deterministic test passing on Apple Silicon must never be labeled a KVM restor
 Its current depth includes a checked capability probe, an x86_64 machine that maps one private memory slot, enters one protected-mode vCPU, boots the pinned PVH kernel to a challenge-bound serial sentinel through a diagnostic 16550 model, captures port-I/O exits and `hlt`, and enforces a watchdog deadline with proven cleanup, plus explicit-fixture ARM64 direct-boot and command paths with checked memory layout, vCPU initialization, GICv3, timer and device-tree description, separate diagnostic and control UARTs, strict challenge-bound frames, direct guest execution, and bounded teardown.
 It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/`, the five v1 device models under `virtio/devices/`, and the fixed five-slot MMIO bus under `virtio/bus.rs`.
 The `x86_64/` modules wire that bus to KVM: `KVM_EXIT_MMIO` dispatch on the vCPU thread, one ioeventfd per queue-notify address, one irqfd per slot, a bounded epoll device thread, a shared range-checked guest-memory view, the dedicated launch-page slot, a deadline-bounded byte channel over the vsock host endpoint, and the test-only sandbox machine that cold-boots a compiled Generation for the static guest agent; the retained proofs are [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
-As real restore work arrives, the crate will own register restoration, interrupt-controller state, clock state, and the snapshot-driven execution loop over the same seams.
 It also owns the platform-neutral snapshot format v1 codec under `snapshot/`: the `SOMASNP` manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, per-device state, the memory-object descriptor, the fail-closed compatibility check, and the capture and restore ordering contracts.
-That codec performs no KVM ioctl; live capture and restore remain a later slice.
+`x86_64/snapshot/` is the live half of that format: it pauses a running machine at the guest agent's disconnected repair point, proves the quiesce preconditions, reads KVM and device state in the certified order, publishes the memory object, the sterile overlay template, and the state manifest, and restores that snapshot into a fresh Instance through the twelve-step machine-contract order; the retained proof is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
 
 The initial source map is:
 
@@ -264,6 +263,7 @@ crates/soma-kvm/src/
     boot_info.rs
     channel.rs
     cmdline.rs
+    console_tap.rs
     cpuid.rs
     devices.rs
     elf.rs
@@ -292,9 +292,26 @@ crates/soma-kvm/src/
     ports.rs
     run.rs
     sandbox.rs
+    snapshot/
+      artifacts.rs
+      capture.rs
+      device.rs
+      error.rs
+      marker.rs
+      mod.rs
+      platform.rs
+      profile.rs
+      quiesce.rs
+      restore.rs
+      restore/
+        devices.rs
+        sections.rs
+      vcpu.rs
     sandbox/
       evidence.rs
       launch.rs
+      pause.rs
+      restored.rs
       teardown.rs
     serial.rs
     serial/
@@ -302,6 +319,8 @@ crates/soma-kvm/src/
     timing.rs
     vcpu.rs
     watchdog.rs
+    watchdog/
+      worker.rs
   virtio/
     mod.rs
     bus.rs
@@ -433,7 +452,15 @@ crates/soma-kvm/tests/
   x86_64_sandbox_boot/
     control.rs
     generation.rs
+    host.rs
     session.rs
+  x86_64_snapshot_restore.rs
+  x86_64_snapshot_restore/
+    fixture.rs
+    instance.rs
+    rejection.rs
+    report.rs
+    timing.rs
   fixtures/
     arm64_agent.c
     arm64_init.S
@@ -504,7 +531,17 @@ The module itself registers no ioeventfd or irqfd, decodes no KVM exit, runs no 
 `device_state.rs` owns the five fixed device states and excludes every host descriptor, path, socket, key, credit window, packet, and random byte by construction.
 `memory.rs` owns the memory-object descriptor and the Linux `MAP_PRIVATE | MAP_NORESERVE` mapping type accepted by ADR 0002.
 `compatibility.rs` compares a `HostProfile` with a decoded manifest using exact equality and typed rejection reasons, header fields before any section payload.
-`capture.rs` and `restore.rs` are typed ordering contracts only; they have no KVM or device effect and exist so the later live slice cannot reorder quiesce, capture, restore, or unwind steps silently.
+`capture.rs` and `restore.rs` are typed ordering contracts only; they have no KVM or device effect and exist so the live slice in `x86_64/snapshot/` cannot reorder quiesce, capture, restore, or unwind steps silently.
+
+### `x86_64/snapshot/`
+
+`x86_64/snapshot/` is the only place in the crate that turns the snapshot format into KVM calls.
+`profile.rs` builds the host profile from the live KVM and the fixed contracts, never from the snapshot being checked, and owns the machine-contract, device-contract, and CPU-template digests.
+`quiesce.rs` owns the device-side capture preconditions: link down, no vsock connection, no unserviced head on a guest-driven queue, and a final bounded drain.
+`vcpu.rs` owns the bounded MSR allowlist and the read and install order for every vCPU state group; `platform.rs` owns the interrupt controller, timer, routing, and clock.
+`device.rs` converts between the live virtio slot records and the canonical device sections and proves the canonical form reproduces the live one.
+`artifacts.rs` writes each object to a private staging name, flushes it, hashes it through the handle that wrote it, and publishes with a link that fails when the name exists.
+`capture.rs` and `restore.rs` drive the codec's typed schedules; `marker.rs` records and requires the pre-launch capture point.
 
 ### `tests/kvm_probe.rs`
 

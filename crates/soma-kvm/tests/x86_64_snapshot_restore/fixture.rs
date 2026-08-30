@@ -52,6 +52,8 @@ pub struct Fixture {
     pub responder_private: [u8; 32],
     pub generation_id: [u8; 32],
     pub ram_bytes: u64,
+    /// The pinned static guest agent the Generation was built with.
+    pub agent: PathBuf,
     /// The evidence of the machine the snapshot was taken from.
     pub source: SandboxEvidence,
 }
@@ -82,7 +84,7 @@ impl Fixture {
 /// The shared fixture as every test borrows it.
 pub type Shared = MutexGuard<'static, Fixture>;
 
-static FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
+static FIXTURE: OnceLock<Option<Mutex<Fixture>>> = OnceLock::new();
 
 /// Prints the one reason a test may decline to run and returns.
 pub fn skip() {
@@ -93,13 +95,12 @@ pub fn skip() {
 ///
 /// Returns `None` when the image cannot be exported, which is a skip rather than a failure.
 pub fn shared() -> Option<Shared> {
-    if FIXTURE.get().is_none() {
-        let built = build()?;
-        let _ignored = FIXTURE.set(Mutex::new(built));
-    }
+    // The build result is recorded once, success or skip, so a suite that cannot export the
+    // image declines in seconds instead of recompiling the Generation for every test.
+    let built = FIXTURE.get_or_init(|| build().map(Mutex::new));
     Some(
-        FIXTURE
-            .get()?
+        built
+            .as_ref()?
             .lock()
             .unwrap_or_else(PoisonError::into_inner),
     )
@@ -149,6 +150,7 @@ fn build() -> Option<Fixture> {
         responder_private,
         generation_id,
         ram_bytes,
+        agent: inputs.agent.clone(),
         source,
     })
 }
@@ -197,8 +199,28 @@ fn capture_source(
         started + REPAIR_POINT_DEADLINE,
     );
     let evidence = sandbox.finish(Duration::from_secs(10));
+    let log = scratch.join("capture-serial.log");
+    fs::write(&log, &evidence.serial).unwrap();
+    let console = String::from_utf8_lossy(&evidence.serial);
+    let announced = console.contains(&String::from_utf8_lossy(REPAIR_POINT_LINE).into_owned());
+    eprintln!(
+        "[capture] console {} bytes retained at {}; repair point announced on it: {announced}",
+        evidence.serial.len(),
+        log.display()
+    );
+    if outcome.is_err() {
+        for line in console
+            .lines()
+            .rev()
+            .take(8)
+            .collect::<Vec<_>>()
+            .iter()
+            .rev()
+        {
+            eprintln!("  | {line}");
+        }
+    }
     let outcome = outcome.expect("capture the machine at the repair point");
-    fs::write(scratch.join("capture-serial.log"), &evidence.serial).unwrap();
     assert!(
         evidence.at(Milestone::RunStart).is_some(),
         "the source machine never entered KVM_RUN"

@@ -139,6 +139,20 @@ pub fn digest(path: &Path) -> String {
         })
 }
 
+/// Byte offsets at which `needle` starts in `haystack`.
+#[must_use]
+pub fn offsets(haystack: &[u8], needle: &[u8]) -> Vec<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return Vec::new();
+    }
+    haystack
+        .windows(needle.len())
+        .enumerate()
+        .filter(|(_, window)| *window == needle)
+        .map(|(offset, _)| offset)
+        .collect()
+}
+
 /// Flips one byte of a copy of `source` at `offset` and writes it to `target`.
 pub fn tamper(source: &Path, target: &Path, offset: usize) {
     let mut bytes = read(source);

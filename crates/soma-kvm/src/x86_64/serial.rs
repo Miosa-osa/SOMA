@@ -83,6 +83,8 @@ pub(crate) struct Serial {
     counters: SerialCounters,
     interrupt: Option<EventFd>,
     tap: Option<Arc<ConsoleTap>>,
+    /// The last bytes written, bounded by the tap's needle length.
+    tap_tail: Vec<u8>,
 }
 
 impl Serial {
@@ -104,6 +106,7 @@ impl Serial {
             output: Vec::new(),
             marks: Vec::new(),
             counters: SerialCounters::default(),
+            tap_tail: Vec::with_capacity(tap.as_ref().map_or(0, |tap| tap.needle().len())),
             interrupt,
             tap,
         }
@@ -241,20 +244,32 @@ impl Serial {
             ));
         }
         self.output.push(byte);
-        if byte == b'\n' {
-            let at = Instant::now();
-            if let Some(tap) = &self.tap {
-                let start = self.marks.last().map_or(0, |mark| mark.end_offset);
-                tap.observe_line(&self.output[start..], at);
-            }
-            if self.marks.len() < LINE_MARK_LIMIT {
-                self.marks.push(LineMark {
-                    end_offset: self.output.len(),
-                    at,
-                });
-            }
+        self.offer_to_tap(byte);
+        if byte == b'\n' && self.marks.len() < LINE_MARK_LIMIT {
+            self.marks.push(LineMark {
+                end_offset: self.output.len(),
+                at: Instant::now(),
+            });
         }
         Ok(())
+    }
+
+    /// Feeds one byte to the live console tap, keeping only a needle-sized window.
+    fn offer_to_tap(&mut self, byte: u8) {
+        let Some(tap) = &self.tap else {
+            return;
+        };
+        let needle = tap.needle();
+        if needle.is_empty() {
+            return;
+        }
+        if self.tap_tail.len() == needle.len() {
+            self.tap_tail.remove(0);
+        }
+        self.tap_tail.push(byte);
+        if self.tap_tail == needle {
+            tap.record(Instant::now());
+        }
     }
 
     fn raise(&mut self) {
