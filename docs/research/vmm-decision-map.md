@@ -237,8 +237,11 @@ How does the Linux implementation satisfy the existing portable Resolve, Launch,
 
 ### Answer
 
-Designed.
-`crates/soma-local/src/backend/kvm.rs` answers every lifecycle call with a typed unavailable failure, so no part of this ticket is component-tested yet.
+Live-proved at `08e4d45` for the single-process lifecycle.
+
+`soma --backend kvm run node:22` resolves a prepared Generation, launches a machine, executes one command inside it, and cleans up: the retained result is [the KVM Backend serving one sandbox through the public command line](../evidence/2026-08-30-kvm-backend-cli-run.md).
+
+Two boundaries are deliberate. The machine and its authenticated session are owned by one thread, because the host adapter borrows the machine to retire the launch page and a structure holding both would refer to itself; a session that outlives the process belongs to the daemon in #12. And resolution reads a Generation prepared before demand rather than acquiring an image, because no image acquisition exists in the workspace and the request path is required not to perform it.
 The KVM adapter composes Generation resolution, admission, prepared ownership, restore, repair, execution, inspection, shutdown, cleanup, evidence, retries, and reconciliation behind the unchanged portable lifecycle.
 Template and module resolution remain outside the adapter, which receives only an exact certified Generation, effective policy, and fresh launch bindings.
 See [KVM backend integration](kvm-backend-integration.md).
@@ -260,7 +263,7 @@ A signed immutable report binds exact provenance and admits a HostProfile only a
 The contract's anti-gaming rules are enforced in code rather than in prose, and the report generator refuses an incomplete run, a class-mixed run, a successful sample without a zero-exit workload command, and a warm class that recorded no preparation.
 The harness is live-proved today only against the Docker Backend, which is a Linux container and not a virtual machine.
 [The dry run](../evidence/2026-08-30-burst-harness-dry-run.md) is that proof of the harness and is not a SOMA performance result.
-The KVM run of the same profile awaits ticket #13, because the `soma-local` KVM adapter still answers every lifecycle call with a typed unavailable failure.
+The KVM run of the same profile is now unblocked: the adapter serves the portable lifecycle as of `08e4d45`, so the harness can address a KVM Backend from the `soma` command line. The campaign itself has not been run.
 No signed report, admission policy, or revocation state exists yet, and the harness covers the burst performance gate of this ticket only.
 See [production admission evidence](production-admission-evidence.md), [benchmark contract](../benchmark-contract.md), and [validation template](../operations/validation-report-template.md).
 

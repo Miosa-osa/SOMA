@@ -20,7 +20,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 | Durable managed lifecycle state | Component-tested | `crates/soma-local` tests |
 | Docker Backend local sandbox lifecycle | Live-proved at `08bf75e` | [Docker Node 22 local run](evidence/2026-08-29-docker-node22-local.md); the artifact records no run revision, so the named commit is the retention point rather than a checked run identity |
 | Apple Virtualization Backend one-shot | Live-proved at `4d10493` | [Apple Node 22 one-shot](evidence/2026-08-29-apple-node22-one-shot.md) |
-| Linux KVM Backend lifecycle behind the public contract | Designed | [KVM backend integration](research/kvm-backend-integration.md); `crates/soma-local/src/backend/kvm.rs` answers every lifecycle call with a typed unavailable failure |
+| Linux KVM Backend lifecycle behind the public contract | Live-proved at `08e4d45` | [The KVM Backend serving one sandbox through the public command line](evidence/2026-08-30-kvm-backend-cli-run.md): `soma run` resolved, launched, executed and cleaned up one `node:22` sandbox, which returned `v22.23.2` from inside the machine. One sample, cold boot, no jail, no network, no prepared worker, and the Generation was prepared out of band |
 
 ## Build-time pipeline
 
