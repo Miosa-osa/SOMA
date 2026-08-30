@@ -5,6 +5,7 @@ mod lifecycle;
 mod prepared;
 mod resolve;
 mod session;
+mod timeline;
 mod worker;
 
 use soma::BackendKind;

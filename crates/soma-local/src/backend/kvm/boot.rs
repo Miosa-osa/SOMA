@@ -70,7 +70,7 @@ pub(super) fn boot_for(
         instance: instance_bytes(instance)?,
         operation: fresh16(),
         guest_cid,
-        network: link_down_network()?,
+        network: link_down_network(guest_cid)?,
     })
 }
 
@@ -189,9 +189,16 @@ fn unlink(directory: &std::fs::File, name: &str) -> Result<(), BackendFailureKin
 ///
 /// The addresses are fixed because nothing routes them: the device exists so the guest's repair
 /// step has one to configure, and no packet leaves the machine.
-fn link_down_network() -> Result<LaunchNetwork, BackendFailureKind> {
+///
+/// The context identifier is not fixed. The guest agent checks the identifier its own vsock
+/// device reports against the one the launch page names, and refuses the session when they
+/// disagree, which is what binds the transport the session runs over to this Instance's
+/// authority. So this must be given the same identifier the machine was built with rather than
+/// a constant: a launch page naming a different one leaves a correctly built machine unable to
+/// form a session at all.
+fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, BackendFailureKind> {
     LaunchNetwork::new(
-        3,
+        guest_cid,
         1,
         [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01],
         [10, 0, 0, 2],

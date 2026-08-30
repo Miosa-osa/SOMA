@@ -48,7 +48,7 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
             // The machine is finished on every path out of here, including a failed boot, so no
             // descriptor or thread outlives the sandbox that owned it.
             let outcome = drive_cold(&mut sandbox, material, requests, responses);
-            report(sandbox, outcome, responses);
+            report(sandbox, outcome, responses, instance);
         }
         Source::Restore {
             snapshot,
@@ -76,7 +76,7 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
                 requests,
                 responses,
             );
-            report(restored.machine, outcome, responses);
+            report(restored.machine, outcome, responses, instance);
         }
     }
 }
@@ -86,6 +86,7 @@ fn report(
     sandbox: SandboxMachine,
     outcome: Result<(), SessionError>,
     responses: &Sender<Response>,
+    instance: [u8; 16],
 ) {
     let evidence = sandbox.finish(EXIT_GRACE);
     match outcome {
@@ -93,9 +94,23 @@ fn report(
             let _ignored = responses.send(Response::Finished(Box::new(evidence)));
         }
         Err(error) => {
+            // A failed sandbox never reaches cleanup, so this is the only chance to keep what it
+            // recorded. The caller still receives the same typed failure.
+            super::timeline::dump_failure(&hex(instance), &evidence, &format!("{error:?}"));
             let _ignored = responses.send(Response::Failed(error));
         }
     }
+}
+
+/// The Instance identity as the lowercase hexadecimal the receipt reports.
+fn hex(instance: [u8; 16]) -> String {
+    use std::fmt::Write as _;
+    instance
+        .iter()
+        .fold(String::with_capacity(32), |mut out, byte| {
+            let _ignored = write!(out, "{byte:02x}");
+            out
+        })
 }
 
 /// Boots a machine from nothing and drives it to Ready, then serves commands.

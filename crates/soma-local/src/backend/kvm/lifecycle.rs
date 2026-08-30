@@ -167,7 +167,11 @@ impl KvmBackend {
                 CleanupTimes::new(started, finished),
             ));
         };
-        let released = live.session.shutdown().is_ok();
+        let outcome = live.session.shutdown();
+        if let Ok(evidence) = &outcome {
+            super::timeline::dump(request.instance_id().as_str(), evidence);
+        }
+        let released = outcome.is_ok();
         let finished = self.clocks.elapsed_ns(operation);
         if !released {
             return Err(BackendFailure::new(
