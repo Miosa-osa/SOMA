@@ -78,14 +78,12 @@ fn a_lost_activated_reply_is_recovered_rather_than_destroying_the_machine() {
         "the assignment must still have been live to release"
     );
 
-    // The record is now only in the ledger, and no in-memory owner binds it any more.
+    // The record is now only in the ledger; the peer it records may still replay its release.
     client.send(&Request::Release { bundle, generation });
     assert_eq!(
         client.reply(),
-        Some(Reply::Failed(error_code(&Error::Unauthorized(
-            "ledger release"
-        )))),
-        "a lifecycle peer must not release a bundle only the ledger names"
+        Some(Reply::Released { complete: true }),
+        "the recorded owner must be able to replay an idempotent release"
     );
     drop(world);
 }
@@ -139,5 +137,24 @@ fn an_incomplete_release_keeps_its_operation_identity_reserved() {
         Some(Reply::Failed(error_code(&Error::NotAssigned))),
         "an operation whose release left kernel objects behind must not take a second lease"
     );
+
+    // The first release already removed the broken pin, because a failing step no longer
+    // abandons the steps after it; the retry finishes what that failure left behind.
+    client.send(&Request::Release { bundle, generation });
+    assert_eq!(
+        client.reply(),
+        Some(Reply::Released { complete: true }),
+        "the retried release must finish the steps the first one could not"
+    );
+    client.send(&claim);
+    client.frame().expect("the transferred descriptor frame");
+    let Some(Reply::Claimed {
+        bundle, generation, ..
+    }) = client.reply()
+    else {
+        panic!("a completed release must free the operation identity");
+    };
+    client.send(&Request::Release { bundle, generation });
+    assert_eq!(client.reply(), Some(Reply::Released { complete: true }));
     drop(world);
 }

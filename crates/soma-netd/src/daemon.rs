@@ -228,7 +228,13 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                     Ok(entry) if entry.record.owner != peer.uid() => {
                         Err(Error::Unauthorized("assignment owner"))
                     }
-                    Ok(entry) => Ok(release_record(&state.broker, &entry.record)),
+                    Ok(entry) => {
+                        let evidence = release_record(&state.broker, &entry.record);
+                        if evidence.complete {
+                            state.forget((entry.record.instance, entry.record.operation));
+                        }
+                        Ok(evidence)
+                    }
                     Err(error) => Err(error),
                 },
             };
