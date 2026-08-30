@@ -525,7 +525,18 @@ With `SOMA_GUEST_AGENT` unset the test looks for `target/x86_64-unknown-linux-mu
 With `SOMA_X86_64_VMLINUX` unset the test scans `kernel/out` under the workspace root and polls for a stable `vmlinux-<ver>-soma-v1` for up to 45 minutes before it fails.
 Both variables may name absolute paths to override those defaults.
 `SOMA_OCI_BUSYBOX_LAYOUT` and `SOMA_OCI_NODE_LAYOUT` may name pre-exported OCI layouts.
-The test fails explicitly when a prerequisite is missing, and the `node:22` test prints a skip when the image cannot be exported; a skipped KVM test is not a passing KVM test.
+The test fails explicitly when a prerequisite is missing, including when the `node:22` image cannot be exported: these tests are `#[ignore]`d, so a run that reaches them asked for them by name, and a missing prerequisite is a failed run rather than a test that reports `ok` having executed nothing.
+
+### Scratch space
+
+Each live run compiles its own Generation into `target/tmp/`, which for `node:22` is an EROFS root near 1.1 GiB plus an overlay head and a snapshot, and trees are reclaimed only once they are six hours old.
+Repeated runs, and runs across several worktrees, therefore accumulate tens of gigabytes quickly.
+
+An exhausted filesystem does not announce itself. It surfaces as `CompileError { phase: FormatRoot, kind: Toolchain }` when the root formatter cannot write, and as `MachineError { phase: Run, kind: Timeout }` with `launch_page_retired=false` when a partly written tree strands the boot until its deadline. Both read as a flaky live test, and both can fail a different test on each run.
+
+`scratch_dir` now measures free space before a run starts and fails naming the real condition, so check that message before forming any timing hypothesis. Reclaim by deleting `target/tmp` in each worktree; it is regenerated on the next run.
+
+Never wrap `docker run` in `timeout` when driving these tests: it kills the client and leaves the container running, which keeps consuming a core and writing scratch. Name the container and stop it by name instead.
 
 ## 7. Where to read next
 
