@@ -36,6 +36,14 @@ fn hostile_output_on_both_pipes_stays_within_a_declared_resident_bound() {
     );
     assert_eq!(completion.stdout_bytes, sink.stdout);
     assert_eq!(completion.stderr_bytes, sink.stderr);
+    // Neither pipe may spend the whole allowance: each pass gives every readable stream a
+    // share, so a fast writer on one pipe cannot starve the other out of the record.
+    assert!(
+        completion.stdout_bytes > 0 && completion.stderr_bytes > 0,
+        "both hostile pipes must deliver bytes: stdout {} stderr {}",
+        completion.stdout_bytes,
+        completion.stderr_bytes
+    );
     assert!(
         sink.stdout > 0 && sink.stderr > 0,
         "both pipes must have competed: stdout={} stderr={}",

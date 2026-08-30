@@ -86,6 +86,9 @@ pub(super) fn stream(
         if !poll(&mut fds, timeout) {
             continue;
         }
+        // Every ready stream reads a share of the remaining room in this pass, so a fast
+        // writer on one pipe cannot spend the whole allowance before the other is read.
+        let ready = fds.iter().filter(|fd| fd.revents != 0).count().max(1);
         let mut index = 0;
         while index < sources.len() {
             if fds[index].revents == 0 {
@@ -95,7 +98,7 @@ pub(super) fn stream(
             let outcome = if killed {
                 Ok(sources[index].discard(&mut buffer))
             } else {
-                sources[index].admit(&mut buffer, budget, sink, &mut observed)
+                sources[index].admit(&mut buffer, ready, budget, sink, &mut observed)
             };
             observed.sink_failed |= outcome.is_err();
             let open = outcome.unwrap_or(false);
@@ -155,15 +158,19 @@ impl Source {
         }
     }
 
-    /// Reads at most the reserved room and delivers only the admitted prefix.
+    /// Reads at most this stream's share of the reserved room and delivers the admitted prefix.
+    ///
+    /// `ready` is the number of streams the current pass found readable, so the share always
+    /// leaves room for the other readable stream in the same pass.
     fn admit(
         &mut self,
         buffer: &mut [u8; RESIDENT_OUTPUT_BYTES],
+        ready: usize,
         budget: &mut OutputBudget,
         sink: &mut impl OutputSink,
         observed: &mut Streamed,
     ) -> Result<bool, SinkFault> {
-        let room = budget.room();
+        let room = budget.room().div_ceil(ready).max(1).min(budget.room());
         let Some(read) = self.read(&mut buffer[..room]) else {
             return Ok(false);
         };
