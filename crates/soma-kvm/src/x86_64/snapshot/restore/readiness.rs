@@ -20,17 +20,17 @@ impl Restored {
     /// challenge has been spent.
     #[must_use]
     pub fn readiness_demand(&self) -> Option<ReadinessDemand<'_>> {
-        let launch = self.launch.get().filter(|_| !self.spent.get())?;
-        let identity = RestoredIdentity::new(self.facts.snapshot, launch);
+        let (launch, session) = self.launch.get().filter(|_| !self.spent.get())?;
+        let identity = RestoredIdentity::new(self.facts.snapshot, launch, session);
         Some(ReadinessDemand::new(&self.readiness, identity))
     }
 
     /// Consumes the authenticated readiness receipt and completes the restore.
     ///
     /// The receipt must authenticate against this restore's own challenge and bind the exact
-    /// snapshot it came from, the exact launch authority it published, and the Instance,
-    /// Launch operation, and live transcript of the guest session that completed authenticated
-    /// repair and the fixed readiness probe. The challenge is taken before anything is
+    /// snapshot it came from, the exact launch authority it published, and the live transcript
+    /// of the guest session that completed authenticated repair and the fixed readiness probe.
+    /// Its Instance and Launch operation must be the ones the published page itself carries. The challenge is taken before anything is
     /// verified, so a refused receipt cannot be retried against this Instance.
     ///
     /// # Errors
@@ -39,11 +39,11 @@ impl Restored {
     /// challenge is already spent, or the receipt does not authenticate, and the ordering
     /// violation when the machine has not resumed.
     pub fn ready(&self, receipt: &ReadinessReceipt) -> Result<(), SnapshotError> {
-        let launch = self.launch.get().ok_or(ReadinessRefusal::Unpublished)?;
+        let (launch, session) = self.launch.get().ok_or(ReadinessRefusal::Unpublished)?;
         if self.spent.replace(true) {
             return Err(ReadinessRefusal::Spent.into());
         }
-        let identity = RestoredIdentity::new(self.facts.snapshot, launch);
+        let identity = RestoredIdentity::new(self.facts.snapshot, launch, session);
         self.readiness.accepts(&identity, receipt)?;
         self.step(RestoreStep::AuthenticatedRepairAndReadiness)
     }

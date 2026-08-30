@@ -2,13 +2,17 @@
 
 use super::{
     Digest, ReadinessChallenge, ReadinessDemand, ReadinessReceipt, ReadinessRefusal,
-    RestoredIdentity, SessionEvidence,
+    RestoredIdentity, SessionEvidence, page_session,
 };
+
+/// The Instance and Launch operation the fixture's published launch page binds.
+const PUBLISHED: ([u8; 16], [u8; 16]) = ([9; 16], [2; 16]);
 
 fn identity(snapshot: u8, launch: u8) -> RestoredIdentity {
     RestoredIdentity::new(
         Digest::from_bytes([snapshot; 32]),
         Digest::from_bytes([launch; 32]),
+        PUBLISHED,
     )
 }
 
@@ -67,7 +71,12 @@ fn every_bound_session_field_changes_the_receipt() {
             tag_of(&receipt),
             "a session field is not bound into the receipt"
         );
-        assert_eq!(own.accepts(&identity(7, 8), &moved), Ok(()));
+        let expected = if (other.instance, other.operation) == PUBLISHED {
+            Ok(())
+        } else {
+            Err(ReadinessRefusal::Foreign)
+        };
+        assert_eq!(own.accepts(&identity(7, 8), &moved), expected);
     }
     assert_eq!(receipt.session(), &session(9));
     assert_eq!(receipt.session().instance(), &[9; 16]);
@@ -104,4 +113,44 @@ fn neither_the_challenge_nor_the_receipt_prints_its_bytes() {
     assert_eq!(demand.identity(), &identity(7, 8));
     assert_eq!(demand.identity().snapshot(), &Digest::from_bytes([7; 32]));
     assert_eq!(demand.identity().launch(), &Digest::from_bytes([8; 32]));
+}
+
+#[test]
+fn a_receipt_naming_a_session_the_published_page_does_not_bind_is_refused() {
+    let own = challenge(1);
+    let demand = ReadinessDemand::new(&own, identity(7, 8));
+
+    let foreign = demand.attest(&SessionEvidence::new([11; 16], [2; 16], [3; 32]).expect("bound"));
+
+    assert_eq!(
+        own.accepts(&identity(7, 8), &foreign),
+        Err(ReadinessRefusal::Foreign),
+        "a receipt named an Instance the launch page never carried"
+    );
+}
+
+/// The launch page offsets this crate reads must be the ones the guest crate writes.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn the_published_page_offsets_match_the_launch_page_the_guest_crate_builds() {
+    let network = soma_guest::LaunchNetwork::new(
+        3,
+        1,
+        [2, 1, 2, 3, 4, 5],
+        [10, 0, 0, 2],
+        24,
+        [10, 0, 0, 1],
+        [10, 0, 0, 1],
+        1,
+    )
+    .expect("launch network");
+    let material = soma_guest::HostLaunchMaterial::generate([1; 32], [7; 16], [8; 16], network)
+        .expect("launch material");
+
+    material
+        .deliver_with(|page| {
+            assert_eq!(page_session(page), Some(([7; 16], [8; 16])));
+            Ok::<(), ()>(())
+        })
+        .expect("deliver the page");
 }

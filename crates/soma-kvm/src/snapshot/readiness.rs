@@ -6,6 +6,9 @@
 //! the exact launch authority this restore published, and the Instance, Launch operation, and
 //! live handshake transcript of one authenticated guest session that completed repair and the
 //! fixed readiness probe.
+//! The Instance and Launch operation are read out of the published page rather than accepted
+//! from the caller, so a receipt naming any other session is refused before its tag is even
+//! compared.
 //!
 //! The key is a fresh [`ReadinessChallenge`] the restore samples for itself. It is in no
 //! snapshot, in no Generation, and on no launch page, it has no public constructor, and the
@@ -33,6 +36,8 @@ pub enum ReadinessRefusal {
     Spent,
     /// The receipt does not authenticate against this restore's challenge and identity.
     Rejected,
+    /// The receipt names a session the published launch page does not bind.
+    Foreign,
 }
 
 impl fmt::Display for ReadinessRefusal {
@@ -41,18 +46,49 @@ impl fmt::Display for ReadinessRefusal {
     }
 }
 
+/// Where the launch page carries the Instance and Launch operation it binds.
+///
+/// The page begins with its domain, schema version, authentication profile, and Generation
+/// digest; the two session identities follow. `page_session` is proved against a real page
+/// built by the guest crate, so a schema change cannot silently move the fields.
+const INSTANCE_OFFSET: usize = 16 + 2 + 2 + 32;
+const OPERATION_OFFSET: usize = INSTANCE_OFFSET + 16;
+
+/// The Instance and Launch operation one launch page binds, in that order.
+pub type PageSession = ([u8; 16], [u8; 16]);
+
+/// Reads the Instance and Launch operation out of one published launch page.
+#[must_use]
+pub fn page_session(page: &[u8]) -> Option<PageSession> {
+    let instance = page.get(INSTANCE_OFFSET..OPERATION_OFFSET)?;
+    let operation = page.get(OPERATION_OFFSET..OPERATION_OFFSET + 16)?;
+    let mut identities = ([0_u8; 16], [0_u8; 16]);
+    identities.0.copy_from_slice(instance);
+    identities.1.copy_from_slice(operation);
+    Some(identities)
+}
+
 /// What one restore is: the snapshot it came from and the launch authority it published.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RestoredIdentity {
     snapshot: Digest,
     launch: Digest,
+    session: PageSession,
 }
 
 impl RestoredIdentity {
-    /// Names one restored machine by its snapshot state object and its published launch page.
+    /// Names one restored machine by its snapshot state object, its published launch page, and
+    /// the Instance and Launch operation that page binds.
+    ///
+    /// The session identities are read out of the page itself rather than asserted by the
+    /// caller, so a receipt that names any other session is refused.
     #[must_use]
-    pub const fn new(snapshot: Digest, launch: Digest) -> Self {
-        Self { snapshot, launch }
+    pub const fn new(snapshot: Digest, launch: Digest, session: PageSession) -> Self {
+        Self {
+            snapshot,
+            launch,
+            session,
+        }
     }
 
     /// The digest of the exact snapshot state object this Instance was restored from.
@@ -142,6 +178,9 @@ impl ReadinessChallenge {
         identity: &RestoredIdentity,
         receipt: &ReadinessReceipt,
     ) -> Result<(), ReadinessRefusal> {
+        if identity.session != (receipt.session.instance, receipt.session.operation) {
+            return Err(ReadinessRefusal::Foreign);
+        }
         if equal(&self.tag(identity, &receipt.session), &receipt.tag) {
             Ok(())
         } else {

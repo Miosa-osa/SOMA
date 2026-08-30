@@ -29,7 +29,7 @@ use crate::snapshot::{
     Digest, compatibility,
     manifest::Manifest,
     memory::PrivateMapping,
-    readiness::ReadinessChallenge,
+    readiness::{PageSession, ReadinessChallenge, ReadinessRefusal, page_session},
     restore::{RestoreSequence, RestoreStep},
     section::SectionRole,
 };
@@ -92,8 +92,9 @@ pub struct Restored {
     readiness: ReadinessChallenge,
     /// Whether one readiness attempt has already spent that challenge.
     spent: Cell<bool>,
-    /// The launch authority this restore published, once it has published one.
-    launch: Cell<Option<Digest>>,
+    /// The launch authority this restore published and the session that page binds, once it
+    /// has published one.
+    launch: Cell<Option<(Digest, PageSession)>>,
 }
 
 impl Restored {
@@ -105,7 +106,8 @@ impl Restored {
     pub fn resume(&mut self, page: &[u8; LAUNCH_PAGE_SIZE]) -> Result<(), SnapshotError> {
         self.step(RestoreStep::AttachFreshAuthority)?;
         self.machine.write_launch_page(page)?;
-        self.launch.set(Some(Digest::of(page)));
+        let session = page_session(page).ok_or(ReadinessRefusal::Unbound)?;
+        self.launch.set(Some((Digest::of(page), session)));
         self.machine.start()?;
         // The vsock restore queued a transport-reset event; delivering it now is what makes
         // the guest driver re-read the fresh context identifier before the agent connects.
