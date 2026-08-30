@@ -6,6 +6,7 @@ pub mod codec;
 pub mod control;
 pub mod delivery;
 pub mod frames;
+pub mod recovery;
 pub mod session;
 pub mod world;
 
