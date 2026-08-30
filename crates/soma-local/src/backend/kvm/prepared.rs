@@ -113,10 +113,37 @@ fn any_component_is_link(root: &Path, path: &Path) -> bool {
 ///
 /// Claiming is decided by the reference text alone, before anything else is read, so that two
 /// entries claiming one reference are ambiguous whatever their contents are.
-fn claims(entry: &Path, reference: &str) -> bool {
-    read_bounded(&entry.join(REFERENCE), MAX_REFERENCE_BYTES)
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .is_some_and(|prepared_for| prepared_for.trim() == reference)
+/// Whether one entry claims `reference`, or cannot be read well enough to say.
+///
+/// An entry whose reference file is absent is simply not addressed to any request. An entry whose
+/// reference file exists but is oversized, unreadable, or not text is a different thing: it may be
+/// the second claimant that makes this reference ambiguous, and treating it as a non-claim would
+/// let a damaged entry disappear from that check instead of failing the scan closed.
+enum Claim {
+    /// The entry names this reference.
+    Yes,
+    /// The entry names something else, or names nothing at all.
+    No,
+    /// The entry cannot be read well enough to decide.
+    Unreadable,
+}
+
+fn claims(entry: &Path, reference: &str) -> Claim {
+    let path = entry.join(REFERENCE);
+    if !path.exists() {
+        return Claim::No;
+    }
+    let Some(bytes) = read_bounded(&path, MAX_REFERENCE_BYTES) else {
+        return Claim::Unreadable;
+    };
+    let Ok(text) = String::from_utf8(bytes) else {
+        return Claim::Unreadable;
+    };
+    if text.trim() == reference {
+        Claim::Yes
+    } else {
+        Claim::No
+    }
 }
 
 /// Reads at most `limit` bytes, refusing anything larger.
@@ -191,8 +218,15 @@ pub(super) fn find(
         // An entry that cannot be read is not skipped: an unreadable name could be the second
         // claimant that makes this reference ambiguous, so the scan fails rather than guessing.
         let path = entry.map_err(|_| PreparedError::StoreUnreadable)?.path();
-        if path.is_dir() && claims(&path, reference) {
-            claimants.push(path);
+        if !path.is_dir() {
+            continue;
+        }
+        match claims(&path, reference) {
+            Claim::Yes => claimants.push(path),
+            Claim::No => {}
+            // A claim that cannot be decided is not silently dropped, because the entry that
+            // could not be read may be the one that makes this reference ambiguous.
+            Claim::Unreadable => return Err(PreparedError::Damaged),
         }
     }
     match claimants.as_slice() {

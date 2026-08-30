@@ -181,9 +181,13 @@ fn a_linked_ancestor_is_refused() {
     );
 }
 
-/// A reference file larger than any real reference is refused rather than read whole.
+/// An oversized reference file cannot be read, so it must fail the scan closed.
+///
+/// This previously asserted the opposite, that an unreadable reference simply did not claim
+/// anything. That let a damaged entry vanish from ambiguity detection, which is the defect the
+/// re-audit named.
 #[test]
-fn an_oversized_reference_file_does_not_claim_anything() {
+fn an_oversized_reference_file_fails_the_scan_closed() {
     let root = scratch("huge");
     let one = root.join("one");
     std::fs::create_dir_all(one.join(STORE_DIRECTORY)).expect("create the entry");
@@ -192,8 +196,28 @@ fn an_oversized_reference_file_does_not_claim_anything() {
     let found = find(Some(&root), "node:22", true);
     std::fs::remove_dir_all(&root).ok();
     assert_eq!(
-        found.expect_err("an oversized reference must not claim"),
-        PreparedError::NotPrepared
+        found.expect_err("an oversized reference must fail the scan"),
+        PreparedError::Damaged
+    );
+}
+
+/// An entry whose reference cannot be read must fail the scan, not vanish from it.
+///
+/// Without this, a damaged second claimant is silently dropped and a reference that is genuinely
+/// ambiguous resolves to whichever entry happened to be readable.
+#[test]
+fn an_undecidable_claimant_fails_the_scan_rather_than_disappearing() {
+    let root = scratch("undecidable");
+    entry(&root, "good", "node:22");
+    // A second entry claiming something unreadable: an oversized reference file.
+    let bad = root.join("bad");
+    std::fs::create_dir_all(bad.join(STORE_DIRECTORY)).expect("create the entry");
+    std::fs::write(bad.join(REFERENCE), vec![b'a'; 8192]).expect("write a large reference");
+    let found = find(Some(&root), "node:22", true);
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(
+        found.expect_err("an unreadable claimant must fail the scan"),
+        PreparedError::Damaged
     );
 }
 
