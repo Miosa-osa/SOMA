@@ -23,6 +23,10 @@ const CONTROL_LEN: usize = 32;
 
 /// Sends the header and one descriptor as one sequenced packet.
 ///
+/// The send never blocks, so a peer whose queue is full refuses the transfer instead of
+/// stalling the single-threaded broker, and a partial send is refused rather than reported as
+/// a transfer.
+///
 /// # Errors
 ///
 /// Returns [`Error::Kernel`] at [`Step::SendMsg`] when the kernel refuses the packet.
@@ -53,7 +57,13 @@ pub fn send_tap(
         ptr::write_unaligned(libc::CMSG_DATA(cmsg).cast::<libc::c_int>(), tap.as_raw_fd());
     }
     // SAFETY: every pointer inside `message` references live locals for the call.
-    let sent = unsafe { libc::sendmsg(socket.as_raw_fd(), &raw const message, libc::MSG_NOSIGNAL) };
+    let sent = unsafe {
+        libc::sendmsg(
+            socket.as_raw_fd(),
+            &raw const message,
+            libc::MSG_NOSIGNAL | libc::MSG_DONTWAIT,
+        )
+    };
     if sent < 0 || sent as usize != MAX_HEADER {
         return Err(Error::kernel(Step::SendMsg));
     }

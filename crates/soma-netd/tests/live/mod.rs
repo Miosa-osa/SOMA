@@ -4,6 +4,7 @@ pub mod burst;
 pub mod checks;
 pub mod codec;
 pub mod control;
+pub mod delivery;
 pub mod frames;
 pub mod session;
 pub mod world;

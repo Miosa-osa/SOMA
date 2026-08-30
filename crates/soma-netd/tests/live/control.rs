@@ -90,6 +90,12 @@ impl Client {
 
     /// Sends one request frame.
     pub fn send(&self, request: &Request) {
+        assert!(self.try_send(request), "short request");
+    }
+
+    /// Sends one request frame, reporting whether the broker accepted the complete frame.
+    #[must_use]
+    pub fn try_send(&self, request: &Request) -> bool {
         let bytes = request.encode();
         // SAFETY: `bytes` is a valid buffer for its full length.
         let sent = unsafe {
@@ -100,7 +106,33 @@ impl Client {
                 libc::MSG_NOSIGNAL,
             )
         };
-        assert_eq!(sent, bytes.len() as isize, "short request");
+        sent == bytes.len() as isize
+    }
+
+    /// Stops reading without disconnecting, so the broker's next send is refused.
+    pub fn stop_reading(&self) {
+        // SAFETY: `shutdown` only reads the descriptor and the mode.
+        let closed = unsafe { libc::shutdown(self.connection.as_raw_fd(), libc::SHUT_RD) };
+        assert_eq!(closed, 0, "the peer could not stop reading");
+    }
+
+    /// Receives one frame of any kind, or `None` when the broker closed the connection.
+    #[must_use]
+    pub fn frame(&self) -> Option<Vec<u8>> {
+        let mut frame = [0_u8; MAX_FRAME + 1];
+        // SAFETY: `frame` is a valid writable buffer of exactly the passed length.
+        let received = unsafe {
+            libc::recv(
+                self.connection.as_raw_fd(),
+                frame.as_mut_ptr().cast(),
+                frame.len(),
+                0,
+            )
+        };
+        if received <= 0 {
+            return None;
+        }
+        Some(frame[..received.cast_unsigned()].to_vec())
     }
 
     /// Receives one reply frame, or `None` when the broker closed the connection.
