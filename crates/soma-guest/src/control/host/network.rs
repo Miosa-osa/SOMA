@@ -16,12 +16,15 @@ impl<I: HostControlIo> RepairedHostControl<I> {
 
     /// Mints the single-use capability that lets the broker activate one network assignment.
     ///
-    /// This owner exists only after authenticated repair and the fixed readiness probe, so the
-    /// receipt is the guest evidence the privileged broker requires before it enables
-    /// forwarding.
     /// The receipt binds this session's Instance and Launch operation, the broker's assignment
     /// generation and admitted intent digest, and the live authenticated transcript, so no
     /// other assignment or session can consume it.
+    ///
+    /// That this owner exists only after authenticated repair is a fact about this process, not
+    /// a property of the receipt: the receipt is keyed by the challenge the broker handed to the
+    /// claiming peer, so the broker learns only that the presenter received that challenge.
+    /// See [`crate::ActivationChallenge`] for exactly what the capability does and does not
+    /// prove.
     ///
     /// # Errors
     ///

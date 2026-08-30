@@ -1,13 +1,21 @@
-//! The single-use network-activation capability minted by one repaired guest session.
+//! The single-use network-activation capability one claiming peer presents.
 //!
 //! The privileged network broker samples one fresh [`ActivationChallenge`] while it assigns a
 //! network bundle and returns it only to the peer that claimed that assignment.
-//! Only [`crate::RepairedHostControl`], which exists solely after authenticated repair and the
-//! fixed readiness probe succeeded, converts that challenge into an [`ActivationReceipt`].
+//! [`crate::RepairedHostControl`], which exists only after authenticated repair and the fixed
+//! readiness probe succeeded, converts that challenge into an [`ActivationReceipt`].
 //!
 //! The receipt is a keyed tag over the exact [`ActivationScope`] and the live Noise transcript,
 //! so it cannot be moved to another Instance, assignment generation, Launch operation, or
 //! admitted network intent, and the broker consumes its challenge exactly once.
+//!
+//! What this proves, exactly: the party presenting the receipt is the party the broker gave the
+//! challenge to, and it presents it once. It is not guest evidence. The challenge is the only
+//! secret in the scheme, the broker generates it and hands it to the claiming peer in cleartext,
+//! and the transcript half is carried by the receipt rather than known to the broker, so any
+//! holder of the challenge can compute an accepted receipt with no guest session at all.
+//! Making this capability unforgeable by its presenter needs a secret the presenter does not
+//! hold - a guest-held key the broker can verify against - which does not exist yet.
 
 use core::fmt;
 

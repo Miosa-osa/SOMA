@@ -2,7 +2,7 @@
 //!
 //! The crate owns network namespaces, TAP and veth devices, IPAM, routes, nftables rulesets,
 //! conntrack zones, resolver policy, ingress reservations, the durable ownership ledger,
-//! repair-gated activation, idempotent release, and reconciliation.
+//! single-use claimant-bound activation, idempotent release, and reconciliation.
 //! The unprivileged VMM receives exactly one TAP descriptor through `SOCK_SEQPACKET` plus
 //! `SCM_RIGHTS`.
 //!

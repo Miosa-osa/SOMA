@@ -104,3 +104,21 @@ fn verification_binds_the_challenge_scope_and_transcript() {
         Err(Error::ActivationReceiptRejected)
     );
 }
+
+/// What the capability actually proves, stated as a gate so no later claim can drift past it.
+///
+/// The broker generates the challenge and sends it to the claiming peer, so any holder of the
+/// challenge mints an accepted receipt with no guest session, no handshake, and no repair. The
+/// scheme therefore authenticates the presenter's continuity, not guest repair.
+#[test]
+fn the_challenge_holder_alone_mints_an_accepted_receipt() {
+    let challenge = ActivationChallenge::from_bytes([7; 32]).expect("challenge");
+    let scope = scope();
+
+    // No session exists here: the transcript is 32 bytes the holder picked.
+    let invented = [0xab_u8; 32];
+    let tag = challenge.tag(&scope, &invented).expect("tag");
+    let receipt = ActivationReceipt::new(invented, tag);
+
+    assert_eq!(challenge.verify(&scope, &receipt), Ok(()));
+}

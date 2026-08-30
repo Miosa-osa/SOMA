@@ -1,10 +1,14 @@
-//! Repair-gated activation.
+//! Single-use, claimant-bound activation.
 //!
 //! The assignment carries one fresh single-use [`soma_guest::ActivationChallenge`] that the
 //! broker delivered only to the peer that claimed it.
-//! Activation consumes that challenge and requires a [`soma_guest::ActivationReceipt`] minted
-//! by the repaired authenticated guest session, bound to this exact Instance, assignment
-//! generation, Launch operation, admitted intent digest, and session transcript.
+//! Activation consumes that challenge and requires a [`soma_guest::ActivationReceipt`] that
+//! authenticates against it and against this exact Instance, assignment generation, Launch
+//! operation, and admitted intent digest.
+//!
+//! This is a continuity check on the claiming peer, not guest evidence: the challenge is the
+//! broker's own secret, delivered to that peer, so the peer can compute the receipt without a
+//! guest session. Nothing here proves that guest repair completed.
 //! Only then does the broker verify the ledger, namespace, links, rulesets, and forwarding
 //! state, raise the links, install the routes, and finally enable forwarding, which is the
 //! single step that makes guest traffic flow.

@@ -54,7 +54,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 | Capability | Status | Evidence |
 |---|---|---|
 | Privileged network broker: sterile bundles, assignment, activation, release, reconcile | Live-proved at `bceeb7b`, historical | [Linux network profile](evidence/2026-08-29-linux-network-profile-live.md); the run predates peer authorization and receipt-gated activation |
-| `soma-netd` peer authorization and single-use activation capability | Component-tested | `crates/soma-netd` authorization and activation tests; a privileged live run through `scripts/netd-live-tests.sh` has not been retained |
+| `soma-netd` peer authorization and single-use activation capability | Component-tested | `crates/soma-netd` authorization and activation tests; the receipt binds the claiming peer and is single-use, but it is keyed by the challenge the broker gives that peer, so it is not guest evidence; a privileged live run through `scripts/netd-live-tests.sh` has not been retained |
 | Bounded containment of every privileged external tool | Component-tested | `crates/soma-supervise` tests: deadline, capture ceiling, process-tree termination, and the standard-input feed bound |
 | Complete broker reply delivery with operation-identity replay | Component-tested | `crates/soma-netd/src/daemon/delivery` tests; the privileged live delivery proofs in `crates/soma-netd/tests/live` have not been retained |
 | Real guest networking: virtio-net attach, TAP transfer, proxy, ingress | Designed | [Linux network profile v1](research/linux-network-profile-v1.md) |
@@ -75,3 +75,4 @@ No signed admission report, admission policy, or revocation state exists yet.
 - No end-to-end Instance receipt covering allocation through proven cleanup exists, so nothing is integrated.
 - The proven KVM runs were driven by test processes through crate-internal seams, not by the `soma-vmm` binary behind the public Backend.
 - Every retained latency number is a debug-build single-host observation and none of them is a benchmark result.
+- No capability binds network activation to evidence that guest repair completed. The activation receipt proves claimant continuity and single use only, because the broker shares no secret with the guest.

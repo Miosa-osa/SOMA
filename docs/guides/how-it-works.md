@@ -381,7 +381,7 @@ Each has its own retained evidence, and each evidence file lists what it does no
 ### 5.1 `soma-netd`: sterile network bundles
 
 `crates/soma-netd` is the privileged network broker from [the Linux network profile](../research/linux-network-profile-v1.md).
-It owns network namespaces, TAP and veth devices, `/30` IPAM, MAC derivation, nftables text, conntrack zones, resolver policy, port reservations, a durable ledger, Repair-gated activation, ordered release, and reconciliation.
+It owns network namespaces, TAP and veth devices, `/30` IPAM, MAC derivation, nftables text, conntrack zones, resolver policy, port reservations, a durable ledger, single-use claimant-bound activation, ordered release, and reconciliation.
 The VMM side receives exactly one TAP descriptor over `SOCK_SEQPACKET` with `SCM_RIGHTS` and a fixed typed header.
 
 [The network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md) records a run as a privileged process inside the pinned Ubuntu 24.04 container on the real Host kernel.

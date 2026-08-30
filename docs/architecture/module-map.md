@@ -934,7 +934,7 @@ The crate does not yet wrap the real `soma-vmm` binary, transfer a TAP endpoint,
 ## `soma-netd` responsibilities
 
 `soma-netd` is the privileged Linux network broker accepted by ADR 0012 and specified in [the Linux network profile](../research/linux-network-profile-v1.md).
-It owns network namespaces, TAP and veth devices, IPAM, routes, nftables rulesets, conntrack zones, resolver policy, ingress port reservations, the durable ownership ledger, repair-gated activation, idempotent release, and reconciliation.
+It owns network namespaces, TAP and veth devices, IPAM, routes, nftables rulesets, conntrack zones, resolver policy, ingress port reservations, the durable ownership ledger, single-use claimant-bound activation, idempotent release, and reconciliation.
 The unprivileged VMM receives exactly one already-open TAP descriptor over `SOCK_SEQPACKET` with `SCM_RIGHTS` and can never create or reconfigure a host device.
 
 The source map is:
