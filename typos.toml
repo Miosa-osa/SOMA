@@ -3,6 +3,14 @@ extend-exclude = [
     "Cargo.lock",
     "LICENSE",
     "target/",
+    # Retained raw evidence is base64 and hex captured from real runs. It is data, not prose, and
+    # it must stay byte for byte as it was recorded, so it is never spell corrected.
+    "docs/evidence/raw/",
+    # The pinned kernel configuration is upstream Linux symbol names, not prose. It is compared
+    # byte for byte against the kernel build, so nothing in it may be rewritten.
+    "kernel/config-x86_64-soma-v1",
+    "kernel/required-config.txt",
+    "kernel/soma-v1.fragment",
 ]
 
 [default.extend-identifiers]
@@ -12,3 +20,42 @@ KVM_GET_API_VERSION = "KVM_GET_API_VERSION"
 MAP_PRIVATE = "MAP_PRIVATE"
 PNGs = "PNGs"
 SOCK_SEQPACKET = "SOCK_SEQPACKET"
+# The e2fsprogs formatter the Generation compiler pins and invokes by name.
+mke2fs = "mke2fs"
+MKE2FS = "MKE2FS"
+# The `msghdr` control-buffer length field, spelled this way by the kernel ABI.
+msg_controllen = "msg_controllen"
+controllen = "controllen"
+# A deliberate misspelling inside a template parser test, which asserts that an unknown key is
+# rejected. Correcting it would delete the case the test exists to prove.
+nmae = "nmae"
+
+[default]
+extend-ignore-identifiers-re = [
+    # KVM and ELF binding fields carry upstream names that are not English words.
+    "^kvm_.*",
+]
+
+[default.extend-words]
+# The user-mode networking daemon, a proper noun.
+passt = "passt"
+# Standard in this repository's prose for input that cannot be parsed.
+unparseable = "unparseable"
+# Identifiers are split into words, so the `mke` in mke2fs, mke2fs_arguments, and MKE2FS_CONFIG
+# is checked on its own. It is the name of the formatter, not a misspelling of "make".
+mke = "mke"
+# 16550 UART registers. THR is the transmit holding register and THRE is its empty flag, so both
+# appear throughout the serial device and its tests.
+thr = "thr"
+THR = "THR"
+thre = "thre"
+THRE = "THRE"
+# The x87 floating point register array in the KVM FPU state binding.
+fpr = "fpr"
+# Appears inside upstream git revisions quoted in the research census, for example `0b5ba86`.
+# Correcting it would rewrite a commit hash and break the citation.
+ba = "ba"
+# The `virtio-queue-ser` crate, quoted by name.
+ser = "ser"
+# A short class name used as fixture data in a prepared-worker pool test.
+smal = "smal"
