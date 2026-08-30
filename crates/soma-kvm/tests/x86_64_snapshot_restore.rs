@@ -92,6 +92,7 @@ mod live {
         for milestone in [
             Milestone::ValidateManifest,
             Milestone::MapMemory,
+            Milestone::LaunchPageMapped,
             Milestone::RegisterSlots,
             Milestone::Devices,
             Milestone::VcpuRestored,
@@ -114,6 +115,12 @@ mod live {
             restored.evidence.devices
         );
         assert_eq!(restored.evidence.mmio.transport_violations, 0);
+        // The launch-page slot belongs before KVM_CREATE_VCPU; see the loop test for why.
+        assert!(
+            restored.evidence.at(Milestone::LaunchPageMapped)
+                < restored.evidence.at(Milestone::Vcpu),
+            "the launch-page slot was registered after the vCPU existed"
+        );
         assert_eq!(
             restored.descriptors.1, restored.descriptors.0,
             "the restored machine leaked descriptors"

@@ -7,7 +7,7 @@
 use std::fs;
 
 use soma_guest::TerminalStatus;
-use soma_kvm::x86_64::GuestExit;
+use soma_kvm::x86_64::{GuestExit, Milestone};
 
 use crate::{
     x86_64_sandbox_boot_host::require_kvm, x86_64_snapshot_restore_fixture as fixture,
@@ -39,6 +39,16 @@ fn warm_restore_timing_over_ten_iterations() {
             String::from_utf8_lossy(&restored.executed[0].stdout).starts_with("v22."),
             "iteration {iteration} did not report the Node version"
         );
+        // The launch-page slot is added while the VM still has no vCPU, where the same
+        // KVM_SET_USER_MEMORY_REGION costs microseconds rather than the two milliseconds it
+        // cost after the vCPU existed. Nothing else in the suite pins that order.
+        let mapped = at(&restored.evidence, Milestone::LaunchPageMapped);
+        let vcpu = at(&restored.evidence, Milestone::Vcpu);
+        assert!(
+            mapped < vcpu,
+            "iteration {iteration} registered the launch-page slot at {mapped} ns, after the \
+             vCPU at {vcpu} ns"
+        );
         if iteration == 0 {
             report::timeline(&name, &restored.evidence);
         }
@@ -56,4 +66,11 @@ fn warm_restore_timing_over_ten_iterations() {
         report::percentiles(name, samples[index].clone());
     }
     report::percentiles("restore call, host side", restore_ns);
+}
+
+/// One milestone of a restored Instance, which every restore must have reached.
+fn at(evidence: &soma_kvm::x86_64::SandboxEvidence, milestone: Milestone) -> u64 {
+    evidence
+        .at(milestone)
+        .unwrap_or_else(|| panic!("milestone {milestone:?} missing from a restored Instance"))
 }
