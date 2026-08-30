@@ -198,3 +198,5 @@ Pre-warming those copy-ups before capture would put placeholder identity files i
 
 `cargo fmt --all --check`, `cargo build --locked --workspace --all-targets`, `cargo clippy --locked --workspace --all-targets -- -D warnings`, `cargo test --locked --workspace`, `cargo deny check`, and `scripts/check-architecture.sh` pass after each of the three commits.
 All thirteen live KVM tests pass in the container that receives `/dev/kvm`: `kvm_probe` 1, `x86_64_halt_guest` 2, `x86_64_kernel_boot` 2, `x86_64_sandbox_boot` 2, `x86_64_snapshot_restore` 6.
+That claim is now worth what it says: until the branch head, seven of those thirteen returned `ok` while executing nothing when the `node:22` layout was absent, and a missing prerequisite is now a failed run in every one of them.
+The run recorded here is release-profile, at the branch head, with each live test process holding its own scratch tree, which two concurrent runs of one worktree previously shared.
