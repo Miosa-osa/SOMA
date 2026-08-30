@@ -1,12 +1,44 @@
+//! The non-secret IPv4 and transport identity of one launch page.
+//!
+//! # Declared IPv4 profile
+//!
+//! Every Instance receives one broadcast-capable subnet with at least two usable host
+//! addresses, so the accepted prefix lengths are 1 through 30.
+//! A `/31` point-to-point link is deliberately not accepted: the profile requires a distinct
+//! gateway and a directed broadcast address, and RFC 3021 links have neither, so accepting one
+//! would make the network and broadcast rejections below unenforceable.
+//! A `/32` host route is deliberately not accepted for the same reason.
+//! Widening the profile to point-to-point links is a launch-page schema decision, not a
+//! validation relaxation.
+//!
+//! The guest address and the gateway must both be usable unicast hosts inside that subnet and
+//! must differ from each other, from the subnet network address, and from its directed
+//! broadcast address.
+//! The resolver must be a usable unicast address; it may sit outside the subnet, because a
+//! resolver reached through the gateway is a normal deployment, but when it does sit inside
+//! the subnet it is held to the same host rules.
+//! Usable unicast excludes the unspecified address, `0.0.0.0/8`, loopback, link-local
+//! `169.254.0.0/16`, multicast and every reserved address from `224.0.0.0` up, and the limited
+//! broadcast address.
+
 use crate::Error;
 
 use super::wire::Reader;
+
+#[cfg(test)]
+mod tests;
 
 /// Encoded byte size of the non-secret network fields inside the launch page.
 pub(super) const ENCODED_SIZE: usize = 4 + 4 + 6 + 4 + 1 + 4 + 4 + 8;
 
 const VMADDR_CID_RESERVED_MAX: u32 = 2;
+const MIN_PREFIX_LENGTH: u8 = 1;
+/// The longest accepted prefix; see the declared IPv4 profile above for why `/31` and `/32`
+/// are excluded.
 const MAX_PREFIX_LENGTH: u8 = 30;
+const LINK_LOCAL: [u8; 2] = [169, 254];
+const FIRST_MULTICAST_OCTET: u8 = 224;
+const LOOPBACK_OCTET: u8 = 127;
 
 /// Non-secret fresh network and transport identity delivered with one launch page.
 ///
@@ -25,13 +57,16 @@ pub struct LaunchNetwork {
 }
 
 impl LaunchNetwork {
-    /// Validates one fresh network identity.
+    /// Validates one fresh network identity against the declared IPv4 profile.
     ///
     /// # Errors
     ///
     /// Returns [`Error::InvalidLaunchNetwork`] for a reserved vsock CID, a zero generation, a
-    /// multicast or zero MAC, an unusable IPv4 address, an invalid prefix, a gateway outside the
-    /// prefix or equal to the address, a zero resolver, or a zero time sample.
+    /// multicast or zero MAC, an unspecified, loopback, link-local, multicast, reserved, or
+    /// broadcast IPv4 value, a prefix outside 1 through 30, a gateway outside the prefix or
+    /// equal to the address, a guest or gateway that is the subnet network or directed
+    /// broadcast address, an in-prefix resolver that is one of those two, or a zero time
+    /// sample.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         vsock_cid: u32,
@@ -149,6 +184,11 @@ impl LaunchNetwork {
         let mask = prefix_mask(self.prefix_length);
         let address = u32::from_be_bytes(self.address);
         let gateway = u32::from_be_bytes(self.gateway);
+        let resolver = u32::from_be_bytes(self.resolver);
+        let subnet = Subnet {
+            network: address & mask,
+            broadcast: (address & mask) | !mask,
+        };
         let valid = self.vsock_cid > VMADDR_CID_RESERVED_MAX
             && self.vsock_cid != u32::MAX
             && self.generation != 0
@@ -157,11 +197,28 @@ impl LaunchNetwork {
             && usable_unicast(self.address)
             && usable_unicast(self.gateway)
             && usable_unicast(self.resolver)
-            && (1..=MAX_PREFIX_LENGTH).contains(&self.prefix_length)
-            && address & mask == gateway & mask
+            && (MIN_PREFIX_LENGTH..=MAX_PREFIX_LENGTH).contains(&self.prefix_length)
+            && gateway & mask == subnet.network
             && address != gateway
+            && subnet.usable_host(address)
+            && subnet.usable_host(gateway)
+            && (resolver & mask != subnet.network || subnet.usable_host(resolver))
             && self.time_sample_nanos != 0;
         valid.then_some(()).ok_or(Error::InvalidLaunchNetwork)
+    }
+}
+
+/// The subnet addresses that are reserved rather than assignable to a host.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Subnet {
+    network: u32,
+    broadcast: u32,
+}
+
+impl Subnet {
+    /// Returns whether `value` is assignable rather than the network or broadcast address.
+    const fn usable_host(self, value: u32) -> bool {
+        value != self.network && value != self.broadcast
     }
 }
 
@@ -175,86 +232,24 @@ const fn prefix_mask(prefix_length: u8) -> u32 {
     }
 }
 
+/// Returns whether an address is a globally usable unicast value on any subnet.
+///
+/// This rejects the classes that can never name a peer on the guest link: the unspecified
+/// address and the rest of `0.0.0.0/8`, loopback, link-local `169.254.0.0/16`, multicast and
+/// every reserved address from `224.0.0.0` up, and the limited broadcast address.
 const fn usable_unicast(address: [u8; 4]) -> bool {
     let first = address[0];
     let value = u32::from_be_bytes(address);
-    value != 0 && value != u32::MAX && first != 0 && first != 127 && first < 224
+    value != 0
+        && value != u32::MAX
+        && first != 0
+        && first != LOOPBACK_OCTET
+        && first < FIRST_MULTICAST_OCTET
+        && !(first == LINK_LOCAL[0] && address[1] == LINK_LOCAL[1])
 }
 
 fn write(destination: &mut [u8], cursor: &mut usize, source: &[u8]) {
     let end = *cursor + source.len();
     destination[*cursor..end].copy_from_slice(source);
     *cursor = end;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    type Fields = (u32, u32, [u8; 6], [u8; 4], u8, [u8; 4], [u8; 4], u64);
-
-    fn valid() -> LaunchNetwork {
-        LaunchNetwork::new(
-            3,
-            1,
-            [0x02, 0, 0, 0, 0, 1],
-            [10, 0, 0, 2],
-            24,
-            [10, 0, 0, 1],
-            [10, 0, 0, 1],
-            1,
-        )
-        .expect("valid network")
-    }
-
-    #[test]
-    fn netmask_follows_prefix_length() {
-        assert_eq!(valid().netmask(), [255, 255, 255, 0]);
-        assert_eq!(prefix_mask(30), 0xFFFF_FFFC);
-        assert_eq!(prefix_mask(1), 0x8000_0000);
-    }
-
-    #[test]
-    fn round_trips_through_the_fixed_encoding() {
-        let mut encoded = [0; ENCODED_SIZE];
-        valid().encode(&mut encoded);
-
-        assert_eq!(LaunchNetwork::decode(&encoded).expect("decodes"), valid());
-        assert_eq!(
-            LaunchNetwork::decode(&encoded[..ENCODED_SIZE - 1]).expect_err("short input"),
-            Error::LaunchPageRejected
-        );
-    }
-
-    #[test]
-    fn rejects_every_invalid_field_class() {
-        let base = valid();
-        let mac = base.mac;
-        let address = base.address;
-        let gateway = base.gateway;
-        let resolver = base.resolver;
-        let cases: [Fields; 12] = [
-            (2, 1, mac, address, 24, gateway, resolver, 1),
-            (u32::MAX, 1, mac, address, 24, gateway, resolver, 1),
-            (3, 0, mac, address, 24, gateway, resolver, 1),
-            (3, 1, [1, 0, 0, 0, 0, 1], address, 24, gateway, resolver, 1),
-            (3, 1, [0; 6], address, 24, gateway, resolver, 1),
-            (3, 1, mac, [127, 0, 0, 1], 24, gateway, resolver, 1),
-            (3, 1, mac, address, 0, gateway, resolver, 1),
-            (3, 1, mac, address, 31, gateway, resolver, 1),
-            (3, 1, mac, address, 24, [10, 0, 1, 1], resolver, 1),
-            (3, 1, mac, address, 24, address, resolver, 1),
-            (3, 1, mac, address, 24, gateway, [0; 4], 1),
-            (3, 1, mac, address, 24, gateway, resolver, 0),
-        ];
-        for (cid, generation, mac, address, prefix, gateway, resolver, time) in cases {
-            assert_eq!(
-                LaunchNetwork::new(
-                    cid, generation, mac, address, prefix, gateway, resolver, time
-                )
-                .expect_err("invalid network"),
-                Error::InvalidLaunchNetwork
-            );
-        }
-    }
 }

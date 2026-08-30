@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-29
 - Extends: ADR 0020 and ADR 0021
-- Extended by: ADR 0024
+- Extended by: ADR 0024 and ADR 0028
 
 ## Context
 

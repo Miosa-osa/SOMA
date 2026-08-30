@@ -751,6 +751,7 @@ crates/soma-guest/src/
   handshake.rs
   launch_page.rs
   launch_page/network.rs
+  launch_page/network/tests.rs
   launch_page/session.rs
   launch_page/wire.rs
   record.rs
@@ -760,6 +761,7 @@ crates/soma-guest/src/
 
 The crate is an independent protocol and ownership foundation so the host VMM adapter and the static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
 It also fixes the machine-contract constants shared by both peers: the launch-page guest-physical address, the vsock control port, and the schema 2 non-secret `LaunchNetwork` identity accepted by ADR 0023.
+`launch_page/network.rs` enforces the declared IPv4 profile of ADR 0028: prefixes 1 through 30 with no point-to-point exception, usable unicast that excludes the unspecified, `0.0.0.0/8`, loopback, link-local, multicast, reserved, and limited-broadcast classes, and a guest and gateway that are assignable hosts rather than the subnet network or directed broadcast address.
 It does not contain a guest executable, VMM device transport adapter, trusted Generation-manifest verifier, physical snapshot-safe secret injection, real clone repair, process executor, C ABI, or attestation mechanism.
 Its owned authenticated probe state is necessary but cannot authorize a Machine Ready result until those external repair and execution effects are wired and evidenced.
 
