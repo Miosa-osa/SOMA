@@ -28,7 +28,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 |---|---|---|
 | Bounded verified OCI layout import | Live-proved at `4d10493` | [Node 22 OCI import](evidence/2026-08-29-node22-oci-import.md) |
 | Deterministic normalized logical rootfs | Live-proved at `4d10493` | [Node 22 OCI import](evidence/2026-08-29-node22-oci-import.md); cross-host reproduction of one image revision is still open |
-| Pinned PVH kernel build | Live-proved at `bc61af2` | [x86_64 PVH kernel build](evidence/2026-08-29-x86_64-pvh-kernel-build.md); cross-host reproducibility untested |
+| Pinned PVH kernel build | Live-proved at `c634c89` | [x86_64 PVH kernel build](evidence/2026-08-29-x86_64-pvh-kernel-build.md); cross-host reproducibility untested |
 | Generation compiler phases 1 through 3 and 6 | Component-tested | `crates/soma-generation` tests; phase 4 is partial and phase 5 is absent |
 | Generation Candidate cold-booting on real KVM | Live-proved at `71161ea`, historical | [First sandbox command](evidence/2026-08-29-x86_64-first-sandbox-command.md); the run used initramfs layout v2, so its `GenerationId` values are no longer reproducible |
 | Generation certification, signed manifest, SBOM, revocation, publication | Designed | [Generation compiler](research/generation-compiler.md); `certify_candidate` fails closed as unimplemented |
