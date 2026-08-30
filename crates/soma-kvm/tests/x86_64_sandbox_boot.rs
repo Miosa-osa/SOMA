@@ -223,14 +223,8 @@ mod live {
             timeout_millis: 30_000,
             output_bytes: 65_536,
         };
-        let Some(proof) =
-            boot_generation("node22", NODE, "SOMA_OCI_NODE_LAYOUT", 1024, 1024, &command)
-        else {
-            eprintln!(
-                "SKIP: the node:22 OCI layout could not be exported; set SOMA_OCI_NODE_LAYOUT"
-            );
-            return;
-        };
+        let proof = boot_generation("node22", NODE, "SOMA_OCI_NODE_LAYOUT", 1024, 1024, &command)
+            .expect("prerequisite failed: the node:22 OCI layout could not be exported; set SOMA_OCI_NODE_LAYOUT");
         assert_proof(&proof);
         let stdout = String::from_utf8_lossy(&proof.executed.stdout);
         assert!(stdout.starts_with("v22."), "stdout={stdout:?}");

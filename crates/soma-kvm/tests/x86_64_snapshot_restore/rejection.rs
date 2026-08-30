@@ -30,9 +30,7 @@ const EXIT_GRACE: Duration = Duration::from_secs(10);
 #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
 fn a_tampered_object_is_rejected_before_any_vcpu_exists() {
     require_kvm();
-    let Some(fixture) = fixture::shared() else {
-        return fixture::skip();
-    };
+    let fixture = fixture::shared();
 
     let state = tampered(&fixture, "tampered-state", |paths, source| {
         report::tamper(&source.state(), &paths.state(), 400);
@@ -70,9 +68,7 @@ fn a_tampered_object_is_rejected_before_any_vcpu_exists() {
 #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
 fn a_foreign_cpu_template_rejects_the_snapshot() {
     require_kvm();
-    let Some(fixture) = fixture::shared() else {
-        return fixture::skip();
-    };
+    let fixture = fixture::shared();
     let foreign = tampered(&fixture, "foreign-template", |paths, source| {
         report::tamper(&source.state(), &paths.state(), CPU_TEMPLATE_OFFSET);
         link(&source.memory(), &paths.memory());
@@ -93,9 +89,7 @@ fn a_foreign_cpu_template_rejects_the_snapshot() {
 #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
 fn the_published_objects_carry_no_launch_material() {
     require_kvm();
-    let Some(fixture) = fixture::shared() else {
-        return fixture::skip();
-    };
+    let fixture = fixture::shared();
     let memory = report::read(&fixture.paths.memory());
     let overlay = report::read(&fixture.paths.overlay());
     let state = report::read(&fixture.paths.state());

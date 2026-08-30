@@ -78,9 +78,7 @@ mod live {
     #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
     fn one_restore_reaches_ready_and_reports_the_node_version() {
         require_kvm();
-        let Some(fixture) = fixture::shared() else {
-            return fixture::skip();
-        };
+        let fixture = fixture::shared();
         let commands = [instance::command(b"/usr/local/bin/node", &[b"--version"])];
         let restored = instance::run(&fixture, "single", 4, &commands);
         report::timeline("single", &restored.evidence);
@@ -143,9 +141,7 @@ mod live {
     #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
     fn two_restores_of_one_snapshot_are_independent_instances() {
         require_kvm();
-        let Some(fixture) = fixture::shared() else {
-            return fixture::skip();
-        };
+        let fixture = fixture::shared();
         let before = report::digest(&fixture.paths.memory());
         let first = instance::run(
             &fixture,

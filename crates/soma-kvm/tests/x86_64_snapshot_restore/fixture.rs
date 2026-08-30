@@ -81,32 +81,32 @@ impl Fixture {
 /// The shared fixture as every test borrows it.
 pub type Shared = MutexGuard<'static, Fixture>;
 
-static FIXTURE: OnceLock<Option<Mutex<Fixture>>> = OnceLock::new();
-
-/// Prints the one reason a test may decline to run and returns.
-pub fn skip() {
-    eprintln!("SKIP: the node:22 OCI layout could not be exported; set {LAYOUT_VAR}");
-}
+static FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
 
 /// Builds the shared fixture on first use and lends it to every later caller.
 ///
-/// Returns `None` when the image cannot be exported, which is a skip rather than a failure.
-pub fn shared() -> Option<Shared> {
-    // The build result is recorded once, success or skip, so a suite that cannot export the
-    // image declines in seconds instead of recompiling the Generation for every test.
-    let built = FIXTURE.get_or_init(|| build().map(Mutex::new));
-    Some(
-        built
-            .as_ref()?
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner),
-    )
+/// # Panics
+///
+/// Panics when the `node:22` image cannot be exported. These tests are `#[ignore]`d, so a run
+/// that reaches here asked for them by name or with `--ignored`; a missing prerequisite is
+/// then a failed run and never a test that reports `ok` having executed nothing.
+pub fn shared() -> Shared {
+    // The Generation is compiled once and every later caller borrows it, so a suite that
+    // cannot export the image fails in seconds instead of recompiling it for every test.
+    FIXTURE
+        .get_or_init(|| Mutex::new(build()))
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
 }
 
-fn build() -> Option<Fixture> {
+fn build() -> Fixture {
     let scratch = scratch_dir("node22");
     let inputs = generation::inputs(kernel_path());
-    let layout = generation::oci_layout(IMAGE, LAYOUT_VAR, &scratch)?;
+    let layout = generation::oci_layout(IMAGE, LAYOUT_VAR, &scratch).unwrap_or_else(|| {
+        panic!(
+            "prerequisite failed: the {IMAGE} OCI layout could not be exported; set {LAYOUT_VAR}. It never passes silently"
+        )
+    });
     let compiled = generation::compile(
         &layout,
         &format!("docker.io/library/{IMAGE}"),
@@ -135,7 +135,7 @@ fn build() -> Option<Fixture> {
     let paths = SnapshotPaths::new(directory);
     let ram_bytes = MEMORY_MIB * MIB;
     let (source, capture) = capture_source(&compiled, &paths, generation_id, ram_bytes, &scratch);
-    Some(Fixture {
+    Fixture {
         scratch,
         paths,
         capture,
@@ -144,7 +144,7 @@ fn build() -> Option<Fixture> {
         ram_bytes,
         agent: inputs.agent.clone(),
         source,
-    })
+    }
 }
 
 /// Boots the Generation with no launch page at all, waits for the repair point, and captures.

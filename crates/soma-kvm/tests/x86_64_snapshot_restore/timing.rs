@@ -23,9 +23,7 @@ const FIRST_CID: u32 = 16;
 #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
 fn warm_restore_timing_over_ten_iterations() {
     require_kvm();
-    let Some(fixture) = fixture::shared() else {
-        return fixture::skip();
-    };
+    let fixture = fixture::shared();
     let commands = [instance::command(b"/usr/local/bin/node", &[b"--version"])];
     let milestones: Vec<(soma_kvm::x86_64::Milestone, &str)> =
         report::WARM.into_iter().chain(report::AFTER).collect();
