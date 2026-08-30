@@ -1,4 +1,6 @@
 mod host;
+mod prepared;
+mod resolve;
 
 use soma::{BackendFailure, BackendFailureKind, BackendKind, OperationId};
 
