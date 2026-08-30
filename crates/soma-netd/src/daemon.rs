@@ -7,8 +7,10 @@
 //! terminal: [`delivery`] states the exact recovery each undelivered reply leaves, and
 //! [`claim`] makes a claim idempotent under its Instance and Launch operation so an uncertain
 //! delivery is replayed rather than turned into a second lease.
-//! Activation requires the receipt the repaired guest session minted from that challenge; a
-//! rejected, replayed, or failed activation releases the assignment instead of retrying.
+//! Activation requires the receipt this assignment's challenge authenticates; the receipt that
+//! succeeded is retained, so a peer that lost its `Activated` reply replays the same request
+//! and is answered from that record instead of having its running Machine torn down.
+//! A receipt that fails to authenticate still releases the assignment.
 //!
 //! Every connection is authenticated by [`crate::ControlListener`] before a byte is read, every
 //! request needs the [`crate::Capability`] its operation requires, and an assignment can only be
@@ -173,6 +175,10 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
             if owned.peer != peer.uid() {
                 state.own(owned);
                 return Reply::Failed(error_code(&Error::Unauthorized("assignment owner")));
+            }
+            if owned.assigned.activated_by(&receipt) {
+                state.own(owned);
+                return Reply::Activated;
             }
             match activate(&mut owned.assigned, &receipt) {
                 Ok(_) => {

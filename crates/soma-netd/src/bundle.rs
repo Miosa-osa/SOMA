@@ -148,6 +148,7 @@ impl Broker {
                 launch,
                 reservations,
                 activation: Some(activation),
+                activated: None,
                 active: false,
             }),
             Err(error) => Err(AssignFailure {

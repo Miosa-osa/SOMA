@@ -2,7 +2,7 @@
 
 use std::os::fd::OwnedFd;
 
-use soma_guest::{ActivationChallenge, LaunchNetwork};
+use soma_guest::{ActivationChallenge, ActivationReceipt, LaunchNetwork};
 
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, Error, LeasePair,
@@ -80,6 +80,7 @@ pub struct Assigned {
     pub(crate) launch: LaunchNetwork,
     pub(crate) reservations: Vec<PortReservation>,
     pub(crate) activation: Option<ActivationChallenge>,
+    pub(crate) activated: Option<ActivationReceipt>,
     pub(crate) active: bool,
 }
 
@@ -112,6 +113,16 @@ impl Assigned {
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Returns whether this exact receipt is the one that already activated this assignment.
+    ///
+    /// A peer whose `Activated` reply was lost replays the same request; answering it from the
+    /// recorded receipt keeps activation idempotent under the operation identity instead of
+    /// destroying a Machine that is already running.
+    #[must_use]
+    pub fn activated_by(&self, receipt: &ActivationReceipt) -> bool {
+        self.activated.is_some_and(|prior| prior == *receipt)
     }
 
     /// Borrows the single-use activation challenge until one activation attempt consumes it.

@@ -11,6 +11,8 @@
 //!
 //! The challenge is taken before any verification, so one challenge authorizes at most one
 //! activation attempt and a replayed receipt can never reach the kernel.
+//! The receipt that succeeded is retained on the assignment, so the broker answers a peer that
+//! lost its `Activated` reply from that record instead of running activation again.
 
 use soma_guest::{ActivationReceipt, ActivationScope};
 
@@ -91,6 +93,7 @@ pub fn activate(
     ));
     bundle.namespace.within(|| sysctl::set_forwarding(true))?;
     evidence.forwarding = true;
+    assigned.activated = Some(*receipt);
     assigned.active = true;
     Ok(evidence)
 }

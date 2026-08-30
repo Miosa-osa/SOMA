@@ -28,10 +28,15 @@ pub fn transfer_tap(assigned: &soma_netd::Assigned) -> Guest {
 }
 
 pub fn public_intent(broker: &soma_netd::Broker) -> NetworkIntent {
+    public_intent_for(broker.profile())
+}
+
+/// The same admitted intent, for a test that drives the daemon instead of a broker it owns.
+pub fn public_intent_for(profile: &soma_netd::NetworkProfile) -> NetworkIntent {
     NetworkIntent::admit(
         &NetworkPolicy::new(EgressPolicy::PublicInternet, DnsPolicy::System, Vec::new())
             .expect("policy"),
-        broker.profile(),
+        profile,
     )
     .expect("intent")
 }
