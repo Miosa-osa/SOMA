@@ -27,6 +27,9 @@ const fn kind_for(error: &PreparedError) -> BackendFailureKind {
         // Everything else is a property of the host: it prepares nothing, its root cannot be
         // read, or what claims this reference is damaged, duplicated, or a link. Each is an
         // operator fault rather than a fault in the request.
+        // A Candidate is refused because no certification gate exists to verify it, which is
+        // a missing capability rather than a fault in the host's files.
+        PreparedError::Uncertified => BackendFailureKind::Unsupported,
         PreparedError::StoreUnset
         | PreparedError::StoreUnreadable
         | PreparedError::Damaged

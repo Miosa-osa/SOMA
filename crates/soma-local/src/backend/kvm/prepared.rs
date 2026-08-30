@@ -9,12 +9,21 @@
 //! Identity is recomputed from the bytes on every read rather than recorded beside them, so a
 //! tampered or truncated entry cannot present itself as a Generation it is not.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
 use soma_generation::{CandidateId, GenerationManifest, generation_manifest::decode_candidate};
 
 /// Names the root holding Generations prepared for this host.
 pub(super) const STORE: &str = "SOMA_GENERATION_STORE";
+
+/// Opts this host into launching uncertified Candidates.
+///
+/// Certification does not exist yet, so every Generation a host can prepare today is a
+/// Candidate that no gate has verified. Launching one is a development and diagnostic
+/// behaviour, not a production one, and it must not be reachable by accident: without this
+/// variable set to `1`, a Candidate is refused before any machine is created.
+pub(super) const ALLOW_UNCERTIFIED: &str = "SOMA_ALLOW_UNCERTIFIED_GENERATION";
 
 /// The exact published Candidate bytes, from which identity and manifest are recovered.
 const CANDIDATE: &str = "candidate.somacan";
@@ -34,6 +43,8 @@ pub(super) enum PreparedError {
     NotPrepared,
     /// More than one entry claims this reference, so which one launches is undefined.
     Ambiguous,
+    /// The entry holds a Candidate and this host has not opted into launching one.
+    Uncertified,
     /// An entry, or a file inside it, is a symbolic link.
     ///
     /// A link means the bytes that launch can be redirected after they were verified, so a
@@ -126,9 +137,32 @@ pub(super) fn find(
     }
     match claimants.as_slice() {
         [] => Err(PreparedError::NotPrepared),
-        [only] => read_entry(only),
+        [only] => {
+            let prepared = read_entry(only)?;
+            // Nothing a host can prepare today carries a certification, so this is where a
+            // Candidate is stopped: before any overlay, VM, vCPU, or guest thread exists.
+            if uncertified_allowed() {
+                Ok(prepared)
+            } else {
+                Err(PreparedError::Uncertified)
+            }
+        }
         _ => Err(PreparedError::Ambiguous),
     }
+}
+
+/// Whether this host opted into launching an uncertified Candidate.
+fn uncertified_allowed() -> bool {
+    allows_uncertified(std::env::var_os(ALLOW_UNCERTIFIED).as_deref())
+}
+
+/// The opt-in rule, over an already-read value so it is testable without touching the process.
+///
+/// Only the exact value `1` opts in. Any other setting, including an empty value or the word
+/// `true`, leaves the host refusing Candidates, because a half-recognised setting must not be
+/// the difference between refusing and launching unverified bytes.
+fn allows_uncertified(value: Option<&OsStr>) -> bool {
+    value == Some(OsStr::new("1"))
 }
 
 /// The prepared root this host names, if any.
@@ -137,108 +171,5 @@ pub(super) fn store_root() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_unnamed_store_prepares_nothing() {
-        assert_eq!(
-            find(None, "node:22").expect_err("an unset store must refuse"),
-            PreparedError::StoreUnset
-        );
-    }
-
-    #[test]
-    fn a_missing_root_is_distinguished_from_an_empty_one() {
-        assert_eq!(
-            find(Some(Path::new("/nonexistent/soma-generations")), "node:22")
-                .expect_err("a missing root must refuse"),
-            PreparedError::StoreUnreadable
-        );
-    }
-
-    #[test]
-    fn a_readable_root_without_a_match_is_not_prepared() {
-        let root = std::env::temp_dir().join(format!("soma-prepared-empty-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("create the test root");
-        let found = find(Some(&root), "node:22");
-        std::fs::remove_dir_all(&root).ok();
-        assert_eq!(
-            found.expect_err("an empty root must refuse"),
-            PreparedError::NotPrepared
-        );
-    }
-
-    #[test]
-    fn an_entry_matching_the_reference_with_unreadable_bytes_is_damaged_not_missing() {
-        let root =
-            std::env::temp_dir().join(format!("soma-prepared-damaged-{}", std::process::id()));
-        let entry = root.join("one");
-        std::fs::create_dir_all(&entry).expect("create the test entry");
-        std::fs::write(entry.join(REFERENCE), "node:22\n").expect("write the reference");
-        // The Candidate bytes are absent, so the entry claims a reference it cannot serve.
-        let found = find(Some(&root), "node:22");
-        std::fs::remove_dir_all(&root).ok();
-        assert_eq!(
-            found.expect_err("a damaged entry must refuse"),
-            PreparedError::Damaged
-        );
-    }
-
-    /// Two entries claiming one reference must not resolve by directory order.
-    #[test]
-    fn duplicate_references_are_ambiguous_rather_than_first_wins() {
-        let root = std::env::temp_dir().join(format!("soma-prepared-dup-{}", std::process::id()));
-        for name in ["one", "two"] {
-            let entry = root.join(name);
-            std::fs::create_dir_all(entry.join(STORE_DIRECTORY)).expect("create the entry");
-            std::fs::write(entry.join(REFERENCE), "node:22").expect("write the reference");
-            std::fs::write(entry.join(CANDIDATE), b"not a candidate").expect("write bytes");
-        }
-        let found = find(Some(&root), "node:22");
-        std::fs::remove_dir_all(&root).ok();
-        assert_eq!(
-            found.expect_err("two entries for one reference must refuse"),
-            PreparedError::Ambiguous
-        );
-    }
-
-    /// A linked entry could be redirected after it was verified.
-    #[test]
-    fn a_symlinked_entry_is_refused_rather_than_followed() {
-        let root = std::env::temp_dir().join(format!("soma-prepared-link-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("create the root");
-        // The entry that actually holds the bytes lives outside the prepared root, so the only
-        // way this reference can resolve is by following the link, which is what must not
-        // happen: a link can be repointed after the entry it named was verified.
-        let outside = std::env::temp_dir().join(format!("soma-target-{}", std::process::id()));
-        std::fs::create_dir_all(outside.join(STORE_DIRECTORY)).expect("create the target");
-        std::fs::write(outside.join(REFERENCE), "node:22").expect("write the reference");
-        std::fs::write(outside.join(CANDIDATE), b"not a candidate").expect("write bytes");
-        std::os::unix::fs::symlink(&outside, root.join("linked")).expect("link the entry");
-
-        let found = find(Some(&root), "node:22");
-        std::fs::remove_dir_all(&root).ok();
-        std::fs::remove_dir_all(&outside).ok();
-        assert_eq!(
-            found.expect_err("a linked entry must refuse"),
-            PreparedError::Linked
-        );
-    }
-
-    #[test]
-    fn an_entry_prepared_for_another_reference_is_skipped_rather_than_read() {
-        let root = std::env::temp_dir().join(format!("soma-prepared-other-{}", std::process::id()));
-        let entry = root.join("one");
-        std::fs::create_dir_all(&entry).expect("create the test entry");
-        std::fs::write(entry.join(REFERENCE), "alpine:3.20").expect("write the reference");
-        // No Candidate bytes: reaching them would be Damaged, so NotPrepared proves the
-        // reference is checked before anything else is read.
-        let found = find(Some(&root), "node:22");
-        std::fs::remove_dir_all(&root).ok();
-        assert_eq!(
-            found.expect_err("a non-matching entry must not match"),
-            PreparedError::NotPrepared
-        );
-    }
-}
+#[path = "prepared_tests.rs"]
+mod tests;
