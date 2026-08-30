@@ -14,6 +14,40 @@ The guest establishes an authenticated control session and completes `prepare_an
 The implementation is not ready for production admission or performance claims.
 Two identity violations are release blockers, and the current ownership, timeout, prepared-store, and cleanup behavior must be repaired before this path can be called trustworthy.
 
+## Re-audit through `6f149d6`
+
+The follow-up through `174dc18` closes the original first-match directory-order defect and the portable architecture-checker defect.
+Duplicate reference mappings now fail as `Ambiguous`, and the checker no longer relies on GNU `find -printf`.
+
+P1.3 remains open because prepared-store admission is still pathname-based and mutable.
+The new symlink checks inspect a pathname and then later operations reopen that pathname, so replacement between check and use is not detected.
+Ancestor symlinks are not rejected, `PreparedGeneration` retains a mutable store path for Launch, and an unreadable `symlink_metadata` result is treated as not-a-link despite the function comment saying it fails closed.
+The request path also reads reference and Candidate files without explicit size bounds and discards directory-iteration errors with `flatten()`.
+
+The larger admission boundary is unchanged.
+Resolution still returns a decoded Candidate without certification, compatibility proof, trusted ownership proof, immutable `GenerationId`, or digest verification of every opened artifact.
+The current tests cover duplicate references and one symlinked entry, but do not cover linked roots, linked individual files, linked ancestors, replacement races, tag mutation after Resolve, or artifact mutation before Launch.
+
+Commit `6f149d6` adds a useful default-deny mitigation for uncertified Candidates.
+A successfully decoded Candidate now stops in Resolve unless the host explicitly sets `SOMA_ALLOW_UNCERTIFIED_GENERATION=1`, so accidental default operation no longer reaches VM creation.
+This does not close P0.1 because the environment opt-in still passes the same Candidate-shaped object into Launch, no certified installed Generation type exists, and no receipt can name a verified `GenerationId`.
+The test named `an_uncertified_candidate_is_refused_before_anything_is_created` writes malformed Candidate bytes and receives `Damaged`, so it never exercises the new `Uncertified` branch.
+The predicate test proves only that the exact string `1` enables the opt-in, not that a valid Candidate is refused through public Resolve before resource creation.
+The development escape hatch also needs an accepted decision and public capability documentation before operators can understand its security status.
+
+The next correction must replace check-then-open path validation with descriptor-relative no-follow opening from a trusted root, retain stable verified object identity through Launch, bound every hostile file read, fail closed on every scan error, and admit only certified immutable Generations.
+
+### Re-audit gate status
+
+- Fixed: duplicate reference mappings no longer resolve by directory order.
+- Fixed: the architecture checker now detects duplicate ADR numbers on macOS and Linux.
+- Partial: uncertified Candidates are refused by default in Resolve, but an environment opt-in still permits them and the boundary lacks end-to-end evidence.
+- Partial: direct symlinked-entry rejection exists, but it does not provide race-free or ancestor-safe resolution.
+- Open: Candidate and certified installed Generation are structurally distinct types, and Launch cannot accept the Candidate type.
+- Open: mutation or replacement between Resolve and Launch is detected.
+- Open: every artifact is bounded, certified, compatible, digest-verified, and tied to an immutable `GenerationId` before VM creation.
+- Open: trusted ownership and permissions of the prepared root and its objects are proved.
+
 ## P0.1 - Launch accepts an uncertified Candidate
 
 ### Evidence

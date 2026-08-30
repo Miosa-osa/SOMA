@@ -745,3 +745,11 @@ The incomplete production gates the audit lists are capability gaps rather than 
 
 The public KVM Backend now reaches a real cold-boot KVM lifecycle, but the audit in `docs/reviews/2026-08-30-public-kvm-backend-audit.md` records two P0 identity violations and six P1 lifecycle, ownership, cleanup, and production-composition gaps.
 No performance result from this path is admissible until certified Generation admission and exact public-to-guest Instance identity are enforced.
+
+## 2026-08-30 - Prepared-store follow-up closes selection ambiguity, not immutable admission
+
+Commit `174dc18` makes duplicate reference claims fail as ambiguous and makes the ADR-number checker portable across GNU and BSD userlands.
+The prepared-store gate remains open because it still checks and reopens mutable pathnames, retains a store path across Resolve and Launch, reads hostile files without explicit bounds, discards directory-iteration errors, and admits decoded Candidate data without certification or complete artifact verification.
+The updated gate status and required descriptor-relative correction are recorded in `docs/reviews/2026-08-30-public-kvm-backend-audit.md`.
+Commit `6f149d6` subsequently added default refusal for uncertified Candidates unless `SOMA_ALLOW_UNCERTIFIED_GENERATION=1`, which is a useful development mitigation but not the required structural Candidate-to-Generation admission barrier.
+Its named refusal test uses malformed bytes and stops at `Damaged`, so a valid Candidate reaching the `Uncertified` branch still needs public-boundary evidence.
