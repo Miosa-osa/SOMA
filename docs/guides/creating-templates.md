@@ -92,7 +92,7 @@ SOMA adds the following, and only the following, on top of the image.
 
 | Added by SOMA | Where it comes from | Visible as a file in the image? |
 |---|---|---|
-| The Guest agent, PID 1 | The Generation initramfs, which carries `/init` and `/bin/soma-guest-agent` and the Generation responder key | No; after the root switch the agent keeps running from memory and the initramfs is gone |
+| The Guest agent, PID 1 | The Generation initramfs, which carries `/init` and `/bin/soma-guest-agent`; the responder secret reaches the guest only through the non-snapshot launch page | No; after the root switch the agent keeps running from memory and the initramfs is gone |
 | `/dev`, `/proc`, `/sys` | Mounted by the Guest agent during early init and moved into the composed root | Directories created on the private overlay if the image lacks them |
 | `/run` and `/tmp` | Fresh tmpfs mounts of 16 MiB and 64 MiB made during identity Repair | Directories created on the private overlay if the image lacks them |
 | `/etc/hostname`, `/etc/machine-id`, `/etc/hosts`, `/etc/resolv.conf` | Written during identity and network Repair for this Instance | Written to the private overlay; the image bytes are untouched |
