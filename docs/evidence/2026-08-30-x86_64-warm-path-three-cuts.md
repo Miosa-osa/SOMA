@@ -121,7 +121,9 @@ What actually dominates the window is identity and network repair, which are the
 
 The launch-page slot is one 4 KiB anonymous mapping and one `KVM_SET_USER_MEMORY_REGION`, and it cost 2.07 ms.
 The guest RAM slot is the same ioctl over a gigabyte and cost 42 us.
-The only difference was position: the RAM slot was registered before the vCPU existed and the launch page after it, when the same call has to synchronise against a VM that already has one.
+What differs is position in the sequence: the RAM slot is registered before the vCPU is created, and the launch page was registered after it.
+Moving the call changed two things at once, whether the VM already has a vCPU and how many slots the memslot array already holds, and this run separates neither.
+What it measures is that a memory-slot addition costs two milliseconds at that point in the restore and tens of microseconds before the machine is built.
 
 The slot is now added immediately after the memory object is mapped, and it is bound before the machine adopts the VM so that on any later failure the VM is released before the mapping is, which is the ownership order `RamMapping` documents.
 It is still the machine's own slot, still absent from every snapshot, still empty until the material is published just before the resume, and still consumed, verified, and retired exactly as before.
