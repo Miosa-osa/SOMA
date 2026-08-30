@@ -1234,6 +1234,7 @@ dependencies = [
  "soma-guest",
  "soma-kvm",
  "soma-macos",
+ "soma-storage",
 ]
 
 [[package]]

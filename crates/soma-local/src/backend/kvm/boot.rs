@@ -1,7 +1,11 @@
 //! Turning one prepared Generation into everything a machine needs to boot.
 
+use std::os::fd::{AsFd, AsRawFd};
+use std::path::PathBuf;
+
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::LaunchNetwork;
+use soma_storage::CloneError;
 
 use super::prepared::PreparedGeneration;
 use super::session::Boot;
@@ -42,28 +46,79 @@ pub(super) fn boot_for(
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;
 
-/// Copies the sterile overlay template into a head only this Instance can write.
+/// Gives this Instance a private writable head over the sterile overlay template.
+///
+/// On a reflink filesystem the head is a `FICLONE` of the template, which shares its extents
+/// until they are written and so costs neither the time nor the space of a copy. Where the
+/// filesystem cannot reflink, the bytes are copied instead: the head must still be private, so
+/// the fallback is slower rather than absent, and the two paths produce the same head.
 fn private_head(
     store: &std::path::Path,
     descriptor: &soma_generation::ArtifactDescriptor,
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
-    let mut template = soma_generation::open_artifact(store, descriptor)
+    let template = soma_generation::open_artifact(store, descriptor)
         .map_err(|_| BackendFailureKind::Unavailable)?;
-    let directory = std::env::temp_dir().join("soma-kvm-heads");
-    std::fs::create_dir_all(&directory).map_err(|_| BackendFailureKind::Unavailable)?;
-    let path = directory.join(format!("{}.ext4", instance.as_str()));
+    let directory = head_directory()?;
+    // A head name is lowercase, digits, and hyphen only, so the Instance identity is used as
+    // it is rather than given a suffix the validator would reject.
+    let name = soma_storage::HeadName::new(instance.as_str().to_ascii_lowercase())
+        .map_err(|_| BackendFailureKind::Unavailable)?;
+    match soma_storage::clone_head(template.as_fd(), directory.as_fd(), &name) {
+        Ok(head) => {
+            // The head is unlinked immediately: the open descriptor keeps it alive for the
+            // machine, so nothing on the filesystem outlives the sandbox that owns it.
+            unlink_quietly(&directory, name.as_str());
+            Ok(std::fs::File::from(head.into_fd()))
+        }
+        // Only the absence of the capability falls back. Every other failure is a real one and
+        // must not be hidden behind a slow path that would succeed and look identical.
+        Err(CloneError::ReflinkUnsupported | CloneError::CrossDevice) => {
+            copied_head(template, &directory, name.as_str())
+        }
+        Err(_) => Err(BackendFailureKind::Unavailable),
+    }
+}
+
+/// The directory private heads are created in.
+///
+/// An operator names a reflink-capable directory to get the fast path; the default is the
+/// ordinary temporary directory, which usually cannot reflink and therefore copies.
+fn head_directory() -> Result<std::fs::File, BackendFailureKind> {
+    let path = std::env::var_os("SOMA_HEAD_DIR").map_or_else(
+        || std::env::temp_dir().join("soma-kvm-heads"),
+        PathBuf::from,
+    );
+    std::fs::create_dir_all(&path).map_err(|_| BackendFailureKind::Unavailable)?;
+    std::fs::File::open(&path).map_err(|_| BackendFailureKind::Unavailable)
+}
+
+/// The fallback head: the same private bytes, copied rather than shared.
+fn copied_head(
+    mut template: std::fs::File,
+    directory: &std::fs::File,
+    name: &str,
+) -> Result<std::fs::File, BackendFailureKind> {
+    let path = directory_path(directory)?.join(name);
     let mut options = std::fs::OpenOptions::new();
-    options.create(true).read(true).write(true);
-    options.truncate(true);
+    options.create_new(true).read(true).write(true);
     let mut head = options
         .open(&path)
         .map_err(|_| BackendFailureKind::Unavailable)?;
     std::io::copy(&mut template, &mut head).map_err(|_| BackendFailureKind::Unavailable)?;
-    // The head is unlinked immediately: the open descriptor keeps it alive for the machine, so
-    // nothing on the filesystem outlives the sandbox that owns it.
     let _ignored = std::fs::remove_file(&path);
     Ok(head)
+}
+
+fn directory_path(directory: &std::fs::File) -> Result<PathBuf, BackendFailureKind> {
+    let fd = directory.as_raw_fd();
+    std::fs::read_link(format!("/proc/self/fd/{fd}")).map_err(|_| BackendFailureKind::Unavailable)
+}
+
+fn unlink_quietly(directory: &std::fs::File, name: &str) {
+    if let Ok(path) = directory_path(directory) {
+        let _ignored = std::fs::remove_file(path.join(name));
+    }
 }
 
 /// The link-down placeholder network every guest is given today.

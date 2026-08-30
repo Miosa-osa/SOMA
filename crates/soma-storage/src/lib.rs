@@ -60,6 +60,6 @@ pub use reconcile::{Disposition, ReconcileReport};
 pub use release::{ReleaseError, ReleaseOutcome};
 
 #[cfg(target_os = "linux")]
-pub use clone::{CloneError, ClonePhases, ClonedHead};
+pub use clone::{CloneError, ClonePhases, ClonedHead, clone_head, clone_head_timed};
 #[cfg(target_os = "linux")]
 pub use fiemap::ExtentSummary;
