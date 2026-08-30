@@ -1,7 +1,8 @@
 //! The warm restore loop: ten sequential restores of one snapshot with raw per-milestone
 //! samples and nearest-rank percentiles.
 //!
-//! These are debug-build, single-host, in-container observations of one machine shape. They
+//! These are single-host, in-container observations of one machine shape under whichever
+//! profile the caller builds; the retained evidence names the profile it was taken under. They
 //! are inputs to the design, not a certified budget and not a latency claim.
 
 use std::fs;
