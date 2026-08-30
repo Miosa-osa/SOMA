@@ -3,6 +3,11 @@
 //! The link is forced down, the fresh MAC and IPv4 identity are installed, the link is raised,
 //! the default route is added, and the resolver file is written from launch material.
 //! No netlink library is used; every request is one fixed-layout `ifreq` or `rtentry`.
+//!
+//! Those layouts are hand-encoded for exactly one target ABI, so [`repair`] first requires the
+//! compiled ABI to be the verified one and refuses every other target with
+//! [`NetworkStep::UnsupportedTarget`] before it opens a socket or reaches an unsafe `ioctl`.
+//! See [`target`] for the verified ABI and for how the binary gate and this check relate.
 
 #![allow(unsafe_code)]
 
@@ -19,6 +24,7 @@ use self::encoding::{
 };
 
 mod encoding;
+mod target;
 
 /// Interface name of the single virtio network device.
 pub const INTERFACE: &str = "eth0";
@@ -38,6 +44,8 @@ pub struct NetworkError {
 /// One typed network-repair step.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NetworkStep {
+    /// Refuse a target ABI whose interface-request layouts are not verified.
+    UnsupportedTarget,
     /// Open the control socket.
     Socket,
     /// Force the link down before changing identity.
@@ -60,8 +68,10 @@ pub enum NetworkStep {
 ///
 /// # Errors
 ///
-/// Returns the first failed step with its errno.
+/// Returns [`NetworkStep::UnsupportedTarget`] when the compiled ABI is not the one whose
+/// request layouts are verified, otherwise the first failed step with its errno.
 pub fn repair(network: &LaunchNetwork, hostname: &str) -> Result<(), NetworkError> {
+    target::require(target::COMPILED)?;
     let socket = control_socket()?;
     let flags = get_flags(&socket, INTERFACE, NetworkStep::LinkDown)?;
     set_flags(&socket, INTERFACE, flags & !IFF_UP, NetworkStep::LinkDown)?;
@@ -232,6 +242,21 @@ mod tests {
         assert_eq!(
             hosts_file("soma-abc", [10, 0, 0, 2]),
             "127.0.0.1 localhost\n10.0.0.2 soma-abc\n"
+        );
+    }
+
+    #[test]
+    fn repair_refuses_an_unverified_target_before_it_opens_a_control_socket() {
+        assert_eq!(target::require(target::COMPILED), Ok(()));
+        assert_eq!(
+            target::require(target::TargetAbi {
+                architecture: "aarch64",
+                ..target::VERIFIED
+            }),
+            Err(NetworkError {
+                step: NetworkStep::UnsupportedTarget,
+                errno: libc::ENOTSUP,
+            })
         );
     }
 

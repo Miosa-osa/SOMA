@@ -2,42 +2,49 @@
 //!
 //! The binary is `/init` of the deterministic initramfs and stays PID 1 for the life of the
 //! machine.
+//! It is gated to Linux `x86_64`, the one target whose kernel interface request layouts the
+//! repair modules encode; on every other target the agent builds but refuses to run, and
+//! `network_repair::target` refuses again if that gate is ever widened without verified
+//! layouts.
 //! Invoked with the reserved readiness argument it exits immediately with no output, which is
 //! the fixed version 1 self-probe executed through the production executor.
 
-#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#![cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(dead_code)
+)]
 
 mod environment;
 mod output;
 mod repair;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod boot;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod console;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod control;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod descendants;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod entropy;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod executor;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod identity;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod ioctl;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod launch_page;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod lifecycle;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod mounts;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod network_repair;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pid1;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod shutdown;
 
 const PROBE_ARGUMENT: &str = "--soma-ready-probe-v1";
@@ -49,16 +56,16 @@ fn main() {
     {
         return;
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     agent::run();
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
     {
-        eprintln!("soma-guest-agent runs only as Linux PID 1");
+        eprintln!("soma-guest-agent runs only as Linux x86_64 PID 1");
         std::process::exit(2);
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod agent {
     use std::time::{Duration, Instant};
 

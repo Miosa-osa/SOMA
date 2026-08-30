@@ -790,6 +790,7 @@ crates/soma-guest-agent/src/
   mounts.rs
   network_repair.rs
   network_repair/encoding.rs
+  network_repair/target.rs
   output.rs
   pid1.rs
   repair.rs
@@ -805,7 +806,8 @@ crates/soma-guest-agent/tests/fixtures/README.md
 `control.rs` adapts a vsock stream to the protocol crate's `ControlIo` with absolute deadlines; `lifecycle.rs` sequences the probe, Execute, and Shutdown exchanges; `executor.rs`, `output.rs`, `environment.rs`, and `descendants.rs` own direct `execve`, exact output accounting, the fixed environment policy, and complete descendant reaping.
 `pid1.rs` and `console.rs` own the never-exit, orphan-reaping, panic-to-poweroff, and bounded-diagnostic duties of init.
 
-The crate compiles on every workspace target but only the Linux modules do work; other targets exit with an unsupported result.
+The crate compiles on every workspace target but only the Linux `x86_64` modules do work; every other target exits with an unsupported result.
+That gate is the exact ABI whose classic `ifreq` and `rtentry` request layouts `network_repair/encoding.rs` transcribes: constant assertions there fail the build on a different C integer, pointer, or byte-order shape, and `network_repair/target.rs` compares the compiled ABI with the verified one and refuses with `NetworkStep::UnsupportedTarget` before a socket or an unsafe `ioctl` if the binary gate is ever widened without verified layouts.
 Host tests cover the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries.
 Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the readiness probe, one Execute, and authenticated shutdown have each run once inside a cold-booted SOMA machine on x86_64, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md); the same path after a snapshot restore remains unproven.
 The stop path uses the restart command because the version 1 machine has no ACPI or paravirtual power-off, and `reboot=k` turns it into the reset pulse the VMM observes as the orderly exit.
