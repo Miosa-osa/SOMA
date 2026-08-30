@@ -35,10 +35,9 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
     let (bundle_a, instance_a, operation_a) = live::ids(0xa1);
     let sterile = broker.prepare(bundle_a).expect("prepare a");
     assert_sterile(&sterile);
-    let mut assigned = broker
-        .assign(sterile, instance_a, operation_a, &intent, 5)
-        .map_err(|failure| failure.error)
-        .expect("assign a");
+    let claim = (5, broker_owner());
+    let assigning = broker.assign(sterile, instance_a, operation_a, &intent, claim);
+    let mut assigned = assigning.map_err(|f| f.error).expect("assign a");
     assert_launch_values(&assigned);
     let mut guest_a = transfer_tap(&assigned);
     assert!(
@@ -70,7 +69,7 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
     let (bundle_b, instance_b, operation_b) = live::ids(0xb2);
     let sterile_b = broker.prepare(bundle_b).expect("prepare b");
     let mut assigned_b = broker
-        .assign(sterile_b, instance_b, operation_b, &intent, 6)
+        .assign(sterile_b, instance_b, operation_b, &intent, (6, claim.1))
         .map_err(|failure| failure.error)
         .expect("assign b");
     let host_b = session::repaired(*instance_b.as_bytes(), *operation_b.as_bytes());
@@ -156,7 +155,7 @@ fn forwarding_stays_off_for_every_unauthorized_activation() {
         let (bundle, instance, operation) = live::ids(seed);
         let sterile = broker.prepare(bundle).expect("prepare");
         let mut assigned = broker
-            .assign(sterile, instance, operation, &intent, 5)
+            .assign(sterile, instance, operation, &intent, (5, broker_owner()))
             .map_err(|failure| failure.error)
             .expect("assign");
         let receipt = forged(&assigned, wrong);
@@ -184,7 +183,7 @@ fn forwarding_stays_off_for_every_unauthorized_activation() {
     let (bundle, instance, operation) = live::ids(0xc4);
     let sterile = broker.prepare(bundle).expect("prepare authorized");
     let mut assigned = broker
-        .assign(sterile, instance, operation, &intent, 6)
+        .assign(sterile, instance, operation, &intent, (6, broker_owner()))
         .map_err(|failure| failure.error)
         .expect("assign authorized");
     assert_forwarding_off(&assigned);
@@ -346,6 +345,16 @@ fn a_lost_activated_reply_is_recovered_rather_than_destroying_the_machine() {
         client.reply(),
         Some(Reply::Released { complete: true }),
         "the assignment must still have been live to release"
+    );
+
+    // The record is now only in the ledger, and no in-memory owner binds it any more.
+    client.send(&Request::Release { bundle, generation });
+    assert_eq!(
+        client.reply(),
+        Some(Reply::Failed(error_code(&Error::Unauthorized(
+            "ledger release"
+        )))),
+        "a lifecycle peer must not release a bundle only the ledger names"
     );
     drop(world);
 }

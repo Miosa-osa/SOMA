@@ -6,8 +6,8 @@ use crate::{
 };
 
 const MAGIC: &[u8; 8] = b"SOMANETL";
-const VERSION: u16 = 1;
-const HEADER: usize = 8 + 2 + 16 + 4 + 16 + 16 + 32 + 32 + 6 + 4 + 4 + 2 + 4 + 8 + 2;
+const VERSION: u16 = 2;
+const HEADER: usize = 8 + 2 + 16 + 4 + 16 + 16 + 4 + 32 + 32 + 6 + 4 + 4 + 2 + 4 + 8 + 2;
 
 /// The largest encoded assignment record.
 pub const MAX_RECORD: usize = HEADER + MAX_ENCODED_INTENT;
@@ -23,6 +23,11 @@ pub struct AssignmentRecord {
     pub instance: InstanceId,
     /// The assigning operation.
     pub operation: OperationId,
+    /// The user identity of the control peer that claimed this assignment.
+    ///
+    /// The in-memory owner map does not survive a broker restart, so the durable record is
+    /// what binds a later release to the peer that claimed the bundle.
+    pub owner: u32,
     /// The admitted profile digest.
     pub profile: ProfileDigest,
     /// The admitted intent digest.
@@ -49,6 +54,7 @@ impl AssignmentRecord {
     pub fn replays(&self, other: &Self) -> bool {
         self.operation == other.operation
             && self.instance == other.instance
+            && self.owner == other.owner
             && self.intent_digest == other.intent_digest
             && self.vsock_cid == other.vsock_cid
     }
@@ -64,6 +70,7 @@ impl AssignmentRecord {
         out.extend_from_slice(&self.generation.get().to_be_bytes());
         out.extend_from_slice(self.instance.as_bytes());
         out.extend_from_slice(self.operation.as_bytes());
+        out.extend_from_slice(&self.owner.to_be_bytes());
         out.extend_from_slice(&self.profile.0);
         out.extend_from_slice(&self.intent_digest.0);
         out.extend_from_slice(&self.guest_mac);
@@ -104,6 +111,7 @@ impl AssignmentRecord {
             .map_err(|_| Error::LedgerCorrupt)?;
         let instance = InstanceId::new(array(take(16))).map_err(|_| Error::LedgerCorrupt)?;
         let operation = OperationId::new(array(take(16))).map_err(|_| Error::LedgerCorrupt)?;
+        let owner = u32::from_be_bytes(array(take(4)));
         let profile = ProfileDigest(array(take(32)));
         let intent_digest = IntentDigest(array(take(32)));
         let guest_mac = array(take(6));
@@ -126,6 +134,7 @@ impl AssignmentRecord {
             generation,
             instance,
             operation,
+            owner,
             profile,
             intent_digest,
             guest_mac,
@@ -163,6 +172,7 @@ pub(crate) mod tests {
             generation: CleanupGeneration::new(1).expect("generation"),
             instance: InstanceId::new([2; 16]).expect("id"),
             operation: OperationId::new([operation; 16]).expect("id"),
+            owner: 4321,
             profile: ProfileDigest([3; 32]),
             intent_digest: intent.digest(),
             guest_mac: [2, 1, 2, 3, 4, 5],

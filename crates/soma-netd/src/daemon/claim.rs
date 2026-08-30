@@ -41,16 +41,17 @@ pub(super) fn claim(
             Err(error) => return Reply::Failed(error_code(&error)),
         },
     };
-    let assigned = match state
-        .broker
-        .assign(bundle, instance, operation, intent, vsock_cid)
-    {
-        Ok(assigned) => assigned,
-        Err(AssignFailure { bundle, error }) => {
-            drop(release_sterile(&state.broker, *bundle, Vec::new()));
-            return Reply::Failed(error_code(&error));
-        }
-    };
+    let assigned =
+        match state
+            .broker
+            .assign(bundle, instance, operation, intent, (vsock_cid, peer.uid()))
+        {
+            Ok(assigned) => assigned,
+            Err(AssignFailure { bundle, error }) => {
+                drop(release_sterile(&state.broker, *bundle, Vec::new()));
+                return Reply::Failed(error_code(&error));
+            }
+        };
     match deliver_descriptor(connection, &assigned) {
         Ok(reply) => {
             state.own(Owned {

@@ -31,7 +31,13 @@ pub fn hundred_way() {
         samples[0].push(start.elapsed().as_nanos());
         let start = Instant::now();
         let mut assigned = broker
-            .assign(sterile, instance, operation, &intent, 3 + u32::from(index))
+            .assign(
+                sterile,
+                instance,
+                operation,
+                &intent,
+                (3 + u32::from(index), soma_netd::broker_owner()),
+            )
             .map_err(|failure| failure.error)
             .expect("assign");
         samples[1].push(start.elapsed().as_nanos());

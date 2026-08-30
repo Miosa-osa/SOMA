@@ -13,6 +13,9 @@
 //! A receipt that fails to authenticate still releases the assignment.
 //! An operation identity stays reserved until its release actually completes, so a teardown
 //! that left kernel objects behind can never be answered with a second lease.
+//! The claiming peer identity is also recorded durably, so releasing a bundle that only the
+//! ledger still names - every live Machine after a broker restart - is refused to any peer but
+//! the one that claimed it.
 //!
 //! Every connection is authenticated by [`crate::ControlListener`] before a byte is read, every
 //! request needs the [`crate::Capability`] its operation requires, and an assignment can only be
@@ -222,6 +225,9 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                     Ok(evidence)
                 }
                 None => match state.broker.ledger().lookup(bundle, generation) {
+                    Ok(entry) if entry.record.owner != peer.uid() => {
+                        Err(Error::Unauthorized("assignment owner"))
+                    }
                     Ok(entry) => Ok(release_record(&state.broker, &entry.record)),
                     Err(error) => Err(error),
                 },

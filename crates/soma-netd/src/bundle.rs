@@ -131,6 +131,12 @@ impl Broker {
     ///
     /// # Errors
     ///
+    /// `claim` is the guest vsock CID and the kernel-derived user identity of the control peer
+    /// making the claim; the identity is recorded durably, so a release after a broker restart
+    /// is still bound to the peer that claimed the bundle.
+    ///
+    /// # Errors
+    ///
     /// Returns a ledger conflict or replay mismatch before any kernel change, or the first
     /// typed failure afterwards, together with the bundle so the caller can release it.
     pub fn assign(
@@ -139,9 +145,9 @@ impl Broker {
         instance: InstanceId,
         operation: OperationId,
         intent: &NetworkIntent,
-        vsock_cid: u32,
+        claim: (u32, u32),
     ) -> Result<Assigned, AssignFailure> {
-        match self.try_assign(&bundle, instance, operation, intent, vsock_cid) {
+        match self.try_assign(&bundle, instance, operation, intent, claim) {
             Ok((record, launch, reservations, activation)) => Ok(Assigned {
                 bundle,
                 record,
@@ -164,14 +170,16 @@ impl Broker {
         instance: InstanceId,
         operation: OperationId,
         intent: &NetworkIntent,
-        vsock_cid: u32,
+        claim: (u32, u32),
     ) -> Result<AssignedParts, Error> {
+        let (vsock_cid, owner) = claim;
         let time_sample_nanos = now_nanos()?;
         let mut record = AssignmentRecord {
             bundle: bundle.id,
             generation: bundle.generation,
             instance,
             operation,
+            owner,
             profile: self.profile.digest(),
             intent_digest: intent.digest(),
             guest_mac: bundle.macs.guest,
