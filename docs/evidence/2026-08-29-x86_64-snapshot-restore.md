@@ -2,6 +2,8 @@
 
 ## Status: historical
 
+Superseded by [the 2026-08-30 recapture on the per-Instance authority design](2026-08-30-x86_64-snapshot-restore-current-authority.md), which was run at `5d71524`. The observations below are retained exactly as recorded.
+
 This run is live-proved at commit `7c1127d` and is historical.
 It captured a Generation whose initramfs still carried a Generation-scoped responder private key, and the scan below records that key in `memory.raw`.
 [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) removed that key, and the restored ready transition has since been bound to an authenticated readiness receipt, so these artifact identities, scans, and timings cannot certify current bytes.

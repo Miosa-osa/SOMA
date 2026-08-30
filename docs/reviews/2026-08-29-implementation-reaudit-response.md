@@ -24,7 +24,7 @@ Finding P1.4 is the single exception: it was fixed on `main` before this branch 
 | P1.2 Bound and supervise privileged networking tools | Fixed | `418c584`, `3b7a8ab`, `7f651ef` | `a_tool_that_ignores_the_polite_signal_cannot_outlive_its_deadline`, `a_tool_that_floods_its_output_is_terminated_rather_than_buffered` |
 | P1.3 Require complete network protocol delivery | Fixed | `4ed4e17`, `75356fe`, `2f2933d`, `3fa1226` | `a_complete_reply_reaches_the_peer_exactly_once`, `one_operation_holds_one_assignment_however_often_it_is_replayed` |
 | P1.4 Repair the portable benchmark test gate | Fixed on `main` | `e7a076a` | `./scripts/check.sh portable` benchmark stage, which now discovers and runs all five burst modules |
-| P1.5 Regenerate snapshot evidence for the current authority design | **Open** | Documentation corrected in `a99dcad`, `1fe154d`, `314bc22` | No test can close this; it needs a fresh capture-and-restore run on a KVM host |
+| P1.5 Regenerate snapshot evidence for the current authority design | Fixed | Documentation corrected in `a99dcad`, `1fe154d`, `314bc22`; recapture run at `5d71524` | The six live `x86_64_snapshot_restore` tests, retained in [the current-authority evidence](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md) |
 | P1.6 Reconcile contradictory decision-map and guide status | Fixed | `1fe154d`, `906d664`, `b498715`, `314bc22`, `6ed3a80`, `de92117`, `f2a2cff` | `scripts/check-architecture.sh` status-vocabulary and claim-ledger gates |
 
 ## P0.1 Bind network activation to authenticated guest evidence
@@ -167,19 +167,19 @@ This branch is rebased on `origin/main`, so the fix is present here.
 
 ## P1.5 Regenerate snapshot evidence for the current authority design
 
-**Open.**
+**Closed by measurement, not by a commit.**
 
-Nothing on this branch can close this finding, because closing it is a measurement rather than a code change.
-It requires a fresh capture-and-restore run on a KVM host at the current commit with fresh per-Instance authority, retaining exact source, toolchain, kernel, Generation, snapshot, host, configuration and artifact identities, and proving the absence of every reusable private authority from the Generation and from `memory.raw`.
-That run has not been made.
+Closing this finding was a measurement rather than a code change, and the measurement has now been made.
+The run is retained as [x86_64 capture and restore on the per-Instance authority design](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md): commit `5d71524`, the pinned kernel and static agent by digest, the Generation and all three snapshot objects by digest, on a KVM host, with six live tests passing.
+
+It establishes what the finding asked for. No Instance responder identity appears in `memory.raw`, `overlay.raw`, or `state.somasnap`, and no occurrence of the launch-page domain in guest RAM decodes as a launch page; the launch page slot at `0xd0100000` lies outside the `[0, 0x40000000)` range the memory object covers, so capture at the disconnected repair point cannot carry launch material. A tampered manifest, a tampered memory object, and a foreign CPU template are each refused before any vCPU exists.
 
 What this branch did instead was stop the stale artifact from certifying current bytes:
 
 - `docs/evidence/2026-08-29-x86_64-snapshot-restore.md` now opens with `## Status: historical`, names its run commit `7c1127d`, states that the Generation-scoped responder private key it scanned was removed by ADR 0024, and points at this finding for the recapture.
-- The claim ledger carries two separate rows: the historical run at `7c1127d`, and "Capture and restore on the current per-Instance authority design", which is component-tested with the explicit note that recapture is required by P1.5 and has not been run.
+- The claim ledger carries two separate rows: the historical run at `7c1127d`, and "Capture and restore on the current per-Instance authority design", now live-proved at `5d71524` by the recapture.
 - The original observations are retained exactly as recorded rather than rewritten.
 
-The finding stays open until the new run exists.
 
 ## P1.6 Reconcile contradictory decision-map and guide status
 
@@ -199,7 +199,7 @@ There are exactly two categories of remaining work, and they are different in ki
 
 ### One finding is genuinely open
 
-**P1.5** needs a fresh snapshot capture-and-restore run on a KVM host at the current commit.
+**P1.5** is closed by the recapture at `5d71524`, retained in [the current-authority evidence](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md).
 No amount of code or documentation can close it; the artifact has to be produced.
 Until it is, the retained snapshot evidence is labeled historical and the claim ledger records the current design as component-tested.
 
@@ -234,5 +234,5 @@ The correct public statement is unchanged from the re-audit's own conclusion: SO
 | 3. Add deadline-bounded tool supervision and unambiguous delivery semantics | Done in `418c584` and `4ed4e17` |
 | 4. Bind restore readiness to authenticated guest evidence | Done in `85ae483` and `aeb8a50`; the transition is recorded, not yet consumed |
 | 5. Resolve duplicate ADR numbering and obsolete responder-key documentation | Done in `a99dcad` |
-| 6. Rerun snapshot evidence on the current authority design | **Not done**; this is P1.5 |
+| 6. Rerun snapshot evidence on the current authority design | Done at `5d71524`; see [the current-authority evidence](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md) |
 | 7 through 10 | Not started; these are the capability gaps above, and step 6 gates them |
