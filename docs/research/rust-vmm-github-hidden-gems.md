@@ -7,6 +7,13 @@
 
 ## The diamond under the rug
 
+The expanded GitHub census found additional serious projects and changes this document's original single-project ranking.
+Dillo remains the strongest minimal backend-interface example.
+Alioth is the strongest newly found low-level custom VMM reference.
+Nanvix is the strongest co-designed density architecture.
+Clone is the strongest newly found warm-fork mechanism reference, although its inspected snapshot paths also contain important fail-open lessons.
+See [Rust VMM GitHub census and failure atlas](rust-vmm-github-census-and-failure-atlas.md) for the expanded repository inventory, exact source findings, mistakes, and revised SOMA guardrails.
+
 There is no single repository that SOMA should copy.
 
 The strongest hidden architecture reference is [pichi-vm/dillo](https://github.com/pichi-vm/dillo/tree/1fc2eb72862c1abfe921eaee6f5adf4e128eddb2).
@@ -297,7 +304,10 @@ The initial sub-10-ms target should remain one prepared Linux KVM Generation on 
 
 ## Bottom line
 
-Dillo is the hidden architecture diamond.
+Dillo is the hidden minimal-interface diamond.
+Alioth is the low-level VMM engineering diamond.
+Nanvix is the co-designed density diamond.
+Clone is the warm-fork mechanism diamond, but its snapshot failure handling must not be copied.
 Panorama contains the hidden dirty-reset testing gem.
 Vibemon contains the broadest collection of production-shaped mechanisms but also demonstrates why SOMA must enforce strict module boundaries.
 Hyperlight shows how much faster the system can become when the guest contract is intentionally narrower, but that is a different profile from a general Linux agent sandbox.

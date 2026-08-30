@@ -5,7 +5,8 @@
 - Repository baseline inspected: `5037e8d`
 - Status: Source-backed design and implementation guidance, not performance or security certification
 
-For the source-level comparison of obscure Rust VMM repositories, including Dillo, Vibemon, Panorama, Hyperlight, Ignition, deterministic-vmm, and ai-vmm, continue with [Rust VMM GitHub hidden gems](rust-vmm-github-hidden-gems.md).
+For the source-level comparison of obscure Rust VMM repositories, continue with [Rust VMM GitHub hidden gems](rust-vmm-github-hidden-gems.md).
+For the expanded census, revised diamond ranking, and source-backed failure atlas covering Alioth, Nanvix, Clone, Visor, Zeroboot, and the broader ecosystem, continue with [Rust VMM GitHub census and failure atlas](rust-vmm-github-census-and-failure-atlas.md).
 
 ## Direct answer
 

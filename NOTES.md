@@ -688,3 +688,11 @@ Panorama is explicitly broken but demonstrates a valuable dirty-only reset loop 
 Hyperlight, Ignition, deterministic-vmm, ai-vmm, alvm, teaching VMMs, Firecracker runtimes, and type-1 hypervisors were classified separately so SOMA does not confuse a narrower guest ABI, an orchestrator, or a different virtualization layer with its production Linux KVM machine.
 The resulting design direction is a Dillo-like backend seam, selected Vibemon mechanisms behind SOMA-owned interfaces, Panorama-inspired dirty-reset evidence, bounded-model proofs for hostile arithmetic, and independent measurement of every imported idea.
 The detailed pinned-source review is `docs/research/rust-vmm-github-hidden-gems.md`.
+
+## 2026-08-29 - Expanded GitHub census changes the diamond from one project to four
+
+Overlapping GitHub repository and code searches across VMM, KVM, microVM, hypervisor, HVF, WHP, rust-vmm, virtio, snapshot, userfaultfd, deterministic execution, Firecracker forks, libkrun, KVM ioctls, dirty logging, and Host hypervisor calls found important projects omitted from the first curated pass.
+Dillo remains the best minimal backend-interface reference, while Google Alioth is the strongest newly found low-level cross-platform VMM reference, Nanvix is the strongest co-designed VMM and guest-OS density reference, and Clone is the strongest newly found warm-fork mechanism reference.
+The source audit also found recurring mistakes: warning and continuing after snapshot failures, substituting empty state, omitting device-originated dirty writes, incomplete Host external-state restoration, measuring KVM object restoration as spawn latency, ignoring KVM restore errors, sharing all tenants inside one unsafe process, mixing dead planned paths with performance targets, and cloning identity or PRNG state.
+SOMA therefore requires fail-closed state capture, a unified dirty-producer ledger, explicit external-resource recreation, checked restore counts, bounded hostile snapshot parsers, one jailed VMM process per Machine, backend-specific evidence, and separate restore, Ready, command, and cleanup measurements.
+The expanded pinned-source inventory, failure atlas, guardrails, and implementation tickets are in `docs/research/rust-vmm-github-census-and-failure-atlas.md`.
