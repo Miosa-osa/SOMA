@@ -780,6 +780,7 @@ crates/soma-guest-agent/src/
   control.rs
   descendants.rs
   entropy.rs
+  entropy/kernel.rs
   environment.rs
   executor.rs
   identity.rs
@@ -800,6 +801,7 @@ crates/soma-guest-agent/tests/fixtures/README.md
 `boot.rs` owns the bounded early-init sequence with fixed device names, mount options, superblock identity checks, a sterile-head check, and the `switch_root` style move into the composed root.
 `launch_page.rs` maps the fixed guest-physical page through `/dev/mem`, copies it once into locked zeroizing memory, erases and verifies the mapping, and only then decodes it.
 `entropy.rs`, `identity.rs`, and `network_repair.rs` own one repair effect each over narrow `libc` calls with `SAFETY` comments.
+`entropy.rs` holds only the crediting policy and its tests, and `entropy/kernel.rs` holds the `/dev/hwrng`, `RNDADDENTROPY`, `RNDRESEEDCRNG`, and `getrandom` calls: the fresh hardware read is the only credited contribution, and the launch seed is mixed with a credit of zero because its source and delivery are Host obligations the guest cannot verify.
 `control.rs` adapts a vsock stream to the protocol crate's `ControlIo` with absolute deadlines; `lifecycle.rs` sequences the probe, Execute, and Shutdown exchanges; `executor.rs`, `output.rs`, `environment.rs`, and `descendants.rs` own direct `execve`, exact output accounting, the fixed environment policy, and complete descendant reaping.
 `pid1.rs` and `console.rs` own the never-exit, orphan-reaping, panic-to-poweroff, and bounded-diagnostic duties of init.
 
