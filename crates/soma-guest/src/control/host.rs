@@ -1,6 +1,6 @@
 use crate::{
     DeliveredHostLaunchMaterial, GuestCommand, GuestMessage, HostMessage, OperationId,
-    TerminalStatus,
+    SessionBinding, TerminalStatus,
 };
 
 use super::{
@@ -14,9 +14,12 @@ use super::{
     outcome::ExecuteOutcome,
 };
 
+mod network;
+
 /// Host owner of one authenticated pre-repair guest-control session.
 pub struct HostControl<I: HostControlIo> {
     channel: AuthChannel<I>,
+    binding: SessionBinding,
     launch_operation: OperationId,
     operations: OperationLedger,
 }
@@ -24,6 +27,7 @@ pub struct HostControl<I: HostControlIo> {
 /// Host owner after authenticated repair, repair commit, and the fixed self-probe succeed.
 pub struct RepairedHostControl<I: HostControlIo> {
     channel: AuthChannel<I>,
+    binding: SessionBinding,
     operations: OperationLedger,
 }
 
@@ -34,9 +38,10 @@ impl<I: HostControlIo> HostControl<I> {
     ///
     /// Returns a redacted Handshake error after poisoning the transport exactly once.
     pub fn connect(material: DeliveredHostLaunchMaterial, io: I) -> Result<Self, ControlError> {
-        let (channel, launch_operation) = host_connect::connect(material, io)?;
+        let (channel, binding, launch_operation) = host_connect::connect(material, io)?;
         Ok(Self {
             channel,
+            binding,
             launch_operation,
             operations: OperationLedger::new(launch_operation),
         })
@@ -128,6 +133,7 @@ impl<I: HostControlIo> HostControl<I> {
         }
         Ok(RepairedHostControl {
             channel: self.channel,
+            binding: self.binding,
             operations: self.operations,
         })
     }

@@ -1,4 +1,4 @@
-use crate::{DeliveredHostLaunchMaterial, OperationId};
+use crate::{DeliveredHostLaunchMaterial, OperationId, SessionBinding};
 
 use super::{
     channel::AuthChannel,
@@ -10,10 +10,11 @@ use super::{
 pub(super) fn connect<I: HostControlIo>(
     material: DeliveredHostLaunchMaterial,
     io: I,
-) -> Result<(AuthChannel<I>, OperationId), ControlError> {
+) -> Result<(AuthChannel<I>, SessionBinding, OperationId), ControlError> {
     let mut io = OwnedIo::new(io);
     let deadline = deadline::handshake();
-    let Ok(launch_operation) = OperationId::new(*material.binding().operation()) else {
+    let binding = *material.binding();
+    let Ok(launch_operation) = OperationId::new(*binding.operation()) else {
         return Err(fail(&mut io, ControlFailureClass::Protocol));
     };
     let Ok((waiting, first)) = material.start_initiator() else {
@@ -32,7 +33,7 @@ pub(super) fn connect<I: HostControlIo>(
     let Ok(session) = waiting.finish(&second) else {
         return Err(fail(&mut io, ControlFailureClass::Authentication));
     };
-    Ok((AuthChannel::new(io, session), launch_operation))
+    Ok((AuthChannel::new(io, session), binding, launch_operation))
 }
 
 fn fail<I: HostControlIo>(io: &mut OwnedIo<I>, class: ControlFailureClass) -> ControlError {

@@ -770,6 +770,8 @@ The source map is:
 ```text
 crates/soma-guest/src/
   lib.rs
+  activation.rs
+  activation/tests.rs
   application/command.rs
   application/frame.rs
   application/guest.rs
@@ -787,6 +789,7 @@ crates/soma-guest/src/
   control/guest_connect.rs
   control/guest_state.rs
   control/host.rs
+  control/host/network.rs
   control/host_connect.rs
   control/io.rs
   control/mod.rs
@@ -807,6 +810,7 @@ crates/soma-guest/src/
 
 The crate is an independent protocol and ownership foundation so the host VMM adapter and the static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
 It also fixes the machine-contract constants shared by both peers: the launch-page guest-physical address, the vsock control port, and the schema 2 non-secret `LaunchNetwork` identity accepted by ADR 0023.
+`activation.rs` and `control/host/network.rs` own the single-use network-activation capability: the privileged broker samples one `ActivationChallenge` per assignment, only the repaired authenticated owner mints the `ActivationReceipt` from it, and the tag binds the Instance, Launch operation, assignment generation, admitted intent digest, and live handshake transcript with the session's own BLAKE2s primitive.
 `launch_page/network.rs` enforces the declared IPv4 profile of ADR 0028: prefixes 1 through 30 with no point-to-point exception, usable unicast that excludes the unspecified, `0.0.0.0/8`, loopback, link-local, multicast, reserved, and limited-broadcast classes, and a guest and gateway that are assignable hosts rather than the subnet network or directed broadcast address.
 It does not contain a guest executable, VMM device transport adapter, trusted Generation-manifest verifier, physical snapshot-safe secret injection, real clone repair, process executor, C ABI, or attestation mechanism.
 Its owned authenticated probe state is necessary but cannot authorize a Machine Ready result until those external repair and execution effects are wired and evidenced.
@@ -958,9 +962,11 @@ crates/soma-netd/src/
   bin/soma-netd.rs
 crates/soma-netd/tests/
   live_linux.rs
+  live/checks.rs
   live/codec.rs
   live/frames.rs
   live/mod.rs
+  live/session.rs
   live/world.rs
 ```
 
@@ -970,7 +976,7 @@ crates/soma-netd/tests/
 `firewall.rs` renders the per-bundle sandbox and host `inet` tables as text; `nft.rs` is the version 1 mechanism that feeds that text to the pinned `nft` binary and flushes conntrack zones through the pinned `conntrack` binary.
 `namespace.rs`, `tap.rs`, `link.rs`, `netlink.rs`, and `sysctl.rs` are the direct syscall mechanisms: `unshare` plus a bind-mounted pin, `TUNSETIFF`, `ifreq` and `rtentry` `ioctl` calls, a minimal `RTM_NEWLINK` and `RTM_DELLINK` encoder, and `/proc/sys/net` writes inside the namespace of a dedicated thread.
 `ledger.rs` is the durable append-only ownership ledger of create-exclusive, synced, hard-linked records; `bundle.rs` prepares sterile bundles and assigns them by recording ownership before any intent-specific kernel change and producing the exact `LaunchNetwork` values.
-`activate.rs` verifies namespace, links, rulesets, and forwarding against the ledger after the caller attests authenticated repair and only then raises links, installs routes, and enables forwarding.
+`activate.rs` consumes the assignment's single-use activation challenge, requires the `soma-guest` receipt that only a repaired authenticated session mints for this exact Instance, generation, operation, and intent digest, verifies namespace, links, rulesets, and forwarding against the ledger, and only then raises links, installs routes, and enables forwarding; a rejected, replayed, or failed attempt leaves forwarding disabled and the daemon releases the assignment.
 `release.rs` and `reconcile.rs` tear down in the specification order with per-step dispositions and compare ledger intent with kernel reality without removing unowned objects.
 `transfer.rs` and `daemon.rs` own the bounded typed descriptor handoff and the smallest honest single-threaded daemon over one Unix `SOCK_SEQPACKET` socket.
 

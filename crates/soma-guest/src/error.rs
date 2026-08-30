@@ -45,6 +45,10 @@ pub enum Error {
     InvalidTerminalStatus,
     /// A local terminal report violated the authenticated output-count contract.
     InvalidTerminalReport,
+    /// An activation scope named a zero identity, generation, or intent digest.
+    InvalidActivationScope,
+    /// An activation receipt did not authenticate against the challenge and scope.
+    ActivationReceiptRejected,
 }
 
 impl fmt::Debug for Error {
@@ -77,6 +81,8 @@ impl fmt::Display for Error {
             Self::InvalidOutputChunk => "invalid output chunk",
             Self::InvalidTerminalStatus => "invalid terminal status",
             Self::InvalidTerminalReport => "invalid terminal report",
+            Self::InvalidActivationScope => "invalid network activation scope",
+            Self::ActivationReceiptRejected => "network activation receipt rejected",
         })
     }
 }

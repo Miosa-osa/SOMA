@@ -25,13 +25,14 @@ enum Role {
 pub(crate) struct AuthenticatedSession {
     transport: TransportState,
     role: Role,
+    transcript: [u8; 32],
     next_send: u64,
     next_receive: u64,
     poisoned: bool,
 }
 
 impl AuthenticatedSession {
-    pub(crate) fn new(transport: TransportState) -> Self {
+    pub(crate) fn new(transport: TransportState, transcript: [u8; 32]) -> Self {
         let role = if transport.is_initiator() {
             Role::Initiator
         } else {
@@ -40,10 +41,16 @@ impl AuthenticatedSession {
         Self {
             transport,
             role,
+            transcript,
             next_send: 0,
             next_receive: 0,
             poisoned: false,
         }
+    }
+
+    /// Returns the final Noise handshake hash both authenticated peers computed.
+    pub(crate) const fn transcript(&self) -> &[u8; 32] {
+        &self.transcript
     }
 
     /// Encrypts one caller payload into an exact length-prefixed record.

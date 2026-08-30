@@ -1,25 +1,20 @@
 //! Repair-gated activation.
 //!
-//! The caller presents a [`RepairAttestation`] only after authenticated guest network repair.
-//! The broker then verifies the ledger, namespace, links, rulesets, and forwarding state
-//! against the assignment before it raises the links, installs the routes, and finally
-//! enables forwarding, which is the single step that makes guest traffic flow.
+//! The assignment carries one fresh single-use [`soma_guest::ActivationChallenge`] that the
+//! broker delivered only to the peer that claimed it.
+//! Activation consumes that challenge and requires a [`soma_guest::ActivationReceipt`] minted
+//! by the repaired authenticated guest session, bound to this exact Instance, assignment
+//! generation, Launch operation, admitted intent digest, and session transcript.
+//! Only then does the broker verify the ledger, namespace, links, rulesets, and forwarding
+//! state, raise the links, install the routes, and finally enable forwarding, which is the
+//! single step that makes guest traffic flow.
+//!
+//! The challenge is taken before any verification, so one challenge authorizes at most one
+//! activation attempt and a replayed receipt can never reach the kernel.
 
-use crate::{Assigned, Cidr, Drift, Error, InstanceId, link, nft, sysctl};
+use soma_guest::{ActivationReceipt, ActivationScope};
 
-/// The caller's statement that authenticated network repair succeeded for one Instance.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RepairAttestation {
-    instance: InstanceId,
-}
-
-impl RepairAttestation {
-    /// Builds one attestation; the caller is responsible for its truth.
-    #[must_use]
-    pub const fn authenticated(instance: InstanceId) -> Self {
-        Self { instance }
-    }
-}
+use crate::{Assigned, Cidr, Drift, Error, link, nft, sysctl};
 
 /// What activation verified and changed.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,24 +25,35 @@ pub struct ActivationEvidence {
     pub routes: Vec<String>,
     /// Whether forwarding is now enabled inside the sandbox namespace.
     pub forwarding: bool,
+    /// The authenticated guest-session transcript the consumed receipt was minted from.
+    pub transcript: [u8; 32],
 }
 
-/// Verifies and activates one assigned bundle.
+/// Consumes the assignment's activation challenge, then verifies and activates the bundle.
 ///
 /// # Errors
 ///
-/// Returns [`Error::InvalidState`] for a wrong Instance or an already active bundle,
-/// [`Error::Drift`] when kernel state does not match the ledger, or the first kernel failure.
+/// Returns [`Error::Unauthorized`] when the challenge is already spent or the receipt does not
+/// authenticate for this exact assignment, [`Error::Drift`] when kernel state does not match
+/// the ledger, or the first kernel failure.
 pub fn activate(
     assigned: &mut Assigned,
-    attestation: RepairAttestation,
+    receipt: &ActivationReceipt,
 ) -> Result<ActivationEvidence, Error> {
-    if attestation.instance != assigned.record.instance {
-        return Err(Error::InvalidState("attestation instance"));
-    }
-    if assigned.active {
-        return Err(Error::InvalidState("already active"));
-    }
+    let challenge = assigned
+        .activation
+        .take()
+        .ok_or(Error::Unauthorized("activation challenge spent"))?;
+    let scope = ActivationScope::new(
+        *assigned.record.instance.as_bytes(),
+        *assigned.record.operation.as_bytes(),
+        assigned.record.generation.get(),
+        assigned.record.intent_digest.0,
+    )
+    .map_err(|_| Error::Unauthorized("activation scope"))?;
+    challenge
+        .verify(&scope, receipt)
+        .map_err(|_| Error::Unauthorized("activation receipt"))?;
     verify(assigned)?;
     let bundle = &assigned.bundle;
     let names = bundle.names.clone();
@@ -56,6 +62,7 @@ pub fn activate(
         links_raised: Vec::new(),
         routes: Vec::new(),
         forwarding: false,
+        transcript: *receipt.transcript(),
     };
     let inner_names = names.clone();
     bundle.namespace.within(move || {

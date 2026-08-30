@@ -33,6 +33,7 @@
 
 #![forbid(unsafe_code)]
 
+mod activation;
 mod application;
 mod binding;
 mod control;
@@ -43,6 +44,7 @@ mod record;
 mod resolver;
 mod secret;
 
+pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
     GuestCommand, GuestMessage, HostMessage, OperationId, OutputChunk, TerminalReport,
     TerminalStatus,

@@ -51,6 +51,8 @@ pub enum Error {
     InvalidState(&'static str),
     /// A protocol frame was malformed or too large.
     Protocol(&'static str),
+    /// The request did not present the authority this operation requires.
+    Unauthorized(&'static str),
 }
 
 /// Why a portable policy could not become a broker intent.
@@ -166,6 +168,7 @@ impl fmt::Display for Error {
             Self::Unimplemented(what) => write!(formatter, "not implemented: {what}"),
             Self::InvalidState(what) => write!(formatter, "invalid state: {what}"),
             Self::Protocol(what) => write!(formatter, "protocol error: {what}"),
+            Self::Unauthorized(what) => write!(formatter, "unauthorized: {what}"),
         }
     }
 }

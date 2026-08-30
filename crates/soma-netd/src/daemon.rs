@@ -1,7 +1,10 @@
 //! The minimal broker daemon: prepared bundles served over one `SOCK_SEQPACKET` socket.
 //!
 //! One request frame yields one reply frame; a successful claim additionally sends the TAP
-//! descriptor with its typed transfer header on the same connection.
+//! descriptor with its typed transfer header on the same connection, and returns the
+//! assignment's single-use activation challenge.
+//! Activation requires the receipt the repaired guest session minted from that challenge; a
+//! rejected, replayed, or failed activation releases the assignment instead of retrying.
 //! The skeleton is single-threaded and does not yet authenticate the peer; the library is
 //! the deliverable and the daemon is the smallest honest composition of it.
 
@@ -28,9 +31,9 @@ use std::{
 };
 
 use crate::{
-    Assigned, Broker, BundleId, CleanupGeneration, Error, MAX_FRAME, RepairAttestation, Reply,
-    Request, Step, SterileBundle, TransferHeader, activate, bundle::AssignFailure, error_code,
-    reconcile, release, release_record, release_sterile, send_tap,
+    Assigned, Broker, BundleId, CleanupGeneration, Error, MAX_FRAME, Reply, Request, Step,
+    SterileBundle, TransferHeader, activate, bundle::AssignFailure, error_code, reconcile, release,
+    release_record, release_sterile, send_tap,
 };
 
 struct State {
@@ -137,6 +140,10 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd) -> Reply {
                     };
                     let launch = launch_bytes(&assigned);
                     let key = (assigned.record().bundle, assigned.record().generation);
+                    let Some(activation) = assigned.activation_challenge().cloned() else {
+                        let _ = release(&state.broker, assigned);
+                        return Reply::Failed(error_code(&Error::InvalidState("activation")));
+                    };
                     if let Err(error) =
                         send_tap(connection.as_fd(), &header, assigned.bundle().tap().as_fd())
                     {
@@ -148,6 +155,7 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd) -> Reply {
                         bundle: key.0,
                         generation: key.1,
                         launch,
+                        activation,
                     }
                 }
                 Err(AssignFailure { bundle, error }) => {
@@ -156,14 +164,23 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd) -> Reply {
                 }
             }
         }
-        Request::Activate { bundle, generation } => {
-            let Some(assigned) = state.assigned.get_mut(&(bundle, generation)) else {
+        Request::Activate {
+            bundle,
+            generation,
+            receipt,
+        } => {
+            let Some(mut assigned) = state.assigned.remove(&(bundle, generation)) else {
                 return Reply::Failed(error_code(&Error::NotAssigned));
             };
-            let attestation = RepairAttestation::authenticated(assigned.record().instance);
-            match activate(assigned, attestation) {
-                Ok(_) => Reply::Activated,
-                Err(error) => Reply::Failed(error_code(&error)),
+            match activate(&mut assigned, &receipt) {
+                Ok(_) => {
+                    state.assigned.insert((bundle, generation), assigned);
+                    Reply::Activated
+                }
+                Err(error) => {
+                    let _ = release(&state.broker, assigned);
+                    Reply::Failed(error_code(&error))
+                }
             }
         }
         Request::Release { bundle, generation } => {

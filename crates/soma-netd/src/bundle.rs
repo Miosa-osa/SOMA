@@ -11,7 +11,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use soma_guest::LaunchNetwork;
+use soma_guest::{ActivationChallenge, LaunchNetwork};
 
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, DnsPlan, Error,
@@ -25,7 +25,12 @@ mod types;
 
 pub use types::{AssignFailure, Assigned, SterileBundle};
 
-type AssignedParts = (AssignmentRecord, LaunchNetwork, Vec<PortReservation>);
+type AssignedParts = (
+    AssignmentRecord,
+    LaunchNetwork,
+    Vec<PortReservation>,
+    ActivationChallenge,
+);
 
 /// The broker state shared by every bundle operation.
 #[derive(Debug)]
@@ -143,11 +148,12 @@ impl Broker {
         vsock_cid: u32,
     ) -> Result<Assigned, AssignFailure> {
         match self.try_assign(&bundle, instance, operation, intent, vsock_cid) {
-            Ok((record, launch, reservations)) => Ok(Assigned {
+            Ok((record, launch, reservations, activation)) => Ok(Assigned {
                 bundle,
                 record,
                 launch,
                 reservations,
+                activation: Some(activation),
                 active: false,
             }),
             Err(error) => Err(AssignFailure {
@@ -209,7 +215,9 @@ impl Broker {
             record.time_sample_nanos,
         )
         .map_err(|_| Error::InvalidState("launch network"))?;
-        Ok((record, launch, reservations))
+        let activation =
+            ActivationChallenge::generate().map_err(|_| Error::InvalidState("activation"))?;
+        Ok((record, launch, reservations, activation))
     }
 }
 

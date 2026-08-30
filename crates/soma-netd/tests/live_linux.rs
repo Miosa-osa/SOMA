@@ -8,114 +8,17 @@
 
 mod live;
 
-use std::{os::fd::AsFd, time::Duration};
-
 use live::{
-    frames::{Guest, SynOutcome},
+    checks::{
+        PROBE, assert_forwarding_off, assert_launch_values, assert_policy_after_activation,
+        assert_sterile, public_intent, transfer_tap,
+    },
+    frames::SynOutcome,
+    session::{self, Wrong, forged},
     world::{self, World},
 };
 use soma::{DnsPolicy, EgressPolicy, NetworkPolicy};
-use soma_netd::{
-    Disposition, NetNamespace, NetworkIntent, RepairAttestation, TransferHeader, activate,
-    receive_tap, reconcile, release, send_tap, seqpacket_pair,
-};
-
-const PROBE: Duration = Duration::from_millis(700);
-
-fn transfer_tap(assigned: &soma_netd::Assigned) -> Guest {
-    let (broker_end, vmm_end) = seqpacket_pair().expect("seqpacket pair");
-    let header = TransferHeader {
-        bundle: assigned.record().bundle,
-        generation: assigned.record().generation,
-        intent: assigned.record().intent_digest,
-    };
-    send_tap(broker_end.as_fd(), &header, assigned.bundle().tap().as_fd()).expect("send tap");
-    let (received, tap) = receive_tap(vmm_end.as_fd()).expect("receive tap");
-    assert_eq!(received, header);
-    Guest::new(tap, &assigned.launch())
-}
-
-fn public_intent(broker: &soma_netd::Broker) -> NetworkIntent {
-    NetworkIntent::admit(
-        &NetworkPolicy::new(EgressPolicy::PublicInternet, DnsPolicy::System, Vec::new())
-            .expect("policy"),
-        broker.profile(),
-    )
-    .expect("intent")
-}
-
-fn assert_sterile(sterile: &soma_netd::SterileBundle) {
-    let names = sterile.names().clone();
-    sterile
-        .namespace()
-        .within(|| {
-            assert!(
-                !std::fs::read_to_string("/proc/sys/net/ipv4/ip_forward")
-                    .expect("sysctl")
-                    .trim()
-                    .eq("1")
-            );
-            let flags = std::fs::read_to_string(format!("/sys/class/net/{}/flags", names.tap)).ok();
-            assert!(flags.is_none() || !flags.expect("flags").contains("0x1003"));
-            Ok(())
-        })
-        .expect("inspect sterile namespace");
-}
-
-fn assert_launch_values(assigned: &soma_netd::Assigned) {
-    let launch = assigned.launch();
-    assert_eq!(launch.address(), [10, 200, 0, 2]);
-    assert_eq!(launch.gateway(), [10, 200, 0, 1]);
-    assert_eq!(launch.prefix_length(), 30);
-    assert_eq!(launch.resolver(), world::DECLARED_RESOLVER.octets());
-    assert_eq!(launch.vsock_cid(), 5);
-    assert_eq!(launch.generation(), 1);
-    assert_eq!(launch.mac(), assigned.bundle().macs().guest);
-}
-
-fn assert_policy_after_activation(guest_a: &mut Guest, world: &World) {
-    assert!(
-        guest_a.ping([10, 200, 0, 1].into(), PROBE),
-        "gateway ping after activation"
-    );
-    assert_eq!(
-        guest_a.tcp_syn(world::PUBLIC_ADDRESS, world::PUBLIC_PORT, PROBE),
-        SynOutcome::SynAck,
-        "public TCP egress after activation"
-    );
-    assert!(
-        world
-            .accepted_peers()
-            .iter()
-            .any(|peer| peer.ip() == std::net::IpAddr::V4(world::HOST_ADDRESS)),
-        "world must see the masqueraded host address"
-    );
-    assert_eq!(
-        guest_a.tcp_syn(world::METADATA, 80, PROBE),
-        SynOutcome::Silence,
-        "metadata endpoint must be dropped in PublicInternet mode"
-    );
-    assert!(
-        std::net::TcpStream::connect_timeout(&(world::METADATA, 80).into(), PROBE).is_ok(),
-        "the host itself can reach the metadata stand-in, so the guest drop is policy"
-    );
-    assert_eq!(
-        guest_a
-            .udp_probe(world::DECLARED_RESOLVER, 53, PROBE)
-            .as_deref(),
-        Some(&b"dns-ok"[..])
-    );
-    assert!(
-        guest_a
-            .udp_probe(world::UNDECLARED_RESOLVER, 53, PROBE)
-            .is_none(),
-        "undeclared DNS dropped"
-    );
-    assert!(
-        !guest_a.ping(world::HOST_ADDRESS, PROBE),
-        "host address must be protected"
-    );
-}
+use soma_netd::{Disposition, Error, NetNamespace, NetworkIntent, activate, reconcile, release};
 
 #[test]
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
@@ -144,10 +47,17 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
         SynOutcome::Silence
     );
 
-    let evidence =
-        activate(&mut assigned, RepairAttestation::authenticated(instance_a)).expect("activate a");
+    let host_a = session::repaired(*instance_a.as_bytes(), *operation_a.as_bytes());
+    let receipt_a = session::mint(&host_a, &assigned);
+    let evidence = activate(&mut assigned, &receipt_a).expect("activate a");
     assert!(evidence.forwarding);
     assert_eq!(evidence.links_raised.len(), 3);
+    assert_eq!(evidence.transcript, *receipt_a.transcript());
+    assert_eq!(
+        activate(&mut assigned, &receipt_a),
+        Err(Error::Unauthorized("activation challenge spent")),
+        "a replayed receipt must be refused"
+    );
     assert!(
         guest_a.resolve_gateway(PROBE).is_some(),
         "gateway ARP after activation"
@@ -160,11 +70,9 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
         .assign(sterile_b, instance_b, operation_b, &intent, 6)
         .map_err(|failure| failure.error)
         .expect("assign b");
-    activate(
-        &mut assigned_b,
-        RepairAttestation::authenticated(instance_b),
-    )
-    .expect("activate b");
+    let host_b = session::repaired(*instance_b.as_bytes(), *operation_b.as_bytes());
+    let receipt_b = session::mint(&host_b, &assigned_b);
+    activate(&mut assigned_b, &receipt_b).expect("activate b");
     let mut guest_b = transfer_tap(&assigned_b);
     assert!(guest_b.resolve_gateway(PROBE).is_some());
     assert_eq!(
@@ -252,8 +160,10 @@ fn hundred_way_prepare_assign_activate_release_burst() {
             .map_err(|failure| failure.error)
             .expect("assign");
         samples[1].push(start.elapsed().as_nanos());
+        let host = session::repaired(*instance.as_bytes(), *operation.as_bytes());
+        let receipt = session::mint(&host, &assigned);
         let start = Instant::now();
-        activate(&mut assigned, RepairAttestation::authenticated(instance)).expect("activate");
+        activate(&mut assigned, &receipt).expect("activate");
         samples[2].push(start.elapsed().as_nanos());
         let start = Instant::now();
         let evidence = release(&broker, assigned).expect("release");
@@ -289,4 +199,63 @@ fn hundred_way_prepare_assign_activate_release_burst() {
             .expect("pins")
             .is_empty()
     );
+}
+
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn forwarding_stays_off_for_every_unauthorized_activation() {
+    live::require_privilege();
+    let state = tempfile::tempdir().expect("state dir");
+    let mut broker = live::broker(state.path(), 16);
+    let intent = public_intent(&broker);
+    let mut refused = 0_usize;
+
+    for (seed, wrong) in [
+        (0xc1_u8, Wrong::Instance),
+        (0xc2, Wrong::Generation),
+        (0xc3, Wrong::Intent),
+    ] {
+        let (bundle, instance, operation) = live::ids(seed);
+        let sterile = broker.prepare(bundle).expect("prepare");
+        let mut assigned = broker
+            .assign(sterile, instance, operation, &intent, 5)
+            .map_err(|failure| failure.error)
+            .expect("assign");
+        let receipt = forged(&assigned, wrong);
+
+        assert_eq!(
+            activate(&mut assigned, &receipt),
+            Err(Error::Unauthorized("activation receipt")),
+            "{wrong:?} must not authorize activation"
+        );
+        assert_forwarding_off(&assigned);
+        assert!(
+            assigned.activation_challenge().is_none(),
+            "a refused attempt still consumes the single-use challenge"
+        );
+        assert_eq!(
+            activate(&mut assigned, &receipt),
+            Err(Error::Unauthorized("activation challenge spent"))
+        );
+        assert_forwarding_off(&assigned);
+        refused += 1;
+        assert!(release(&broker, assigned).expect("release").complete);
+    }
+    assert_eq!(refused, 3);
+
+    let (bundle, instance, operation) = live::ids(0xc4);
+    let sterile = broker.prepare(bundle).expect("prepare authorized");
+    let mut assigned = broker
+        .assign(sterile, instance, operation, &intent, 6)
+        .map_err(|failure| failure.error)
+        .expect("assign authorized");
+    assert_forwarding_off(&assigned);
+    let host = session::repaired(*instance.as_bytes(), *operation.as_bytes());
+    let receipt = session::mint(&host, &assigned);
+    assert!(
+        activate(&mut assigned, &receipt)
+            .expect("authorized activation")
+            .forwarding
+    );
+    assert!(release(&broker, assigned).expect("release").complete);
 }

@@ -57,11 +57,12 @@ impl InitiatorAwaitingResponse {
     pub(crate) fn finish(mut self, second: &[u8]) -> Result<AuthenticatedSession, Error> {
         let message = unframe(second).map_err(|_| Error::AuthenticationFailed)?;
         read_empty_handshake(&mut self.0, message)?;
+        let transcript = transcript(&self.0)?;
         let transport = self
             .0
             .into_transport_mode()
             .map_err(|_| Error::AuthenticationFailed)?;
-        Ok(AuthenticatedSession::new(transport))
+        Ok(AuthenticatedSession::new(transport, transcript))
     }
 }
 
@@ -108,11 +109,12 @@ impl ResponderPendingResponse {
     ///
     /// Returns a redacted setup error if Snow rejects its completed state.
     pub(crate) fn finish(self) -> Result<AuthenticatedSession, Error> {
+        let transcript = transcript(&self.state)?;
         let transport = self
             .state
             .into_transport_mode()
             .map_err(|_| Error::CryptoSetup)?;
-        Ok(AuthenticatedSession::new(transport))
+        Ok(AuthenticatedSession::new(transport, transcript))
     }
 }
 
@@ -121,6 +123,14 @@ fn builder<'a>(prologue: &'a [u8], psk: &'a InstancePsk) -> Result<Builder<'a>, 
     resolver::noise_builder(params)
         .prologue(prologue)
         .and_then(|builder| builder.psk(0, psk.as_bytes()))
+        .map_err(|_| Error::CryptoSetup)
+}
+
+/// Copies the completed handshake hash both peers derive from the identical transcript.
+fn transcript(state: &HandshakeState) -> Result<[u8; 32], Error> {
+    state
+        .get_handshake_hash()
+        .try_into()
         .map_err(|_| Error::CryptoSetup)
 }
 

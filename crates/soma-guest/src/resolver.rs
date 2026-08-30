@@ -45,6 +45,23 @@ pub(crate) fn derive_responder_public_key(private: &[u8; 32]) -> Result<[u8; 32]
     dh.pubkey().try_into().map_err(|_| Error::CryptoSetup)
 }
 
+/// Computes the fixed suite's keyed tag over one exact message.
+///
+/// The tag uses the same BLAKE2s primitive the authenticated session already runs, so the
+/// capability scheme introduces no second cryptographic suite.
+pub(crate) fn keyed_tag(key: &[u8; 32], message: &[u8]) -> Result<[u8; 32], Error> {
+    let resolver = ContributoryResolver::default();
+    let mut hash = resolver
+        .resolve_hash(&HashChoice::Blake2s)
+        .ok_or(Error::CryptoSetup)?;
+    if hash.hash_len() != 32 {
+        return Err(Error::CryptoSetup);
+    }
+    let mut tag = [0_u8; 32];
+    hash.hmac(key, message, &mut tag);
+    Ok(tag)
+}
+
 pub(crate) fn fill_os_random(destination: &mut [u8]) -> Result<(), Error> {
     let resolver = DefaultResolver;
     let mut random = resolver.resolve_rng().ok_or(Error::RandomnessUnavailable)?;

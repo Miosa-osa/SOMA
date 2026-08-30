@@ -63,7 +63,7 @@ pub use protocol::{MAX_FRAME, Reply, Request, error_code};
 pub use transfer::{MAX_HEADER, TransferHeader};
 
 #[cfg(target_os = "linux")]
-pub use activate::{ActivationEvidence, RepairAttestation, activate};
+pub use activate::{ActivationEvidence, activate};
 #[cfg(target_os = "linux")]
 pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
 #[cfg(target_os = "linux")]

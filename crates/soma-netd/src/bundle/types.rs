@@ -2,7 +2,7 @@
 
 use std::os::fd::OwnedFd;
 
-use soma_guest::LaunchNetwork;
+use soma_guest::{ActivationChallenge, LaunchNetwork};
 
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, Error, LeasePair,
@@ -79,6 +79,7 @@ pub struct Assigned {
     pub(crate) record: AssignmentRecord,
     pub(crate) launch: LaunchNetwork,
     pub(crate) reservations: Vec<PortReservation>,
+    pub(crate) activation: Option<ActivationChallenge>,
     pub(crate) active: bool,
 }
 
@@ -111,6 +112,15 @@ impl Assigned {
     #[must_use]
     pub const fn is_active(&self) -> bool {
         self.active
+    }
+
+    /// Borrows the single-use activation challenge until one activation attempt consumes it.
+    ///
+    /// The broker delivers these bytes only to the peer that claimed this assignment; the
+    /// repaired guest session converts them into the receipt [`crate::activate`] requires.
+    #[must_use]
+    pub const fn activation_challenge(&self) -> Option<&ActivationChallenge> {
+        self.activation.as_ref()
     }
 }
 

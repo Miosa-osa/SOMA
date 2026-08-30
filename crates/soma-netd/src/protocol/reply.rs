@@ -1,5 +1,7 @@
 //! Daemon reply frames.
 
+use soma_guest::ActivationChallenge;
+
 use super::array;
 use crate::{BundleId, CleanupGeneration, Error};
 
@@ -15,6 +17,8 @@ pub enum Reply {
         /// The exact `LaunchNetwork` fields: CID, generation, MAC, address, prefix,
         /// gateway, resolver, time sample.
         launch: [u8; 35],
+        /// The single-use activation challenge bound to this assignment.
+        activation: ActivationChallenge,
     },
     /// Activation completed.
     Activated,
@@ -48,11 +52,13 @@ impl Reply {
                 bundle,
                 generation,
                 launch,
+                activation,
             } => {
                 out.push(1);
                 out.extend_from_slice(bundle.as_bytes());
                 out.extend_from_slice(&generation.get().to_be_bytes());
                 out.extend_from_slice(launch);
+                out.extend_from_slice(&activation.to_bytes());
             }
             Self::Activated => out.push(2),
             Self::Released { complete } => out.extend_from_slice(&[3, u8::from(*complete)]),
@@ -82,12 +88,14 @@ impl Reply {
     /// Returns [`Error::Protocol`] for any malformed frame.
     pub fn decode(bytes: &[u8]) -> Result<Self, Error> {
         match (bytes.first(), bytes.len()) {
-            (Some(1), 56) => Ok(Self::Claimed {
+            (Some(1), 88) => Ok(Self::Claimed {
                 bundle: BundleId::new(array(&bytes[1..17]))
                     .map_err(|_| Error::Protocol("bundle"))?,
                 generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
                     .map_err(|_| Error::Protocol("generation"))?,
                 launch: array(&bytes[21..56]),
+                activation: ActivationChallenge::from_bytes(array(&bytes[56..88]))
+                    .map_err(|_| Error::Protocol("activation"))?,
             }),
             (Some(2), 1) => Ok(Self::Activated),
             (Some(3), 2) if bytes[1] <= 1 => Ok(Self::Released {

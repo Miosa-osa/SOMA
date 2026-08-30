@@ -1,7 +1,9 @@
 //! Shared live-test scaffolding: the guest stand-in and the world namespace.
 
+pub mod checks;
 pub mod codec;
 pub mod frames;
+pub mod session;
 pub mod world;
 
 use std::{net::Ipv4Addr, path::Path};

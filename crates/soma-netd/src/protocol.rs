@@ -2,11 +2,15 @@
 //!
 //! One request frame produces one reply frame; a successful claim is followed by one
 //! descriptor transfer frame from [`crate::TransferHeader`].
+//! A claim reply carries the assignment's single-use activation challenge, and the matching
+//! activate request must carry the receipt the repaired guest session minted from it.
 //! No frame carries a path, shell text, or raw ruleset.
 
 mod reply;
 
 pub use reply::Reply;
+
+use soma_guest::ActivationReceipt;
 
 use crate::{
     BundleId, CleanupGeneration, Error, InstanceId, MAX_ENCODED_INTENT, NetworkIntent, OperationId,
@@ -29,12 +33,14 @@ pub enum Request {
         /// The admitted intent.
         intent: NetworkIntent,
     },
-    /// Activate one assigned bundle after authenticated repair.
+    /// Activate one assigned bundle with the repaired guest session's activation receipt.
     Activate {
         /// The bundle.
         bundle: BundleId,
         /// Its generation.
         generation: CleanupGeneration,
+        /// The single-use capability minted from this assignment's activation challenge.
+        receipt: ActivationReceipt,
     },
     /// Release one bundle.
     Release {
@@ -65,10 +71,15 @@ impl Request {
                 out.extend_from_slice(&vsock_cid.to_be_bytes());
                 out.extend_from_slice(&intent.encode());
             }
-            Self::Activate { bundle, generation } => {
+            Self::Activate {
+                bundle,
+                generation,
+                receipt,
+            } => {
                 out.push(2);
                 out.extend_from_slice(bundle.as_bytes());
                 out.extend_from_slice(&generation.get().to_be_bytes());
+                out.extend_from_slice(&receipt.to_bytes());
             }
             Self::Release { bundle, generation } => {
                 out.push(3);
@@ -98,17 +109,20 @@ impl Request {
                 vsock_cid: u32::from_be_bytes(array(&bytes[33..37])),
                 intent: NetworkIntent::decode(&bytes[37..])?,
             }),
-            2 | 3 if bytes.len() == 21 => {
-                let bundle =
-                    BundleId::new(array(&bytes[1..17])).map_err(|_| Error::Protocol("bundle"))?;
-                let generation = CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
-                    .map_err(|_| Error::Protocol("generation"))?;
-                Ok(if bytes[0] == 2 {
-                    Self::Activate { bundle, generation }
-                } else {
-                    Self::Release { bundle, generation }
-                })
-            }
+            2 if bytes.len() == 21 + ActivationReceipt::LEN => Ok(Self::Activate {
+                bundle: BundleId::new(array(&bytes[1..17]))
+                    .map_err(|_| Error::Protocol("bundle"))?,
+                generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
+                    .map_err(|_| Error::Protocol("generation"))?,
+                receipt: ActivationReceipt::from_bytes(&array(&bytes[21..]))
+                    .map_err(|_| Error::Protocol("receipt"))?,
+            }),
+            3 if bytes.len() == 21 => Ok(Self::Release {
+                bundle: BundleId::new(array(&bytes[1..17]))
+                    .map_err(|_| Error::Protocol("bundle"))?,
+                generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
+                    .map_err(|_| Error::Protocol("generation"))?,
+            }),
             4 if bytes.len() == 1 => Ok(Self::Reconcile),
             _ => Err(Error::Protocol("request")),
         }
@@ -136,6 +150,7 @@ pub fn error_code(error: &Error) -> u16 {
         Error::Unimplemented(_) => 15,
         Error::InvalidState(_) => 16,
         Error::Protocol(_) => 17,
+        Error::Unauthorized(_) => 18,
     }
 }
 
@@ -149,6 +164,34 @@ pub(super) fn array<const N: usize>(slice: &[u8]) -> [u8; N] {
 mod tests {
     use super::*;
     use crate::{EgressClass, ProfileDigest};
+    use soma_guest::ActivationChallenge;
+
+    fn receipt() -> ActivationReceipt {
+        let mut bytes = [7_u8; ActivationReceipt::LEN];
+        bytes[0] = 1;
+        ActivationReceipt::from_bytes(&bytes).expect("receipt")
+    }
+
+    #[test]
+    fn an_activate_frame_without_a_receipt_is_rejected() {
+        let bundle = BundleId::new([3; 16]).expect("id");
+        let generation = CleanupGeneration::new(2).expect("g");
+        let mut legacy = Vec::with_capacity(21);
+        legacy.push(2);
+        legacy.extend_from_slice(bundle.as_bytes());
+        legacy.extend_from_slice(&generation.get().to_be_bytes());
+
+        assert_eq!(legacy.len(), 21);
+        assert_eq!(Request::decode(&legacy), Err(Error::Protocol("request")));
+
+        let mut zero_receipt = legacy.clone();
+        zero_receipt.extend_from_slice(&[0; ActivationReceipt::LEN]);
+        assert_eq!(
+            Request::decode(&zero_receipt),
+            Err(Error::Protocol("receipt"))
+        );
+        const { assert!(21 + ActivationReceipt::LEN <= MAX_FRAME) };
+    }
 
     #[test]
     fn requests_and_replies_round_trip_and_reject_hostile_frames() {
@@ -168,7 +211,11 @@ mod tests {
                 vsock_cid: 7,
                 intent,
             },
-            Request::Activate { bundle, generation },
+            Request::Activate {
+                bundle,
+                generation,
+                receipt: receipt(),
+            },
             Request::Release { bundle, generation },
             Request::Reconcile,
         ];
@@ -185,6 +232,7 @@ mod tests {
                 bundle,
                 generation,
                 launch: [9; 35],
+                activation: ActivationChallenge::from_bytes([4; 32]).expect("challenge"),
             },
             Reply::Activated,
             Reply::Released { complete: true },
