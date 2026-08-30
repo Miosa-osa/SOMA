@@ -18,7 +18,7 @@ use soma_kvm::x86_64::{
 
 use crate::{
     x86_64_sandbox_boot_control::HostIo,
-    x86_64_sandbox_boot_session as session,
+    x86_64_sandbox_boot_host as host, x86_64_sandbox_boot_session as session,
     x86_64_snapshot_restore_fixture::{self as fixture, Fixture},
 };
 
@@ -33,6 +33,9 @@ pub struct Instance {
     pub head_path: PathBuf,
     /// Nanoseconds from the first manifest byte read to the machine being ready to resume.
     pub restore_ns: u64,
+    /// Open descriptors and live threads before and after the restored Instance existed.
+    pub descriptors: (usize, usize),
+    pub threads: (u64, u64),
 }
 
 /// Restores one Instance, runs `command`, shuts it down, and returns the evidence.
@@ -43,6 +46,10 @@ pub struct Instance {
 /// result this test exists to catch.
 pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command<'_>]) -> Instance {
     let (head_path, head) = fixture.private_head(name);
+    // Every descriptor and thread the restore creates is opened after these counts and must be
+    // gone before the ones taken at the end.
+    let descriptors_before = host::open_descriptor_count();
+    let threads_before = host::thread_count();
     let started = Instant::now();
     let mut restored = restore(RestoreRequest {
         paths: fixture.paths.clone(),
@@ -126,6 +133,8 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
         identity: instance_id,
         head_path,
         restore_ns,
+        descriptors: (descriptors_before, host::open_descriptor_count()),
+        threads: (threads_before, host::thread_count()),
     }
 }
 

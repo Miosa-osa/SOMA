@@ -54,12 +54,15 @@ impl SnapshotPaths {
         self.directory.join("state.somasnap")
     }
 
+    /// The private name an object is written under before it is published.
+    ///
+    /// The immutable root and the directory itself are never staged: the root is an input
+    /// this snapshot only hashes, and the directory is the thing being published into.
     fn staging(&self, artifact: Artifact) -> PathBuf {
         self.directory.join(match artifact {
             Artifact::Memory => "memory.raw.staging",
             Artifact::Overlay => "overlay.raw.staging",
-            Artifact::State => "state.somasnap.staging",
-            Artifact::Root | Artifact::Directory => "unstaged",
+            Artifact::State | Artifact::Root | Artifact::Directory => "state.somasnap.staging",
         })
     }
 }

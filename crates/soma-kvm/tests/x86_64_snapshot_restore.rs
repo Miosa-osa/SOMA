@@ -116,6 +116,14 @@ mod live {
             restored.evidence.devices
         );
         assert_eq!(restored.evidence.mmio.transport_violations, 0);
+        assert_eq!(
+            restored.descriptors.1, restored.descriptors.0,
+            "the restored machine leaked descriptors"
+        );
+        assert_eq!(
+            restored.threads.1, restored.threads.0,
+            "the restored machine leaked threads"
+        );
         let executed = &restored.executed[0];
         assert_eq!(executed.status, TerminalStatus::Exited(0));
         let stdout = String::from_utf8_lossy(&executed.stdout);
