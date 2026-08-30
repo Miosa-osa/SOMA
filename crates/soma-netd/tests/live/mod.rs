@@ -65,3 +65,15 @@ pub fn ids(seed: u8) -> (BundleId, InstanceId, OperationId) {
         OperationId::new(bytes).expect("operation"),
     )
 }
+
+/// Detaches one namespace pin and leaves an ordinary file in its place, so a later teardown
+/// cannot enter it and must report an incomplete release.
+#[allow(unsafe_code)]
+pub fn break_namespace_pin(pin: &Path) {
+    let target = std::ffi::CString::new(pin.as_os_str().as_encoded_bytes()).expect("pin path");
+    // SAFETY: the path is a valid NUL-terminated string and `MNT_DETACH` has no memory
+    // preconditions.
+    let detached = unsafe { libc::umount2(target.as_ptr(), libc::MNT_DETACH) };
+    assert_eq!(detached, 0, "the namespace pin could not be detached");
+    std::fs::write(pin, b"not a namespace").expect("plant a plain file in the pin's place");
+}

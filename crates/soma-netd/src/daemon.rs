@@ -11,6 +11,8 @@
 //! succeeded is retained, so a peer that lost its `Activated` reply replays the same request
 //! and is answered from that record instead of having its running Machine torn down.
 //! A receipt that fails to authenticate still releases the assignment.
+//! An operation identity stays reserved until its release actually completes, so a teardown
+//! that left kernel objects behind can never be answered with a second lease.
 //!
 //! Every connection is authenticated by [`crate::ControlListener`] before a byte is read, every
 //! request needs the [`crate::Capability`] its operation requires, and an assignment can only be
@@ -77,13 +79,24 @@ impl State {
         self.assigned.insert(slot, owned);
     }
 
-    /// Releases the daemon's hold on one slot under both of its identities.
+    /// Takes the assignment out of the live map, keeping its operation identity reserved.
+    ///
+    /// The identity stays reserved until the kernel objects are actually gone, so a replayed
+    /// claim can never be answered with a second lease while the first one still exists.
     fn disown(&mut self, slot: Slot) -> Option<Owned> {
-        let owned = self.assigned.remove(&slot)?;
-        let record = owned.assigned.record();
-        self.operations.remove(&(record.instance, record.operation));
-        Some(owned)
+        self.assigned.remove(&slot)
     }
+
+    /// Frees the operation identity of an assignment whose release completed.
+    fn forget(&mut self, operation: (InstanceId, OperationId)) {
+        self.operations.remove(&operation);
+    }
+}
+
+/// The Instance and Launch operation one assignment holds.
+fn operation_of(assigned: &Assigned) -> (InstanceId, OperationId) {
+    let record = assigned.record();
+    (record.instance, record.operation)
 }
 
 /// Prepares `prepared` bundles and serves requests until the listener fails.
@@ -186,7 +199,10 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                     Reply::Activated
                 }
                 Err(error) => {
-                    drop(release(&state.broker, owned.assigned));
+                    let operation = operation_of(&owned.assigned);
+                    if release(&state.broker, owned.assigned).complete {
+                        state.forget(operation);
+                    }
                     Reply::Failed(error_code(&error))
                 }
             }
@@ -197,7 +213,14 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                     state.own(owned);
                     Err(Error::Unauthorized("assignment owner"))
                 }
-                Some(owned) => Ok(release(&state.broker, owned.assigned)),
+                Some(owned) => {
+                    let operation = operation_of(&owned.assigned);
+                    let evidence = release(&state.broker, owned.assigned);
+                    if evidence.complete {
+                        state.forget(operation);
+                    }
+                    Ok(evidence)
+                }
                 None => match state.broker.ledger().lookup(bundle, generation) {
                     Ok(entry) => Ok(release_record(&state.broker, &entry.record)),
                     Err(error) => Err(error),

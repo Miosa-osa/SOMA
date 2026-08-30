@@ -349,3 +349,55 @@ fn a_lost_activated_reply_is_recovered_rather_than_destroying_the_machine() {
     );
     drop(world);
 }
+
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn an_incomplete_release_keeps_its_operation_identity_reserved() {
+    live::require_privilege();
+    let world = World::build();
+    let owner = broker_owner();
+    let group = current_group();
+    let state = tempfile::tempdir().expect("state dir");
+    let run = tempfile::tempdir().expect("run dir");
+    let socket = run.path().join("host").join("broker.sock");
+    broker_on(
+        state.path(),
+        &socket,
+        ControlAuthority::new(owner, group, &[owner], &[]).expect("lifecycle only"),
+    );
+    let client = Client::connect(&socket);
+    let (_, instance, operation) = live::ids(0xe2);
+    let intent = public_intent_for(&live::profile());
+    let claim = Request::Claim {
+        instance,
+        operation,
+        vsock_cid: 11,
+        intent,
+    };
+
+    client.send(&claim);
+    client.frame().expect("the transferred descriptor frame");
+    let Some(Reply::Claimed {
+        bundle, generation, ..
+    }) = client.reply()
+    else {
+        panic!("the claim must be answered with the assignment");
+    };
+
+    // Break the namespace pin so the teardown cannot enter it and the release is incomplete.
+    live::break_namespace_pin(&state.path().join("ns").join(bundle.short_hex()));
+    client.send(&Request::Release { bundle, generation });
+    assert_eq!(
+        client.reply(),
+        Some(Reply::Released { complete: false }),
+        "a teardown that could not enter the namespace must report an incomplete release"
+    );
+
+    client.send(&claim);
+    assert_eq!(
+        client.reply(),
+        Some(Reply::Failed(error_code(&Error::NotAssigned))),
+        "an operation whose release left kernel objects behind must not take a second lease"
+    );
+    drop(world);
+}
