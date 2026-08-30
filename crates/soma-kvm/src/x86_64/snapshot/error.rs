@@ -14,6 +14,7 @@ use crate::snapshot::{
     kvm_state::KvmStateError,
     manifest::ManifestError,
     memory::{MappingError, MemoryError},
+    readiness::ReadinessRefusal,
     restore::RestoreOrderError,
     section::SectionError,
 };
@@ -42,6 +43,8 @@ pub enum SnapshotError {
     CaptureOrder(CaptureOrderError),
     /// The restore steps were driven out of the fixed order.
     RestoreOrder(RestoreOrderError),
+    /// The authenticated readiness evidence was absent, spent, or did not authenticate.
+    Readiness(ReadinessRefusal),
     /// A KVM ioctl failed while reading or installing state.
     Ioctl { operation: &'static str, errno: i32 },
     /// A KVM table was written only in part, so the state is neither old nor new.
@@ -101,6 +104,7 @@ impl fmt::Display for SnapshotError {
             Self::NotQuiescent(reason) => write!(formatter, "not quiescent: {reason}"),
             Self::CaptureOrder(error) => write!(formatter, "{error}"),
             Self::RestoreOrder(error) => write!(formatter, "{error}"),
+            Self::Readiness(refusal) => write!(formatter, "{refusal}"),
             Self::Ioctl { operation, errno } => {
                 write!(formatter, "{operation} failed with errno {errno}")
             }
@@ -178,6 +182,7 @@ from_error! {
     MachineError => Machine,
     CaptureOrderError => CaptureOrder,
     RestoreOrderError => RestoreOrder,
+    ReadinessRefusal => Readiness,
     KvmStateError => KvmState,
     DeviceStateError => DeviceState,
     SlotRestoreError => SlotRestore,

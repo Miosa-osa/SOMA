@@ -75,6 +75,24 @@ fn a_repaired_session_mints_a_receipt_the_broker_challenge_authenticates() {
 }
 
 #[test]
+fn the_published_transcript_is_the_one_a_repaired_session_binds() {
+    let host = repaired();
+    let challenge = ActivationChallenge::generate().expect("broker challenge");
+    let receipt = host
+        .network_activation(&challenge, GENERATION, INTENT)
+        .expect("receipt");
+
+    let transcript = host.session_transcript();
+
+    assert_ne!(transcript, [0; 32]);
+    assert_eq!(
+        &transcript,
+        receipt.transcript(),
+        "the published transcript is not the one this session authenticated with"
+    );
+}
+
+#[test]
 fn a_receipt_does_not_authenticate_for_another_assignment_or_challenge() {
     let host = repaired();
     let challenge = ActivationChallenge::generate().expect("broker challenge");

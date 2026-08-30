@@ -10,8 +10,9 @@ use std::{
 };
 
 use soma_guest::{GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
+use soma_kvm::snapshot::readiness::{ReadinessRefusal, SessionEvidence};
 use soma_kvm::x86_64::{
-    Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, restore,
+    Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, SnapshotError, restore,
 };
 
 use crate::{
@@ -67,6 +68,7 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
     assert_eq!(facts.captured_cid, u64::from(fixture::CAPTURE_CID));
 
     let instance_id = session::random16();
+    let launch_operation = session::random16();
     let network = LaunchNetwork::new(
         cid,
         cid,
@@ -81,7 +83,7 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
     let material = HostLaunchMaterial::generate(
         fixture.generation_id,
         instance_id,
-        session::random16(),
+        launch_operation,
         network,
     )
     .expect("fresh launch material");
@@ -89,7 +91,15 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
         .deliver_with(|page| restored.resume(page))
         .expect("resume the restored machine");
 
-    let outcome = drive(&restored, delivered, commands);
+    let outcome = drive(
+        &restored,
+        delivered,
+        &Identity {
+            instance: instance_id,
+            operation: launch_operation,
+        },
+        commands,
+    );
     let complete = restored.is_ready();
     let evidence = restored.machine.finish(EXIT_GRACE);
     let log = fixture.scratch.join(format!("restore-{name}.log"));
@@ -135,9 +145,16 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
     }
 }
 
+/// The fresh identity the launch authority named, which the readiness receipt must bind.
+pub struct Identity {
+    pub instance: [u8; 16],
+    pub operation: [u8; 16],
+}
+
 fn drive(
     restored: &soma_kvm::x86_64::Restored,
     delivered: soma_guest::DeliveredHostLaunchMaterial,
+    identity: &Identity,
     commands: &[session::Command<'_>],
 ) -> Result<Vec<session::Executed>, String> {
     let machine = &restored.machine;
@@ -156,9 +173,26 @@ fn drive(
     let repaired = host
         .prepare_and_probe()
         .map_err(|error| format!("repair and probe: {error}"))?;
+    let evidence = SessionEvidence::new(
+        identity.instance,
+        identity.operation,
+        repaired.session_transcript(),
+    )
+    .map_err(|error| format!("session evidence: {error}"))?;
+    let demand = restored
+        .readiness_demand()
+        .ok_or_else(|| "the restore published no readiness demand".to_owned())?;
+    let receipt = demand.attest(&evidence);
     restored
-        .ready()
+        .ready(&receipt)
         .map_err(|error| format!("ready: {error}"))?;
+    assert!(
+        matches!(
+            restored.ready(&receipt),
+            Err(SnapshotError::Readiness(ReadinessRefusal::Spent))
+        ),
+        "a spent readiness challenge accepted a second receipt"
+    );
     machine.mark(Milestone::Ready);
     let mut repaired = repaired;
     let mut executed = Vec::with_capacity(commands.len());

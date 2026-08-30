@@ -12,6 +12,7 @@ mod digest;
 pub mod kvm_state;
 pub mod manifest;
 pub mod memory;
+pub mod readiness;
 pub mod restore;
 pub mod section;
 mod wire;

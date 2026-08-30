@@ -309,6 +309,7 @@ crates/soma-kvm/src/
       restore.rs
       restore/
         devices.rs
+        readiness.rs
         sections.rs
       vcpu.rs
     sandbox/
@@ -419,6 +420,8 @@ crates/soma-kvm/src/
     manifest/host.rs
     memory.rs
     memory/mapping.rs
+    readiness.rs
+    readiness/tests.rs
     restore.rs
     section.rs
     wire.rs
@@ -536,6 +539,7 @@ The module itself registers no ioeventfd or irqfd, decodes no KVM exit, runs no 
 `memory.rs` owns the memory-object descriptor and the Linux `MAP_PRIVATE | MAP_NORESERVE` mapping type accepted by ADR 0002.
 `compatibility.rs` compares a `HostProfile` with a decoded manifest using exact equality and typed rejection reasons, header fields before any section payload.
 `capture.rs` and `restore.rs` are typed ordering contracts only; they have no KVM or device effect and exist so the live slice in `x86_64/snapshot/` cannot reorder quiesce, capture, restore, or unwind steps silently.
+`readiness.rs` owns the evidence the last restore step consumes: a fresh single-use challenge with no public constructor, the restored snapshot and published launch authority a receipt must bind, the Instance, Launch operation, and live transcript of the authenticated repaired session that minted it, and the keyed tag over all of them.
 
 ### `x86_64/snapshot/`
 
@@ -546,6 +550,7 @@ The module itself registers no ioeventfd or irqfd, decodes no KVM exit, runs no 
 `device.rs` converts between the live virtio slot records and the canonical device sections and proves the canonical form reproduces the live one.
 `artifacts.rs` writes each object to a private staging name, flushes it, hashes it through the handle that wrote it, and publishes with a link that fails when the name exists.
 `capture.rs` and `restore.rs` drive the codec's typed schedules; `marker.rs` records and requires the pre-launch capture point.
+`restore/readiness.rs` owns the readiness transition: the restore samples its own challenge, publishes its demand only after the fresh launch authority exists, spends that challenge on the first attempt, and completes the typestate only when the receipt authenticates, so no caller can assert readiness.
 
 ### `tests/kvm_probe.rs`
 
@@ -815,6 +820,7 @@ crates/soma-guest/src/
 The crate is an independent protocol and ownership foundation so the host VMM adapter and the static guest agent share one encoding, lifecycle, deadline contract, and test corpus.
 It also fixes the machine-contract constants shared by both peers: the launch-page guest-physical address, the vsock control port, and the schema 2 non-secret `LaunchNetwork` identity accepted by ADR 0023.
 `activation.rs` and `control/host/network.rs` own the single-use network-activation capability: the privileged broker samples one `ActivationChallenge` per assignment, only the repaired authenticated owner mints the `ActivationReceipt` from it, and the tag binds the Instance, Launch operation, assignment generation, admitted intent digest, and live handshake transcript with the session's own BLAKE2s primitive.
+`control/host/network.rs` also publishes that owner's live handshake transcript, which is the non-secret evidence a restored Instance's readiness receipt binds; only a repaired authenticated owner exists to publish it.
 `launch_page/network.rs` enforces the declared IPv4 profile of ADR 0028: prefixes 1 through 30 with no point-to-point exception, usable unicast that excludes the unspecified, `0.0.0.0/8`, loopback, link-local, multicast, reserved, and limited-broadcast classes, and a guest and gateway that are assignable hosts rather than the subnet network or directed broadcast address.
 It does not contain a guest executable, VMM device transport adapter, trusted Generation-manifest verifier, physical snapshot-safe secret injection, real clone repair, process executor, C ABI, or attestation mechanism.
 Its owned authenticated probe state is necessary but cannot authorize a Machine Ready result until those external repair and execution effects are wired and evidenced.

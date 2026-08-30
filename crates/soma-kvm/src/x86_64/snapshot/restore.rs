@@ -8,6 +8,7 @@
 //! every state constructor has succeeded.
 
 mod devices;
+mod readiness;
 mod sections;
 
 use std::{cell::Cell, fs::File};
@@ -25,9 +26,10 @@ use super::{
     marker, platform, profile, vcpu,
 };
 use crate::snapshot::{
-    compatibility,
+    Digest, compatibility,
     manifest::Manifest,
     memory::PrivateMapping,
+    readiness::ReadinessChallenge,
     restore::{RestoreSequence, RestoreStep},
     section::SectionRole,
 };
@@ -65,6 +67,8 @@ pub struct RestoreRequest {
 /// What the restored machine is, taken from the manifest rather than from the caller.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RestoreFacts {
+    /// The digest of the exact snapshot state object this Instance was restored from.
+    pub snapshot: Digest,
     pub generation_id: [u8; 32],
     pub memory_bytes: u64,
     /// The console line the agent printed at the capture point.
@@ -84,6 +88,12 @@ pub struct Restored {
     /// What the snapshot said this machine is.
     pub facts: RestoreFacts,
     sequence: Cell<RestoreSequence>,
+    /// The fresh single-use secret this restore requires in its readiness receipt.
+    readiness: ReadinessChallenge,
+    /// Whether one readiness attempt has already spent that challenge.
+    spent: Cell<bool>,
+    /// The launch authority this restore published, once it has published one.
+    launch: Cell<Option<Digest>>,
 }
 
 impl Restored {
@@ -95,20 +105,12 @@ impl Restored {
     pub fn resume(&mut self, page: &[u8; LAUNCH_PAGE_SIZE]) -> Result<(), SnapshotError> {
         self.step(RestoreStep::AttachFreshAuthority)?;
         self.machine.write_launch_page(page)?;
+        self.launch.set(Some(Digest::of(page)));
         self.machine.start()?;
         // The vsock restore queued a transport-reset event; delivering it now is what makes
         // the guest driver re-read the fresh context identifier before the agent connects.
         self.machine.wake_devices();
         self.step(RestoreStep::ResumeVcpu)
-    }
-
-    /// Records that authenticated repair and the fixed readiness command completed.
-    ///
-    /// # Errors
-    ///
-    /// Returns the ordering violation.
-    pub fn ready(&self) -> Result<(), SnapshotError> {
-        self.step(RestoreStep::AuthenticatedRepairAndReadiness)
     }
 
     /// Whether every ordered step completed.
@@ -142,8 +144,11 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     } = request;
     let mut timeline = Timeline::new();
     let mut sequence = RestoreSequence::start();
+    let readiness = readiness::sample_challenge()?;
     let kvm = Kvm::new().map_err(|error| MachineError::os(Phase::Restore, error))?;
-    let manifest = Manifest::decode(&artifacts::read_state(&paths.state())?)?;
+    let state_bytes = artifacts::read_state(&paths.state())?;
+    let snapshot = Digest::of(&state_bytes);
+    let manifest = Manifest::decode(&state_bytes)?;
     let profile = profile::host_profile(&kvm, memory_bytes)?;
     compatibility::check(&profile, &manifest)?;
     let state = Sections::read(&manifest)?;
@@ -248,6 +253,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     Ok(Restored {
         machine,
         facts: RestoreFacts {
+            snapshot,
             generation_id: *manifest.header().generation_id.as_bytes(),
             memory_bytes: manifest.header().memory.size(),
             repair_point_line,
@@ -256,5 +262,8 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
             guest_cid,
         },
         sequence: Cell::new(sequence),
+        readiness,
+        spent: Cell::new(false),
+        launch: Cell::new(None),
     })
 }

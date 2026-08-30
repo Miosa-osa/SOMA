@@ -3,6 +3,17 @@ use crate::{ActivationChallenge, ActivationReceipt, ActivationScope, Error};
 use super::{HostControlIo, RepairedHostControl};
 
 impl<I: HostControlIo> RepairedHostControl<I> {
+    /// Returns this session's live authenticated handshake transcript.
+    ///
+    /// The value is not a secret; it already crosses the wire inside every activation receipt.
+    /// It is published only on this owner, which exists solely after authenticated repair and
+    /// the fixed readiness probe, so a caller that holds one holds proof that this exact
+    /// session reached its terminal readiness result.
+    #[must_use]
+    pub fn session_transcript(&self) -> [u8; 32] {
+        *self.channel.session.transcript()
+    }
+
     /// Mints the single-use capability that lets the broker activate one network assignment.
     ///
     /// This owner exists only after authenticated repair and the fixed readiness probe, so the
