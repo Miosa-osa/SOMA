@@ -12,8 +12,8 @@ use std::{
 
 use super::error::{MachineError, MachineErrorKind, Phase};
 use crate::virtio::{
-    BLOCK_SERIAL_LEN, BlockDevice, BlockRole, BusDevices, FileBackend, LoopbackBackend, MmioBus,
-    NetDevice, OsEntropy, RngDevice, VsockDevice,
+    BLOCK_SERIAL_LEN, BlockDevice, BlockRole, BusDevices, Detached, FileBackend, LoopbackBackend,
+    MmioBus, NetDevice, OsEntropy, RngDevice, VsockDevice,
 };
 
 /// Logical block size reported by both block devices; equal to the EROFS and ext4 block size.
@@ -105,13 +105,48 @@ pub(crate) fn build_devices(
     disks: SandboxDisks,
     identity: DeviceIdentity,
 ) -> Result<BusDevices, MachineError> {
-    let root = block(BlockRole::ImmutableRoot, disks.root, true, ROOT_SERIAL)?;
     let overlay = block(
         BlockRole::PrivateOverlay,
         disks.overlay,
         false,
         OVERLAY_SERIAL,
     )?;
+    build_around_overlay(disks.root, overlay, identity)
+}
+
+/// Builds the five device models with the private overlay declared rather than held.
+///
+/// A prepared worker is built before the Instance it will serve exists, and the prepared worker
+/// protocol forbids it from holding a private disk head until it is claimed. The overlay device
+/// still has to exist by then, because having built it is most of what preparing a worker in
+/// advance buys, so it is built against the capacity the head will have and the head itself is
+/// attached at claim.
+///
+/// # Errors
+///
+/// Returns the typed device failure, exactly as [`build_devices`] does.
+pub(crate) fn build_devices_detached_overlay(
+    root: File,
+    overlay_capacity_bytes: u64,
+    identity: DeviceIdentity,
+) -> Result<BusDevices, MachineError> {
+    let overlay = BlockDevice::new(
+        BlockRole::PrivateOverlay,
+        Box::new(Detached::new(overlay_capacity_bytes, false)),
+        BLOCK_SIZE,
+        serial(OVERLAY_SERIAL),
+    )
+    .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?;
+    build_around_overlay(root, overlay, identity)
+}
+
+/// The four devices that are the same however the overlay was obtained.
+fn build_around_overlay(
+    root: File,
+    overlay: BlockDevice,
+    identity: DeviceIdentity,
+) -> Result<BusDevices, MachineError> {
+    let root = block(BlockRole::ImmutableRoot, root, true, ROOT_SERIAL)?;
     let net = NetDevice::new(Box::new(LoopbackBackend::default()), identity.guest_mac);
     let vsock = VsockDevice::new(u64::from(identity.guest_cid))
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;

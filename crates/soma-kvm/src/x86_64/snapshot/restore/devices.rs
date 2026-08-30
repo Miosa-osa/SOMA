@@ -18,7 +18,7 @@ use crate::snapshot::{device_state::DeviceSpecific, manifest::Manifest};
 use crate::virtio::{MmioBus, Slot, SlotSnapshot};
 use crate::x86_64::{
     Machine,
-    devices::{self as machine_devices, DeviceIdentity, SandboxDisks},
+    devices::{self as machine_devices, DeviceIdentity},
 };
 
 /// The identity a restore installs: the snapshot's placeholder MAC, the context identifier it
@@ -26,19 +26,23 @@ use crate::x86_64::{
 pub(super) struct Identity {
     pub(super) mac: [u8; 6],
     pub(super) captured_cid: u64,
-    pub(super) guest_cid: u32,
 }
 
 pub(super) fn recreate_devices(
     machine: &Machine,
-    disks: SandboxDisks,
+    root: std::fs::File,
+    overlay_capacity_bytes: u64,
     state: &Sections,
     identity: &Identity,
 ) -> Result<MmioBus, SnapshotError> {
     let captured_cid = u32::try_from(identity.captured_cid)
         .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Vsock))?;
-    let devices = machine_devices::build_devices(
-        disks,
+    // Every restore builds the overlay slot against the head's declared shape and receives the
+    // head itself at assignment, whether or not the caller already had one. One path means a
+    // prepared worker and a direct restore cannot reach different device state.
+    let devices = machine_devices::build_devices_detached_overlay(
+        root,
+        overlay_capacity_bytes,
         DeviceIdentity {
             guest_cid: captured_cid,
             guest_mac: identity.mac,
@@ -59,13 +63,11 @@ pub(super) fn recreate_devices(
     let records: [SlotSnapshot; 5] = records
         .try_into()
         .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Root))?;
-    let mut bus = MmioBus::restore(devices, &records, &machine.shared_ram())?;
-    // The fresh context identifier replaces the captured one; the transport-reset event the
-    // vsock restore queued makes the guest driver re-read it before the agent connects.
-    bus.vsock_mut()
-        .device_mut()
-        .set_guest_cid(u64::from(identity.guest_cid))
-        .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Vsock))?;
+    // The device keeps the captured identifier here. The fresh one this Instance holds is
+    // installed by the assignment step, which every restore goes through, so a prepared worker
+    // built before its Instance exists and a restore that already knows its Instance cannot take
+    // different paths to the same device state.
+    let bus = MmioBus::restore(devices, &records, &machine.shared_ram())?;
     Ok(bus)
 }
 

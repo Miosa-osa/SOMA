@@ -10,11 +10,11 @@ use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{Prepared, SandboxMachine, Stage, Timeline};
-use crate::virtio::MmioBus;
+use crate::virtio::{FileBackend, MmioBus};
 use crate::x86_64::{
     Machine,
     devices::SharedBus,
-    error::{MachineError, Phase},
+    error::{MachineError, MachineErrorKind, Phase},
     events::{IrqLines, NotifyFds},
     launch_page::LaunchPageSlot,
     timing::Stopwatch,
@@ -36,6 +36,40 @@ pub(in crate::x86_64) struct RestoredParts {
 }
 
 impl SandboxMachine {
+    /// Gives a machine built without them the private disk head and context identifier.
+    ///
+    /// A prepared worker is restored before any Instance exists, so it is built against a
+    /// declared overlay shape and the identifier the snapshot was captured holding. Both are
+    /// per-Instance authority the prepared worker protocol transfers when the worker is claimed,
+    /// and this is where that transfer lands in the machine.
+    ///
+    /// It is safe to do this to an already restored device because the vCPU has not been started:
+    /// nothing in the guest has read the identifier or touched the disk since the restore, so
+    /// neither substitution can be observed as a change.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the head does not have the shape the device was built for, or when the
+    /// identifier is not one a guest may hold.
+    pub(in crate::x86_64) fn assign_instance_resources(
+        &self,
+        overlay: std::fs::File,
+        guest_cid: u32,
+    ) -> Result<(), MachineError> {
+        let backend = FileBackend::new(overlay, false)
+            .map_err(|error| MachineError::io(Phase::Devices, &error))?;
+        let mut bus = self.shared.lock();
+        bus.overlay_mut()
+            .device_mut()
+            .attach(Box::new(backend))
+            .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?;
+        bus.vsock_mut()
+            .device_mut()
+            .set_guest_cid(u64::from(guest_cid))
+            .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
+        Ok(())
+    }
+
     /// Wraps restored resources in the same machine the cold-boot path produces.
     ///
     /// # Errors

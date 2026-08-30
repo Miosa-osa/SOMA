@@ -255,6 +255,11 @@ impl MmioBus {
         &mut self.vsock
     }
 
+    /// The private overlay, so a claimed worker can be given the disk head it was built without.
+    pub const fn overlay_mut(&mut self) -> &mut MmioTransport<BlockDevice> {
+        &mut self.overlay
+    }
+
     #[must_use]
     pub const fn rng(&self) -> &MmioTransport<RngDevice> {
         &self.rng

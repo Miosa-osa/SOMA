@@ -198,3 +198,56 @@ impl BlockBackend for MemoryBackend {
         Ok(())
     }
 }
+
+/// A backend that declares a store's shape while holding no store at all.
+///
+/// A prepared worker is built before any Instance exists, and the prepared worker protocol
+/// forbids it from holding a private disk head: the head is one of the eight authorities
+/// transferred when the worker is claimed. The device model still has to exist before then,
+/// because building it is most of what a prepared worker exists to have done in advance, and a
+/// device cannot be built without a backend to take its geometry from.
+///
+/// So this stands in for the absent head. It answers the capacity and writability the real head
+/// will have, which is what the device needs to be built and what a later attachment is checked
+/// against, and it refuses every read, write, and flush. Refusing is safe rather than merely
+/// defensive: a worker in this state has not started its vCPU, so nothing in the guest can reach
+/// the device, and an I/O against a detached backend therefore means the worker was started
+/// without being given its head.
+#[derive(Clone, Copy, Debug)]
+pub struct Detached {
+    capacity_bytes: u64,
+    read_only: bool,
+}
+
+impl Detached {
+    /// Declares the shape of the store that will be attached later.
+    #[must_use]
+    pub const fn new(capacity_bytes: u64, read_only: bool) -> Self {
+        Self {
+            capacity_bytes,
+            read_only,
+        }
+    }
+}
+
+impl BlockBackend for Detached {
+    fn capacity_bytes(&self) -> u64 {
+        self.capacity_bytes
+    }
+
+    fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    fn read_at(&mut self, _offset: u64, _buf: &mut [u8]) -> Result<usize, BackendError> {
+        Err(BackendError::OutOfRange)
+    }
+
+    fn write_at(&mut self, _offset: u64, _data: &[u8]) -> Result<usize, BackendError> {
+        Err(BackendError::OutOfRange)
+    }
+
+    fn flush(&mut self) -> Result<(), BackendError> {
+        Err(BackendError::OutOfRange)
+    }
+}

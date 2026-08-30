@@ -76,6 +76,11 @@ pub enum BlockConfigError {
     InvalidBlockSize { blk_size: u32 },
     /// The capacity is zero or not a multiple of the block size.
     InvalidCapacity { capacity_bytes: u64 },
+    /// An attached store does not have the shape the device was built for.
+    ///
+    /// The guest has already been told the device's capacity, so a store of a different size
+    /// cannot be substituted for the one the device was built against.
+    AttachedShapeDiffers,
 }
 
 impl fmt::Display for BlockConfigError {
@@ -136,6 +141,32 @@ impl BlockDevice {
             activated: false,
             counters: BlockCounters::default(),
         })
+    }
+
+    /// Puts the real store behind a device that was built against a declared shape.
+    ///
+    /// A prepared worker builds this device before it may hold a private disk head, so the head
+    /// arrives afterwards and this is where it lands. The replacement must have exactly the shape
+    /// the device was built with: the guest has been told a capacity and a writability, and a
+    /// store that disagrees with either would make the device lie about itself. Nothing else
+    /// about the device changes, so a restored device stays restored across the attachment.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BlockConfigError::AttachedShapeDiffers`] when the store's capacity or
+    /// writability is not the one the device was built for.
+    pub fn attach(
+        &mut self,
+        backend: Box<dyn BlockBackend + Send>,
+    ) -> Result<(), BlockConfigError> {
+        if backend.read_only() != self.role.read_only() {
+            return Err(BlockConfigError::RoleMismatch);
+        }
+        if backend.capacity_bytes() != self.capacity_sectors * SECTOR_SIZE {
+            return Err(BlockConfigError::AttachedShapeDiffers);
+        }
+        self.backend = backend;
+        Ok(())
     }
 
     #[must_use]
