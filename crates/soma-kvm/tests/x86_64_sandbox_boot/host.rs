@@ -59,9 +59,46 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("x86_64-sandbox-boot");
     fs::create_dir_all(&root).expect("create the scratch root under target/");
     reclaim_stale(&root);
+    require_free_space(&root);
     let dir = root.join(format!("{name}-{}", run_token()));
     fs::create_dir_all(&dir).expect("create scratch directory under target/");
     dir
+}
+
+/// Free space one run needs before it starts.
+///
+/// A `node:22` run writes an EROFS root near 1.1 GiB, an overlay head, and a snapshot, and
+/// several runs share the scratch root within [`SCRATCH_LIFETIME`]. This is a floor, not a
+/// measurement of one run.
+const REQUIRED_FREE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Fails the run before it starts when the scratch filesystem cannot hold it.
+///
+/// Exhausted scratch space surfaces from deep inside Generation compilation as an opaque
+/// toolchain failure, because the root formatter simply cannot write, and a partly written
+/// tree can also strand a boot until its deadline. Both read as flaky live tests. Naming the
+/// real condition here keeps that misreading from costing another investigation.
+#[allow(unsafe_code)]
+fn require_free_space(root: &Path) {
+    let Ok(path) = std::ffi::CString::new(root.as_os_str().as_encoded_bytes()) else {
+        return;
+    };
+    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: `path` is a live null-terminated string and `stats` is a live, correctly aligned
+    // `statvfs` that the call either fills or leaves untouched, which the result distinguishes.
+    if unsafe { libc::statvfs(path.as_ptr(), stats.as_mut_ptr()) } != 0 {
+        return;
+    }
+    // SAFETY: `statvfs` returned zero, so it filled the structure.
+    let stats = unsafe { stats.assume_init() };
+    let available = stats.f_bavail.saturating_mul(stats.f_frsize);
+    assert!(
+        available >= REQUIRED_FREE_BYTES,
+        "scratch filesystem at {} has {available} bytes free, below the {REQUIRED_FREE_BYTES} \
+         one run needs; reclaim that directory, whose trees are kept for {} hours",
+        root.display(),
+        SCRATCH_LIFETIME.as_secs() / 3600,
+    );
 }
 
 /// One identifier for this test process, stable for its whole life.
