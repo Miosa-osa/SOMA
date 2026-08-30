@@ -1,23 +1,57 @@
 # Setting up SOMA on a server
 
-This is the short version: what a server must already have, then the steps in order, from an
-empty machine to a running sandbox. It is a development and evaluation setup. What it does not yet
-cover, a production service that hands many users concurrent isolated sandboxes on demand, is
-listed honestly at the end.
+This is the short version: what a server must already have, then the steps in order, from a fresh
+machine to a running sandbox. The picture is an operator or an agent with SSH access to a plain
+Ubuntu host, driving everything through the `soma` command line: no console, no manual VM
+wrangling, just the CLI. It is a single-host development and evaluation setup: one sandbox at a
+time, cold booted.
 
-## Step 0: the server must already have this
+## Where this fits
 
-SOMA runs a real virtual machine per sandbox, so the host has to be able to do that. Check these
-first and stop if any is missing, because nothing later works without them.
+SOMA is three layers, and this document is only the first one:
 
-- [ ] **Linux on x86_64.** Ubuntu 24.04 is the tested target.
-- [ ] **KVM.** `/dev/kvm` exists and the run user can open it. Confirm with `test -w /dev/kvm && echo ok`. On bare metal this is normal; on a cloud VM it requires nested virtualization to be enabled by the provider.
-- [ ] **sudo**, to install packages and mount a filesystem.
-- [ ] **Network egress** to GitHub and a container registry, to clone the code and pull base images.
-- [ ] **Disk headroom.** A compiled `node:22` template is about 1.1 GiB.
-- [ ] **Recommended: an XFS filesystem with reflink.** Confirm with `xfs_info <mountpoint> | grep reflink=1`. Writable sandbox disks are then near free to create, which is what makes running many sandboxes cheap. Without it, each sandbox copies its disk instead, which still works but costs time and space.
+1. **`soma-vmm`**, the engine that runs one virtual machine per sandbox. This document sets that up.
+2. **`soma-hostd`**, per-host pools of prepared workers that let one host serve many sandboxes
+   quickly instead of cold booting each. Built and component-tested, not yet wired to the live
+   command-line path.
+3. **The fleet control plane**, which places and admits sandboxes across many hosts. Designed.
 
-If the box has all of these, it can host SOMA. If KVM is absent, this is the wrong host.
+So this runbook stands up the floor. A production host is not just a machine that booted a
+sandbox once: it is a **certified host profile**, an exact combination of host class, operating
+system, kernel, CPU model, storage mode, network mode, and SOMA build that has passed the
+conformance, isolation, cleanup, and performance gates. Changing any of those requires a new
+certification. The support levels and the full prerequisite contract are in
+[deployment portability](deployment-portability.md).
+
+## Step 0: the server must be able to host a virtual machine
+
+SOMA runs a real virtual machine per sandbox, so the host has to be able to do that. The engine
+requires all of the following, and refuses to admit a workload without them:
+
+- **Linux on x86_64.** Ubuntu 24.04 is the tested target.
+- **KVM** and the required CPU virtualization features. On bare metal this is normal; on a cloud
+  VM it requires nested virtualization enabled by the provider.
+- **cgroup v2** and the namespace, seccomp, and resource-accounting controls the jail needs.
+- **A private networking path** with enforceable denied and allowed policy.
+- **A private writable-root mechanism** with verifiable cleanup, and a filesystem and kernel the
+  selected Generation accepts.
+- **Stable monotonic timing** and reserved capacity for the declared performance class.
+- **sudo** to install packages and provision storage, and **network egress** to GitHub and a
+  container registry.
+
+The preflight that checks these is part of SOMA itself, so after Step 2 you run it rather than
+checking by hand:
+
+```sh
+soma doctor --strict
+```
+
+A passing strict preflight means the host exposes the prerequisites this SOMA release checks. It
+is not the full certification suite, but it is the gate to clear before running anything.
+
+**Recommended: an XFS filesystem with reflink** (`xfs_info <mountpoint> | grep reflink=1`).
+Writable sandbox disks are then near free to create, which is what makes running many sandboxes
+cheap. Without it each sandbox copies its disk instead, which still works but costs time and space.
 
 ## Step 1: install the tools
 
