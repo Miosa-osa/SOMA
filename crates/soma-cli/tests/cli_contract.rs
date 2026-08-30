@@ -48,7 +48,7 @@ fn parser_failures_are_machine_readable_without_echoing_values() {
 }
 
 #[test]
-fn explicit_kvm_lifecycle_fails_closed_for_the_alpha() {
+fn explicit_kvm_without_a_prepared_generation_reports_an_unavailable_capability() {
     let output = soma(&[
         "--format",
         "json",
@@ -62,7 +62,10 @@ fn explicit_kvm_lifecycle_fails_closed_for_the_alpha() {
     ]);
     let response = json(&output);
 
-    assert_eq!(output.status.code(), Some(78));
+    // The KVM lifecycle exists now, so the honest refusal is that this host has prepared no
+    // Generation for the image, not that the Backend is unsupported. A host that has prepared
+    // one is exercised by the ignored live tests rather than by this contract.
+    assert_eq!(output.status.code(), Some(76));
     assert!(response["result"].is_null());
-    assert_eq!(response["error"]["code"], "unsupported_backend");
+    assert_eq!(response["error"]["code"], "backend_unavailable");
 }

@@ -138,7 +138,7 @@ impl Backend for LocalBackend {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.resolve_box(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            Self::Kvm(backend) => backend.resolve(request),
             #[cfg(not(any(
                 all(target_os = "macos", target_arch = "aarch64"),
                 all(target_os = "linux", target_arch = "x86_64")
@@ -159,7 +159,7 @@ impl Backend for LocalBackend {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.launch_box(&request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            Self::Kvm(backend) => backend.launch(&request),
             #[cfg(not(any(
                 all(target_os = "macos", target_arch = "aarch64"),
                 all(target_os = "linux", target_arch = "x86_64")
@@ -180,7 +180,7 @@ impl Backend for LocalBackend {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            Self::Kvm(backend) => backend.execute(request),
             #[cfg(not(any(
                 all(target_os = "macos", target_arch = "aarch64"),
                 all(target_os = "linux", target_arch = "x86_64")
@@ -201,7 +201,7 @@ impl Backend for LocalBackend {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.inspect(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            Self::Kvm(backend) => backend.inspect(request),
             #[cfg(not(any(
                 all(target_os = "macos", target_arch = "aarch64"),
                 all(target_os = "linux", target_arch = "x86_64")
@@ -222,7 +222,7 @@ impl Backend for LocalBackend {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.cleanup(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            Self::Kvm(backend) => Err(backend.unavailable(request.operation_id())),
+            Self::Kvm(backend) => backend.cleanup(request),
             #[cfg(not(any(
                 all(target_os = "macos", target_arch = "aarch64"),
                 all(target_os = "linux", target_arch = "x86_64")

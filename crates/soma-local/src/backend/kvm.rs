@@ -1,44 +1,37 @@
-mod host;
+mod boot;
+mod evidence;
+mod io;
+mod lifecycle;
 mod prepared;
 mod resolve;
+mod session;
+mod worker;
 
-use soma::{BackendFailure, BackendFailureKind, BackendKind, OperationId};
+use soma::BackendKind;
 
 use super::clock::OperationClocks;
 
-use host::HostInputs;
-
 pub(crate) struct KvmBackend {
     clocks: OperationClocks,
-    #[allow(
-        dead_code,
-        reason = "read once the lifecycle below stops failing closed"
-    )]
-    host: Option<HostInputs>,
+    /// The one sandbox this Backend is driving, if any.
+    live: Option<lifecycle::Live>,
 }
 
 impl KvmBackend {
-    /// Opens the Backend and records whether this host carries the artifacts a Generation needs.
+    /// Opens the Backend.
     ///
-    /// Missing artifacts do not fail the open. Every lifecycle call still fails closed as
-    /// unsupported, so reporting an unavailable capability here would claim the lifecycle exists
-    /// and merely lacks its inputs. The recorded outcome becomes a real precondition in the same
-    /// change that implements the lifecycle.
+    /// There is nothing to probe. Every artifact a machine needs lives in the store of the
+    /// Generation the host prepared, named by digest in its manifest, so a request either finds
+    /// a prepared Generation or is refused by name. A Backend that probed the host here would
+    /// be asserting something about Generations it has not looked at.
     pub(super) fn open() -> Self {
         Self {
             clocks: OperationClocks::new(),
-            host: HostInputs::resolve().ok(),
+            live: None,
         }
     }
 
     pub(super) const fn kind() -> BackendKind {
         BackendKind::LinuxKvm
-    }
-
-    pub(super) fn unavailable(&mut self, operation_id: &OperationId) -> BackendFailure {
-        BackendFailure::new(
-            BackendFailureKind::Unsupported,
-            self.clocks.elapsed_ns(operation_id),
-        )
     }
 }

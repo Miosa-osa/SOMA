@@ -1231,6 +1231,7 @@ dependencies = [
  "serde_json",
  "soma",
  "soma-generation",
+ "soma-guest",
  "soma-kvm",
  "soma-macos",
 ]
