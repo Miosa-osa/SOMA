@@ -1,6 +1,6 @@
 //! Claim latency over 1,000 claims with the durable ledger; printed, not asserted.
 
-#![cfg(unix)]
+#![cfg(target_os = "linux")]
 
 mod support;
 

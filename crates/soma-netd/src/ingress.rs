@@ -6,9 +6,13 @@
 //! Forwarding or proxy attachment to a reserved port is a later slice and reports
 //! [`Error::Unimplemented`].
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
+#[cfg(target_os = "linux")]
+use std::net::SocketAddr;
 
-use soma::{HostBind, HostPort, PortPublication, TransportProtocol};
+#[cfg(target_os = "linux")]
+use soma::TransportProtocol;
+use soma::{HostBind, HostPort, PortPublication};
 
 use crate::Error;
 

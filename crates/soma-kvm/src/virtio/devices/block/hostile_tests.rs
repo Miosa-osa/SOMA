@@ -1,9 +1,10 @@
 //! Randomized hostile requests must never panic, corrupt guest memory outside
 //! the chain, or stop the device; plus the real file backend on a temp file.
 
-use super::backend::MemoryBackend;
 use super::request::*;
-use super::tests::{boot, boot_with, header, run};
+#[cfg(unix)]
+use super::tests::boot_with;
+use super::tests::{boot, header, run};
 use super::*;
 use crate::virtio::devices::harness::Seg;
 use crate::virtio::devices::service::service_queue;
@@ -170,5 +171,4 @@ fn file_backend_reads_root_and_writes_flushes_overlay_on_a_temp_file() {
     assert_eq!(&written[2048..3072], &payload);
     assert!(written[..2048].iter().all(|b| *b == 0));
     let _ = std::fs::remove_dir_all(&dir);
-    let _ = MemoryBackend::default();
 }

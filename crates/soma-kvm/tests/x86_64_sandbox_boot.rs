@@ -24,6 +24,7 @@ mod x86_64_host_sample;
 #[path = "x86_64_sandbox_boot/generation.rs"]
 mod x86_64_sandbox_boot_generation;
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_sandbox_boot/generation_cache.rs"]
 mod x86_64_sandbox_boot_generation_cache;
 

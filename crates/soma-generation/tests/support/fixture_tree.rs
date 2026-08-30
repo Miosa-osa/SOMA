@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use std::{fs, path::Path, process::Command};
+#[cfg(unix)]
+use std::process::Command;
+use std::{fs, path::Path};
 
 use soma_generation::{ArtifactRole, CompiledCandidate};
 
@@ -45,6 +47,7 @@ pub fn fixture_layers() -> Vec<Vec<u8>> {
     vec![first, second, third]
 }
 
+#[cfg(unix)]
 pub fn extraction_oracle(erofs_tools: &Path, store: &Path, compiled: &CompiledCandidate) {
     let root = &compiled.candidate.manifest.root.descriptor;
     let image = store

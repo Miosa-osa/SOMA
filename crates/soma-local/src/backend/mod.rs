@@ -74,14 +74,6 @@ pub(crate) enum LocalBackend {
     Kvm(kvm::KvmBackend),
 }
 
-#[cfg(not(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "x86_64")
-)))]
-fn eliminate_uninhabited_backend<T>(backend: &LocalBackend) -> T {
-    match *backend {}
-}
-
 type PreparedWorkload = Box<dyn Any + Send>;
 
 impl LocalBackend {
@@ -121,11 +113,6 @@ impl Backend for LocalBackend {
             Self::Macos(_) => macos::MacBackend::kind(),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(_) => kvm::KvmBackend::kind(),
-            #[cfg(not(any(
-                all(target_os = "macos", target_arch = "aarch64"),
-                all(target_os = "linux", target_arch = "x86_64")
-            )))]
-            backend => eliminate_uninhabited_backend(backend),
         }
     }
 
@@ -139,14 +126,6 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.resolve_box(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.resolve(request),
-            #[cfg(not(any(
-                all(target_os = "macos", target_arch = "aarch64"),
-                all(target_os = "linux", target_arch = "x86_64")
-            )))]
-            backend => {
-                let _ = request;
-                eliminate_uninhabited_backend(backend)
-            }
         }
     }
 
@@ -160,14 +139,6 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.launch_box(&request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.launch(&request),
-            #[cfg(not(any(
-                all(target_os = "macos", target_arch = "aarch64"),
-                all(target_os = "linux", target_arch = "x86_64")
-            )))]
-            backend => {
-                let _ = request;
-                eliminate_uninhabited_backend(backend)
-            }
         }
     }
 
@@ -181,14 +152,6 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.execute(request),
-            #[cfg(not(any(
-                all(target_os = "macos", target_arch = "aarch64"),
-                all(target_os = "linux", target_arch = "x86_64")
-            )))]
-            backend => {
-                let _ = request;
-                eliminate_uninhabited_backend(backend)
-            }
         }
     }
 
@@ -202,14 +165,6 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.inspect(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.inspect(request),
-            #[cfg(not(any(
-                all(target_os = "macos", target_arch = "aarch64"),
-                all(target_os = "linux", target_arch = "x86_64")
-            )))]
-            backend => {
-                let _ = request;
-                eliminate_uninhabited_backend(backend)
-            }
         }
     }
 
@@ -223,14 +178,6 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.cleanup(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.cleanup(request),
-            #[cfg(not(any(
-                all(target_os = "macos", target_arch = "aarch64"),
-                all(target_os = "linux", target_arch = "x86_64")
-            )))]
-            backend => {
-                let _ = request;
-                eliminate_uninhabited_backend(backend)
-            }
         }
     }
 }

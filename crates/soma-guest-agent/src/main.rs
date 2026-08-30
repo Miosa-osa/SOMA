@@ -14,6 +14,7 @@
     allow(dead_code)
 )]
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod environment;
 mod output;
 mod repair;

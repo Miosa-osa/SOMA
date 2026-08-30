@@ -1,11 +1,12 @@
 <p align="center">
-  <img alt="MIOSA orb" src="assets/brand/miosa-icon.png" width="72" align="middle">
-  &nbsp;&nbsp;&nbsp;
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/miosa-logo-white-text.png">
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/miosa-logo-black-text.png">
-    <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png" width="260" align="middle">
-  </picture>
+  <img alt="MIOSA orb" src="assets/brand/miosa-icon.png#gh-dark-mode-only" width="72" align="middle">
+  &nbsp;&nbsp;
+  <img alt="MIOSA" src="assets/brand/miosa-logo-white-text.png#gh-dark-mode-only" width="260" align="middle">
+</p>
+<p align="center">
+  <img alt="MIOSA orb" src="assets/brand/miosa-icon.png#gh-light-mode-only" width="72" align="middle">
+  &nbsp;&nbsp;
+  <img alt="MIOSA" src="assets/brand/miosa-logo-black-text.png#gh-light-mode-only" width="260" align="middle">
 </p>
 
 <h1 align="center">SOMA</h1>
@@ -17,8 +18,8 @@
 
 <p align="center">
   <a href="VERSION"><img alt="Version 1.0.0-alpha.1" src="https://img.shields.io/badge/version-1.0.0--alpha.1-7c3aed?style=flat-square"></a>
-  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI status" src="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security checks" src="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml/badge.svg"></a>
+  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI workflow" src="https://img.shields.io/badge/CI-workflow-555555?style=flat-square&logo=githubactions"></a>
+  <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security workflow" src="https://img.shields.io/badge/security-workflow-555555?style=flat-square&logo=githubactions"></a>
   <a href="rust-toolchain.toml"><img alt="Rust 1.98" src="https://img.shields.io/badge/rust-1.98-000000?style=flat-square&logo=rust"></a>
   <a href="#platform-status"><img alt="Linux, macOS, and Windows" src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-2563eb?style=flat-square"></a>
   <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square"></a>

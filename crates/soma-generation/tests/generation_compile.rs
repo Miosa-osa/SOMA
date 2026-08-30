@@ -7,8 +7,10 @@ use soma_generation::{
     CompileErrorKind, CompilePhase, LifetimeLimits, SnapshotBinding, StartupBehavior,
     TemplateImage, TemplateRevision, erofs::format_uuid, verify_candidate,
 };
+#[cfg(unix)]
+use support::fixture_tree::extraction_oracle;
 use support::{
-    fixture_tree::{AGENT, digests, extraction_oracle, fixture_layers},
+    fixture_tree::{AGENT, digests, fixture_layers},
     generation::{compile, compile_with_template, test_profile, toolchains},
     rootfs::{TarEntry, normalize_layers, normalize_layers_for, tar},
 };
@@ -103,6 +105,7 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
     assert_eq!(verified.artifacts_verified, 6);
     assert_eq!(verified.manifest, compiled_a.candidate.manifest);
     assert!(!compiled_a.candidate.launchable());
+    #[cfg(unix)]
     extraction_oracle(&tools.0, &fixture_a.store, &compiled_a);
 }
 
@@ -170,7 +173,10 @@ fn tampered_artifact_fails_cross_artifact_verification() {
             .to_string()[7..],
     );
     let mut permissions = fs::metadata(&blob).unwrap().permissions();
+    #[cfg(unix)]
     std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o600);
+    #[cfg(windows)]
+    permissions.set_readonly(false);
     fs::set_permissions(&blob, permissions).unwrap();
     let mut bytes = fs::read(&blob).unwrap();
     bytes[200] ^= 0xff;

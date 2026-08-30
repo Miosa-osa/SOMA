@@ -135,13 +135,13 @@ fn a_fault_at_every_transfer_step_destroys_the_worker_with_a_ledger_disposition(
 #[test]
 fn a_stall_past_the_claim_deadline_destroys_the_worker() {
     let harness = harness(Limits {
-        claim_deadline: Duration::from_millis(40),
+        claim_deadline: Duration::from_millis(500),
         ..limits(1, 1)
     });
     harness.pool.launcher().set_plan(FaultPlan {
         transfer: Some((
             TransferStep::Disk,
-            InjectedFault::Stall(Duration::from_millis(80)),
+            InjectedFault::Stall(Duration::from_secs(1)),
         )),
         ..FaultPlan::default()
     });
@@ -170,13 +170,13 @@ fn a_stall_past_the_claim_deadline_destroys_the_worker() {
 #[test]
 fn a_stall_in_the_last_frame_destroys_the_worker_instead_of_assigning_it() {
     let harness = harness(Limits {
-        claim_deadline: Duration::from_millis(40),
+        claim_deadline: Duration::from_millis(500),
         ..limits(1, 1)
     });
     harness.pool.launcher().set_plan(FaultPlan {
         transfer: Some((
             TransferStep::Commit,
-            InjectedFault::Stall(Duration::from_millis(120)),
+            InjectedFault::Stall(Duration::from_secs(1)),
         )),
         ..FaultPlan::default()
     });

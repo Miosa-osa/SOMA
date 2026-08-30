@@ -91,7 +91,7 @@ pub(super) fn require_same_object(_file: &File, _path: &Path) -> Result<(), ()> 
     Err(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
 

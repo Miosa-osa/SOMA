@@ -1,5 +1,4 @@
 //! The authenticated evidence one restored Instance requires before it is ready.
-//!
 //! A restore resumes a machine whose guest has not yet repaired its identity, entropy, time, or
 //! network state, so readiness is a claim the restore must be shown rather than one it may
 //! assume. The evidence is a [`ReadinessReceipt`]: a keyed tag over the exact restored snapshot,
@@ -12,7 +11,6 @@
 //! The Instance and Launch operation are read out of the published page rather than accepted
 //! from the caller, so a receipt naming any other session is refused before its tag is even
 //! compared.
-//!
 //! The key is a fresh [`ReadinessChallenge`] the restore samples for itself. It is in no
 //! snapshot, in no Generation, and on no launch page, it has no public constructor, and the
 //! transition takes it before it verifies anything, so one restore accepts at most one attempt
@@ -50,7 +48,6 @@ impl fmt::Display for ReadinessRefusal {
 }
 
 /// Where the launch page carries the Instance and Launch operation it binds.
-///
 /// The page begins with its domain, schema version, authentication profile, and Generation
 /// digest; the two session identities follow. `page_session` is proved against a real page
 /// built by the guest crate, so a schema change cannot silently move the fields.
@@ -82,7 +79,6 @@ pub struct RestoredIdentity {
 impl RestoredIdentity {
     /// Names one restored machine by its snapshot state object, its published launch page, and
     /// the Instance and Launch operation that page binds.
-    ///
     /// The session identities are read out of the page itself rather than asserted by the
     /// caller, so a receipt that names any other session is refused.
     #[must_use]
@@ -120,9 +116,7 @@ pub struct SessionEvidence {
 
 impl SessionEvidence {
     /// Binds one receipt to the Instance, Launch operation, and transcript of one session.
-    ///
     /// # Errors
-    ///
     /// Returns [`ReadinessRefusal::Unbound`] when any field is entirely zero.
     pub fn new(
         instance: [u8; 16],
@@ -156,7 +150,6 @@ impl SessionEvidence {
 }
 
 /// The fresh single-use secret one restore requires in its readiness receipt.
-///
 /// The type has no public constructor, so the only readiness receipt that can complete a
 /// restore is one minted from that restore's own [`ReadinessDemand`].
 pub struct ReadinessChallenge([u8; 32]);
@@ -168,6 +161,7 @@ impl ReadinessChallenge {
     ///
     /// Returns [`ReadinessRefusal::Unavailable`] for the all-zero sample, which is what an
     /// entropy source that produced nothing looks like.
+    #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
     pub(crate) fn adopt(bytes: [u8; 32]) -> Result<Self, ReadinessRefusal> {
         if bytes.iter().all(|byte| *byte == 0) {
             return Err(ReadinessRefusal::Unavailable);
@@ -176,6 +170,7 @@ impl ReadinessChallenge {
     }
 
     /// Requires one receipt to authenticate against this challenge and exact identity.
+    #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
     pub(crate) fn accepts(
         &self,
         identity: &RestoredIdentity,
@@ -211,9 +206,13 @@ pub struct ReadinessDemand<'a> {
     identity: RestoredIdentity,
 }
 
-impl<'a> ReadinessDemand<'a> {
-    pub(crate) const fn new(challenge: &'a ReadinessChallenge, identity: RestoredIdentity) -> Self {
-        Self {
+impl ReadinessDemand<'_> {
+    #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
+    pub(crate) const fn new(
+        challenge: &ReadinessChallenge,
+        identity: RestoredIdentity,
+    ) -> ReadinessDemand<'_> {
+        ReadinessDemand {
             challenge,
             identity,
         }
@@ -288,6 +287,7 @@ fn keyed_tag(key: &[u8; 32], message: &[u8]) -> [u8; 32] {
     *outer.finish().as_bytes()
 }
 
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 fn equal(left: &[u8; 32], right: &[u8; 32]) -> bool {
     let mut difference = 0_u8;
     for (own, other) in left.iter().zip(right.iter()) {

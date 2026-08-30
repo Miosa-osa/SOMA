@@ -28,6 +28,11 @@ use soma_generation::{
     import_oci_layout, normalize_oci_rootfs,
 };
 
+#[path = "prepare_generation/publication.rs"]
+mod publication;
+
+use publication::Publication;
+
 const MIB: u64 = 1024 * 1024;
 const DEFAULT_MEMORY_MIB: u64 = 1024;
 const DEFAULT_STORAGE_MIB: u64 = 10240;
@@ -99,12 +104,9 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     require_present(&args.erofs_tools, "erofs tools directory", true)?;
     require_present(&args.e2fsprogs, "e2fsprogs directory", true)?;
 
-    // A fresh entry each time, so a re-prepared reference cannot mix old and new artifacts.
-    if args.out_entry.exists() {
-        fs::remove_dir_all(&args.out_entry)?;
-    }
-    let store = args.out_entry.join("store");
-    let staging = args.out_entry.join("staging");
+    let publication = Publication::begin(&args.out_entry)?;
+    let store = publication.path().join("store");
+    let staging = publication.path().join("staging");
     fs::create_dir_all(&store)?;
     fs::create_dir_all(&staging)?;
 
@@ -152,10 +154,10 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     // The entry is what a prepared store holds: the published Candidate bytes, the artifact store
     // those bytes describe, and the reference this entry answers to.
     let candidate_bytes = encode_candidate(&compiled.candidate.manifest)?;
-    fs::write(args.out_entry.join("candidate.somacan"), &candidate_bytes)?;
-    fs::write(args.out_entry.join("reference"), args.reference.as_bytes())?;
-    // Staging held only intermediate build files; the store is self-contained.
-    let _ignored = fs::remove_dir_all(&staging);
+    publication.write_private("candidate.somacan", &candidate_bytes)?;
+    publication.write_private("reference", args.reference.as_bytes())?;
+    fs::remove_dir_all(&staging)?;
+    publication.commit()?;
 
     println!(
         "prepared {} at {}\n  candidate id: {}\n  entries: {}",

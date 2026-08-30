@@ -759,3 +759,21 @@ Its named refusal test uses malformed bytes and stops at `Damaged`, so a valid C
 `COMPETITORS.md` now consolidates hosted-provider, VMM, runtime, and research-repository speed evidence into one table.
 The table keeps vendor claims, independent observations, project benchmarks, source comments, and engineering targets distinct.
 Restore-only, boot-only, authenticated Ready, first-command, and external TTI measurements remain separate because combining them would produce a false leaderboard.
+
+## 2026-08-30 - Full KVM and server-setup re-audit found executable-flow blockers
+
+The comprehensive re-audit from `08e4d45` through `50cd82e` is recorded in `docs/reviews/2026-08-30-kvm-and-server-setup-full-reaudit.md`.
+The audit confirms real fixes to Instance binding, second-Launch rejection, unknown cleanup reporting, reference ambiguity, bounded prepared reads, and checker portability.
+It also records that certified admission, descriptor-pinned store identity, bounded timeout reclamation, descriptor-relative head cleanup, current live evidence, and the production composition remain open.
+The new server flow is not executable as documented because repository acquisition is ordered after its first script, `/srv/soma` is never provisioned, failed readiness checks return success, strict doctor overclaims its checks, and OCI naming is incomplete.
+
+## 2026-08-30 - Immediate audit remediation and CI portability repair
+
+The audited server flow now obtains the repository first, provisions `/srv/soma`, fails required preflight checks closed, invokes the built CLI by path, and describes the KVM doctor and development backend without production overclaiming.
+Generation preparation now normalizes qualified OCI references, keys entries by the SHA-256 of the exact reference, compiles in a private sibling staging directory, refuses replacement, and publishes with Linux `RENAME_NOREPLACE` plus parent-directory fsync.
+The portable CI repair removed an impossible uninhabited-backend match and corrected target gates across KVM readiness, integration fixtures, ingress, guest-agent Unix operands, block devices, and process-control tests.
+The Linux ARM64, Intel macOS, and Windows ARM64 workspace checks pass locally, the macOS portable Rust and documentation suites pass after four load-sensitive host tests were corrected, and Linux amd64 Docker passes the publication example plus a locked all-target workspace check.
+The spell checker passes after integrating the separately pushed repository vocabulary update.
+The filesystem-tool builder must force `linux/amd64`; otherwise Docker Desktop on an Apple Silicon development machine silently emits ARM64 executables for the x86_64 server path.
+The forced-platform build produced x86-64 ELF tools and reported erofs-utils 1.9.4 and e2fsprogs 1.47.0 when executed inside Linux amd64.
+None of these results is a live KVM-host proof, a certified Generation proof, or a performance claim.

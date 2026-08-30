@@ -1,7 +1,9 @@
 //! Table invariants: uniqueness, ordering, the denial surface, and agreement with `libc` and
 //! `kvm-bindings` on the production target.
 
-use super::{nr, run};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::nr;
+use super::run;
 use crate::seccomp::{Phase, bpf, denied, ioctls, policy};
 
 const KILL: u32 = bpf::RET_KILL_PROCESS;

@@ -1,8 +1,10 @@
 //! Binding gates for the readiness receipt.
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::page_session;
 use super::{
     Digest, ReadinessChallenge, ReadinessDemand, ReadinessReceipt, ReadinessRefusal,
-    RestoredIdentity, SessionEvidence, page_session,
+    RestoredIdentity, SessionEvidence,
 };
 
 /// The Instance and Launch operation the fixture's published launch page binds.

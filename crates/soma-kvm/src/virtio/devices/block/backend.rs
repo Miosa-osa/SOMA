@@ -1,6 +1,7 @@
 //! Block backends accept only validated byte ranges from the request parser.
 
 use std::fmt;
+#[cfg(unix)]
 use std::fs::File;
 use std::io;
 

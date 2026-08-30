@@ -26,7 +26,7 @@ mod control;
 mod pinned;
 
 pub(crate) use pinned::PinnedTool;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 pub(crate) use soma_supervise::TERMINATION_GRACE;
 
 /// Retained evidence from one bounded pinned-tool invocation.
@@ -150,5 +150,5 @@ pub(crate) fn tool_path(directory: &Path, name: &str) -> PathBuf {
     directory.join(name)
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tests;

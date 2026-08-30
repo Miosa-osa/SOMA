@@ -1156,6 +1156,7 @@ dependencies = [
  "cap-std",
  "flate2",
  "libc",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
