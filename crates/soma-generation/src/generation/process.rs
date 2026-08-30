@@ -3,46 +3,31 @@
 //! Every tool is a [`PinnedTool`]: opened once, hashed through that descriptor, and executed
 //! through that same descriptor, so provenance names the process image that ran.
 //!
-//! Every tool leads its own process group, so a deadline, a feed failure, a capture failure, or
-//! a cancellation terminates the tool and every descendant it forked rather than only the
-//! direct child.
-//! Termination, draining, waiting, and collection are each bounded, and every error carries the
-//! phase that actually invoked the tool.
+//! Containment itself belongs to [`soma_supervise`]: the tool leads its own process group, so
+//! a deadline, a feed failure, a capture overflow, or a cancellation terminates the tool and
+//! every descendant it forked rather than only the direct child, and termination, draining,
+//! waiting, and collection are each bounded.
+//! This module adds only what the compiler owns: the pinned descriptor, the explicit
+//! environment, and the phase that names the failure.
 
 use std::{
     ffi::OsString,
     io::Write,
     path::{Path, PathBuf},
-    process::{ChildStdin, Command, Stdio},
-    time::{Duration, Instant},
+    process::Command,
+    time::Duration,
 };
+
+use soma_supervise::{Contained, Uncontained};
 
 use super::error::{CompileError, CompileErrorKind, CompilePhase};
 
-mod capture;
 mod control;
 mod pinned;
-mod supervise;
 
-use capture::Readers;
-use control::Group;
 pub(crate) use pinned::PinnedTool;
-use supervise::Supervisor;
-/// Grace the process group is given to honor the polite termination signal.
-const TERM_GRACE: Duration = Duration::from_secs(2);
-/// Grace the process group is given to die after the force signal.
-const KILL_GRACE: Duration = Duration::from_secs(2);
-/// Grace the detached readers are given to report before they are abandoned.
-const CAPTURE_GRACE: Duration = Duration::from_secs(2);
-
-/// The complete bounded overrun one invocation may add to its own deadline.
-///
-/// A tool that ignores its deadline costs at most this long in polite termination, forced
-/// termination, and output collection before the phase reports its failure.
-pub(crate) const TERMINATION_GRACE: Duration = TERM_GRACE
-    .saturating_add(KILL_GRACE)
-    .saturating_add(CAPTURE_GRACE)
-    .saturating_add(CAPTURE_GRACE);
+#[cfg(test)]
+pub(crate) use soma_supervise::TERMINATION_GRACE;
 
 /// Retained evidence from one bounded pinned-tool invocation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,37 +76,20 @@ impl Invocation<'_> {
         feed: impl FnOnce(&mut dyn Write) -> Result<(), CompileError>,
     ) -> Result<ToolOutcome, CompileError> {
         let phase = self.phase;
-        let mut child = self.spawn()?;
-        let group = Group::new(child.id());
-        let deadline = Instant::now() + self.deadline;
-        let mut readers = Readers::spawn(child.stdout.take(), child.stderr.take());
-        let stdin = child.stdin.take();
-        let supervisor = Supervisor::start(child, group, deadline, (TERM_GRACE, KILL_GRACE));
-        let feed_result = feed_stdin(stdin, feed);
-        if feed_result.is_err() {
-            supervisor.cancel();
-        }
-        let collected = supervisor.finish(deadline + TERMINATION_GRACE);
-        // An incomplete collection proves a descendant still holds a build pipe, which also
-        // proves the group still has a member and its identifier is still reserved, so forcing
-        // the group here can never reach an unrelated process.
-        let contained = readers.collect(Instant::now() + CAPTURE_GRACE);
-        if !contained {
-            group.signal(control::Signal::Force);
-            readers.collect(Instant::now() + CAPTURE_GRACE);
-        }
-        let captured = readers.take();
-        feed_result?;
-        let Some(supervised) = collected else {
-            return Err(CompileError::new(phase, CompileErrorKind::Io));
-        };
-        if supervised.terminated || !contained {
-            return Err(CompileError::new(phase, CompileErrorKind::Toolchain));
-        }
-        Ok(self.outcome(supervised.exit_code, captured.stdout, captured.stderr))
+        let command = self.compose()?;
+        let output = Contained::new(command, self.deadline)
+            .run(feed)
+            .map_err(|failure| match failure {
+                Uncontained::Input(error) => error,
+                Uncontained::Lost => CompileError::new(phase, CompileErrorKind::Io),
+                Uncontained::Spawn | Uncontained::Terminated => {
+                    CompileError::new(phase, CompileErrorKind::Toolchain)
+                }
+            })?;
+        Ok(self.outcome(output.exit_code, output.stdout, output.stderr))
     }
 
-    fn spawn(&self) -> Result<std::process::Child, CompileError> {
+    fn compose(&self) -> Result<Command, CompileError> {
         self.program.require_bound(self.phase)?;
         let mut command = Command::new(self.program.program());
         control::inherit_tool(&mut command, self.program.descriptor());
@@ -129,14 +97,8 @@ impl Invocation<'_> {
             .args(&self.arguments)
             .env_clear()
             .envs(self.environment.iter().map(|(key, value)| (key, value)))
-            .current_dir(self.working_directory)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        control::isolate(&mut command);
-        command
-            .spawn()
-            .map_err(|_| CompileError::new(self.phase, CompileErrorKind::Toolchain))
+            .current_dir(self.working_directory);
+        Ok(command)
     }
 
     fn outcome(self, exit_code: Option<i32>, stdout: Vec<u8>, stderr: Vec<u8>) -> ToolOutcome {
@@ -153,18 +115,6 @@ impl Invocation<'_> {
             stderr,
         }
     }
-}
-
-fn feed_stdin(
-    stdin: Option<ChildStdin>,
-    feed: impl FnOnce(&mut dyn Write) -> Result<(), CompileError>,
-) -> Result<(), CompileError> {
-    let Some(mut pipe) = stdin else {
-        return feed(&mut std::io::sink());
-    };
-    let result = feed(&mut pipe);
-    drop(pipe);
-    result
 }
 
 /// Runs `program -V` (or the given flag) and returns the first bounded output line.

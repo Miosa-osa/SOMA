@@ -1,0 +1,14 @@
+[package]
+name = "soma-supervise"
+description = "Bounded process-group containment of one external tool invocation for SOMA"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"
+
+[lints]
+workspace = true

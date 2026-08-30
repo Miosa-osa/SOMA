@@ -25,6 +25,7 @@ crates/
   soma-mcp/
   soma-netd/
   soma-storage/
+  soma-supervise/
   soma-template/
   soma-vmm/
 ```
@@ -52,11 +53,13 @@ human, agent, SDK, or operator
 
     soma-vmm semantic lifecycle prototype
 
-    soma-generation -> soma identity types
+    soma-generation -> soma identity types, soma-supervise tool containment
     soma-template   -> soma request types
     soma-guest       independent protocol foundation
     soma-guest-agent -> soma-guest
-    soma-netd        -> soma request types, soma-guest launch identity
+    soma-netd        -> soma request types, soma-guest launch identity,
+                        soma-supervise tool containment
+    soma-supervise   -> libc only; the one bounded external-tool containment
     soma-storage     independent Linux storage mechanism
     soma-kvm live tests -> soma-guest, soma-generation, soma (dev-dependencies only)
     soma-jail        -> libc only; the launcher that will exec soma-vmm
@@ -74,7 +77,8 @@ The portable `soma` facade owns use-case orchestration and execution-receipt con
 `soma-template` owns Template parsing, module composition, required validation, and canonical Template Lock construction in the preparation plane beside `soma-generation`; it depends on the portable `soma` request types only, and the Generation builder consumes its lock rather than the reverse.
 `soma-guest` owns the portable authenticated-session and encrypted-record primitives without claiming a live guest agent or readiness.
 `soma-guest-agent` is the Linux-only PID 1 executable that consumes those primitives inside the guest; it depends on `soma-guest` and `libc` only and never on the VMM or host crates.
-`soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, and it never depends on the VMM, KVM, or provider crates.
+`soma-netd` is the privileged Linux network broker; it consumes the portable network request types from `soma` and produces the `LaunchNetwork` identity from `soma-guest`, runs `nft` and `conntrack` through the shared `soma-supervise` containment, and it never depends on the VMM, KVM, or provider crates.
+`soma-supervise` owns the one bounded external-tool containment every SOMA component reuses: a fresh process group per tool, an absolute deadline, bounded capture that terminates a flooding group, forced termination after a bounded grace, and a typed failure that never reports a partial result as success.
 `soma-storage` owns the XFS reflink disk-head profile as a standalone mechanism crate; the host allocator consumes it and it never depends on the VMM, KVM, guest, or provider crates.
 `soma-jail` owns the privileged launcher that constrains one VMM process; it depends on `libc` alone and never on `soma-kvm`, `soma-vmm`, or a provider adapter, because it must stay auditable as the last privileged step before the VMM executes.
 `soma-hostd` is the node-local allocator accepted by ADR 0006; it consumes `soma-storage` leases, `soma-netd` bundle identities and intents, and the `soma-guest` launch network identity, defines the launcher and broker seams the jail adapter and the live brokers will implement, and never depends on the VMM, KVM, or provider crates.
@@ -954,6 +958,7 @@ crates/soma-netd/src/
   namespace.rs
   netlink.rs
   nft.rs
+  nft/tests.rs
   profile.rs
   protected.rs
   protocol.rs
@@ -980,7 +985,7 @@ crates/soma-netd/tests/
 `intent.rs` admits one portable `NetworkPolicy` against the served `NetworkProfile` and fails closed on an unspecified egress or DNS dimension, a proxy profile, a static or IPv6 guest address, a resolver inside the protected set, or a foreign profile selector.
 `profile.rs` and `protected.rs` own the operator profile, its content digest, and the certified protected destination set that every egress class drops before any accept.
 `ipam.rs` carves `/30` guest and transit leases from the profile plans without index reuse inside one cleanup generation and derives the locally administered MAC pair from the bundle identity.
-`firewall.rs` renders the per-bundle sandbox and host `inet` tables as text; `nft.rs` is the version 1 mechanism that feeds that text to the pinned `nft` binary and flushes conntrack zones through the pinned `conntrack` binary.
+`firewall.rs` renders the per-bundle sandbox and host `inet` tables as text; `nft.rs` is the version 1 mechanism that feeds that text to the pinned `nft` binary and flushes conntrack zones through the pinned `conntrack` binary, and every such invocation runs inside the `soma-supervise` containment so a refused ruleset write, a deadline, a flooded stream, or a wedged descendant ends as a typed failure instead of blocking the single-threaded broker.
 `namespace.rs`, `tap.rs`, `link.rs`, `netlink.rs`, and `sysctl.rs` are the direct syscall mechanisms: `unshare` plus a bind-mounted pin, `TUNSETIFF`, `ifreq` and `rtentry` `ioctl` calls, a minimal `RTM_NEWLINK` and `RTM_DELLINK` encoder, and `/proc/sys/net` writes inside the namespace of a dedicated thread.
 `ledger.rs` is the durable append-only ownership ledger of create-exclusive, synced, hard-linked records; `bundle.rs` prepares sterile bundles and assigns them by recording ownership before any intent-specific kernel change and producing the exact `LaunchNetwork` values.
 `activate.rs` consumes the assignment's single-use activation challenge, requires the `soma-guest` receipt that only a repaired authenticated session mints for this exact Instance, generation, operation, and intent digest, verifies namespace, links, rulesets, and forwarding against the ledger, and only then raises links, installs routes, and enables forwarding; a rejected, replayed, or failed attempt leaves forwarding disabled and the daemon releases the assignment.
@@ -991,6 +996,24 @@ crates/soma-netd/tests/
 Portable modules compile and test on every workspace target; every kernel mechanism is Linux-only and the daemon exits with a typed message elsewhere.
 Live proofs run only inside the pinned privileged Ubuntu 24.04 container through `scripts/netd-live-tests.sh` and are retained in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md).
 Proxy attachment, ingress forwarding, IPv6 guest addressing, and the libnftnl replacement for the `nft` subprocess remain later slices.
+
+## `soma-supervise` responsibilities
+
+`soma-supervise` owns one deep contract: running one external tool without ever losing control of it.
+
+```text
+crates/soma-supervise/src/
+  lib.rs
+  capture.rs
+  contained.rs
+  contained/tests.rs
+  group.rs
+  supervise.rs
+```
+
+`contained.rs` is the only interface callers see: one configured `Command` plus one absolute deadline, an optional standard-input feed, and either bounded output or a typed `Uncontained` failure naming the bound that was reached.
+`group.rs` owns the crate's only `unsafe` call, `capture.rs` bounds retained output before it is allocated and terminates a group that floods past the ceiling, and `supervise.rs` is the single thread that signals and reaps in that exact order.
+The Generation compiler adds pinned-descriptor provenance on top of it, and the privileged network broker adds the `nft` and `conntrack` argument vectors; neither owns a second supervisor.
 
 ## `soma-storage` responsibilities
 
@@ -1188,6 +1211,7 @@ Extraction must move the interface rather than duplicate or wrap it.
 - `soma-kvm` never depends on `soma-vmm`.
 - `soma-guest-agent` depends only on `soma-guest`, `zeroize`, and `libc`, and never on a host, VMM, or provider crate.
 - `soma-storage` depends only on `serde`, `serde_json`, `sha2`, `cap-std`, and Linux `libc`, and never on a VMM, KVM, guest, or provider crate.
+- `soma-supervise` depends only on `libc`, and never on another SOMA crate, so the privileged broker and the Generation compiler can share containment without sharing anything else.
 - `soma-jail` depends only on `libc`, with `kvm-bindings` as a test-only structure-size oracle, and never on `soma-kvm`, `soma-vmm`, or a provider crate.
 - `soma-hostd` depends only on `sha2`, `soma-guest`, `soma-netd`, `soma-storage`, and Linux `libc`, and never on a VMM, KVM, or provider crate.
 - `soma-template` depends only on `soma`, `toml`, and `sha2`, and never on a VMM, Backend, registry client, or provider crate; the Generation builder consumes its lock rather than the reverse.

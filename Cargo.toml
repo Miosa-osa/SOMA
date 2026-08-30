@@ -13,6 +13,7 @@ members = [
     "crates/soma-mcp",
     "crates/soma-netd",
     "crates/soma-storage",
+    "crates/soma-supervise",
     "crates/soma-template",
     "crates/soma-vmm",
 ]

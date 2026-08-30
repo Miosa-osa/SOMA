@@ -1161,6 +1161,7 @@ dependencies = [
  "sha2",
  "soma",
  "soma-guest",
+ "soma-supervise",
  "soma-template",
  "tar",
  "tempfile",
@@ -1269,6 +1270,7 @@ dependencies = [
  "sha2",
  "soma",
  "soma-guest",
+ "soma-supervise",
  "tempfile",
 ]
 
@@ -1282,6 +1284,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+]
+
+[[package]]
+name = "soma-supervise"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

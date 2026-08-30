@@ -1,7 +1,7 @@
 //! The one thread that owns a tool's lifetime: deadline, termination, and reaping.
 //!
 //! Signalling and reaping happen in this thread only and in that exact order, so no signal can
-//! ever reach a process-group identifier the compiler has already released.
+//! ever reach a process-group identifier the caller has already released.
 //! The thread is bounded by construction: it waits at most until the deadline, then spends at
 //! most the termination and force graces before it reaps the leader and reports.
 
@@ -10,53 +10,49 @@ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::control::{Group, Signal};
+use super::group::{Group, Signal};
 
 /// One bounded wait between exit polls.
 const EXIT_POLL: Duration = Duration::from_millis(5);
 
 /// How one supervised tool ended.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct Supervised {
+pub(crate) struct Supervised {
     /// The exit code, or `None` when the tool was killed or signalled.
-    pub(super) exit_code: Option<i32>,
+    pub(crate) exit_code: Option<i32>,
     /// Whether the supervisor had to terminate the group instead of observing a normal exit.
-    pub(super) terminated: bool,
+    pub(crate) terminated: bool,
 }
 
 /// A handle to the supervising thread.
-pub(super) struct Supervisor {
+pub(crate) struct Supervisor {
     outcome: Receiver<Supervised>,
-    cancel: Sender<()>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
 impl Supervisor {
     /// Takes ownership of the child and supervises it until it ends or the deadline passes.
-    pub(super) fn start(
+    ///
+    /// `requests` is the cancellation channel: any message on it, from the caller's feed
+    /// failure or from a reader that overflowed its capture ceiling, terminates the group.
+    pub(crate) fn start(
         child: Child,
         group: Group,
         deadline: Instant,
         graces: (Duration, Duration),
+        requests: Receiver<()>,
     ) -> Self {
         let (report, outcome) = mpsc::channel();
-        let (cancel, requests) = mpsc::channel();
         let handle =
             thread::spawn(move || supervise(child, group, deadline, graces, &requests, &report));
         Self {
             outcome,
-            cancel,
             handle: Some(handle),
         }
     }
 
-    /// Asks the supervisor to terminate the group now instead of waiting for the deadline.
-    pub(super) fn cancel(&self) {
-        let _ = self.cancel.send(());
-    }
-
     /// Collects the outcome, waiting no longer than `until`, and joins the thread.
-    pub(super) fn finish(mut self, until: Instant) -> Option<Supervised> {
+    pub(crate) fn finish(mut self, until: Instant) -> Option<Supervised> {
         let remaining = until.saturating_duration_since(Instant::now());
         let supervised = self.outcome.recv_timeout(remaining).ok();
         if supervised.is_some()

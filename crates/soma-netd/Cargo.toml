@@ -16,6 +16,7 @@ path = "src/bin/soma-netd.rs"
 sha2 = { version = "=0.11.0", default-features = false }
 soma = { path = "../soma", version = "=1.0.0-alpha.1" }
 soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.1" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.189"
