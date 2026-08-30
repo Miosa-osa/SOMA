@@ -52,14 +52,14 @@ Both are the same ten-iteration loop over the same Generation on the same host, 
 | Baseline | `Ready` p50 | `Ready` p99 | min | max | n |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | **Debug baseline** (2026-08-29, debug host build) | 27.18 ms | 30.00 ms | 22.08 ms | 30.00 ms | 10 |
-| **Release baseline** (2026-08-30, release host build, no code change) | 17.80 ms | 19.44 ms | — | 19.44 ms | 10 |
+| **Release baseline** (2026-08-30, release host build, no code change) | 17.80 ms | 19.44 ms | not measured | 19.44 ms | 10 |
 
 The debug baseline is the retained table in [the 2026-08-29 snapshot restore evidence](2026-08-29-x86_64-snapshot-restore.md), `ready` p50 27,182,350 ns and p99 29,996,251 ns.
 The release baseline is the same test with an optimized host build and no source change at all: `ready` p50 17,803,594 ns and p99 19,443,465 ns.
 
 The 9.4 ms between them is entirely host-side device, serial, and vsock emulation running optimized.
 The VMM work before `resume` did not move, as it should not have: it is dominated by `KVM_CREATE_VCPU` and by mapping the launch-page slot, which are kernel calls no host optimization level can shorten.
-The readiness probe interval did not move either — 6.70 ms debug against 7.12 ms release — and that was the first evidence that it was guest-side.
+The readiness probe interval did not move either, 6.70 ms debug against 7.12 ms release, and that was the first evidence that it was guest-side.
 
 Because the debug-to-release step is a build profile and not a change to SOMA, the three code changes below are all measured against the **release** baseline.
 
@@ -167,7 +167,7 @@ The slot is one 4 KiB anonymous mapping and one `KVM_SET_USER_MEMORY_REGION`, an
 In the new position the launch-page slot costs 27 us at p50 in the tabulated session, and 86 us at p50 with 303 us on iteration 0 in an independent session at the branch head.
 The single figure is session-specific; the order of magnitude is the claim.
 
-Moving the call changed two things at once — whether the VM already has a vCPU, and how many slots the memslot array already holds — and this run separates neither.
+Moving the call changed two things at once: whether the VM already has a vCPU, and how many slots the memslot array already holds. This run separates neither.
 What it measures is that a memory-slot addition costs two milliseconds at that point in the restore and tens of microseconds before the machine is built.
 
 The slot is bound before the machine adopts the VM, so on any later failure the VM is released before the mapping is, which is the ownership order `RamMapping` documents.
@@ -219,7 +219,7 @@ A prepared vCPU is not as simple: `KVM_CREATE_VCPU` must follow `KVM_CREATE_IRQC
 That verification is a design question and it belongs with the worker, not with this pass.
 
 **Relaxing any bound was refused.**
-No deadline was lengthened, no kill was softened, no descendant sweep was shortened, the launch page's consume-zero-verify-retire sequence is unchanged, and the readiness definition — authenticated repair plus the fixed self-probe through the production executor — is the same one the baselines were measured against.
+No deadline was lengthened, no kill was softened, no descendant sweep was shortened, the launch page's consume-zero-verify-retire sequence is unchanged, and the readiness definition (authenticated repair plus the fixed self-probe through the production executor) is the same one the baselines were measured against.
 
 ## External context: Isorun
 
