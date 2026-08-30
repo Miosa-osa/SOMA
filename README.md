@@ -51,6 +51,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Compare Docker, Apple VMs, and Linux KVM honestly | [Local sandbox reality](docs/architecture/local-sandbox-reality.md) |
 | Implement or continue the Linux custom VMM | [Linux VMM handoff](docs/operations/linux-vmm-handoff.md) |
 | Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
+| Understand the researched production architecture and credible path to 10 ms | [Production sandbox architecture research](docs/research/production-sandbox-deep-research.md) |
 | Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
 | Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
 | Read the current overall engineering assessment | [Dated engineering assessment](docs/reviews/2026-08-29-overall-engineering-assessment.md) |

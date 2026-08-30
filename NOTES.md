@@ -661,3 +661,12 @@ Restore readiness is still caller-asserted, privileged network tools have no com
 Two accepted ADR files also share number 0024 while specifying incompatible responder-key models, and retained snapshot evidence describes the obsolete reusable-key implementation rather than current bytes.
 The required order is to restore the portable gate, secure the network authority boundary, bind readiness to authenticated evidence, repair the decision record, rerun current snapshot evidence, and then integrate one complete KVM lifecycle before adding more subsystems or publishing performance claims.
 The detailed handoff is `docs/reviews/2026-08-29-implementation-reaudit.md`.
+
+## 2026-08-29 - Production sandbox research favors one deep lifecycle and multiple preparation classes
+
+Research across Firecracker, crosvm, Kata and Dragonball, libkrun, AWS SnapStart, Linux cgroup v2, and snapshot systems supports one SOMA hardware-isolated lifecycle rather than multiple unrelated sandbox products.
+Cold build, cold boot, warm restore, prepared worker, paused pool, and ready pool are preparation classes for the same Machine and security contract.
+The public seam should be one small `SandboxBackend` interface backed by a deep Instance Lifecycle module that owns ordering, deadlines, compensation, receipts, crash recovery, and terminal cleanup proof.
+KVM is the primary tenant boundary but production isolation also requires a jailed VMM, narrow privileged brokers, authenticated guest control, network policy, storage ownership, cgroups, and proven cleanup.
+The credible 10 ms target is prepared claim to authenticated Ready on a memory-local Linux Host, not OCI conversion or cold boot.
+The detailed source-backed recommendation is `docs/research/production-sandbox-deep-research.md`.
