@@ -18,6 +18,8 @@ mod probe {
 
     const KVM_GET_API_VERSION: libc::Ioctl = 0xAE00;
     const TUNSETIFF: libc::Ioctl = 0x4004_54CA;
+    /// `_IOW(0xAE, 0x46, 32)`; `seccomp::ioctls` pins this literal against its own table.
+    const KVM_SET_USER_MEMORY_REGION: libc::Ioctl = 0x4020_AE46;
 
     fn errno() -> i32 {
         io::Error::last_os_error().raw_os_error().unwrap_or(0)
@@ -144,6 +146,20 @@ mod probe {
                 // argument and returns `EINVAL` for anything else.
                 let result = unsafe { libc::ioctl(fd, KVM_GET_API_VERSION, 0) };
                 send(control, &format!("ok {result}"));
+            }
+            ProbeCommand::SetMemoryRegion => {
+                let fd = kvm.unwrap_or(-1);
+                // A zero-sized region on the launch-page slot is exactly what
+                // `soma-kvm/src/x86_64/launch_page.rs` `unregister` issues to retire the slot
+                // while the guest runs. Sixteen zero words match the argument layout; the KVM
+                // descriptor is not a VM descriptor, so the kernel rejects the request and the
+                // reply proves only that the filter admitted it.
+                let region = [0_u64; 4];
+                // SAFETY: `region` is a live, correctly aligned buffer at least as large as the
+                // 32-byte argument the request encodes.
+                let result =
+                    unsafe { libc::ioctl(fd, KVM_SET_USER_MEMORY_REGION, region.as_ptr()) };
+                send(control, &format!("ok {} {}", result, errno()));
             }
             ProbeCommand::Threads(count) => {
                 let (spawned, last_errno) = spawn_threads(count);

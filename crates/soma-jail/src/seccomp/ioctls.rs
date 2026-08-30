@@ -70,6 +70,10 @@ use IoctlPhases::{Both, StartupOnly};
 /// `KVM_IRQFD` is measured at startup and stays in steady state because device teardown
 /// deassigns it, and `KVM_IOEVENTFD` is reserved for the virtio queue notification path.
 /// `FIONBIO` is the only non-KVM request: the Rust runtime uses it for `set_nonblocking`.
+/// `KVM_SET_USER_MEMORY_REGION` registers guest memory at startup and stays in steady state
+/// because launch-page retirement removes that slot with a zero-sized region while the guest
+/// runs: `soma-kvm/src/x86_64/launch_page.rs` `unregister`, reached from `retire_launch_page`
+/// during teardown and immediately after the guest consumes the page.
 /// The snapshot state groups are reserved for the restore slice and admitted only at startup;
 /// a Generation-building capture run keeps the startup filter for its whole life.
 pub const IOCTL_RULES: &[IoctlRule] = &[
@@ -79,12 +83,7 @@ pub const IOCTL_RULES: &[IoctlRule] = &[
     rule("KVM_GET_VCPU_MMAP_SIZE", io(0x04), StartupOnly, KVM),
     rule("KVM_GET_SUPPORTED_CPUID", iowr(0x05, 8), StartupOnly, KVM),
     rule("KVM_CREATE_VCPU", io(0x41), StartupOnly, KVM),
-    rule(
-        "KVM_SET_USER_MEMORY_REGION",
-        iow(0x46, 32),
-        StartupOnly,
-        KVM,
-    ),
+    rule("KVM_SET_USER_MEMORY_REGION", iow(0x46, 32), Both, KVM),
     rule("KVM_SET_TSS_ADDR", io(0x47), StartupOnly, KVM),
     rule("KVM_CREATE_IRQCHIP", io(0x60), StartupOnly, KVM),
     rule("KVM_GET_IRQCHIP", iowr(0x62, 520), StartupOnly, SNAPSHOT),
@@ -137,7 +136,13 @@ pub const IOCTL_RULES: &[IoctlRule] = &[
 pub const TUNSETIFF: u32 = 0x4004_54CA;
 
 /// The documented steady-state request set; the tests prove the table matches it exactly.
-pub const STEADY_REQUESTS: &[&str] = &["KVM_IRQFD", "KVM_IOEVENTFD", "KVM_RUN", "FIONBIO"];
+pub const STEADY_REQUESTS: &[&str] = &[
+    "KVM_SET_USER_MEMORY_REGION",
+    "KVM_IRQFD",
+    "KVM_IOEVENTFD",
+    "KVM_RUN",
+    "FIONBIO",
+];
 
 /// Request values admitted in `phase`, in table order.
 #[must_use]
@@ -147,4 +152,29 @@ pub fn requests_for(phase: Phase) -> Vec<u32> {
         .filter(|rule| phase == Phase::Startup || rule.phases == Both)
         .map(|rule| rule.request)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Both, IOCTL_RULES, IoctlPhases};
+
+    /// The probe binary cannot reach this table, so it carries the literal request value.
+    /// This pins that literal, and the steady-state classification the live probe depends on.
+    #[test]
+    fn the_launch_page_retirement_request_matches_the_probe_literal() {
+        let rule = IOCTL_RULES
+            .iter()
+            .find(|rule| rule.name == "KVM_SET_USER_MEMORY_REGION")
+            .expect("the table admits the launch-page retirement request");
+        assert_eq!(
+            rule.request, 0x4020_AE46,
+            "jail-probe.rs carries this literal"
+        );
+        assert_eq!(
+            rule.phases, Both,
+            "launch_page.rs `unregister` issues this while the guest runs, so a startup-only \
+             classification would make the jail kill the VMM at teardown",
+        );
+        let _ = IoctlPhases::StartupOnly;
+    }
 }

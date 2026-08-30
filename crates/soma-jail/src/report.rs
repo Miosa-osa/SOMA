@@ -43,6 +43,12 @@ pub enum ProbeCommand {
     ForbiddenIoctl,
     /// Issue `KVM_GET_API_VERSION` on the KVM descriptor and reply with the value.
     KvmVersion,
+    /// Issue `KVM_SET_USER_MEMORY_REGION` on the KVM descriptor and reply with the errno.
+    ///
+    /// The descriptor is the wrong kind for this request, so the kernel always rejects it.
+    /// The probe therefore distinguishes only whether the seccomp filter admitted the request
+    /// at all: a reply means admitted, a `SIGSYS` kill means denied.
+    SetMemoryRegion,
     /// Spawn this many blocking threads and reply with how many succeeded.
     Threads(u32),
     /// Allocate and touch this many MiB.
@@ -179,6 +185,7 @@ impl ProbeCommand {
             Self::Socket => "socket".to_owned(),
             Self::ForbiddenIoctl => "forbidden-ioctl".to_owned(),
             Self::KvmVersion => "kvm-version".to_owned(),
+            Self::SetMemoryRegion => "set-memory-region".to_owned(),
             Self::Threads(count) => format!("threads {count}"),
             Self::Allocate(mib) => format!("allocate {mib}"),
             Self::Exec => "exec".to_owned(),
@@ -212,6 +219,7 @@ impl ProbeCommand {
             "socket" => Ok(Self::Socket),
             "forbidden-ioctl" => Ok(Self::ForbiddenIoctl),
             "kvm-version" => Ok(Self::KvmVersion),
+            "set-memory-region" => Ok(Self::SetMemoryRegion),
             "threads" => Ok(Self::Threads(unsigned(argument)?)),
             "allocate" => Ok(Self::Allocate(unsigned(argument)?)),
             "exec" => Ok(Self::Exec),
@@ -278,6 +286,7 @@ mod tests {
             ProbeCommand::Socket,
             ProbeCommand::ForbiddenIoctl,
             ProbeCommand::KvmVersion,
+            ProbeCommand::SetMemoryRegion,
             ProbeCommand::Threads(4),
             ProbeCommand::Allocate(64),
             ProbeCommand::Exec,

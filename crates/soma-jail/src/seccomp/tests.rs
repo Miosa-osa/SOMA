@@ -95,7 +95,7 @@ fn programs_assemble_deterministically() {
     );
     assert_eq!(
         (steady.len(), steady.fingerprint()),
-        (135, 0xe748_c586_d587_7538)
+        (136, 0x5a7e_7f52_4fbf_f350)
     );
 }
 

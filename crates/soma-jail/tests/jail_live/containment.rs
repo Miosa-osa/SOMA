@@ -136,6 +136,14 @@ fn steady_state_keeps_threads_but_drops_setup_syscalls_and_ioctls() {
     let _ = jail.report();
     assert_eq!(jail.expect(ProbeCommand::Steady, "ok "), "ok steady");
     assert_eq!(jail.expect(ProbeCommand::Threads(2), "ok "), "ok 2 0");
+    // Retiring the launch page removes its memory slot while the guest runs, so this request
+    // must survive into steady state. The KVM descriptor is not a VM descriptor, so the kernel
+    // rejects it; any reply at all proves the filter admitted it rather than killing the VMM.
+    assert!(
+        jail.expect(ProbeCommand::SetMemoryRegion, "ok ")
+            .starts_with("ok -1 "),
+        "the jail must admit launch-page retirement in steady state",
+    );
     jail.expect_kill(&live, ProbeCommand::KvmVersion);
 
     let mut jail = live.launch("steady-openat", &ROLES, harness::limits());
