@@ -670,3 +670,21 @@ The public seam should be one small `SandboxBackend` interface backed by a deep 
 KVM is the primary tenant boundary but production isolation also requires a jailed VMM, narrow privileged brokers, authenticated guest control, network policy, storage ownership, cgroups, and proven cleanup.
 The credible 10 ms target is prepared claim to authenticated Ready on a memory-local Linux Host, not OCI conversion or cold boot.
 The detailed source-backed recommendation is `docs/research/production-sandbox-deep-research.md`.
+
+## 2026-08-29 - SOMA already owns a substantial custom Rust VMM
+
+The Linux x86_64 `soma-kvm` dependency graph uses rust-vmm for KVM bindings, ioctl wrappers, and system utilities while SOMA owns roughly 10,687 lines of virtio, 7,200 lines of generic snapshot logic, and 8,628 lines of x86_64 machine code.
+The strategic direction remains a custom minimal VMM, but the crate currently exposes too many low-level details and must become one deep Machine module.
+The highest-risk technical question is guest-memory soundness under concurrent KVM and device access, followed by custom virtqueue semantic correctness, the existence of multiple Machine ownership shapes, reactor lock behavior, and complete restore ordering.
+SOMA should retain `kvm-bindings`, `kvm-ioctls`, and `vmm-sys-util`, then evaluate `vm-memory` and `virtio-queue` through adapters and differential evidence rather than immediately rewriting or rejecting them.
+The implementation order is interface contraction, memory soundness, queue differential testing, one Machine owner, bounded reactor behavior, restore typestate, real VMM jail integration, hostile guest testing, restore profiling, and production admission.
+The complete research and ten implementation tickets are in `docs/research/rust-vmm-engineering-deep-dive.md`.
+
+## 2026-08-29 - Hidden Rust VMM research favors Dillo-shaped boundaries
+
+Source inspection found that `pichi-vm/dillo` has the strongest small cross-platform machine boundary among the obscure Rust VMM repositories reviewed, with host-neutral Machine, Memory, CpuState, and Cpu traits and separate KVM, HVF, WHP, transport, and device crates.
+Vibemon contains the broadest relevant mechanism set, including versioned cross-platform snapshots, delta memory, copy-on-write forks, userfaultfd paging, restore validation, and real lifecycle tests, but its multi-thousand-line VMM files make it a mechanism reference rather than a topology to copy.
+Panorama is explicitly broken but demonstrates a valuable dirty-only reset loop that merges KVM dirty logging with device-originated writes before coalesced restore.
+Hyperlight, Ignition, deterministic-vmm, ai-vmm, alvm, teaching VMMs, Firecracker runtimes, and type-1 hypervisors were classified separately so SOMA does not confuse a narrower guest ABI, an orchestrator, or a different virtualization layer with its production Linux KVM machine.
+The resulting design direction is a Dillo-like backend seam, selected Vibemon mechanisms behind SOMA-owned interfaces, Panorama-inspired dirty-reset evidence, bounded-model proofs for hostile arithmetic, and independent measurement of every imported idea.
+The detailed pinned-source review is `docs/research/rust-vmm-github-hidden-gems.md`.

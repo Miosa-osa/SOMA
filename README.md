@@ -52,6 +52,8 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | Implement or continue the Linux custom VMM | [Linux VMM handoff](docs/operations/linux-vmm-handoff.md) |
 | Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
 | Understand the researched production architecture and credible path to 10 ms | [Production sandbox architecture research](docs/research/production-sandbox-deep-research.md) |
+| Understand the custom Rust VMM, KVM ownership, memory, vCPUs, virtio, snapshots, and exact implementation tickets | [Rust VMM engineering deep dive](docs/research/rust-vmm-engineering-deep-dive.md) |
+| Compare hidden Rust VMM repositories and the exact ideas SOMA should borrow or reject | [Rust VMM GitHub hidden gems](docs/research/rust-vmm-github-hidden-gems.md) |
 | Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
 | Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
 | Read the current overall engineering assessment | [Dated engineering assessment](docs/reviews/2026-08-29-overall-engineering-assessment.md) |

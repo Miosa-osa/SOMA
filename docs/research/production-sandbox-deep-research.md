@@ -514,3 +514,5 @@ Deepen the Instance Lifecycle module until one call safely realizes the complete
 
 Then optimize the prepared restore path around data locality, sterile resource pools, fresh per-Instance authority, and removal of process creation from the timer.
 That path offers the best combination of strong isolation, modular implementation, operational recovery, and a credible route toward 10 ms.
+
+For the lower-level KVM object ownership, memory model, vCPU loops, virtio queues, event reactor, devices, snapshot ordering, unsafe Rust, testing strategy, and implementation tickets, continue with [Rust VMM engineering deep dive](rust-vmm-engineering-deep-dive.md).
