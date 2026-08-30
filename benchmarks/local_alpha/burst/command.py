@@ -13,6 +13,7 @@ from pathlib import Path
 from benchmarks.local_alpha.provenance import (
     BuildManifest,
     build_child_environment,
+    engine_settings,
     validate_release_build,
 )
 from benchmarks.local_alpha.runner.identities import IdentityGenerator
@@ -102,7 +103,7 @@ def _run(arguments: argparse.Namespace) -> int:
     results = _new_file(arguments.results, "results file")
     manifest = BuildManifest.load(manifest_path)
     validate_release_build(ROOT, manifest, soma, mcp)
-    environment = build_child_environment(os.environ)
+    environment = build_child_environment(os.environ, engine_settings(os.environ))
     with tempfile.TemporaryDirectory(
         prefix="soma-burst-state-", dir=results.parent
     ) as temporary:

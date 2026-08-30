@@ -20,6 +20,24 @@ _ALLOWLIST = frozenset(
 )
 _SECRET_MARKERS = ("API_KEY", "PASSWORD", "SECRET", "TOKEN", "CREDENTIAL")
 
+# Engine settings a Backend needs in order to serve a request at all. They are host paths and one
+# explicit development opt in, never credentials, and a measured run that cannot see them measures
+# a Backend that refuses every launch. They are forwarded by name so the value each run used is
+# recorded in its provenance rather than left implicit in the operator's shell.
+ENGINE_SETTINGS = (
+    "SOMA_GENERATION_STORE",
+    "SOMA_HEAD_DIR",
+    "SOMA_ALLOW_UNCERTIFIED_GENERATION",
+    "SOMA_EROFS_TOOLS",
+    "SOMA_E2FSPROGS",
+)
+
+
+def engine_settings(source: Mapping[str, str]) -> dict[str, str]:
+    """Return the engine settings present in `source`, for explicit forwarding."""
+
+    return {name: source[name] for name in ENGINE_SETTINGS if source.get(name)}
+
 
 def _secret_bearing(name: str) -> bool:
     uppercase = name.upper()

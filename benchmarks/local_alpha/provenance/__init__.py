@@ -1,6 +1,6 @@
 """Build provenance and secret-minimized process environments."""
 
-from .environment import build_child_environment
+from .environment import build_child_environment, engine_settings
 from .fingerprint import benchmark_fingerprint, source_fingerprint
 from .manifest import (
     RELEASE_BUILD_COMMAND,
@@ -15,6 +15,7 @@ __all__ = (
     "RELEASE_BUILD_COMMAND",
     "benchmark_fingerprint",
     "build_child_environment",
+    "engine_settings",
     "source_fingerprint",
     "validate_release_build",
 )
