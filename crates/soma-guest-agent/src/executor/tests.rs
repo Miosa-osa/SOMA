@@ -8,7 +8,7 @@ use soma_guest::{GuestCommand, TerminalStatus};
 
 use super::{
     Completion, ExecutorFault, FIRST_WAIT_POLL, KILL_GRACE, OutputSink, SinkFault, WAIT_POLL,
-    backoff, execute,
+    execute, waits,
 };
 
 mod hostile;
@@ -137,17 +137,20 @@ fn resident_high_water() -> u64 {
 }
 
 #[test]
-fn the_reapability_wait_doubles_from_the_first_check_up_to_the_ceiling() {
+fn the_reapability_wait_schedule_starts_far_below_the_ceiling_and_saturates_at_it() {
+    let micros =
+        |count: usize| -> Vec<u128> { waits().take(count).map(|w| w.as_micros()).collect() };
+
+    // A child that closed its pipes is already inside its own exit, so the loop must look
+    // again several times within the first millisecond rather than sleep the ceiling once.
+    assert_eq!(micros(4), [50, 100, 200, 400]);
+    assert!(waits().take(4).sum::<Duration>() < Duration::from_millis(1));
     assert!(FIRST_WAIT_POLL < WAIT_POLL);
-    assert_eq!(backoff(FIRST_WAIT_POLL), FIRST_WAIT_POLL * 2);
+    assert_eq!(waits().next(), Some(FIRST_WAIT_POLL));
 
-    let mut poll = FIRST_WAIT_POLL;
-    for _ in 0..8 {
-        poll = backoff(poll);
-    }
-
-    assert_eq!(poll, WAIT_POLL);
-    assert_eq!(backoff(WAIT_POLL), WAIT_POLL);
+    // A child that outlives its own pipes costs one check per ceiling interval, no more.
+    assert_eq!(waits().nth(8), Some(WAIT_POLL));
+    assert!(waits().take(64).all(|wait| wait <= WAIT_POLL));
 }
 
 #[test]

@@ -5,6 +5,7 @@
 //! No output is queued and no reader thread exists, so a hostile process that writes without
 //! end cannot grow the agent beyond one fixed buffer plus one admitted chunk.
 
+use std::iter;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
@@ -156,19 +157,23 @@ fn spawn(invocation: &Invocation) -> Result<Child, i32> {
         .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))
 }
 
-/// The wait after one unsuccessful reapability check, doubling up to the ceiling.
-fn backoff(poll: Duration) -> Duration {
-    poll.saturating_mul(2).min(WAIT_POLL)
+/// The waits between reapability checks, in the order the loop takes them.
+///
+/// The sequence starts at [`FIRST_WAIT_POLL`], doubles, and saturates at [`WAIT_POLL`]; it is
+/// endless, so the loop's absolute deadline is what ends the wait.
+fn waits() -> impl Iterator<Item = Duration> {
+    iter::successors(Some(FIRST_WAIT_POLL), |poll| {
+        Some(poll.saturating_mul(2).min(WAIT_POLL))
+    })
 }
 
 fn wait_for_child(child: &mut Child, until: Instant, process_group: i32) -> Ending {
-    let mut poll = FIRST_WAIT_POLL;
+    let mut waits = waits();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return ending(status),
             Ok(None) if Instant::now() < until => {
-                thread::sleep(poll);
-                poll = backoff(poll);
+                thread::sleep(waits.next().unwrap_or(WAIT_POLL));
             }
             Ok(None) => {
                 descendants::kill_group(process_group);
