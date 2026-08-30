@@ -174,6 +174,15 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     sequence.complete(RestoreStep::MapMemoryPrivately)?;
     timeline.mark(Milestone::MapMemory);
 
+    // The launch page is a separate slot the snapshot never contained, and it stays empty
+    // until `write_launch_page` publishes the material just before the resume. It is added
+    // while the VM still has no vCPU, because that is what a memory-slot addition costs; the
+    // identical call after the vCPU exists costs two milliseconds. It is also bound before the
+    // machine adopts the VM, so on any later failure the VM is released before this mapping
+    // is, which is the ownership order `RamMapping` relies on.
+    let launch_page = LaunchPageSlot::map_and_register(&vm)?;
+    timeline.mark(Milestone::LaunchPageMapped);
+
     let machine = Machine::adopt(kvm, vm, ram);
     machine.register_certified_slots(&state.vm)?;
     sequence.complete(RestoreStep::RegisterMemorySlots)?;
@@ -224,8 +233,6 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     sequence.complete(RestoreStep::RestoreDeviceAndInterruptState)?;
     timeline.mark(Milestone::Events);
 
-    let launch_page = LaunchPageSlot::map_and_register(machine.vm_fd())?;
-    timeline.mark(Milestone::LaunchPageMapped);
     let machine = SandboxMachine::from_restored(RestoredParts {
         machine,
         bus,
