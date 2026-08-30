@@ -20,9 +20,11 @@ pub use device::{
     ActivateError, ConfigAccessError, DeviceStateError, MAX_CONFIG_LEN, MAX_QUEUES, SOMA_VENDOR_ID,
     VIRTIO_F_VERSION_1, VirtioDevice,
 };
-pub use devices::block::backend::{BackendError as BlockBackendError, BlockBackend, MemoryBackend};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use devices::block::backend::Detached;
 #[cfg(unix)]
-pub use devices::block::backend::{Detached, FileBackend};
+pub use devices::block::backend::FileBackend;
+pub use devices::block::backend::{BackendError as BlockBackendError, BlockBackend, MemoryBackend};
 pub use devices::block::request::{
     BLK_ID_LEN, BlockOp, BlockRequest, MAX_REQUEST_BYTES, REQUEST_HEADER_LEN, RequestError,
     RequestLimits, SECTOR_SIZE, VIRTIO_BLK_S_IOERR, VIRTIO_BLK_S_OK, VIRTIO_BLK_S_UNSUPP,

@@ -526,6 +526,7 @@ Every read and write is range-checked against registered regions before any byte
 `devices/` holds the five v1 device models behind that seam, each as one parser over validated chains, one backend seam that accepts only validated operations, and one fixed little-endian identity record with a version byte.
 `devices/segments.rs` copies bytes between validated chain segments and host buffers through the checked guest-memory seam, and `devices/service.rs` is the budgeted loop that pops chains, hands them to a `ChainHandler`, publishes used lengths, skips hostile chains with a counter, and stops the device with `DEVICE_NEEDS_RESET` on a fault.
 `devices/block.rs` is virtio-blk for the immutable root and private overlay roles with a request parser in `block/request.rs`, execution in `block/execute.rs`, and the `BlockBackend` seam with a positional-I/O file backend in `block/backend.rs`.
+`block/backend/detached.rs` declares an admitted private-head shape without holding storage authority, while `block/attachment.rs` replaces it only with an exact-capacity writable backend after assignment.
 `devices/net.rs` is virtio-net with the all-zero 12-byte header check in `net/frame.rs`, the `NetBackend` seam with a preopened TAP backend and a shared-queue loopback in `net/backend.rs`, and buffer-first receive delivery in `net/rx.rs` behind a host-controlled link gate.
 `devices/vsock.rs` is virtio-vsock with header validation in `vsock/packet.rs`, checked credit accounting in `vsock/credit.rs`, the single-connection `HostEndpoint` in `vsock/connection.rs`, guest-to-host handling in `vsock/tx.rs`, packet selection in `vsock/outbound.rs`, and receive and event delivery in `vsock/rx.rs`.
 `devices/rng.rs` is virtio-rng with the `EntropyBackend` seam and the `/dev/urandom` source in `rng/backend.rs`.
@@ -557,7 +558,8 @@ The module itself registers no ioeventfd or irqfd, decodes no KVM exit, runs no 
 `device.rs` converts between the live virtio slot records and the canonical device sections and proves the canonical form reproduces the live one.
 `artifacts.rs` writes each object to a private staging name, flushes it, hashes it through the handle that wrote it, and publishes with a link that fails when the name exists.
 `capture.rs` and `restore.rs` drive the codec's typed schedules; `marker.rs` records and requires the pre-launch capture point.
-`restore/readiness.rs` owns the readiness transition: the restore samples its own challenge, publishes its demand only after the fresh launch authority exists, spends that challenge on the first attempt, and completes the typestate only when the receipt authenticates, so no caller can assert readiness.
+`restore/sterile.rs` owns the consuming transition from a stopped restored machine with no private head or readiness secret into one assigned restore.
+`restore/readiness.rs` owns the readiness transition: assignment samples the challenge only after the fresh disk and CID are accepted, the restore publishes its demand only after fresh launch authority exists, spends that challenge on the first attempt, and completes the typestate only when the receipt authenticates, so no caller can assert readiness.
 
 ### `tests/kvm_probe.rs`
 

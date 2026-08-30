@@ -13,7 +13,9 @@ One compare-and-swap over WorkerId and monotonically increasing lease generation
 Retries with the same operation return the same result, while changed intent conflicts.
 
 Sterile workers may hold the executable, jail, empty VM object where measured safe, private memory mapping, verified immutable artifacts, event loop, and unassigned descriptor slots.
-They contain no InstanceId, launch page, secret, private disk head, TAP lease, guest CID, command, environment, credential, or tenant byte.
+They contain no InstanceId, launch page, secret, private disk head, TAP lease, assigned guest CID, command, environment, credential, or tenant byte.
+An inactive restored device may retain the non-authoritative captured CID required to decode its snapshot state only when the sterile type cannot start the vCPU, publish launch material, or expose the device bus.
+ADR 0033 defines that narrow exception and requires consuming assignment before a readiness challenge exists.
 Prepared resource bundles obey the same rule.
 
 Assignment transfers fresh disk, network, control, entropy, identity, deadline, and launch-page authority exactly once.

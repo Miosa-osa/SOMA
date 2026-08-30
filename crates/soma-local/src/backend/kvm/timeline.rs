@@ -11,18 +11,23 @@
 //! at cleanup holding its milestone offsets and per-phase durations. When it is unset nothing is
 //! written and nothing is formatted, so this costs an environment lookup per sandbox and is safe
 //! to leave compiled in.
+//! A failed sandbox also writes at most the final 64 KiB of guest console output, which may contain
+//! workload data, so only a trusted operator may enable the directory and collect its contents.
 //!
 //! This is a diagnostic, not evidence. The file has no signature, no identity binding, and no
 //! stable schema, and it must never be quoted as a measurement of record: the retained benchmark
 //! artifacts remain the only thing that supports a claim.
 
 use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::io::Write as _;
+use std::os::unix::fs::OpenOptionsExt as _;
+use std::path::{Path, PathBuf};
 
 use soma_kvm::x86_64::SandboxEvidence;
 
 /// The directory each sandbox's timeline is written to, when an operator names one.
 const TIMELINE_DIR: &str = "SOMA_KVM_TIMELINE";
+const MAX_CONSOLE_BYTES: usize = 64 * 1024;
 
 /// Writes the timeline of a sandbox that failed before it could be shut down.
 ///
@@ -33,13 +38,17 @@ pub(super) fn dump_failure(instance: &str, evidence: &SandboxEvidence, error: &s
     let Some(directory) = directory() else {
         return;
     };
-    let _ignored = std::fs::write(
-        directory.join(format!("{instance}.failed.json")),
-        render_failure(evidence, error),
+    let Some(instance) = safe_instance(instance) else {
+        return;
+    };
+    let _ignored = write_new(
+        &directory.join(format!("{instance}.failed.json")),
+        render_failure(evidence, error).as_bytes(),
     );
-    let _ignored = std::fs::write(
-        directory.join(format!("{instance}.console")),
-        &evidence.serial,
+    let start = evidence.serial.len().saturating_sub(MAX_CONSOLE_BYTES);
+    let _ignored = write_new(
+        &directory.join(format!("{instance}.console")),
+        &evidence.serial[start..],
     );
 }
 
@@ -58,7 +67,29 @@ pub(super) fn dump(instance: &str, evidence: &SandboxEvidence) {
     let Some(directory) = directory() else {
         return;
     };
-    let _ignored = std::fs::write(directory.join(format!("{instance}.json")), render(evidence));
+    let Some(instance) = safe_instance(instance) else {
+        return;
+    };
+    let _ignored = write_new(
+        &directory.join(format!("{instance}.json")),
+        render(evidence).as_bytes(),
+    );
+}
+
+/// Accepts only a bounded hexadecimal Instance identity as a diagnostic filename.
+fn safe_instance(instance: &str) -> Option<&str> {
+    (instance.len() == 32 && instance.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then_some(instance)
+}
+
+/// Creates one private diagnostic without following or overwriting an existing final path.
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(bytes)
 }
 
 /// Renders the timeline as one JSON object of milestone and phase names to nanoseconds.
@@ -97,5 +128,29 @@ fn render(evidence: &SandboxEvidence) -> String {
 fn render_failure(evidence: &SandboxEvidence, error: &str) -> String {
     let body = render(evidence);
     let head = body.trim_end().trim_end_matches('}');
-    format!("{head},\"error\":\"{error}\"}}\n")
+    append_error(head, error)
+}
+
+fn append_error(head: &str, error: &str) -> String {
+    let error = serde_json::to_string(error).unwrap_or_else(|_| "\"unavailable\"".to_owned());
+    format!("{head},\"error\":{error}}}\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_error, safe_instance};
+
+    #[test]
+    fn hostile_error_text_remains_valid_json() {
+        let rendered = append_error("{\"milestones_ns\":{},\"phases_ns\":{}", "bad \"x\"\\\n");
+        let value: serde_json::Value = serde_json::from_str(&rendered).expect("valid JSON");
+        assert_eq!(value["error"], "bad \"x\"\\\n");
+    }
+
+    #[test]
+    fn only_canonical_instance_names_reach_the_filesystem() {
+        assert!(safe_instance("89db112753324c3e890ef78b74381aa5").is_some());
+        assert!(safe_instance("../tenant-secret").is_none());
+        assert!(safe_instance("89DB112753324C3E890EF78B74381AA5").is_some());
+    }
 }

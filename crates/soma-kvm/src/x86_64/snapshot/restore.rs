@@ -10,16 +10,12 @@
 mod devices;
 mod readiness;
 mod sections;
+mod sterile;
 
 use std::{cell::Cell, fs::File};
 
 use kvm_ioctls::Kvm;
 use vmm_sys_util::eventfd::EventFd;
-
-mod sterile;
-
-use sterile::SterileFacts;
-pub use sterile::{Sterile, SterileRequest};
 
 use self::{
     devices::{Identity, recreate_devices, verify},
@@ -51,6 +47,8 @@ use crate::x86_64::{
     serial::SERIAL_GSI,
     timing::Stopwatch,
 };
+use sterile::SterileFacts;
+pub use sterile::{Sterile, SterileRequest};
 
 /// What a caller asks a restore to produce.
 pub struct RestoreRequest {
@@ -180,7 +178,6 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     } = request;
     let mut timeline = Timeline::new();
     let mut sequence = RestoreSequence::start();
-    let readiness = readiness::sample_challenge()?;
     let kvm = Kvm::new().map_err(|error| MachineError::os(Phase::Restore, error))?;
     let state_bytes = artifacts::read_state(&paths.state())?;
     let snapshot = Digest::of(&state_bytes);
@@ -294,6 +291,5 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
             captured_cid,
         },
         sequence,
-        readiness,
     })
 }

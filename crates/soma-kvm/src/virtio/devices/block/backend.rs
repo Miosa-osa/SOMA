@@ -1,6 +1,7 @@
 //! Block backends accept only validated byte ranges from the request parser.
 
 use std::fmt;
+
 #[cfg(unix)]
 use std::fs::File;
 use std::io;
@@ -202,23 +203,17 @@ impl BlockBackend for MemoryBackend {
 /// A backend that declares a store's shape while holding no store at all.
 ///
 /// A prepared worker is built before any Instance exists, and the prepared worker protocol
-/// forbids it from holding a private disk head: the head is one of the eight authorities
-/// transferred when the worker is claimed. The device model still has to exist before then,
-/// because building it is most of what a prepared worker exists to have done in advance, and a
-/// device cannot be built without a backend to take its geometry from.
-///
-/// So this stands in for the absent head. It answers the capacity and writability the real head
-/// will have, which is what the device needs to be built and what a later attachment is checked
-/// against, and it refuses every read, write, and flush. Refusing is safe rather than merely
-/// defensive: a worker in this state has not started its vCPU, so nothing in the guest can reach
-/// the device, and an I/O against a detached backend therefore means the worker was started
-/// without being given its head.
+/// forbids it from holding a private disk head.
+/// The device can still be constructed from the admitted capacity and writability.
+/// Every I/O operation fails closed because an unassigned worker must never run a vCPU.
 #[derive(Clone, Copy, Debug)]
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub struct Detached {
     capacity_bytes: u64,
     read_only: bool,
 }
 
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 impl Detached {
     /// Declares the shape of the store that will be attached later.
     #[must_use]
@@ -230,6 +225,7 @@ impl Detached {
     }
 }
 
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 impl BlockBackend for Detached {
     fn capacity_bytes(&self) -> u64 {
         self.capacity_bytes

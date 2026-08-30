@@ -122,6 +122,12 @@ impl VsockDevice {
         Ok(())
     }
 
+    /// Validates a context identifier before an authority-transfer transaction mutates devices.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) const fn validate_guest_cid(cid: u64) -> Result<(), VsockConfigError> {
+        Self::check_cid(cid)
+    }
+
     #[must_use]
     pub const fn guest_cid(&self) -> u64 {
         self.guest_cid

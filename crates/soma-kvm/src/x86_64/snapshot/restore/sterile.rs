@@ -8,8 +8,8 @@
 use std::fs::File;
 
 use super::{
-    Cell, Digest, ReadinessChallenge, RestoreFacts, RestoreSequence, Restored, SandboxMachine,
-    SnapshotError, SnapshotPaths,
+    Cell, Digest, RestoreFacts, RestoreSequence, Restored, SandboxMachine, SnapshotError,
+    SnapshotPaths, readiness,
 };
 
 /// What a prepared worker is restored from, before any Instance exists.
@@ -39,7 +39,6 @@ pub struct Sterile {
     pub(super) machine: SandboxMachine,
     pub(super) facts: SterileFacts,
     pub(super) sequence: RestoreSequence,
-    pub(super) readiness: ReadinessChallenge,
 }
 
 /// What the snapshot said this machine is, before an Instance is assigned to it.
@@ -53,20 +52,22 @@ pub(super) struct SterileFacts {
 }
 
 impl Sterile {
-    /// Gives this worker the Instance authority it was built without.
+    /// Consumes the sterile worker and gives the resulting restore fresh Instance authority.
+    ///
+    /// The readiness secret is sampled only after resource assignment succeeds.
+    /// Any failure consumes and drops the machine instead of returning partial authority.
     ///
     /// # Errors
     ///
-    /// Returns the typed failure when the head does not have the declared shape or the
-    /// identifier is not one a guest may hold.
+    /// Returns a typed failure for an invalid private head, CID, or readiness secret.
     pub fn assign(self, overlay: File, guest_cid: u32) -> Result<Restored, SnapshotError> {
         let Self {
             machine,
             facts,
             sequence,
-            readiness,
         } = self;
         machine.assign_instance_resources(overlay, guest_cid)?;
+        let readiness = readiness::sample_challenge()?;
         Ok(Restored {
             machine,
             facts: RestoreFacts {

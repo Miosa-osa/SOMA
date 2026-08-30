@@ -821,3 +821,15 @@ Snapshot installation now publishes memory, overlay, and state objects under exa
 Certification re-verifies the immutable Candidate, all three store objects, the schema 2 state manifest, its embedded Candidate identity, and its memory and overlay bindings before minting the non-forgeable promotion token.
 Ready Generation verification repeats snapshot admission and can report launchable only after those checks pass.
 The Linux x86_64 live capture suite now compiles an ignored full capture-to-install-to-certify-to-promote-to-reverify test, but a fresh hardware run is still required before recording new live evidence.
+## 2026-08-30 - Sterile restore holds no readiness authority before assignment
+
+The prepared restore seam now keeps the stopped KVM machine, immutable snapshot facts, and inactive captured device configuration behind a consuming `Sterile::assign` transition.
+It does not sample the single-use readiness challenge until private-disk and CID assignment succeeds.
+The captured CID is an inert snapshot-format placeholder rather than an assigned host identity because the sterile type cannot start the vCPU, publish a launch page, or expose the device bus.
+ADR 0033 records this boundary and requires a later live network assignment to replace the placeholder MAC with fresh per-Instance network authority.
+The current `soma-local` request path still restores on demand and must not report a prepared-worker latency class.
+
+## 2026-08-30 - MIOSA rollout remains a gated side-by-side experiment
+
+SOMA must enter MIOSA as an explicit experimental engine on separate hosts while the Firecracker path remains the control and rollback target.
+The MIOSA adapter stays outside this repository, and no customer deployment begins until certified admission, jailed one-process-per-VM ownership, fresh networking, prepared-worker transfer, restart reconciliation, density tests, the exact ComputeSDK campaign, and soak evidence all pass on one immutable release.

@@ -10,7 +10,7 @@ use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{Prepared, SandboxMachine, Stage, Timeline};
-use crate::virtio::{FileBackend, MmioBus};
+use crate::virtio::{FileBackend, MmioBus, VsockDevice};
 use crate::x86_64::{
     Machine,
     devices::SharedBus,
@@ -56,6 +56,11 @@ impl SandboxMachine {
         overlay: std::fs::File,
         guest_cid: u32,
     ) -> Result<(), MachineError> {
+        // Validate every fallible identity input before replacing either detached resource.
+        // Once this succeeds, `set_guest_cid` cannot reject the same value while the bus lock is
+        // held, so assignment cannot expose a half-updated device set.
+        VsockDevice::validate_guest_cid(u64::from(guest_cid))
+            .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
         let backend = FileBackend::new(overlay, false)
             .map_err(|error| MachineError::io(Phase::Devices, &error))?;
         let mut bus = self.shared.lock();

@@ -159,7 +159,7 @@ Setting it is the explicit opt in for a development host.
 - Prepared restore, which reaches a ready sandbox in milliseconds instead of the current cold boot.
 - Certified Generations, so a template is verified before it can launch rather than opted into.
 
-The full path from this development setup to a production admitted service is tracked in [the public KVM Backend audit](../reviews/2026-08-30-public-kvm-backend-audit.md) and the ticket map in [the VMM decision map](../research/vmm-decision-map.md).
+The full path from this development setup to a production admitted service is tracked in [the public KVM Backend audit](../reviews/2026-08-30-public-kvm-backend-audit.md), the [MIOSA custom sandbox rollout plan](miosa-custom-sandbox-rollout.md), and the ticket map in [the VMM decision map](../research/vmm-decision-map.md).
 
 ## Teardown
 
