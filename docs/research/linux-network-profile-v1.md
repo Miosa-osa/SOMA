@@ -25,6 +25,30 @@ Egress and ingress counters are bound to Instance identity, not a reusable inter
 Proxy profiles transfer no raw credential to the VMM.
 Operator-owned sidecars or gateways receive short-lived Instance-scoped authority outside guest memory.
 
+## Control socket authority
+
+The control socket is the only way to reach the privileged broker, so its authority is part of the profile rather than a deployment detail.
+
+The broker creates the socket's parent directory itself, sets it to mode `0750` owned by the broker's own user identity and the operator-named socket group, and reads it back before it binds.
+It binds inside that directory, sets the socket node to mode `0660` with the same owner and group, reads that back, and only then listens.
+A path that already exists is removed only when it is a socket the broker already owns; a regular file, a directory, or another user's socket is a refusal rather than an unlink, so a stale path fails closed and a normal restart still succeeds.
+Both nodes are verified again before every accept, so ownership drift or a later permission change fails closed instead of widening reach.
+
+Every connection is authenticated from the kernel-derived peer credential rather than from any request field.
+A peer the authority does not admit is closed before a single frame is read.
+An admitted peer still needs the capability its exact operation requires.
+
+| Capability | Operations | Production holder |
+| --- | --- | --- |
+| Lifecycle | Claim, Activate, Release | `soma-hostd` |
+| Reconcile | Reconcile | operator repair tooling |
+
+The handoff is therefore exact.
+`soma-hostd` runs as the single lifecycle user identity, is a member of the socket group, claims one bundle per Machine, receives that bundle's TAP descriptor and its single-use activation challenge on the same connection, and is the only identity that may later activate or release that assignment: the broker records the claiming identity and refuses any other peer for the same bundle and generation.
+The jailed VMM never speaks this protocol and holds no capability at all.
+It receives one already-open TAP descriptor from `soma-hostd` and cannot create, reconfigure, or enumerate any host network device with it.
+Operator tooling that only reconciles is a separate identity with no lifecycle authority.
+
 ## Cleanup and modules
 
 Release disables ingress first, then removes forwarding, conntrack state, routes, addresses, veth, TAP, namespace, reservations, and ledger ownership.

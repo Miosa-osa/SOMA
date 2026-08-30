@@ -5,8 +5,13 @@
 //! assignment's single-use activation challenge.
 //! Activation requires the receipt the repaired guest session minted from that challenge; a
 //! rejected, replayed, or failed activation releases the assignment instead of retrying.
-//! The skeleton is single-threaded and does not yet authenticate the peer; the library is
-//! the deliverable and the daemon is the smallest honest composition of it.
+//!
+//! Every connection is authenticated by [`crate::ControlListener`] before a byte is read, every
+//! request needs the [`crate::Capability`] its operation requires, and an assignment can only be
+//! activated or released by the exact peer identity that claimed it, so the transferred
+//! descriptor and every later reply stay bound to one authenticated owner.
+//! The daemon is single-threaded; the library is the deliverable and the daemon is the smallest
+//! honest composition of it.
 
 #![allow(unsafe_code)]
 // Socket ABI values are fixed-width by definition; the casts below convert `libc` constants
@@ -20,26 +25,29 @@
 
 use std::{
     collections::{BTreeMap, VecDeque},
-    ffi::CString,
-    fs::{self, File},
+    fs::File,
     io::Read,
-    os::{
-        fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
-        unix::ffi::OsStrExt,
-    },
+    os::fd::{AsFd, AsRawFd, OwnedFd},
     path::Path,
 };
 
 use crate::{
-    Assigned, Broker, BundleId, CleanupGeneration, Error, MAX_FRAME, Reply, Request, Step,
-    SterileBundle, TransferHeader, activate, bundle::AssignFailure, error_code, reconcile, release,
-    release_record, release_sterile, send_tap,
+    Accepted, Assigned, Broker, BundleId, Capability, CleanupGeneration, ControlAuthority,
+    ControlListener, Error, InstanceId, MAX_FRAME, NetworkIntent, OperationId, PeerIdentity, Reply,
+    Request, Step, SterileBundle, TransferHeader, activate, bundle::AssignFailure, error_code,
+    reconcile, release, release_record, release_sterile, send_tap,
 };
+
+/// One assignment and the authenticated peer identity that claimed it.
+struct Owned {
+    peer: u32,
+    assigned: Assigned,
+}
 
 struct State {
     broker: Broker,
     pool: VecDeque<SterileBundle>,
-    assigned: BTreeMap<(BundleId, CleanupGeneration), Assigned>,
+    assigned: BTreeMap<(BundleId, CleanupGeneration), Owned>,
 }
 
 /// Prepares `prepared` bundles and serves requests until the listener fails.
@@ -47,7 +55,12 @@ struct State {
 /// # Errors
 ///
 /// Returns the first preparation or listener failure.
-pub fn serve(broker: Broker, socket: &Path, prepared: usize) -> Result<(), Error> {
+pub fn serve(
+    broker: Broker,
+    socket: &Path,
+    prepared: usize,
+    authority: ControlAuthority,
+) -> Result<(), Error> {
     let mut state = State {
         broker,
         pool: VecDeque::with_capacity(prepared),
@@ -57,28 +70,23 @@ pub fn serve(broker: Broker, socket: &Path, prepared: usize) -> Result<(), Error
         let bundle = state.broker.prepare(fresh_id()?)?;
         state.pool.push_back(bundle);
     }
-    let listener = listen(socket)?;
+    let listener = ControlListener::bind(socket, authority)?;
     loop {
-        // SAFETY: `accept4` only reads the listener descriptor; null address arguments are
-        // permitted.
-        let raw = unsafe {
-            libc::accept4(
-                listener.as_raw_fd(),
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-                libc::SOCK_CLOEXEC,
-            )
-        };
-        if raw < 0 {
-            return Err(Error::kernel(Step::Socket));
+        match listener.accept()? {
+            Accepted::Authorized(connection, peer) => {
+                serve_connection(&mut state, listener.authority(), &connection, peer);
+            }
+            Accepted::Rejected(_) => {}
         }
-        // SAFETY: `raw` is a freshly accepted descriptor owned by nothing else.
-        let connection = unsafe { OwnedFd::from_raw_fd(raw) };
-        serve_connection(&mut state, &connection);
     }
 }
 
-fn serve_connection(state: &mut State, connection: &OwnedFd) {
+fn serve_connection(
+    state: &mut State,
+    authority: &ControlAuthority,
+    connection: &OwnedFd,
+    peer: PeerIdentity,
+) {
     let mut frame = [0_u8; MAX_FRAME + 1];
     loop {
         // SAFETY: `frame` is a valid writable buffer of exactly the passed length.
@@ -94,7 +102,10 @@ fn serve_connection(state: &mut State, connection: &OwnedFd) {
             return;
         }
         let reply = match Request::decode(&frame[..received as usize]) {
-            Ok(request) => handle(state, request, connection),
+            Ok(request) if authority.permits(&peer, Capability::required_for(&request)) => {
+                handle(state, request, connection, peer)
+            }
+            Ok(_) => Reply::Failed(error_code(&Error::Unauthorized("peer capability"))),
             Err(error) => Reply::Failed(error_code(&error)),
         };
         let bytes = reply.encode();
@@ -113,79 +124,49 @@ fn serve_connection(state: &mut State, connection: &OwnedFd) {
     }
 }
 
-fn handle(state: &mut State, request: Request, connection: &OwnedFd) -> Reply {
+fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerIdentity) -> Reply {
     match request {
         Request::Claim {
             instance,
             operation,
             vsock_cid,
             intent,
-        } => {
-            let bundle = match state.pool.pop_front() {
-                Some(bundle) => bundle,
-                None => match fresh_id().and_then(|id| state.broker.prepare(id)) {
-                    Ok(bundle) => bundle,
-                    Err(error) => return Reply::Failed(error_code(&error)),
-                },
-            };
-            match state
-                .broker
-                .assign(bundle, instance, operation, &intent, vsock_cid)
-            {
-                Ok(assigned) => {
-                    let header = TransferHeader {
-                        bundle: assigned.record().bundle,
-                        generation: assigned.record().generation,
-                        intent: assigned.record().intent_digest,
-                    };
-                    let launch = launch_bytes(&assigned);
-                    let key = (assigned.record().bundle, assigned.record().generation);
-                    let Some(activation) = assigned.activation_challenge().cloned() else {
-                        let _ = release(&state.broker, assigned);
-                        return Reply::Failed(error_code(&Error::InvalidState("activation")));
-                    };
-                    if let Err(error) =
-                        send_tap(connection.as_fd(), &header, assigned.bundle().tap().as_fd())
-                    {
-                        let _ = release(&state.broker, assigned);
-                        return Reply::Failed(error_code(&error));
-                    }
-                    state.assigned.insert(key, assigned);
-                    Reply::Claimed {
-                        bundle: key.0,
-                        generation: key.1,
-                        launch,
-                        activation,
-                    }
-                }
-                Err(AssignFailure { bundle, error }) => {
-                    let _ = release_sterile(&state.broker, *bundle, Vec::new());
-                    Reply::Failed(error_code(&error))
-                }
-            }
-        }
+        } => claim(
+            state,
+            connection,
+            peer,
+            (instance, operation, vsock_cid, &intent),
+        ),
         Request::Activate {
             bundle,
             generation,
             receipt,
         } => {
-            let Some(mut assigned) = state.assigned.remove(&(bundle, generation)) else {
+            let Some(mut owned) = state.assigned.remove(&(bundle, generation)) else {
                 return Reply::Failed(error_code(&Error::NotAssigned));
             };
-            match activate(&mut assigned, &receipt) {
+            if owned.peer != peer.uid() {
+                state.assigned.insert((bundle, generation), owned);
+                return Reply::Failed(error_code(&Error::Unauthorized("assignment owner")));
+            }
+            match activate(&mut owned.assigned, &receipt) {
                 Ok(_) => {
-                    state.assigned.insert((bundle, generation), assigned);
+                    state.assigned.insert((bundle, generation), owned);
                     Reply::Activated
                 }
                 Err(error) => {
-                    let _ = release(&state.broker, assigned);
+                    let _ = release(&state.broker, owned.assigned);
                     Reply::Failed(error_code(&error))
                 }
             }
         }
         Request::Release { bundle, generation } => {
             let result = match state.assigned.remove(&(bundle, generation)) {
-                Some(assigned) => release(&state.broker, assigned),
+                Some(owned) if owned.peer != peer.uid() => {
+                    state.assigned.insert((bundle, generation), owned);
+                    Err(Error::Unauthorized("assignment owner"))
+                }
+                Some(owned) => release(&state.broker, owned.assigned),
                 None => match state.broker.ledger().lookup(bundle, generation) {
                     Ok(entry) => release_record(&state.broker, &entry.record),
                     Err(error) => Err(error),
@@ -213,6 +194,63 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd) -> Reply {
     }
 }
 
+/// The identities one claim binds: Instance, Launch operation, vsock CID, and admitted intent.
+type ClaimRequest<'a> = (InstanceId, OperationId, u32, &'a NetworkIntent);
+
+fn claim(
+    state: &mut State,
+    connection: &OwnedFd,
+    peer: PeerIdentity,
+    request: ClaimRequest<'_>,
+) -> Reply {
+    let (instance, operation, vsock_cid, intent) = request;
+    let bundle = match state.pool.pop_front() {
+        Some(bundle) => bundle,
+        None => match fresh_id().and_then(|id| state.broker.prepare(id)) {
+            Ok(bundle) => bundle,
+            Err(error) => return Reply::Failed(error_code(&error)),
+        },
+    };
+    let assigned = match state
+        .broker
+        .assign(bundle, instance, operation, intent, vsock_cid)
+    {
+        Ok(assigned) => assigned,
+        Err(AssignFailure { bundle, error }) => {
+            let _ = release_sterile(&state.broker, *bundle, Vec::new());
+            return Reply::Failed(error_code(&error));
+        }
+    };
+    let header = TransferHeader {
+        bundle: assigned.record().bundle,
+        generation: assigned.record().generation,
+        intent: assigned.record().intent_digest,
+    };
+    let launch = launch_bytes(&assigned);
+    let key = (assigned.record().bundle, assigned.record().generation);
+    let Some(activation) = assigned.activation_challenge().cloned() else {
+        let _ = release(&state.broker, assigned);
+        return Reply::Failed(error_code(&Error::InvalidState("activation")));
+    };
+    if let Err(error) = send_tap(connection.as_fd(), &header, assigned.bundle().tap().as_fd()) {
+        let _ = release(&state.broker, assigned);
+        return Reply::Failed(error_code(&error));
+    }
+    state.assigned.insert(
+        key,
+        Owned {
+            peer: peer.uid(),
+            assigned,
+        },
+    );
+    Reply::Claimed {
+        bundle: key.0,
+        generation: key.1,
+        launch,
+        activation,
+    }
+}
+
 fn launch_bytes(assigned: &Assigned) -> [u8; 35] {
     let launch = assigned.launch();
     let mut out = [0; 35];
@@ -233,43 +271,4 @@ fn fresh_id() -> Result<BundleId, Error> {
         .and_then(|mut file| file.read_exact(&mut bytes))
         .map_err(|error| Error::io(Step::OpenTun, &error))?;
     BundleId::new(bytes)
-}
-
-fn listen(path: &Path) -> Result<OwnedFd, Error> {
-    let _ = fs::remove_file(path);
-    let c_path = CString::new(path.as_os_str().as_bytes())
-        .map_err(|_| Error::InvalidState("socket path"))?;
-    if c_path.as_bytes().len() >= 108 {
-        return Err(Error::InvalidState("socket path length"));
-    }
-    // SAFETY: `socket` has no memory preconditions; the descriptor is checked before ownership
-    // is taken.
-    let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0) };
-    if raw < 0 {
-        return Err(Error::kernel(Step::Socket));
-    }
-    // SAFETY: `raw` is a freshly created descriptor owned by nothing else.
-    let listener = unsafe { OwnedFd::from_raw_fd(raw) };
-    // SAFETY: `sockaddr_un` is a plain C aggregate for which all-zero bytes are valid.
-    let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
-    address.sun_family = libc::AF_UNIX as libc::sa_family_t;
-    for (slot, byte) in address.sun_path.iter_mut().zip(c_path.as_bytes()) {
-        *slot = *byte as libc::c_char;
-    }
-    // SAFETY: `address` is fully initialised and its exact size is passed.
-    let bound = unsafe {
-        libc::bind(
-            listener.as_raw_fd(),
-            (&raw const address).cast(),
-            std::mem::size_of::<libc::sockaddr_un>() as libc::socklen_t,
-        )
-    };
-    if bound != 0 {
-        return Err(Error::kernel(Step::Bind));
-    }
-    // SAFETY: `listen` only reads the descriptor and backlog.
-    if unsafe { libc::listen(listener.as_raw_fd(), 16) } != 0 {
-        return Err(Error::kernel(Step::Bind));
-    }
-    Ok(listener)
 }

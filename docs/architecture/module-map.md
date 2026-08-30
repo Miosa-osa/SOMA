@@ -927,6 +927,8 @@ The source map is:
 crates/soma-netd/src/
   lib.rs
   activate.rs
+  authority.rs
+  authority/tests.rs
   bundle.rs
   bundle/prepare.rs
   bundle/types.rs
@@ -946,6 +948,9 @@ crates/soma-netd/src/
   ledger.rs
   ledger/record.rs
   link.rs
+  listener.rs
+  listener/ownership.rs
+  listener/tests.rs
   namespace.rs
   netlink.rs
   nft.rs
@@ -962,7 +967,9 @@ crates/soma-netd/src/
   bin/soma-netd.rs
 crates/soma-netd/tests/
   live_linux.rs
+  live/burst.rs
   live/checks.rs
+  live/control.rs
   live/codec.rs
   live/frames.rs
   live/mod.rs
@@ -978,11 +985,12 @@ crates/soma-netd/tests/
 `ledger.rs` is the durable append-only ownership ledger of create-exclusive, synced, hard-linked records; `bundle.rs` prepares sterile bundles and assigns them by recording ownership before any intent-specific kernel change and producing the exact `LaunchNetwork` values.
 `activate.rs` consumes the assignment's single-use activation challenge, requires the `soma-guest` receipt that only a repaired authenticated session mints for this exact Instance, generation, operation, and intent digest, verifies namespace, links, rulesets, and forwarding against the ledger, and only then raises links, installs routes, and enables forwarding; a rejected, replayed, or failed attempt leaves forwarding disabled and the daemon releases the assignment.
 `release.rs` and `reconcile.rs` tear down in the specification order with per-step dispositions and compare ledger intent with kernel reality without removing unowned objects.
-`transfer.rs` and `daemon.rs` own the bounded typed descriptor handoff and the smallest honest single-threaded daemon over one Unix `SOCK_SEQPACKET` socket.
+`authority.rs` and `listener.rs` own the control socket's authority: an explicitly owned directory and socket node whose owner, group, and mode are set, read back, and reverified before every accept, one kernel-derived peer identity per connection, and the lifecycle and reconcile capabilities described in [the Linux network profile](../research/linux-network-profile-v1.md).
+`transfer.rs` and `daemon.rs` own the bounded typed descriptor handoff and the smallest honest single-threaded daemon over one Unix `SOCK_SEQPACKET` socket; the daemon records the claiming peer identity so only that identity can later activate or release the same assignment.
 
 Portable modules compile and test on every workspace target; every kernel mechanism is Linux-only and the daemon exits with a typed message elsewhere.
 Live proofs run only inside the pinned privileged Ubuntu 24.04 container through `scripts/netd-live-tests.sh` and are retained in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md).
-Proxy attachment, ingress forwarding, peer authentication of the daemon socket, IPv6 guest addressing, and the libnftnl replacement for the `nft` subprocess remain later slices.
+Proxy attachment, ingress forwarding, IPv6 guest addressing, and the libnftnl replacement for the `nft` subprocess remain later slices.
 
 ## `soma-storage` responsibilities
 

@@ -9,6 +9,7 @@
 //! Intent, profile, protected-set, IPAM, DNS, firewall text, ledger, and protocol types are
 //! portable; every kernel mechanism is Linux-only and fails closed elsewhere.
 
+mod authority;
 mod cidr;
 mod dns;
 mod error;
@@ -32,6 +33,8 @@ mod daemon;
 #[cfg(target_os = "linux")]
 mod link;
 #[cfg(target_os = "linux")]
+mod listener;
+#[cfg(target_os = "linux")]
 mod namespace;
 #[cfg(target_os = "linux")]
 mod netlink;
@@ -46,6 +49,7 @@ mod sysctl;
 #[cfg(target_os = "linux")]
 mod tap;
 
+pub use authority::{Capability, ControlAuthority, PeerIdentity};
 pub use cidr::Cidr;
 pub use dns::DnsPlan;
 pub use error::{Drift, Error, IntentRejection, Step, Tool, TransferRejection};
@@ -68,6 +72,8 @@ pub use activate::{ActivationEvidence, activate};
 pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
 #[cfg(target_os = "linux")]
 pub use daemon::serve;
+#[cfg(target_os = "linux")]
+pub use listener::{Accepted, ControlListener, broker_owner};
 #[cfg(target_os = "linux")]
 pub use namespace::{NetNamespace, Unpinned};
 #[cfg(target_os = "linux")]

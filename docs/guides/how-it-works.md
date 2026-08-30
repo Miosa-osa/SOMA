@@ -339,7 +339,7 @@ The launcher "constrains the static `jail-probe` stand-in and does not yet wrap 
 
 Network attach to the Machine.
 "No network egress: the network device sits behind the link-down loopback backend; the guest configured `eth0` and a default route, but no frame left the machine and no TAP or host network profile exists."
-For the broker, "Proxy attachment, ingress forwarding, daemon peer authentication, jailed VMM transfer, and virtio-net attach remain open."
+For the broker, "Proxy attachment, ingress forwarding, jailed VMM transfer, and virtio-net attach remain open." The daemon socket now authenticates its peer and gates every operation on a capability, and forwarding requires an activation receipt minted by a repaired authenticated guest session.
 
 Certification and the responder key.
 "No certification: phase 5 of the compiler and every conformance count remain unimplemented, and the responder public key is carried by the test rather than bound into the manifest."
@@ -391,7 +391,7 @@ Per-operation wall times of that 100-way burst, debug build, one thread, inside 
 | release | 55.3 ms | 77.1 ms |
 
 `prepare` spawns `nft` twice and `release` spawns `conntrack` once and `nft` up to three times, so the version 1 subprocess mechanism dominates both, and the evidence names a netlink and libnftnl binding as the lever rather than a kernel limit.
-It does not prove a jailed VMM, a virtio-net attach of the transferred TAP, traffic from a guest Linux kernel, IPv6, ingress forwarding, proxy attachment, the daemon socket end to end, crash recovery, or broker behavior with `CAP_NET_ADMIN` outside a container.
+It does not prove a jailed VMM, a virtio-net attach of the transferred TAP, traffic from a guest Linux kernel, IPv6, ingress forwarding, proxy attachment, a complete lifecycle over the daemon socket, crash recovery, or broker behavior with `CAP_NET_ADMIN` outside a container.
 
 ### 5.2 `soma-storage`: the prepared-head decision
 

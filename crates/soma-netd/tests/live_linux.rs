@@ -13,12 +13,15 @@ use live::{
         PROBE, assert_forwarding_off, assert_launch_values, assert_policy_after_activation,
         assert_sterile, public_intent, transfer_tap,
     },
+    control::{Client, broker_on, current_group},
     frames::SynOutcome,
     session::{self, Wrong, forged},
     world::{self, World},
 };
-use soma::{DnsPolicy, EgressPolicy, NetworkPolicy};
-use soma_netd::{Disposition, Error, NetNamespace, NetworkIntent, activate, reconcile, release};
+use soma_netd::{
+    ControlAuthority, Disposition, Error, NetNamespace, NetworkIntent, ProfileDigest, Reply,
+    Request, activate, broker_owner, error_code, reconcile, release,
+};
 
 #[test]
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
@@ -132,73 +135,8 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
 #[test]
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
 fn hundred_way_prepare_assign_activate_release_burst() {
-    use std::time::Instant;
     live::require_privilege();
-    let state = tempfile::tempdir().expect("state dir");
-    let mut broker = live::broker(state.path(), 128);
-    let intent = NetworkIntent::admit(
-        &NetworkPolicy::new(EgressPolicy::PublicInternet, DnsPolicy::System, Vec::new())
-            .expect("policy"),
-        &broker.profile().clone(),
-    )
-    .expect("intent");
-    let mut samples: [Vec<u128>; 4] = Default::default();
-    for index in 0..100_u8 {
-        let mut bytes = [0; 16];
-        bytes[0] = 0xc0;
-        bytes[1] = index;
-        bytes[15] = 1;
-        let bundle = soma_netd::BundleId::new(bytes).expect("bundle");
-        let instance = soma_netd::InstanceId::new(bytes).expect("instance");
-        let operation = soma_netd::OperationId::new(bytes).expect("operation");
-        let start = Instant::now();
-        let sterile = broker.prepare(bundle).expect("prepare");
-        samples[0].push(start.elapsed().as_nanos());
-        let start = Instant::now();
-        let mut assigned = broker
-            .assign(sterile, instance, operation, &intent, 3 + u32::from(index))
-            .map_err(|failure| failure.error)
-            .expect("assign");
-        samples[1].push(start.elapsed().as_nanos());
-        let host = session::repaired(*instance.as_bytes(), *operation.as_bytes());
-        let receipt = session::mint(&host, &assigned);
-        let start = Instant::now();
-        activate(&mut assigned, &receipt).expect("activate");
-        samples[2].push(start.elapsed().as_nanos());
-        let start = Instant::now();
-        let evidence = release(&broker, assigned).expect("release");
-        samples[3].push(start.elapsed().as_nanos());
-        assert!(evidence.complete, "bundle {index} incomplete: {evidence:?}");
-    }
-    for (name, values) in ["prepare", "assign", "activate", "release"]
-        .iter()
-        .zip(samples.iter_mut())
-    {
-        values.sort_unstable();
-        let p50 = values[values.len() / 2];
-        let p99 = values[values.len() * 99 / 100];
-        println!(
-            "burst op={name} n={} min_ns={} p50_ns={p50} p99_ns={p99} max_ns={}",
-            values.len(),
-            values[0],
-            values[values.len() - 1]
-        );
-        println!("burst raw op={name} ns={values:?}");
-    }
-    let report = reconcile(&broker).expect("reconcile");
-    assert_eq!(report.entries.len(), 100);
-    assert!(
-        report
-            .entries
-            .iter()
-            .all(|(_, _, d)| *d == Disposition::Released)
-    );
-    assert_eq!(report.unowned(), 0);
-    assert!(
-        NetNamespace::list(broker.namespace_dir())
-            .expect("pins")
-            .is_empty()
-    );
+    live::burst::hundred_way();
 }
 
 #[test]
@@ -258,4 +196,89 @@ fn forwarding_stays_off_for_every_unauthorized_activation() {
             .forwarding
     );
     assert!(release(&broker, assigned).expect("release").complete);
+}
+
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn the_control_socket_grants_each_operation_only_to_its_capability() {
+    live::require_privilege();
+    let unauthorized = error_code(&Error::Unauthorized("peer capability"));
+    let owner = broker_owner();
+    let group = current_group();
+    let lifecycle = ControlAuthority::new(owner, group, &[owner], &[]).expect("lifecycle only");
+    let operator = ControlAuthority::new(owner, group, &[], &[owner]).expect("reconcile only");
+
+    let state = tempfile::tempdir().expect("state dir");
+    let run = tempfile::tempdir().expect("run dir");
+    broker_on(
+        state.path(),
+        &run.path().join("operator").join("broker.sock"),
+        operator,
+    );
+    let client = Client::connect(&run.path().join("operator").join("broker.sock"));
+    for request in lifecycle_requests() {
+        client.send(&request);
+        assert_eq!(
+            client.reply(),
+            Some(Reply::Failed(unauthorized)),
+            "a reconcile-only peer must not run {request:?}"
+        );
+    }
+    client.send(&Request::Reconcile);
+    assert!(matches!(client.reply(), Some(Reply::Reconciled { .. })));
+
+    let second = tempfile::tempdir().expect("state dir");
+    broker_on(
+        second.path(),
+        &run.path().join("host").join("broker.sock"),
+        lifecycle,
+    );
+    let host = Client::connect(&run.path().join("host").join("broker.sock"));
+    host.send(&Request::Reconcile);
+    assert_eq!(
+        host.reply(),
+        Some(Reply::Failed(unauthorized)),
+        "a lifecycle peer must not reconcile"
+    );
+
+    let third = tempfile::tempdir().expect("state dir");
+    let closed = run.path().join("closed").join("broker.sock");
+    broker_on(
+        third.path(),
+        &closed,
+        ControlAuthority::new(owner, group, &[owner.wrapping_add(1)], &[]).expect("foreign"),
+    );
+    assert_eq!(
+        Client::connect(&closed).reply(),
+        None,
+        "an unadmitted peer must be closed without a reply or a descriptor"
+    );
+}
+
+fn lifecycle_requests() -> Vec<Request> {
+    let (bundle, instance, operation) = live::ids(0xd1);
+    let intent = NetworkIntent::new(
+        soma_netd::EgressClass::Denied,
+        Vec::new(),
+        Vec::new(),
+        ProfileDigest([1; 32]),
+    )
+    .expect("intent");
+    let generation = soma_netd::CleanupGeneration::new(1).expect("generation");
+    let mut bytes = [7_u8; soma_guest::ActivationReceipt::LEN];
+    bytes[0] = 1;
+    vec![
+        Request::Claim {
+            instance,
+            operation,
+            vsock_cid: 5,
+            intent,
+        },
+        Request::Activate {
+            bundle,
+            generation,
+            receipt: soma_guest::ActivationReceipt::from_bytes(&bytes).expect("receipt"),
+        },
+        Request::Release { bundle, generation },
+    ]
 }

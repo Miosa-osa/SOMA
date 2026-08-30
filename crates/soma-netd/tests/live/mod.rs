@@ -1,7 +1,9 @@
 //! Shared live-test scaffolding: the guest stand-in and the world namespace.
 
+pub mod burst;
 pub mod checks;
 pub mod codec;
+pub mod control;
 pub mod frames;
 pub mod session;
 pub mod world;
