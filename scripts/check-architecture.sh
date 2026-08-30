@@ -73,7 +73,11 @@ while IFS= read -r duplicate_adr; do
     printf 'ADR number %s is used by more than one decision record\n' "$duplicate_adr" >&2
     failed=1
 done < <(
-    find docs/adr -type f -name '[0-9][0-9][0-9][0-9]-*.md' -printf '%f\n' \
+    # `find -printf` is GNU only. On BSD find it fails, the pipeline yields nothing, and the
+    # loop below never runs, so duplicate decision records pass silently on macOS. The base
+    # name is taken with sed instead, which every POSIX find can feed.
+    find docs/adr -type f -name '[0-9][0-9][0-9][0-9]-*.md' \
+        | sed 's|.*/||' \
         | cut -c1-4 \
         | sort \
         | uniq -d

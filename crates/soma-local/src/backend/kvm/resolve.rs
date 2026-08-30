@@ -21,14 +21,17 @@ use super::{
 #[allow(dead_code, reason = "used by resolve, which is not yet wired")]
 const fn kind_for(error: &PreparedError) -> BackendFailureKind {
     match error {
-        // The Backend cannot serve any request until an operator prepares Generations.
-        PreparedError::StoreUnset | PreparedError::StoreUnreadable => {
-            BackendFailureKind::Unavailable
-        }
-        // The host is prepared, just not for this image.
+        // The host is prepared, just not for this image. That is the only condition the
+        // request itself is responsible for.
         PreparedError::NotPrepared => BackendFailureKind::WorkloadRejected,
-        // The host believes it is prepared for this image and its bytes disagree.
-        PreparedError::Damaged => BackendFailureKind::Unavailable,
+        // Everything else is a property of the host: it prepares nothing, its root cannot be
+        // read, or what claims this reference is damaged, duplicated, or a link. Each is an
+        // operator fault rather than a fault in the request.
+        PreparedError::StoreUnset
+        | PreparedError::StoreUnreadable
+        | PreparedError::Damaged
+        | PreparedError::Ambiguous
+        | PreparedError::Linked => BackendFailureKind::Unavailable,
     }
 }
 

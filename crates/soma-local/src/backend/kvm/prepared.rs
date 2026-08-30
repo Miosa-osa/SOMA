@@ -32,6 +32,13 @@ pub(super) enum PreparedError {
     StoreUnreadable,
     /// The root is readable and holds no Generation prepared for this reference.
     NotPrepared,
+    /// More than one entry claims this reference, so which one launches is undefined.
+    Ambiguous,
+    /// An entry, or a file inside it, is a symbolic link.
+    ///
+    /// A link means the bytes that launch can be redirected after they were verified, so a
+    /// linked entry is refused rather than followed.
+    Linked,
     /// An entry matched the reference but its bytes could not be decoded.
     ///
     /// This is kept distinct from [`Self::NotPrepared`] because a damaged entry is an operator
@@ -54,48 +61,74 @@ pub(super) struct PreparedGeneration {
     pub(super) manifest: GenerationManifest,
 }
 
-/// Reads one entry, returning it only when every part is present and decodes.
-fn read_entry(entry: &Path, reference: &str) -> Result<Option<PreparedGeneration>, PreparedError> {
-    let Ok(prepared_for) = std::fs::read_to_string(entry.join(REFERENCE)) else {
-        // An entry without a reference file is not addressed to any request.
-        return Ok(None);
-    };
-    if prepared_for.trim() != reference {
-        return Ok(None);
-    }
-    let bytes = std::fs::read(entry.join(CANDIDATE)).map_err(|_| PreparedError::Damaged)?;
-    let manifest = decode_candidate(&bytes).map_err(|_| PreparedError::Damaged)?;
+/// Whether `path` is a symbolic link, treating an unreadable path as one.
+///
+/// `symlink_metadata` does not follow the final component, so this reports the link itself
+/// rather than what it points at. A path that cannot be read at all is refused for the same
+/// reason a link is: what launches must be exactly what was verified.
+fn is_link(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+}
+
+/// Whether this entry claims `reference`.
+///
+/// Claiming is decided by the reference text alone, before anything else is read, so that two
+/// entries claiming one reference are ambiguous whatever their contents are.
+fn claims(entry: &Path, reference: &str) -> bool {
+    std::fs::read_to_string(entry.join(REFERENCE))
+        .is_ok_and(|prepared_for| prepared_for.trim() == reference)
+}
+
+/// Reads the one entry that claims the reference, once it is known to be the only one.
+fn read_entry(entry: &Path) -> Result<PreparedGeneration, PreparedError> {
+    let candidate = entry.join(CANDIDATE);
     let store = entry.join(STORE_DIRECTORY);
+    if is_link(entry) || is_link(&entry.join(REFERENCE)) || is_link(&candidate) || is_link(&store) {
+        return Err(PreparedError::Linked);
+    }
+    let bytes = std::fs::read(&candidate).map_err(|_| PreparedError::Damaged)?;
+    let manifest = decode_candidate(&bytes).map_err(|_| PreparedError::Damaged)?;
     if !store.is_dir() {
         return Err(PreparedError::Damaged);
     }
-    Ok(Some(PreparedGeneration {
+    Ok(PreparedGeneration {
         store,
         id: CandidateId::of(&bytes),
         manifest,
-    }))
+    })
 }
 
 /// Finds the Generation prepared for `reference` under `root`.
 ///
-/// Entries are read in directory order and the first match wins. A host is expected to hold few
-/// prepared Generations, so this is a scan rather than an index: an index would be a second
-/// source of truth about which bytes are prepared, and it could disagree with the entries.
+/// Every entry is examined, not just until one matches, because two entries claiming one
+/// reference must fail as ambiguous rather than resolve by directory order. Which bytes a
+/// request launches cannot depend on the order a filesystem happens to return names in, and
+/// that decision is made before any entry's contents are read.
+///
+/// A host is expected to hold few prepared Generations, so this is a scan rather than an index:
+/// an index would be a second source of truth about which bytes are prepared and could disagree
+/// with the entries themselves.
 pub(super) fn find(
     root: Option<&Path>,
     reference: &str,
 ) -> Result<PreparedGeneration, PreparedError> {
     let root = root.ok_or(PreparedError::StoreUnset)?;
+    if is_link(root) {
+        return Err(PreparedError::Linked);
+    }
     let entries = std::fs::read_dir(root).map_err(|_| PreparedError::StoreUnreadable)?;
+    let mut claimants = Vec::new();
     for entry in entries.flatten() {
-        if !entry.path().is_dir() {
-            continue;
-        }
-        if let Some(found) = read_entry(&entry.path(), reference)? {
-            return Ok(found);
+        let path = entry.path();
+        if path.is_dir() && claims(&path, reference) {
+            claimants.push(path);
         }
     }
-    Err(PreparedError::NotPrepared)
+    match claimants.as_slice() {
+        [] => Err(PreparedError::NotPrepared),
+        [only] => read_entry(only),
+        _ => Err(PreparedError::Ambiguous),
+    }
 }
 
 /// The prepared root this host names, if any.
@@ -149,6 +182,47 @@ mod tests {
         assert_eq!(
             found.expect_err("a damaged entry must refuse"),
             PreparedError::Damaged
+        );
+    }
+
+    /// Two entries claiming one reference must not resolve by directory order.
+    #[test]
+    fn duplicate_references_are_ambiguous_rather_than_first_wins() {
+        let root = std::env::temp_dir().join(format!("soma-prepared-dup-{}", std::process::id()));
+        for name in ["one", "two"] {
+            let entry = root.join(name);
+            std::fs::create_dir_all(entry.join(STORE_DIRECTORY)).expect("create the entry");
+            std::fs::write(entry.join(REFERENCE), "node:22").expect("write the reference");
+            std::fs::write(entry.join(CANDIDATE), b"not a candidate").expect("write bytes");
+        }
+        let found = find(Some(&root), "node:22");
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!(
+            found.expect_err("two entries for one reference must refuse"),
+            PreparedError::Ambiguous
+        );
+    }
+
+    /// A linked entry could be redirected after it was verified.
+    #[test]
+    fn a_symlinked_entry_is_refused_rather_than_followed() {
+        let root = std::env::temp_dir().join(format!("soma-prepared-link-{}", std::process::id()));
+        std::fs::create_dir_all(&root).expect("create the root");
+        // The entry that actually holds the bytes lives outside the prepared root, so the only
+        // way this reference can resolve is by following the link, which is what must not
+        // happen: a link can be repointed after the entry it named was verified.
+        let outside = std::env::temp_dir().join(format!("soma-target-{}", std::process::id()));
+        std::fs::create_dir_all(outside.join(STORE_DIRECTORY)).expect("create the target");
+        std::fs::write(outside.join(REFERENCE), "node:22").expect("write the reference");
+        std::fs::write(outside.join(CANDIDATE), b"not a candidate").expect("write bytes");
+        std::os::unix::fs::symlink(&outside, root.join("linked")).expect("link the entry");
+
+        let found = find(Some(&root), "node:22");
+        std::fs::remove_dir_all(&root).ok();
+        std::fs::remove_dir_all(&outside).ok();
+        assert_eq!(
+            found.expect_err("a linked entry must refuse"),
+            PreparedError::Linked
         );
     }
 
