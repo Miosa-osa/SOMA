@@ -6,15 +6,15 @@
 
 use std::{fs, path::Path, time::Duration};
 
-use soma_guest::{GuestLaunchMaterial, LAUNCH_PAGE_SIZE};
+use soma_guest::{GuestLaunchMaterial, HostLaunchMaterial, LAUNCH_PAGE_SIZE, LaunchNetwork};
 use soma_kvm::snapshot::compatibility::Incompatibility;
 use soma_kvm::x86_64::{
     LAUNCH_PAGE_GPA, Milestone, RestoreRequest, SandboxDisks, SnapshotError, SnapshotPaths, restore,
 };
 
 use crate::{
-    x86_64_sandbox_boot_host::require_kvm, x86_64_snapshot_restore_fixture as fixture,
-    x86_64_snapshot_restore_report as report,
+    x86_64_sandbox_boot_host::require_kvm, x86_64_sandbox_boot_session as session,
+    x86_64_snapshot_restore_fixture as fixture, x86_64_snapshot_restore_report as report,
 };
 
 /// The magic every launch page starts with; it must never appear in a published object.
@@ -99,7 +99,6 @@ fn the_published_objects_carry_no_launch_material() {
     let memory = report::read(&fixture.paths.memory());
     let overlay = report::read(&fixture.paths.overlay());
     let state = report::read(&fixture.paths.state());
-    let key = fixture.responder_private;
 
     for (name, bytes) in [("overlay.raw", &overlay), ("state.somasnap", &state)] {
         assert_eq!(
@@ -135,24 +134,42 @@ fn the_published_objects_carry_no_launch_material() {
          the pinned agent binary; none of them decodes as a launch page",
         offsets.len()
     );
-    for (name, bytes) in [("overlay.raw", &overlay), ("state.somasnap", &state)] {
+    // Since ADR 0024 the responder secret is Instance authority delivered through the launch
+    // page, never a Generation input, and capture happens before any launch material exists.
+    // A freshly generated Instance's own secret halves must therefore appear nowhere in the
+    // captured objects: the snapshot carries no authority to reuse.
+    let fresh = HostLaunchMaterial::generate(
+        fixture.generation_id,
+        session::random16(),
+        session::random16(),
+        LaunchNetwork::new(
+            9,
+            9,
+            [0x02, 0, 0, 0, 0, 1],
+            [10, 0, 0, 2],
+            24,
+            [10, 0, 0, 1],
+            [10, 0, 0, 1],
+            session::now_unix_nanos(),
+        )
+        .expect("placeholder network"),
+    )
+    .expect("fresh Instance launch material");
+    let public = fresh.responder_public_key().to_bytes();
+    for (name, bytes) in [
+        ("memory.raw", &memory),
+        ("overlay.raw", &overlay),
+        ("state.somasnap", &state),
+    ] {
         assert_eq!(
-            report::occurrences(bytes, &key),
+            report::occurrences(bytes, &public),
             0,
-            "{name} carries the Generation responder private key"
+            "{name} carries an Instance responder identity"
         );
     }
-    // The responder private key is Generation-scoped, not Instance-scoped: the compiler binds
-    // it into the initramfs and the agent holds it for the life of the machine, so it is in
-    // guest RAM by construction and is identical for every Instance of this Generation. What
-    // must be absent is per-Instance authority, and none was ever created before the capture.
-    let in_memory = report::occurrences(&memory, &key);
     eprintln!(
-        "[scan] responder key occurrences: memory.raw {in_memory}, overlay.raw 0, state.somasnap 0"
-    );
-    assert!(
-        in_memory > 0,
-        "the Generation responder key vanished from guest RAM, so this scan proves nothing"
+        "[scan] no Instance responder identity appears in memory.raw, overlay.raw, or \
+         state.somasnap; capture precedes every launch page"
     );
 
     assert_eq!(u64::try_from(memory.len()).unwrap(), fixture.ram_bytes);

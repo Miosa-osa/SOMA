@@ -9,9 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use soma_guest::{
-    GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, ResponderPublicKey,
-};
+use soma_guest::{GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
 use soma_kvm::x86_64::{
     Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, restore,
 };
@@ -91,9 +89,7 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
         .deliver_with(|page| restored.resume(page))
         .expect("resume the restored machine");
 
-    let responder =
-        ResponderPublicKey::new(fixture.responder_public).expect("the pinned responder key");
-    let outcome = drive(&restored, delivered, &responder, commands);
+    let outcome = drive(&restored, delivered, commands);
     let complete = restored.is_ready();
     let evidence = restored.machine.finish(EXIT_GRACE);
     let log = fixture.scratch.join(format!("restore-{name}.log"));
@@ -142,7 +138,6 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
 fn drive(
     restored: &soma_kvm::x86_64::Restored,
     delivered: soma_guest::DeliveredHostLaunchMaterial,
-    responder: &ResponderPublicKey,
     commands: &[session::Command<'_>],
 ) -> Result<Vec<session::Executed>, String> {
     let machine = &restored.machine;
@@ -155,7 +150,7 @@ fn drive(
         .wait_connected(deadline)
         .map_err(|error| format!("vsock connection: {error}"))?;
     machine.mark(Milestone::VsockConnected);
-    let host = HostControl::connect(delivered, responder, HostIo::new(machine))
+    let host = HostControl::connect(delivered, HostIo::new(machine))
         .map_err(|error| format!("handshake: {error}"))?;
     machine.mark(Milestone::Handshake);
     let repaired = host

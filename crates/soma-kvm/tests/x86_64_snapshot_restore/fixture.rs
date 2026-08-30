@@ -12,7 +12,6 @@ use std::{
 };
 
 use soma_generation::open_artifact;
-use soma_guest::ResponderKeypair;
 use soma_kvm::x86_64::{
     CaptureOutcome, CaptureRequest, Milestone, SandboxEvidence, SandboxMachine, SnapshotPaths,
     capture,
@@ -48,8 +47,6 @@ pub struct Fixture {
     pub paths: SnapshotPaths,
     pub capture: CaptureOutcome,
     pub compiled: generation::Compiled,
-    pub responder_public: [u8; 32],
-    pub responder_private: [u8; 32],
     pub generation_id: [u8; 32],
     pub ram_bytes: u64,
     /// The pinned static guest agent the Generation was built with.
@@ -61,7 +58,7 @@ pub struct Fixture {
 impl Fixture {
     /// A fresh read-only handle on the immutable Generation root.
     pub fn root(&self) -> File {
-        let manifest = &self.compiled.generation.published.manifest;
+        let manifest = &self.compiled.generation.candidate.manifest;
         open_artifact(&self.compiled.store, &manifest.root.descriptor).expect("open the root")
     }
 
@@ -110,8 +107,6 @@ fn build() -> Option<Fixture> {
     let scratch = scratch_dir("node22");
     let inputs = generation::inputs(kernel_path());
     let layout = generation::oci_layout(IMAGE, LAYOUT_VAR, &scratch)?;
-    let responder = ResponderKeypair::generate().expect("responder keypair");
-    let responder_private = session::responder_key(&responder);
     let compiled = generation::compile(
         &layout,
         &format!("docker.io/library/{IMAGE}"),
@@ -119,11 +114,10 @@ fn build() -> Option<Fixture> {
             memory_mib: MEMORY_MIB,
             storage_mib: STORAGE_MIB,
         },
-        &responder_private,
         &inputs,
         &scratch,
     );
-    let manifest = &compiled.generation.published.manifest;
+    let manifest = &compiled.generation.candidate.manifest;
     let generation_id = session::generation_bytes(compiled.generation.id().as_str());
     eprintln!(
         "[capture] generation_id={} root={} ({} bytes) overlay_template={} ({} bytes) initramfs={}",
@@ -146,8 +140,6 @@ fn build() -> Option<Fixture> {
         paths,
         capture,
         compiled,
-        responder_public: responder.public_key().to_bytes(),
-        responder_private,
         generation_id,
         ram_bytes,
         agent: inputs.agent.clone(),
@@ -163,7 +155,7 @@ fn capture_source(
     ram_bytes: u64,
     scratch: &Path,
 ) -> (SandboxEvidence, CaptureOutcome) {
-    let manifest = &compiled.generation.published.manifest;
+    let manifest = &compiled.generation.candidate.manifest;
     let kernel = open_artifact(&compiled.store, &manifest.kernel.descriptor).unwrap();
     let initramfs = open_artifact(&compiled.store, &manifest.initramfs.descriptor).unwrap();
     let mut root = open_artifact(&compiled.store, &manifest.root.descriptor).unwrap();
