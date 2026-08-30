@@ -55,6 +55,8 @@ No signed admission report, admission policy, or revocation state exists yet.
 |---|---|---|
 | Privileged network broker: sterile bundles, assignment, activation, release, reconcile | Live-proved at `bceeb7b`, historical | [Linux network profile](evidence/2026-08-29-linux-network-profile-live.md); the run predates peer authorization and receipt-gated activation |
 | `soma-netd` peer authorization and single-use activation capability | Component-tested | `crates/soma-netd` authorization and activation tests; a privileged live run through `scripts/netd-live-tests.sh` has not been retained |
+| Bounded containment of every privileged external tool | Component-tested | `crates/soma-supervise` tests: deadline, capture ceiling, process-tree termination, and the standard-input feed bound |
+| Complete broker reply delivery with operation-identity replay | Component-tested | `crates/soma-netd/src/daemon/delivery` tests; the privileged live delivery proofs in `crates/soma-netd/tests/live` have not been retained |
 | Real guest networking: virtio-net attach, TAP transfer, proxy, ingress | Designed | [Linux network profile v1](research/linux-network-profile-v1.md) |
 | VMM jail launcher constraining the `jail-probe` stand-in | Live-proved at `bd0234e` | [VMM jail live](evidence/2026-08-29-vmm-jail-live.md); it does not wrap the real `soma-vmm` binary |
 | Jail around the real `soma-vmm` process | Designed | [VMM jail profile](research/vmm-jail-profile.md) |
