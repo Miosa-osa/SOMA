@@ -72,9 +72,15 @@ pub fn assert_proof(proof: &Proof) {
         session::HOSTILE_ALLOWANCE,
         "the hostile step must deliver exactly its allowance"
     );
+    // Whichever pipe the kernel makes readable first may legitimately spend the whole
+    // allowance: the reader shares the remaining room only among the streams a single poll
+    // pass finds ready, so a stream that has not been written yet cannot reserve any of it.
+    // The live contract is the bound and the accounting, both asserted above. Deterministic
+    // fairness, where both pipes are ready together, is asserted by the guest-agent unit test
+    // `hostile_output_on_both_pipes_stays_within_a_declared_resident_bound`.
     assert!(
-        !proof.hostile.stdout.is_empty() && !proof.hostile.stderr.is_empty(),
-        "both hostile pipes must have competed"
+        !proof.hostile.stdout.is_empty() || !proof.hostile.stderr.is_empty(),
+        "the hostile step delivered nothing on either pipe"
     );
     assert_eq!(proof.executed.status, TerminalStatus::Exited(0));
     assert_eq!(
