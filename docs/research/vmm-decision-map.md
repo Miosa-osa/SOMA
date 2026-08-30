@@ -130,9 +130,9 @@ How are memory, vCPU, interrupt, clock, and device states captured, authenticate
 
 ### Answer
 
-Resolved architecturally; capture and restore are live-proved at `7c1127d` and that run is now historical.
+Resolved architecturally; capture and restore are live-proved at `5d71524` on the current per-Instance authority design.
 Version 1 uses one immutable page-aligned memory object mapped `MAP_PRIVATE | MAP_NORESERVE`, one canonical typed state manifest, separately managed disks, exact compatibility rejection, authority exclusion, quiescent capture, and fixed fail-closed restore ordering.
-At `7c1127d` a real `node:22` Generation was booted to its disconnected repair point, captured before any launch material existed, and restored repeatedly into independent authenticated Instances that executed a command; the retained result is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+A real `node:22` Generation is booted to its disconnected repair point, captured before any launch material exists, and restored into independent authenticated Instances that execute a command. The current retained result is [the capture and restore on the per-Instance authority design](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md) at `5d71524`, whose object scan shows no Instance responder identity in `memory.raw`, `overlay.raw`, or `state.somasnap`; [the `7c1127d` run](../evidence/2026-08-29-x86_64-snapshot-restore.md) is retained as historical because it predates ADR 0024.
 That observation stands as recorded, but it cannot certify current bytes: the captured Generation still carried a Generation-scoped responder private key in `memory.raw`, which ADR 0024 removed, and the restored ready transition has since been bound to an authenticated readiness receipt.
 On the current authority design capture and restore are therefore component-tested, and recapture is finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 See [snapshot format v1](snapshot-format-v1.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), [ADR 0030](../adr/0030-pre-launch-snapshot-capture-point.md), and [fast path](../architecture/fast-path.md).
@@ -152,7 +152,7 @@ Designed, with the parts below carrying their own status.
 The static guest agent owns early mounts, one-use launch material, entropy and identity repair, fresh Noise-authenticated vsock control, direct bounded execution, shutdown, and the only path to Ready.
 Declared environment values, secret delivery, uploads, and workspace attachments occur only after fresh identity and authenticated repair and never become reusable snapshot authority.
 Status: the launch-page delivery and retirement, entropy, identity, and network repair, the Noise handshake over vsock, the readiness probe, one bounded Execute, and authenticated shutdown are live-proved on a cold boot at `71161ea`, and that run is historical because it predates initramfs layout v3 and launch-page schema 3.
-The same path after a snapshot restore, which is the ticket's actual question, is live-proved at `7c1127d` and also historical: thirteen restores of one captured `node:22` Generation each reached Ready, ran a command, and shut down.
+The same path after a snapshot restore, which is the ticket's actual question, is live-proved at `5d71524`: restores of one captured `node:22` Generation each reached Ready, ran a command, and shut down, including two proved to be independent Instances.
 On the current per-Instance authority design and the current readiness-receipt transition, the restored repair path is component-tested and awaits the recapture required by finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 See [Linux guest integration](linux-guest-agent-integration.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 See [ADR 0017](../adr/0017-authenticated-guest-session.md), [ADR 0020](../adr/0020-launch-page-and-application-wire-contracts.md), and [ADR 0021](../adr/0021-own-authenticated-control-lifecycle.md).
