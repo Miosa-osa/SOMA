@@ -14,10 +14,10 @@ use std::{
 use sha2::{Digest as _, Sha256};
 use soma::{MachineShape, OciImage, OciPlatform};
 use soma_generation::{
-    BuildHost, CompileGeneration, CompiledCandidate, CompilerProfile, ImportLimits,
-    ImportOciLayout, LifetimeLimits, MachineInputs, NormalizeOciRootfs, NormalizedRootfs,
-    OciSelection, RootfsLimits, StartupBehavior, TemplateImage, TemplateRevision, Toolchain,
-    compile_generation, import_oci_layout, normalize_oci_rootfs,
+    BuildHost, CandidateId, CompileGeneration, CompilerProfile, GenerationManifest, ImportLimits,
+    ImportOciLayout, LifetimeLimits, MachineInputs, NormalizeOciRootfs, OciSelection, RootfsLimits,
+    StartupBehavior, TemplateImage, TemplateRevision, Toolchain, compile_generation,
+    import_oci_layout, normalize_oci_rootfs,
 };
 
 const MIB: u64 = 1024 * 1024;
@@ -128,10 +128,28 @@ pub fn oci_layout(image: &str, override_var: &str, dir: &Path) -> Option<PathBuf
 }
 
 /// One compiled Generation Candidate and the store that holds its artifacts.
+///
+/// Everything here is reconstructible from the store, so a compiled Generation can be cached
+/// and reopened instead of rebuilt. The normalized rootfs is deliberately not retained: only
+/// its two reported facts are, and those are recorded rather than recomputed.
 pub struct Compiled {
     pub store: PathBuf,
-    pub generation: CompiledCandidate,
-    pub normalized: NormalizedRootfs,
+    pub(crate) id: CandidateId,
+    pub(crate) manifest: GenerationManifest,
+    pub tree_digest: String,
+    pub entry_count: u32,
+}
+
+impl Compiled {
+    /// The Candidate identity, derived from the exact published manifest bytes.
+    pub fn id(&self) -> &CandidateId {
+        &self.id
+    }
+
+    /// The published Candidate manifest.
+    pub fn manifest(&self) -> &GenerationManifest {
+        &self.manifest
+    }
 }
 
 /// The 1 vCPU Machine shape a test Generation targets.
@@ -141,8 +159,24 @@ pub struct Shape {
     pub storage_mib: u64,
 }
 
-/// Imports, normalizes, and compiles one image for `shape` with one writable class.
+/// Returns the compiled Generation for these inputs, building it only on a cache miss.
+///
+/// `scratch` is retained in the signature because callers still use it for their own artifacts;
+/// the compiled store lives in the shared cache, not under it, because it is identical for
+/// identical inputs and costs minutes to rebuild.
 pub fn compile(
+    layout: &Path,
+    reference: &str,
+    shape: Shape,
+    inputs: &Inputs,
+    _scratch: &Path,
+) -> Compiled {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("generation-cache");
+    crate::x86_64_sandbox_boot_generation_cache::compile(&root, layout, reference, shape, inputs)
+}
+
+/// Imports, normalizes, and compiles one image for `shape` with one writable class.
+pub(crate) fn compile_uncached(
     layout: &Path,
     reference: &str,
     shape: Shape,
@@ -205,8 +239,10 @@ pub fn compile(
     .expect("compile the Generation");
     Compiled {
         store,
-        generation,
-        normalized,
+        id: generation.candidate.id,
+        manifest: generation.candidate.manifest,
+        tree_digest: normalized.tree_manifest_digest().as_str().to_owned(),
+        entry_count: normalized.entry_count(),
     }
 }
 

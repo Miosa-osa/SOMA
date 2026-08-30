@@ -58,7 +58,7 @@ pub struct Fixture {
 impl Fixture {
     /// A fresh read-only handle on the immutable Generation root.
     pub fn root(&self) -> File {
-        let manifest = &self.compiled.generation.candidate.manifest;
+        let manifest = &self.compiled.manifest();
         open_artifact(&self.compiled.store, &manifest.root.descriptor).expect("open the root")
     }
 
@@ -117,11 +117,11 @@ fn build() -> Fixture {
         &inputs,
         &scratch,
     );
-    let manifest = &compiled.generation.candidate.manifest;
-    let generation_id = session::generation_bytes(compiled.generation.id().as_str());
+    let manifest = &compiled.manifest();
+    let generation_id = session::generation_bytes(compiled.id().as_str());
     eprintln!(
         "[capture] generation_id={} root={} ({} bytes) overlay_template={} ({} bytes) initramfs={}",
-        compiled.generation.id().as_str(),
+        compiled.id().as_str(),
         manifest.root.descriptor.digest,
         manifest.root.descriptor.size,
         manifest.overlay.templates[0].descriptor.digest,
@@ -155,7 +155,7 @@ fn capture_source(
     ram_bytes: u64,
     scratch: &Path,
 ) -> (SandboxEvidence, CaptureOutcome) {
-    let manifest = &compiled.generation.candidate.manifest;
+    let manifest = &compiled.manifest();
     let kernel = open_artifact(&compiled.store, &manifest.kernel.descriptor).unwrap();
     let initramfs = open_artifact(&compiled.store, &manifest.initramfs.descriptor).unwrap();
     let mut root = open_artifact(&compiled.store, &manifest.root.descriptor).unwrap();

@@ -26,6 +26,9 @@ mod x86_64_discover;
 #[path = "x86_64_sandbox_boot/generation.rs"]
 mod x86_64_sandbox_boot_generation;
 
+#[path = "x86_64_sandbox_boot/generation_cache.rs"]
+mod x86_64_sandbox_boot_generation_cache;
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[allow(dead_code)]
 #[path = "x86_64_sandbox_boot/control.rs"]

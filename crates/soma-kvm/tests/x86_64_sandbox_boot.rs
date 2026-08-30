@@ -24,6 +24,9 @@ mod x86_64_host_sample;
 #[path = "x86_64_sandbox_boot/generation.rs"]
 mod x86_64_sandbox_boot_generation;
 
+#[path = "x86_64_sandbox_boot/generation_cache.rs"]
+mod x86_64_sandbox_boot_generation_cache;
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_sandbox_boot/control.rs"]
 mod x86_64_sandbox_boot_control;
@@ -96,12 +99,12 @@ mod live {
             &inputs,
             &scratch,
         );
-        let manifest = &compiled.generation.candidate.manifest;
+        let manifest = &compiled.manifest();
         eprintln!(
             "[{name}] generation_id={} tree={} entries={} root={} ({} bytes) initramfs={} agent={} kernel={} overlay_template={} ({} bytes)",
-            compiled.generation.id().as_str(),
-            compiled.normalized.tree_manifest_digest().as_str(),
-            compiled.normalized.entry_count(),
+            compiled.id().as_str(),
+            compiled.tree_digest.as_str(),
+            compiled.entry_count,
             manifest.root.descriptor.digest,
             manifest.root.descriptor.size,
             manifest.initramfs.descriptor.digest,
@@ -135,7 +138,7 @@ mod live {
 
         let host_before = x86_64_host_sample::sample(ram_bytes / 1024);
         let sampler = Sampler::start(ram_bytes / 1024);
-        let (evidence, outcome) = session::run(config, compiled.generation.id().as_str(), command);
+        let (evidence, outcome) = session::run(config, compiled.id().as_str(), command);
         let (host_last, host_peak, host_peaks) = sampler.stop();
         let fd_after = open_descriptor_count();
         let threads_after = thread_count();
