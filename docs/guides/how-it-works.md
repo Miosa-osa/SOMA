@@ -336,7 +336,7 @@ Snapshot capture and restore.
 The cold-boot evidence says of its own run: "No snapshot capture or restore: this is a cold boot from the compiled artifacts; the snapshot codec was not exercised and no memory object was captured."
 That sentence describes only that run.
 `crates/soma-kvm/src/snapshot/` holds the `SOMASNP` v1 codec, compatibility check, and typed step orders, and `crates/soma-kvm/src/x86_64/snapshot/` turns them into KVM calls.
-Capture and repeated restore are live-proved at `7c1127d`, and that run is historical: it captured a Generation whose `memory.raw` still held a Generation-scoped responder private key, which ADR 0024 removed, and the restored ready transition has since been bound to an authenticated readiness receipt.
+Capture and repeated restore are live-proved at `5d71524` on the current per-Instance authority design, whose object scan finds no Instance responder identity in `memory.raw`, `overlay.raw`, or `state.somasnap`. The earlier `7c1127d` run is retained as historical: it captured a Generation whose `memory.raw` still held a Generation-scoped responder private key, which ADR 0024 removed.
 On current bytes capture and restore are therefore component-tested, and recapture is finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 
 Prepared workers and the VMM process.
@@ -369,7 +369,7 @@ The targets in the README performance contract are admission targets for a futur
 
 Repair after a clone.
 The cold-boot evidence says of its own run: "The guest's own entropy, identity, and network repair effects were exercised once on a cold boot only; nothing here shows that a cloned Instance discards captured state."
-The restore evidence at `7c1127d` did show it, for the code of that commit: two restored Instances differed in Instance identity, hostname, machine identity, context identifier, and private overlay head, and a file one wrote was invisible to the other.
+The restore evidence at `5d71524` shows it on current code: two restored Instances each saw their own private write, neither saw the other's, and the shared memory object was unchanged under the private mapping.
 That is a historical live-proof, so on current bytes clone repair is component-tested.
 
 ## 5. Host-side pieces that exist and what each proved

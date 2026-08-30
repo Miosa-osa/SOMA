@@ -177,7 +177,7 @@ It establishes what the finding asked for. No Instance responder identity appear
 What this branch did instead was stop the stale artifact from certifying current bytes:
 
 - `docs/evidence/2026-08-29-x86_64-snapshot-restore.md` now opens with `## Status: historical`, names its run commit `7c1127d`, states that the Generation-scoped responder private key it scanned was removed by ADR 0024, and points at this finding for the recapture.
-- The claim ledger carries two separate rows: the historical run at `7c1127d`, and "Capture and restore on the current per-Instance authority design", now live-proved at `5d71524` by the recapture.
+- The claim ledger carried two separate rows while the only run was historical. The recapture at `5d71524` made them one capability again, so they are now a single live-proved row that still links the `7c1127d` artifact as historical.
 - The original observations are retained exactly as recorded rather than rewritten.
 
 

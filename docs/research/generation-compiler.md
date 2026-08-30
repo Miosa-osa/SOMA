@@ -329,10 +329,10 @@ The CPU-template digest covers a declaration statement rather than defined CPUID
 Gates 1, 4, 5, and the atomic-last and timeout portions of 8 have test evidence; gate 2 still lacks a same-input second `node:22` build, because the `node:22` revision cached on this host normalized to a different tree than the development Mac's recorded run and was compiled once; gate 3 holds for the machine artifacts while the `GenerationId` still differs through the bound source OCI manifest digest; gates 9 and the disk-exhaustion and crash cases of 8 remain designed.
 Gate 6 is live-proved at `71161ea`, historically: the pinned guest mounted the EROFS root and the private ext4 overlay, composed the writable root, executed a file from the OCI tree, and left the EROFS artifact byte-identical while the private head changed, as recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 That run used initramfs layout v2, so its artifact digests are not reproducible on current code.
-Gate 7 is live-proved at `7c1127d` for restored Instances, in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md), and is historical for the same reason.
+Gate 7 is live-proved at `5d71524` for restored Instances, in [the capture and restore on the per-Instance authority design](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md).
 Initramfs layout v2 added the `/dev/console` and `/dev/null` nodes PID 1 needs before devtmpfs is mounted, plus a Generation-scoped responder private key at `/etc/soma/responder.key` supplied as a fifth machine input.
 Initramfs layout v3 removes that key and its `etc/soma` directory under [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md), so the compiler takes four machine inputs and no secret input at all; the responder static secret is fresh per Instance and reaches the guest only through the non-snapshot launch page.
-Phase 4 is therefore partial: boot, the authenticated session, quiesce, and memory capture are live-proved at `7c1127d` and historical, while the compiler itself still performs none of them and publishes `SnapshotBinding::Absent`, so no launchable snapshot binding exists.
+Phase 4 is therefore partial: boot, the authenticated session, quiesce, and memory capture are live-proved at `5d71524`, while the compiler itself still performs none of them and publishes `SnapshotBinding::Absent`, so no launchable snapshot binding exists.
 
 ## Acceptance gates
 
