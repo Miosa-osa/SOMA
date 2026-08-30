@@ -1,7 +1,9 @@
 //! The authenticated readiness transition of one restored Instance.
 //!
 //! `Restored::ready` is the last ordered step of a restore, and it is the only place the
-//! machine may be called ready. It consumes a receipt minted from this restore's own
+//! machine may be called ready. Nothing outside the restore consumes that transition yet, so a
+//! refused or never-attempted readiness records a fact rather than withholding execution or
+//! network activation. It consumes a receipt minted from this restore's own
 //! single-use challenge and bound to the exact snapshot, the exact published launch authority,
 //! and one authenticated repaired guest session, so no caller can advance the typestate by
 //! asserting readiness.

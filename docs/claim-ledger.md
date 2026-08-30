@@ -47,7 +47,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 | Live capture at the pre-launch repair point and repeated restore into authenticated Instances | Live-proved at `7c1127d`, historical | [x86_64 snapshot restore](evidence/2026-08-29-x86_64-snapshot-restore.md); the captured Generation still carried a Generation-scoped responder private key in `memory.raw`, which [ADR 0024](adr/0024-per-instance-guest-responder-authority.md) removed, so this run cannot certify current bytes |
 | Capture and restore on the current per-Instance authority design | Component-tested | Recapture on current code is required by finding P1.5 of [the re-audit](reviews/2026-08-29-implementation-reaudit.md) and has not been run |
 | Fresh per-Instance responder authority in launch-page schema 3 | Component-tested | `crates/soma-guest` frozen vector, hostile-page, and cross-Instance tests |
-| Authenticated readiness receipt gating the restored ready transition | Component-tested | `crates/soma-kvm/src/snapshot/readiness.rs` and its restore tests |
+| Authenticated readiness receipt recording the restored ready transition | Component-tested | `crates/soma-kvm/src/snapshot/readiness.rs` and its restore tests; the receipt records the transition and gates nothing yet, because no execution or network-activation seam consumes it |
 
 ## Host-side mechanisms
 
