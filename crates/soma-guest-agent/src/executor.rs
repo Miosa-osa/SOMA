@@ -28,6 +28,13 @@ pub const KILL_GRACE: Duration = Duration::from_millis(500);
 /// prefix of that same buffer, so nothing scales with the volume a child produces.
 pub const RESIDENT_OUTPUT_BYTES: usize = crate::output::MAX_CHUNK_BYTES;
 
+/// First wait between reapability checks after the child's pipes reached their end.
+///
+/// A child that closed its pipes is already inside its own exit and becomes reapable within
+/// microseconds, so the first check must not cost more than that; the flat ceiling below was
+/// the whole of the readiness probe whenever the parent lost that race.
+const FIRST_WAIT_POLL: Duration = Duration::from_micros(50);
+/// Longest wait between reapability checks, for a child that outlives its own pipes.
 const WAIT_POLL: Duration = Duration::from_millis(5);
 
 /// Destination for admitted output chunks.
@@ -149,11 +156,20 @@ fn spawn(invocation: &Invocation) -> Result<Child, i32> {
         .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))
 }
 
+/// The wait after one unsuccessful reapability check, doubling up to the ceiling.
+fn backoff(poll: Duration) -> Duration {
+    poll.saturating_mul(2).min(WAIT_POLL)
+}
+
 fn wait_for_child(child: &mut Child, until: Instant, process_group: i32) -> Ending {
+    let mut poll = FIRST_WAIT_POLL;
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return ending(status),
-            Ok(None) if Instant::now() < until => thread::sleep(WAIT_POLL),
+            Ok(None) if Instant::now() < until => {
+                thread::sleep(poll);
+                poll = backoff(poll);
+            }
             Ok(None) => {
                 descendants::kill_group(process_group);
                 return child.wait().map_or(Ending::Unknown, ending);

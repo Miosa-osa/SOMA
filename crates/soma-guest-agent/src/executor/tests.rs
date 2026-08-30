@@ -6,7 +6,10 @@ use std::time::{Duration, Instant};
 
 use soma_guest::{GuestCommand, TerminalStatus};
 
-use super::{Completion, ExecutorFault, KILL_GRACE, OutputSink, SinkFault, execute};
+use super::{
+    Completion, ExecutorFault, FIRST_WAIT_POLL, KILL_GRACE, OutputSink, SinkFault, WAIT_POLL,
+    backoff, execute,
+};
 
 mod hostile;
 
@@ -131,6 +134,20 @@ fn resident_high_water() -> u64 {
         .and_then(|value| value.split_whitespace().next()?.parse::<u64>().ok())
         .expect("VmHWM in kibibytes")
         * 1024
+}
+
+#[test]
+fn the_reapability_wait_doubles_from_the_first_check_up_to_the_ceiling() {
+    assert!(FIRST_WAIT_POLL < WAIT_POLL);
+    assert_eq!(backoff(FIRST_WAIT_POLL), FIRST_WAIT_POLL * 2);
+
+    let mut poll = FIRST_WAIT_POLL;
+    for _ in 0..8 {
+        poll = backoff(poll);
+    }
+
+    assert_eq!(poll, WAIT_POLL);
+    assert_eq!(backoff(WAIT_POLL), WAIT_POLL);
 }
 
 #[test]
