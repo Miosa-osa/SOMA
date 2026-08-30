@@ -76,6 +76,8 @@ pub(super) enum SessionError {
     Execute,
     /// The sandbox thread ended without answering.
     Gone,
+    /// An earlier operation ended without a certain answer, so this session was ended.
+    Poisoned,
 }
 
 /// A live sandbox, addressed over channels.
@@ -83,6 +85,12 @@ pub(super) struct Session {
     requests: Sender<Request>,
     responses: Receiver<Response>,
     thread: Option<JoinHandle<()>>,
+    /// Set once an operation ended without a certain answer.
+    ///
+    /// A timed-out command may still be running, and its reply would arrive on the same channel
+    /// as the next command's. Attributing it to that next command would report one command's
+    /// output as another's, so an uncertain outcome ends the session instead.
+    poisoned: bool,
 }
 
 /// Everything one sandbox needs before it can boot.
@@ -110,6 +118,7 @@ impl Session {
             requests: request_tx,
             responses: response_rx,
             thread: Some(thread),
+            poisoned: false,
         };
         match session.await_response(BOOT_DEADLINE + EXIT_GRACE) {
             Ok(Response::Ready) => Ok(session),
@@ -126,18 +135,50 @@ impl Session {
         command: GuestCommand,
         deadline: Duration,
     ) -> Result<Completed, SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
         self.requests
             .send(Request::Execute(command))
-            .map_err(|_| SessionError::Gone)?;
-        match self.await_response(deadline)? {
-            Response::Executed(completed) => Ok(*completed),
-            Response::Failed(error) => Err(error),
-            _ => Err(SessionError::Execute),
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        match self.await_response(deadline) {
+            Ok(Response::Executed(completed)) => Ok(*completed),
+            // Every other outcome leaves the answer uncertain, so the session ends carrying the
+            // reason: a reported failure, an unexpected reply, or no reply at all.
+            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
+            Ok(_) => Err(self.poison(SessionError::Execute)),
         }
+    }
+
+    /// Whether this session may still be used.
+    pub(super) const fn is_usable(&self) -> bool {
+        !self.poisoned
+    }
+
+    /// Records that no further operation may be attributed to this session, and ends it.
+    ///
+    /// The sandbox thread is stopped here rather than left running, so a command still executing
+    /// behind a host timeout cannot keep a guest alive after the Backend stopped tracking it.
+    fn poison(&mut self, error: SessionError) -> SessionError {
+        self.poisoned = true;
+        self.stop_thread();
+        error
+    }
+
+    /// Ends the sandbox thread and waits for the machine to be released.
+    fn stop_thread(&mut self) {
+        let (dead, _) = channel();
+        drop(std::mem::replace(&mut self.requests, dead));
+        self.join();
     }
 
     /// Shuts the guest down and returns the machine's evidence.
     pub(super) fn shutdown(mut self) -> Result<SandboxEvidence, SessionError> {
+        if self.poisoned {
+            // The thread is already stopped and the machine released; there is no evidence to
+            // collect and no guest left to ask.
+            return Err(SessionError::Poisoned);
+        }
         self.requests
             .send(Request::Shutdown)
             .map_err(|_| SessionError::Gone)?;
@@ -175,10 +216,7 @@ impl Drop for Session {
     /// process into its next operation.
     fn drop(&mut self) {
         if self.thread.is_some() {
-            let (dead, _) = channel();
-            let live = std::mem::replace(&mut self.requests, dead);
-            drop(live);
-            self.join();
+            self.stop_thread();
         }
     }
 }

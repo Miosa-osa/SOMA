@@ -36,9 +36,11 @@ const fn failure_kind(error: SessionError) -> BackendFailureKind {
         // is a property of the host rather than of the request.
         SessionError::Create | SessionError::LaunchPage => BackendFailureKind::Unavailable,
         // The guest exists but never reached, or lost, its authenticated session.
-        SessionError::Boot | SessionError::Ready | SessionError::Execute | SessionError::Gone => {
-            BackendFailureKind::GuestFailure
-        }
+        SessionError::Boot
+        | SessionError::Ready
+        | SessionError::Execute
+        | SessionError::Gone
+        | SessionError::Poisoned => BackendFailureKind::GuestFailure,
     }
 }
 
@@ -49,6 +51,12 @@ impl KvmBackend {
     ) -> Result<LaunchObservation, BackendFailure> {
         let operation = request.operation_id();
         let admitted = self.clocks.elapsed_ns(operation);
+        // This Backend owns at most one sandbox. Assigning over a live one would drop its
+        // Session, and dropping a Session shuts the guest down, so launching B would silently
+        // destroy A without any Stop or Cleanup naming A.
+        if self.live.is_some() {
+            return Err(self.fail(operation, BackendFailureKind::ResourceConflict));
+        }
         let shape = request.shape();
         // The machine contract fixes one vCPU, so a larger shape is refused rather than
         // silently served by a machine that is not the shape the caller asked for.
@@ -86,9 +94,11 @@ impl KvmBackend {
             IsolationClass::HardwareVirtualMachine,
             // Every launch cold boots its own machine; no worker was prepared for it.
             PreparationClass::OnDemand,
-            // The Generation is selected by the exact bytes the host prepared, and the machine
-            // is built from those artifacts, so the digest is enforced at launch.
-            DigestBinding::LaunchEnforced,
+            // What a host prepares today is a Candidate, and no certification gate has
+            // verified it, so the artifacts are observed rather than enforced. Reporting
+            // LaunchEnforced would claim a binding no gate produced. It becomes enforced when
+            // Launch accepts only a certified Generation.
+            DigestBinding::ObservedOnly,
             effective_shape(shape.memory_mib()),
             effective_network(),
             LaunchTimes::new(admitted, launched, ready),
@@ -145,12 +155,19 @@ impl KvmBackend {
     ) -> Result<CleanupObservation, BackendFailure> {
         let operation = request.operation_id();
         let started = self.clocks.elapsed_ns(operation);
-        // Cleanup is idempotent: a sandbox this Backend never held, or already released, is
-        // already in the state the caller asked for.
-        let released = match self.take_live(request.instance_id()) {
-            Some(live) => live.session.shutdown().is_ok(),
-            None => true,
+        // Cleanup is idempotent, but an Instance this Backend never owned is a different fact
+        // from one it owned and released. Reporting resources complete for an unknown Instance
+        // would claim to have released resources this process never held.
+        let Some(live) = self.take_live(request.instance_id()) else {
+            let finished = self.clocks.elapsed_ns(operation);
+            return Ok(CleanupObservation::new(
+                operation.clone(),
+                request.instance_id().clone(),
+                not_owned_evidence(),
+                CleanupTimes::new(started, finished),
+            ));
         };
+        let released = live.session.shutdown().is_ok();
         let finished = self.clocks.elapsed_ns(operation);
         if !released {
             return Err(BackendFailure::new(
@@ -181,8 +198,14 @@ impl KvmBackend {
         BackendFailure::new(kind, self.clocks.elapsed_ns(operation))
     }
 
+    /// The live sandbox for `instance`, if this Backend owns one that is still usable.
+    ///
+    /// A poisoned session is not live: it has already been ended, and reporting it as Ready or
+    /// executing against it would attribute work to a machine that is gone.
     fn live_for(&mut self, instance: &InstanceId) -> Option<&mut Live> {
-        self.live.as_mut().filter(|live| &live.instance == instance)
+        self.live
+            .as_mut()
+            .filter(|live| &live.instance == instance && live.session.is_usable())
     }
 
     fn take_live(&mut self, instance: &InstanceId) -> Option<Live> {
@@ -196,4 +219,20 @@ impl KvmBackend {
             None
         }
     }
+}
+
+/// The dispositions for an Instance this Backend never owned.
+///
+/// Every resource is `NotOwned` rather than `Complete`: this process holds no record that these
+/// resources existed, so it cannot report having released them. A caller can still distinguish
+/// this from a real release, which is the point.
+fn not_owned_evidence() -> CleanupEvidence {
+    CleanupEvidence::new(
+        CleanupDisposition::NotOwned,
+        CleanupDisposition::NotOwned,
+        CleanupDisposition::NotOwned,
+        CleanupDisposition::NotOwned,
+        CleanupDisposition::NotOwned,
+    )
+    .with_method(CleanupMethod::NotApplicable)
 }

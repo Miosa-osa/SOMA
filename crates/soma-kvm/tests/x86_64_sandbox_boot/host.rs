@@ -59,7 +59,6 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("x86_64-sandbox-boot");
     fs::create_dir_all(&root).expect("create the scratch root under target/");
     reclaim_stale(&root);
-    require_free_space(&root);
     let dir = root.join(format!("{name}-{}", run_token()));
     fs::create_dir_all(&dir).expect("create scratch directory under target/");
     dir
@@ -71,6 +70,19 @@ pub fn scratch_dir(name: &str) -> PathBuf {
 /// several runs share the scratch root within [`SCRATCH_LIFETIME`]. This is a floor, not a
 /// measurement of one run.
 const REQUIRED_FREE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// Fails a live run before it starts when the scratch filesystem cannot hold it.
+///
+/// This is a precondition of the live runs that build Generations, not of naming a scratch tree,
+/// so it is called by those runs rather than by [`scratch_dir`]. A portable unit test that only
+/// exercises tree naming must not demand the space a gigabyte-scale live run needs, and CI
+/// runners have less free space than such a run requires.
+pub fn require_scratch_space() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("x86_64-sandbox-boot");
+    if fs::create_dir_all(&root).is_ok() {
+        require_free_space(&root);
+    }
+}
 
 /// Fails the run before it starts when the scratch filesystem cannot hold it.
 ///

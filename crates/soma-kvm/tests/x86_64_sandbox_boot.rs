@@ -54,7 +54,8 @@ mod live {
         x86_64_host_sample::{self, Sampler},
         x86_64_sandbox_boot_generation as generation,
         x86_64_sandbox_boot_host::{
-            Proof, assert_proof, open_descriptor_count, require_kvm, scratch_dir, thread_count,
+            Proof, assert_proof, open_descriptor_count, require_kvm, require_scratch_space,
+            scratch_dir, thread_count,
         },
         x86_64_sandbox_boot_session as session,
     };
@@ -80,6 +81,7 @@ mod live {
         storage_mib: u64,
         command: &session::Command<'_>,
     ) -> Option<Proof> {
+        require_scratch_space();
         let scratch = scratch_dir(name);
         let kernel = kernel_path();
         eprintln!(

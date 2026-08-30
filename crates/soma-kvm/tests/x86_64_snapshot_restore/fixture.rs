@@ -18,8 +18,10 @@ use soma_kvm::x86_64::{
 };
 
 use crate::{
-    x86_64_discover::kernel_path, x86_64_sandbox_boot_generation as generation,
-    x86_64_sandbox_boot_host::scratch_dir, x86_64_sandbox_boot_session as session,
+    x86_64_discover::kernel_path,
+    x86_64_sandbox_boot_generation as generation,
+    x86_64_sandbox_boot_host::{require_scratch_space, scratch_dir},
+    x86_64_sandbox_boot_session as session,
 };
 
 /// The image the captured Generation is built from.
@@ -100,6 +102,7 @@ pub fn shared() -> Shared {
 }
 
 fn build() -> Fixture {
+    require_scratch_space();
     let scratch = scratch_dir("node22");
     let inputs = generation::inputs(kernel_path());
     let layout = generation::oci_layout(IMAGE, LAYOUT_VAR, &scratch).unwrap_or_else(|| {

@@ -37,7 +37,7 @@ pub(super) fn boot_for(
     Ok(Boot {
         config: super::worker::config(kernel, initramfs, root, overlay, memory_mib * MIB),
         generation: candidate_bytes(&prepared.id)?,
-        instance: fresh16(),
+        instance: instance_bytes(instance)?,
         machine: fresh16(),
         network: link_down_network()?,
     })
@@ -67,8 +67,10 @@ fn private_head(
     match soma_storage::clone_head(template.as_fd(), directory.as_fd(), &name) {
         Ok(head) => {
             // The head is unlinked immediately: the open descriptor keeps it alive for the
-            // machine, so nothing on the filesystem outlives the sandbox that owns it.
-            unlink_quietly(&directory, name.as_str());
+            // machine, so nothing on the filesystem outlives the sandbox that owns it. A head
+            // that could not be unlinked would outlive its sandbox with no owner and no record,
+            // so it fails the Launch rather than being left behind.
+            unlink(&directory, name.as_str())?;
             Ok(std::fs::File::from(head.into_fd()))
         }
         // Only the absence of the capability falls back. Every other failure is a real one and
@@ -105,8 +107,13 @@ fn copied_head(
     let mut head = options
         .open(&path)
         .map_err(|_| BackendFailureKind::Unavailable)?;
-    std::io::copy(&mut template, &mut head).map_err(|_| BackendFailureKind::Unavailable)?;
-    let _ignored = std::fs::remove_file(&path);
+    // A failed copy must not leave a partly written head named on the filesystem, so the
+    // destination is removed before the failure is returned.
+    if std::io::copy(&mut template, &mut head).is_err() {
+        let _ignored = std::fs::remove_file(&path);
+        return Err(BackendFailureKind::Unavailable);
+    }
+    std::fs::remove_file(&path).map_err(|_| BackendFailureKind::Unavailable)?;
     Ok(head)
 }
 
@@ -115,10 +122,10 @@ fn directory_path(directory: &std::fs::File) -> Result<PathBuf, BackendFailureKi
     std::fs::read_link(format!("/proc/self/fd/{fd}")).map_err(|_| BackendFailureKind::Unavailable)
 }
 
-fn unlink_quietly(directory: &std::fs::File, name: &str) {
-    if let Ok(path) = directory_path(directory) {
-        let _ignored = std::fs::remove_file(path.join(name));
-    }
+/// Removes one head by name, reporting failure rather than ignoring it.
+fn unlink(directory: &std::fs::File, name: &str) -> Result<(), BackendFailureKind> {
+    let path = directory_path(directory)?.join(name);
+    std::fs::remove_file(path).map_err(|_| BackendFailureKind::Unavailable)
 }
 
 /// The link-down placeholder network every guest is given today.
@@ -149,6 +156,27 @@ fn now_unix_nanos() -> u64 {
     .unwrap_or(0)
 }
 
+/// The exact sixteen bytes the launch page carries for this Instance.
+///
+/// The guest authenticates an Instance identity, and the receipt reports one. If those were
+/// allowed to differ, the authenticated session would prove one Instance while the public
+/// evidence described another, and no reader could tell. This is the only conversion between
+/// them, and it is exact rather than derived: a `InstanceId` is thirty-two lowercase hexadecimal
+/// characters, which is these sixteen bytes written out.
+fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
+    let hex = instance.as_str();
+    if hex.len() != 32 {
+        return Err(BackendFailureKind::WorkloadRejected);
+    }
+    let mut bytes = [0_u8; 16];
+    for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+        let text = std::str::from_utf8(pair).map_err(|_| BackendFailureKind::WorkloadRejected)?;
+        bytes[index] =
+            u8::from_str_radix(text, 16).map_err(|_| BackendFailureKind::WorkloadRejected)?;
+    }
+    Ok(bytes)
+}
+
 /// Sixteen fresh bytes for one identity.
 fn fresh16() -> [u8; 16] {
     use std::io::Read as _;
@@ -177,4 +205,41 @@ fn candidate_bytes(id: &soma_generation::CandidateId) -> Result<[u8; 32], Backen
         bytes[index] = u8::from_str_radix(text, 16).map_err(|_| BackendFailureKind::Unavailable)?;
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The guest must authenticate the identity the receipt reports, byte for byte.
+    #[test]
+    fn the_guest_instance_identity_is_the_public_one() {
+        let instance = InstanceId::new("89db112753324c3e890ef78b74381aa5").expect("identity");
+        let bytes = instance_bytes(&instance).expect("bytes");
+        assert_eq!(
+            bytes,
+            [
+                0x89, 0xdb, 0x11, 0x27, 0x53, 0x32, 0x4c, 0x3e, 0x89, 0x0e, 0xf7, 0x8b, 0x74, 0x38,
+                0x1a, 0xa5
+            ]
+        );
+        // The conversion is reversible, so the two identities are the same value in two forms
+        // rather than one derived from the other.
+        let rendered = bytes.iter().fold(String::new(), |mut text, byte| {
+            use std::fmt::Write as _;
+            write!(text, "{byte:02x}").expect("write");
+            text
+        });
+        assert_eq!(rendered, instance.as_str());
+    }
+
+    #[test]
+    fn two_instances_do_not_share_guest_identity() {
+        let a = InstanceId::new("89db112753324c3e890ef78b74381aa5").expect("a");
+        let b = InstanceId::new("89db112753324c3e890ef78b74381aa6").expect("b");
+        assert_ne!(
+            instance_bytes(&a).expect("a bytes"),
+            instance_bytes(&b).expect("b bytes")
+        );
+    }
 }
