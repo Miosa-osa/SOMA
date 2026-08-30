@@ -94,9 +94,11 @@ The guest instrumentation showed `wait` bimodal at 13 us or 5,116 us across ever
 The first check now waits 50 us and each further wait doubles up to the same 5 ms ceiling.
 A child that outlives its own pipes still costs one cheap check per ceiling interval; the absolute deadline, the kill on expiry, and the complete descendant reaping are unchanged.
 
-`Ready` p50 fell 16.49 ms to 14.21 ms, p99 26.40 ms to 15.28 ms.
-Inside the guest, `wait` p50 fell from 5,116 us to 458 us.
-The 458 us that remain are the child's own exit latency in a single-vCPU guest: the loop now finds it on the fourth check, 350 us of sleeps in.
+Inside the guest, `wait` is bimodal on the state this change was applied to: about 13 us when the parent wins the race and about 5,100 us when it loses, so its median reports whichever branch a run happened to take more often.
+That median was 5,116 us in the column before the poll change and 23 us in the column after it, which is the state this change was made against.
+Measured there, the effect is on the slow branch and on the tail, not on the median: `wait` p99 fell 5,375 us to 588 us, its mean fell 2,100 us to 317 us, and the samples on the slow branch fell from 8 of 20 to 0 of 20.
+The median rose, 23 us to 458 us, because every sample now takes the same short path: the loop finds the child on the fourth check, 350 us of sleeps in.
+`Ready` p50 fell 16.49 ms to 14.21 ms across the same two columns.
 
 ## C. The handshake was already collapsed by the release build
 
