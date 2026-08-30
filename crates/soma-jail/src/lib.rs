@@ -10,6 +10,7 @@
 
 mod evidence;
 mod manifest;
+mod probe;
 mod report;
 mod seccomp;
 mod spec;
@@ -30,7 +31,8 @@ pub use manifest::{
     ArtifactKind, DescriptorKind, DescriptorManifest, DescriptorRole, FIRST_MANIFEST_SLOT,
     ManifestError, STANDARD_STREAMS,
 };
-pub use report::{ProbeCommand, ProbeReport, ReportError, RootView};
+pub use probe::ProbeCommand;
+pub use report::{ProbeReport, ReportError, RootView};
 pub use seccomp::{
     ArgCheck, CLONE_NAMESPACE_MASK, CLONE_THREAD, FilterProgram, Instruction, IoctlPhases,
     IoctlRule, NEVER_ALLOWED, Need, PROT_EXEC, Phase, Provenance, STARTUP_ONLY, STEADY_REQUESTS,
