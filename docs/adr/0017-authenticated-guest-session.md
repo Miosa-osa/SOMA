@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-28
 - Extends: ADR 0003 and ADR 0016
-- Superseded in part by: ADR 0024
+- Superseded in part by: [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md)
 
 ## Context
 
@@ -14,8 +14,9 @@ The next safe increment needs a small cryptographic seam without claiming that k
 ## Decision
 
 `soma-guest` implements one fixed Noise profile: `Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s`.
-The host is the initiator and pins the guest responder's X25519 public key from trusted Generation metadata.
-The guest holds the corresponding Generation-scoped private key.
+The host is the initiator and pins the guest responder's X25519 public key.
+The guest holds the corresponding private key.
+The original source of that keypair was trusted Generation metadata; under [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md) the Host now samples it fresh for every Instance and delivers the private half in the launch page, as the amendment below records.
 Both peers also hold one fresh 256-bit PSK provisioned with the exact 16-byte identity of one concrete Instance.
 
 NK authenticates possession of the pinned responder private key to the host.
@@ -26,7 +27,7 @@ It does not implement the secret-injection seam.
 Until that seam and its lifecycle evidence exist, this is an authenticated-protocol foundation rather than a production authenticated guest channel.
 
 Generation construction originally created the responder keypair, provisioned the private key into the trusted guest-agent artifact, and recorded the public key in the trusted content-addressed Generation manifest.
-ADR 0024 supersedes that provisioning rule because a private key embedded in a publicly retrievable artifact cannot prove exclusive Generation possession and must not support a production authentication claim.
+[ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md) supersedes that provisioning rule because a private key embedded in a publicly retrievable artifact cannot prove exclusive Generation possession and must not support a production authentication claim.
 The Host now generates one fresh responder keypair per Instance, delivers the private half in the non-snapshot launch page, and retains the public half itself.
 The host must never obtain the responder public key from an unauthenticated guest message.
 Responder public-key admission performs an X25519 exchange with a fixed validation scalar and rejects a non-contributory all-zero shared output.

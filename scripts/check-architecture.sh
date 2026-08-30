@@ -69,6 +69,16 @@ while IFS= read -r -d '' file; do
     fi
 done < <(find . -type f -print0)
 
+while IFS= read -r duplicate_adr; do
+    printf 'ADR number %s is used by more than one decision record\n' "$duplicate_adr" >&2
+    failed=1
+done < <(
+    find docs/adr -type f -name '[0-9][0-9][0-9][0-9]-*.md' -printf '%f\n' \
+        | cut -c1-4 \
+        | sort \
+        | uniq -d
+)
+
 if (( failed != 0 )); then
     exit 1
 fi

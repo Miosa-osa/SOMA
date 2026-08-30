@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-30
 - Extends: ADR 0017, ADR 0020, ADR 0021, and ADR 0023
+- Supersedes in part: [ADR 0030, pre-launch snapshot capture point](0030-pre-launch-snapshot-capture-point.md), whose Generation-scoped responder-key consequence this decision replaces
 
 ## Context
 

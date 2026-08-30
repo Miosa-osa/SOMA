@@ -3,7 +3,8 @@
 - Status: Accepted
 - Date: 2026-08-29
 - Extends: ADR 0017 and ADR 0020
-- Amended by: ADR 0024
+- Amended by: [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md)
+- Extended by: [ADR 0030, pre-launch snapshot capture point](0030-pre-launch-snapshot-capture-point.md)
 
 ## Context
 
@@ -52,7 +53,7 @@ A failed responder write cannot yield a guest owner.
 
 Raw PSKs, handshake states, handshake completion methods, `AuthenticatedSession`, and its seal and open methods are crate-private.
 Delivered host launch material and guest session material can start raw handshakes only inside the owner implementation.
-Under ADR 0024 those two states also own the matching halves of the fresh per-Instance responder keypair, so `connect` takes no caller-supplied responder key on either side and one Instance's identity cannot be substituted for another's.
+Under [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md) those two states also own the matching halves of the fresh per-Instance responder keypair, so `connect` takes no caller-supplied responder key on either side and one Instance's identity cannot be substituted for another's.
 
 ### Failure and poisoning
 

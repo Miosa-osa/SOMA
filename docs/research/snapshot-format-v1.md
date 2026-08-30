@@ -22,7 +22,7 @@ Disk descriptors bind the immutable EROFS digest and sterile-overlay contract, w
 
 The builder boots the Generation's pinned guest agent, reaches the disconnected repair point before any launch page exists, disables ingress, drains device work, flushes the overlay, pauses the vCPU, and proves every guest-driven queue quiescent.
 Receive and event queues hold buffers the driver posted in advance; those are ordinary capacity and are restored with the queue.
-Capturing before any launch material exists is what makes the image free of Instance authority by construction rather than by scrubbing, and the capture point is recorded in the manifest (ADR 0024).
+Capturing before any launch material exists is what makes the image free of Instance authority by construction rather than by scrubbing, and the capture point is recorded in the manifest ([ADR 0030](../adr/0030-pre-launch-snapshot-capture-point.md)).
 It reads KVM and device state in a fixed order while the vCPU remains joined outside `KVM_RUN`.
 It writes memory and state to private staging objects, independently decodes them, hashes through retained handles, and publishes the Generation manifest last.
 Capture failure destroys the disposable builder and publishes nothing complete.

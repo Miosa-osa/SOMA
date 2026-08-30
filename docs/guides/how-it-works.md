@@ -62,7 +62,8 @@ The compiler's own contract is in `crates/soma-generation/src/generation/templat
 `crates/soma-generation` has three stages before the compiler runs.
 `import_oci_layout` verifies an extracted OCI layout, selects one platform manifest, and stores every layer by digest.
 `normalize_oci_rootfs` applies the selected layers into one canonical logical tree without extracting guest paths onto the Host, streams file contents into the content store, and publishes a tree manifest.
-`compile_generation` in `crates/soma-generation/src/generation/compile.rs` then takes one `TemplateRevision`, that `NormalizedRootfs`, a content store, `CompilerProfile::v1()`, and a `BuildHost` naming the staging directory, the pinned toolchain, and five Machine inputs: the kernel, its configuration text, the early-init executable, the Guest agent executable, and a 32-byte responder private key.
+`compile_generation` in `crates/soma-generation/src/generation/compile.rs` then takes one `TemplateRevision`, that `NormalizedRootfs`, a content store, `CompilerProfile::v1()`, and a `BuildHost` naming the staging directory, the pinned toolchain, and four Machine inputs: the kernel, its configuration text, the early-init executable, and the Guest agent executable.
+There is no secret input: `MachineInputs` lost its fifth field when [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) moved the responder secret to the launch page.
 
 The compiler design in [the Generation compiler research](../research/generation-compiler.md) has six phases.
 Phases 1 through 3 and 6 are implemented: resolve and verify inputs, emit the canonical filesystem stream, build and independently verify every artifact, and publish atomically with the manifest last.
@@ -76,7 +77,7 @@ The artifacts a compiled Generation contains, and where each comes from:
 | EROFS root | `generation/erofs.rs` streams the canonical tree as an ordered tar into the pinned EROFS formatter 1.9.4 in `--tar=f` mode through standard input; `generation/erofs_reader.rs` walks the image back and requires exact equality with the tree | The immutable read-only lower filesystem, shared by every Instance of the Generation |
 | Overlay template | `generation/overlay.rs` runs the pinned ext4 formatter under a private configuration and fake time, creates the empty `upper` and `work` directories with `debugfs`, and checks with `e2fsck -fn` | One sterile ext4 image per certified writable size class; each Instance gets a private copy of it as its writable head |
 | Kernel | `generation/kernel.rs` verifies the ELF headers, the `XEN_ELFNOTE_PHYS32_ENTRY` note, and the loaded addresses; `generation/kernel_config.rs` verifies the required built-in facilities | The pinned uncompressed x86_64 Linux ELF image booted through the PVH entry |
-| Initramfs | `generation/initramfs.rs` writes a deterministic `newc` archive, layout version 2, with fixed modes, zero timestamps, and an allowlisted entry set | Carries `/init` and `/bin/soma-guest-agent`, which are both the Guest agent, the `/dev/console` and `/dev/null` nodes PID 1 needs, and the responder private key at `/etc/soma/responder.key` |
+| Initramfs | `generation/initramfs.rs` writes a deterministic `newc` archive, layout version 3, with fixed modes, zero timestamps, and an allowlisted entry set | Carries `/init` and `/bin/soma-guest-agent`, which are both the Guest agent, and the `/dev/console` and `/dev/null` nodes PID 1 needs; it carries no secret, because [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) removed layout v2's `/etc/soma/responder.key` |
 | `SOMAGEN` manifest | `generation/manifest` encodes fixed-order binary groups: source OCI identity, tree identity, root, overlay, kernel, initramfs, Guest agent, the complete kernel command line, machine, device, and CPU contracts, Machine shape, the absent Snapshot, Repair policy, and the Template fields | The canonical description of every artifact and contract |
 | `GenerationId` | `generation/identity.rs` | `sha256:` plus the SHA-256 of the manifest bytes and nothing else |
 
@@ -87,7 +88,8 @@ The pinned kernel is its own build proof.
 [The kernel build evidence](../evidence/2026-08-29-x86_64-pvh-kernel-build.md) records Linux `v6.12.107` built with no network access inside a digest-pinned Ubuntu 24.04 image, with no loadable modules, no PCI, no ACPI, the five virtio-mmio drivers, EROFS, ext4, OverlayFS, and `CONFIG_DEVMEM=y` so the Guest agent can map the launch page.
 Two consecutive builds on the same 24-core host produced the byte-identical `vmlinux-6.12.107-soma-v1`, 21,530,432 bytes, SHA-256 `f1af3a142fa39916cfac425a01b16b5f328279823533421c9eec3f192c05b746`, with `make vmlinux` wall times of 49.9 s and 52.6 s; cross-host reproducibility is untested.
 
-Real artifacts from the retained `busybox:stable-musl` run in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), all on the Ubuntu 24.04 x86_64 host it names:
+Real artifacts from the retained `busybox:stable-musl` run in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), all on the Ubuntu 24.04 x86_64 host it names.
+These are historical observations from a revision that still used initramfs layout v2, so the initramfs digest and every `GenerationId` below are no longer reproducible:
 
 | Artifact | Digest | Size |
 | --- | --- | ---: |
@@ -100,9 +102,10 @@ Real artifacts from the retained `busybox:stable-musl` run in [the first sandbox
 | Initramfs, layout v2 | `sha256:e1605383813d4e34f9601699831802e683801caa720892412c8aaabfa5836ad1` | 1,640,960 bytes |
 | `GenerationId` | `sha256:0b6a3a4ea53accf5d4aabfd3156f29653297de23497ac0d58b51ad506ddbebcc` | manifest digest |
 
-The same evidence shows why the identity moves.
-The immediately preceding run produced `GenerationId` `sha256:4a064668c586d94aa83643e86304f91278cb2e27549e47986d68dcfb9a72a73a` from the same tree, root, and overlay digests, because the responder key bound into the initramfs is generated per run.
+The same evidence shows why the identity moved on that revision.
+The immediately preceding run produced `GenerationId` `sha256:4a064668c586d94aa83643e86304f91278cb2e27549e47986d68dcfb9a72a73a` from the same tree, root, and overlay digests, because the responder key bound into the initramfs was generated per run.
 The EROFS root digest was identical in every run.
+Under layout v3 that source of movement is gone: the archive carries no secret, so one tree, root, overlay, kernel, and agent now produce one stable `GenerationId`.
 
 A reader who reproduces the test will not see the Guest agent digest or either `GenerationId` above.
 The retained runs used the pre-split Guest agent.
@@ -196,9 +199,10 @@ The full 168-line log is retained by the test under `target/tmp/x86_64-sandbox-b
 4. Verify the ext4 superblock of `/dev/vdb` and mount it read-write at `/mnt/upper`.
 5. Verify that the head contains only `lost+found`, `upper`, and `work`, and that `upper` and `work` are empty directories, creating them when absent; anything else is treated as tenant state or tampering and fails.
 6. Mount OverlayFS at `/mnt/root` with the EROFS lower and the private `upper` and `work` directories.
-7. Read the responder private key from `/etc/soma/responder.key`, then overwrite and unlink it.
-8. Move `/dev`, `/proc`, and `/sys` into the composed root.
-9. Move the composed root over `/` and enter it with `chroot`, exactly as `switch_root` does, because `pivot_root` cannot leave the initial ramfs.
+7. Move `/dev`, `/proc`, and `/sys` into the composed root.
+8. Move the composed root over `/` and enter it with `chroot`, exactly as `switch_root` does, because `pivot_root` cannot leave the initial ramfs.
+
+The agent takes no secret from the initramfs, because layout v3 carries none.
 
 The serial log shows the result:
 
@@ -236,9 +240,9 @@ Zero transport violations were recorded even though the agent installs the MAC, 
 No frame left the Machine; the network device sits behind the link-down loopback backend.
 
 Authentication.
-The host side calls `soma_guest::HostControl::connect` over the Machine's `ControlChannel`, and the guest side calls `GuestControl::connect` with the responder key it took from the initramfs.
+The host side calls `soma_guest::HostControl::connect` over the Machine's `ControlChannel`, and the guest side calls `GuestControl::connect` with the responder secret it took from the launch page.
 The protocol is `Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s`, pinned in `crates/soma-guest/src/lib.rs`, with the Instance pre-shared key from the launch page.
-The responder public key is carried by the test rather than bound into the manifest; that gap is listed in section 4.
+Neither peer accepts a caller-supplied responder key: the Host samples the keypair fresh for this Instance, delivers the private half at launch-page byte 247, and keeps the public half itself, so no responder key is bound into the Generation manifest at all.
 
 Repair commit and readiness probe.
 The host side sends `PrepareAndProbe`, the guest reports `RepairComplete`, and the host side commits Repair by verifying that all 4,096 bytes of the launch page read as zero and removing slot 1 with a zero-length `KVM_SET_USER_MEMORY_REGION`; that is the `LaunchPageRetired` milestone.
@@ -341,8 +345,9 @@ Network attach to the Machine.
 "No network egress: the network device sits behind the link-down loopback backend; the guest configured `eth0` and a default route, but no frame left the machine and no TAP or host network profile exists."
 For the broker, "Proxy attachment, ingress forwarding, jailed VMM transfer, and virtio-net attach remain open." The daemon socket now authenticates its peer and gates every operation on a capability, and forwarding requires an activation receipt minted by a repaired authenticated guest session.
 
-Certification and the responder key.
-"No certification: phase 5 of the compiler and every conformance count remain unimplemented, and the responder public key is carried by the test rather than bound into the manifest."
+Certification.
+"No certification: phase 5 of the compiler and every conformance count remain unimplemented."
+The responder-key half of that sentence in the retained evidence is obsolete: under ADR 0024 the Generation has no responder key to bind, and the Host holds the public half of the keypair it just sampled.
 
 CLI and MCP on KVM.
 `crates/soma-local/src/backend/kvm.rs` answers every resolve, launch, execute, inspect, and cleanup request with `BackendFailureKind::Unsupported`; only the capability probe behind `doctor` runs.

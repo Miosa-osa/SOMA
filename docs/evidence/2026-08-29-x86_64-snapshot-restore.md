@@ -178,7 +178,7 @@ Each of these was produced from a sibling directory holding hard links to the un
 - The Generation-scoped responder private key occurs twice in `memory.raw` and never in `overlay.raw` or `state.somasnap`.
   This is by construction and is recorded rather than hidden: the compiler binds that key into the initramfs as a fifth input and the agent holds it for the life of the machine, so it is in guest RAM before any capture can happen.
   It is Generation identity, identical for every Instance of the Generation, and it is not Instance authority.
-  Per-Instance authority - Instance identity, operation identity, nonce, pre-shared key, assigned context identifier, and network identity - cannot be in the image because none of it had been created when the machine was captured (ADR 0024).
+  Per-Instance authority - Instance identity, operation identity, nonce, pre-shared key, assigned context identifier, and network identity - cannot be in the image because none of it had been created when the machine was captured ([ADR 0030](../adr/0030-pre-launch-snapshot-capture-point.md)).
 
 ## Implementation facts the live runs produced
 

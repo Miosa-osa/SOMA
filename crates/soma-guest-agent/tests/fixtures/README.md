@@ -20,9 +20,14 @@ and SHA-256 that the Generation manifest pins.
 | Archive path | Mode | Owner | Contents |
 | --- | ---: | ---: | --- |
 | `/init` | `0755` | `0:0` | The `soma-guest-agent` binary itself; the kernel executes it as PID 1. |
-| `/etc/soma/responder.key` | `0400` | `0:0` | Exactly 32 raw bytes of the Generation-scoped X25519 responder private key. |
+| `/bin/soma-guest-agent` | `0755` | `0:0` | The same binary under its own name. |
 | `/dev` | `0755` | `0:0` | Empty directory; devtmpfs is mounted here by the agent. |
-| `/proc`, `/sys`, `/mnt` | `0755` | `0:0` | Empty directories used as mount points. |
+| `/dev/console`, `/dev/null` | `0600`, `0666` | `0:0` | Character nodes the Rust runtime needs before devtmpfs is mounted. |
+| `/lower`, `/newroot`, `/overlay`, `/proc`, `/sys` | `0755` | `0:0` | Empty directories used as mount points. |
+
+Layout version 3 carries no secret at all.
+The archive holds exactly two byte bodies and both are executables.
+Layout v2 carried a Generation-scoped responder private key at `/etc/soma/responder.key`; [ADR 0024, per-Instance guest responder authority](../../../../docs/adr/0024-per-instance-guest-responder-authority.md) removed it, and `verify_initramfs` rejects a v2 archive because that entry is not in the v3 allowlist.
 
 No shell, library, or other executable is required.
 `/dev/console` is provided by the kernel-created initramfs node and by devtmpfs.
@@ -35,13 +40,13 @@ No shell, library, or other executable is required.
 4. It verifies the ext4 magic and clean, error-free state on `/dev/vdb`, mounts it at `/mnt/upper`,
    requires the head to contain nothing but `lost+found`, and creates `upper/` and `work/`.
 5. It mounts OverlayFS at `/mnt/root`.
-6. It reads `/etc/soma/responder.key`, overwrites the file with zeroes, and unlinks it.
-7. It moves `/dev`, `/proc`, and `/sys` into the composed root, moves the composed root over
+6. It moves `/dev`, `/proc`, and `/sys` into the composed root, moves the composed root over
    `/`, and enters it with `chroot` as `switch_root` does, because `pivot_root` cannot leave the
    initial ramfs.
-8. It waits at the disconnected repair point for the launch page.
+7. It waits at the disconnected repair point for the launch page, which is where the fresh
+   per-Instance responder static secret arrives.
 
-The Generation snapshot is captured while the agent waits in step 8.
+The Generation snapshot is captured while the agent waits in step 7.
 
 ## Kernel configuration the agent requires
 

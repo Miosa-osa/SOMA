@@ -1,8 +1,10 @@
-# ADR 0024: Capture a Generation snapshot before any launch material exists
+# ADR 0030: Capture a Generation snapshot before any launch material exists
 
-- Status: Accepted
+- Status: Accepted, with the responder-key consequence superseded
 - Date: 2026-08-29
+- Number: allocated as 0024 when this decision was written and corrected to 0030 on 2026-08-30, because [ADR 0024](0024-per-instance-guest-responder-authority.md) already held that number
 - Extends: ADR 0002, ADR 0020, and ADR 0021
+- Superseded in part by: [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md)
 
 ## Context
 
@@ -32,8 +34,14 @@ The guest agent flushes filesystems and prints the marker immediately before it 
 Capture has nothing to scrub.
 No Instance identity, operation identity, nonce, pre-shared key, or context identifier can be in the memory object, because the machine never held one; the published objects are checked for the launch-page domain and for per-Instance authority rather than trusted to have been cleaned.
 
-The Generation-scoped responder private key remains in the memory object by construction, since the compiler binds it into the initramfs and the agent holds it for the life of the machine.
-It is identical for every Instance of the Generation and is not Instance authority, and the retained evidence records its presence rather than implying its absence.
+This consequence is superseded by [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md), and is retained here only to explain what the 2026-08-29 capture run recorded.
+
+> Superseded text, historical only: the Generation-scoped responder private key remains in the memory object by construction, since the compiler binds it into the initramfs and the agent holds it for the life of the machine.
+> It is identical for every Instance of the Generation and is not Instance authority, and the retained evidence records its presence rather than implying its absence.
+
+Under ADR 0024 no reusable responder secret exists.
+Initramfs layout v3 removes `etc/soma/responder.key`, the responder static secret is sampled fresh per Instance, and it reaches the guest only through the non-snapshot launch page, so the memory object of a capture taken with current code holds no responder authority either.
+The retained [x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md) predates that change and is historical: it records and scans a Generation-scoped responder private key in `memory.raw`, which current code no longer produces.
 
 A builder that wants to warm caches with authenticated work before capturing cannot do so under version 1.
 Adding that would require a second certified capture point, an agent transition that retires a session and returns to a disconnected wait, and evidence that the retirement leaves nothing behind; it is not part of this version.
@@ -47,4 +55,4 @@ Treating the precondition as vacuously satisfied was rejected because a proof th
 ## Verification
 
 The snapshot codec's ordering test drives the renamed precondition in order and rejects every other order.
-The live `x86_64` capture proves the marker, the quiesce preconditions, and the fixed read and publish order on a real machine, and the retained scan shows that the published objects carry no decodable launch page; the result is in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+The live `x86_64` capture on the obsolete responder-key revision proves the marker, the quiesce preconditions, and the fixed read and publish order on a real machine, and the retained scan shows that the published objects carry no decodable launch page; the result is in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).

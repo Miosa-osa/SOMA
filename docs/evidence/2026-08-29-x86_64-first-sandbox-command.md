@@ -227,6 +227,6 @@ The node serial log has the same shape as the busybox one: `[vda] 275677 4096-by
 
 ## Superseded artifact facts
 
-ADR 0024 removed the responder private key from the initramfs on 2026-08-30 and raised the layout to v3.
+[ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) removed the responder private key from the initramfs on 2026-08-30 and raised the layout to v3.
 The initramfs digest and the layout-v2 statements above describe the run that was executed on 2026-08-29 and are retained unchanged as evidence of that run.
-A run of the same test after ADR 0024 produces a different initramfs digest and no `/etc/soma/responder.key` entry.
+A run of the same test after that decision produces a different initramfs digest and no `/etc/soma/responder.key` entry.

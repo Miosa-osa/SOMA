@@ -21,7 +21,8 @@ pub const LAUNCH_PAGE_SIZE: usize = 4096;
 
 /// The launch-page layout version both peers and the Generation manifest must agree on.
 ///
-/// Schema 3 appends the fresh per-Instance responder static secret decided by ADR 0024.
+/// Schema 3 appends the fresh per-Instance responder static secret decided by ADR 0024,
+/// per-Instance guest responder authority.
 pub const LAUNCH_PAGE_SCHEMA_VERSION: u16 = wire::PAGE_SCHEMA_VERSION;
 
 /// Fixed guest-physical address of the dedicated launch-page memory slot.

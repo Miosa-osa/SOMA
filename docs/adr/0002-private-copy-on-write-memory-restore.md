@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-28
 - Decision owners: SOMA maintainers
+- Extended by: [ADR 0030, pre-launch snapshot capture point](0030-pre-launch-snapshot-capture-point.md)
 
 ## Context
 

@@ -128,7 +128,8 @@ fn the_published_objects_carry_no_launch_material() {
          the pinned agent binary; none of them decodes as a launch page",
         offsets.len()
     );
-    // Since ADR 0024 the responder secret is Instance authority delivered through the launch
+    // Since ADR 0024, per-Instance guest responder authority, the responder secret is Instance
+    // authority delivered through the launch
     // page, never a Generation input, and capture happens before any launch material exists.
     // A freshly generated Instance's own secret halves must therefore appear nowhere in the
     // captured objects: the snapshot carries no authority to reuse.

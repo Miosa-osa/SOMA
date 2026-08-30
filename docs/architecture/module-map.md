@@ -603,7 +603,7 @@ Its bounded local PAX profile accepts only exact `path` and `linkpath` values, w
 The importer rejects global PAX and mixed local PAX plus GNU naming extensions before normalization.
 The `generation/` modules implement Generation compiler phases 1 through 3 and 6 for x86_64: one `TemplateRevision` plus one `NormalizedRootfs` become an EROFS root, sterile ext4 overlay templates, a verified kernel, a deterministic initramfs, and a canonical `SOMAGEN` manifest whose SHA-256 is the `GenerationId`.
 Snapshot capture and certification are absent and appear only as typed absent state, so a compiled Generation is not launchable through the public lifecycle; the `soma-kvm` live test cold-boots one directly and proves the artifacts compose into a working guest.
-Initramfs layout v2 carries the console and null device nodes and the Generation-scoped responder private key as a fifth machine input, and `open_artifact` opens one published artifact by descriptor for a launcher.
+Initramfs layout v3 carries the console and null device nodes and exactly two byte bodies, both executables: layout v2's Generation-scoped responder private key and its `etc/soma` directory were removed by [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md), so the compiler takes four machine inputs and no secret input at all, and `open_artifact` opens one published artifact by descriptor for a launcher.
 
 The source map is:
 

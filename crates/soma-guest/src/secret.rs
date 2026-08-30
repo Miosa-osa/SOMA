@@ -49,7 +49,7 @@ impl InstancePsk {
     }
 }
 
-/// The Generation-scoped responder's X25519 private key.
+/// The responder's X25519 private key, sampled fresh for one Instance under ADR 0024.
 pub struct ResponderPrivateKey(Zeroizing<[u8; 32]>);
 
 impl ResponderPrivateKey {
@@ -62,7 +62,7 @@ impl ResponderPrivateKey {
         Self::from_owned(Zeroizing::new(bytes))
     }
 
-    /// Exposes a borrowed secret only for an explicit Generation-provisioning operation.
+    /// Exposes a borrowed secret only for an explicit launch-material provisioning operation.
     ///
     /// Any copy made by the callback is outside this crate's zeroization boundary.
     pub fn expose_for_provisioning<R>(&self, operation: impl FnOnce(&[u8; 32]) -> R) -> R {
@@ -81,7 +81,7 @@ impl ResponderPrivateKey {
     }
 }
 
-/// The pinned Generation-scoped responder's X25519 public key.
+/// The pinned public half of one Instance's responder X25519 keypair.
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct ResponderPublicKey([u8; 32]);
 

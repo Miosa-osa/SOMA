@@ -11,7 +11,7 @@ use std::{error::Error, fmt};
 /// Capture happens before any launch material exists, so there is no authenticated session
 /// to prove and none to scrub; what the builder proves instead is that the Generation's own
 /// pinned guest agent is the code that parked the machine at the disconnected repair point
-/// (ADR 0024).
+/// (ADR 0030, the pre-launch snapshot capture point).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum QuiescePrecondition {
     /// The Generation's pinned guest agent reached its own code and announced itself.
