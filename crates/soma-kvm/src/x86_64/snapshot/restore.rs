@@ -16,6 +16,11 @@ use std::{cell::Cell, fs::File};
 use kvm_ioctls::Kvm;
 use vmm_sys_util::eventfd::EventFd;
 
+mod sterile;
+
+use sterile::SterileFacts;
+pub use sterile::{Sterile, SterileRequest};
+
 use self::{
     devices::{Identity, recreate_devices, verify},
     sections::{Sections, net_mac, section, vsock_cid},
@@ -62,80 +67,6 @@ pub struct RestoreRequest {
     /// This is the installation and audit boundary, not the warm request path: it reads every
     /// byte of both objects.
     pub verify_artifacts: bool,
-}
-
-/// What a prepared worker is restored from, before any Instance exists.
-///
-/// It names the immutable artifacts and the shape of the private head, and deliberately not the
-/// head itself, the context identifier, or the launch page. Those are per-Instance authority
-/// that the prepared worker protocol transfers when the worker is claimed, and a worker holding
-/// any of them before then would not be sterile.
-pub struct SterileRequest {
-    /// The published snapshot directory.
-    pub paths: SnapshotPaths,
-    /// The immutable root, which every Instance of this Generation shares.
-    pub root: File,
-    /// The capacity the private head will have when one is attached.
-    pub overlay_capacity_bytes: u64,
-    /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.
-    pub memory_bytes: u64,
-    /// Whether to re-hash the memory object and the overlay template before mapping.
-    pub verify_artifacts: bool,
-}
-
-/// A restored machine that holds no per-Instance authority yet.
-///
-/// It has paid everything a restore costs except the last two steps, so a pool of these is what
-/// lets a Launch skip machine creation entirely.
-pub struct Sterile {
-    machine: SandboxMachine,
-    facts: SterileFacts,
-    sequence: RestoreSequence,
-    readiness: ReadinessChallenge,
-}
-
-/// What the snapshot said this machine is, before an Instance is assigned to it.
-struct SterileFacts {
-    snapshot: Digest,
-    candidate_id: [u8; 32],
-    memory_bytes: u64,
-    repair_point_line: Vec<u8>,
-    mac: [u8; 6],
-    captured_cid: u64,
-}
-
-impl Sterile {
-    /// Gives this worker the Instance authority it was built without.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed failure when the head does not have the declared shape or the
-    /// identifier is not one a guest may hold.
-    pub fn assign(self, overlay: File, guest_cid: u32) -> Result<Restored, SnapshotError> {
-        let Self {
-            machine,
-            facts,
-            sequence,
-            readiness,
-        } = self;
-        machine.assign_instance_resources(overlay, guest_cid)?;
-        Ok(Restored {
-            machine,
-            facts: RestoreFacts {
-                snapshot: facts.snapshot,
-                candidate_id: facts.candidate_id,
-                memory_bytes: facts.memory_bytes,
-                repair_point_line: facts.repair_point_line,
-                mac: facts.mac,
-                captured_cid: facts.captured_cid,
-                guest_cid,
-            },
-            sequence: Cell::new(sequence),
-            readiness,
-            spent: Cell::new(false),
-            launch: Cell::new(None),
-        })
-    }
 }
 
 /// What the restored machine is, taken from the manifest rather than from the caller.

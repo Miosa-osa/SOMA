@@ -4,6 +4,20 @@ Entries are dated and append-only.
 Each one records what was true when it was written, and none of them is updated afterwards.
 For the current status of any capability, read [the claim ledger](docs/claim-ledger.md) rather than an entry below.
 
+## 2026-08-30 - Restore was broken on main, and the host is part of the result
+
+Two findings, one a defect and one a constraint.
+
+`f614458` broke every restored sandbox and the break reached `main`. It derived a per-Instance vsock context identifier for the machine and left the launch page carrying the constant that identifier replaced, and the guest agent refuses a session when the two disagree, so a restored machine reached its repair point and died there with `poisoned by Transport`. `c0fd993` repairs it and adds the regression test that compares the two values, which is the whole of the defect. The record is [the launch page context identifier defect](docs/evidence/2026-08-30-launch-page-context-identifier-defect.md). Measurements taken before `f614458` are unaffected, because one constant then served both the machine and the page and they agreed.
+
+Finding the defect needed the guest console, which the failure path discarded: a sandbox that fails never reaches cleanup, and only cleanup received the machine's evidence. `SOMA_KVM_TIMELINE` now writes each sandbox's milestone offsets and per-phase durations, and a failed one's console beside them. It is a diagnostic with no signature, no identity binding, and no stable schema, and it produced the first per-stage breakdown of a restored sandbox, retained as [the restore stage timeline](docs/evidence/2026-08-30-x86_64-restore-stage-timeline.md). That breakdown shows machine construction at 2.71 ms uncontended against the 44.4 ms the eval-1 hundred-way cohort spends on the same segment, which is the prepared-worker case stated in measured numbers.
+
+The constraint is that eval-1 cannot produce a leading burst figure. Removing all 44.4 ms of machine construction leaves about 128 ms against Isorun's observed 73 ms, so the gap is not software that remains to be written; it is a 2017 processor. Reporting an eval-1 burst figure would understate the engine while appearing to measure it. Host class is therefore part of the result and must be named in the artifact, and a burst campaign needs a current high-core-count server part. The reasoning, and the clear line between what is measured and what is projected, is in [host class and the burst result](docs/research/host-class-and-burst-projection.md).
+
+`98cb00c` then landed the machine half of the prepared worker. `restore_sterile` produces a machine that has paid for memory mapping, VM creation, vCPU and device restoration, interrupt routing, and the event loop, and holds neither of the two authorities that belong to an Instance: the private disk head and the context identifier. `Sterile::assign` installs both. Every restore now composes those two halves, so a prepared worker and a direct restore cannot reach different device state, and installing the identifier moved into assignment because that is the only place it can happen for a worker built before its Instance exists.
+
+Two defects are open and deliberately not folded into either commit. A restored guest observes a large time jump despite `KVM_SET_CLOCK` and `IA32_TSC` both being restored, which trips the netdev watchdog and then breaks the shutdown acknowledgement, so cleanup cannot be proven on a host slow enough to keep a sandbox alive for five seconds. A filesystem without reflink copies the whole overlay template per launch, costing seconds and about ten gibibytes, which is why a development laptop cannot produce a latency result.
+
 ## 2026-08-30 - Isorun telemetry strengthens the prepared-worker priority
 
 The new Isorun experiment is a valuable burst signal but currently records provider-reported `create_ms` without a retained harness or raw samples, so it must be classified as independently collected vendor telemetry rather than independently measured server timing.

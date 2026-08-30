@@ -1,0 +1,10 @@
+[  654.645782] exe (65) used greatest stack depth: 13568 bytes left
+soma-guest-agent: ready
+[  654.678332] node (66) used greatest stack depth: 12648 bytes left
+[  660.826714] virtio_net virtio2 eth0: NETDEV WATCHDOG: CPU: 0: transmit queue 0 timed out 5504 ms
+[  660.827217] virtio_net virtio2 eth0: TX timeout on queue: 0, sq: output.0, vq: 0x1, name: output.0, 5504000 usecs ago
+[  666.138428] virtio_net virtio2 eth0: NETDEV WATCHDOG: CPU: 0: transmit queue 0 timed out 10816 ms
+[  666.138914] virtio_net virtio2 eth0: TX timeout on queue: 0, sq: output.0, vq: 0x1, name: output.0, 10816000 usecs ago
+soma-guest-agent: shutdown acknowledgement failed: control Shutdown failed: Io
+[  671.528511] reboot: Restarting system
+[  671.528711] reboot: machine restart
