@@ -9,7 +9,7 @@
 //! Every value is a duration in microseconds and carries no identity, key, or peer byte.
 
 use std::fmt::Write as _;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 /// One measured step, in the order the agent reaches it.
@@ -76,6 +76,8 @@ const LABELS: [&str; STEPS] = [
 static ELAPSED: [AtomicU64; STEPS] = [const { AtomicU64::new(0) }; STEPS];
 static READ_NANOS: AtomicU64 = AtomicU64::new(0);
 static WRITE_NANOS: AtomicU64 = AtomicU64::new(0);
+/// Whether the transport totals are still wanted; [`around`] clears it once it has read them.
+static ARMED: AtomicBool = AtomicBool::new(true);
 
 /// Records how long one step took, replacing any earlier value for it.
 pub fn record(step: Step, elapsed: Duration) {
@@ -107,17 +109,34 @@ pub fn around<T>(wait: Step, send: Step, rest: Step, work: impl FnOnce() -> T) -
         nanos(started.elapsed()).saturating_sub(waited.saturating_add(written)),
         Ordering::Relaxed,
     );
+    // The totals have been consumed; every later transport call runs without a clock read.
+    ARMED.store(false, Ordering::Relaxed);
     value
 }
 
-/// Adds one completed control-transport read to the running total.
-pub fn add_read(elapsed: Duration) {
-    READ_NANOS.fetch_add(nanos(elapsed), Ordering::Relaxed);
+/// Runs one control-transport read, timing it while the split above still needs the total.
+pub fn transport_read<T>(work: impl FnOnce() -> T) -> T {
+    timed(&READ_NANOS, work)
 }
 
-/// Adds one completed control-transport write to the running total.
-pub fn add_write(elapsed: Duration) {
-    WRITE_NANOS.fetch_add(nanos(elapsed), Ordering::Relaxed);
+/// Runs one control-transport write, timing it while the split above still needs the total.
+pub fn transport_write<T>(work: impl FnOnce() -> T) -> T {
+    timed(&WRITE_NANOS, work)
+}
+
+/// Adds one call's duration to `total`, or runs it untimed once the totals are spent.
+///
+/// The handshake is the last thing that reads them, and it happens before the first tenant
+/// command, so after it every output chunk would pay two clock reads for a number nothing
+/// consumes.
+fn timed<T>(total: &AtomicU64, work: impl FnOnce() -> T) -> T {
+    if !ARMED.load(Ordering::Relaxed) {
+        return work();
+    }
+    let started = Instant::now();
+    let value = work();
+    total.fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+    value
 }
 
 /// Renders every slot as two bounded console lines of microsecond values.
@@ -149,6 +168,7 @@ fn nanos(elapsed: Duration) -> u64 {
 mod tests {
     use super::*;
     use crate::console;
+    use std::thread;
 
     /// Nine seconds in nanoseconds: the widest value any real step can plausibly render.
     const WIDE: u64 = 9_000_000_000;
@@ -175,15 +195,16 @@ mod tests {
         }
     }
 
+    /// Both halves are one test because `around` disarms the transport clock for the process.
     #[test]
-    fn a_split_call_attributes_transport_time_away_from_work() {
+    fn a_split_call_attributes_transport_time_away_from_work_and_then_stops_the_clock() {
         around(
             Step::HandshakeWait,
             Step::HandshakeSend,
             Step::HandshakeWork,
             || {
-                add_read(Duration::from_millis(4));
-                add_write(Duration::from_millis(1));
+                transport_read(|| thread::sleep(Duration::from_millis(4)));
+                transport_write(|| thread::sleep(Duration::from_millis(1)));
             },
         );
 
@@ -191,5 +212,17 @@ mod tests {
         assert!(ELAPSED[Step::HandshakeWait as usize].load(Ordering::Relaxed) >= 4_000_000);
         assert!(ELAPSED[Step::HandshakeSend as usize].load(Ordering::Relaxed) >= 1_000_000);
         assert!(ELAPSED[Step::HandshakeWork as usize].load(Ordering::Relaxed) < 1_000_000);
+
+        // Every tenant command's output crosses the same transport; nothing reads the totals
+        // again, so nothing may keep adding to them.
+        let spent = transport();
+        transport_read(|| thread::sleep(Duration::from_millis(2)));
+        transport_write(|| thread::sleep(Duration::from_millis(2)));
+
+        assert_eq!(
+            transport(),
+            spent,
+            "the transport clock kept running after the handshake consumed it"
+        );
     }
 }

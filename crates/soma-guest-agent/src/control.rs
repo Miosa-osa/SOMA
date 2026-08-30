@@ -105,17 +105,11 @@ impl<S: DeadlineStream> ControlIo for StreamIo<S> {
     type Error = IoFault;
 
     fn read_exact(&mut self, bytes: &mut [u8], deadline: Instant) -> Result<(), IoFault> {
-        let started = Instant::now();
-        let outcome = self.fill(bytes, deadline);
-        timings::add_read(started.elapsed());
-        outcome
+        timings::transport_read(|| self.fill(bytes, deadline))
     }
 
     fn write_all(&mut self, bytes: &[u8], deadline: Instant) -> Result<(), IoFault> {
-        let started = Instant::now();
-        let outcome = self.drain(bytes, deadline);
-        timings::add_write(started.elapsed());
-        outcome
+        timings::transport_write(|| self.drain(bytes, deadline))
     }
 
     fn poison(&mut self) {
