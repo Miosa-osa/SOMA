@@ -16,6 +16,7 @@ use crate::descendants;
 use crate::environment::{ENVIRONMENT, InvalidInvocation, Invocation, WORKING_DIRECTORY};
 use crate::output::{Ending, OutputBudget, terminal_status};
 use crate::pid1;
+use crate::timings::{self, Step};
 
 mod pipes;
 
@@ -86,7 +87,7 @@ pub fn execute(
 ) -> Result<Completion, ExecutorFault> {
     let invocation = Invocation::from_command(command).map_err(ExecutorFault::Invocation)?;
     let deadline = Instant::now() + Duration::from_millis(u64::from(command.timeout_millis()));
-    let mut child = match spawn(&invocation) {
+    let mut child = match timings::measure(Step::Spawn, || spawn(&invocation)) {
         Ok(child) => child,
         Err(errno) => {
             return Ok(Completion {
@@ -104,19 +105,25 @@ pub fn execute(
         return Err(ExecutorFault::ProcessGroup);
     }
     let mut budget = OutputBudget::new(command.output_bytes());
-    let streamed = pipes::stream(
-        child.stdout.take(),
-        child.stderr.take(),
-        &mut budget,
-        sink,
-        deadline,
-        process_group,
-    );
-    let ending = wait_for_child(&mut child, streamed.kill_by, process_group);
-    descendants::kill_group(process_group);
-    descendants::reap_group(process_group);
-    pid1::reap_orphans();
-    descendants::sweep_strays();
+    let streamed = timings::measure(Step::Stream, || {
+        pipes::stream(
+            child.stdout.take(),
+            child.stderr.take(),
+            &mut budget,
+            sink,
+            deadline,
+            process_group,
+        )
+    });
+    let ending = timings::measure(Step::Wait, || {
+        wait_for_child(&mut child, streamed.kill_by, process_group)
+    });
+    timings::measure(Step::Reap, || {
+        descendants::kill_group(process_group);
+        descendants::reap_group(process_group);
+        pid1::reap_orphans();
+        descendants::sweep_strays();
+    });
     if streamed.sink_failed {
         return Err(ExecutorFault::Sink);
     }

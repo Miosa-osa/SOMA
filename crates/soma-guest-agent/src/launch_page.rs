@@ -9,9 +9,12 @@
 #![allow(unsafe_code)]
 
 use std::ptr;
+use std::time::Instant;
 
 use soma_guest::{GuestLaunchMaterial, LAUNCH_PAGE_SIZE};
 use zeroize::Zeroizing;
+
+use crate::timings::{self, Step};
 
 pub use soma_guest::LAUNCH_PAGE_GUEST_ADDRESS;
 
@@ -62,9 +65,15 @@ impl Drop for Locked<'_> {
 pub fn consume(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> Result<GuestLaunchMaterial, LaunchPageError> {
     let mut copy = Zeroizing::new([0_u8; LAUNCH_PAGE_SIZE]);
     let locked = Locked::pin(&mut copy)?;
+    let pinned = Instant::now();
     copy_volatile(view, locked.0);
+    let copied = Instant::now();
     let erased = erase_and_verify(view);
+    let scrubbed = Instant::now();
     let parsed = GuestLaunchMaterial::take_from_page(locked.0);
+    timings::record(Step::PageCopy, copied.saturating_duration_since(pinned));
+    timings::record(Step::PageErase, scrubbed.saturating_duration_since(copied));
+    timings::record(Step::PageParse, scrubbed.elapsed());
     drop(locked);
     if !erased {
         return Err(LaunchPageError::EraseUnverified);
@@ -121,9 +130,11 @@ mod physical {
     use std::os::unix::fs::OpenOptionsExt;
     use std::os::unix::io::AsRawFd;
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use soma_guest::{GuestLaunchMaterial, LAUNCH_PAGE_SIZE};
+
+    use crate::timings::{self, Step};
 
     use super::{LAUNCH_PAGE_GUEST_ADDRESS, LaunchPageError, consume, errno, page_present};
 
@@ -185,10 +196,19 @@ mod physical {
     /// Returns a redacted mapping, parsing, or erasure failure.
     pub fn await_and_consume(poll: Duration) -> Result<GuestLaunchMaterial, LaunchPageError> {
         let mut page = MappedPage::map()?;
+        // A restore interrupts this sleep, so the wake that finds the page reports how much of
+        // the pickup was the guest being asleep rather than the guest doing work.
+        let mut slept = Instant::now();
         loop {
-            if page_present(page.view()) {
+            let woke = Instant::now();
+            let present = page_present(page.view());
+            let looked = Instant::now();
+            if present {
+                timings::record(Step::PollWake, woke.saturating_duration_since(slept));
+                timings::record(Step::PageLook, looked.saturating_duration_since(woke));
                 return consume(page.view());
             }
+            slept = Instant::now();
             thread::sleep(poll);
         }
     }

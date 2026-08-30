@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use soma_guest::ControlIo;
 
 use crate::ioctl;
+use crate::timings::{self, Step};
 
 pub use soma_guest::CONTROL_VSOCK_PORT;
 
@@ -104,6 +105,28 @@ impl<S: DeadlineStream> ControlIo for StreamIo<S> {
     type Error = IoFault;
 
     fn read_exact(&mut self, bytes: &mut [u8], deadline: Instant) -> Result<(), IoFault> {
+        let started = Instant::now();
+        let outcome = self.fill(bytes, deadline);
+        timings::add_read(started.elapsed());
+        outcome
+    }
+
+    fn write_all(&mut self, bytes: &[u8], deadline: Instant) -> Result<(), IoFault> {
+        let started = Instant::now();
+        let outcome = self.drain(bytes, deadline);
+        timings::add_write(started.elapsed());
+        outcome
+    }
+
+    fn poison(&mut self) {
+        self.poisoned = true;
+        self.stream.close();
+    }
+}
+
+impl<S: DeadlineStream> StreamIo<S> {
+    /// Fills the whole slice, recording nothing so the caller owns the accounting.
+    fn fill(&mut self, bytes: &mut [u8], deadline: Instant) -> Result<(), IoFault> {
         let mut filled = 0;
         while filled < bytes.len() {
             let remaining = self.remaining(deadline)?;
@@ -121,7 +144,8 @@ impl<S: DeadlineStream> ControlIo for StreamIo<S> {
         Ok(())
     }
 
-    fn write_all(&mut self, bytes: &[u8], deadline: Instant) -> Result<(), IoFault> {
+    /// Writes the whole slice, recording nothing so the caller owns the accounting.
+    fn drain(&mut self, bytes: &[u8], deadline: Instant) -> Result<(), IoFault> {
         let mut written = 0;
         while written < bytes.len() {
             let remaining = self.remaining(deadline)?;
@@ -137,11 +161,6 @@ impl<S: DeadlineStream> ControlIo for StreamIo<S> {
             }
         }
         Ok(())
-    }
-
-    fn poison(&mut self) {
-        self.poisoned = true;
-        self.stream.close();
     }
 }
 
@@ -161,7 +180,8 @@ pub fn connect_vsock(
     expected_cid: u32,
     deadline: Instant,
 ) -> Result<StreamIo<UnixStream>, TransportError> {
-    await_local_cid(expected_cid, deadline)?;
+    timings::measure(Step::CidWait, || await_local_cid(expected_cid, deadline))?;
+    let opened = Instant::now();
     // SAFETY: `socket` has no memory preconditions; the descriptor is checked before use.
     let fd = unsafe { libc::socket(libc::AF_VSOCK, libc::SOCK_STREAM | libc::SOCK_CLOEXEC, 0) };
     if fd < 0 {
@@ -198,6 +218,7 @@ pub fn connect_vsock(
     if connected != 0 {
         return Err(TransportError::Connect(last_errno()));
     }
+    timings::record(Step::VsockConnect, opened.elapsed());
     Ok(StreamIo::new(stream))
 }
 

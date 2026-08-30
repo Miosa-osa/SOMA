@@ -24,6 +24,8 @@ use std::time::{Duration, Instant};
 
 use zeroize::Zeroizing;
 
+use crate::timings::{self, Step};
+
 mod kernel;
 
 #[cfg(test)]
@@ -69,10 +71,12 @@ trait Pool {
 ///
 /// Returns the first failed step with its errno.
 pub fn repair(seed: &[u8; CONTRIBUTION_BYTES], deadline: Instant) -> Result<(), EntropyError> {
-    let hardware = read_hardware(&mut kernel::hardware_device()?, deadline)?;
+    let hardware = timings::measure(Step::EntropyRead, || {
+        read_hardware(&mut kernel::hardware_device()?, deadline)
+    })?;
     let pool = kernel::KernelPool::open()?;
-    credit(&hardware, seed, &pool)?;
-    kernel::verify_nonblocking()
+    timings::measure(Step::EntropyMix, || credit(&hardware, seed, &pool))?;
+    timings::measure(Step::EntropyVerify, kernel::verify_nonblocking)
 }
 
 /// Mixes the credited hardware read and the uncredited launch seed, then forces a reseed.

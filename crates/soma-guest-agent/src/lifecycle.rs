@@ -12,6 +12,7 @@ use soma_guest::{
 use crate::executor::{self, ExecutorFault, OutputSink, SinkFault};
 use crate::repair::{Controller, Fault, Poisoned, Ready};
 use crate::shutdown;
+use crate::timings::{self, Step};
 
 /// Longest idle wait for the next authenticated request before the guest fails closed.
 pub const IDLE_CEILING: Duration = Duration::from_hours(24);
@@ -93,8 +94,7 @@ fn run_command<I: ControlIo>(
         Err(ExecutorFault::Invocation(_)) => TerminalStatus::AgentFailed(AGENT_FAILED_INVOCATION),
         Err(ExecutorFault::ProcessGroup) => TerminalStatus::AgentFailed(AGENT_FAILED_PROCESS_GROUP),
     };
-    let control = control
-        .terminal(status, deadline)
+    let control = timings::measure(Step::TerminalReport, || control.terminal(status, deadline))
         .map_err(|_| Fault::Control)?;
     Ok((control, status))
 }
@@ -105,15 +105,17 @@ fn run_command<I: ControlIo>(
 ///
 /// Returns the fault that must poison the guest.
 pub fn probe<I: ControlIo>(control: GuestControl<I>) -> Result<GuestControl<I>, Fault> {
-    let (control, request) = control
-        .next_request(Instant::now() + IDLE_CEILING)
-        .map_err(|_| Fault::Control)?;
+    let (control, request) = timings::measure(Step::RequestWait, || {
+        control.next_request(Instant::now() + IDLE_CEILING)
+    })
+    .map_err(|_| Fault::Control)?;
     if !matches!(request, GuestRequest::PrepareAndProbe { .. }) {
         return Err(Fault::Control);
     }
-    let control = control
-        .repair_complete(Instant::now() + REPORT_BUDGET)
-        .map_err(|_| Fault::Control)?;
+    let control = timings::measure(Step::RepairReport, || {
+        control.repair_complete(Instant::now() + REPORT_BUDGET)
+    })
+    .map_err(|_| Fault::Control)?;
     let (control, status) = run_command(control, &readiness_probe())?;
     if status != TerminalStatus::Exited(0) {
         return Err(Fault::Executor);

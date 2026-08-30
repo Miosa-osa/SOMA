@@ -46,6 +46,8 @@ mod network_repair;
 mod pid1;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod shutdown;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod timings;
 
 const PROBE_ARGUMENT: &str = "--soma-ready-probe-v1";
 
@@ -72,6 +74,7 @@ mod agent {
     use soma_guest::GuestControl;
 
     use crate::repair::{Controller, Fault, Poisoned, State, Step};
+    use crate::timings::{self, Step as Measured};
     use crate::{
         boot, console, control, entropy, identity, launch_page, lifecycle, network_repair, pid1,
     };
@@ -126,24 +129,30 @@ mod agent {
                     .map_err(|_| Fault::Transport),
             ),
         );
-        let (controller, ()) = advance(
-            controller.repair_identity(
-                identity::repair(binding.instance(), network.time_sample_nanos())
-                    .map_err(|_| Fault::Identity),
-            ),
+        let repaired = timings::measure(Measured::Identity, || {
+            identity::repair(binding.instance(), network.time_sample_nanos())
+        });
+        let (controller, ()) =
+            advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));
+        let installed = timings::measure(Measured::Network, || {
+            network_repair::repair(&network, &hostname)
+        });
+        let (controller, ()) =
+            advance(controller.repair_network(installed.map_err(|_| Fault::Network)));
+        let authenticated = timings::around(
+            Measured::HandshakeWait,
+            Measured::HandshakeSend,
+            Measured::HandshakeWork,
+            || GuestControl::connect(session, transport, Instant::now() + HANDSHAKE_BUDGET),
         );
-        let (controller, ()) = advance(controller.repair_network(
-            network_repair::repair(&network, &hostname).map_err(|_| Fault::Network),
-        ));
-        let (controller, authenticated) = advance(
-            controller.authenticate(
-                GuestControl::connect(session, transport, Instant::now() + HANDSHAKE_BUDGET)
-                    .map_err(|_| Fault::Control),
-            ),
-        );
+        let (controller, authenticated) =
+            advance(controller.authenticate(authenticated.map_err(|_| Fault::Control)));
         let (controller, probed) = advance(controller.probe(lifecycle::probe(authenticated)));
         let (controller, ()) = advance(controller.ready(Ok(())));
         console::report("ready");
+        for line in timings::lines() {
+            console::report(&line);
+        }
         destroy(&lifecycle::serve(controller, probed))
     }
 
