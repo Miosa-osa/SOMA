@@ -32,6 +32,11 @@ const REFERENCE: &str = "reference";
 /// The artifact store the Candidate manifest describes.
 const STORE_DIRECTORY: &str = "store";
 
+/// Most a reference file may hold. An image reference is short.
+const MAX_REFERENCE_BYTES: u64 = 4096;
+/// Most a published Candidate may hold, matching the manifest size the encoder admits.
+const MAX_CANDIDATE_BYTES: u64 = 1 << 20;
+
 /// Why a request cannot be served from the prepared root.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum PreparedError {
@@ -78,7 +83,30 @@ pub(super) struct PreparedGeneration {
 /// rather than what it points at. A path that cannot be read at all is refused for the same
 /// reason a link is: what launches must be exactly what was verified.
 fn is_link(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_symlink())
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata.file_type().is_symlink(),
+        // A path that cannot be described cannot be shown not to be a link, so it counts as one.
+        // `is_ok_and` would answer false here, which is the opposite of failing closed.
+        Err(_) => true,
+    }
+}
+
+/// Whether `path` or any component of it below `root` is a symbolic link.
+///
+/// Checking only the final component leaves an ancestor free to redirect everything beneath it,
+/// so each component from `root` down is examined.
+fn any_component_is_link(root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(root) else {
+        return true;
+    };
+    let mut walked = root.to_path_buf();
+    for component in relative.components() {
+        walked.push(component);
+        if is_link(&walked) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Whether this entry claims `reference`.
@@ -86,18 +114,39 @@ fn is_link(path: &Path) -> bool {
 /// Claiming is decided by the reference text alone, before anything else is read, so that two
 /// entries claiming one reference are ambiguous whatever their contents are.
 fn claims(entry: &Path, reference: &str) -> bool {
-    std::fs::read_to_string(entry.join(REFERENCE))
-        .is_ok_and(|prepared_for| prepared_for.trim() == reference)
+    read_bounded(&entry.join(REFERENCE), MAX_REFERENCE_BYTES)
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .is_some_and(|prepared_for| prepared_for.trim() == reference)
+}
+
+/// Reads at most `limit` bytes, refusing anything larger.
+///
+/// These files come from a host directory the request path does not control, so a read is
+/// bounded rather than trusted to be small. A file at the limit is refused too, because a file
+/// that fills the bound may have been cut off at it.
+fn read_bounded(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(limit).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 >= limit {
+        return None;
+    }
+    Some(bytes)
 }
 
 /// Reads the one entry that claims the reference, once it is known to be the only one.
-fn read_entry(entry: &Path) -> Result<PreparedGeneration, PreparedError> {
+fn read_entry(root: &Path, entry: &Path) -> Result<PreparedGeneration, PreparedError> {
     let candidate = entry.join(CANDIDATE);
     let store = entry.join(STORE_DIRECTORY);
-    if is_link(entry) || is_link(&entry.join(REFERENCE)) || is_link(&candidate) || is_link(&store) {
+    if any_component_is_link(root, entry)
+        || is_link(&entry.join(REFERENCE))
+        || is_link(&candidate)
+        || is_link(&store)
+    {
         return Err(PreparedError::Linked);
     }
-    let bytes = std::fs::read(&candidate).map_err(|_| PreparedError::Damaged)?;
+    let bytes = read_bounded(&candidate, MAX_CANDIDATE_BYTES).ok_or(PreparedError::Damaged)?;
     let manifest = decode_candidate(&bytes).map_err(|_| PreparedError::Damaged)?;
     if !store.is_dir() {
         return Err(PreparedError::Damaged);
@@ -122,37 +171,44 @@ fn read_entry(entry: &Path) -> Result<PreparedGeneration, PreparedError> {
 pub(super) fn find(
     root: Option<&Path>,
     reference: &str,
+    allow_uncertified: bool,
 ) -> Result<PreparedGeneration, PreparedError> {
     let root = root.ok_or(PreparedError::StoreUnset)?;
-    if is_link(root) {
-        return Err(PreparedError::Linked);
+    // A root that is simply absent is a different operator problem from one that is a link, and
+    // reporting the wrong one sends the operator to the wrong place. Anything else that cannot
+    // be described still counts as a link, because it cannot be shown not to be one.
+    match std::fs::symlink_metadata(root) {
+        Ok(metadata) if metadata.file_type().is_symlink() => return Err(PreparedError::Linked),
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(PreparedError::StoreUnreadable);
+        }
+        Err(_) => return Err(PreparedError::Linked),
     }
     let entries = std::fs::read_dir(root).map_err(|_| PreparedError::StoreUnreadable)?;
     let mut claimants = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
+    for entry in entries {
+        // An entry that cannot be read is not skipped: an unreadable name could be the second
+        // claimant that makes this reference ambiguous, so the scan fails rather than guessing.
+        let path = entry.map_err(|_| PreparedError::StoreUnreadable)?.path();
         if path.is_dir() && claims(&path, reference) {
             claimants.push(path);
         }
     }
     match claimants.as_slice() {
         [] => Err(PreparedError::NotPrepared),
-        [only] => {
-            let prepared = read_entry(only)?;
-            // Nothing a host can prepare today carries a certification, so this is where a
-            // Candidate is stopped: before any overlay, VM, vCPU, or guest thread exists.
-            if uncertified_allowed() {
-                Ok(prepared)
-            } else {
-                Err(PreparedError::Uncertified)
-            }
-        }
+        // Nothing a host can prepare today carries a certification, so a Candidate is stopped
+        // here, before it is decoded and before any overlay, machine, vCPU, or guest thread
+        // exists. Refusing before the decode also means a damaged entry is still refused as
+        // uncertified rather than reporting how it was damaged.
+        [_] if !allow_uncertified => Err(PreparedError::Uncertified),
+        [only] => read_entry(root, only),
         _ => Err(PreparedError::Ambiguous),
     }
 }
 
 /// Whether this host opted into launching an uncertified Candidate.
-fn uncertified_allowed() -> bool {
+pub(super) fn uncertified_allowed() -> bool {
     allows_uncertified(std::env::var_os(ALLOW_UNCERTIFIED).as_deref())
 }
 
