@@ -82,7 +82,7 @@ fn generation_resolution_refuses_a_candidate_object() {
 }
 
 #[test]
-fn certification_is_the_only_promotion_path_and_it_is_not_implemented() {
+fn certification_refuses_a_candidate_without_a_captured_snapshot() {
     let Some(tools) = toolchains("certification_is_the_only_promotion_path") else {
         return;
     };
@@ -90,10 +90,15 @@ fn certification_is_the_only_promotion_path_and_it_is_not_implemented() {
     let scratch = tempfile::tempdir().unwrap();
     let compiled = compile(&normalized, &fixture.store, scratch.path(), &tools, AGENT).unwrap();
 
-    let error = certify_candidate(&fixture.store, &compiled.candidate, &test_profile())
-        .expect_err("boot, capture, and certification have no implementation");
+    let error = certify_candidate(
+        &fixture.store,
+        &compiled.candidate,
+        &test_profile(),
+        soma_generation::SnapshotBinding::Absent,
+    )
+    .expect_err("an absent snapshot cannot be certified");
     assert_eq!(error.phase(), CompilePhase::Certify);
-    assert_eq!(error.kind(), CompileErrorKind::Unimplemented);
+    assert_eq!(error.kind(), CompileErrorKind::InvalidInput);
     assert!(
         objects_with_magic(&fixture.store, READY_MAGIC).is_empty(),
         "a failed certification left a ready Generation identity"
@@ -180,16 +185,17 @@ fn a_correctly_encoded_candidate_incompatible_with_the_exact_profile_is_rejected
 }
 
 #[test]
-fn no_resolution_can_report_a_launchable_generation_yet() {
-    let Some(tools) = toolchains("no_resolution_can_report_a_launchable_generation_yet") else {
+fn a_candidate_cannot_be_relabelled_as_a_launchable_generation() {
+    let Some(tools) = toolchains("a_candidate_cannot_be_relabelled_as_a_launchable_generation")
+    else {
         return;
     };
     let (fixture, normalized) = normalize_layers_for(&fixture_layers(), "amd64");
     let scratch = tempfile::tempdir().unwrap();
     let compiled = compile(&normalized, &fixture.store, scratch.path(), &tools, AGENT).unwrap();
 
-    // The Candidate resolution has no launchability at all, and the Generation resolution
-    // cannot succeed while certification and snapshot verification are unimplemented.
+    // Candidate resolution has no launchability, and ready Generation decoding refuses the
+    // Candidate magic even when a caller relabels its digest.
     assert!(verify_candidate(&fixture.store, compiled.id(), &test_profile()).is_ok());
     let guessed = guessed_generation_id(compiled.id());
     assert!(verify_generation(&fixture.store, &guessed, &test_profile()).is_err());

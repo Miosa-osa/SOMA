@@ -102,6 +102,13 @@ impl Certification {
         self.snapshot
     }
 
+    pub(super) const fn new(candidate: CandidateId, snapshot: SnapshotBinding) -> Self {
+        Self {
+            candidate,
+            snapshot,
+        }
+    }
+
     /// Builds the token the certification gates would produce.
     ///
     /// Only the crate's own tests may call this, so no caller outside the gates can forge one.

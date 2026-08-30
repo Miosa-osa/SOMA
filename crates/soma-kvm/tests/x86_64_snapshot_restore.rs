@@ -66,6 +66,10 @@ mod x86_64_snapshot_restore_rejection;
 mod x86_64_snapshot_restore_timing;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_snapshot_restore/certification.rs"]
+mod x86_64_snapshot_restore_certification;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
     use soma_guest::TerminalStatus;
     use soma_kvm::x86_64::{GuestExit, Milestone};

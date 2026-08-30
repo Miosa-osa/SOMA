@@ -69,7 +69,7 @@ pub struct RestoreRequest {
 pub struct RestoreFacts {
     /// The digest of the exact snapshot state object this Instance was restored from.
     pub snapshot: Digest,
-    pub generation_id: [u8; 32],
+    pub candidate_id: [u8; 32],
     pub memory_bytes: u64,
     /// The console line the agent printed at the capture point.
     pub repair_point_line: Vec<u8>,
@@ -256,7 +256,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         machine,
         facts: RestoreFacts {
             snapshot,
-            generation_id: *manifest.header().generation_id.as_bytes(),
+            candidate_id: *manifest.header().candidate_id.as_bytes(),
             memory_bytes: manifest.header().memory.size(),
             repair_point_line,
             mac,

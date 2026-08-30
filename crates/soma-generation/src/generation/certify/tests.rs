@@ -33,7 +33,7 @@ fn a_candidate_is_never_launchable_and_names_its_own_identity() {
     assert_eq!(candidate.descriptor.role, ArtifactRole::GenerationCandidate);
     assert_eq!(
         candidate.descriptor.media_type(),
-        "application/vnd.soma.generation-candidate.v1"
+        "application/vnd.soma.generation-candidate.v2"
     );
 }
 

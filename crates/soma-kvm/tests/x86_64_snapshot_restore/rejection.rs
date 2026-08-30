@@ -134,7 +134,7 @@ fn the_published_objects_carry_no_launch_material() {
     // A freshly generated Instance's own secret halves must therefore appear nowhere in the
     // captured objects: the snapshot carries no authority to reuse.
     let fresh = HostLaunchMaterial::generate(
-        fixture.generation_id,
+        fixture.candidate_id,
         session::random16(),
         session::random16(),
         LaunchNetwork::new(

@@ -15,6 +15,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = { version = "=0.11.0", default-features = false }
 soma = { path = "../soma", version = "=1.0.0-alpha.1" }
+soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.1" }
 soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.1" }
 tar = { version = "=0.4.46", default-features = false }
 

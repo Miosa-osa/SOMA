@@ -8,7 +8,7 @@
 
 ## Context
 
-Snapshot format v1 orders the quiesce preconditions a Generation builder must prove before it reads any machine state, and the first of them was `GuestAuthenticated`.
+Snapshot format v2 orders the quiesce preconditions a Generation builder must prove before it reads any machine state, and the first of them was `GuestAuthenticated`.
 That ordering assumed a builder that authenticates an Instance, does work, and later returns the machine to a disconnected repair point, so that a captured session would have to be scrubbed out of guest memory before the image could be published.
 
 The implemented guest agent reaches a strictly earlier point.

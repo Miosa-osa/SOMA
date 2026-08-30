@@ -5,6 +5,7 @@ use soma::GenerationId;
 use super::{
     artifacts::{ArtifactDescriptor, ArtifactRole},
     candidate::CandidateId,
+    certify::verify_snapshot_binding,
     erofs::{self},
     erofs_reader::ErofsImage,
     erofs_verify::{RootExpectation, verify_root_image},
@@ -65,8 +66,7 @@ pub struct VerifiedCandidate {
 ///
 /// # Errors
 ///
-/// Returns the first failing phase and kind; a bound snapshot returns
-/// [`CompileErrorKind::Unimplemented`] because no snapshot verifier exists yet.
+/// Returns the first failing phase and kind.
 pub fn verify_generation(
     store: &Path,
     id: &GenerationId,
@@ -78,18 +78,24 @@ pub fn verify_generation(
     let manifest = decode_manifest(&bytes)?;
     // The artifact walk runs before the snapshot decision so a tampered ready manifest is
     // rejected on its content rather than on its shape alone.
-    let _artifacts_verified = verify_decoded(&store, &manifest, profile)?;
+    let artifacts_verified = verify_decoded(&store, &manifest, profile)?;
     if manifest.snapshot == SnapshotBinding::Absent {
         // Publishing a ready manifest requires the certification token, and that token carries
         // the snapshot binding, so a ready manifest without one was never produced here.
         return Err(integrity());
     }
-    // Verifying a captured snapshot is phase 5 work. Until it exists no Generation can be
-    // reported launchable, so this resolution fails closed instead of guessing.
-    Err(CompileError::new(
+    verify_snapshot_binding(
+        &store,
+        manifest.snapshot,
+        None,
         CompilePhase::VerifyGeneration,
-        CompileErrorKind::Unimplemented,
-    ))
+    )?;
+    Ok(VerifiedGeneration {
+        id: id.clone(),
+        manifest,
+        artifacts_verified,
+        launchable: true,
+    })
 }
 
 /// Re-verifies a published Candidate across all of its artifacts.

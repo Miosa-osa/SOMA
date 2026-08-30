@@ -1162,6 +1162,7 @@ dependencies = [
  "sha2",
  "soma",
  "soma-guest",
+ "soma-kvm",
  "soma-supervise",
  "soma-template",
  "tar",

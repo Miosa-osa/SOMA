@@ -10,7 +10,7 @@ use crate::generation::{
     template::MAX_WORKLOAD_PROBE_BYTES,
 };
 
-/// Encodes the canonical `SOMAGEN` v1 bytes whose SHA-256 is the `GenerationId`.
+/// Encodes the canonical `SOMAGEN` v2 bytes whose SHA-256 is the `GenerationId`.
 ///
 /// Fields are emitted in fixed order with big-endian integers, explicit presence bytes, and
 /// length-prefixed bounded byte strings; no map or implementation-dependent ordering exists.
@@ -99,12 +99,14 @@ fn encode_with(manifest: &GenerationManifest, magic: [u8; 8]) -> Result<Vec<u8>,
         SnapshotBinding::Captured {
             format_version,
             memory,
+            overlay,
             state,
             capture_point_version,
         } => {
             encoder.u8(1)?;
             encoder.u16(format_version)?;
             encoder.descriptor(&memory, ArtifactRole::MemorySnapshot)?;
+            encoder.descriptor(&overlay, ArtifactRole::OverlaySnapshot)?;
             encoder.descriptor(&state, ArtifactRole::StateManifest)?;
             encoder.u16(capture_point_version)?;
         }

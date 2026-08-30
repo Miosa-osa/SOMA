@@ -19,7 +19,7 @@ use crate::snapshot::{
     capture::{CaptureStep, Quiesce, QuiescePrecondition},
     device_state::DeviceState,
     kvm_state::{MemorySlot, VmState},
-    manifest::{Architecture, GenerationId, Manifest, ManifestHeader, PageSize},
+    manifest::{Architecture, CandidateId, Manifest, ManifestHeader, PageSize},
     memory::MemoryDescriptor,
     section::{Section, SectionRole},
 };
@@ -34,7 +34,7 @@ pub struct CaptureRequest<'a> {
     /// Where the three objects are published.
     pub paths: SnapshotPaths,
     /// The identity of the Generation this machine was built from.
-    pub generation_id: [u8; 32],
+    pub candidate_id: [u8; 32],
     /// The immutable EROFS root, for its installation-time identity only.
     pub root: &'a mut File,
     /// The Instance-private overlay head, which becomes this snapshot's sterile template.
@@ -245,7 +245,7 @@ fn build(
     let header = ManifestHeader {
         architecture: Architecture::X86_64,
         page_size: PageSize::FOUR_KIB,
-        generation_id: GenerationId::new(request.generation_id)?,
+        candidate_id: CandidateId::new(request.candidate_id)?,
         machine_contract: profile::machine_contract(),
         device_contract: profile::device_contract(),
         cpu_template: parts.cpu_template,

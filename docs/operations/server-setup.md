@@ -99,7 +99,8 @@ This script builds both from digest-verified source inside the pinned builder im
 ## Step 5: build your first Candidates
 
 A **Candidate** is an OCI-derived machine image compiled with the pinned kernel and guest agent.
-It becomes a production **Generation** only after certification and promotion, which are not implemented yet.
+It becomes a production **Generation** only after snapshot installation, certification, and promotion.
+Those library gates are implemented, but this setup flow still prepares only a development Candidate and does not yet run the live capture-and-promotion workflow.
 The current development path can explicitly opt into booting the Candidate from the prepared store.
 
 Prepare a small shell image and a Node runtime image:

@@ -114,8 +114,9 @@ Kernel, deterministic initramfs, guest agent, root and overlay artifacts, machin
 The retained prototype proved byte-identical EROFS output from logically identical trees created in opposite insertion orders and recorded the populated-ext4 reproducibility failure that caused the two-device correction.
 Status: phases 1 through 3 and 6 are component-tested, and phase 4 is partial.
 A compiled Generation Candidate cold-booting on KVM to an authenticated guest agent and one bounded command is live-proved at `71161ea` and historical, because that run used initramfs layout v2 and its recorded `GenerationId` values are no longer reproducible.
-Certification and the ready manifest are designed only; `certify_candidate` fails closed as unimplemented.
-ADR 0026 keeps that incomplete work in the Candidate namespace, so nothing resolvable as a Generation exists yet.
+Snapshot installation, Candidate certification, ready-manifest promotion, and ready Generation verification are implemented and component-tested.
+ADR 0026 keeps pre-capture work in the Candidate namespace, while ADR 0032 binds the exact Candidate and all three captured artifacts before a resolvable Generation is published.
+A fresh Linux KVM execution of the ignored end-to-end certification test remains required before claiming current live evidence.
 Under [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) no responder key belongs in the manifest at all: the Generation carries public identity only and the Host generates fresh responder authority for every Instance.
 See [Generation compiler](generation-compiler.md), [ADR 0018](../adr/0018-content-addressed-oci-import.md), [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md), and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 
@@ -130,12 +131,13 @@ How are memory, vCPU, interrupt, clock, and device states captured, authenticate
 
 ### Answer
 
-Resolved architecturally; capture and restore are live-proved at `5d71524` on the current per-Instance authority design.
-Version 1 uses one immutable page-aligned memory object mapped `MAP_PRIVATE | MAP_NORESERVE`, one canonical typed state manifest, separately managed disks, exact compatibility rejection, authority exclusion, quiescent capture, and fixed fail-closed restore ordering.
-A real `node:22` Generation is booted to its disconnected repair point, captured before any launch material exists, and restored into independent authenticated Instances that execute a command. The current retained result is [the capture and restore on the per-Instance authority design](../evidence/2026-08-30-x86_64-snapshot-restore-current-authority.md) at `5d71524`, whose object scan shows no Instance responder identity in `memory.raw`, `overlay.raw`, or `state.somasnap`; [the `7c1127d` run](../evidence/2026-08-29-x86_64-snapshot-restore.md) is retained as historical because it predates ADR 0024.
+Resolved architecturally and component-tested on snapshot schema 2.
+Snapshot format version 2 uses one immutable page-aligned memory object mapped `MAP_PRIVATE | MAP_NORESERVE`, one canonical typed state manifest, separately managed disks, exact compatibility rejection, authority exclusion, quiescent capture, and fixed fail-closed restore ordering.
+A real `node:22` Candidate was booted to its disconnected repair point, captured before any launch material existed, and restored into independent authenticated Instances that executed a command at `5d71524`.
+That retained run is historical because ADR 0032 changed the current bytes to bind the Candidate identity and all three restore artifacts in schema 2.
 That observation stands as recorded, but it cannot certify current bytes: the captured Generation still carried a Generation-scoped responder private key in `memory.raw`, which ADR 0024 removed, and the restored ready transition has since been bound to an authenticated readiness receipt.
 On the current authority design capture and restore are therefore component-tested, and recapture is finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
-See [snapshot format v1](snapshot-format-v1.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), [ADR 0030](../adr/0030-pre-launch-snapshot-capture-point.md), and [fast path](../architecture/fast-path.md).
+See [snapshot format v2](snapshot-format-v2.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), [ADR 0030](../adr/0030-pre-launch-snapshot-capture-point.md), and [fast path](../architecture/fast-path.md).
 
 ## #8: How does the guest become a fresh authenticated Instance?
 
@@ -152,7 +154,7 @@ Designed, with the parts below carrying their own status.
 The static guest agent owns early mounts, one-use launch material, entropy and identity repair, fresh Noise-authenticated vsock control, direct bounded execution, shutdown, and the only path to Ready.
 Declared environment values, secret delivery, uploads, and workspace attachments occur only after fresh identity and authenticated repair and never become reusable snapshot authority.
 Status: the launch-page delivery and retirement, entropy, identity, and network repair, the Noise handshake over vsock, the readiness probe, one bounded Execute, and authenticated shutdown are live-proved on a cold boot at `71161ea`, and that run is historical because it predates initramfs layout v3 and launch-page schema 3.
-The same path after a snapshot restore, which is the ticket's actual question, is live-proved at `5d71524`: restores of one captured `node:22` Generation each reached Ready, ran a command, and shut down, including two proved to be independent Instances.
+The same path after a snapshot restore was live-proved at `5d71524` and is now historical after the schema 2 identity correction.
 On the current per-Instance authority design and the current readiness-receipt transition, the restored repair path is component-tested and awaits the recapture required by finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 See [Linux guest integration](linux-guest-agent-integration.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 See [ADR 0017](../adr/0017-authenticated-guest-session.md), [ADR 0020](../adr/0020-launch-page-and-application-wire-contracts.md), and [ADR 0021](../adr/0021-own-authenticated-control-lifecycle.md).
@@ -244,7 +246,8 @@ What runs today, at `08e4d45`: `soma --backend kvm run node:22` resolves a prepa
 What this ticket still requires, and the slice above does not do:
 
 - Launch restores a snapshot. The slice cold boots, which is why it reaches Ready in roughly 646 ms rather than the restore figures measured separately.
-- Resolve selects a certified Generation. Certification does not exist, so the slice resolves a Candidate and reports a null `generation_id`.
+- Resolve is designed to select a certified Generation.
+- The current local preparation command still publishes a Candidate entry and therefore reports a null `generation_id`; the certification API exists, but the host preparation workflow has not adopted it yet.
 - Capacity admission, durable OperationId ownership recorded before any external effect, and rejection of a conflicting request fingerprint on retry.
 - A claimed prepared worker and sterile bundle, rather than a machine created per request.
 - A network lease and activation. The guest device is link down.

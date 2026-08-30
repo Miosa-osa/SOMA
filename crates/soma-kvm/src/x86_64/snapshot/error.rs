@@ -11,6 +11,7 @@ use crate::snapshot::{
     capture::CaptureOrderError,
     compatibility::Incompatibility,
     device_state::DeviceStateError,
+    inspection::InspectionError,
     kvm_state::KvmStateError,
     manifest::ManifestError,
     memory::{MappingError, MemoryError},
@@ -69,6 +70,8 @@ pub enum SnapshotError {
     SlotRestore(SlotRestoreError),
     /// The manifest could not be built or decoded.
     Manifest(ManifestError),
+    /// The three installed snapshot artifacts do not form one certified capture.
+    Inspection(InspectionError),
     /// A section could not be built or decoded.
     Section(SectionError),
     /// A section payload could not be decoded.
@@ -88,6 +91,12 @@ pub enum SnapshotError {
         artifact: Artifact,
         operation: &'static str,
         errno: i32,
+    },
+    /// A bounded metadata object is too large to read safely.
+    ArtifactTooLarge {
+        artifact: Artifact,
+        size: u64,
+        maximum: u64,
     },
     /// An artifact is already published, so the capture would overwrite a certified object.
     AlreadyPublished(Artifact),
@@ -135,6 +144,7 @@ impl fmt::Display for SnapshotError {
             ),
             Self::SlotRestore(error) => write!(formatter, "{error}"),
             Self::Manifest(error) => write!(formatter, "{error}"),
+            Self::Inspection(error) => write!(formatter, "{error}"),
             Self::Section(error) => write!(formatter, "{error}"),
             Self::Wire(error) => write!(formatter, "{error}"),
             Self::Memory(error) => write!(formatter, "{error}"),
@@ -151,6 +161,14 @@ impl fmt::Display for SnapshotError {
             } => write!(
                 formatter,
                 "{operation} on the {artifact:?} artifact failed with errno {errno}"
+            ),
+            Self::ArtifactTooLarge {
+                artifact,
+                size,
+                maximum,
+            } => write!(
+                formatter,
+                "the {artifact:?} artifact is {size} bytes, above the {maximum}-byte limit"
             ),
             Self::AlreadyPublished(artifact) => {
                 write!(formatter, "the {artifact:?} artifact is already published")
@@ -187,6 +205,7 @@ from_error! {
     DeviceStateError => DeviceState,
     SlotRestoreError => SlotRestore,
     ManifestError => Manifest,
+    InspectionError => Inspection,
     SectionError => Section,
     WireError => Wire,
     MemoryError => Memory,

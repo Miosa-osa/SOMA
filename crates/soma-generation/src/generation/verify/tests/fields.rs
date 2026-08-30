@@ -109,8 +109,9 @@ fn a_captured_snapshot_binding_is_bounded_and_version_locked() {
 
     rejected(Incompatibility::SnapshotBinding, |m| {
         m.snapshot = SnapshotBinding::Captured {
-            format_version: 2,
+            format_version: 3,
             memory: fixture::descriptor(ArtifactRole::MemorySnapshot, 0x20, 4096),
+            overlay: fixture::descriptor(ArtifactRole::OverlaySnapshot, 0x22, 4096),
             state: fixture::descriptor(ArtifactRole::StateManifest, 0x21, 4096),
             capture_point_version: contracts::SNAPSHOT_CAPTURE_POINT_VERSION,
         };
@@ -119,6 +120,7 @@ fn a_captured_snapshot_binding_is_bounded_and_version_locked() {
         m.snapshot = SnapshotBinding::Captured {
             format_version: contracts::SNAPSHOT_FORMAT_VERSION,
             memory: fixture::descriptor(ArtifactRole::MemorySnapshot, 0x20, 0),
+            overlay: fixture::descriptor(ArtifactRole::OverlaySnapshot, 0x22, 4096),
             state: fixture::descriptor(ArtifactRole::StateManifest, 0x21, 4096),
             capture_point_version: contracts::SNAPSHOT_CAPTURE_POINT_VERSION,
         };

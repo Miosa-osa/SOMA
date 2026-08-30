@@ -1,4 +1,4 @@
-//! SOMA snapshot format v1: manifest and state codec, memory-object descriptor, and
+//! SOMA snapshot format v2: manifest and state codec, memory-object descriptor, and
 //! compatibility contract.
 //!
 //! This module tree is pure encoding, validation, and ordering policy.
@@ -9,6 +9,7 @@ pub mod capture;
 pub mod compatibility;
 pub mod device_state;
 mod digest;
+pub mod inspection;
 pub mod kvm_state;
 pub mod manifest;
 pub mod memory;

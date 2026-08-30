@@ -12,7 +12,7 @@ use crate::generation::{
     template::{MAX_WORKLOAD_PROBE_BYTES, NetworkPolicyClass},
 };
 
-/// Decodes canonical `SOMAGEN` v1 bytes while treating every field as hostile.
+/// Decodes canonical `SOMAGEN` v2 bytes while treating every field as hostile.
 ///
 /// # Errors
 ///
@@ -212,6 +212,7 @@ impl Decoder<'_> {
             1 => Ok(SnapshotBinding::Captured {
                 format_version: self.u16()?,
                 memory: self.descriptor(ArtifactRole::MemorySnapshot)?,
+                overlay: self.descriptor(ArtifactRole::OverlaySnapshot)?,
                 state: self.descriptor(ArtifactRole::StateManifest)?,
                 capture_point_version: self.u16()?,
             }),

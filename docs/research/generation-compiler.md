@@ -176,7 +176,7 @@ Orphaned staging objects are reclaimed outside the compiler transaction.
 
 ## Generation identity
 
-`GenerationId` is `sha256:` plus the SHA-256 digest of the canonical `SOMAGEN` version 1 manifest bytes.
+`GenerationId` is `sha256:` plus the SHA-256 digest of the canonical `SOMAGEN` version 2 manifest bytes.
 It is not the OCI manifest digest, normalized-tree digest, disk digest, or snapshot digest alone.
 
 The manifest uses fixed-order binary fields with big-endian integers, explicit presence bytes, and length-prefixed bounded byte strings.
@@ -197,7 +197,7 @@ The identity binds:
 11. Device-contract version and digest, including MMIO map, GSIs, queues, and feature allowlists.
 12. CPU-template version and digest.
 13. Memory size, vCPU count, memory-slot layout, and immutable launch-page layout.
-14. Snapshot-format version, memory digest and size, machine-state digest and size, and capture-point version.
+14. Snapshot-format version, memory digest and size, captured-overlay digest and size, machine-state digest and size, and capture-point version.
 15. Required repair-policy version and readiness-command digest.
 
 Changing any bound field produces a different `GenerationId`.
@@ -306,7 +306,7 @@ generation/
   overlay.rs          sterile ext4 template contract
   kernel.rs           ELF, PVH note, config, and provenance checks
   initramfs.rs        deterministic newc construction and verification
-  manifest.rs         canonical SOMAGEN v1 encoder and decoder
+  manifest.rs         canonical SOMAGEN v2 encoder and decoder
   identity.rs         GenerationId derivation only
   publish.rs          atomic-last content-store publication
   verify.rs           independent cross-artifact verification

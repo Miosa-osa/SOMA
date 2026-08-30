@@ -72,7 +72,9 @@ There is no secret input: `MachineInputs` lost its fifth field when [ADR 0024, p
 
 The compiler design in [the Generation compiler research](../research/generation-compiler.md) has six phases.
 Phases 1 through 3 and 6 are component-tested: resolve and verify inputs, emit the canonical filesystem stream, build and independently verify every artifact, and publish atomically with the manifest last.
-Phase 4, boot and Snapshot capture, is partial and phase 5, certification, is designed only; `CompiledGeneration.unimplemented` names them and the manifest carries `SnapshotBinding::Absent`.
+Phase 4, live boot and Snapshot capture, remains Linux KVM work outside the portable compiler.
+`CompiledCandidate.unimplemented` therefore names `BootAndCapture`, and its manifest carries `SnapshotBinding::Absent` until a capture is installed.
+Phase 5 is implemented: `install_snapshot` publishes the exact captured objects, `certify_candidate` verifies them against the Candidate and their internal state, and `promote_candidate` publishes the ready manifest last.
 A compiled Generation therefore has no Snapshot of its own and is cold-booted; capture and restore are driven separately by `crates/soma-kvm/src/x86_64/snapshot/`, as section 4 records.
 
 The artifacts a compiled Generation contains, and where each comes from:
@@ -353,8 +355,9 @@ Network attach to the Machine.
 For the broker, "Proxy attachment, ingress forwarding, jailed VMM transfer, and virtio-net attach remain open." The daemon socket now authenticates its peer and gates every operation on a capability, and forwarding requires an activation receipt minted by a repaired authenticated guest session.
 
 Certification.
-"No certification: phase 5 of the compiler and every conformance count remain unimplemented."
-The responder-key half of that sentence in the retained evidence is obsolete: under ADR 0024 the Generation has no responder key to bind, and the Host holds the public half of the keypair it just sampled.
+Snapshot certification, promotion, and ready Generation re-verification are component-tested.
+The Linux live proof that captures Node 22, installs its three objects, certifies the Candidate, promotes it, and re-verifies the resulting Generation is compiled as an ignored hardware test and still requires a fresh KVM-host run for current evidence.
+Under ADR 0024 the Generation has no responder key to bind, and the Host holds the public half of the keypair it just sampled.
 
 CLI and MCP on KVM.
 `crates/soma-local/src/backend/kvm.rs` answers every resolve, launch, execute, inspect, and cleanup request with `BackendFailureKind::Unsupported`; only the capability probe behind `doctor` runs.
@@ -558,7 +561,7 @@ Never wrap `docker run` in `timeout` when driving these tests: it kills the clie
 - [Beginner architecture guide](../architecture/beginners-guide.md) for the objects and layers, and [What makes one SOMA sandbox](../architecture/sandbox-stack.md) for the containment and dependency map.
 - [SOMA visual atlas](../architecture/visual-atlas.md) for the machine, filesystem, workload, and capacity pictures.
 - [Creating a Template](creating-templates.md), [SOMA template system](../architecture/template-system.md), [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md), and [the Template implementation map](../research/template-implementation-map.md) for the Template plane.
-- [Generation compiler v1](../research/generation-compiler.md), [x86_64 machine contract v1](../research/x86_64-machine-contract.md), [minimal device surface v1](../research/minimal-device-surface.md), [Linux guest integration v1](../research/linux-guest-agent-integration.md), and [snapshot format v1](../research/snapshot-format-v1.md) for the Machine design.
+- [Generation compiler v1](../research/generation-compiler.md), [x86_64 machine contract v1](../research/x86_64-machine-contract.md), [minimal device surface v1](../research/minimal-device-surface.md), [Linux guest integration v1](../research/linux-guest-agent-integration.md), and [snapshot format v2](../research/snapshot-format-v2.md) for the Machine design.
 - [VMM jail profile](../research/vmm-jail-profile.md), [Linux network profile v1](../research/linux-network-profile-v1.md), [XFS reflink profile](../research/xfs-reflink-profile.md), and [prepared worker protocol](../research/prepared-worker-protocol.md) for the Host-side design.
 - [VMM decision map](../research/vmm-decision-map.md) for the status of every ticket, and [Linux VMM handoff](../operations/linux-vmm-handoff.md) for the implementation order.
 - Every `docs/evidence/2026-08-29-*.md` file for the retained results, each with its own evidence boundary and nonclaims.

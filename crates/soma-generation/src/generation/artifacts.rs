@@ -26,6 +26,8 @@ pub enum ArtifactRole {
     GenerationManifest,
     /// Canonical `SOMACAN` manifest of a Generation Candidate, which is never launchable.
     GenerationCandidate,
+    /// Quiesced writable overlay captured with one memory and state snapshot.
+    OverlaySnapshot,
 }
 
 impl ArtifactRole {
@@ -40,9 +42,10 @@ impl ArtifactRole {
             Self::GuestAgent => "application/vnd.soma.guest-agent.elf.v1",
             Self::EarlyInit => "application/vnd.soma.early-init.elf.v1",
             Self::MemorySnapshot => "application/vnd.soma.snapshot.memory.v1",
-            Self::StateManifest => "application/vnd.soma.snapshot.state.v1",
-            Self::GenerationManifest => "application/vnd.soma.generation.v1",
-            Self::GenerationCandidate => "application/vnd.soma.generation-candidate.v1",
+            Self::StateManifest => "application/vnd.soma.snapshot.state.v2",
+            Self::GenerationManifest => "application/vnd.soma.generation.v2",
+            Self::GenerationCandidate => "application/vnd.soma.generation-candidate.v2",
+            Self::OverlaySnapshot => "application/vnd.soma.snapshot.overlay.v1",
         }
     }
 
@@ -58,6 +61,7 @@ impl ArtifactRole {
             Self::StateManifest => 8,
             Self::GenerationManifest => 9,
             Self::GenerationCandidate => 10,
+            Self::OverlaySnapshot => 11,
         }
     }
 
@@ -73,6 +77,7 @@ impl ArtifactRole {
             8 => Self::StateManifest,
             9 => Self::GenerationManifest,
             10 => Self::GenerationCandidate,
+            11 => Self::OverlaySnapshot,
             _ => return None,
         })
     }

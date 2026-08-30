@@ -118,6 +118,7 @@ pub(crate) fn captured_snapshot() -> SnapshotBinding {
     SnapshotBinding::Captured {
         format_version: contracts::SNAPSHOT_FORMAT_VERSION,
         memory: descriptor(ArtifactRole::MemorySnapshot, 0x20, 512 * MIB),
+        overlay: descriptor(ArtifactRole::OverlaySnapshot, 0x22, 256 * MIB),
         state: descriptor(ArtifactRole::StateManifest, 0x21, 4096),
         capture_point_version: contracts::SNAPSHOT_CAPTURE_POINT_VERSION,
     }

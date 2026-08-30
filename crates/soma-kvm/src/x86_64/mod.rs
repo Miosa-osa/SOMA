@@ -57,8 +57,9 @@ pub use self::{
     sandbox::{Milestone, MilestoneMark, SandboxConfig, SandboxEvidence, SandboxMachine},
     serial::SerialCounters,
     snapshot::{
-        Artifact, CaptureOutcome, CaptureRequest, RestoreFacts, RestoreRequest, Restored,
-        SnapshotError, SnapshotPaths, capture, restore,
+        Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CaptureRequest,
+        RestoreFacts, RestoreRequest, Restored, SnapshotError, SnapshotPaths, VerifiedCapture,
+        capture, inspect_capture_artifacts, restore,
     },
     timing::PhaseTiming,
 };

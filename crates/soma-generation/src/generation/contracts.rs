@@ -15,7 +15,7 @@ pub const LAUNCH_PAGE_LAYOUT_VERSION: u16 = 3;
 pub const REPAIR_POLICY_VERSION: u16 = 1;
 
 /// The snapshot format version certification will bind.
-pub const SNAPSHOT_FORMAT_VERSION: u16 = 1;
+pub const SNAPSHOT_FORMAT_VERSION: u16 = 2;
 
 /// The snapshot capture-point version certification will bind.
 pub const SNAPSHOT_CAPTURE_POINT_VERSION: u16 = 1;

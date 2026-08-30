@@ -8,7 +8,7 @@
 ## Context
 
 The Generation compiler design requires phases in order: resolve inputs, build the immutable root and overlay templates, build the machine artifacts, boot and capture, certify, and publish the canonical manifest last.
-Phases 4 and 5, boot and capture and certification, have no implementation.
+At the time of this decision, phases 4 and 5, boot and capture and certification, had no complete production implementation.
 
 `compile_generation` nevertheless published a canonical `SOMAGEN` manifest under a `GenerationId` and returned `UnimplementedPhase` values alongside it.
 The object was honestly marked non-launchable through an absent snapshot binding, but it was still a Generation manifest, stored under a Generation media type, resolvable by `verify_generation`, and named by an identity type every Launch interface accepts.
@@ -20,7 +20,8 @@ The implementation audit of 2026-08-29 records this as Priority 0 finding P0.4.
 
 The compiler produces a Candidate, not a Generation.
 
-A Candidate has its own magic, `SOMACAN\0`, its own artifact role and media type, `application/vnd.soma.generation-candidate.v1`, and its own identity type, `CandidateId`.
+A Candidate has its own magic, `SOMACAN\0`, its own artifact role and media type, and its own identity type, `CandidateId`.
+ADR 0032 advances the current media type to `application/vnd.soma.generation-candidate.v2` with the schema 2 identity contract.
 `CandidateId` is not `GenerationId`, so no Launch, Host, or registry interface can accept one even by mistake; a compile-fail test pins that.
 `decode_manifest` accepts only ready bytes and `decode_candidate` accepts only Candidate bytes, so a party that learns a Candidate digest and relabels it as a Generation identity still cannot resolve it.
 
@@ -28,7 +29,7 @@ A Candidate has its own magic, `SOMACAN\0`, its own artifact role and media type
 Publishing a Candidate whose snapshot binding is not absent is rejected, so a Candidate can never carry a capture it did not perform.
 
 `certify_candidate` runs the gates a ready Generation requires.
-It re-verifies the Candidate against the exact `HostProfile` first, then fails with `CompilePhase::Certify` and `CompileErrorKind::Unimplemented` because boot, capture, and certification do not exist.
+The current implementation re-verifies the Candidate against the exact compiler profile, rehashes the installed memory, overlay, and state objects, validates their roles and format versions, checks their internal cross-artifact bindings, and requires the state header to name the exact Candidate.
 It is the only producer of `Certification`, a token with no public constructor that names the exact Candidate it certified and carries the snapshot binding the ready manifest will bind.
 
 `promote_candidate` is the only publication path for a ready `SOMAGEN` manifest.
@@ -36,7 +37,8 @@ It requires a `Certification` for these exact bytes, rejects a token issued for 
 A failed or revoked Candidate therefore cannot be promoted without running the gates again.
 
 `verify_generation` keeps resolving only ready Generations.
-A ready manifest with an absent snapshot is now impossible by construction and is rejected as an integrity failure, and a captured snapshot has no verifier yet, so the function cannot report `launchable = true` and fails closed instead.
+A ready manifest with an absent snapshot is impossible by construction and is rejected as an integrity failure.
+A captured snapshot is reopened, rehashed, decoded, and cross-checked before `verify_generation` reports `launchable = true`.
 `verify_candidate` is the build-side resolution and has no `launchable` field at all.
 
 ## Verification

@@ -56,17 +56,17 @@ impl PageSize {
     }
 }
 
-/// Exact 32-byte Generation identity; the same representation as the VMM contract type.
+/// Exact 32-byte Candidate identity captured before the ready Generation can be derived.
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
-pub struct GenerationId([u8; 32]);
+pub struct CandidateId([u8; 32]);
 
-impl GenerationId {
+impl CandidateId {
     /// # Errors
     ///
-    /// Returns [`ManifestError::ZeroGenerationId`] when every byte is zero.
+    /// Returns [`ManifestError::ZeroCandidateId`] when every byte is zero.
     pub fn new(bytes: [u8; 32]) -> Result<Self, ManifestError> {
         if bytes.iter().all(|byte| *byte == 0) {
-            Err(ManifestError::ZeroGenerationId)
+            Err(ManifestError::ZeroCandidateId)
         } else {
             Ok(Self(bytes))
         }
@@ -78,9 +78,9 @@ impl GenerationId {
     }
 }
 
-impl fmt::Debug for GenerationId {
+impl fmt::Debug for CandidateId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "GenerationId({})", Digest::from_bytes(self.0))
+        write!(formatter, "CandidateId({})", Digest::from_bytes(self.0))
     }
 }
 
@@ -88,7 +88,7 @@ impl fmt::Debug for GenerationId {
 pub struct ManifestHeader {
     pub architecture: Architecture,
     pub page_size: PageSize,
-    pub generation_id: GenerationId,
+    pub candidate_id: CandidateId,
     pub machine_contract: Digest,
     pub device_contract: Digest,
     pub cpu_template: Digest,
@@ -102,7 +102,7 @@ impl ManifestHeader {
     pub(super) fn encode(&self, writer: &mut Writer) {
         writer.put_u16(self.architecture.code());
         writer.put_u32(self.page_size.get());
-        writer.put_bytes(self.generation_id.as_bytes());
+        writer.put_bytes(self.candidate_id.as_bytes());
         writer.put_bytes(self.machine_contract.as_bytes());
         writer.put_bytes(self.device_contract.as_bytes());
         writer.put_bytes(self.cpu_template.as_bytes());
@@ -117,7 +117,7 @@ impl ManifestHeader {
         let architecture = Architecture::from_code(architecture_code)
             .ok_or(ManifestError::UnknownArchitecture(architecture_code))?;
         let page_size = PageSize::new(reader.u32()?)?;
-        let generation_id = GenerationId::new(reader.array()?)?;
+        let candidate_id = CandidateId::new(reader.array()?)?;
         let machine_contract = Digest::from_bytes(reader.array()?);
         let device_contract = Digest::from_bytes(reader.array()?);
         let cpu_template = Digest::from_bytes(reader.array()?);
@@ -131,7 +131,7 @@ impl ManifestHeader {
         Ok(Self {
             architecture,
             page_size,
-            generation_id,
+            candidate_id,
             machine_contract,
             device_contract,
             cpu_template,

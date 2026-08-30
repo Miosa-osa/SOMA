@@ -15,7 +15,7 @@ pub use decode::{decode_candidate, decode_manifest};
 pub use encode::{encode_candidate, encode_manifest};
 
 /// The `SOMAGEN` manifest schema version produced and accepted by this module.
-pub const MANIFEST_SCHEMA_VERSION: u16 = 1;
+pub const MANIFEST_SCHEMA_VERSION: u16 = 2;
 /// Maximum encoded manifest size.
 pub const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 /// Magic of a certified, ready Generation manifest.
@@ -150,6 +150,8 @@ pub enum SnapshotBinding {
         format_version: u16,
         /// The memory image descriptor.
         memory: ArtifactDescriptor,
+        /// The quiesced writable overlay descriptor.
+        overlay: ArtifactDescriptor,
         /// The state manifest descriptor.
         state: ArtifactDescriptor,
         /// The capture-point version.
@@ -181,7 +183,7 @@ pub struct RepairBinding {
     pub readiness_command_digest: Sha256Digest,
 }
 
-/// The complete canonical `SOMAGEN` v1 manifest.
+/// The complete canonical `SOMAGEN` v2 manifest.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GenerationManifest {
     /// Group 1: the compiler-policy version paired with the schema version.
@@ -232,8 +234,15 @@ impl GenerationManifest {
         descriptors.push(self.kernel.descriptor);
         descriptors.push(self.initramfs.descriptor);
         descriptors.push(self.guest_agent.descriptor);
-        if let SnapshotBinding::Captured { memory, state, .. } = self.snapshot {
+        if let SnapshotBinding::Captured {
+            memory,
+            overlay,
+            state,
+            ..
+        } = self.snapshot
+        {
             descriptors.push(memory);
+            descriptors.push(overlay);
             descriptors.push(state);
         }
         descriptors

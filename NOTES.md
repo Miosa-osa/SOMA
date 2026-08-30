@@ -793,3 +793,17 @@ Routine code changes use one Ubuntu 24.04 correctness job instead of the full ho
 Documentation changes use a five-minute policy job, portability runs weekly or manually, security runs weekly or on relevant dependency and policy changes, and real KVM work runs only for release tags or explicit dispatch.
 Release packaging remains tag-driven or manual.
 This preserves platform, security, KVM, and release gates while stopping documentation and ordinary source pushes from launching unrelated expensive jobs.
+
+## 2026-08-30 - Snapshot identity is Candidate-first and binds the overlay
+
+ADR 0032 removes a circular identity contract by making snapshot schema 2 bind the exact Candidate that was booted and captured.
+The ready Generation identity is derived only after certification adds the memory, overlay, and state descriptors to `SOMAGEN` schema 2.
+The captured overlay is now a typed `OverlaySnapshot` artifact, so every artifact required by restore is covered by the final Generation identity.
+All schema 1 pre-alpha artifacts fail closed and must be rebuilt.
+
+## 2026-08-30 - Snapshot certification closes the Candidate-to-Generation identity loop
+
+Snapshot installation now publishes memory, overlay, and state objects under exact typed descriptors before certification.
+Certification re-verifies the immutable Candidate, all three store objects, the schema 2 state manifest, its embedded Candidate identity, and its memory and overlay bindings before minting the non-forgeable promotion token.
+Ready Generation verification repeats snapshot admission and can report launchable only after those checks pass.
+The Linux x86_64 live capture suite now compiles an ignored full capture-to-install-to-certify-to-promote-to-reverify test, but a fresh hardware run is still required before recording new live evidence.

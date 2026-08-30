@@ -23,9 +23,15 @@ fn decoder_rejects_truncation_trailing_bytes_and_corruption() {
     magic[0] ^= 1;
     assert!(decode_manifest(&magic).is_err());
     let mut schema = bytes.clone();
-    schema[9] = 2;
+    schema[9] = 3;
     assert_eq!(
         decode_manifest(&schema).unwrap_err().kind(),
+        CompileErrorKind::Unsupported
+    );
+    let mut retired_schema = bytes.clone();
+    retired_schema[9] = 1;
+    assert_eq!(
+        decode_manifest(&retired_schema).unwrap_err().kind(),
         CompileErrorKind::Unsupported
     );
     let mut tag = bytes.clone();

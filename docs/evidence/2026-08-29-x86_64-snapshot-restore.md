@@ -176,7 +176,7 @@ Each of these was produced from a sibling directory holding hard links to the un
 
 - One flipped byte in `state.somasnap`: `section role 0x0002 digest mismatch`, from the codec's per-section digest.
 - One flipped byte in `memory.raw` under installation-time verification: `memory digest sha256:2292ad12... does not match sha256:dc167bd1...`.
-  Without that verification the same object maps and runs, which the test also asserts: re-hashing a gigabyte is the installation and audit boundary that [snapshot format v1](../research/snapshot-format-v1.md) places outside the request path, not a warm-restore check.
+  Without that verification the same object maps and runs, which the test also asserts: re-hashing a gigabyte is the installation and audit boundary that [snapshot format v2](../research/snapshot-format-v2.md) places outside the request path, not a warm-restore check.
 - One flipped byte in the manifest's CPU-template digest: `CpuTemplate { expected: sha256:214170df..., actual: sha256:204170df... }`, from the constant-size header comparison that runs before any section payload is decoded.
 
 ## What the published objects contain

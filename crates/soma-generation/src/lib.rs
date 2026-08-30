@@ -24,12 +24,13 @@ pub use generation::{
     Certification, CompileError, CompileErrorKind, CompileGeneration, CompilePhase,
     CompiledCandidate, CompilerProfile, ContractBinding, ErofsEvidence, GenerationManifest,
     Incompatibility, InitramfsContents, LifetimeLimits, MachineInputs, OverlayEvidence,
-    PublishedCandidate, PublishedGeneration, Sha256Digest, SnapshotBinding, StartupBehavior,
-    TemplateImage, TemplateRevision, ToolOutcome, Toolchain, TreeBounds, VerifiedCandidate,
-    VerifiedGeneration, VerifiedKernel, VerifiedKernelConfig, certify, certify_candidate,
-    compile_generation, contracts, derive_generation_id, erofs, initramfs, kernel, kernel_config,
-    manifest as generation_manifest, open_artifact, overlay, promote_candidate, template,
-    toolchain, verify_candidate, verify_generation, verify_kernel_config,
+    PublishedCandidate, PublishedGeneration, Sha256Digest, SnapshotBinding, SnapshotSource,
+    StartupBehavior, TemplateImage, TemplateRevision, ToolOutcome, Toolchain, TreeBounds,
+    VerifiedCandidate, VerifiedGeneration, VerifiedKernel, VerifiedKernelConfig, certify,
+    certify_candidate, compile_generation, contracts, derive_generation_id, erofs, initramfs,
+    install_snapshot, kernel, kernel_config, manifest as generation_manifest, open_artifact,
+    overlay, promote_candidate, template, toolchain, verify_candidate, verify_generation,
+    verify_kernel_config,
 };
 pub use import::import_oci_layout;
 pub use normalize::{

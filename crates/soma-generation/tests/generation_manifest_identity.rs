@@ -7,8 +7,8 @@ use soma_generation::{
 };
 use support::manifest::{descriptor, digest, sample};
 
-const GOLDEN_HEX: &str = include_str!("fixtures/somagen_v1.hex");
-const GOLDEN_ID: &str = "sha256:02d5388f9c80a0aee4c57e4f2cfbd940fc449f2bf5e44aa1c045bdb08f13defb";
+const GOLDEN_HEX: &str = include_str!("fixtures/somagen_v2.hex");
+const GOLDEN_ID: &str = "sha256:365326f3de6bd2c4fd7ef36a2df8f5990ccd37887c0ab98d4919fde2217701e2";
 
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
@@ -102,6 +102,7 @@ fn machine_mutations() -> Vec<Mutation> {
             m.snapshot = SnapshotBinding::Captured {
                 format_version: 1,
                 memory: descriptor(ArtifactRole::MemorySnapshot, 0xaf, 1),
+                overlay: descriptor(ArtifactRole::OverlaySnapshot, 0xb2, 1),
                 state: descriptor(ArtifactRole::StateManifest, 0xb0, 1),
                 capture_point_version: 1,
             }
@@ -136,7 +137,7 @@ fn manifest_has_pinned_golden_bytes_and_identity() {
         hex(&bytes)
     );
     assert_eq!(derive_generation_id(&bytes).as_str(), GOLDEN_ID);
-    assert!(bytes.starts_with(b"SOMAGEN\0\x00\x01"));
+    assert!(bytes.starts_with(b"SOMAGEN\0\x00\x02"));
 }
 
 #[test]
@@ -146,8 +147,9 @@ fn manifest_round_trips_through_the_hostile_decoder() {
     assert_eq!(decode_manifest(&bytes).unwrap(), manifest);
     let captured = GenerationManifest {
         snapshot: SnapshotBinding::Captured {
-            format_version: 1,
+            format_version: 2,
             memory: descriptor(ArtifactRole::MemorySnapshot, 0x0c, 512 << 20),
+            overlay: descriptor(ArtifactRole::OverlaySnapshot, 0x0e, 256 << 20),
             state: descriptor(ArtifactRole::StateManifest, 0x0d, 4096),
             capture_point_version: 1,
         },

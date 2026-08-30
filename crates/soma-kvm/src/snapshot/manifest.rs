@@ -1,4 +1,4 @@
-//! `state.somasnap` schema v1: fixed-order header, host-profile requirements, memory
+//! `state.somasnap` schema v2: fixed-order header, host-profile requirements, memory
 //! descriptor, and the bounded typed section sequence.
 //!
 //! Layout (big-endian, no padding):
@@ -8,7 +8,7 @@
 //! schema version             u16
 //! architecture               u16
 //! page size                  u32
-//! generation id              32
+//! candidate id               32
 //! machine contract digest    32
 //! device contract digest     32
 //! cpu template digest        32
@@ -27,7 +27,7 @@ pub(crate) mod tests;
 
 use std::{error::Error, fmt};
 
-pub use header::{Architecture, GenerationId, ManifestHeader, PageSize};
+pub use header::{Architecture, CandidateId, ManifestHeader, PageSize};
 pub use host::{
     HostCapability, HostRequirements, HostRequirementsError, MAX_REQUIRED_CAPABILITIES,
 };
@@ -40,7 +40,7 @@ use super::{
 };
 
 pub const MAGIC: [u8; 8] = *b"SOMASNP\0";
-pub const SCHEMA_VERSION: u16 = 1;
+pub const SCHEMA_VERSION: u16 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ManifestError {
@@ -49,7 +49,7 @@ pub enum ManifestError {
     UnsupportedSchemaVersion(u16),
     UnknownArchitecture(u16),
     InvalidPageSize(u32),
-    ZeroGenerationId,
+    ZeroCandidateId,
     HostRequirements(HostRequirementsError),
     Memory(MemoryError),
     ZeroVcpuCount,
@@ -70,7 +70,7 @@ impl fmt::Display for ManifestError {
                 write!(formatter, "unknown architecture code {code}")
             }
             Self::InvalidPageSize(size) => write!(formatter, "invalid page size {size}"),
-            Self::ZeroGenerationId => formatter.write_str("generation id cannot be all zero"),
+            Self::ZeroCandidateId => formatter.write_str("candidate id cannot be all zero"),
             Self::HostRequirements(error) => write!(formatter, "{error}"),
             Self::Memory(error) => write!(formatter, "{error}"),
             Self::ZeroVcpuCount => formatter.write_str("vCPU count must be non-zero"),

@@ -3,7 +3,7 @@ use crate::snapshot::{
     Digest,
     device_state::{DeviceKind, tests as device_fixtures},
     manifest::{
-        Architecture, HostCapability, Manifest, PageSize,
+        Architecture, HostCapability, Manifest, PageSize, SCHEMA_VERSION,
         tests::{MEMORY_BYTES, sample_manifest, sample_manifest_with_memory_slots},
     },
     section::{Section, SectionRole},
@@ -15,7 +15,7 @@ pub(crate) fn matching_host() -> HostProfile {
     let manifest = sample_manifest();
     let header = manifest.header();
     HostProfile {
-        schema_version: 1,
+        schema_version: SCHEMA_VERSION,
         architecture: Architecture::X86_64,
         page_size: PageSize::FOUR_KIB,
         kvm_api_version: 12,
@@ -49,10 +49,10 @@ fn every_header_field_rejects_on_mismatch() {
     let other = Digest::of(b"other");
     let cases: Vec<(Mutation, Incompatibility)> = vec![
         (
-            Box::new(|host| host.schema_version = 2),
+            Box::new(|host| host.schema_version = 3),
             Incompatibility::SchemaVersion {
-                expected: 2,
-                actual: 1,
+                expected: 3,
+                actual: SCHEMA_VERSION,
             },
         ),
         (

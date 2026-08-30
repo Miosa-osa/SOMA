@@ -49,7 +49,7 @@ pub struct Fixture {
     pub paths: SnapshotPaths,
     pub capture: CaptureOutcome,
     pub compiled: generation::Compiled,
-    pub generation_id: [u8; 32],
+    pub candidate_id: [u8; 32],
     pub ram_bytes: u64,
     /// The pinned static guest agent the Generation was built with.
     pub agent: PathBuf,
@@ -121,9 +121,9 @@ fn build() -> Fixture {
         &scratch,
     );
     let manifest = &compiled.manifest();
-    let generation_id = session::generation_bytes(compiled.id().as_str());
+    let candidate_id = session::generation_bytes(compiled.id().as_str());
     eprintln!(
-        "[capture] generation_id={} root={} ({} bytes) overlay_template={} ({} bytes) initramfs={}",
+        "[capture] candidate_id={} root={} ({} bytes) overlay_template={} ({} bytes) initramfs={}",
         compiled.id().as_str(),
         manifest.root.descriptor.digest,
         manifest.root.descriptor.size,
@@ -137,13 +137,13 @@ fn build() -> Fixture {
     fs::create_dir_all(&directory).expect("create the snapshot directory");
     let paths = SnapshotPaths::new(directory);
     let ram_bytes = MEMORY_MIB * MIB;
-    let (source, capture) = capture_source(&compiled, &paths, generation_id, ram_bytes, &scratch);
+    let (source, capture) = capture_source(&compiled, &paths, candidate_id, ram_bytes, &scratch);
     Fixture {
         scratch,
         paths,
         capture,
         compiled,
-        generation_id,
+        candidate_id,
         ram_bytes,
         agent: inputs.agent.clone(),
         source,
@@ -154,7 +154,7 @@ fn build() -> Fixture {
 fn capture_source(
     compiled: &generation::Compiled,
     paths: &SnapshotPaths,
-    generation_id: [u8; 32],
+    candidate_id: [u8; 32],
     ram_bytes: u64,
     scratch: &Path,
 ) -> (SandboxEvidence, CaptureOutcome) {
@@ -185,7 +185,7 @@ fn capture_source(
         &mut sandbox,
         CaptureRequest {
             paths: paths.clone(),
-            generation_id,
+            candidate_id,
             root: &mut root,
             overlay: &mut head,
             repair_point_line: REPAIR_POINT_LINE.to_vec(),

@@ -1,5 +1,5 @@
 use super::{
-    Architecture, GenerationId, HostCapability, HostRequirements, HostRequirementsError, MAGIC,
+    Architecture, CandidateId, HostCapability, HostRequirements, HostRequirementsError, MAGIC,
     Manifest, ManifestError, ManifestHeader, PageSize, SCHEMA_VERSION,
 };
 use crate::snapshot::{
@@ -16,7 +16,7 @@ pub(crate) fn sample_header() -> ManifestHeader {
     ManifestHeader {
         architecture: Architecture::X86_64,
         page_size: PageSize::FOUR_KIB,
-        generation_id: GenerationId::new(*Digest::of(b"generation").as_bytes()).unwrap(),
+        candidate_id: CandidateId::new(*Digest::of(b"candidate").as_bytes()).unwrap(),
         machine_contract: Digest::of(b"machine-contract-v1"),
         device_contract: Digest::of(b"device-contract-v1"),
         cpu_template: Digest::of(b"cpu-template-v1"),
@@ -76,7 +76,7 @@ fn golden_header_bytes_and_whole_manifest_digest_are_stable() {
     expected_prefix.extend_from_slice(&SCHEMA_VERSION.to_be_bytes());
     expected_prefix.extend_from_slice(&[0, 1]);
     expected_prefix.extend_from_slice(&4096_u32.to_be_bytes());
-    expected_prefix.extend_from_slice(Digest::of(b"generation").as_bytes());
+    expected_prefix.extend_from_slice(Digest::of(b"candidate").as_bytes());
     expected_prefix.extend_from_slice(Digest::of(b"machine-contract-v1").as_bytes());
     expected_prefix.extend_from_slice(Digest::of(b"device-contract-v1").as_bytes());
     expected_prefix.extend_from_slice(Digest::of(b"cpu-template-v1").as_bytes());
@@ -91,7 +91,7 @@ fn golden_header_bytes_and_whole_manifest_digest_are_stable() {
 }
 
 const GOLDEN_LEN: usize = 7678;
-const GOLDEN_SHA256: &str = "445cd13737b8720c31d4addb1430c2d61430d46b4c92883b4594a6dcb13514f5";
+const GOLDEN_SHA256: &str = "50fc3c834601d527f0f4a17e46e68bfdf21c638e218cfbdfd9b9692d66467544";
 
 #[test]
 fn every_single_byte_flip_is_rejected_or_visibly_different() {
@@ -133,10 +133,16 @@ fn rejects_bad_magic_schema_architecture_and_zero_fields() {
     bad_magic[0] = b'X';
     assert_eq!(Manifest::decode(&bad_magic), Err(ManifestError::BadMagic));
     let mut schema = bytes.clone();
-    schema[9] = 2;
+    schema[9] = 3;
     assert_eq!(
         Manifest::decode(&schema),
-        Err(ManifestError::UnsupportedSchemaVersion(2))
+        Err(ManifestError::UnsupportedSchemaVersion(3))
+    );
+    let mut retired_schema = bytes.clone();
+    retired_schema[9] = 1;
+    assert_eq!(
+        Manifest::decode(&retired_schema),
+        Err(ManifestError::UnsupportedSchemaVersion(1))
     );
     let mut arch = bytes.clone();
     arch[11] = 7;
@@ -154,7 +160,7 @@ fn rejects_bad_magic_schema_architecture_and_zero_fields() {
     generation[16..48].fill(0);
     assert_eq!(
         Manifest::decode(&generation),
-        Err(ManifestError::ZeroGenerationId)
+        Err(ManifestError::ZeroCandidateId)
     );
     let capability_count = 16 + 32 * 4 + 4;
     let mut capabilities = bytes.clone();

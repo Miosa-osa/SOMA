@@ -83,6 +83,7 @@ fn require_snapshot(manifest: &GenerationManifest) -> Result<(), CompileError> {
     let SnapshotBinding::Captured {
         format_version,
         memory,
+        overlay,
         state,
         capture_point_version,
     } = manifest.snapshot
@@ -95,6 +96,7 @@ fn require_snapshot(manifest: &GenerationManifest) -> Result<(), CompileError> {
         Incompatibility::SnapshotBinding,
     )?;
     descriptor_nonzero(&memory, Incompatibility::SnapshotBinding)?;
+    descriptor_nonzero(&overlay, Incompatibility::SnapshotBinding)?;
     descriptor_nonzero(&state, Incompatibility::SnapshotBinding)
 }
 

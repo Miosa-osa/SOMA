@@ -1,8 +1,8 @@
 //! The `x86_64` Generation compiler: canonical tree to immutable machine artifacts.
 //!
-//! Phases 1 through 3 and 6 of the Generation compiler design are implemented here.
-//! Phases 4 and 5, guest boot, snapshot capture, and certification, have no implementation and
-//! are represented only as typed absent state in the manifest and result types.
+//! Immutable artifact compilation, captured-snapshot installation, certification, promotion,
+//! and ready Generation verification are implemented here.
+//! Live guest boot and capture are supplied by the Linux KVM machine layer.
 
 mod artifacts;
 mod candidate;
@@ -23,13 +23,14 @@ pub mod initramfs;
 pub mod kernel;
 /// Kernel configuration facility requirements for profile v1.
 pub mod kernel_config;
-/// Canonical `SOMAGEN` v1 manifest types, encoder, and decoder.
+/// Canonical `SOMAGEN` v2 manifest types, encoder, and decoder.
 pub mod manifest;
 /// Sterile ext4 overlay-template contract, creation, and verification.
 pub mod overlay;
 mod process;
 mod publish;
 mod request;
+mod snapshot;
 mod tar_stream;
 /// Template revision inputs: image, Machine shape, startup, lifetime, and profile version.
 pub mod template;
@@ -54,6 +55,7 @@ pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
 pub use publish::open_artifact;
 pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
+pub use snapshot::{SnapshotSource, install_snapshot};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use toolchain::{BoundTool, BuilderEnvironment};
 pub use tree_decoder::TreeBounds;

@@ -80,13 +80,9 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
         session::now_unix_nanos(),
     )
     .expect("link-down placeholder network");
-    let material = HostLaunchMaterial::generate(
-        fixture.generation_id,
-        instance_id,
-        launch_operation,
-        network,
-    )
-    .expect("fresh launch material");
+    let material =
+        HostLaunchMaterial::generate(fixture.candidate_id, instance_id, launch_operation, network)
+            .expect("fresh launch material");
     let delivered = material
         .deliver_with(|page| restored.resume(page))
         .expect("resume the restored machine");

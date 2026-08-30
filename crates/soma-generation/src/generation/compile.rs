@@ -34,8 +34,6 @@ const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 pub enum UnimplementedPhase {
     /// Guest boot, authenticated repair, quiesce, and snapshot capture (phase 4).
     BootAndCapture,
-    /// Host-profile certification (phase 5).
-    Certification,
 }
 
 /// The outcome of one Generation compilation without boot, capture, or certification.
@@ -53,7 +51,7 @@ pub struct CompiledCandidate {
     /// Overlay-template build evidence.
     pub overlay: OverlayEvidence,
     /// The phases this compiler cannot perform; the Generation is not launchable until they run.
-    pub unimplemented: [UnimplementedPhase; 2],
+    pub unimplemented: [UnimplementedPhase; 1],
 }
 
 impl CompiledCandidate {
@@ -139,10 +137,7 @@ pub fn compile_generation(
         kernel: machine.kernel,
         erofs: erofs_evidence,
         overlay: overlay_evidence,
-        unimplemented: [
-            UnimplementedPhase::BootAndCapture,
-            UnimplementedPhase::Certification,
-        ],
+        unimplemented: [UnimplementedPhase::BootAndCapture],
     })
 }
 
