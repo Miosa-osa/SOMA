@@ -1,8 +1,12 @@
 //! The owned control socket: an explicitly owned directory, a verified socket node, and one
 //! kernel-derived identity for every connection.
 //!
-//! The directory and the socket are created, given their exact owner, group, and mode, and then
-//! verified by reading them back.
+//! The directory is opened without following a final symlink and judged through that
+//! descriptor before any privileged change reaches it, so a planted symlink is refused rather
+//! than chowned, and a directory that already existed is accepted as it is or refused rather
+//! than taken over.
+//! The socket is created, given its exact owner, group, and mode, and then verified by reading
+//! it back.
 //! Both are verified again before every accept, so ownership drift or a permission change made
 //! after startup fails closed instead of widening reach.
 //! A stale path is removed only when it is a socket already owned by this broker; anything else
@@ -21,7 +25,7 @@
 use std::{
     ffi::{CString, OsStr},
     os::{
-        fd::{AsRawFd, FromRawFd, OwnedFd},
+        fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
         unix::ffi::OsStrExt,
     },
     path::{Path, PathBuf},
@@ -32,7 +36,10 @@ use crate::{ControlAuthority, Error, PeerIdentity, Step};
 
 mod ownership;
 
-use ownership::{DIRECTORY_MODE, Node, SOCKET_MODE, facts, require};
+use ownership::{
+    DIRECTORY_MODE, Node, SOCKET_MODE, facts, facts_of, open_directory, own_descriptor, require,
+    require_facts,
+};
 
 const BACKLOG: i32 = 16;
 
@@ -151,16 +158,27 @@ pub fn broker_owner() -> u32 {
     unsafe { libc::getuid() }
 }
 
+/// Creates the socket directory and proves it before any privileged change touches it.
+///
+/// The directory is opened without following a final symlink and judged through that
+/// descriptor, so a planted symlink is refused rather than chowned. Ownership and mode are set
+/// only on a directory this call just created; a directory that already existed is accepted
+/// exactly as it is or refused, never taken over.
 fn prepare_directory(directory: &Path, authority: &ControlAuthority) -> Result<(), Error> {
     let path = c_path(directory.as_os_str())?;
     // SAFETY: the path is a valid NUL-terminated string.
-    if unsafe { libc::mkdir(path.as_ptr(), DIRECTORY_MODE) } != 0
-        && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST)
-    {
+    let created = unsafe { libc::mkdir(path.as_ptr(), DIRECTORY_MODE) } == 0;
+    if !created && std::io::Error::last_os_error().raw_os_error() != Some(libc::EEXIST) {
         return Err(Error::kernel(Step::Bind));
     }
-    own_node(&path, authority, DIRECTORY_MODE)?;
-    require(Node::Directory, &path, authority)
+    let node = open_directory(&path)?;
+    if created {
+        if facts_of(node.as_fd())?.1 != broker_owner() {
+            return Err(Error::Unauthorized("socket directory owner"));
+        }
+        own_descriptor(node.as_fd(), authority, DIRECTORY_MODE)?;
+    }
+    require_facts(Node::Directory, facts_of(node.as_fd())?, authority)
 }
 
 fn own_node(path: &CString, authority: &ControlAuthority, mode: u32) -> Result<(), Error> {
