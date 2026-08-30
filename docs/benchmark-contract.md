@@ -82,6 +82,12 @@ Results from these classes must not be merged:
 5. Lease of an already-restored paused machine.
 6. Lease of a fully running ready machine.
 
+## Burst harness entry point
+
+`python3 -m benchmarks.local_alpha.burst run` measures one declared cohort of N iterations at concurrency C, opens every slot of each burst through one barrier, starts the timer before the create call, stops it after the workload command succeeded inside the sandbox, and executes and verifies destruction outside that timer.
+It requires the same external build manifest as the sequential runner, requires one of the six experiment classes above, requires every class except `cold-generation-build` to declare what was prepared before the timer, and writes every attempted sample, failures included, to one JSONL results file.
+`python3 -m benchmarks.local_alpha.burst report` turns one or more results files of the same experiment class into an evidence document, and refuses an incomplete run, a run whose records mix experiment classes, a sample counted successful without a zero-exit workload command, and a warm class with no recorded preparation.
+
 ## Required metadata
 
 - SOMA commit and release identity.

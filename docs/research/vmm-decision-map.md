@@ -239,8 +239,14 @@ Which correctness, isolation, cleanup, adversarial, concurrency, compatibility, 
 
 ### Answer
 
-Resolved architecturally.
+Resolved architecturally, and the burst measurement half of it now exists.
 A signed immutable report binds exact provenance and admits a HostProfile only after mandatory correctness, isolation, failure, cleanup, concurrency, compatibility, and raw performance gates pass with no skipped KVM tests.
+`benchmarks/local_alpha/burst` runs the exact contract profile the moment a Backend is reachable from the `soma` command line: N iterations at concurrency C with every slot of a burst released by one barrier, the timer starting before the create call and stopping after the workload command succeeded in the sandbox, destruction executed and verified outside the timer, and every attempted sample retained with its stage milestones, exact command output, and typed failure reason.
+The contract's anti-gaming rules are enforced in code rather than in prose, and the report generator refuses an incomplete run, a class-mixed run, a successful sample without a zero-exit workload command, and a warm class that recorded no preparation.
+The harness is proven today only against the Docker Backend, which is a Linux container and not a virtual machine.
+[The dry run](../evidence/2026-08-30-burst-harness-dry-run.md) is that proof of the harness and is not a SOMA performance result.
+The KVM run of the same profile awaits ticket #13, because the `soma-local` KVM adapter still answers every lifecycle call with a typed unavailable failure.
+No signed report, admission policy, or revocation state exists yet, and the harness covers the burst performance gate of this ticket only.
 See [production admission evidence](production-admission-evidence.md), [benchmark contract](../benchmark-contract.md), and [validation template](../operations/validation-report-template.md).
 
 ## #15: How does one certified node become a scalable service?
