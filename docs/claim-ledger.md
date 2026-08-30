@@ -39,8 +39,8 @@ No signed admission report, admission policy, or revocation state exists yet.
 
 | Capability | Status | Evidence |
 |---|---|---|
-| x86_64 machine contract, PVH cold boot to `hlt` | Live-proved at `0b43bc6` | [x86_64 halt guest](evidence/2026-08-29-x86_64-kvm-halt-guest.md) |
-| Pinned kernel booted through the PVH entry to a challenge-bound sentinel | Live-proved at `45d031c` | [x86_64 PVH kernel boot](evidence/2026-08-29-x86_64-pvh-kernel-boot.md) |
+| x86_64 machine contract, PVH cold boot to `hlt` | Live-proved at `0b43bc6`, historical | [x86_64 halt guest](evidence/2026-08-29-x86_64-kvm-halt-guest.md); the boot and restore path changed after the run, so the current bytes are component-tested |
+| Pinned kernel booted through the PVH entry to a challenge-bound sentinel | Live-proved at `45d031c`, historical | [x86_64 PVH kernel boot](evidence/2026-08-29-x86_64-pvh-kernel-boot.md); the boot path changed after the run, so the current bytes are component-tested |
 | Five virtio-mmio device models on the fixed bus | Component-tested; four of five live-proved at `71161ea`, historical | [First sandbox command](evidence/2026-08-29-x86_64-first-sandbox-command.md); the run predates launch-page schema 3 and initramfs layout v3, and the network device has run only behind the link-down loopback backend |
 | Guest agent repair, authenticated vsock session, readiness probe, one bounded command, cold boot | Live-proved at `71161ea`, historical | [First sandbox command](evidence/2026-08-29-x86_64-first-sandbox-command.md); the run predates launch-page schema 3 and initramfs layout v3 |
 | Snapshot format v1 codec, compatibility check, and step orders | Component-tested | `crates/soma-kvm/src/snapshot` tests |

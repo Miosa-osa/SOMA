@@ -68,7 +68,7 @@ What guest-physical layout, Linux boot protocol, vCPU register state, interrupt 
 
 ### Answer
 
-Resolved; the cold-boot machine contract is live-proved on x86_64.
+Resolved; the cold-boot machine contract was live-proved on x86_64 at `0b43bc6` and `45d031c`, and both runs are historical because the boot path changed after them.
 Version 1 uses a pinned uncompressed x86_64 Linux ELF kernel with a PVH entry note, one bootstrap vCPU, a fixed low-memory layout, no firmware, and no general PC platform.
 It defines exact boot structures, initial register state, required KVM capabilities, cold-boot and restore ordering, failure behavior, and unsupported devices.
 The memory-slot, PVH boot-page, protected-mode vCPU entry, port-I/O exit, `hlt`, watchdog, and cleanup floor is implemented in `soma-kvm` and retained in [the x86_64 halt-guest evidence](../evidence/2026-08-29-x86_64-kvm-halt-guest.md).
