@@ -8,6 +8,8 @@ from benchmarks.local_alpha.provenance import (
     RELEASE_BUILD_COMMAND,
     BuildManifest,
     build_child_environment,
+    engine_setting_provenance,
+    engine_settings,
     source_fingerprint,
     validate_release_build,
 )
@@ -128,6 +130,36 @@ class ProvenanceTests(unittest.TestCase):
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", clean)
         self.assertNotIn("RANDOM_TOKEN", clean)
         self.assertEqual(clean["SOMA_EXPLICIT_TEST_ROOT"], "/tmp/state")
+
+    def test_engine_settings_forward_only_runtime_inputs_and_record_safe_identities(self) -> None:
+        source = {
+            "SOMA_GENERATION_STORE": "/srv/soma/prepared",
+            "SOMA_HEAD_DIR": "/srv/soma/heads",
+            "SOMA_ALLOW_UNCERTIFIED_GENERATION": "1",
+            "SOMA_EROFS_TOOLS": "/srv/soma/fs-tools/erofs",
+            "SOMA_E2FSPROGS": "/srv/soma/fs-tools/e2fsprogs",
+            "SOMA_OPERATOR_TOKEN": "must-not-escape",
+            "SOMA_EMPTY": "",
+        }
+
+        settings = engine_settings(source)
+        identity = engine_setting_provenance(settings)
+
+        self.assertEqual(
+            set(settings),
+            {
+                "SOMA_GENERATION_STORE",
+                "SOMA_HEAD_DIR",
+                "SOMA_ALLOW_UNCERTIFIED_GENERATION",
+            },
+        )
+        self.assertNotIn("SOMA_EROFS_TOOLS", settings)
+        self.assertNotIn("SOMA_E2FSPROGS", settings)
+        self.assertNotIn("SOMA_OPERATOR_TOKEN", settings)
+        self.assertTrue(identity["allow_uncertified_generation"])
+        self.assertEqual(len(identity["generation_store"]["locator_sha256"]), 64)
+        self.assertEqual(len(identity["head_directory"]["locator_sha256"]), 64)
+        self.assertNotIn("/srv/soma", json.dumps(identity))
 
     def test_release_validation_rejects_stale_hashes_source_and_harness(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

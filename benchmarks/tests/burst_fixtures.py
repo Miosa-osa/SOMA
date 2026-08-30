@@ -68,6 +68,12 @@ def metadata_record(declared: BurstPlan) -> dict[str, object]:
                 },
             },
         },
+        "engine": {
+            "schema": "soma.engine-settings.v1",
+            "generation_store": {"state": "unset"},
+            "head_directory": {"state": "unset"},
+            "allow_uncertified_generation": False,
+        },
         "host": {
             "kernel": {
                 "sysname": "Linux",

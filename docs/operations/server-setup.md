@@ -52,18 +52,19 @@ If the target host has no GitHub credential, transfer a bundle made on a trusted
 
 ```sh
 # on a trusted machine with access
-git branch -f soma-main origin/main          # a real branch, not a remote-tracking ref
-git bundle create soma.bundle soma-main
+git fetch origin
+git switch main
+git merge --ff-only origin/main
+git bundle create soma.bundle main           # bundle a real local branch
 git bundle verify soma.bundle                # should report a complete history
 
 # on the Ubuntu host
-git clone -b soma-main soma.bundle SOMA
+git clone -b main soma.bundle SOMA
 cd SOMA
 ```
 
-Bundle a real branch. A bundle made directly from a remote-tracking ref such as `origin/main`
-carries the objects but no branch a clone can check out, so the clone succeeds and leaves an
-empty working tree.
+Bundle a real branch.
+A bundle made directly from a remote-tracking ref such as `origin/main` carries the objects but no branch a clone can check out, so the clone succeeds and leaves an empty working tree.
 
 No setup script contains or requests a repository credential.
 

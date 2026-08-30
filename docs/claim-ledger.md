@@ -68,7 +68,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 | Capability | Status | Evidence |
 |---|---|---|
 | Burst harness enforcing the benchmark contract | Live-proved at `ccf7bcf` against the Docker Backend only | [Burst harness dry run](evidence/2026-08-30-burst-harness-dry-run.md); this proves the harness, not SOMA performance |
-| Admitted KVM burst campaign and the 10 ms objective | Designed, and blocked | [Benchmark contract](benchmark-contract.md) and [production admission evidence](research/production-admission-evidence.md). The harness cannot measure the KVM Backend at `a4eea45`: it drives launch, exec, and destroy as three processes, and a sandbox does not outlive the command that created it. Recorded in [the blocked burst attempt](evidence/2026-08-30-burst-against-kvm-blocked.md) |
+| Admitted KVM burst campaign and the 10 ms objective | Designed | [Benchmark contract](benchmark-contract.md) and [production admission evidence](research/production-admission-evidence.md). The current process-lifetime blocker and the required persistent Host Runtime are recorded in [the blocked burst attempt](evidence/2026-08-30-burst-against-kvm-blocked.md) |
 
 ## What no row claims
 

@@ -779,3 +779,10 @@ The forced-platform build produced x86-64 ELF tools and reported erofs-utils 1.9
 Windows Clippy evaluates non-Unix fallback code that ordinary cross-target `cargo check` does not lint, so portable validation must include target-specific Clippy when changing a fallback implementation.
 Windows rejects Unix directory-fsync operations with `PermissionDenied`; host and network ledger record files are flushed everywhere, while parent-directory metadata is flushed only on Unix production hosts.
 None of these results is a live KVM-host proof, a certified Generation proof, or a performance claim.
+
+## 2026-08-30 - Persistent managed ownership belongs in the Host Runtime
+
+ADR 0031 makes `soma-hostd` the persistent owner of managed Instances across CLI, MCP, and provider-adapter process lifetimes.
+The external interface remains the provider-neutral lifecycle, while durable idempotency, admission, prepared claims, one jailed VMM per Machine, authenticated guest sessions, cleanup, and reconciliation remain private implementation modules.
+The failed KVM burst attempt was a cold-boot lifecycle probe rather than a restore experiment, and it cannot become exact ComputeSDK evidence until the local persistent lifecycle and the external provider adapter both exist.
+New burst artifacts use `soma.burst.v2` so effective runtime-engine identities are mandatory, while the reader preserves compatibility with `soma.burst.v1` artifacts that predate that provenance field.

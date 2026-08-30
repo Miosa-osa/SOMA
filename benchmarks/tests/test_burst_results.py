@@ -151,7 +151,7 @@ class BurstResultsTests(unittest.TestCase):
 
     def test_incomplete_metadata_fails_closed(self) -> None:
         declared = plan(iterations=1, concurrency=1)
-        for field in ("host", "soma", "backend_probe", "started_at_utc"):
+        for field in ("host", "soma", "engine", "backend_probe", "started_at_utc"):
             with self.subTest(field=field):
                 metadata = metadata_record(declared)
                 metadata.pop(field)

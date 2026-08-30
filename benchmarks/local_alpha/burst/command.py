@@ -13,6 +13,7 @@ from pathlib import Path
 from benchmarks.local_alpha.provenance import (
     BuildManifest,
     build_child_environment,
+    engine_setting_provenance,
     engine_settings,
     validate_release_build,
 )
@@ -103,7 +104,8 @@ def _run(arguments: argparse.Namespace) -> int:
     results = _new_file(arguments.results, "results file")
     manifest = BuildManifest.load(manifest_path)
     validate_release_build(ROOT, manifest, soma, mcp)
-    environment = build_child_environment(os.environ, engine_settings(os.environ))
+    settings = engine_settings(os.environ) if plan.backend == "kvm" else {}
+    environment = build_child_environment(os.environ, settings)
     with tempfile.TemporaryDirectory(
         prefix="soma-burst-state-", dir=results.parent
     ) as temporary:
@@ -115,6 +117,7 @@ def _run(arguments: argparse.Namespace) -> int:
             soma_binary=soma,
             state_root=state_root,
             environment=environment,
+            engine=engine_setting_provenance(settings),
         )
         summary = run_burst(
             plan,

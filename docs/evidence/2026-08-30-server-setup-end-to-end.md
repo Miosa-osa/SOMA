@@ -1,39 +1,42 @@
-# Empty server to running sandbox, executed end to end - 2026-08-30
+# Existing development host setup observation - 2026-08-30
 
-## Status: current
+## Capability status: Component-tested
 
-The full re-audit recorded that the server setup "was not executable as documented on an ordinary
-fresh Ubuntu host" and "had no retained end-to-end evidence". This is that run: every step of
-[the server setup runbook](../operations/server-setup.md) executed in order on a real host, with
-what worked, what took how long, and the two defects the run exposed.
-
-It proves the development path only. It does not certify the host, the Candidate, cleanup, the
-jail, networking, or production readiness.
+This document records an operator-driven setup observation on an existing Ubuntu KVM host.
+It does not prove transformation from a fresh or empty server because the host pre-state and raw setup logs were not retained.
+It does not claim Live-proved setup, cleanup, jail containment, networking, certification, or production readiness.
 
 ## Host and revision
 
-| | |
+| Field | Observed value |
 | --- | --- |
-| Host | `eval-1`, bare metal, Ubuntu 24.04.4 LTS, kernel 6.8.0-138 |
-| CPU | Intel Xeon Gold 6138, 80 threads, VT-x |
+| Host | One bare-metal Ubuntu 24.04.4 development host, kernel 6.8.0-138 |
+| CPU class | Intel Xeon Gold 6138, 80 logical CPUs, VT-x exposed |
 | Memory | 156 GB |
-| Storage | `/srv`, 1.5 TB XFS with `reflink=1` |
+| Storage | 1.5 TB XFS under `/srv`, with reflink enabled |
 | SOMA revision | `bfe10b2c7d149167c623bde8c8196ba02ba273b1` |
-| Transport | repository delivered as a git bundle; the host holds no GitHub credential |
+| Repository transport | Git bundle transferred without placing a GitHub credential on the host |
 
-## What each step did
+The host had been running before the observation.
+No initial package, group, service, Rust, Docker, KVM-permission, or `/srv/soma` state was retained.
+The results therefore show that the documented commands reached guest execution on that host, not that every prerequisite was installed from an empty baseline.
 
-| Step | Script | Wall | Result |
+## Operator-observed steps
+
+| Step | Command or script | Approximate wall time | Observed result |
 | --- | --- | ---: | --- |
-| 1 | obtain repository (bundle) | seconds | 1253 files at `bfe10b2` |
-| 2 | `setup-host.sh` | about 1 min | ten of ten readiness checks, exit 0 |
-| 3 | `build-soma.sh` | 3 m 02 s | cli, guest agent, kernel |
-| 4 | `build-fs-tools.sh` | 3 m 50 s | erofs-utils 1.9.4 and e2fsprogs 1.47.0 from pinned source |
-| 5 | `prepare-generation.sh busybox:stable-musl` | 4 m 07 s | 424 entries, published atomically |
-| 5 | `prepare-generation.sh node:22` | longer, see below | published atomically |
-| 6 | run both sandboxes | under 1 s each | see results |
+| 1 | Repository transfer through the original bundle procedure | Not retained | The original bundle cloned an empty working tree and required correction |
+| 2 | `setup-host.sh` | About 1 minute | Ten reported readiness checks and exit zero |
+| 3 | `build-soma.sh` | 3 minutes 2 seconds | CLI, guest agent, and kernel built |
+| 4 | `build-fs-tools.sh` | 3 minutes 50 seconds | erofs-utils 1.9.4 and e2fsprogs 1.47.0 built from pinned source |
+| 5 | `prepare-generation.sh busybox:stable-musl` | 4 minutes 7 seconds | Candidate entry published |
+| 5 | `prepare-generation.sh node:22` | Not retained | Candidate entry published |
+| 6 | Two one-shot KVM commands | One shell sample each | Guest commands returned successfully |
 
-## Results
+The table is a narrative reconstruction.
+It is not a retained raw execution transcript and cannot support benchmark or cleanup claims.
+
+## Guest command observations
 
 ```text
 soma --backend kvm run busybox:stable-musl -- /bin/busybox uname -a
@@ -45,50 +48,51 @@ v22.23.2
 real 0m0.677s
 ```
 
-Both are wall-clock times of the whole command, measured by the shell, not internal milestones.
-They include process start, resolution, cold boot, the authenticated session, one command, and
-cleanup. They are single samples on an otherwise idle host and are not a benchmark.
+These are single shell observations of the complete one-shot commands.
+They are not benchmark samples and are not accepted performance evidence.
+The retained text does not contain the execution receipts or post-run resource inventory required to prove cleanup.
 
-## The kernel reproduced across two machines
+## Kernel digest observation
 
-The pinned kernel built on `eval-1` has SHA-256
-`f1af3a142fa39916cfac425a01b16b5f328279823533421c9eec3f192c05b746`, byte for byte identical to the
-digest recorded in [the kernel build evidence](2026-08-29-x86_64-pvh-kernel-build.md) from a
-different host with a different CPU and kernel. That is cross-machine reproducibility observed
-rather than asserted. It does not prove reproducibility across toolchain or base-image changes.
+The built kernel had SHA-256 `f1af3a142fa39916cfac425a01b16b5f328279823533421c9eec3f192c05b746`.
+That digest equals the value recorded in [the earlier kernel build evidence](2026-08-29-x86_64-pvh-kernel-build.md) from a different machine.
+This is a two-build equality observation.
+It does not prove reproducibility across builder, dependency, toolchain, configuration, or base-image changes.
 
-## Two defects this run exposed
+## Defect found in the original bundle instructions
 
-### The documented bundle command produced an empty clone
+The original runbook used `git bundle create soma.bundle origin/main`.
+A bundle made from that remote-tracking ref carried objects but no local branch a clone could check out, so the clone produced an empty working tree.
 
-The runbook said `git bundle create soma.bundle origin/main`. A bundle made from a remote-tracking
-ref carries the objects but no branch a clone can check out, so `git clone` succeeded and left an
-empty working tree. The runbook now bundles a real branch and verifies the bundle first.
+The runbook now fetches the remote, fast-forwards the real local `main` branch, verifies the bundle, and clones that branch.
+The corrected procedure was reproduced separately through a complete bundle, clone, and revision comparison.
+It was not the procedure used at the beginning of this host observation.
 
-This was only found by running the documented commands rather than reading them.
+## Unresolved host responsiveness observation
 
-### Preparing a large Candidate stalls the entire host
+The host stopped answering SSH while the larger `node:22` Candidate was being prepared.
+A later reading of `/proc/pressure/io` showed a large cumulative full-stall total, but that counter covered the host's entire uptime.
+No before-and-after PSI samples, per-device telemetry, process I/O accounting, or timestamped system logs were retained.
 
-While `node:22` compiled, `eval-1` stopped answering SSH. Nothing had failed: no out-of-memory
-kill, no hung task, no soft lockup, no I/O error, no network flap, and no reboot, with the host up
-eight days throughout.
+The observation is consistent with I/O contention but does not prove the cause or duration.
+Preparation should remain outside the request path, and future host runs must measure PSI deltas and device behavior before deciding whether preparation requires separate storage, cgroup I/O limits, or another isolation policy.
 
-The cause was I/O starvation. `/proc/pressure/io` recorded a cumulative `full` stall total of
-1,229,894,029 microseconds, about twenty minutes in which every task on the host was blocked on
-I/O, `sshd` included. Writing the 1.1 GiB EROFS root and its overlay saturated the device.
+## Evidence required for a fresh-host proof
 
-Both Candidates completed and published, and the store was left clean, so the work was correct.
-The consequence is operational: **preparation is not safe to run beside anything serving
-requests**, which is what the architecture already requires when it puts preparation before demand
-and off the request path. A production host must throttle or isolate preparation I/O, and this run
-is the measured reason why.
+A replacement run must retain:
 
-## What this does not prove
+- A fresh Ubuntu image or an exact pre-run package, group, service, filesystem, KVM, and work-root inventory.
+- Exact commands, arguments, environment identities, start times, end times, and exit results.
+- Raw bounded stdout and stderr for every step.
+- CLI, guest-agent, kernel, filesystem-tool, Candidate, and Generation identities.
+- Negative and failure-path results for required setup checks.
+- Execution receipts and a post-run inventory proving process, descriptor, memory, storage, network, and authority cleanup.
+- Before-and-after PSI, device, memory, and process telemetry for large Candidate preparation.
 
-- One host, one day, single samples. No concurrency, and no distribution.
-- No jail. The machine engine is linked into the command line rather than a confined `soma-vmm`.
-- No network. The guest device is link down.
-- No prepared restore. Every launch here cold boots.
-- No certified Generation. Both templates are Candidates launched behind the explicit
-  `SOMA_ALLOW_UNCERTIFIED_GENERATION` opt in.
-- Nothing here is production-admitted.
+## What this record does not prove
+
+- It does not prove setup from a fresh or empty host.
+- It does not prove the corrected bundle procedure on the observed host.
+- It does not prove certified Generation admission.
+- It does not prove jail containment, networking, prepared restore, concurrency, or cleanup.
+- It contains no accepted latency, throughput, density, or capacity result.

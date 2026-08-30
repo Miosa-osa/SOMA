@@ -273,7 +273,12 @@ A signed immutable report binds exact provenance and admits a HostProfile only a
 The contract's anti-gaming rules are enforced in code rather than in prose, and the report generator refuses an incomplete run, a class-mixed run, a successful sample without a zero-exit workload command, and a warm class that recorded no preparation.
 The harness is live-proved today only against the Docker Backend, which is a Linux container and not a virtual machine.
 [The dry run](../evidence/2026-08-30-burst-harness-dry-run.md) is that proof of the harness and is not a SOMA performance result.
-The KVM run of the same profile was attempted at `a4eea45` and cannot run yet, which is retained in [the blocked burst attempt](../evidence/2026-08-30-burst-against-kvm-blocked.md). The harness drives launch, exec, and destroy as three separate processes, while the Backend holds its sandbox in one in-process slot, so launch succeeds and exec has nothing to address. Measuring the contract profile needs a sandbox that outlives its creating command, which is Stage 6 of the audit road. A burst against the present cold-boot slice would also measure cold boot rather than the prepared-worker path the contract's warm class requires.
+The KVM lifecycle probe at `a4eea45` could not complete, which is recorded honestly in [the blocked burst attempt](../evidence/2026-08-30-burst-against-kvm-blocked.md).
+The harness drives Launch, Execute, and Destroy as separate processes, while the development Backend owns its Machine inside the creating process.
+[ADR 0031](../adr/0031-persistent-host-runtime-ownership.md) therefore makes `soma-hostd` the persistent owner of managed Instances and makes CLI, MCP, and provider adapters its clients.
+That ownership seam is necessary but not sufficient: the admitted campaign also depends on the certified Generation, jail, prepared restore, private resource, authenticated Ready, networking, recovery, and cleanup work in tickets #6 through #13 and Stages 3 through 6 of the audit road.
+The failed probe was a cold boot and cannot be classified as cold-cache restore.
+The exact ComputeSDK campaign additionally requires a provider adapter and an unmodified upstream run after the local lifecycle passes.
 No signed report, admission policy, or revocation state exists yet, and the harness covers the burst performance gate of this ticket only.
 See [production admission evidence](production-admission-evidence.md), [benchmark contract](../benchmark-contract.md), and [validation template](../operations/validation-report-template.md).
 

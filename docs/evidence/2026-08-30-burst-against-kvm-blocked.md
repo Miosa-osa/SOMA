@@ -1,99 +1,87 @@
-# The burst harness cannot measure the KVM Backend yet - 2026-08-30
+# KVM managed-lifecycle burst blocker - 2026-08-30
 
-## Status: current
+## Capability status: Designed
 
-This records the first attempt to run the burst harness against the Linux KVM Backend, on a real
-KVM host with a prepared store. It did not produce a performance result. It produced two findings,
-one fixed here and one that blocks the campaign until a missing capability exists.
+The admitted KVM burst campaign remains Designed.
+This document records a failed Host observation that identified why the current managed lifecycle cannot complete across separate command-line processes.
+The raw JSONL results and complete process captures were not retained, so this document is not Live-proved evidence and contains no accepted latency result.
 
-No latency number appears in this document, because none was measured.
+## Observation identity
 
-## Run identity
-
-| | |
+| Field | Observed value |
 | --- | --- |
-| Host | `eval-1`, bare metal, Ubuntu 24.04.4, kernel 6.8.0-138 |
-| CPU | Intel Xeon Gold 6138, 80 threads, VT-x |
-| Memory | 156 GB, 150 GB available at start |
-| Storage | `/srv`, XFS with `reflink=1` |
-| Backend probe | `kvm-api-12-vcpu-mmap-12288`, `status: probe_passed` |
+| Host | One bare-metal Ubuntu 24.04.4 development host |
+| Kernel | Linux 6.8.0-138 |
+| CPU class | Intel Xeon Gold 6138, 80 logical CPUs, VT-x exposed |
+| Memory | 156 GB total, approximately 150 GB available before the attempt |
+| Storage | XFS under `/srv`, with reflink enabled |
+| Backend probe | `kvm-api-12-vcpu-mmap-12288`, `probe_passed` |
 | SOMA revision | `a4eea45` |
-| Cohort | `node:22`, cold-cache-restore, 3 iterations, concurrency 1 |
+| Workload | `node:22`, three attempted samples, concurrency one |
+| Classification | Unsupported cold-boot managed-lifecycle probe, not a benchmark experiment class |
 
-The store held a `node:22` Candidate prepared before the timer, and the release binaries were built
-through the controlled build step the benchmark contract requires.
+The store held a `node:22` Candidate prepared before the attempted lifecycle.
+The release binaries were produced through the benchmark harness controlled-build step.
+Because no raw run artifact was retained, these observations support diagnosis only.
 
-## Finding one: measured children could not see the engine settings
+## Finding one: measured KVM children lacked runtime configuration
 
-The first attempt failed every sample with `launch` exit 76, backend unavailable, in 103 ms of
-total wall time. Nothing had booted.
+The initial attempt returned Backend unavailable before a machine was created.
+The burst harness deliberately minimizes each child environment so ambient credentials and unrelated operator state cannot enter a measurement.
+The development KVM Backend requires a prepared-store locator, a writable-head locator, and an explicit opt-in when it launches an uncertified Candidate.
+Those runtime settings were absent from the child environment.
 
-The harness sanitizes the child environment to an eight name allowlist so a measurement is
-reproducible and carries no secret. The KVM Backend is configured entirely through environment
-variables, so a measured child saw no prepared store, no head directory, and no development opt
-in, and refused every launch before doing any work. The harness had only ever been exercised
-against the Docker Backend, which needs no such settings.
+The follow-up implementation forwards only those three reviewed runtime settings for KVM runs.
+It does not forward Generation-build tool paths because build preparation stays outside runtime children.
+It records non-secret locator fingerprints and the effective uncertified-Candidate opt-in in run metadata.
+The actual Generation identity must still come from a verified Generation and its execution receipt rather than from a path fingerprint.
 
-This is a missing seam rather than a fault in either part, and it is fixed: engine settings are
-forwarded by name through the existing reviewed explicit channel, so the value each run used is
-recorded in its provenance rather than left implicit in the operator's shell. Widening the
-allowlist was rejected because it would admit anything a shell happened to hold.
+## Finding two: the current command-line process owns the Machine
 
-When the harness was edited in place it refused to run, reporting that the benchmark code changed
-after the release build was recorded. That is the anti-gaming control working correctly:
-measurement must come from a committed, rebuilt tree. The change was committed, the host updated
-to that revision with a clean tree, and the build manifest regenerated before measuring again.
-
-## Finding two: the lifecycle the benchmark needs does not exist yet
-
-With the settings forwarded, wall time rose from 103 ms to 2.32 s, so the run was doing real work.
-The per-sample record is unambiguous:
+After runtime configuration was forwarded, the operator observed this lifecycle result:
 
 ```text
-launch:  exit 0     the sandbox booted
-exec:    exit 76    backend unavailable
-destroy: exit 69
+launch:  succeeded
+exec:    backend unavailable
+destroy: no live Instance owned by this process
 ```
 
-The harness drives the lifecycle as three separate `soma` processes: launch, then exec, then
-destroy. The KVM Backend holds its live sandbox in an in-process `Option<Live>`. When the launch
-process exits, the machine and its authenticated session end with it, so the exec process has
-nothing to address.
+The raw result record was not retained, so the sequence above is a diagnostic observation rather than benchmark evidence.
 
-`soma run`, which performs launch, command, and cleanup inside one process, works on this host and
-returned `v22.23.2` from inside a virtual machine earlier the same day. The gap is specific: a
-sandbox cannot outlive the command that created it.
+The harness invokes Launch, Execute, and Destroy as separate `soma` processes.
+Each command opens a new `LocalRuntime` and a new KVM Backend.
+The current KVM Backend owns at most one live Machine in an in-process `Option<Live>`.
+When the Launch process exits, its runtime and authenticated guest session are dropped, so a later Execute process cannot address that Machine.
 
-This is already recorded as open work rather than a defect discovered here. The public KVM Backend
-audit lists "a daemon or API to call, rather than a one shot command; the backend currently tracks
-a single live sandbox", and its Stage 6 states that "the single `Option<Live>` is a development
-constraint, not the production ownership model".
+The one-shot `soma run` command succeeds because Launch, Execute, and Cleanup occur through one runtime in one process.
+That development path does not provide the persistent ownership seam required by managed sandboxes or the ComputeSDK benchmark.
 
-## Consequence for ticket #14
+## Correct architectural consequence
 
-The admitted burst campaign cannot run against the KVM Backend at this revision. The blocker is a
-missing capability, not a harness defect or a configuration mistake, so it cannot be worked around
-without changing what is measured.
+The blocker must not be fixed with a benchmark-only process or a shallow global map.
+The persistent Host Runtime defined by [ADR 0031](../adr/0031-persistent-host-runtime-ownership.md) must own live Instances across client process lifetimes.
+CLI, MCP, and future provider adapters become clients of that runtime.
+The Host Runtime composes durable idempotency, capacity admission, prepared-worker ownership, one jailed `soma-vmm` process per Machine, authenticated guest control, and proven cleanup behind one small lifecycle interface.
 
-Two paths exist, and they measure different things.
+Making the local three-command harness addressable is necessary but not sufficient for the production performance path.
+The measured path also requires certified immutable Generations, prepared restore, private writable state, fresh Instance authority, authenticated Repair and Ready, bounded resource ownership, crash reconciliation, and exact receipts.
 
-1. **Measure the one-shot path.** Run concurrency rungs against `soma run`, where one process
-   performs create, command, and destroy. This yields real concurrency evidence on this host
-   today, including success and cleanup rates under load. It is **not** the ComputeSDK Burst TTI
-   boundary and must never be published as though it were, because the timed region and the
-   process model both differ.
-2. **Build the missing capability first.** A sandbox that outlives its creating command, addressed
-   by a keyed ownership table rather than a single in-process slot, with launch returning a handle
-   that exec and destroy can name. That is Stage 6 of the audit road and the wiring of
-   `soma-hostd`. Only then does the contract profile, `node:22`, 100 iterations, concurrency 100
-   released as one burst, timed from before create until `node -v` succeeds inside the sandbox,
-   become measurable.
+Passing the local burst harness is not the exact upstream ComputeSDK campaign.
+After the persistent Host Runtime passes its local 1, 10, and 100 concurrency ladder, a provider adapter must expose the same lifecycle to the unmodified upstream ComputeSDK benchmark and retain its exact 100-way cohort.
 
-## What this does not prove
+## Two valid next measurements
 
-- No latency, throughput, or capacity result was produced, and none may be quoted from this run.
-- The successful `launch` exit code shows a machine was created; it is not evidence of readiness,
-  isolation, or cleanup.
-- One host, one cohort, concurrency 1. Nothing here observes concurrent behaviour at all.
-- The environment forwarding fix is proven only to the extent that launch then succeeded; no
-  complete measured cohort has yet run against this Backend.
+1. A `cold-boot-one-shot-development` diagnostic may run concurrent `soma run` commands today.
+   It can test cold-boot correctness, host pressure, identity uniqueness, command success, cleanup, and leakage under load.
+   It must retain raw samples and complete cleanup results and must never be compared with restore latency or ComputeSDK Burst TTI.
+2. The admitted managed-lifecycle campaign waits for the persistent Host Runtime and the production prepared-worker path.
+   Its timer begins before Launch and ends only after the declared command succeeds through the authenticated guest session.
+   Destroy remains outside the TTI timer but inside cohort acceptance.
+
+## What this record does not prove
+
+- It contains no accepted latency, throughput, density, or capacity result.
+- It does not prove a complete managed lifecycle.
+- It does not prove prepared restore, certification, jail containment, networking, or cleanup.
+- It does not prove the runtime-setting change through a successful KVM cohort.
+- It does not replace the raw evidence required for any future Host or performance claim.

@@ -11,31 +11,13 @@ from typing import IO
 
 from benchmarks.local_alpha.statistics import nearest_rank
 
-from .plan import EXPERIMENT_CLASSES
+from .validation import validate_metadata, validate_samples
 
 
-RESULTS_SCHEMA = "soma.burst.v1"
+RESULTS_SCHEMA = "soma.burst.v2"
+LEGACY_RESULTS_SCHEMA = "soma.burst.v1"
+READABLE_RESULTS_SCHEMAS = frozenset((LEGACY_RESULTS_SCHEMA, RESULTS_SCHEMA))
 MAXIMUM_RECORD_BYTES = 8 * 1024 * 1024
-_METADATA_FIELDS = ("run_id", "started_at_utc", "plan", "soma", "host", "backend_probe")
-_PLAN_FIELDS = (
-    "experiment_class",
-    "preparation_class",
-    "prepared_before_timer",
-    "cache_state",
-    "backend",
-    "image",
-    "command",
-    "network_policy",
-    "shape",
-    "iterations",
-    "concurrency",
-    "bursts",
-    "timeout_ms",
-    "max_output_bytes",
-    "excluded_work",
-)
-_SOMA_FIELDS = ("git_revision", "worktree_clean", "build_manifest")
-_HOST_FIELDS = ("kernel", "cpu", "memory", "storage", "kvm")
 _MERGE_FIELDS = (
     "experiment_class",
     "preparation_class",
@@ -141,9 +123,11 @@ def load_results(path: Path) -> BurstResults:
     completion: Mapping[str, object] | None = None
     samples: list[Mapping[str, object]] = []
     run_ids: set[str] = set()
+    schemas: set[str] = set()
     for record in _records(path):
         kind = record.get("record_type")
         run_ids.add(str(record.get("run_id")))
+        schemas.add(str(record["schema"]))
         if kind == "run_metadata":
             if metadata is not None:
                 raise ValueError(
@@ -166,8 +150,10 @@ def load_results(path: Path) -> BurstResults:
         raise ValueError("run is incomplete: no run completion record was retained")
     if len(run_ids) != 1:
         raise ValueError("results records contain multiple run identities")
-    _validate_metadata(metadata)
-    _validate_samples(metadata, samples, completion)
+    if len(schemas) != 1:
+        raise ValueError("results records contain multiple schema versions")
+    validate_metadata(metadata, require_engine=next(iter(schemas)) == RESULTS_SCHEMA)
+    validate_samples(metadata, samples, completion)
     return BurstResults(
         path=path,
         metadata=metadata,
@@ -201,7 +187,13 @@ def _host_identity(cohort: BurstResults) -> dict[str, object]:
             for name, value in memory.items()
             if name != "available_at_start"
         }
-    return {"host": host, "backend_probe": cohort.metadata["backend_probe"]}
+    return {
+        "engine": cohort.metadata.get(
+            "engine", {"schema": "soma.engine-settings.unrecorded"}
+        ),
+        "host": host,
+        "backend_probe": cohort.metadata["backend_probe"],
+    }
 
 
 def _records(path: Path):
@@ -218,77 +210,11 @@ def _records(path: Path):
                 record = json.loads(encoded)
             except (UnicodeDecodeError, json.JSONDecodeError) as error:
                 raise ValueError(f"invalid results JSON at line {line_number}") from error
-            if not isinstance(record, Mapping) or record.get("schema") != RESULTS_SCHEMA:
+            if (
+                not isinstance(record, Mapping)
+                or record.get("schema") not in READABLE_RESULTS_SCHEMAS
+            ):
                 raise ValueError("results record has an unknown schema")
             yield record
         if line_number == 0:
             raise ValueError("results file is empty")
-
-
-def _validate_metadata(metadata: Mapping[str, object]) -> None:
-    _require(metadata, _METADATA_FIELDS, "run metadata")
-    plan = metadata["plan"]
-    soma = metadata["soma"]
-    host = metadata["host"]
-    _require(plan, _PLAN_FIELDS, "run metadata plan")
-    _require(soma, _SOMA_FIELDS, "run metadata soma identity")
-    _require(host, _HOST_FIELDS, "run metadata host identity")
-    if plan["experiment_class"] not in EXPERIMENT_CLASSES:
-        raise ValueError("run metadata declares an unknown experiment class")
-    if plan["preparation_class"] != plan["experiment_class"]:
-        raise ValueError("run metadata preparation class contradicts its experiment class")
-    prepared = plan["prepared_before_timer"]
-    if not isinstance(prepared, list):
-        raise ValueError("run metadata preparation must be a list")
-    if plan["experiment_class"] != "cold-generation-build" and not prepared:
-        raise ValueError(
-            f"class {plan['experiment_class']} must record what was prepared "
-            "before the timer"
-        )
-    if not metadata["plan"]["excluded_work"]:
-        raise ValueError("run metadata must name the work excluded from the timer")
-
-
-def _validate_samples(
-    metadata: Mapping[str, object],
-    samples: Sequence[Mapping[str, object]],
-    completion: Mapping[str, object],
-) -> None:
-    plan = metadata["plan"]
-    iterations = plan["iterations"]
-    if completion.get("attempted") != len(samples) or len(samples) != iterations:
-        raise ValueError(
-            f"run is incomplete: {len(samples)} of {iterations} samples were retained"
-        )
-    repetitions = sorted(int(sample["repetition"]) for sample in samples)
-    if repetitions != list(range(1, iterations + 1)):
-        raise ValueError("sample repetitions must cover the cohort exactly once")
-    for sample in samples:
-        if sample.get("experiment_class") != plan["experiment_class"]:
-            raise ValueError("results merge different experiment classes")
-        if sample["successful"]:
-            _require_command(sample)
-        elif not sample.get("failures"):
-            raise ValueError("an unsuccessful sample lacks a typed failure reason")
-
-
-def _require_command(sample: Mapping[str, object]) -> None:
-    command = sample.get("command")
-    if (
-        not isinstance(command, Mapping)
-        or command.get("status") != "exited"
-        or command.get("exit_code") != 0
-        or not isinstance(command.get("stdout"), Mapping)
-        or type(sample.get("tti_ns")) is not int
-        or sample["tti_ns"] < 0
-        or not sample.get("cleanup_complete")
-    ):
-        raise ValueError("a successful sample lacks workload command evidence")
-
-
-def _require(value: object, fields: Sequence[str], label: str) -> None:
-    if not isinstance(value, Mapping):
-        raise ValueError(f"{label} must be an object")
-    for field in fields:
-        if value.get(field) in (None, "", {}):
-            raise ValueError(f"{label} is missing required field: {field}")

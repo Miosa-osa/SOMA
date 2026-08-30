@@ -26,6 +26,7 @@ def collect(
     soma_binary: Path,
     state_root: Path,
     environment: Mapping[str, str],
+    engine: Mapping[str, object],
 ) -> dict[str, object]:
     """Collect every metadata field the benchmark contract requires."""
 
@@ -38,6 +39,7 @@ def collect(
             "worktree_clean": manifest.worktree_clean,
             "build_manifest": manifest.as_dict(),
         },
+        "engine": dict(engine),
         "host": {
             "kernel": _kernel(),
             "cpu": _cpu(),

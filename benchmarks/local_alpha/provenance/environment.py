@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from hashlib import sha256
 
 
 _ALLOWLIST = frozenset(
@@ -20,16 +21,12 @@ _ALLOWLIST = frozenset(
 )
 _SECRET_MARKERS = ("API_KEY", "PASSWORD", "SECRET", "TOKEN", "CREDENTIAL")
 
-# Engine settings a Backend needs in order to serve a request at all. They are host paths and one
-# explicit development opt in, never credentials, and a measured run that cannot see them measures
-# a Backend that refuses every launch. They are forwarded by name so the value each run used is
-# recorded in its provenance rather than left implicit in the operator's shell.
+# Runtime settings the development KVM Backend needs in order to serve a request.
+# Build-tool paths remain outside measured children because Generation construction is preparation.
 ENGINE_SETTINGS = (
     "SOMA_GENERATION_STORE",
     "SOMA_HEAD_DIR",
     "SOMA_ALLOW_UNCERTIFIED_GENERATION",
-    "SOMA_EROFS_TOOLS",
-    "SOMA_E2FSPROGS",
 )
 
 
@@ -37,6 +34,29 @@ def engine_settings(source: Mapping[str, str]) -> dict[str, str]:
     """Return the engine settings present in `source`, for explicit forwarding."""
 
     return {name: source[name] for name in ENGINE_SETTINGS if source.get(name)}
+
+
+def engine_setting_provenance(settings: Mapping[str, str]) -> dict[str, object]:
+    """Return non-secret identities for the effective development-engine settings."""
+
+    return {
+        "schema": "soma.engine-settings.v1",
+        "generation_store": _locator_identity(settings.get("SOMA_GENERATION_STORE")),
+        "head_directory": _locator_identity(settings.get("SOMA_HEAD_DIR")),
+        "allow_uncertified_generation": settings.get(
+            "SOMA_ALLOW_UNCERTIFIED_GENERATION"
+        )
+        == "1",
+    }
+
+
+def _locator_identity(value: str | None) -> dict[str, str]:
+    if not value:
+        return {"state": "unset"}
+    return {
+        "state": "configured",
+        "locator_sha256": sha256(value.encode("utf-8")).hexdigest(),
+    }
 
 
 def _secret_bearing(name: str) -> bool:
