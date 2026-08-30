@@ -18,6 +18,47 @@ No private tests, credentials, customer information, or non-public disclosures a
 - Performance numbers retain their original measurement boundary because VM boot, snapshot restore, API create, and time to first successful command are different metrics.
 - A failed or missing run is recorded as unavailable and is never converted into zero latency.
 
+## Repository speed evidence by measurement boundary
+
+This table consolidates performance evidence published in competitor repositories, project documentation, and retained independent measurements.
+It is an index into the detailed profiles below, not a normalized leaderboard.
+
+| Project | Published or measured result | Measurement boundary | Evidence class | Comparable with SOMA authenticated Ready? |
+| --- | ---: | --- | --- | --- |
+| Isorun | 9 ms example and 10 ms site claim | Undocumented vendor `create_ms` boundary | Vendor claim | No |
+| Isorun | 22 ms p50 sequential; 73 ms p50 and 207-209 ms p99 at concurrency 100 | Vendor-reported `create_ms`, independently collected over 250 creates | Independent collection of vendor telemetry | No, endpoints are undocumented |
+| Isorun | 63.90 ms median, 79.35 ms p95, 79.86 ms p99 | ComputeSDK create through first successful command, concurrency 100 | Independent observation | Yes for external TTI, not server-side Ready |
+| Declaw | Approximately 30 ms restore and 125 ms cold create | Snapshot restore and cold `CreateVM()` through claimed guest readiness | Vendor claim | Only after reproducing its readiness definition |
+| Declaw | 476.53 ms median, 573.91 ms p95, 575.96 ms p99 | ComputeSDK create through first successful command, concurrency 100 | Independent observation | Yes for external TTI |
+| Tencent CubeSandbox | Under 60 ms fully serviceable; under 100 ms cold start | Presnapshotted-template serviceability and claimed cold start | Project claim | Unknown until the repository publishes raw samples and exact gates |
+| Firecracker | 12 ms typical API wall time; guest init at or below 125 ms | API response and guest-init boot under the project specification | Project specification | No, neither includes SOMA repair and authenticated Ready |
+| Zeroboot | 0.79 ms p50 and 1.74 ms p99 spawn; about 8 ms fork plus Python execution | Narrow raw KVM restore, then a separate fork-plus-command path | Project benchmark | No for spawn; partially comparable for the command path |
+| Mitos | About 27 ms p50 warm activation; 67 ms optimized fork-to-first-exec; 96.8 ms hosted TTI | Multiple separately named local and hosted paths | Project benchmark | The first-exec and hosted paths are informative but not identical |
+| Amber | 30, 30, 31, 31, and 32 ms | Warm CLI `exec` through trivial command exit on an M1 Pro | Project benchmark, five samples | Partially, but it is Apple HVF and lacks a distribution |
+| Microsandbox | Below 100 ms average | Guest boot on Apple M1 | Project claim | No, boot is not Ready or first command |
+| Unikraft | About 1 ms application boot and 3-40 ms total boot | Specialized unikernel boot | Project and academic claim | No, it is not an arbitrary OCI Linux guest |
+| Tarit | Sub-15 ms source comment | Unretained and incompletely defined path | Source comment | No |
+| Visor | Sub-5 ms restore target | Planning target for a path not wired into its runtime | Engineering target | No |
+| Cloud Hypervisor | No suitable distribution found | Unknown | Missing evidence | No |
+| Machinen | No suitable distribution found | Benchmark work remains open | Missing evidence | No |
+| SporeVM | No stable percentile distribution retained | Fast-fork demonstrations | Incomplete evidence | No |
+| Dillo, Alioth, Vibemon, Nanvix, Clone, Ignition, Panorama, and OpenVMM | No comparable create-to-command distribution found | Architecture and mechanism evidence only | Missing evidence | No |
+
+### How to compare the numbers
+
+A restore-only timer may stop after KVM state exists while the guest is still unauthenticated, un-repaired, disconnected, or unable to execute a command.
+A boot timer may exclude API transport, scheduling, image preparation, storage cloning, networking, and cleanup.
+
+SOMA therefore keeps five separate rows in its own evidence: raw restore, authenticated Ready, first command, external TTI, and terminal cleanup.
+Only measurements with the same start event, terminal event, concurrency, image, host class, cache state, and success treatment belong in one ranking.
+
+The strongest currently comparable external result is ComputeSDK TTI because it measures create through the first successful command for a declared concurrent cohort.
+The strongest mechanism evidence comes from repositories that expose raw samples and stage boundaries even when their headline number is not directly comparable.
+
+Primary evidence is linked in each project profile below.
+SOMA's retained Isorun samples are in [the Isorun create-latency report](docs/evidence/2026-08-30-isorun-create-latency.md).
+SOMA's current warm result is in [the warm-path optimization report](docs/evidence/2026-08-30-warm-path-optimization.md).
+
 ## ComputeSDK benchmark snapshot
 
 The independent observations below come from the public ComputeSDK burst time-to-interactive run timestamped 2026-08-28T13:48:39.760Z.

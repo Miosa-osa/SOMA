@@ -753,3 +753,9 @@ The prepared-store gate remains open because it still checks and reopens mutable
 The updated gate status and required descriptor-relative correction are recorded in `docs/reviews/2026-08-30-public-kvm-backend-audit.md`.
 Commit `6f149d6` subsequently added default refusal for uncertified Candidates unless `SOMA_ALLOW_UNCERTIFIED_GENERATION=1`, which is a useful development mitigation but not the required structural Candidate-to-Generation admission barrier.
 Its named refusal test uses malformed bytes and stops at `Damaged`, so a valid Candidate reaching the `Uncertified` branch still needs public-boundary evidence.
+
+## 2026-08-30 - Competitor speed evidence is indexed by measurement boundary
+
+`COMPETITORS.md` now consolidates hosted-provider, VMM, runtime, and research-repository speed evidence into one table.
+The table keeps vendor claims, independent observations, project benchmarks, source comments, and engineering targets distinct.
+Restore-only, boot-only, authenticated Ready, first-command, and external TTI measurements remain separate because combining them would produce a false leaderboard.
