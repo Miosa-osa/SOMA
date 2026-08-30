@@ -5,6 +5,10 @@ It is written for an engineer who has never opened the repository.
 It describes only what the code does and what the retained evidence shows.
 Every number is a single-sample, debug-build observation from one named evidence file unless the sentence says otherwise, and none of them is a benchmark.
 
+Status words in this guide are the five terms defined in [the engineering standard](../standards/sota-engineering-standard.md#status-vocabulary): designed, component-tested, live-proved, integrated, production-admitted.
+A live-proved sentence names the commit the run was made on and links its evidence, and a run whose code has since changed is called historical.
+[The claim ledger](../claim-ledger.md) carries the same statuses in one table.
+
 The vocabulary is the one in [CONTEXT.md](../../CONTEXT.md): Template, Generation, Snapshot, Machine, Instance, Launch, Ready, Repair, Backend, Receipt, Machine shape, vCPU, Host, Workload runtime, and Guest agent.
 Template Lock is defined in [the template system](../architecture/template-system.md) and [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md), not in CONTEXT.md.
 
@@ -23,8 +27,9 @@ At build time the Template compiler turns a Template into a Template Lock.
 The Generation compiler then turns a lock and the normalized image tree into an immutable Generation.
 At Launch time the owner process creates the Machine through Linux KVM, boots the Generation, delivers fresh per-Instance material through a dedicated launch page, waits for the Guest agent inside the Machine to complete Repair and authenticate over vsock, runs one fixed readiness probe, and only then reports Ready.
 Commands are argument vectors executed by the Guest agent over the authenticated channel, and shutdown is an authenticated request followed by cleanup evidence.
-On `main` today the whole path above is proven once, on a real Ubuntu 24.04 x86_64 host, by one ignored test in `crates/soma-kvm` that cold-boots a compiled `busybox` Generation and a compiled `node:22` Generation, returns one bounded command from each, and proves cleanup, as recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
-The owner process in that proof is the test process, not the designed `soma-vmm` binary, and the implementation still lacks Snapshot restore, prepared workers, a jail around the real VMM, network attach to the Machine, and any KVM lifecycle behind the CLI or MCP server.
+That path is live-proved twice on a real Ubuntu 24.04 x86_64 host, both times by ignored tests in `crates/soma-kvm`: at `71161ea` a cold boot of a compiled `busybox` Generation and a compiled `node:22` Generation returned one bounded command from each and proved cleanup, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), and at `7c1127d` one captured `node:22` Generation was restored thirteen times into independent authenticated Instances, recorded in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+Both runs are historical: the code has since moved to initramfs layout v3, launch-page schema 3, and an authenticated readiness receipt after restore, so on current bytes the path is component-tested until it is run again.
+The owner process in both proofs is the test process, not the designed `soma-vmm` binary, and prepared workers, a jail around the real VMM, network attach to the Machine, and any KVM lifecycle behind the CLI or MCP server remain designed.
 Section 4 lists those gaps in the repository's own words.
 
 ## 2. Build time: Template to Template Lock to Generation
@@ -66,9 +71,9 @@ The compiler's own contract is in `crates/soma-generation/src/generation/templat
 There is no secret input: `MachineInputs` lost its fifth field when [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) moved the responder secret to the launch page.
 
 The compiler design in [the Generation compiler research](../research/generation-compiler.md) has six phases.
-Phases 1 through 3 and 6 are implemented: resolve and verify inputs, emit the canonical filesystem stream, build and independently verify every artifact, and publish atomically with the manifest last.
-Phase 4, boot and Snapshot capture, and phase 5, certification, have no implementation; `CompiledGeneration.unimplemented` names them and the manifest carries `SnapshotBinding::Absent`.
-A compiled Generation therefore has no Snapshot and is cold-booted, never restored.
+Phases 1 through 3 and 6 are component-tested: resolve and verify inputs, emit the canonical filesystem stream, build and independently verify every artifact, and publish atomically with the manifest last.
+Phase 4, boot and Snapshot capture, is partial and phase 5, certification, is designed only; `CompiledGeneration.unimplemented` names them and the manifest carries `SnapshotBinding::Absent`.
+A compiled Generation therefore has no Snapshot of its own and is cold-booted; capture and restore are driven separately by `crates/soma-kvm/src/x86_64/snapshot/`, as section 4 records.
 
 The artifacts a compiled Generation contains, and where each comes from:
 
@@ -322,20 +327,22 @@ The retained run happened inside an `ubuntu:24.04` container started with `--dev
 The evidence states that the container adds no privilege beyond the device node, runs on the same Host kernel and KVM module, and is a host-access workaround rather than an isolation claim.
 The Host was `Linux 7.0.0-30-generic` on Ubuntu 24.04.4 LTS with Rust `1.98.0`, a debug profile for the test process, and an `x86_64-unknown-linux-musl` release profile for the Guest agent.
 
-## 4. Designed but not yet proven on `main`
+## 4. What is designed, component-tested, or only historically live-proved
 
 The design for the complete KVM sandbox is written down in the research documents and ADRs, and the decision map tracks every ticket.
-The repository's own wording for what the proven path does not show, taken from [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md) and [the VMM decision map](../research/vmm-decision-map.md), is reproduced here so this guide cannot overstate it.
+The repository's own wording for what the cold-boot proof does not show, taken from [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md) and [the VMM decision map](../research/vmm-decision-map.md), is reproduced here so this guide cannot overstate it.
 
 Snapshot capture and restore.
-"No snapshot capture or restore: this is a cold boot from the compiled artifacts; the snapshot codec was not exercised and no memory object was captured."
-`crates/soma-kvm/src/snapshot/` holds the `SOMASNP` v1 codec, compatibility check, and typed step orders, and `capture.rs` and `restore.rs` are typed step orders rather than implementations.
-Decision-map ticket #8 says the Repair path "after a snapshot restore, which is the ticket's actual question, remains unproven because no snapshot has been captured."
+The cold-boot evidence says of its own run: "No snapshot capture or restore: this is a cold boot from the compiled artifacts; the snapshot codec was not exercised and no memory object was captured."
+That sentence describes only that run.
+`crates/soma-kvm/src/snapshot/` holds the `SOMASNP` v1 codec, compatibility check, and typed step orders, and `crates/soma-kvm/src/x86_64/snapshot/` turns them into KVM calls.
+Capture and repeated restore are live-proved at `7c1127d`, and that run is historical: it captured a Generation whose `memory.raw` still held a Generation-scoped responder private key, which ADR 0024 removed, and the restored ready transition has since been bound to an authenticated readiness receipt.
+On current bytes capture and restore are therefore component-tested, and recapture is finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 
 Prepared workers and the VMM process.
 "No prepared workers, allocator, or `soma-vmm` process topology: the test process drove the machine directly through crate-internal seams and `soma-guest`."
 `crates/soma-vmm` is the provider-neutral lifecycle interface with an `UnavailablePlatform`, no crate depends on it, and [the jail evidence](../evidence/2026-08-29-vmm-jail-live.md) records that "the real `soma-vmm` binary: it does not exist yet."
-Ticket #12 is "Resolved architecturally."
+Ticket #12 is component-tested behind launcher and broker seams.
 
 Jail around the real VMM.
 "No jail: the VMM process ran with the test's own privileges, no seccomp, namespace, or cgroup policy was applied, and the container used for the run is a host-access workaround, not an isolation claim."
@@ -351,7 +358,7 @@ The responder-key half of that sentence in the retained evidence is obsolete: un
 
 CLI and MCP on KVM.
 `crates/soma-local/src/backend/kvm.rs` answers every resolve, launch, execute, inspect, and cleanup request with `BackendFailureKind::Unsupported`; only the capability probe behind `doctor` runs.
-The README platform table says the same in fewer words: "no network egress, snapshot restore, jail, or sandbox lifecycle process yet."
+The public KVM Backend is therefore designed, not component-tested.
 
 A Generation from a Template Lock.
 The module map lists "a Generation built from a Template Lock" among the things the workspace does not yet contain, and tickets T6 through T18 of [the Template implementation map](../research/template-implementation-map.md) cover registry resolution, rootfs inspection, the build plan, Generation construction from a lock, publication, and remote resolution.
@@ -361,12 +368,14 @@ Latency.
 The targets in the README performance contract are admission targets for a future certified engine, not measurements.
 
 Repair after a clone.
-"The guest's own entropy, identity, and network repair effects were exercised once on a cold boot only; nothing here shows that a cloned Instance discards captured state."
+The cold-boot evidence says of its own run: "The guest's own entropy, identity, and network repair effects were exercised once on a cold boot only; nothing here shows that a cloned Instance discards captured state."
+The restore evidence at `7c1127d` did show it, for the code of that commit: two restored Instances differed in Instance identity, hostname, machine identity, context identifier, and private overlay head, and a file one wrote was invisible to the other.
+That is a historical live-proof, so on current bytes clone repair is component-tested.
 
 ## 5. Host-side pieces that exist and what each proved
 
 Three Linux crates implement Host-side mechanisms that the designed `soma-vmm` process will consume.
-None of them is wired into the proven path in section 3 yet.
+None of them is integrated: none is wired into the proven path in section 3.
 Each has its own retained evidence, and each evidence file lists what it does not prove.
 
 ### 5.1 `soma-netd`: sterile network bundles

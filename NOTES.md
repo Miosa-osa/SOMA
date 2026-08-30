@@ -1,5 +1,9 @@
 # Notes
 
+Entries are dated and append-only.
+Each one records what was true when it was written, and none of them is updated afterwards.
+For the current status of any capability, read [the claim ledger](docs/claim-ledger.md) rather than an entry below.
+
 ## 2026-08-30 - Isorun telemetry strengthens the prepared-worker priority
 
 The new Isorun experiment is a valuable burst signal but currently records provider-reported `create_ms` without a retained harness or raw samples, so it must be classified as independently collected vendor telemetry rather than independently measured server timing.

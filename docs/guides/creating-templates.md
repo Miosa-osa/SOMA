@@ -5,7 +5,8 @@ It describes what the `soma.template/v1alpha1` schema accepts, what the compiler
 The design behind it is [the template system](../architecture/template-system.md) and [ADR 0022](../adr/0022-compose-templates-into-generation-locks.md).
 
 Read the status note in section 7 before planning around this guide.
-At this revision the Template compiler is a Rust library exercised by its tests, no `soma` command or MCP tool consumes a Template document, and the KVM Launch of a compiled Generation exists only as an ignored test on a Linux x86_64 host.
+Status words here are the five terms defined in [the engineering standard](../standards/sota-engineering-standard.md#status-vocabulary): designed, component-tested, live-proved, integrated, production-admitted, and [the claim ledger](../claim-ledger.md) carries them in one table.
+At this revision the Template compiler is component-tested as a Rust library, no `soma` command or MCP tool consumes a Template document, and the KVM Launch of a compiled Generation is live-proved only by an ignored test on a Linux x86_64 host.
 Every document and error text in this guide was checked against `crates/soma-template` at the revision that added this file.
 
 ## 1. What a Template is and is not
@@ -329,7 +330,7 @@ The CLI and MCP shape default is 1 vCPU, 1,024 MiB of memory, and 10,240 MiB of 
 The Template document has no defaults, and the Generation compiler profile version 1 accepts one vCPU, 128 MiB through 3 GiB of memory, and writable storage of at least 64 MiB in 4 MiB units.
 The two live runs used 1 vCPU with 256 MiB and a 64 MiB writable class for busybox, and 1 vCPU with 1 GiB and a 1 GiB writable class for `node:22`.
 In the production design, writable storage is a size class: the sterile ext4 template is prepared once per class, and [the XFS reflink storage profile](../research/xfs-reflink-profile.md) implemented in `crates/soma-storage` gives each Instance a private copy-on-write head cloned outside Launch, so the number you write is a limit rather than bytes consumed at Launch.
-The proven KVM run does not do this yet; it copies the whole 64 MiB sterile template into a private head before boot, so on that path the bytes really are spent.
+The live-proved KVM runs do not do this; they copy the whole sterile template into a private head before boot, so on that path the bytes really are spent.
 
 Memory is the resource to size carefully.
 The guest kernel touches only the pages it uses, but the Machine shape reserves the whole amount for admission, and for large language runtimes [the capacity model](../architecture/visual-atlas.md#16-can-one-host-create-100000-sandboxes) names resident RAM and private dirty pages as the likely first constraint.
@@ -406,22 +407,22 @@ It is reported separately as `OCI resolver unavailable: ...` or `filesystem orac
 ```text
 Template  --compile-->  Template Lock  --build-->  Generation  --Launch-->  Instance  --Execute-->  Receipt
           in-process                    minutes                cold boot              bounded command
-          no I/O                        OCI import, normalize,  today; Snapshot        argv, timeout,
-                                        EROFS, initramfs,       restore in the         output limit
-                                        verify, manifest        production design
+          no I/O                        OCI import, normalize,  or restore;           argv, timeout,
+                                        EROFS, initramfs,       neither is wired        output limit
+                                        verify, manifest        into a Launch yet
 ```
 
 | Transition | What happens | What it costs, with boundary and build type | Status at this revision |
 |---|---|---|---|
 | Template to Template Lock | Parse, compose modules, pin the OCI digest through the resolver, validate against the ceiling, Backend, and oracle, encode `SOMALOCK` version 1, hash to the `LockId` | In-process work with no disk or network I/O; no timing was retained | Library path: `parse_template` then `resolve` in `crates/soma-template`, exercised by 94 tests plus the crate-boundary test in `soma-generation`; the resolver and oracle are test seams |
-| Template Lock to Generation | Import and verify the OCI layout, normalize the layers into one tree, format the EROFS root, build the sterile overlay templates, verify the kernel, write the initramfs, encode the `SOMAGEN` manifest, hash to the `GenerationId` | `node:22`: 369 s wall for the whole test on the Linux x86_64 host, one debug-build run; OCI import verification of an extracted `node:22` ARM64 layout: 28.1 s and 27.9 s on the development Mac | Phases 1 through 3 and 6 implemented; snapshot capture and certification are not, so no Generation is launchable in the production sense and every Launch is a cold boot; the compiler consumes the lock through the `TemplateRevision` view only for one vCPU and only for a fully denied or unrestricted envelope |
-| Generation to Instance | Create the VM, map RAM, attach the five virtio devices, write the launch page, boot the kernel, run the Guest agent as PID 1, compose the root, consume the page, handshake over vsock, Repair, retire the page, pass the fixed probe, report Ready | `Ready` 129 ms after `KVM_RUN` for `node:22`, 164 ms and 193 ms in two busybox samples; debug build, cold boot, single samples, busy host, inside a container | Test-only: the ignored `x86_64_sandbox_boot` test in `crates/soma-kvm` on a Linux x86_64 host with `/dev/kvm`, the pinned kernel, erofs-utils 1.9.4, and the static Guest agent; no network egress, no jail, no prepared worker, no Snapshot restore |
+| Template Lock to Generation | Import and verify the OCI layout, normalize the layers into one tree, format the EROFS root, build the sterile overlay templates, verify the kernel, write the initramfs, encode the `SOMAGEN` manifest, hash to the `GenerationId` | `node:22`: 369 s wall for the whole test on the Linux x86_64 host, one debug-build run; OCI import verification of an extracted `node:22` ARM64 layout: 28.1 s and 27.9 s on the development Mac | Component-tested for phases 1 through 3 and 6; certification is designed only, so no Generation is launchable in the production sense; the compiler consumes the lock through the `TemplateRevision` view only for one vCPU and only for a fully denied or unrestricted envelope |
+| Generation to Instance | Create the VM, map RAM, attach the five virtio devices, write the launch page, boot the kernel, run the Guest agent as PID 1, compose the root, consume the page, handshake over vsock, Repair, retire the page, pass the fixed probe, report Ready | `Ready` 129 ms after `KVM_RUN` for `node:22`, 164 ms and 193 ms in two busybox samples; debug build, cold boot, single samples, busy host, inside a container | Live-proved at `71161ea`, historical: the ignored `x86_64_sandbox_boot` test in `crates/soma-kvm` on a Linux x86_64 host with `/dev/kvm`, the pinned kernel, erofs-utils 1.9.4, and the static Guest agent, run before initramfs layout v3 and launch-page schema 3; no network egress, no jail, no prepared worker. Snapshot capture and restore are live-proved separately at `7c1127d` and equally historical, and neither path starts from a Template Lock |
 | Instance to Receipt | One authenticated bounded Execute, then an authenticated Shutdown and orderly reset | `node --version` round trip 39.6 ms and busybox `uname -a` 7.5 ms, same samples | The test drives `soma-guest` directly; the default command locked in the Template is not started by any code yet |
 
 Build time is paid once per Generation.
 Launch time is paid once per Instance.
 Command time is paid once per Execute.
-The 10 ms targets in [the benchmark contract](../benchmark-contract.md) apply to a prepared Launch boundary on a certified Host that restores a Snapshot, which does not exist yet, and must never be read into the cold-boot numbers above.
+The 10 ms targets in [the benchmark contract](../benchmark-contract.md) apply to a prepared Launch boundary on a certified Host that restores a Snapshot; that boundary is designed, no admitted measurement of it exists, and it must never be read into the cold-boot numbers above.
 
 ### What you can run today
 

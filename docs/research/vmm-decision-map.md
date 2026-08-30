@@ -3,6 +3,10 @@
 This map is the canonical sequence for turning SOMA's existing research into a Linux KVM implementation.
 Each unresolved ticket is sized for one focused agent session and must produce the linked asset before dependent implementation begins.
 
+Every status sentence below uses one of the five terms defined in [the engineering standard](../standards/sota-engineering-standard.md#status-vocabulary): designed, component-tested, live-proved, integrated, production-admitted.
+A live-proved sentence names the commit the run was made on and links its evidence, and a run whose code has since changed is called historical.
+[The claim ledger](../claim-ledger.md) carries the same statuses in one table.
+
 ## #1: What performance boundary does SOMA optimize?
 
 Blocked by: none
@@ -64,7 +68,7 @@ What guest-physical layout, Linux boot protocol, vCPU register state, interrupt 
 
 ### Answer
 
-Resolved; cold-boot machine contract proven on x86_64.
+Resolved; the cold-boot machine contract is live-proved on x86_64.
 Version 1 uses a pinned uncompressed x86_64 Linux ELF kernel with a PVH entry note, one bootstrap vCPU, a fixed low-memory layout, no firmware, and no general PC platform.
 It defines exact boot structures, initial register state, required KVM capabilities, cold-boot and restore ordering, failure behavior, and unsupported devices.
 The memory-slot, PVH boot-page, protected-mode vCPU entry, port-I/O exit, `hlt`, watchdog, and cleanup floor is implemented in `soma-kvm` and retained in [the x86_64 halt-guest evidence](../evidence/2026-08-29-x86_64-kvm-halt-guest.md).
@@ -87,7 +91,9 @@ Resolved.
 Version 1 exposes exactly five modern virtio-mmio version 2 devices at fixed addresses with dedicated interrupts: one immutable EROFS root block device, one private ext4 overlay block device, one network device, one vsock control device, and one entropy device.
 It uses split queues with fixed limits, explicit feature allowlists, ioeventfd notifications, irqfd interrupts, hostile descriptor validation, quiescent capture, and a fail-closed restore order.
 PCI, legacy virtio, hotplug, vhost, optional high-complexity features, and separate control or shutdown devices are excluded.
-Status: the five device models, the bus, ioeventfd and irqfd wiring, and the bounded device thread are implemented, and a real x86_64 guest discovered all five devices, mounted the EROFS root and the ext4 overlay, drew entropy, and ran an authenticated vsock session on a cold boot; the network device has only run behind the link-down loopback backend, and the hostile-input, snapshot-restore, forced-cleanup, and latency evidence items remain open.
+Status: the five device models, the bus, ioeventfd and irqfd wiring, and the bounded device thread are component-tested.
+Four of the five are live-proved at `71161ea`, where a real x86_64 guest discovered all five devices, mounted the EROFS root and the ext4 overlay, drew entropy, and ran an authenticated vsock session on a cold boot; that run is historical because it predates initramfs layout v3 and launch-page schema 3.
+The network device is component-tested only, having run behind the link-down loopback backend, and the hostile-input, forced-cleanup, and latency evidence items remain designed.
 See [minimal device surface](minimal-device-surface.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 
 ## #6: How is an OCI image turned into a bootable Generation?
@@ -106,7 +112,9 @@ Version 1 compiles the normalized OCI tree into a deterministic immutable EROFS 
 The pipeline consumes a canonical Template Lock that has already resolved the exact OCI platform digest, modules, command, declared launch inputs, policy ceiling, resource defaults, lifecycle defaults, and provenance.
 Kernel, deterministic initramfs, guest agent, root and overlay artifacts, machine and device contracts, CPU template, command line, guest protocols, snapshot state, repair policy, builder provenance, and artifact descriptors are bound into one canonical `GenerationId` manifest.
 The retained prototype proved byte-identical EROFS output from logically identical trees created in opposite insertion orders and recorded the populated-ext4 reproducibility failure that caused the two-device correction.
-Status: phases 1 through 3 and 6 are implemented, and phase 4 is partial, because a compiled Generation Candidate now cold-boots on KVM to an authenticated guest agent and one bounded command, while the quiesce, memory capture, certification, and ready-manifest steps remain unimplemented.
+Status: phases 1 through 3 and 6 are component-tested, and phase 4 is partial.
+A compiled Generation Candidate cold-booting on KVM to an authenticated guest agent and one bounded command is live-proved at `71161ea` and historical, because that run used initramfs layout v2 and its recorded `GenerationId` values are no longer reproducible.
+Certification and the ready manifest are designed only; `certify_candidate` fails closed as unimplemented.
 ADR 0026 keeps that incomplete work in the Candidate namespace, so nothing resolvable as a Generation exists yet.
 Under [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) no responder key belongs in the manifest at all: the Generation carries public identity only and the Host generates fresh responder authority for every Instance.
 See [Generation compiler](generation-compiler.md), [ADR 0018](../adr/0018-content-addressed-oci-import.md), [ADR 0019](../adr/0019-deterministic-normalized-rootfs.md), and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
@@ -122,9 +130,11 @@ How are memory, vCPU, interrupt, clock, and device states captured, authenticate
 
 ### Answer
 
-Resolved; live capture and restore proven on `x86_64`.
+Resolved architecturally; capture and restore are live-proved at `7c1127d` and that run is now historical.
 Version 1 uses one immutable page-aligned memory object mapped `MAP_PRIVATE | MAP_NORESERVE`, one canonical typed state manifest, separately managed disks, exact compatibility rejection, authority exclusion, quiescent capture, and fixed fail-closed restore ordering.
-A real `node:22` Generation was booted to its disconnected repair point, captured before any launch material existed, and restored repeatedly into independent authenticated Instances that executed a command; the retained result is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+At `7c1127d` a real `node:22` Generation was booted to its disconnected repair point, captured before any launch material existed, and restored repeatedly into independent authenticated Instances that executed a command; the retained result is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+That observation stands as recorded, but it cannot certify current bytes: the captured Generation still carried a Generation-scoped responder private key in `memory.raw`, which ADR 0024 removed, and the restored ready transition has since been bound to an authenticated readiness receipt.
+On the current authority design capture and restore are therefore component-tested, and recapture is finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 See [snapshot format v1](snapshot-format-v1.md), [ADR 0002](../adr/0002-private-copy-on-write-memory-restore.md), [ADR 0030](../adr/0030-pre-launch-snapshot-capture-point.md), and [fast path](../architecture/fast-path.md).
 
 ## #8: How does the guest become a fresh authenticated Instance?
@@ -138,10 +148,12 @@ How does a cloned guest replace identity, entropy assumptions, time state, netwo
 
 ### Answer
 
-Resolved architecturally.
+Designed, with the parts below carrying their own status.
 The static guest agent owns early mounts, one-use launch material, entropy and identity repair, fresh Noise-authenticated vsock control, direct bounded execution, shutdown, and the only path to Ready.
 Declared environment values, secret delivery, uploads, and workspace attachments occur only after fresh identity and authenticated repair and never become reusable snapshot authority.
-Status: the launch-page delivery and retirement, entropy, identity, and network repair, the Noise handshake over vsock, the readiness probe, one bounded Execute, and authenticated shutdown have live x86_64 evidence on a cold boot; the same path after a snapshot restore, which is the ticket's actual question, remains unproven because no snapshot has been captured.
+Status: the launch-page delivery and retirement, entropy, identity, and network repair, the Noise handshake over vsock, the readiness probe, one bounded Execute, and authenticated shutdown are live-proved on a cold boot at `71161ea`, and that run is historical because it predates initramfs layout v3 and launch-page schema 3.
+The same path after a snapshot restore, which is the ticket's actual question, is live-proved at `7c1127d` and also historical: thirteen restores of one captured `node:22` Generation each reached Ready, ran a command, and shut down.
+On the current per-Instance authority design and the current readiness-receipt transition, the restored repair path is component-tested and awaits the recapture required by finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md).
 See [Linux guest integration](linux-guest-agent-integration.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 See [ADR 0017](../adr/0017-authenticated-guest-session.md), [ADR 0020](../adr/0020-launch-page-and-application-wire-contracts.md), and [ADR 0021](../adr/0021-own-authenticated-control-lifecycle.md).
 
@@ -158,7 +170,7 @@ What user, namespace, cgroup, capability, seccomp, filesystem, descriptor, resou
 
 Resolved and implemented as the `soma-jail` launcher.
 One ephemeral UID, complete namespace and cgroup containment, descriptor-only resources, pidfd ownership, no ambient capability, empty root, and phase-derived seccomp constrain each single-use VMM.
-The launcher passed its fifteen privileged live acceptance tests on Ubuntu 24.04 x86_64 inside a privileged container on 2026-08-29; it constrains the static `jail-probe` stand-in and does not yet wrap the real `soma-vmm` binary, transfer a TAP endpoint, or serve prepared workers.
+The launcher is live-proved at `bd0234e` by fifteen privileged acceptance tests on Ubuntu 24.04 x86_64 inside a privileged container; it constrains the static `jail-probe` stand-in, so a jail around the real `soma-vmm` binary, TAP transfer, and prepared-worker service remain designed.
 See [VMM jail profile](vmm-jail-profile.md), [threat model](../threat-model.md), and [the live evidence](../evidence/2026-08-29-vmm-jail-live.md).
 
 ## #10: What networking path is both fast and fail closed?
@@ -175,8 +187,9 @@ How are namespace, TAP, address, route, DNS, egress, proxy, ingress, metadata pr
 Resolved architecturally; first implementation retained.
 The privileged broker owns sterile network bundles, atomic Instance assignment, protected destinations, readiness-gated activation, typed evidence, idempotent release, and crash reconciliation while the VMM receives only one TAP descriptor.
 It enforces an effective policy that placement already narrowed against the Template ceiling, organization policy, caller authority, and Backend capabilities.
-`crates/soma-netd` implements the broker library and a minimal daemon, and the privileged-container run in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md) proves the down-until-activation, metadata, peer, and DNS policy, complete release, and the 100-way burst.
-Proxy attachment, ingress forwarding, daemon peer authentication, jailed VMM transfer, and virtio-net attach remain open.
+`crates/soma-netd` implements the broker library and a daemon, and the privileged-container run in [the network profile evidence](../evidence/2026-08-29-linux-network-profile-live.md) is live-proved at `bceeb7b` for the down-until-activation, metadata, peer, and DNS policy, complete release, and the 100-way burst; that run is historical because it predates daemon peer authorization and receipt-gated activation.
+Peer authorization and the single-use activation capability are component-tested, and no privileged live run of them has been retained.
+Proxy attachment, ingress forwarding, jailed VMM transfer, and virtio-net attach are designed.
 See [Linux network profile](linux-network-profile-v1.md), [ADR 0012](../adr/0012-fail-closed-networking.md), and [topology](../architecture/topology.md).
 
 ## #11: How are writable disks created privately within the tail budget?
@@ -190,8 +203,9 @@ Can XFS `FICLONE` create isolated writable heads with acceptable p99 under reali
 
 ### Answer
 
-Resolved by measurement.
-Writable state uses certified sterile ext4 size classes cloned privately through XFS `FICLONE`; `crates/soma-storage` implements the profile, template, clone, verify, lease, release, and reconcile modules with live proofs on a loop-backed `reflink=1` filesystem.
+Resolved by measurement; the storage profile is live-proved at `f91f219`.
+Writable state uses certified sterile ext4 size classes cloned privately through XFS `FICLONE`; `crates/soma-storage` implements the profile, template, clone, verify, lease, release, and reconcile modules, proved on a loop-backed `reflink=1` filesystem.
+The production launch path does not yet consume prepared heads, so end-to-end use is designed.
 The retained matrix of 69 cells with 200 raw samples each and zero failures put the best 100-way complete-clone p99 at 9.9 ms and the worst at 1,868 ms against the 1.00 ms disk share of fresh resource activation, and no single-clone cell fit either, so on-demand cloning is not admitted and prepared sterile heads are mandatory.
 Clones of one template serialize on the template inode, the `ioctl` cost scales with the source extent count rather than the template size, and `FICLONE` maps unwritten template extents as holes, so heads come from sterile templates through an asynchronously replenished pool and never carry a capacity reservation.
 See [XFS reflink profile](xfs-reflink-profile.md) and [the XFS reflink evidence](../evidence/2026-08-29-xfs-reflink-profile.md).
@@ -207,7 +221,7 @@ Which invariant work may move outside Launch, and how does one request atomicall
 
 ### Answer
 
-Implemented as a node-local library and daemon skeleton.
+Component-tested as a node-local library and daemon skeleton.
 `crates/soma-hostd` holds bounded pools of sterile invariant state keyed by the exact host profile, Generation, CPU and memory class, overlay class, and network profile, decides ownership with one compare-and-swap over the worker and its monotonically increasing lease generation, returns the identical outcome to a replayed operation and a typed conflict to a changed intent, transfers identity, deadline, entropy, launch page, disk head, TAP, control, and commit exactly once with every fault destroying the worker, rejects exhaustion and overload without a queue, records every step in a durable checksummed ledger, reconciles every nonterminal entry and rebuilds the committed capacity of every retained Instance before replenishing after a restart, and admits capacity atomically across every visual-atlas dimension with a typed rejection naming the gate on the claim path itself, so no worker is granted for an Instance the host cannot admit.
 The jail launcher is pending ticket #9 and the live 100-way proof with a real VMM, XFS heads, and TAP bundles is pending ticket #13; until then the launcher and broker seams are exercised by in-process implementations and the daemon starts only with the explicitly requested development launcher.
 See [prepared worker protocol](prepared-worker-protocol.md), [ADR 0006](../adr/0006-prepared-worker-allocation.md), and [the module map](../architecture/module-map.md).
@@ -223,7 +237,8 @@ How does the Linux implementation satisfy the existing portable Resolve, Launch,
 
 ### Answer
 
-Resolved architecturally.
+Designed.
+`crates/soma-local/src/backend/kvm.rs` answers every lifecycle call with a typed unavailable failure, so no part of this ticket is component-tested yet.
 The KVM adapter composes Generation resolution, admission, prepared ownership, restore, repair, execution, inspection, shutdown, cleanup, evidence, retries, and reconciliation behind the unchanged portable lifecycle.
 Template and module resolution remain outside the adapter, which receives only an exact certified Generation, effective policy, and fresh launch bindings.
 See [KVM backend integration](kvm-backend-integration.md).
@@ -239,11 +254,11 @@ Which correctness, isolation, cleanup, adversarial, concurrency, compatibility, 
 
 ### Answer
 
-Resolved architecturally, and the burst measurement half of it now exists.
+Designed, except the burst harness, which is live-proved at `ccf7bcf` against the Docker Backend only.
 A signed immutable report binds exact provenance and admits a HostProfile only after mandatory correctness, isolation, failure, cleanup, concurrency, compatibility, and raw performance gates pass with no skipped KVM tests.
 `benchmarks/local_alpha/burst` runs the exact contract profile the moment a Backend is reachable from the `soma` command line: N iterations at concurrency C with every slot of a burst released by one barrier, the timer starting before the create call and stopping after the workload command succeeded in the sandbox, destruction executed and verified outside the timer, and every attempted sample retained with its stage milestones, exact command output, and typed failure reason.
 The contract's anti-gaming rules are enforced in code rather than in prose, and the report generator refuses an incomplete run, a class-mixed run, a successful sample without a zero-exit workload command, and a warm class that recorded no preparation.
-The harness is proven today only against the Docker Backend, which is a Linux container and not a virtual machine.
+The harness is live-proved today only against the Docker Backend, which is a Linux container and not a virtual machine.
 [The dry run](../evidence/2026-08-30-burst-harness-dry-run.md) is that proof of the harness and is not a SOMA performance result.
 The KVM run of the same profile awaits ticket #13, because the `soma-local` KVM adapter still answers every lifecycle call with a typed unavailable failure.
 No signed report, admission policy, or revocation state exists yet, and the harness covers the burst performance gate of this ticket only.
@@ -260,7 +275,7 @@ How should admission, placement, cells, capacity reservations, Generation distri
 
 ### Answer
 
-Resolved architecturally.
+Designed.
 The fleet uses bounded independent cells, capability-filtered placement, host-authoritative admission, idempotent operations, signed Generation distribution, reserved capacity, explicit overload, reconciliation, and staged scale gates up to 100,000 concurrent sandboxes.
 The fleet also distributes immutable Template Locks, Generation readiness and revocation state, compatibility evidence, leases, and cache intent while resolving aliases before placement and keeping mutable Template logic off Hosts.
 See [fleet control plane](fleet-control-plane.md).
@@ -276,7 +291,7 @@ How is one versioned Template document parsed, composed with focused modules, va
 
 ### Answer
 
-Slice 1 implemented; later slices open.
+Slice 1 is component-tested; later slices are designed.
 `crates/soma-template` parses one `soma.template/v1alpha1` document with unknown-field and unknown-schema rejection, composes a flat ordered module list with transitive requirements from a bounded in-memory registry, rejects duplicate exclusive ownership, conflicting default commands, conflicting sealed environment values, cycles, unpinned inputs, and every other class listed under required validation with the module and field named, pins the OCI platform digest through an `OciResolver` seam, and emits the canonical `SOMALOCK` version 1 lock whose SHA-256 is the `LockId`.
 The lock binds the resolved digest and platform, ordered module identities and digests, the effective command, resources, normalized network envelope, lifecycle, environment contract, secret references, the policy ceiling, and the Backend capabilities; it excludes the Template name, description, mutable image text, and every resolved secret value, and conservative secret-literal detection over environment values, secret sources and scopes, command fields, the description, and module sealed values rejects a committed credential of a recognised shape.
 Golden bytes, repeated-resolution equality, reordering and renaming identity tests, one test per rejection class, and lock prefix, bit-flip, and garbage sweeps are retained in the crate.

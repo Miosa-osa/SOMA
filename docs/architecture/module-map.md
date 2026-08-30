@@ -4,11 +4,15 @@ Read [From hardware to an agent sandbox](beginners-guide.md) first if the distin
 
 ## Purpose and status
 
+Every status sentence in this document uses one of the five terms defined in [the engineering standard](../standards/sota-engineering-standard.md#status-vocabulary): designed, component-tested, live-proved, integrated, production-admitted.
+A live-proved sentence names the commit the run was made on and links its evidence, and a run whose code has since changed is called historical.
+[The claim ledger](../claim-ledger.md) carries the same statuses in one table.
+
 This document assigns responsibilities and dependency direction for the initial pre-alpha workspace.
 It prevents lifecycle, KVM, protocol, and provider concerns from accumulating in one god file.
 It is a code ownership map rather than a claim that the complete VMM, restore path, device model, or production security architecture already exists.
 
-The current workspace contains thirteen implemented crates:
+The current workspace contains sixteen crates:
 
 ```text
 crates/
@@ -31,7 +35,8 @@ crates/
 ```
 
 The current alpha contains a portable use-case facade, durable local lifecycle state, a semantic Machine-contract slice, Linux KVM capability probes, explicit-fixture ARM64 KVM cold-boot and challenge-bound direct-command proofs, a development-only macOS VM-per-OCI backend, a verified bounded local OCI-layout importer, a deterministic normalized logical rootfs artifact, portable authenticated-session primitives, a statically linked Linux PID 1 guest agent that boots inside a SOMA virtual machine and reaches an authenticated first command, a Template compiler slice that parses one versioned Template document, composes built-in modules, applies the required validation classes, and emits a canonical Template Lock, a Linux XFS reflink storage profile with sterile ext4 templates, descriptor-only head cloning, single-use leases, and a retained clone-latency matrix, a node-local host allocator library with bounded sterile-worker pools, single-winner idempotent claims, exactly-once authority transfer, a durable lifecycle ledger, restart reconciliation, and multi-dimension capacity admission behind launcher and broker seams, a Linux x86_64 VMM jail launcher with retained privileged-container evidence that does not yet wrap the real VMM, a command-line adapter, and a bounded stdio MCP adapter.
-It does not yet contain the production x86_64 guest boot path, snapshot restore implementation, production device model, jail launcher behind the host allocator, complete Generation builder, a Generation built from a Template Lock, or remote transport.
+Snapshot capture and restore are implemented in `soma-kvm` and were live-proved at `7c1127d`; that run is historical, because it predates initramfs layout v3, launch-page schema 3, and the authenticated readiness receipt, so on current code capture and restore are component-tested.
+The workspace still does not contain Generation certification, a Generation built from a Template Lock, the jail launcher behind the host allocator, a production network attachment to the Machine, a KVM lifecycle behind the public Backend, or remote transport.
 
 The long-term direction is a state-of-the-art hardware-isolated sandbox engine across clouds, resource shapes, and disk sizes.
 The only initial production target is Ubuntu 24.04 x86_64 with KVM.
@@ -254,7 +259,7 @@ Its current depth includes a checked capability probe, an x86_64 machine that ma
 It also contains a target-independent, `unsafe`-free modern virtio-mmio version 2 transport and split-virtqueue implementation under `virtio/`, the five v1 device models under `virtio/devices/`, and the fixed five-slot MMIO bus under `virtio/bus.rs`.
 The `x86_64/` modules wire that bus to KVM: `KVM_EXIT_MMIO` dispatch on the vCPU thread, one ioeventfd per queue-notify address, one irqfd per slot, a bounded epoll device thread, a shared range-checked guest-memory view, the dedicated launch-page slot, a deadline-bounded byte channel over the vsock host endpoint, and the test-only sandbox machine that cold-boots a compiled Generation for the static guest agent; the retained proofs are [the x86_64 PVH kernel-boot evidence](../evidence/2026-08-29-x86_64-pvh-kernel-boot.md) and [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
 It also owns the platform-neutral snapshot format v1 codec under `snapshot/`: the `SOMASNP` manifest, bounded digest-covered sections, SOMA-owned byte layouts for every x86_64 KVM state group, per-device state, the memory-object descriptor, the fail-closed compatibility check, and the capture and restore ordering contracts.
-`x86_64/snapshot/` is the live half of that format: it pauses a running machine at the guest agent's disconnected repair point, proves the quiesce preconditions, reads KVM and device state in the certified order, publishes the memory object, the sterile overlay template, and the state manifest, and restores that snapshot into a fresh Instance through the twelve-step machine-contract order; the retained proof is [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
+`x86_64/snapshot/` is the live half of that format: it pauses a running machine at the guest agent's disconnected repair point, proves the quiesce preconditions, reads KVM and device state in the certified order, publishes the memory object, the sterile overlay template, and the state manifest, and restores that snapshot into a fresh Instance through the twelve-step machine-contract order; it is live-proved at `7c1127d` by [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md), which is historical because the code has changed underneath it.
 
 The initial source map is:
 
@@ -871,7 +876,8 @@ crates/soma-guest-agent/tests/fixtures/README.md
 The crate compiles on every workspace target but only the Linux `x86_64` modules do work; every other target exits with an unsupported result.
 That gate is the exact ABI whose classic `ifreq` and `rtentry` request layouts `network_repair/encoding.rs` transcribes: constant assertions there fail the build on a different C integer, pointer, or byte-order shape, and `network_repair/target.rs` compares the compiled ABI with the verified one and refuses with `NetworkStep::UnsupportedTarget` before a socket or an unsafe `ioctl` if the binary gate is ever widened without verified layouts.
 Host tests cover the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries.
-Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the readiness probe, one Execute, and authenticated shutdown have each run once inside a cold-booted SOMA machine on x86_64, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md); the same path after a snapshot restore remains unproven.
+Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the readiness probe, one Execute, and authenticated shutdown are live-proved on a cold boot at `71161ea`, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), and that run is historical because it predates initramfs layout v3 and launch-page schema 3.
+The same path after a snapshot restore is live-proved at `7c1127d` in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md) and is historical for the same reason, so on current code it is component-tested.
 The stop path uses the restart command because the version 1 machine has no ACPI or paravirtual power-off, and `reboot=k` turns it into the reset pulse the VMM observes as the orderly exit.
 
 ## `soma-jail` responsibilities
@@ -1191,7 +1197,7 @@ Tests replace behavior at the deepest stable seam and continue to use the extern
 ## Generation construction
 
 OCI acquisition, logical rootfs normalization, disk-filesystem compilation, guest boot, quiescence, snapshot capture, certification, and provenance occur outside the request-time VMM.
-The implemented importer, normalizer, and compiler establish bounded input, canonical logical-tree, immutable disk-artifact, and manifest-identity workflows but deliberately stop before guest boot, snapshot capture, and certification.
+The component-tested importer, normalizer, and compiler establish bounded input, canonical logical-tree, immutable disk-artifact, and manifest-identity workflows; certification is designed only, and the compiler itself stops before it.
 Later Generation stages remain behind the same independently tested module rather than entering Launch latency.
 
 The Template compiler in `soma-template` resolves and locks every mutable or composable input before any of that work begins, and its lock is the only Template artifact the builder accepts.

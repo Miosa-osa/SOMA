@@ -1,5 +1,12 @@
 # x86_64 snapshot capture and restore - 2026-08-29
 
+## Status: historical
+
+This run is live-proved at commit `7c1127d` and is historical.
+It captured a Generation whose initramfs still carried a Generation-scoped responder private key, and the scan below records that key in `memory.raw`.
+[ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md) removed that key, and the restored ready transition has since been bound to an authenticated readiness receipt, so these artifact identities, scans, and timings cannot certify current bytes.
+The observations are retained exactly as recorded; recapture on the current design is finding P1.5 of [the re-audit](../reviews/2026-08-29-implementation-reaudit.md), and [the claim ledger](../claim-ledger.md) carries the current status.
+
 ## Evidence boundary
 
 This result proves that SOMA can, on a real Ubuntu 24.04 x86_64 host with `/dev/kvm`, boot a Generation compiled from a real OCI image to the disconnected repair point its pinned guest agent reaches before any launch material exists, prove the quiesce preconditions of the device surface, pause vCPU 0 outside `KVM_RUN`, read every certified KVM and device state group in the fixed order, publish a memory object, a sterile overlay template, and a canonical state manifest, and then restore that one snapshot repeatedly into independent Instances that each consume a fresh launch page, repair their identity, entropy, and transport, authenticate over a fresh vsock endpoint, pass the fixed readiness probe, execute a bounded command, and shut down orderly.

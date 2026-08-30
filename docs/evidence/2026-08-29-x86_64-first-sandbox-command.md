@@ -1,5 +1,11 @@
 # x86_64 first authenticated sandbox command - 2026-08-29
 
+## Status: historical
+
+This run is live-proved at commit `71161ea` and is historical.
+It used initramfs layout v2 and the pre-schema-3 launch page, so its initramfs digest and every `GenerationId` below are not reproducible on current code.
+The observations are retained exactly as recorded; [the claim ledger](../claim-ledger.md) carries the current status.
+
 ## Evidence boundary
 
 This result proves that SOMA can, on a real Ubuntu 24.04 x86_64 host with `/dev/kvm`, take a Generation compiled by the production compiler from a real OCI image, cold-boot it on the `soma-kvm` sandbox machine with the five fixed virtio-mmio devices wired to KVM through ioeventfds and irqfds, deliver fresh launch material through the dedicated launch-page slot, run the statically linked guest agent as PID 1 through early init, EROFS plus ext4 overlay composition, and switch-root, observe the guest consume and erase the launch page, complete the Noise handshake over the vsock control device, commit repair by verifying the erased page and retiring its slot, require the fixed readiness probe, execute one bounded command and receive its exact bytes and exit status over the authenticated channel, acknowledge an authenticated shutdown, observe the orderly reset exit, and release every thread, descriptor, route, and mapping it created.

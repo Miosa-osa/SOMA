@@ -79,6 +79,47 @@ done < <(
         | uniq -d
 )
 
+readonly CLAIM_LEDGER=docs/claim-ledger.md
+
+if [[ ! -f "${CLAIM_LEDGER}" ]]; then
+    printf '%s is missing; every capability claim must have a ledger row\n' "${CLAIM_LEDGER}" >&2
+    failed=1
+else
+    while IFS= read -r status; do
+        printf '%s has a status cell that is not one of the five status terms: %s\n' \
+            "${CLAIM_LEDGER}" "$status" >&2
+        failed=1
+    done < <(
+        awk -F '|' '
+            /^\|/ && NF >= 4 {
+                status = $3
+                gsub(/^[ \t]+|[ \t]+$/, "", status)
+                if (status == "Status" || status ~ /^-+$/ || status == "") {
+                    next
+                }
+                if (status !~ /^(Designed|Component-tested|Live-proved|Integrated|Production-admitted)([ ;,]|$)/) {
+                    print status
+                }
+            }
+        ' "${CLAIM_LEDGER}"
+    )
+
+    while IFS= read -r target; do
+        printf '%s links to %s, which does not exist\n' "${CLAIM_LEDGER}" "$target" >&2
+        failed=1
+    done < <(
+        grep -o '](\([^)#]*\)[^)]*)' "${CLAIM_LEDGER}" \
+            | sed 's/^](//; s/[)#].*$//' \
+            | grep -v '^https\{0,1\}:' \
+            | sort -u \
+            | while IFS= read -r relative; do
+                if [[ ! -e "docs/${relative}" ]]; then
+                    printf '%s\n' "$relative"
+                fi
+            done
+    )
+fi
+
 if (( failed != 0 )); then
     exit 1
 fi

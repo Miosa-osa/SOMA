@@ -20,7 +20,8 @@ This corrects the earlier one-disk assumption in device ticket #5.
 It preserves byte-reproducible immutable input while allowing each sandbox to have an independently sized writable filesystem.
 
 This document resolves the architecture and reproducibility question in decision-map ticket #6.
-It does not claim that the production compiler, x86_64 boot, snapshot capture, or OCI sandbox is implemented.
+It does not claim that the production compiler, certification, or an integrated OCI sandbox exists.
+Status words here are the five terms defined in [the engineering standard](../standards/sota-engineering-standard.md#status-vocabulary): designed, component-tested, live-proved, integrated, production-admitted, and [the claim ledger](../claim-ledger.md) carries them in one table.
 
 ## Why EROFS
 
@@ -317,7 +318,7 @@ Under ADR 0025 every external tool leads its own process group, one supervising 
 
 ## x86_64 production-module status
 
-The modules above exist under `crates/soma-generation/src/generation/` and implement phases 1 through 3 and 6 on Linux x86_64 with the pinned host toolchain; phases 4 and 5 have no implementation.
+The modules above exist under `crates/soma-generation/src/generation/` and are component-tested for phases 1 through 3 and 6 on Linux x86_64 with the pinned host toolchain; phase 4 is partial and phase 5, certification, is designed only.
 Under ADR 0026 the compiler therefore publishes a Generation Candidate, not a Generation: the Candidate has its own magic, media type, and `CandidateId`, no Launch or resolution interface accepts it, and only `certify_candidate` followed by `promote_candidate` can publish a ready `SOMAGEN` manifest.
 Under ADR 0027 every decoded manifest field is validated as hostile input with checked arithmetic, explicit version support, cross-field relations, and one typed redacted `Incompatibility` per failed invariant.
 The compiler input is one `TemplateRevision` (selected image reference plus resolved digest and platform, Machine shape with vCPU count, memory, and writable-storage size class, network policy intent inside the shape capabilities, startup and readiness behavior, lifetime limits, and preparation profile version) together with its `NormalizedRootfs`; every field except the image reference is bound by the manifest, and the manifest therefore carries a sixteenth group for the Template fields not already covered by the fifteen listed above.
@@ -325,15 +326,17 @@ The formatter consumes the canonical tar stream through its standard input rathe
 Measured deviations: `mke2fs -d` copied host change times even under `E2FSPROGS_FAKE_TIME`, so the empty `upper` and `work` directories are created by `debugfs -w -R mkdir` under the same fake time, which was byte-reproducible across seconds; the pinned `--all-time` option flattens every per-file modification time to the profile epoch, which the verifier checks instead of the per-entry tree time.
 Under ADR 0029 every external tool is executed through a descriptor that was opened and hashed before the spawn, and the six tools that materially shape or judge an artifact are sealed into one required builder-environment digest; that digest is not an OCI builder-image digest, because the host build still runs the pinned tools directly rather than inside a content-addressed builder image.
 The CPU-template digest covers a declaration statement rather than defined CPUID masks, and the fixture proof covers a small synthetic tree because the normalized `node:22` store was not present on the Linux host.
-Gates 1, 4, 5, and the atomic-last and timeout portions of 8 have test evidence; gate 2 still lacks a same-input second `node:22` build, because the `node:22` revision cached on this host normalized to a different tree than the development Mac's recorded run and was compiled once; gate 3 holds for the machine artifacts while the `GenerationId` still differs through the bound source OCI manifest digest; gates 7, 9, and the disk-exhaustion and crash cases of 8 remain untested.
-Gate 6 now has cold-boot evidence: the pinned guest mounted the EROFS root and the private ext4 overlay, composed the writable root, executed a file from the OCI tree, and left the EROFS artifact byte-identical while the private head changed, as recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
+Gates 1, 4, 5, and the atomic-last and timeout portions of 8 have test evidence; gate 2 still lacks a same-input second `node:22` build, because the `node:22` revision cached on this host normalized to a different tree than the development Mac's recorded run and was compiled once; gate 3 holds for the machine artifacts while the `GenerationId` still differs through the bound source OCI manifest digest; gates 9 and the disk-exhaustion and crash cases of 8 remain designed.
+Gate 6 is live-proved at `71161ea`, historically: the pinned guest mounted the EROFS root and the private ext4 overlay, composed the writable root, executed a file from the OCI tree, and left the EROFS artifact byte-identical while the private head changed, as recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md).
+That run used initramfs layout v2, so its artifact digests are not reproducible on current code.
+Gate 7 is live-proved at `7c1127d` for restored Instances, in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md), and is historical for the same reason.
 Initramfs layout v2 added the `/dev/console` and `/dev/null` nodes PID 1 needs before devtmpfs is mounted, plus a Generation-scoped responder private key at `/etc/soma/responder.key` supplied as a fifth machine input.
 Initramfs layout v3 removes that key and its `etc/soma` directory under [ADR 0024, per-Instance guest responder authority](../adr/0024-per-instance-guest-responder-authority.md), so the compiler takes four machine inputs and no secret input at all; the responder static secret is fresh per Instance and reaches the guest only through the non-snapshot launch page.
-Phase 4 is therefore partial: the boot and authenticated session exist, while quiesce, memory capture, and the launchable snapshot binding do not.
+Phase 4 is therefore partial: boot, the authenticated session, quiesce, and memory capture are live-proved at `7c1127d` and historical, while the compiler itself still performs none of them and publishes `SnapshotBinding::Absent`, so no launchable snapshot binding exists.
 
 ## Acceptance gates
 
-Ticket #6 is implemented, rather than merely designed, only when all of these gates pass:
+Ticket #6 counts as component-tested, rather than merely designed, only when all of these gates pass:
 
 1. The production decoder consumes real `NormalizedRootfs` artifacts and rejects every malformed field and bound.
 2. Two isolated builds of the same Node 22 normalized tree produce byte-identical EROFS, initramfs, manifest, and `GenerationId` artifacts.

@@ -66,6 +66,22 @@ Every statement about SOMA must identify its evidence class.
 
 A lower evidence class must never be described using a higher class's language.
 
+## Status vocabulary
+
+Every capability statement in this repository uses exactly one of five status terms.
+No other word may stand in for them, and the [claim ledger](../claim-ledger.md) records the term and the evidence for each capability.
+
+| Status | Meaning | Required support |
+|---|---|---|
+| Designed | An ADR or research document decides the behavior | The decision document, and no implementation claim |
+| Component-tested | The code exists and its own automated tests pass in the workspace | Named crate and tests; no real Host run is claimed |
+| Live-proved | The path ran on a real Host or privileged container | The exact commit and the retained evidence artifact |
+| Integrated | The capability runs through its real production seam with the rest of the lifecycle | An end-to-end receipt rather than a test harness driving crate internals |
+| Production-admitted | Every applicable admission scorecard row is green | A signed immutable report naming the HostProfile |
+
+The terms are ordered and cumulative in intent but not automatic: a live-proved result stays live-proved only for the commit it names.
+When code changes underneath a retained result, the result becomes historical, the capability falls back to component-tested, and the ledger says so until the run is repeated.
+
 ## Architecture standard
 
 The architecture must make ownership visible.
