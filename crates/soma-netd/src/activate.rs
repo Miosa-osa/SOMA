@@ -116,7 +116,7 @@ fn verify(assigned: &Assigned) -> Result<(), Error> {
         if sysctl::forwarding()? {
             return Err(Error::Drift(Drift::ForwardingAlreadyEnabled));
         }
-        if !nft::list_tables()?.contains(&names.sandbox_table) {
+        if !nft::table_exists(&names.sandbox_table)? {
             return Err(Error::Drift(Drift::RulesetMissing));
         }
         Ok(())
@@ -124,7 +124,7 @@ fn verify(assigned: &Assigned) -> Result<(), Error> {
     if !link::list_links()?.contains(&bundle.names.host_veth) {
         return Err(Error::Drift(Drift::HostVethMissing));
     }
-    if !nft::list_tables()?.contains(&bundle.names.host_table) {
+    if !nft::table_exists(&bundle.names.host_table)? {
         return Err(Error::Drift(Drift::HostRulesetMissing));
     }
     Ok(())

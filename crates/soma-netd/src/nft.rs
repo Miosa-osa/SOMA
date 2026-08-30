@@ -4,6 +4,9 @@
 //! ruleset on standard input inside the calling thread's namespace, and
 //! `/usr/sbin/conntrack -D -w <zone>` in the host namespace.
 //!
+//! Presence of one table is asked of that table alone; only reconciliation, which must find
+//! tables no ledger record names, lists the whole namespace.
+//!
 //! Every invocation is contained by [`soma_supervise`], which the Generation compiler already
 //! uses for its build tools: the tool leads its own process group, an absolute deadline bounds
 //! the wait, the retained output is bounded before it is allocated, and a timeout, a failed
@@ -101,9 +104,32 @@ pub(crate) fn list_tables() -> Result<Vec<String>, Error> {
     Ok(names)
 }
 
+/// Reports whether one `inet` table exists in the calling thread's namespace.
+///
+/// The question is asked of that one table rather than of the whole namespace, so the answer
+/// stays bounded no matter how many tables the namespace holds and cleanup can never be
+/// disabled by an accumulation of leaked tables.
+pub(crate) fn table_exists(name: &str) -> Result<bool, Error> {
+    table_presence(&nft(&["list", "table", "inet", name]).run("")?)
+}
+
+/// The exact presence decision, separated from the invocation that produced the output.
+fn table_presence(output: &Output) -> Result<bool, Error> {
+    if output.succeeded() {
+        return Ok(true);
+    }
+    if String::from_utf8_lossy(&output.stderr).contains("No such file or directory") {
+        return Ok(false);
+    }
+    Err(Error::Tool {
+        tool: Tool::Nft,
+        status: output.exit_code,
+    })
+}
+
 /// Deletes one `inet` table; returns `false` when it was already absent.
 pub(crate) fn delete_table(name: &str) -> Result<bool, Error> {
-    if !list_tables()?.iter().any(|table| table == name) {
+    if !table_exists(name)? {
         return Ok(false);
     }
     apply(&format!("delete table inet {name}\n")).map(|()| true)
