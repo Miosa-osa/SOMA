@@ -39,6 +39,234 @@ Barista has a useful public capability interface, although its internal module s
 Tarit has useful snapshot mechanisms, but its VMM is concentrated in a 1,831-line `main.rs` and its AGPL license prevents casual code reuse.
 plyvm teaches well, but it is not a hardened sandbox.
 
+## Ten architectural insights to preserve
+
+This section is the short learning record future SOMA implementers should read before changing the machine architecture.
+Each insight names the external lesson, explains why it works, and states the SOMA adoption rule.
+
+### 1. Serializable interrupt state can require a software device model
+
+Amber could not reliably restore Apple timer state through its original interrupt-controller path.
+It moved GICv2 behavior into userspace so the VMM owned serializable interrupt state and could recreate timer behavior after restore.
+
+Why it works:
+
+- State owned by the VMM can be versioned, captured, validated, and restored explicitly.
+- The VMM no longer depends on an opaque host facility exposing complete snapshot semantics.
+- Forced periodic vCPU exits let the software model inject timer interrupts even when the guest is compute-bound.
+
+SOMA adoption rule:
+
+- Keep interrupt and timer snapshot behavior behind a backend-owned interface.
+- Require conformance tests for timer continuity, interrupt ordering, SMP, and repeated restore.
+- Consider a software GIC only for a future native Apple adapter.
+- Do not tax the Linux x86_64 KVM fast path for a capability it already obtains from KVM.
+
+### 2. The valuable product is the complete warm-worker transaction
+
+Amber's strongest advantage is not one VMM function.
+It connects OCI preparation, guest boot, template capture, private restore, paused workers, fresh command transport, execution, and disposal.
+
+Why it works:
+
+- Cold image work happens before Launch.
+- Snapshot-backed memory avoids copying the full guest.
+- A prepared worker removes process construction and restoration from the request path.
+- A fresh post-resume connection avoids preserving a live host socket in the snapshot.
+
+SOMA adoption rule:
+
+- Finish the real jailed `WorkerLauncher` before adding new architectural surfaces.
+- Keep construction, restoration, repair, execution, evidence, and cleanup inside one tested transaction.
+- Expose one small Launch interface instead of making callers coordinate the individual modules.
+
+### 3. Dirty memory has more than one producer
+
+Tarit and Panorama show that KVM dirty logging is not a complete incremental-snapshot contract.
+Guest CPUs dirty memory through KVM, while emulated devices and host repair code can write guest memory outside that path.
+
+Why it works:
+
+- One tracked guest-memory write interface accounts for device-originated writes.
+- Quiescing every producer closes the dirty set before capture.
+- Merging KVM and userspace dirty sets produces one authoritative restoration plan.
+
+SOMA adoption rule:
+
+- Inventory every CPU, loader, launch-page, block, network, vsock, entropy, console, repair, and future DMA write.
+- Route host writes through one deep tracking module.
+- Fail snapshot publication if any producer cannot be quiesced or accounted for.
+- Do not implement incremental snapshots until this proof exists.
+
+### 4. Capability portability must be negotiated, not implied
+
+Barista lets callers require hardware isolation, memory snapshots, copy-on-write fork, lazy restore, egress control, and guest-agent support independently.
+A missing guarantee fails explicitly instead of selecting a weaker mechanism.
+
+Why it works:
+
+- Callers express the property they need rather than naming infrastructure.
+- Backends remain free to implement the property differently.
+- A typed refusal prevents silent security or performance degradation.
+
+SOMA adoption rule:
+
+- Publish a versioned runtime-capability result.
+- Bind every positive capability to a backend, host profile, implementation version, and retained evidence identity.
+- Let Launch require guarantees without selecting a provider or hypervisor name.
+- Keep private-mapped restore, eager-copy restore, prepared reflink storage, and copied storage as distinct capabilities.
+
+### 5. Static admission and live pressure feedback solve different problems
+
+Amber observes worker RSS and evicts warm workers, while SOMA reserves conservative CPU, memory, dirty-memory, storage, and launch capacity.
+Neither mechanism should replace the other.
+
+Why it works:
+
+- Conservative reservations protect the host against the workload's allowed worst case.
+- Live observations reveal pressure, leaks, and unexpectedly expensive templates.
+- Evicting unused prepared capacity recovers memory without violating active Instance guarantees.
+
+SOMA adoption rule:
+
+- Keep reservations authoritative.
+- Add per-worker resident, shared-clean, private-dirty, page-fault, and pressure observations.
+- Reconcile live observations with the durable reservation ledger.
+- Evaluate ballooning only after measuring latency, reclaim effectiveness, guest behavior, and snapshot interaction.
+
+### 6. Private file-backed memory is the common fast-cloning foundation
+
+Amber, Clone, Firecracker-derived systems, and SOMA converge on immutable snapshot memory mapped privately into each Instance.
+
+```text
+immutable snapshot memory
+            |
+      shared page cache
+       /      |      \
+Instance A Instance B Instance C
+ private     private    private
+ writes      writes     writes
+```
+
+Why it works:
+
+- Clean pages remain physically shared.
+- Only pages written by an Instance become private.
+- Mapping cost does not scale like copying the complete configured RAM size.
+
+SOMA adoption rule:
+
+- Preserve immutable snapshot backing and `MAP_PRIVATE` restoration.
+- Admission must still account for private-dirty growth because sharing can disappear under real workloads.
+- Never describe virtual RAM capacity as physical density evidence.
+- Keep memory identity and disk-head identity independent so one Instance cannot mutate another.
+
+### 7. Restore time is not sandbox readiness time
+
+Several projects time KVM creation, memory mapping, register restoration, or worker handoff and describe the result as sandbox creation.
+Those measurements omit identity repair, authentication, command execution, failure handling, and sometimes the control-plane round trip.
+
+The honest boundary is:
+
+```text
+Launch accepted
+  -> worker claimed
+  -> Machine resumed
+  -> entropy, identity, time, transport, and network repaired
+  -> guest authenticated
+  -> readiness command completed
+  -> Ready returned
+```
+
+SOMA adoption rule:
+
+- Retain separate timestamps for acquisition, restore, wake, repair, authentication, command, Ready, and cleanup.
+- Publish raw distributions and every failure.
+- Never use an internal restore measurement as a public creation claim.
+- Keep the exact ComputeSDK boundary separate from the node-local internal budget.
+
+### 8. One VMM process per untrusted Machine is worth preserving
+
+Some VMMs place several tenants in one process to reduce management overhead.
+That turns one unsafe memory defect, panic, or process crash into a multi-tenant failure.
+
+Why one process per Machine works:
+
+- The operating system supplies a mature process address-space boundary around the unsafe VMM implementation.
+- Seccomp, namespaces, cgroups, Landlock, file descriptors, and pidfds can be scoped to one Machine.
+- Cleanup and failure evidence can name one kernel process identity.
+
+SOMA adoption rule:
+
+- Keep one jailed VMM process per untrusted Machine.
+- Recover performance through prepared processes, warm restoration, descriptor transfer, and a small control protocol.
+- Prove that killing, crashing, exhausting, or corrupting one VMM leaves sibling Machines alive.
+
+### 9. Executable teaching stages make machine architecture understandable
+
+plyvm teaches VMM construction by adding one working primitive at a time.
+That approach explains causality better than presenting only the finished architecture.
+
+```text
+host hypervisor
+  -> guest memory
+  -> vCPU
+  -> kernel entry
+  -> interrupt controller and timer
+  -> console
+  -> block
+  -> network
+  -> guest agent
+  -> disposable sandbox
+```
+
+SOMA adoption rule:
+
+- Add a separate educational journey that follows this sequence.
+- Every stage should name the new interface, owned host resource, guest-visible effect, security obligation, and test.
+- Keep tutorial code outside production crates.
+- Use the journey to explain why each primitive exists before explaining its optimization.
+
+### 10. Import mechanisms, not weak repository topology
+
+Amber, Tarit, and Barista contain valuable mechanisms but also concentrate production knowledge in very large files.
+SOMA's focused files and ownership-specific crates provide better locality and a smaller interface per module.
+
+Why SOMA's current shape is stronger:
+
+- Snapshot compatibility, device state, guest repair, storage, networking, jail, allocation, and public lifecycle semantics have separate owners.
+- Host-specific resources do not leak into the portable use-case interface.
+- Tests can cross the same narrow seams used by production callers.
+
+SOMA adoption rule:
+
+- Reimplement learned behavior behind existing deep modules.
+- Add a new seam only when two real adapters or materially different policies require it.
+- Reject pass-through wrappers and god files.
+- Preserve provenance and perform clean-room implementation where licenses prevent source reuse.
+
+## The combined architecture lesson
+
+The best synthesis is:
+
+```text
+Amber's connected warm-worker transaction
+        +
+Tarit's complete dirty-producer accounting
+        +
+Barista's explicit capability negotiation
+        +
+plyvm's executable teaching progression
+        +
+SOMA's fail-closed restore, authenticated repair,
+evidence discipline, containment, and deep modules
+        =
+the architecture SOMA should implement and prove
+```
+
+The synthesis does not authorize copying an external repository wholesale.
+It records the mechanisms and interface lessons SOMA should implement under its own architecture, tests, licensing, and evidence requirements.
+
 ## Amber compared with SOMA
 
 Pinned source: [Amber commit `54cebed`](https://github.com/lupodevelop/amber/tree/54cebedae733633ceb9f633b8f99c349d81e941e).

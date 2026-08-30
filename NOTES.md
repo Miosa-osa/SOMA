@@ -9,6 +9,8 @@ Its retained M1 Pro evidence reports five warm exec samples between 30 and 32 ms
 Source inspection also found warning-only KVM GIC restore failures, ignored agent I/O results, and several files above 1,000 lines, so SOMA should import the mechanisms and cross-platform lessons while keeping fail-closed restoration, authenticated repair, smaller modules, and stronger benchmark evidence.
 The comparative adoption decision is to prioritize the real jailed worker integration, public evidence-bound runtime capabilities, a unified dirty-producer ledger, and live resource feedback.
 Amber's software GIC and userspace network belong to a later native macOS research profile, not the Linux version 1 critical path.
+The permanent learning record is the ten-insight section in `docs/research/competitive-module-adoption-audit.md`.
+It preserves the mechanism, reason, and SOMA adoption rule for software interrupt state, warm workers, dirty producers, capability negotiation, live pressure, private mappings, honest timing, process containment, executable teaching, and clean-room modular adoption.
 
 ## 2026-08-30 - soma-hostd review: durable replay, admitted claims, and exact capacity
 
