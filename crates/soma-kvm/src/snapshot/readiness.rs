@@ -4,8 +4,11 @@
 //! network state, so readiness is a claim the restore must be shown rather than one it may
 //! assume. The evidence is a [`ReadinessReceipt`]: a keyed tag over the exact restored snapshot,
 //! the exact launch authority this restore published, and the Instance, Launch operation, and
-//! live handshake transcript of one authenticated guest session that completed repair and the
-//! fixed readiness probe.
+//! live handshake transcript of one authenticated guest session.
+//! The transcript identifies that session; it is fixed at handshake completion and is unchanged
+//! by repair or by the readiness probe, so the receipt attests session identity rather than
+//! repair completion. A receipt minted before repair finished is byte-identical to one minted
+//! after, and no verifier can tell them apart.
 //! The Instance and Launch operation are read out of the published page rather than accepted
 //! from the caller, so a receipt naming any other session is refused before its tag is even
 //! compared.

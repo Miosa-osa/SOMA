@@ -6,9 +6,11 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     /// Returns this session's live authenticated handshake transcript.
     ///
     /// The value is not a secret; it already crosses the wire inside every activation receipt.
-    /// It is published only on this owner, which exists solely after authenticated repair and
-    /// the fixed readiness probe, so a caller that holds one holds proof that this exact
-    /// session reached its terminal readiness result.
+    /// It identifies the authenticated session and nothing more: it is fixed when the handshake
+    /// completes and neither repair nor the readiness probe changes it, so a verifier that sees
+    /// it learns which session it belongs to, never that repair had finished when it was taken.
+    /// That this owner exists only after repair is a Rust visibility fact inside one trusted
+    /// process, not a property of the value.
     #[must_use]
     pub fn session_transcript(&self) -> [u8; 32] {
         *self.channel.session.transcript()
