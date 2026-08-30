@@ -64,7 +64,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     let store = entry.join("store");
     let bytes = fs::read(entry.join("candidate.somacan"))?;
     let manifest = decode_candidate(&bytes).map_err(|error| format!("{error:?}"))?;
-    let generation_id = candidate_bytes(soma_generation::CandidateId::of(&bytes).as_str())?;
+    let candidate_id = candidate_bytes(soma_generation::CandidateId::of(&bytes).as_str())?;
 
     let kernel = open_artifact(&store, &manifest.kernel.descriptor)
         .map_err(|error| format!("kernel: {error:?}"))?;
@@ -123,7 +123,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         &mut sandbox,
         CaptureRequest {
             paths: soma_kvm::x86_64::SnapshotPaths::new(snapshot.clone()),
-            generation_id,
+            candidate_id,
             root: &mut root,
             overlay: &mut head,
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
