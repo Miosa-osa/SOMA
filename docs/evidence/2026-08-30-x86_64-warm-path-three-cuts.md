@@ -76,8 +76,9 @@ The waiting was the guest's 2 ms sleep between domain probes and the host's 1 ms
 The guest wakeups this buys are paid only while a machine sits at the disconnected repair point waiting to be captured, never by a running Instance, and each is one 16-byte volatile read that the same evidence measures at 1 us.
 The host read is 16 bytes under one uncontended lock over a window that is now a fraction of a millisecond.
 
-`Ready` p50 fell 19.08 ms to 16.49 ms.
-The interval from resume to the page being observed consumed fell from 2.57 ms to 1.30 ms at the difference of the two medians.
+This change's own window is resume to the page being observed consumed, and it fell from 2.57 ms to 1.30 ms at the difference of the two medians.
+The cumulative `Ready` p50 fell further over the same two columns, 19.08 ms to 16.49 ms, but that is not this change's result.
+The remainder is the executor's child-exit race described under B, a roughly five-millisecond bimodal step this change does not touch, whose branch ratio differed between the two columns; no cumulative delta measured across them is attributable until B removes that bimodality.
 It did not fall to the 0.2 ms the two poll intervals alone would predict.
 The host stops seeing the domain as soon as the guest's erase writes the first byte, and everything the guest does up to that point is `look` at 1 us, `copy` at under 1 us, and the start of `erase`; the parse that follows is not in the window the host measures.
 So essentially the whole 1.30 ms is not guest work and not, any longer, either poll.
