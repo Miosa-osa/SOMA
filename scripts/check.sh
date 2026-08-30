@@ -96,6 +96,12 @@ check_portable_rust() {
 
     log "portable documentation tests"
     cargo test --workspace --doc --locked
+
+    # Library docs only: the `soma` library crate and soma-cli's `soma`
+    # binary collide on one target/doc/soma path, and binaries carry no
+    # public rustdoc surface anyway.
+    log "portable rustdoc"
+    RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --workspace --lib --locked
 }
 
 check_linux_rust() {
@@ -117,6 +123,9 @@ check_linux_rust() {
 
     log "Linux documentation tests"
     cargo test --workspace --doc --all-features --locked
+
+    log "Linux rustdoc"
+    RUSTDOCFLAGS='-D warnings' cargo doc --no-deps --workspace --lib --all-features --locked
 
     log "Linux build"
     cargo build --workspace --all-targets --all-features --locked

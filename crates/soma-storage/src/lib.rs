@@ -18,7 +18,7 @@
 //!   touching the template or each other.
 //! - [`lease`], [`release`], and [`reconcile`] own single-use head ownership, destruction, and
 //!   the audit of a head directory against the ownership ledger.
-//! - [`bench`] is the retained measurement matrix behind the on-demand versus prepared-head
+//! - [`bench`](mod@bench) is the retained measurement matrix behind the on-demand versus prepared-head
 //!   decision in `docs/evidence`.
 //!
 //! Portable types compile everywhere.
