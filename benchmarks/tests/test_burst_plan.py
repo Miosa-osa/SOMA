@@ -2,7 +2,7 @@ import unittest
 
 from benchmarks.local_alpha.burst.plan import BurstPlan
 
-from .burst_fixtures import plan
+from benchmarks.tests.burst_fixtures import plan
 
 
 class BurstPlanTests(unittest.TestCase):

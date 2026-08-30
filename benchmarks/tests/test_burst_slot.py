@@ -4,7 +4,7 @@ from pathlib import Path
 from benchmarks.local_alpha.burst.slot import BurstSample, execute_slot
 from benchmarks.local_alpha.capture import ProcessCapture, StreamCapture
 
-from .burst_fixtures import CLEANUP_COMPLETE, encoded, envelope, plan
+from benchmarks.tests.burst_fixtures import CLEANUP_COMPLETE, encoded, envelope, plan
 
 
 OPERATION_IDS = {

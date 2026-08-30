@@ -7,7 +7,7 @@ from benchmarks.local_alpha.burst.results import load_results
 from benchmarks.local_alpha.burst.run import run_burst
 from benchmarks.local_alpha.burst.slot import BurstSample
 
-from .burst_fixtures import metadata_record, plan
+from benchmarks.tests.burst_fixtures import metadata_record, plan
 
 
 def _sample(instance_id: str, *, successful: bool, tti_ns: int) -> BurstSample:

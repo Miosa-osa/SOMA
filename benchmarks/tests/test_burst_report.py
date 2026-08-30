@@ -5,7 +5,7 @@ from pathlib import Path
 from benchmarks.local_alpha.burst.report import generate
 from benchmarks.local_alpha.burst.results import ResultsWriter
 
-from .burst_fixtures import (
+from benchmarks.tests.burst_fixtures import (
     complete_results,
     metadata_record,
     plan,

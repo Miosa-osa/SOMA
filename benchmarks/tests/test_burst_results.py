@@ -9,7 +9,7 @@ from benchmarks.local_alpha.burst.results import (
     statistics,
 )
 
-from .burst_fixtures import (
+from benchmarks.tests.burst_fixtures import (
     complete_results,
     completion_record,
     metadata_record,
