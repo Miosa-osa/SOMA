@@ -45,11 +45,12 @@ pub struct Instance {
 /// Panics with the session failure; a restored Instance that cannot reach `Ready` is the
 /// result this test exists to catch.
 pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command<'_>]) -> Instance {
-    let (head_path, head) = fixture.private_head(name);
-    // Every descriptor and thread the restore creates is opened after these counts and must be
-    // gone before the ones taken at the end.
+    // Every descriptor and thread the Instance uses, including the private head handed to
+    // the restore, is opened after these counts and must be gone before the ones taken at the
+    // end.
     let descriptors_before = host::open_descriptor_count();
     let threads_before = host::thread_count();
+    let (head_path, head) = fixture.private_head(name);
     let started = Instant::now();
     let mut restored = restore(RestoreRequest {
         paths: fixture.paths.clone(),
