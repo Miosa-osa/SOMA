@@ -9,7 +9,11 @@ from .model import (
     ProtocolValidationError,
     ResponseEvidence,
 )
-from .validation import validate_cli_response, validate_mcp_response
+from .validation import (
+    cleanup_is_complete,
+    validate_cli_response,
+    validate_mcp_response,
+)
 
 __all__ = (
     "MACOS_DNS_SERVER",
@@ -19,6 +23,7 @@ __all__ = (
     "ResponseEvidence",
     "build_cli_calls",
     "build_mcp_calls",
+    "cleanup_is_complete",
     "validate_cli_response",
     "validate_mcp_response",
 )

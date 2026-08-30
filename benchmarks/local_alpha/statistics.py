@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 
@@ -32,7 +32,13 @@ class BenchmarkStatistics:
         }
 
 
-def _nearest_rank(sorted_samples: list[int], percentile: int) -> int:
+def nearest_rank(sorted_samples: Sequence[int], percentile: int) -> int:
+    """Return the nearest-rank percentile of an ascending nonempty sample list."""
+
+    if not sorted_samples:
+        raise ValueError("at least one accepted sample is required")
+    if type(percentile) is not int or not 1 <= percentile <= 100:
+        raise ValueError("percentile must be an integer between 1 and 100")
     rank = (percentile * len(sorted_samples) + 99) // 100
     return sorted_samples[rank - 1]
 
@@ -78,6 +84,6 @@ def summarize(
         minimum_ns=samples[0],
         maximum_ns=samples[-1],
         median_ns=_median(samples),
-        p95_ns=_nearest_rank(samples, 95),
-        p99_ns=_nearest_rank(samples, 99),
+        p95_ns=nearest_rank(samples, 95),
+        p99_ns=nearest_rank(samples, 99),
     )

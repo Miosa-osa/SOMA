@@ -145,6 +145,16 @@ def _validate(
     return ResponseEvidence(operation, instance_id, observed, stdout, cleanup)
 
 
+def cleanup_is_complete(receipt: Mapping[str, Any]) -> bool:
+    """Report whether a receipt proves terminal release of every owned resource."""
+
+    try:
+        _complete_cleanup(_object(receipt, "receipt"))
+    except ProtocolValidationError:
+        return False
+    return True
+
+
 def validate_cli_response(
     response: bytes | str | Mapping[str, Any],
     *,

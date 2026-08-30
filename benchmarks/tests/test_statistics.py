@@ -1,6 +1,10 @@
 import unittest
 
-from benchmarks.local_alpha.statistics import BenchmarkStatistics, summarize
+from benchmarks.local_alpha.statistics import (
+    BenchmarkStatistics,
+    nearest_rank,
+    summarize,
+)
 
 
 class BenchmarkStatisticsTests(unittest.TestCase):
@@ -72,6 +76,19 @@ class BenchmarkStatisticsTests(unittest.TestCase):
             with self.subTest(samples=samples):
                 with self.assertRaises(ValueError):
                     summarize(samples)  # type: ignore[arg-type]
+
+    def test_nearest_rank_returns_the_ceiling_ranked_value(self) -> None:
+        self.assertEqual(nearest_rank([1, 2, 3, 4], 50), 2)
+        self.assertEqual(nearest_rank([1, 2, 3, 4], 100), 4)
+        self.assertEqual(nearest_rank([5], 1), 5)
+
+    def test_nearest_rank_rejects_an_empty_cohort_or_a_bad_percentile(self) -> None:
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            nearest_rank([], 50)
+        for percentile in (0, 101, 1.5, True):
+            with self.subTest(percentile=percentile):
+                with self.assertRaises(ValueError):
+                    nearest_rank([1], percentile)  # type: ignore[arg-type]
 
     def test_invalid_failed_count_fails_closed(self) -> None:
         for failed_count in (-1, 1.5, True):
