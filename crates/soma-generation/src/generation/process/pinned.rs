@@ -107,12 +107,6 @@ impl PinnedTool {
         self.file.as_raw_fd()
     }
 
-    /// Returns a descriptor number no system without descriptor paths can use.
-    #[cfg(not(unix))]
-    pub(crate) const fn descriptor(&self) -> i32 {
-        -1
-    }
-
     /// Proves the program path still names the measured object.
     ///
     /// This runs immediately before every spawn, so a descriptor path that stopped resolving to

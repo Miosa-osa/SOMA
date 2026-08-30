@@ -776,4 +776,5 @@ The Linux ARM64, Intel macOS, and Windows ARM64 workspace checks pass locally, t
 The spell checker passes after integrating the separately pushed repository vocabulary update.
 The filesystem-tool builder must force `linux/amd64`; otherwise Docker Desktop on an Apple Silicon development machine silently emits ARM64 executables for the x86_64 server path.
 The forced-platform build produced x86-64 ELF tools and reported erofs-utils 1.9.4 and e2fsprogs 1.47.0 when executed inside Linux amd64.
+Windows Clippy evaluates non-Unix fallback code that ordinary cross-target `cargo check` does not lint, so portable validation must include target-specific Clippy when changing a fallback implementation.
 None of these results is a live KVM-host proof, a certified Generation proof, or a performance claim.

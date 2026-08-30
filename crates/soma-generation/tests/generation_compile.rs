@@ -9,6 +9,7 @@ use soma_generation::{
 };
 #[cfg(unix)]
 use support::fixture_tree::extraction_oracle;
+
 use support::{
     fixture_tree::{AGENT, digests, fixture_layers},
     generation::{compile, compile_with_template, test_profile, toolchains},
@@ -156,6 +157,7 @@ fn changing_bound_inputs_changes_identity_while_unchanged_artifacts_stay_equal()
 }
 
 #[test]
+#[cfg_attr(windows, allow(clippy::permissions_set_readonly_false))]
 fn tampered_artifact_fails_cross_artifact_verification() {
     let Some(tools) = toolchains("tampered_artifact_fails_cross_artifact_verification") else {
         return;

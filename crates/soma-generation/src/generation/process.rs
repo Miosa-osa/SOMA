@@ -92,7 +92,10 @@ impl Invocation<'_> {
     fn compose(&self) -> Result<Command, CompileError> {
         self.program.require_bound(self.phase)?;
         let mut command = Command::new(self.program.program());
+        #[cfg(unix)]
         control::inherit_tool(&mut command, self.program.descriptor());
+        #[cfg(not(unix))]
+        control::inherit_tool(&mut command, -1);
         command
             .args(&self.arguments)
             .env_clear()
