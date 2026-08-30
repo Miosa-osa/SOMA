@@ -7,9 +7,10 @@ use super::{
     erofs_reader::ErofsImage,
     erofs_verify::{RootExpectation, RootVerification, verify_root_image},
     error::{CompileError, CompileErrorKind, CompilePhase},
-    process::{Invocation, ToolOutcome, executable_digest, tool_path, version_line},
+    process::{Invocation, PinnedTool, ToolOutcome, tool_path, version_line},
     request::CompilerProfile,
     tar_stream::stream_tree,
+    toolchain::{BoundTool, BuilderEnvironment},
 };
 use crate::{ImportPhase, store::Store};
 
@@ -22,12 +23,15 @@ pub const EROFS_FORMAT_PROFILE: &str = "erofs/v1/blk4096/uncompressed/no-xattr/t
 /// The fixed volume label.
 pub const EROFS_VOLUME_LABEL: &str = "SOMA_ROOT";
 const UUID_DOMAIN: &[u8] = b"soma-erofs-root-uuid-v1\0";
-const MKFS: &str = "mkfs.erofs";
-const FSCK: &str = "fsck.erofs";
+const FORMATTER: &str = "mkfs.erofs";
+const CHECKER: &str = "fsck.erofs";
+const PHASE: CompilePhase = CompilePhase::FormatRoot;
 
 /// Retained evidence from one EROFS build.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErofsEvidence {
+    /// Every tool this build ran, bound by the digest of the exact executable that ran.
+    pub tools: BuilderEnvironment,
     /// The digest of the formatter executable that ran.
     pub formatter_digest: Sha256Digest,
     /// The formatter revision reported by the executable.
@@ -96,11 +100,12 @@ pub(crate) fn compile_root(
     store: &Store,
     staging: &Path,
 ) -> Result<(ArtifactDescriptor, ErofsEvidence), CompileError> {
-    let mkfs = tool_path(erofs_utils, MKFS);
-    let fsck = tool_path(erofs_utils, FSCK);
-    let formatter_revision = require_revision(&mkfs, staging)?;
-    require_revision(&fsck, staging)?;
-    let formatter_digest = executable_digest(&mkfs, CompilePhase::FormatRoot)?;
+    let formatter = PinnedTool::open(&tool_path(erofs_utils, FORMATTER), PHASE)?;
+    let checker = PinnedTool::open(&tool_path(erofs_utils, CHECKER), PHASE)?;
+    let mut tools = BuilderEnvironment::new();
+    let formatter_revision = bind_revision(&formatter, staging, &mut tools)?;
+    bind_revision(&checker, staging, &mut tools)?;
+    let formatter_digest = formatter.digest();
     let uuid = derive_root_uuid(tree_digest);
     let image = staging.join("root.erofs");
     let arguments = vec![
@@ -117,7 +122,7 @@ pub(crate) fn compile_root(
         OsString::from("/dev/stdin"),
     ];
     let format = Invocation {
-        program: &mkfs,
+        program: &formatter,
         arguments,
         environment: Vec::new(),
         working_directory: staging,
@@ -141,7 +146,7 @@ pub(crate) fn compile_root(
         ));
     }
     let check = Invocation {
-        program: &fsck,
+        program: &checker,
         arguments: vec![image.clone().into_os_string()],
         environment: Vec::new(),
         working_directory: staging,
@@ -178,6 +183,7 @@ pub(crate) fn compile_root(
     Ok((
         descriptor,
         ErofsEvidence {
+            tools,
             formatter_digest,
             formatter_revision,
             pinned_commit: EROFS_UTILS_COMMIT,
@@ -190,8 +196,13 @@ pub(crate) fn compile_root(
     ))
 }
 
-fn require_revision(program: &Path, staging: &Path) -> Result<String, CompileError> {
-    let line = version_line(program, "-V", staging, CompilePhase::FormatRoot)?;
+/// Requires the pinned revision from one tool and binds that tool to the builder environment.
+fn bind_revision(
+    tool: &PinnedTool,
+    staging: &Path,
+    tools: &mut BuilderEnvironment,
+) -> Result<String, CompileError> {
+    let line = version_line(tool, "-V", staging, PHASE)?;
     let revision = line
         .rsplit(' ')
         .next()
@@ -199,11 +210,12 @@ fn require_revision(program: &Path, staging: &Path) -> Result<String, CompileErr
         .trim()
         .to_owned();
     if revision != EROFS_UTILS_REVISION {
-        return Err(CompileError::new(
-            CompilePhase::FormatRoot,
-            CompileErrorKind::Toolchain,
-        ));
+        return Err(CompileError::new(PHASE, CompileErrorKind::Toolchain));
     }
+    tools.bind(
+        BoundTool::new(tool.name(), tool.digest(), &revision, PHASE)?,
+        PHASE,
+    )?;
     Ok(revision)
 }
 

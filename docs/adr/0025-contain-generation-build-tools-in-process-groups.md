@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-30
 - Extends: ADR 0019
+- Extended by: ADR 0029
 - Relates to: `docs/research/generation-compiler.md`
 
 ## Context

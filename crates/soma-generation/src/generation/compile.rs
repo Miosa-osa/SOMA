@@ -106,6 +106,8 @@ pub fn compile_generation(
         &staging.path,
     )?;
     drop(staging);
+    let mut builder = erofs_evidence.tools.clone();
+    builder.absorb(&overlay_evidence.tools, CompilePhase::EncodeManifest)?;
 
     let parts = ManifestParts {
         template,
@@ -121,7 +123,7 @@ pub fn compile_generation(
             format_profile: erofs::EROFS_FORMAT_PROFILE.to_owned(),
             formatter_digest: erofs_evidence.formatter_digest,
             formatter_revision: erofs_evidence.formatter_revision.clone(),
-            builder_image_digest: None,
+            builder_environment_digest: builder.digest(CompilePhase::EncodeManifest)?,
         },
         templates,
         kernel: store_bytes(&store, &machine.kernel_bytes, ArtifactRole::Kernel)?,

@@ -129,7 +129,7 @@ impl Encoder {
         self.short_string(root.format_profile.as_bytes())?;
         self.digest(&root.formatter_digest)?;
         self.short_string(root.formatter_revision.as_bytes())?;
-        self.optional_digest(root.builder_image_digest.as_ref())
+        self.digest(&root.builder_environment_digest)
     }
 
     fn overlay(&mut self, overlay: &OverlayBinding) -> Result<(), CompileError> {
@@ -192,16 +192,6 @@ impl Encoder {
         self.short_string(descriptor.media_type().as_bytes())?;
         self.digest(&descriptor.digest)?;
         self.u64(descriptor.size)
-    }
-
-    fn optional_digest(&mut self, digest: Option<&Sha256Digest>) -> Result<(), CompileError> {
-        match digest {
-            Some(digest) => {
-                self.u8(1)?;
-                self.digest(digest)
-            }
-            None => self.u8(0),
-        }
     }
 
     fn optional_string(&mut self, value: Option<&[u8]>) -> Result<(), CompileError> {

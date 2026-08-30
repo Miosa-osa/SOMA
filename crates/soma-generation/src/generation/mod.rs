@@ -33,6 +33,8 @@ mod request;
 mod tar_stream;
 /// Template revision inputs: image, Machine shape, startup, lifetime, and profile version.
 pub mod template;
+/// The sealed builder environment: every external tool one build executed.
+pub mod toolchain;
 mod tree_decoder;
 mod verify;
 
@@ -53,6 +55,7 @@ pub use process::ToolOutcome;
 pub use publish::open_artifact;
 pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
+pub use toolchain::{BoundTool, BuilderEnvironment};
 pub use tree_decoder::TreeBounds;
 pub use verify::{
     Incompatibility, VerifiedCandidate, VerifiedGeneration, verify_candidate, verify_generation,

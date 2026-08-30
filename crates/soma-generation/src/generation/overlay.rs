@@ -1,17 +1,19 @@
-use std::{ffi::OsString, fs, path::Path};
+use std::{fs, path::Path};
 
 use sha2::{Digest as _, Sha256};
 
 use super::{
     artifacts::{ArtifactRole, Sha256Digest},
-    erofs::{format_uuid, store_file},
+    erofs::store_file,
     error::{CompileError, CompileErrorKind, CompilePhase},
     manifest::OverlayTemplate,
-    process::{Invocation, ToolOutcome, executable_digest, tool_path, version_line},
+    process::{ToolOutcome, version_line},
     request::CompilerProfile,
+    toolchain::BuilderEnvironment,
 };
 use crate::store::Store;
 
+mod tools;
 mod verify;
 
 /// The pinned `e2fsprogs` release.
@@ -63,6 +65,8 @@ pub struct OverlayClassEvidence {
 /// Retained evidence from the complete overlay-template build.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OverlayEvidence {
+    /// Every tool this build ran, bound by the digest of the exact executable that ran.
+    pub tools: BuilderEnvironment,
     /// The digest of the `mke2fs` executable that ran.
     pub formatter_digest: Sha256Digest,
     /// The reported `e2fsprogs` revision.
@@ -116,16 +120,17 @@ pub(crate) fn compile_overlay_templates(
     store: &Store,
     staging: &Path,
 ) -> Result<(Vec<OverlayTemplate>, OverlayEvidence), CompileError> {
-    let mke2fs = tool_path(e2fsprogs, "mke2fs");
-    let revision = version_line(&mke2fs, "-V", staging, CompilePhase::BuildOverlay)?;
+    let pinned = tools::PinnedTools::open(e2fsprogs)?;
+    let revision = version_line(&pinned.formatter, "-V", staging, CompilePhase::BuildOverlay)?;
     if revision.split(' ').nth(1) != Some(E2FSPROGS_REVISION) {
         return Err(toolchain(CompilePhase::BuildOverlay));
     }
-    let formatter_digest = executable_digest(&mke2fs, CompilePhase::BuildOverlay)?;
+    let bound = pinned.bind(&revision)?;
+    let formatter_digest = pinned.formatter.digest();
     let config = staging.join("mke2fs.conf");
     fs::write(&config, MKE2FS_CONFIG).map_err(|_| io_error())?;
-    let tools = Tools {
-        directory: e2fsprogs,
+    let tools = tools::Tools {
+        pinned: &pinned,
         environment: vec![
             ("E2FSPROGS_FAKE_TIME".to_owned(), profile.epoch.to_string()),
             (
@@ -157,110 +162,12 @@ pub(crate) fn compile_overlay_templates(
     Ok((
         templates,
         OverlayEvidence {
+            tools: bound,
             formatter_digest,
             revision,
             classes,
         },
     ))
-}
-
-struct Tools<'a> {
-    directory: &'a Path,
-    environment: Vec<(String, String)>,
-    staging: &'a Path,
-    profile: &'a CompilerProfile,
-}
-
-impl Tools<'_> {
-    fn run(
-        &self,
-        program: &str,
-        arguments: Vec<OsString>,
-        phase: CompilePhase,
-    ) -> Result<ToolOutcome, CompileError> {
-        Invocation {
-            program: &tool_path(self.directory, program),
-            arguments,
-            environment: self.environment.clone(),
-            working_directory: self.staging,
-            deadline: self.profile.tool_deadline,
-            phase,
-        }
-        .run()
-    }
-
-    fn build_class(
-        &self,
-        capacity: u64,
-        image: &Path,
-    ) -> Result<OverlayClassEvidence, CompileError> {
-        fs::File::create(image)
-            .and_then(|file| file.set_len(capacity))
-            .map_err(|_| io_error())?;
-        let build = CompilePhase::BuildOverlay;
-        let check_phase = CompilePhase::VerifyOverlay;
-        let format = self.run("mke2fs", mke2fs_arguments(capacity, image), build)?;
-        let populate = vec![
-            self.run("debugfs", debugfs(image, true, "mkdir upper"), build)?,
-            self.run("debugfs", debugfs(image, true, "mkdir work"), build)?,
-        ];
-        if !format.succeeded() || populate.iter().any(|outcome| !outcome.succeeded()) {
-            return Err(toolchain(build));
-        }
-        let check = self.run("e2fsck", vec!["-fn".into(), image.into()], check_phase)?;
-        let inspect = vec![
-            self.run("dumpe2fs", vec!["-h".into(), image.into()], check_phase)?,
-            self.run("debugfs", debugfs(image, false, "ls -l /"), check_phase)?,
-            self.run(
-                "debugfs",
-                debugfs(image, false, "ls -l /upper"),
-                check_phase,
-            )?,
-            self.run("debugfs", debugfs(image, false, "ls -l /work"), check_phase)?,
-        ];
-        verify::verify_class(capacity, &check, &inspect)?;
-        Ok(OverlayClassEvidence {
-            capacity,
-            format,
-            populate,
-            check,
-            inspect,
-        })
-    }
-}
-
-fn mke2fs_arguments(capacity: u64, image: &Path) -> Vec<OsString> {
-    let extended = format!(
-        "hash_seed={},lazy_itable_init=0,lazy_journal_init=0,root_owner=0:0",
-        format_uuid(&derive_overlay_hash_seed(capacity))
-    );
-    [
-        "-F", "-q", "-t", "ext4", "-b", "4096", "-I", "256", "-m", "0", "-U",
-    ]
-    .into_iter()
-    .map(OsString::from)
-    .chain([
-        OsString::from(format_uuid(&derive_overlay_uuid(capacity))),
-        "-L".into(),
-        OVERLAY_VOLUME_LABEL.into(),
-        "-E".into(),
-        extended.into(),
-        "-O".into(),
-        OVERLAY_FEATURES.join(",").into(),
-        image.as_os_str().to_owned(),
-    ])
-    .collect()
-}
-
-fn debugfs(image: &Path, write: bool, request: &str) -> Vec<OsString> {
-    let mut arguments = Vec::new();
-    if write {
-        arguments.push(OsString::from("-w"));
-    }
-    arguments.push("-R".into());
-    arguments.push(request.into());
-    arguments.push(image.as_os_str().to_owned());
-    arguments
 }
 
 const fn toolchain(phase: CompilePhase) -> CompileError {

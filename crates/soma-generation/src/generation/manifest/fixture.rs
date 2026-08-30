@@ -52,7 +52,7 @@ pub(crate) fn profile_v1() -> GenerationManifest {
             format_profile: erofs::EROFS_FORMAT_PROFILE.to_owned(),
             formatter_digest: digest(0x04),
             formatter_revision: erofs::EROFS_UTILS_REVISION.to_owned(),
-            builder_image_digest: None,
+            builder_environment_digest: digest(0x05),
         },
         overlay: OverlayBinding {
             uuid_derivation_version: OVERLAY_UUID_DERIVATION_VERSION,

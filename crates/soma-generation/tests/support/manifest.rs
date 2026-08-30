@@ -40,7 +40,7 @@ pub fn sample() -> GenerationManifest {
             format_profile: "erofs/v1/blk4096/uncompressed/no-xattr/tar-full/all-time".to_owned(),
             formatter_digest: digest(0x04),
             formatter_revision: "1.9.4".to_owned(),
-            builder_image_digest: None,
+            builder_environment_digest: digest(0x05),
         },
         overlay: OverlayBinding {
             uuid_derivation_version: 1,

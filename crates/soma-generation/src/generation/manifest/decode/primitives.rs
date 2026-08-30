@@ -39,14 +39,6 @@ impl<'a> Decoder<'a> {
         Ok(ArtifactDescriptor { role, digest, size })
     }
 
-    pub(super) fn optional_digest(&mut self) -> Result<Option<Sha256Digest>, CompileError> {
-        match self.u8()? {
-            0 => Ok(None),
-            1 => Ok(Some(self.digest()?)),
-            _ => Err(invalid()),
-        }
-    }
-
     pub(super) fn optional_string(&mut self) -> Result<Option<String>, CompileError> {
         match self.u8()? {
             0 => Ok(None),

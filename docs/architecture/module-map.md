@@ -614,15 +614,24 @@ crates/soma-generation/src/
   generation/manifest/decode/primitives.rs
   generation/manifest/encode.rs
   generation/overlay.rs
+  generation/overlay/tools.rs
   generation/overlay/verify.rs
   generation/process.rs
+  generation/process/capture.rs
+  generation/process/control.rs
+  generation/process/pinned.rs
+  generation/process/supervise.rs
   generation/publish.rs
   generation/request.rs
   generation/tar_stream.rs
   generation/template.rs
+  generation/toolchain.rs
   generation/tree_decoder.rs
   generation/verify.rs
 ```
+
+`generation/process/pinned.rs` opens each external tool once, hashes it through that descriptor, and executes that same descriptor, so the digest bound into evidence is the digest of the process image the kernel loaded rather than of whatever a path named at hash time.
+`generation/toolchain.rs` seals the complete ordered set of tools one build executed, each bound by its executable digest and reported revision, into one builder-environment digest that the manifest carries and that verification requires.
 
 The public results are `ImportedOci`, `NormalizedRootfs`, and `CompiledGeneration`.
 `CompiledGeneration` carries a published manifest, its `GenerationId`, formatter and checker evidence, and the typed list of unimplemented phases; `verify_generation` re-verifies every artifact and reports the Generation as not launchable while the snapshot binding is absent.

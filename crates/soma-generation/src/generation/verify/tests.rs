@@ -94,7 +94,7 @@ fn root_binding_fields_are_validated_against_the_tree_and_the_profile() {
         m.root.formatter_digest = Sha256Digest::from_bytes([0; 32]);
     });
     rejected(Incompatibility::ZeroDigest, |m| {
-        m.root.builder_image_digest = Some(Sha256Digest::from_bytes([0; 32]));
+        m.root.builder_environment_digest = Sha256Digest::from_bytes([0; 32]);
     });
     rejected(Incompatibility::RootSize, |m| {
         m.root.descriptor.size = 0;

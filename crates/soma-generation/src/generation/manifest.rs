@@ -57,8 +57,12 @@ pub struct RootBinding {
     pub formatter_digest: Sha256Digest,
     /// The formatter revision string.
     pub formatter_revision: String,
-    /// The content-addressed builder image, or `None` for a host toolchain build.
-    pub builder_image_digest: Option<Sha256Digest>,
+    /// The digest of the sealed builder environment that produced every artifact.
+    ///
+    /// It covers the complete ordered set of external tools the build executed, each bound by
+    /// the digest of the exact executable that ran and the revision it reported, so it names
+    /// the whole toolchain identity rather than one formatter.
+    pub builder_environment_digest: Sha256Digest,
 }
 
 /// One sterile overlay template for an exact writable capacity.

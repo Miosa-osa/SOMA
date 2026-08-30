@@ -1,5 +1,8 @@
 //! One bounded, contained invocation of one pinned external tool.
 //!
+//! Every tool is a [`PinnedTool`]: opened once, hashed through that descriptor, and executed
+//! through that same descriptor, so provenance names the process image that ran.
+//!
 //! Every tool leads its own process group, so a deadline, a feed failure, a capture failure, or
 //! a cancellation terminates the tool and every descendant it forked rather than only the
 //! direct child.
@@ -8,29 +11,23 @@
 
 use std::{
     ffi::OsString,
-    fs::File,
-    io::{Read as _, Write},
+    io::Write,
     path::{Path, PathBuf},
     process::{ChildStdin, Command, Stdio},
     time::{Duration, Instant},
 };
 
-use sha2::{Digest as _, Sha256};
-
-use super::{
-    artifacts::Sha256Digest,
-    error::{CompileError, CompileErrorKind, CompilePhase},
-};
+use super::error::{CompileError, CompileErrorKind, CompilePhase};
 
 mod capture;
 mod control;
+mod pinned;
 mod supervise;
 
 use capture::Readers;
 use control::Group;
+pub(crate) use pinned::PinnedTool;
 use supervise::Supervisor;
-
-const MAX_TOOL_BYTES: u64 = 256 * 1024 * 1024;
 /// Grace the process group is given to honor the polite termination signal.
 const TERM_GRACE: Duration = Duration::from_secs(2);
 /// Grace the process group is given to die after the force signal.
@@ -72,7 +69,7 @@ impl ToolOutcome {
 
 /// One typed tool invocation with no shell, inherited environment, or working-directory guess.
 pub(crate) struct Invocation<'a> {
-    pub(crate) program: &'a Path,
+    pub(crate) program: &'a PinnedTool,
     pub(crate) arguments: Vec<OsString>,
     pub(crate) environment: Vec<(String, String)>,
     pub(crate) working_directory: &'a Path,
@@ -125,7 +122,9 @@ impl Invocation<'_> {
     }
 
     fn spawn(&self) -> Result<std::process::Child, CompileError> {
-        let mut command = Command::new(self.program);
+        self.program.require_bound(self.phase)?;
+        let mut command = Command::new(self.program.program());
+        control::inherit_tool(&mut command, self.program.descriptor());
         command
             .args(&self.arguments)
             .env_clear()
@@ -142,11 +141,7 @@ impl Invocation<'_> {
 
     fn outcome(self, exit_code: Option<i32>, stdout: Vec<u8>, stderr: Vec<u8>) -> ToolOutcome {
         ToolOutcome {
-            program: self
-                .program
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-                .unwrap_or_default(),
+            program: self.program.name().to_owned(),
             arguments: self
                 .arguments
                 .iter()
@@ -172,38 +167,9 @@ fn feed_stdin(
     result
 }
 
-/// Hashes the bytes of one pinned tool executable so evidence binds the exact binary used.
-pub(crate) fn executable_digest(
-    program: &Path,
-    phase: CompilePhase,
-) -> Result<Sha256Digest, CompileError> {
-    let mut file =
-        File::open(program).map_err(|_| CompileError::new(phase, CompileErrorKind::Toolchain))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 64 * 1024];
-    let mut total = 0_u64;
-    loop {
-        let count = file
-            .read(&mut buffer)
-            .map_err(|_| CompileError::new(phase, CompileErrorKind::Io))?;
-        if count == 0 {
-            break;
-        }
-        total +=
-            u64::try_from(count).map_err(|_| CompileError::new(phase, CompileErrorKind::Io))?;
-        if total > MAX_TOOL_BYTES {
-            return Err(CompileError::new(phase, CompileErrorKind::LimitExceeded));
-        }
-        hasher.update(&buffer[..count]);
-    }
-    let mut digest = [0_u8; 32];
-    digest.copy_from_slice(hasher.finalize().as_ref());
-    Ok(Sha256Digest::from_bytes(digest))
-}
-
 /// Runs `program -V` (or the given flag) and returns the first bounded output line.
 pub(crate) fn version_line(
-    program: &Path,
+    program: &PinnedTool,
     flag: &str,
     working_directory: &Path,
     phase: CompilePhase,

@@ -78,9 +78,7 @@ fn require_root(
         Incompatibility::RootFormat,
     )?;
     nonzero(&root.formatter_digest)?;
-    if let Some(builder) = root.builder_image_digest.as_ref() {
-        nonzero(builder)?;
-    }
+    nonzero(&root.builder_environment_digest)?;
     let size = root.descriptor.size;
     require(
         size > 0 && size <= profile.max_root_bytes && size.is_multiple_of(EROFS_BLOCK_BYTES),

@@ -155,7 +155,7 @@ impl Decoder<'_> {
             format_profile: self.short_string()?,
             formatter_digest: self.digest()?,
             formatter_revision: self.short_string()?,
-            builder_image_digest: self.optional_digest()?,
+            builder_environment_digest: self.digest()?,
         })
     }
 

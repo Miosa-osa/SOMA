@@ -8,7 +8,7 @@ use soma_generation::{
 use support::manifest::{descriptor, digest, sample};
 
 const GOLDEN_HEX: &str = include_str!("fixtures/somagen_v1.hex");
-const GOLDEN_ID: &str = "sha256:4736e824d404433872a91908649cb8dbd0ac60140bb5aa8d55bdeb44edb225be";
+const GOLDEN_ID: &str = "sha256:02d5388f9c80a0aee4c57e4f2cfbd940fc449f2bf5e44aa1c045bdb08f13defb";
 
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
@@ -38,8 +38,8 @@ fn artifact_mutations() -> Vec<Mutation> {
         ("formatter revision", |m| {
             "1.9.5".clone_into(&mut m.root.formatter_revision);
         }),
-        ("builder image", |m| {
-            m.root.builder_image_digest = Some(digest(0xa5));
+        ("builder environment", |m| {
+            m.root.builder_environment_digest = digest(0xa5);
         }),
         ("overlay derivation", |m| {
             m.overlay.uuid_derivation_version = 2;

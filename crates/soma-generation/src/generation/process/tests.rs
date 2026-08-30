@@ -9,10 +9,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use super::{CompileError, CompileErrorKind, CompilePhase, Invocation, TERMINATION_GRACE};
+use super::{
+    CompileError, CompileErrorKind, CompilePhase, Invocation, PinnedTool, TERMINATION_GRACE,
+};
 
 const SHELL: &str = "/bin/sh";
 const DEADLINE: Duration = Duration::from_millis(300);
+
+mod pinned;
 
 /// Descriptor accounting is process wide, so the spawning tests take turns.
 static SPAWNING: Mutex<()> = Mutex::new(());
@@ -28,9 +32,13 @@ fn scratch(name: &str) -> PathBuf {
     directory.join(name)
 }
 
+fn pinned(program: &str, phase: CompilePhase) -> PinnedTool {
+    PinnedTool::open(Path::new(program), phase).expect("a pinned host tool")
+}
+
 fn shell(script: &str, phase: CompilePhase, deadline: Duration) -> Result<(), CompileError> {
     Invocation {
-        program: Path::new(SHELL),
+        program: &pinned(SHELL, phase),
         arguments: vec![OsString::from("-c"), OsString::from(script)],
         environment: Vec::new(),
         working_directory: Path::new("/"),
@@ -168,8 +176,16 @@ fn a_version_probe_failure_keeps_the_phase_that_asked_for_it() {
     let missing = scratch("no-such-tool");
     let _ = fs::remove_file(&missing);
     for phase in [CompilePhase::FormatRoot, CompilePhase::BuildOverlay] {
-        let error = super::version_line(&missing, "-V", Path::new("/"), phase)
-            .expect_err("missing version probe");
+        let error = PinnedTool::open(&missing, phase).expect_err("a missing tool cannot be pinned");
+        assert_eq!(error.phase(), phase);
+        assert_eq!(error.kind(), CompileErrorKind::Toolchain);
+        let error = super::version_line(
+            &pinned(SHELL, phase),
+            "--no-such-flag",
+            Path::new("/"),
+            phase,
+        )
+        .expect_err("failing version probe");
         assert_eq!(error.phase(), phase);
         assert_eq!(error.kind(), CompileErrorKind::Toolchain);
     }
@@ -181,7 +197,7 @@ fn a_feed_failure_terminates_the_tool_and_returns_the_feed_error() {
     let started = Instant::now();
     let before = open_pipes();
     let error = Invocation {
-        program: Path::new(SHELL),
+        program: &pinned(SHELL, CompilePhase::FormatRoot),
         arguments: vec![OsString::from("-c"), OsString::from("exec /bin/sleep 300")],
         environment: Vec::new(),
         working_directory: Path::new("/"),
@@ -213,7 +229,7 @@ fn a_feed_failure_terminates_the_tool_and_returns_the_feed_error() {
 fn a_bounded_tool_still_reports_its_output_and_exit_code() {
     let _serialized = serialized();
     let outcome = Invocation {
-        program: Path::new(SHELL),
+        program: &pinned(SHELL, CompilePhase::FormatRoot),
         arguments: vec![
             OsString::from("-c"),
             OsString::from("echo out; echo err >&2; exit 7"),
