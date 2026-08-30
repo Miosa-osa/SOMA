@@ -16,27 +16,39 @@
 //! capture_snapshot <prepared-entry> [memory_mib]
 //! ```
 
-use std::error::Error;
-use std::fs::{self, File};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use std::{
+    error::Error,
+    fs::{self, File},
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use soma_generation::{generation_manifest::decode_candidate, open_artifact};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use soma_kvm::x86_64::{
     CaptureRequest, DeviceIdentity, SandboxConfig, SandboxDisks, SandboxMachine, capture,
 };
 
 /// The console line the pinned agent prints when it parks awaiting launch material.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const REPAIR_POINT_LINE: &[u8] = b"soma-guest-agent: awaiting launch material";
 /// The context identifier the source machine holds; every restore is given a fresh one.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const CAPTURE_CID: u32 = 3;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const MIB: u64 = 1024 * 1024;
 /// How long the source machine has to announce its repair point.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const REPAIR_POINT_DEADLINE: Duration = Duration::from_secs(120);
 /// How long the vCPU has to leave `KVM_RUN` once it is kicked.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const PAUSE_GRACE: Duration = Duration::from_secs(10);
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn candidate_bytes(hex: &str) -> Result<[u8; 32], Box<dyn Error>> {
     let hex = hex
         .strip_prefix("sha256:")
@@ -52,6 +64,7 @@ fn candidate_bytes(hex: &str) -> Result<[u8; 32], Box<dyn Error>> {
 }
 
 /// Copies the sterile overlay template into the writable head the source machine boots with.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn source_head(template: &mut File, path: &Path) -> Result<File, Box<dyn Error>> {
     let mut options = fs::OpenOptions::new();
     options.create(true).truncate(true).read(true).write(true);
@@ -60,6 +73,7 @@ fn source_head(template: &mut File, path: &Path) -> Result<File, Box<dyn Error>>
     Ok(head)
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     let store = entry.join("store");
     let bytes = fs::read(entry.join("candidate.somacan"))?;
@@ -157,6 +171,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn main() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.is_empty() || arguments.len() > 2 {
@@ -172,4 +187,10 @@ fn main() {
         eprintln!("{error}");
         std::process::exit(1);
     }
+}
+
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+fn main() {
+    eprintln!("capture_snapshot requires Linux x86_64 with KVM");
+    std::process::exit(2);
 }
