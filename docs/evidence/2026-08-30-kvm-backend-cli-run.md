@@ -5,8 +5,13 @@
 This is the first sandbox SOMA has launched through its own public surface on the Linux KVM
 Backend. Every earlier x86_64 result was produced by an ignored test in `crates/soma-kvm` driving
 the machine directly. This run goes through the portable facade: `soma run` resolves a workload,
-admits it, launches a machine, executes one command, and cleans up, and the Backend under the
-facade is the one implemented for ticket #13.
+launches a machine, executes one command, and cleans up.
+
+It proves the first vertical slices of [the KVM backend integration](../research/kvm-backend-integration.md),
+which that document orders as Ubuntu cold boot and file read, authenticated command, Generation
+restore, private disk, isolated network, full lifecycle, prepared worker, then the 100-way burst.
+Cold boot, the authenticated command, and the private disk are what run here. **It is not the
+adapter that document specifies**, and the section below says exactly what it does not do.
 
 ## Run identity
 
@@ -76,14 +81,30 @@ part of that window rather than the whole of it, and the rest is unattributed.
 
 ## What this does not prove
 
+Measurement limits:
+
 - One sample, one host, one image, one shape, one day. It says nothing about concurrency; the
   burst campaign is ticket #14.
-- No jail. The real `soma-vmm` is not yet wrapped by `soma-jail` in this path.
-- No network. The device is link down and no packet leaves the machine, which the receipt reports
-  rather than hides.
-- No prepared worker. Every launch cold boots, which is why `preparation` is `on_demand`.
-- No Generation certification. What a host prepares today is a Candidate, so the receipt's
-  `generation_id` is null rather than naming an identity no gate has produced.
-- The Generation was prepared out of band for this run, so this does not exercise a preparation
-  path that does not exist yet.
+- The timings are not a benchmark and the window before `machine_launched` is only partly
+  attributed.
+
+Everything the specified adapter requires and this run does not do:
+
+- **No snapshot restore.** Launch is required to restore a snapshot; this cold boots, which is why
+  it reaches Ready in roughly 646 ms rather than the restore figures measured separately.
+- **No certified Generation.** Resolve is required to select an installed certified Generation.
+  Certification does not exist, so this resolves a Candidate and the receipt's `generation_id` is
+  null rather than naming an identity no gate has produced.
+- **No capacity admission, and no durable operation ownership** recorded before an external
+  effect.
+- **No retry semantics.** A conflicting request fingerprint against the same OperationId is not
+  rejected, because retries are not implemented.
+- **No prepared worker and no sterile bundle.** Every launch creates its own machine, which is why
+  `preparation` is `on_demand`.
+- **No network lease and no activation.** The device is link down and no packet leaves the
+  machine, which the receipt reports rather than hides.
+- **No separate Stop and Destroy** with independently reported dispositions, and no reconcile
+  after restart.
+- **No jail.** The real `soma-vmm` is not wrapped by `soma-jail` in this path.
+- The Generation was prepared out of band, so this exercises no preparation path; none exists.
 - Nothing here is production-admitted, and no signed admission report exists.

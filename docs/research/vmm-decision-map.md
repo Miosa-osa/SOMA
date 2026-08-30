@@ -237,11 +237,21 @@ How does the Linux implementation satisfy the existing portable Resolve, Launch,
 
 ### Answer
 
-Live-proved at `08e4d45` for the single-process lifecycle.
+Designed. The first vertical slices are live-proved; the adapter this ticket specifies is not built.
 
-`soma --backend kvm run node:22` resolves a prepared Generation, launches a machine, executes one command inside it, and cleans up: the retained result is [the KVM Backend serving one sandbox through the public command line](../evidence/2026-08-30-kvm-backend-cli-run.md).
+What runs today, at `08e4d45`: `soma --backend kvm run node:22` resolves a prepared Candidate, cold boots a machine, executes one bounded command inside it, and releases every owned resource. The retained result is [the KVM Backend serving one sandbox through the public command line](../evidence/2026-08-30-kvm-backend-cli-run.md). In the slice order above that is Ubuntu cold boot and file read, authenticated command, and private disk.
 
-Two boundaries are deliberate. The machine and its authenticated session are owned by one thread, because the host adapter borrows the machine to retire the launch page and a structure holding both would refer to itself; a session that outlives the process belongs to the daemon in #12. And resolution reads a Generation prepared before demand rather than acquiring an image, because no image acquisition exists in the workspace and the request path is required not to perform it.
+What this ticket still requires, and the slice above does not do:
+
+- Launch restores a snapshot. The slice cold boots, which is why it reaches Ready in roughly 646 ms rather than the restore figures measured separately.
+- Resolve selects a certified Generation. Certification does not exist, so the slice resolves a Candidate and reports a null `generation_id`.
+- Capacity admission, durable OperationId ownership recorded before any external effect, and rejection of a conflicting request fingerprint on retry.
+- A claimed prepared worker and sterile bundle, rather than a machine created per request.
+- A network lease and activation. The guest device is link down.
+- Stop and Destroy as separate operations with independently reported dispositions, and reconcile after restart.
+- The eleven adapter modules this document names; the slice is a single lifecycle path.
+
+Two boundaries in the slice are deliberate rather than temporary. The machine and its authenticated session are owned by one thread, because the host adapter borrows the machine to retire the launch page and a structure holding both would refer to itself; a session outliving the process belongs to the daemon in #12. And resolution reads a Generation prepared before demand rather than acquiring an image, because no image acquisition exists in the workspace and the request path is required not to perform one.
 The KVM adapter composes Generation resolution, admission, prepared ownership, restore, repair, execution, inspection, shutdown, cleanup, evidence, retries, and reconciliation behind the unchanged portable lifecycle.
 Template and module resolution remain outside the adapter, which receives only an exact certified Generation, effective policy, and fresh launch bindings.
 See [KVM backend integration](kvm-backend-integration.md).
@@ -263,7 +273,7 @@ A signed immutable report binds exact provenance and admits a HostProfile only a
 The contract's anti-gaming rules are enforced in code rather than in prose, and the report generator refuses an incomplete run, a class-mixed run, a successful sample without a zero-exit workload command, and a warm class that recorded no preparation.
 The harness is live-proved today only against the Docker Backend, which is a Linux container and not a virtual machine.
 [The dry run](../evidence/2026-08-30-burst-harness-dry-run.md) is that proof of the harness and is not a SOMA performance result.
-The KVM run of the same profile is now unblocked: the adapter serves the portable lifecycle as of `08e4d45`, so the harness can address a KVM Backend from the `soma` command line. The campaign itself has not been run.
+The KVM run of the same profile can now be addressed from the `soma` command line, because the cold-boot slice of #13 serves the portable lifecycle as of `08e4d45`. The campaign has not been run, and a burst against a cold-boot slice would measure cold boot rather than the prepared-worker path the contract's warm class requires.
 No signed report, admission policy, or revocation state exists yet, and the harness covers the burst performance gate of this ticket only.
 See [production admission evidence](production-admission-evidence.md), [benchmark contract](../benchmark-contract.md), and [validation template](../operations/validation-report-template.md).
 
