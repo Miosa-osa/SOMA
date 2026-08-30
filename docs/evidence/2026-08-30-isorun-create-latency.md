@@ -1,93 +1,139 @@
-# Isorun create latency, independently measured - 2026-08-30
+# Isorun creation telemetry, independently collected - 2026-08-30
 
-This is an independent observation of a third-party service, recorded so that SOMA compares itself against a measured boundary rather than a published claim.
+This records what a third-party service reported about its own creation stage, collected by SOMA.
 It measures Isorun only.
-It proves nothing about SOMA.
+It proves nothing about SOMA, and it is not an equivalent SOMA lifecycle milestone.
 
-The evidence and claim-language corrections required before this result is treated as reproducible are recorded in [the review of this measurement](../reviews/2026-08-30-isorun-evidence-review.md).
+The corrections required of the first version of this document are recorded in [the review of this measurement](../reviews/2026-08-30-isorun-evidence-review.md) and are applied here.
+
+## Evidence class
+
+**Independently collected vendor-reported telemetry.**
+
+`create_ms` is a field Isorun returns in its own create response.
+Its timer endpoints are undocumented.
+SOMA did not observe the interval it measures.
+
+The harness wall clock is the only independently measured interval in this document, and it includes transport from a measuring host on another continent.
 
 ## Why this exists
 
-`COMPETITORS.md` recorded two Isorun performance statements that cannot be compared with each other:
+`COMPETITORS.md` held two Isorun performance statements that cannot be compared with each other: a vendor claim of `create_ms` 9 repeated publicly as "ready in 10ms", and an independent ComputeSDK observation of 63.90 ms median burst time to interactive, which includes provider transport and a first command.
 
-- A vendor claim of a `create_ms` of 9 in an illustrative API-reference payload, repeated on the public site as sandboxes "ready in 10ms".
-- An independent ComputeSDK observation of 63.90 ms median burst time to interactive, which includes provider transport and the first command.
+Neither is a creation-stage figure collected under controlled cohorts.
+This run collects that field directly, at three concurrency levels, and retains every record.
 
-Neither is the server-side create boundary SOMA's own budget is written against.
-This run measures that boundary directly.
+## What `create_ms` is not known to include
 
-## Boundary
+The reviewed material does not establish whether the field covers admission queueing, worker allocation, memory restore, guest identity or entropy repair, network repair, guest authentication, or successful command execution.
 
-One sample is one `POST /v1/runs`, one `POST /v1/runs/{id}/exec`, and one `DELETE /v1/runs/{id}`.
+SOMA's `Ready` requires all of those and one bounded command through the production executor.
+Treat `create_ms` as an unknown vendor-defined creation stage and use it as competitive context only.
+Do not present it beside a SOMA `Ready` figure as though the two measure the same interval.
 
-Two quantities are retained per sample:
+## Method
 
-- `create_ms`, the value Isorun itself returns in the create response. This is server-side and therefore independent of the measuring host's network position. It is the quantity compared with SOMA's restore-to-Ready interval.
-- Wall-clock time measured by the harness. This includes transport from the measuring host and is retained only for context.
+One sample is `POST /v1/runs`, then `POST /v1/runs/{id}/exec`, then `DELETE /v1/runs/{id}`.
+Every sample is destroyed in a `finally` block and its destruction response retained.
 
-The measuring host is in Asia and the service region is `us`, so wall-clock numbers carry roughly 145 ms of connection latency and must not be compared with any SOMA number or with the ComputeSDK cohort.
+Concurrency is a `ThreadPoolExecutor` of the stated width.
+There is no explicit start barrier, so the per-sample request-send offset is recorded instead and the observed dispatch window is reported below rather than assumed.
 
-## Identities
+## Experiment metadata
 
-- Service: `https://run-us.isorun.ai`, region `us`, authenticated with an account API key that is not recorded here.
-- Requested shape: 1 vCPU, 1024 MiB memory, 4096 MiB disk, 300 s timeout.
-- Workloads: `node:22` executing `/usr/local/bin/node --version`; `alpine:3.20` and `busybox:stable-musl` executing `/bin/busybox true`; `denoland/deno:alpine-2.0.5` for the cold-image probe.
-- Harness: a standard-library Python client, nearest-rank percentiles, every sandbox destroyed in a `finally` block.
-- Date: 2026-08-30. Samples: 250 successful sandboxes. Total billed cost: 0.13 cents.
+- Collected 2026-08-30, approximately 02:59 to 03:10 UTC.
+- Service endpoint `https://run-us.isorun.ai`, region `us`.
+- Measuring host: Linux x86_64, Ubuntu 24.04, kernel 7.0.0-30-generic, network location Asia; roughly 145 ms TCP connect and 246 ms TLS establishment to the endpoint.
+- Python 3.12 standard library only; request timeout 180 s; sandbox timeout parameter 300 s; **no retries**, so every attempt is one sample.
+- Requested shape for every cohort: 1 vCPU, 1024 MiB memory, 4096 MiB disk.
+- Harness: `benchmarks/competitive/isorun_create_latency.py`. Table generator: `benchmarks/competitive/regenerate_isorun_tables.py`.
+- The credential is read from `ISORUN_API_KEY` and is never printed or persisted.
 
-## Result
+## Cohorts and raw records
 
-`create_ms` as reported by the service.
+Raw redacted records are retained in [`raw/2026-08-30-isorun`](raw/2026-08-30-isorun).
+They contain timing, cohort, result, and cleanup fields only.
+Every table cell below is recomputed from those files by the generator, which needs no Isorun account:
 
-| Cohort | n | min | p50 | p95 | p99 | max |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `node:22`, sequential | 10 | 20 | 22 | 27 | 27 | 27 |
-| `node:22`, concurrency 10 | 20 | 21 | 26 | 59 | 59 | 59 |
-| `node:22`, concurrency 100 | 100 | 19 | 73 | 179 | 207 | 260 |
-| `node:22`, concurrency 100, repeat | 100 | 23 | 73 | 188 | 209 | 217 |
-| `alpine:3.20`, sequential | 10 | 22 | 23 | 44 | 44 | 44 |
-| `busybox:stable-musl`, sequential | 10 | 19 | 48 | 53 | 53 | 53 |
-| Every sample | 250 | 19 | 60 | 180 | 209 | 260 |
+```sh
+python3 benchmarks/competitive/regenerate_isorun_tables.py
+```
 
-Every cohort returned a successful command with exit code 0, and `node:22` returned `v22.23.2`, which is the same build SOMA's own `node:22` Generation returns.
+| Cohort | concurrency | attempted | succeeded | destroyed | min | p50 | p95 | p99 | max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `node:22, sequential` | 1 | 10 | 10 | 10 | 20 | 22 | 27 | 27 | 27 |
+| `node:22, concurrency 10` | 10 | 20 | 20 | 20 | 21 | 26 | 59 | 59 | 59 |
+| `node:22, concurrency 100` | 100 | 100 | 100 | 100 | 19 | 73 | 179 | 207 | 260 |
+| `node:22, concurrency 100, repeat` | 100 | 100 | 100 | 100 | 23 | 73 | 188 | 209 | 217 |
+| `alpine:3.20, sequential` | 1 | 10 | 10 | 10 | 22 | 23 | 44 | 44 | 44 |
+| `busybox:stable-musl, sequential` | 1 | 10 | 10 | 10 | 19 | 48 | 53 | 53 | 53 |
+| **every cohort** | | 250 | 250 | 250 | 19 | 60 | 180 | 209 | 260 |
 
-## Three observations
+Values are `create_ms` in milliseconds, nearest-rank percentiles.
+Zero attempts failed and all 250 sandboxes were destroyed.
+`node:22` cohorts executed `/usr/local/bin/node --version` and returned `v22.23.2`; the `alpine` and `busybox` cohorts executed `/bin/busybox true`, which succeeds with empty output.
 
-### The published 10 ms did not occur
+Billing scope: these 250 cohort samples were billed **0.1191 cents** in total, computed from the retained destruction records.
 
-No sample reached 10 ms, and none reached 15 ms.
-The fastest single create observed across 250 samples was 19 ms.
-Only 26 of 250 samples were at or below 22 ms.
+### Separate probes, excluded from the table
 
-A smaller image did not help.
-`alpine:3.20` and `busybox:stable-musl` were bimodal at roughly 20 ms or roughly 45 to 53 ms, which is consistent with a warm-pool hit and miss rather than with image size.
+Three additional sandboxes were created outside the cohorts and are excluded from every figure above:
 
-### Concurrency degrades the service by roughly three times
+- One `node:22` create used to establish the request shape, billed 0.0152 cents for 13.7 s of uptime, which matches the published 0.04 dollars per hour exactly.
+- One `denoland/deno:alpine-2.0.5` create, discussed below.
+- One `node:22` create immediately after it, for comparison.
 
-Sequential `node:22` creates were 22 ms at p50.
-The same image at concurrency 100 was 73 ms at p50 and about 208 ms at p99, reproduced across two independent runs whose p50 agreed exactly.
-The requests were a genuine burst: all 100 left the measuring host within a 261 ms window, recorded per sample.
+Including them, total spend for the session was approximately 0.13 cents.
 
-### The reported create time excludes image preparation
+## Observations
 
-A create from `denoland/deno:alpine-2.0.5`, an image the service had not prepared, reported `create_ms` of 52 while the caller waited 4,808 ms.
-A subsequent `node:22` create from the same host reported 25 ms and completed in 283 ms.
+### The published 10 ms figure did not occur in this sample
 
-The reported quantity therefore excludes image acquisition and preparation.
-This is the accounting boundary SOMA's [benchmark contract](../benchmark-contract.md) requires to be reported as a separate preparation class rather than folded into a create result.
+No cohort sample reported 10 ms or less, and none reported 15 ms or less.
+The lowest reported value across 250 samples was 19 ms.
+Twenty-six of 250 were at or below 22 ms.
 
-Billing was accurate: 13.7 s of uptime was billed 0.0152 cents, which is exactly the published 0.04 dollars per hour.
+This is a statement about what was collected here, not a claim that the service can never report 10 ms.
+
+### The reported value rose with concurrency in these cohorts
+
+The sequential `node:22` cohort reported a p50 of 22 ms.
+Two independent 100-request cohorts of the same image both reported a p50 of 73 ms, with p99 values of 207 ms and 209 ms.
+
+The dispatch window for the recorded 100-request cohort was 261 ms from first to last request send, measured per sample, so the requests overlapped substantially but were not released by a barrier.
+
+This document does not establish why the reported value rose.
+Queueing, pool exhaustion, host contention, and instrumentation scope are all untested explanations.
+
+### Hypothesis: the reported value may exclude image preparation
+
+One create from `denoland/deno:alpine-2.0.5` reported `create_ms` 52 while the harness measured 4,808 ms wall clock.
+A `node:22` create from the same host immediately afterwards reported 25 ms and completed in 283 ms.
+
+This is **consistent with** the reported field excluding image acquisition and preparation for an image the service had not already prepared.
+One request does not prove the image was uncached, nor identify what the additional time was spent on.
+Confirming it would require repeated first-use requests across several previously unseen images.
+
+### Hypothesis: the small-image bimodality may reflect pool behavior
+
+`alpine:3.20` reported values clustered near 22 ms and near 44 ms; `busybox:stable-musl` near 20 ms and near 50 ms.
+A smaller image did not produce a smaller reported value.
+
+Bimodality of that shape is **consistent with** a warm resource being present for some requests and not others, but this document does not observe the mechanism and does not establish one.
 
 ## What this does not prove
 
-- It does not measure SOMA. No SOMA number appears in this document.
+- It does not measure SOMA, and no SOMA figure appears here.
 - It does not reproduce the ComputeSDK cohort, which uses a different boundary, region, client, and workload.
-- `create_ms` is the service's own instrumentation. Whether it includes admission queueing is unknown, so the concurrency figures are a lower bound on what a caller experiences.
-- Sample counts are small for the sequential cohorts and the two tiny-image cohorts.
-- One measuring host, one region, one account, one day.
+- `create_ms` is vendor instrumentation with unknown endpoints, so the concurrency figures are a lower bound on what a caller experiences and cannot be equated with any SOMA stage.
+- Sequential and small-image cohorts are ten samples each.
+- One measuring host, one account, one service region, one day, no retries.
 - Nothing here establishes the isolation, durability, or security properties of the service.
 
-## How to reproduce
+## Consequence for SOMA
 
-The harness lives outside the repository because it requires a third-party account credential.
-It performs create, exec, destroy per sample with a fixed shape, records `create_ms` and the harness wall clock, records the per-sample request-send offset so the burst window can be checked, and destroys every sandbox it creates.
+The useful transferable result is not the competitor's figure.
+It is that a creation-stage figure collected at one concurrency did not predict the same figure at another, in two agreeing cohorts.
+
+SOMA must therefore treat concurrency as an independent benchmark dimension and publish every rung, as [the benchmark contract](../benchmark-contract.md) already requires, rather than extrapolating a sequential result.
+The architectural consequence is developed in [the competitive module adoption audit](../research/competitive-module-adoption-audit.md).
