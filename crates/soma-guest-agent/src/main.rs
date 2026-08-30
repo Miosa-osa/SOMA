@@ -50,6 +50,9 @@ mod shutdown;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod timings;
 
+#[cfg(target_os = "linux")]
+mod warm;
+
 const PROBE_ARGUMENT: &str = "--soma-ready-probe-v1";
 
 fn main() {
@@ -78,6 +81,7 @@ mod agent {
     use crate::timings::{self, Step as Measured};
     use crate::{
         boot, console, control, entropy, identity, launch_page, lifecycle, network_repair, pid1,
+        warm,
     };
 
     /// Console line the agent prints once it is parked at the disconnected repair point.
@@ -115,6 +119,13 @@ mod agent {
         // written, so the agent flushes the private overlay and announces the wait before it
         // blocks: a Generation builder captures the machine exactly here, with no launch
         // material, no session, and no Instance identity anywhere in guest memory.
+        // Reading the workload runtime here makes its pages resident, so the capture records
+        // them and every restored Instance finds them already in memory instead of faulting
+        // them in one sandbox at a time. Nothing is executed and nothing fails the boot.
+        let warmed = warm::runtime();
+        if warmed > 0 {
+            console::report(&format!("warmed {warmed} runtime files"));
+        }
         pid1::sync();
         console::report(REPAIR_POINT_LINE);
         let (controller, material) = advance(controller.accept_material(

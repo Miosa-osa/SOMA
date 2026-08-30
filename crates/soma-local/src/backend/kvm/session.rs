@@ -15,15 +15,12 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use soma_guest::{GuestCommand, LaunchNetwork, TerminalStatus};
-use soma_kvm::x86_64::{SandboxConfig, SandboxEvidence};
+use soma_kvm::x86_64::{SandboxConfig, SandboxDisks, SandboxEvidence};
 
 use super::worker::serve;
 
-/// The vsock context identifier every sandbox guest is given.
-///
-/// One VMM process owns one guest, and the identifier names the guest inside that process, so
-/// it does not have to be unique across the host.
-pub(super) const GUEST_CID: u32 = 3;
+/// The lowest context identifier a guest may take; 0, 1, and 2 are reserved by the kernel.
+pub(super) const FIRST_GUEST_CID: u32 = 3;
 /// The locally administered MAC the guest sees on its one network device.
 pub(super) const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 /// How long a cold boot has to reach an authenticated Ready.
@@ -95,11 +92,35 @@ pub(super) struct Session {
 
 /// Everything one sandbox needs before it can boot.
 pub(super) struct Boot {
-    pub(super) config: SandboxConfig,
+    /// How this sandbox comes into existence.
+    pub(super) source: Source,
     pub(super) generation: [u8; 32],
     pub(super) instance: [u8; 16],
-    pub(super) machine: [u8; 16],
+    /// The operation this launch belongs to, bound into the launch page.
+    pub(super) operation: [u8; 16],
+    /// The vsock context identifier this Instance is assigned.
+    ///
+    /// Context identifiers are host global, so every concurrent sandbox needs its own. One
+    /// command line invocation serves one sandbox, so there is no shared counter to draw from
+    /// and the identifier is derived from the Instance identity instead.
+    pub(super) guest_cid: u32,
     pub(super) network: LaunchNetwork,
+}
+
+/// Where a sandbox starts from.
+///
+/// Cold boot runs the kernel and userspace init on the request path, which costs hundreds of
+/// milliseconds. Restoring resumes a machine already past that point, captured once for the whole
+/// Generation, so the request path pays only the resume, the session, and the repair.
+pub(super) enum Source {
+    /// Build a machine and boot the kernel.
+    ColdBoot(SandboxConfig),
+    /// Resume the captured machine, giving this Instance its own private head.
+    Restore {
+        snapshot: std::path::PathBuf,
+        disks: SandboxDisks,
+        memory_bytes: u64,
+    },
 }
 
 impl Session {

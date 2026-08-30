@@ -5,10 +5,11 @@ use std::path::PathBuf;
 
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::LaunchNetwork;
+use soma_kvm::x86_64::SandboxDisks;
 use soma_storage::CloneError;
 
 use super::prepared::PreparedGeneration;
-use super::session::Boot;
+use super::session::{Boot, FIRST_GUEST_CID, Source};
 
 /// Opens the prepared artifacts and gives this Instance its own writable overlay head.
 ///
@@ -33,18 +34,61 @@ pub(super) fn boot_for(
         .templates
         .first()
         .ok_or(BackendFailureKind::Unavailable)?;
-    let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
+    // A prepared entry may carry a snapshot taken once for the whole Generation. When it does,
+    // this launch resumes that machine instead of booting a kernel, which is the difference
+    // between hundreds of milliseconds and tens on the request path.
+    let snapshot = prepared.store.parent().map(|entry| entry.join("snapshot"));
+    let guest_cid = guest_cid_for(instance)?;
+    let source =
+        if let Some(snapshot) = snapshot.filter(|path| path.join("state.somasnap").is_file()) {
+            {
+                // The restore clones its own head from the snapshot's sterile overlay template, not
+                // from the Candidate's, because the captured machine has already written to it.
+                let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
+                Source::Restore {
+                    snapshot,
+                    disks: SandboxDisks { root, overlay },
+                    memory_bytes: memory_mib * MIB,
+                }
+            }
+        } else {
+            {
+                let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
+                Source::ColdBoot(super::worker::config(
+                    kernel,
+                    initramfs,
+                    root,
+                    overlay,
+                    memory_mib * MIB,
+                    guest_cid,
+                ))
+            }
+        };
     Ok(Boot {
-        config: super::worker::config(kernel, initramfs, root, overlay, memory_mib * MIB),
+        source,
         generation: candidate_bytes(&prepared.id)?,
         instance: instance_bytes(instance)?,
-        machine: fresh16(),
+        operation: fresh16(),
+        guest_cid,
         network: link_down_network()?,
     })
 }
 
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;
+
+/// Gives this Instance a private writable head over an explicit template file.
+///
+/// The snapshot carries its own sterile overlay template, quiesced at the capture point, so a
+/// restored Instance must clone that rather than the Candidate's untouched one.
+fn private_head_from(
+    template_path: &std::path::Path,
+    instance: &InstanceId,
+) -> Result<std::fs::File, BackendFailureKind> {
+    let template =
+        std::fs::File::open(template_path).map_err(|_| BackendFailureKind::Unavailable)?;
+    clone_or_copy(template, instance)
+}
 
 /// Gives this Instance a private writable head over the sterile overlay template.
 ///
@@ -59,6 +103,19 @@ fn private_head(
 ) -> Result<std::fs::File, BackendFailureKind> {
     let template = soma_generation::open_artifact(store, descriptor)
         .map_err(|_| BackendFailureKind::Unavailable)?;
+    clone_or_copy(template, instance)
+}
+
+/// Clones one open template into a private head for `instance`, reflinking where it can.
+///
+/// On a reflink filesystem the head shares the template's extents until it is written, so it
+/// costs neither the time nor the space of a copy. Where the filesystem cannot reflink the bytes
+/// are copied instead: the head must still be private, so the fallback is slower rather than
+/// absent, and both paths produce the same head.
+fn clone_or_copy(
+    template: std::fs::File,
+    instance: &InstanceId,
+) -> Result<std::fs::File, BackendFailureKind> {
     let directory = head_directory()?;
     // A head name is lowercase, digits, and hyphen only, so the Instance identity is used as
     // it is rather than given a suffix the validator would reject.
@@ -207,39 +264,21 @@ fn candidate_bytes(id: &soma_generation::CandidateId) -> Result<[u8; 32], Backen
     Ok(bytes)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The guest must authenticate the identity the receipt reports, byte for byte.
-    #[test]
-    fn the_guest_instance_identity_is_the_public_one() {
-        let instance = InstanceId::new("89db112753324c3e890ef78b74381aa5").expect("identity");
-        let bytes = instance_bytes(&instance).expect("bytes");
-        assert_eq!(
-            bytes,
-            [
-                0x89, 0xdb, 0x11, 0x27, 0x53, 0x32, 0x4c, 0x3e, 0x89, 0x0e, 0xf7, 0x8b, 0x74, 0x38,
-                0x1a, 0xa5
-            ]
-        );
-        // The conversion is reversible, so the two identities are the same value in two forms
-        // rather than one derived from the other.
-        let rendered = bytes.iter().fold(String::new(), |mut text, byte| {
-            use std::fmt::Write as _;
-            write!(text, "{byte:02x}").expect("write");
-            text
-        });
-        assert_eq!(rendered, instance.as_str());
-    }
-
-    #[test]
-    fn two_instances_do_not_share_guest_identity() {
-        let a = InstanceId::new("89db112753324c3e890ef78b74381aa5").expect("a");
-        let b = InstanceId::new("89db112753324c3e890ef78b74381aa6").expect("b");
-        assert_ne!(
-            instance_bytes(&a).expect("a bytes"),
-            instance_bytes(&b).expect("b bytes")
-        );
-    }
+/// The vsock context identifier this Instance takes.
+///
+/// Context identifiers are host global, so two concurrent sandboxes sharing one would contend for
+/// the same endpoint. One command line invocation serves one sandbox and cannot see the others,
+/// so there is no counter to draw from: the identifier is derived from the Instance identity,
+/// which is already unique per sandbox. Zero, one, and two are reserved by the kernel, so the
+/// derived value is folded into the range above them.
+fn guest_cid_for(instance: &InstanceId) -> Result<u32, BackendFailureKind> {
+    let bytes = instance_bytes(instance)?;
+    let derived = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    // `u32::MAX` is reserved as the "any" identifier, so the usable span ends one below it.
+    let span = u32::MAX - FIRST_GUEST_CID;
+    Ok(FIRST_GUEST_CID + (derived % span))
 }
+
+#[cfg(test)]
+#[path = "boot_tests.rs"]
+mod tests;

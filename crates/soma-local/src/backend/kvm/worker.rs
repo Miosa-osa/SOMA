@@ -2,40 +2,91 @@
 //!
 //! Everything here runs on the sandbox thread, which is why the host adapter may borrow the
 //! machine: both are locals of the same stack frame for the machine's whole life.
+//!
+//! A sandbox arrives at Ready one of two ways. A cold boot builds a machine and runs the kernel
+//! and userspace init on the request path. A restore resumes a machine captured once for the
+//! whole Generation, already past that work. After Ready the two are identical, so the command
+//! loop is written once and both paths enter it.
 
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
-use soma_guest::{HostControl, HostLaunchMaterial, OperationId};
-use soma_kvm::x86_64::DeviceIdentity;
-use soma_kvm::x86_64::{Milestone, SandboxConfig, SandboxDisks, SandboxMachine};
+use soma_guest::{HostControl, HostLaunchMaterial, OperationId, RepairedHostControl};
+use soma_kvm::snapshot::readiness::SessionEvidence;
+use soma_kvm::x86_64::{
+    DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
+    SandboxMachine, SnapshotPaths, restore,
+};
 
 use super::io::HostIo;
 use super::session::{
-    BOOT_DEADLINE, Boot, Completed, EXIT_GRACE, GUEST_CID, GUEST_MAC, Request, Response,
-    SessionError,
+    BOOT_DEADLINE, Boot, Completed, EXIT_GRACE, GUEST_MAC, Request, Response, SessionError, Source,
 };
 
 /// Owns one machine for its whole life and answers requests about it.
 pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
     let Boot {
-        config,
+        source,
         generation,
         instance,
-        machine,
+        operation,
+        guest_cid,
         network,
     } = boot;
-    let Ok(material) = HostLaunchMaterial::generate(generation, instance, machine, network) else {
+    let Ok(material) = HostLaunchMaterial::generate(generation, instance, operation, network)
+    else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));
         return;
     };
-    let Ok(mut sandbox) = SandboxMachine::create(config) else {
-        let _ignored = responses.send(Response::Failed(SessionError::Create));
-        return;
-    };
-    // The machine is finished on every path out of this function, including a failed boot, so
-    // no descriptor or thread outlives the sandbox that owned it.
-    let outcome = drive(&mut sandbox, material, requests, responses);
+
+    match source {
+        Source::ColdBoot(config) => {
+            let Ok(mut sandbox) = SandboxMachine::create(config) else {
+                let _ignored = responses.send(Response::Failed(SessionError::Create));
+                return;
+            };
+            // The machine is finished on every path out of here, including a failed boot, so no
+            // descriptor or thread outlives the sandbox that owned it.
+            let outcome = drive_cold(&mut sandbox, material, requests, responses);
+            report(sandbox, outcome, responses);
+        }
+        Source::Restore {
+            snapshot,
+            disks,
+            memory_bytes,
+        } => {
+            let restored = restore(RestoreRequest {
+                paths: SnapshotPaths::new(snapshot),
+                disks,
+                guest_cid,
+                memory_bytes,
+                // Re-hashing every byte of the memory object is the installation and audit
+                // boundary, not the request path.
+                verify_artifacts: false,
+            });
+            let Ok(mut restored) = restored else {
+                let _ignored = responses.send(Response::Failed(SessionError::Create));
+                return;
+            };
+            let outcome = drive_restored(
+                &mut restored,
+                material,
+                instance,
+                operation,
+                requests,
+                responses,
+            );
+            report(restored.machine, outcome, responses);
+        }
+    }
+}
+
+/// Finishes the machine and reports its evidence, or the failure that ended it.
+fn report(
+    sandbox: SandboxMachine,
+    outcome: Result<(), SessionError>,
+    responses: &Sender<Response>,
+) {
     let evidence = sandbox.finish(EXIT_GRACE);
     match outcome {
         Ok(()) => {
@@ -47,7 +98,8 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
     }
 }
 
-fn drive(
+/// Boots a machine from nothing and drives it to Ready, then serves commands.
+fn drive_cold(
     sandbox: &mut SandboxMachine,
     material: HostLaunchMaterial,
     requests: &Receiver<Request>,
@@ -57,26 +109,74 @@ fn drive(
         .deliver_with(|page| sandbox.write_launch_page(page))
         .map_err(|_| SessionError::LaunchPage)?;
     sandbox.start().map_err(|_| SessionError::Create)?;
+    let repaired = reach_session(sandbox, delivered)?;
+    sandbox.mark(Milestone::Ready);
+    serve_commands(sandbox, repaired, requests, responses)
+}
+
+/// Resumes a captured machine and drives it to Ready, then serves commands.
+///
+/// A restore differs from a cold boot in two places only. The launch page is published through
+/// `resume` rather than written before `start`, and Ready must be claimed with a receipt binding
+/// this Instance and operation to the live session transcript, so readiness cannot be asserted by
+/// a caller that did not complete the session.
+fn drive_restored(
+    restored: &mut Restored,
+    material: HostLaunchMaterial,
+    instance: [u8; 16],
+    operation: [u8; 16],
+    requests: &Receiver<Request>,
+    responses: &Sender<Response>,
+) -> Result<(), SessionError> {
+    let delivered = material
+        .deliver_with(|page| restored.resume(page))
+        .map_err(|_| SessionError::LaunchPage)?;
+    let machine = &restored.machine;
+    let repaired = reach_session(machine, delivered)?;
+
+    let evidence = SessionEvidence::new(instance, operation, repaired.session_transcript())
+        .map_err(|_| SessionError::Ready)?;
+    let demand = restored.readiness_demand().ok_or(SessionError::Ready)?;
+    let receipt = demand.attest(&evidence);
+    restored.ready(&receipt).map_err(|_| SessionError::Ready)?;
+    machine.mark(Milestone::Ready);
+
+    serve_commands(machine, repaired, requests, responses)
+}
+
+/// The steps both paths share between publishing the launch page and holding a repaired session.
+fn reach_session(
+    machine: &SandboxMachine,
+    delivered: soma_guest::DeliveredHostLaunchMaterial,
+) -> Result<RepairedHostControl<HostIo<'_>>, SessionError> {
     let deadline = Instant::now() + BOOT_DEADLINE;
-    sandbox
+    machine
         .wait_launch_page_consumed(super::io::PAGE_DOMAIN, deadline)
         .map_err(|_| SessionError::LaunchPage)?;
-    sandbox
+    machine
         .control()
         .wait_connected(deadline)
         .map_err(|_| SessionError::Boot)?;
-    sandbox.mark(Milestone::VsockConnected);
+    machine.mark(Milestone::VsockConnected);
     let host =
-        HostControl::connect(delivered, HostIo::new(sandbox)).map_err(|_| SessionError::Boot)?;
-    sandbox.mark(Milestone::Handshake);
-    let mut repaired = host.prepare_and_probe().map_err(|_| SessionError::Ready)?;
-    sandbox.mark(Milestone::Ready);
+        HostControl::connect(delivered, HostIo::new(machine)).map_err(|_| SessionError::Boot)?;
+    machine.mark(Milestone::Handshake);
+    host.prepare_and_probe().map_err(|_| SessionError::Ready)
+}
+
+/// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
+fn serve_commands(
+    machine: &SandboxMachine,
+    mut repaired: RepairedHostControl<HostIo<'_>>,
+    requests: &Receiver<Request>,
+    responses: &Sender<Response>,
+) -> Result<(), SessionError> {
     responses
         .send(Response::Ready)
         .map_err(|_| SessionError::Gone)?;
 
-    // A closed request channel is an ordinary end: the owner dropped the session, so the guest
-    // is shut down exactly as an explicit shutdown would.
+    // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
+    // shut down exactly as an explicit shutdown would.
     while let Ok(request) = requests.recv() {
         match request {
             Request::Execute(command) => {
@@ -85,7 +185,7 @@ fn drive(
                     .execute(operation, command)
                     .map_err(|_| SessionError::Execute)?;
                 repaired = next;
-                sandbox.mark(Milestone::Execute);
+                machine.mark(Milestone::Execute);
                 responses
                     .send(Response::Executed(Box::new(Completed {
                         status: outcome.status(),
@@ -101,7 +201,7 @@ fn drive(
     repaired
         .shutdown(operation)
         .map_err(|_| SessionError::Gone)?;
-    sandbox.mark(Milestone::Shutdown);
+    machine.mark(Milestone::Shutdown);
     Ok(())
 }
 
@@ -122,13 +222,14 @@ pub(super) fn config(
     root: std::fs::File,
     overlay: std::fs::File,
     ram_bytes: u64,
+    guest_cid: u32,
 ) -> SandboxConfig {
     SandboxConfig {
         kernel,
         initramfs,
         disks: SandboxDisks { root, overlay },
         identity: DeviceIdentity {
-            guest_cid: GUEST_CID,
+            guest_cid,
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
