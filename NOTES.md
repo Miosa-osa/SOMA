@@ -786,3 +786,10 @@ ADR 0031 makes `soma-hostd` the persistent owner of managed Instances across CLI
 The external interface remains the provider-neutral lifecycle, while durable idempotency, admission, prepared claims, one jailed VMM per Machine, authenticated guest sessions, cleanup, and reconciliation remain private implementation modules.
 The failed KVM burst attempt was a cold-boot lifecycle probe rather than a restore experiment, and it cannot become exact ComputeSDK evidence until the local persistent lifecycle and the external provider adapter both exist.
 New burst artifacts use `soma.burst.v2` so effective runtime-engine identities are mandatory, while the reader preserves compatibility with `soma.burst.v1` artifacts that predate that provenance field.
+
+## 2026-08-30 - CI execution follows proof type and change scope
+
+Routine code changes use one Ubuntu 24.04 correctness job instead of the full hosted operating-system matrix.
+Documentation changes use a five-minute policy job, portability runs weekly or manually, security runs weekly or on relevant dependency and policy changes, and real KVM work runs only for release tags or explicit dispatch.
+Release packaging remains tag-driven or manual.
+This preserves platform, security, KVM, and release gates while stopping documentation and ordinary source pushes from launching unrelated expensive jobs.

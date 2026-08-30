@@ -2,18 +2,32 @@ name: CI
 
 on:
   pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - crates/**
+      - benchmarks/**
+      - scripts/**
+      - .github/workflows/ci.yml
   push:
     branches:
       - main
-    tags:
-      - "v*"
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - rust-toolchain.toml
+      - crates/**
+      - benchmarks/**
+      - scripts/**
+      - .github/workflows/ci.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -23,80 +37,10 @@ env:
   RUST_TOOLCHAIN: "1.98.0"
 
 jobs:
-  macos-portable:
-    name: macOS 26 ARM64 platform-neutral
-    runs-on: macos-26
+  linux:
+    name: Ubuntu 24.04 x86_64 correctness
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-
-      - name: Ensure ShellCheck is available
-        run: |
-          if ! command -v shellcheck >/dev/null 2>&1; then
-            brew install shellcheck
-          fi
-
-      - name: Require Apple Silicon
-        run: test "$(uname -m)" = "arm64"
-
-      - name: Run platform-neutral validation
-        run: ./scripts/check.sh portable
-
-      - name: Compile-check Intel macOS fail-closed path
-        run: |
-          rustup target add x86_64-apple-darwin --toolchain "$RUST_TOOLCHAIN"
-          cargo check --workspace --all-targets --locked --target x86_64-apple-darwin
-
-  windows-portable:
-    name: Windows portable client
-    runs-on: windows-2025
-    timeout-minutes: 30
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Install pinned Rust toolchain
-        run: rustup toolchain install "$env:RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
-
-      - name: Check formatting
-        run: cargo fmt --all --check
-
-      - name: Lint portable workspace
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Test portable workspace
-        run: cargo test --workspace --all-targets --locked
-
-      - name: Test portable documentation
-        run: cargo test --workspace --doc --locked
-
-      - name: Compile-check Windows ARM64 client
-        run: |
-          rustup target add aarch64-pc-windows-msvc --toolchain "$env:RUST_TOOLCHAIN"
-          cargo check --workspace --all-targets --locked --target aarch64-pc-windows-msvc
-
-  ubuntu-x86-64:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Ubuntu 24.04 x86_64 compatibility
-            runner: ubuntu-24.04
-            version: "24.04"
-          - name: Ubuntu 26.04 x86_64 preview
-            runner: ubuntu-26.04
-            version: "26.04"
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,19 +57,10 @@ jobs:
             sudo apt-get install --yes --no-install-recommends shellcheck
           fi
 
-      - name: Require the declared Ubuntu image
-        env:
-          EXPECTED_UBUNTU_VERSION: ${{ matrix.version }}
-        run: |
-          . /etc/os-release
-          test "$ID" = "ubuntu"
-          test "$VERSION_ID" = "$EXPECTED_UBUNTU_VERSION"
-
       - name: Run Linux validation
         run: ./scripts/check.sh linux
 
       - name: Compile-check Linux ARM64 client
-        if: matrix.version == '24.04'
         run: |
           rustup target add aarch64-unknown-linux-gnu --toolchain "$RUST_TOOLCHAIN"
           cargo check --workspace --all-targets --locked --target aarch64-unknown-linux-gnu

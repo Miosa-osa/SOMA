@@ -4,18 +4,9 @@ name: KVM smoke
 # The soma-kvm label must identify an ephemeral runner that is isolated from production hosts.
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
-    paths:
-      - Cargo.lock
-      - Cargo.toml
-      - rust-toolchain.toml
-      - crates/**
-      - scripts/check.sh
-      - scripts/kvm-smoke.sh
-      - .github/workflows/kvm-smoke.yml
+  workflow_dispatch:
 permissions:
   contents: read
 

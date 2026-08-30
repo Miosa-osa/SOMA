@@ -2,11 +2,31 @@ name: Security and dependencies
 
 on:
   pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - deny.toml
+      - rust-toolchain.toml
+      - typos.toml
+      - crates/**/Cargo.toml
+      - scripts/check.sh
+      - scripts/check-workflows.sh
+      - .github/actionlint.yaml
+      - .github/workflows/**
   push:
     branches:
       - main
-    tags:
-      - "v*"
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - deny.toml
+      - rust-toolchain.toml
+      - typos.toml
+      - crates/**/Cargo.toml
+      - scripts/check.sh
+      - scripts/check-workflows.sh
+      - .github/actionlint.yaml
+      - .github/workflows/**
   schedule:
     - cron: "17 8 * * 1"
   workflow_dispatch:
