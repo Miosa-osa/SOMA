@@ -202,3 +202,60 @@ fn an_admitted_peer_carries_its_kernel_derived_identity() {
     assert_eq!(sent, 1);
     assert_eq!(read_byte(&client), 1);
 }
+
+#[test]
+fn an_admitted_peer_that_stays_silent_loses_its_connection_instead_of_wedging_the_broker() {
+    let root = tempfile::tempdir().expect("state dir");
+    let path = root.path().join("run").join("broker.sock");
+    let listener = ControlListener::bind(&path, authority()).expect("bind");
+
+    let silent = connect(&path);
+    let Accepted::Authorized(connection, _) = listener.accept().expect("accept") else {
+        panic!("an admitted peer must be authorized");
+    };
+
+    let mut deadline = libc::timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
+    let mut length = std::mem::size_of::<libc::timeval>() as libc::socklen_t;
+    // SAFETY: the descriptor is open and the output buffer matches the passed length.
+    let read = unsafe {
+        libc::getsockopt(
+            connection.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&raw mut deadline).cast(),
+            &raw mut length,
+        )
+    };
+    assert_eq!(read, 0);
+    assert_eq!(
+        Duration::from_secs(deadline.tv_sec.unsigned_abs()),
+        IDLE_TIMEOUT,
+        "accept must give every admitted connection its receive deadline"
+    );
+
+    let idle = Duration::from_millis(200);
+    bound_receive(&connection, idle).expect("shorten the receive deadline");
+    let started = std::time::Instant::now();
+    let mut frame = [0_u8; 1];
+    // SAFETY: `frame` is a valid writable buffer of exactly the passed length.
+    let received = unsafe {
+        libc::recv(
+            connection.as_raw_fd(),
+            frame.as_mut_ptr().cast(),
+            frame.len(),
+            0,
+        )
+    };
+
+    assert!(received < 0, "a silent peer must not deliver a frame");
+    assert!(
+        started.elapsed() < idle + Duration::from_secs(5),
+        "the receive took {:?}, so no deadline bounded it",
+        started.elapsed()
+    );
+    assert_eq!(IDLE_TIMEOUT, Duration::from_secs(30));
+    drop(silent);
+}

@@ -14,8 +14,10 @@
 //! request needs the [`crate::Capability`] its operation requires, and an assignment can only be
 //! activated or released by the exact peer identity that claimed it, so the transferred
 //! descriptor and every later reply stay bound to one authenticated owner.
-//! The daemon is single-threaded; the library is the deliverable and the daemon is the smallest
-//! honest composition of it.
+//! The daemon is single-threaded, so every accepted connection carries the listener's receive
+//! deadline: a peer that connects and stays silent disconnects itself instead of denying
+//! service to every other admitted peer.
+//! The library is the deliverable and the daemon is the smallest honest composition of it.
 
 #![allow(unsafe_code)]
 // Socket ABI values are fixed-width by definition; the casts below convert `libc` constants

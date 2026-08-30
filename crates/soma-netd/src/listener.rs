@@ -9,6 +9,9 @@
 //! is a refusal rather than an unlink.
 //! Every accepted connection carries the peer credential the kernel stamped, and a peer the
 //! authority does not admit is closed before any frame is read.
+//! Every accepted connection also carries [`IDLE_TIMEOUT`] as its receive deadline, so an
+//! admitted peer that connects and then stays silent disconnects itself instead of wedging the
+//! single-threaded broker for every other peer.
 
 #![allow(unsafe_code)]
 // Socket and file ABI values are fixed-width by definition; the casts below convert `libc`
@@ -22,6 +25,7 @@ use std::{
         unix::ffi::OsStrExt,
     },
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use crate::{ControlAuthority, Error, PeerIdentity, Step};
@@ -31,6 +35,14 @@ mod ownership;
 use ownership::{DIRECTORY_MODE, Node, SOCKET_MODE, facts, require};
 
 const BACKLOG: i32 = 16;
+
+/// How long one accepted connection may stay silent before the broker closes it.
+///
+/// The broker is single-threaded and serves one connection at a time, so an admitted peer that
+/// connects and never sends would otherwise deny every lifecycle and reconcile request to every
+/// other admitted peer. A peer whose connection is closed this way loses nothing: it reconnects
+/// and replays the same Instance and Launch operation.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The outcome of one accept.
 #[derive(Debug)]
@@ -122,6 +134,7 @@ impl ControlListener {
         // SAFETY: `raw` is a freshly accepted descriptor owned by nothing else.
         let connection = unsafe { OwnedFd::from_raw_fd(raw) };
         let peer = peer_identity(&connection)?;
+        bound_receive(&connection, IDLE_TIMEOUT)?;
         if self.authority.admits(&peer) {
             Ok(Accepted::Authorized(connection, peer))
         } else {
@@ -206,6 +219,29 @@ fn bind_socket(listener: &OwnedFd, path: &CString) -> Result<(), Error> {
         Ok(())
     } else {
         Err(Error::kernel(Step::Bind))
+    }
+}
+
+/// Gives one accepted connection its receive deadline, so a silent peer disconnects itself.
+fn bound_receive(connection: &OwnedFd, idle: Duration) -> Result<(), Error> {
+    let timeout = libc::timeval {
+        tv_sec: idle.as_secs() as libc::time_t,
+        tv_usec: libc::suseconds_t::from(idle.subsec_micros()),
+    };
+    // SAFETY: the descriptor is open and the option buffer matches the passed length.
+    let set = unsafe {
+        libc::setsockopt(
+            connection.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVTIMEO,
+            (&raw const timeout).cast(),
+            std::mem::size_of::<libc::timeval>() as libc::socklen_t,
+        )
+    };
+    if set == 0 {
+        Ok(())
+    } else {
+        Err(Error::kernel(Step::Socket))
     }
 }
 

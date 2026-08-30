@@ -73,7 +73,7 @@ pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
 #[cfg(target_os = "linux")]
 pub use daemon::serve;
 #[cfg(target_os = "linux")]
-pub use listener::{Accepted, ControlListener, broker_owner};
+pub use listener::{Accepted, ControlListener, IDLE_TIMEOUT, broker_owner};
 #[cfg(target_os = "linux")]
 pub use namespace::{NetNamespace, Unpinned};
 #[cfg(target_os = "linux")]
