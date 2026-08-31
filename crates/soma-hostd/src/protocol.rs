@@ -65,6 +65,33 @@ pub enum FailureCode {
     Terminated = 13,
 }
 
+impl FailureCode {
+    /// Returns the code one wire value names, or `None` when this build does not know it.
+    ///
+    /// An unknown code is answered with `None` rather than a catch-all variant so that a
+    /// client serving an older vocabulary reports the number it actually received instead of
+    /// collapsing a refusal it has never seen into one it has.
+    #[must_use]
+    pub const fn from_wire(value: u16) -> Option<Self> {
+        match value {
+            1 => Some(Self::Protocol),
+            2 => Some(Self::Exhausted),
+            3 => Some(Self::Overloaded),
+            4 => Some(Self::Conflict),
+            5 => Some(Self::Deadline),
+            6 => Some(Self::Ledger),
+            7 => Some(Self::Construction),
+            8 => Some(Self::Transfer),
+            9 => Some(Self::Unknown),
+            10 => Some(Self::Phase),
+            11 => Some(Self::Invariant),
+            12 => Some(Self::Capacity),
+            13 => Some(Self::Terminated),
+            _ => None,
+        }
+    }
+}
+
 /// Maps a claim failure onto its code.
 #[must_use]
 pub const fn claim_failure_code(error: &ClaimError) -> FailureCode {

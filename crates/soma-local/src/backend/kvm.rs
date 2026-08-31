@@ -4,16 +4,22 @@ mod io;
 mod lifecycle;
 mod prepared;
 mod resolve;
+mod runtime;
 mod session;
 mod timeline;
 mod worker;
 
 use soma::BackendKind;
 
+use crate::{LocalFailure, LocalFailureKind};
+
 use super::clock::OperationClocks;
+use runtime::Ownership;
 
 pub(crate) struct KvmBackend {
     clocks: OperationClocks,
+    /// Who owns the Instances this Backend launches.
+    ownership: Ownership,
     /// The one sandbox this Backend is driving, if any.
     live: Option<lifecycle::Live>,
 }
@@ -25,11 +31,24 @@ impl KvmBackend {
     /// Generation the host prepared, named by digest in its manifest, so a request either finds
     /// a prepared Generation or is refused by name. A Backend that probed the host here would
     /// be asserting something about Generations it has not looked at.
-    pub(super) fn open() -> Self {
-        Self {
+    ///
+    /// The one thing that is resolved here is who owns Instances. A configured Host Runtime
+    /// that cannot be reached refuses the Backend rather than degrading to the one-shot
+    /// lifecycle, because an operator who asked for persistent ownership must not silently
+    /// receive an Instance that dies with this process.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalFailureKind::BackendUnavailable`] when a Host Runtime is configured and
+    /// nothing serves it.
+    pub(super) fn open() -> Result<Self, LocalFailure> {
+        let ownership = Ownership::resolve(Ownership::configured().as_deref())
+            .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        Ok(Self {
             clocks: OperationClocks::new(),
+            ownership,
             live: None,
-        }
+        })
     }
 
     pub(super) const fn kind() -> BackendKind {

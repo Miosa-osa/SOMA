@@ -228,7 +228,14 @@ fn now_unix_nanos() -> u64 {
 /// them, and it is exact rather than derived: a `InstanceId` is thirty-two lowercase hexadecimal
 /// characters, which is these sixteen bytes written out.
 fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
-    let hex = instance.as_str();
+    hex16(instance.as_str())
+}
+
+/// The sixteen bytes one canonical portable identity is written out as.
+///
+/// The launch page, the Host Runtime frame, and the receipt must all carry the same bytes for
+/// one identity, so there is one decoder rather than one per caller.
+pub(in crate::backend::kvm) fn hex16(hex: &str) -> Result<[u8; 16], BackendFailureKind> {
     if hex.len() != 32 {
         return Err(BackendFailureKind::WorkloadRejected);
     }

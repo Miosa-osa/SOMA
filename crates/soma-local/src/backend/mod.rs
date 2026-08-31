@@ -93,7 +93,7 @@ impl LocalBackend {
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             BackendSelection::Kvm => {
                 drop(explicit_runtime);
-                Ok((Self::Kvm(kvm::KvmBackend::open()), resolved))
+                kvm::KvmBackend::open().map(|backend| (Self::Kvm(backend), resolved))
             }
             _ => {
                 drop(explicit_runtime);
