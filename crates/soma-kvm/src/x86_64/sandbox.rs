@@ -139,7 +139,7 @@ impl SandboxMachine {
             .vm
             .register_irqfd(&serial_line, SERIAL_GSI)
             .map_err(|error| MachineError::os(Phase::Events, error))?;
-        let mut irq = IrqLines::create()?;
+        let mut irq = IrqLines::create(config.devices)?;
         irq.register(&machine.vm)?;
         let notify = NotifyFds::register(&machine.vm, &bus)?;
         clock.lap(Phase::Events);

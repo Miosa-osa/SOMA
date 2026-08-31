@@ -231,7 +231,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         .vm_fd()
         .register_irqfd(&serial_line, SERIAL_GSI)
         .map_err(|error| MachineError::os(Phase::Restore, error))?;
-    let mut irq = IrqLines::create()?;
+    let mut irq = IrqLines::create(devices)?;
     irq.register(machine.vm_fd())?;
     let notify = NotifyFds::register(machine.vm_fd(), &bus)?;
     // Every route exists before any captured interrupt state is armed.
