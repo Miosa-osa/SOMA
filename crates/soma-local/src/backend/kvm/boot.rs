@@ -4,7 +4,7 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::path::PathBuf;
 
 use soma::{BackendFailureKind, InstanceId};
-use soma_guest::LaunchNetwork;
+use soma_guest::{LaunchNetwork, SecretFile};
 use soma_kvm::x86_64::SandboxDisks;
 use soma_storage::CloneError;
 
@@ -20,6 +20,7 @@ pub(super) fn boot_for(
     prepared: &PreparedGeneration,
     memory_mib: u64,
     instance: &InstanceId,
+    secrets: Vec<SecretFile>,
 ) -> Result<Boot, BackendFailureKind> {
     let manifest = &prepared.manifest;
     let open = |descriptor| {
@@ -71,6 +72,7 @@ pub(super) fn boot_for(
         operation: fresh16(),
         guest_cid,
         network: link_down_network(guest_cid)?,
+        secrets,
     })
 }
 

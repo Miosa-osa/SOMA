@@ -47,6 +47,8 @@ pub enum Error {
     InvalidTerminalStatus,
     /// A local terminal report violated the authenticated output-count contract.
     InvalidTerminalReport,
+    /// A secret value was empty or oversized, or its destination path or mode was inadmissible.
+    InvalidSecret,
     /// An activation scope named a zero identity, generation, or intent digest.
     InvalidActivationScope,
     /// An activation receipt did not authenticate against the challenge and scope.
@@ -84,6 +86,7 @@ impl fmt::Display for Error {
             Self::InvalidPtySize => "invalid terminal size",
             Self::InvalidTerminalStatus => "invalid terminal status",
             Self::InvalidTerminalReport => "invalid terminal report",
+            Self::InvalidSecret => "invalid secret value or destination",
             Self::InvalidActivationScope => "invalid network activation scope",
             Self::ActivationReceiptRejected => "network activation receipt rejected",
         })

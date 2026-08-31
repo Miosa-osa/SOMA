@@ -1,3 +1,16 @@
+//! Every kind of secret material this crate owns.
+//!
+//! Two unrelated things live here for one reason: neither may ever be printed, copied into an
+//! artifact, or held a moment longer than the launch that needs it. The session's own key
+//! material binds one Instance to one authenticated channel, and a delivered value is a tenant's
+//! credential that travels over that channel once it exists.
+
+mod file;
+mod value;
+
+pub use file::{DEFAULT_SECRET_FILE_MODE, SecretFile};
+pub use value::{MAX_SECRET_BYTES, SecretValue};
+
 use core::fmt;
 
 use snow::params::NoiseParams;

@@ -45,6 +45,7 @@ const fn failure_kind(error: SessionError) -> BackendFailureKind {
         // The guest exists but never reached, or lost, its authenticated session.
         SessionError::Boot
         | SessionError::Ready
+        | SessionError::Secret
         | SessionError::Execute
         | SessionError::Gone
         | SessionError::Poisoned => BackendFailureKind::GuestFailure,
@@ -82,7 +83,13 @@ impl KvmBackend {
             .prepared()
             .downcast_ref::<super::prepared::PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
-        let boot = boot_for(prepared, shape.memory_mib(), request.instance_id())
+        // No secret reaches this Backend yet. The portable Launch request carries a Template's
+        // secret references, not their values, and the host side that resolves a reference into
+        // a value is the credential mediator of the second delivery mode, which does not exist.
+        // The placement itself is wired, so a launch given a secret it cannot place fails here
+        // rather than running without it.
+        let secrets = Vec::new();
+        let boot = boot_for(prepared, shape.memory_mib(), request.instance_id(), secrets)
             .map_err(|kind| self.fail(operation, kind))?;
         // The Host Runtime, where one is configured, owns the Instance identity from before the
         // machine exists, so a later process can address and end this Instance rather than
@@ -240,61 +247,9 @@ impl KvmBackend {
             CleanupTimes::new(started, finished),
         ))
     }
-
-    fn fail(&mut self, operation: &soma::OperationId, kind: BackendFailureKind) -> BackendFailure {
-        BackendFailure::new(kind, self.clocks.elapsed_ns(operation))
-    }
-
-    /// What an operation naming an Instance this process is not driving reports.
-    ///
-    /// An Instance the Host Runtime still owns is a different fact from an unknown one. It
-    /// exists and it is addressable, but its guest session is resident in the process that
-    /// launched it, so no session here can serve it. That is a capability this Backend does not
-    /// have yet rather than an absent Machine, and it stays missing until the machine runs in
-    /// the worker the Host owns instead of inside the launching process.
-    fn absent_kind(&self, instance: &InstanceId) -> BackendFailureKind {
-        if self.ownership.is_live(instance) {
-            BackendFailureKind::Unsupported
-        } else {
-            BackendFailureKind::Unavailable
-        }
-    }
-
-    /// The live sandbox for `instance`, if this Backend owns one that is still usable.
-    ///
-    /// A poisoned session is not live: it has already been ended, and reporting it as Ready or
-    /// executing against it would attribute work to a machine that is gone.
-    fn live_for(&mut self, instance: &InstanceId) -> Option<&mut Live> {
-        self.live
-            .as_mut()
-            .filter(|live| &live.instance == instance && live.session.is_usable())
-    }
-
-    fn take_live(&mut self, instance: &InstanceId) -> Option<Live> {
-        if self
-            .live
-            .as_ref()
-            .is_some_and(|live| &live.instance == instance)
-        {
-            self.live.take()
-        } else {
-            None
-        }
-    }
 }
 
-/// The dispositions for an Instance this Backend never owned.
-///
-/// Every resource is `NotOwned` rather than `Complete`: this process holds no record that these
-/// resources existed, so it cannot report having released them. A caller can still distinguish
-/// this from a real release, which is the point.
-fn not_owned_evidence() -> CleanupEvidence {
-    CleanupEvidence::new(
-        CleanupDisposition::NotOwned,
-        CleanupDisposition::NotOwned,
-        CleanupDisposition::NotOwned,
-        CleanupDisposition::NotOwned,
-        CleanupDisposition::NotOwned,
-    )
-    .with_method(CleanupMethod::NotApplicable)
-}
+#[path = "lifecycle/lookup.rs"]
+mod lookup;
+
+use lookup::not_owned_evidence;

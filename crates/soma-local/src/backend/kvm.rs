@@ -5,6 +5,7 @@ mod lifecycle;
 mod prepared;
 mod resolve;
 mod runtime;
+mod secrets;
 mod session;
 mod timeline;
 mod worker;

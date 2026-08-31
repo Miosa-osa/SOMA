@@ -49,6 +49,14 @@ fn every_request_round_trips() {
             path: b"/workspace/tmp".to_vec().into(),
             recursive: true,
         },
+        FileRequest::Create {
+            path: b"/run/secrets/token".to_vec().into(),
+            mode: 0o600,
+        },
+        FileRequest::SetMode {
+            path: b"/run/secrets/token".to_vec().into(),
+            mode: 0o400,
+        },
     ] {
         round_trip(&request);
     }
@@ -168,6 +176,24 @@ fn a_trailing_byte_is_refused() {
         HostMessage::decode(&encoded).is_err(),
         "a trailing byte decoded"
     );
+}
+
+/// A mode outside the permission bits is a message this protocol does not carry.
+#[test]
+fn a_mode_above_the_permission_bits_is_refused() {
+    for mode in [0o1000_u32, 0o4755, u32::MAX] {
+        let request = FileRequest::SetMode {
+            path: b"/workspace/file".to_vec().into(),
+            mode,
+        };
+        let encoded = HostMessage::file(operation(), request)
+            .encode()
+            .expect("an encoder writes what it is given");
+        assert!(
+            HostMessage::decode(&encoded).is_err(),
+            "mode 0o{mode:o} decoded"
+        );
+    }
 }
 
 /// Neither a path nor file bytes may reach a log through a formatter.

@@ -18,6 +18,8 @@ const MAKE_DIRECTORY: u8 = 3;
 const READ_DIRECTORY: u8 = 4;
 const EXISTS: u8 = 5;
 const REMOVE: u8 = 6;
+const CREATE: u8 = 7;
+const SET_MODE: u8 = 8;
 
 impl FileRequest {
     /// Encodes this request as one frame body.
@@ -67,6 +69,16 @@ impl FileRequest {
                 out.push(REMOVE);
                 put_field(&mut out, path);
                 out.push(u8::from(*recursive));
+            }
+            Self::Create { path, mode } => {
+                out.push(CREATE);
+                put_field(&mut out, path);
+                out.extend_from_slice(&mode.to_be_bytes());
+            }
+            Self::SetMode { path, mode } => {
+                out.push(SET_MODE);
+                put_field(&mut out, path);
+                out.extend_from_slice(&mode.to_be_bytes());
             }
         }
         out
@@ -124,6 +136,14 @@ impl FileRequest {
                 path: super::read_path(&mut reader)?.into(),
                 recursive: flag(&mut reader)?,
             },
+            CREATE => Self::Create {
+                path: super::read_path(&mut reader)?.into(),
+                mode: read_mode(&mut reader)?,
+            },
+            SET_MODE => Self::SetMode {
+                path: super::read_path(&mut reader)?.into(),
+                mode: read_mode(&mut reader)?,
+            },
             _ => return Err(Error::ApplicationMessageRejected),
         };
         reader.finish()?;
@@ -132,6 +152,13 @@ impl FileRequest {
         check_path(request.path())?;
         Ok(request)
     }
+}
+
+/// Reads one permission field and rejects a value this protocol will not carry.
+fn read_mode(reader: &mut Reader<'_>) -> Result<u32, Error> {
+    let mode = reader.u32()?;
+    super::check_mode(mode)?;
+    Ok(mode)
 }
 
 /// Reads one byte that must be exactly zero or one.

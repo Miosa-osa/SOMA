@@ -9,7 +9,7 @@ use super::super::{RepairedHostControl, WholeFileRead, WholeFileWrite};
 use super::support::{MemoryIo, Observation, RawGuest, launch, pair};
 
 type Host = HostControl<MemoryIo>;
-type Repaired = RepairedHostControl<MemoryIo>;
+pub(super) type Repaired = RepairedHostControl<MemoryIo>;
 
 #[test]
 fn an_answer_under_another_operation_is_rejected() {
@@ -173,7 +173,7 @@ fn exists() -> FileRequest {
     }
 }
 
-fn repaired_host() -> (Repaired, RawGuest, Observation) {
+pub(super) fn repaired_host() -> (Repaired, RawGuest, Observation) {
     let (host, mut raw, observed) = connected_host();
     let host_thread = thread::spawn(move || host.prepare_and_probe());
     assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
@@ -201,11 +201,11 @@ fn connected_host() -> (Host, RawGuest, Observation) {
     )
 }
 
-fn operation(value: u8) -> OperationId {
+pub(super) fn operation(value: u8) -> OperationId {
     OperationId::new([value; 16]).expect("operation")
 }
 
-fn control_error<T>(result: Result<T, ControlError>) -> ControlError {
+pub(super) fn control_error<T>(result: Result<T, ControlError>) -> ControlError {
     match result {
         Ok(value) => {
             drop(value);

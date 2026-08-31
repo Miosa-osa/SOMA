@@ -18,9 +18,12 @@ mod file;
 mod network;
 mod operation;
 mod pty;
+mod secret;
 mod whole_file;
 
 use operation::fresh_operation;
+
+pub use secret::{SecretPlacement, SecretStage};
 
 pub use whole_file::{WholeFileRead, WholeFileWrite};
 

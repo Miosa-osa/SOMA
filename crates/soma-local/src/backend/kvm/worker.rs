@@ -11,7 +11,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
-use soma_guest::{HostControl, HostLaunchMaterial, OperationId, RepairedHostControl};
+use soma_guest::{HostControl, HostLaunchMaterial, OperationId, RepairedHostControl, SecretFile};
 use soma_kvm::snapshot::readiness::SessionEvidence;
 use soma_kvm::x86_64::{
     DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
@@ -23,6 +23,15 @@ use super::session::{
     BOOT_DEADLINE, Boot, Completed, EXIT_GRACE, GUEST_MAC, Request, Response, SessionError, Source,
 };
 
+/// What one Instance's launch carries into the machine that will serve it.
+///
+/// The two travel together because they are consumed together and in one order: the material
+/// authenticates the session, and the secrets are the first thing placed over it.
+struct LaunchInputs<'a> {
+    material: HostLaunchMaterial,
+    secrets: &'a [SecretFile],
+}
+
 /// Owns one machine for its whole life and answers requests about it.
 pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
     let Boot {
@@ -32,6 +41,7 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
         operation,
         guest_cid,
         network,
+        secrets,
     } = boot;
     let Ok(material) = HostLaunchMaterial::generate(generation, instance, operation, network)
     else {
@@ -47,7 +57,11 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
             };
             // The machine is finished on every path out of here, including a failed boot, so no
             // descriptor or thread outlives the sandbox that owned it.
-            let outcome = drive_cold(&mut sandbox, material, requests, responses);
+            let inputs = LaunchInputs {
+                material,
+                secrets: &secrets,
+            };
+            let outcome = drive_cold(&mut sandbox, inputs, requests, responses);
             report(sandbox, outcome, responses, instance);
         }
         Source::Restore {
@@ -71,9 +85,13 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
                 let _ignored = responses.send(Response::Failed(SessionError::Create));
                 return;
             };
+            let inputs = LaunchInputs {
+                material,
+                secrets: &secrets,
+            };
             let outcome = drive_restored(
                 &mut restored,
-                material,
+                inputs,
                 instance,
                 operation,
                 requests,
@@ -119,15 +137,17 @@ fn hex(instance: [u8; 16]) -> String {
 /// Boots a machine from nothing and drives it to Ready, then serves commands.
 fn drive_cold(
     sandbox: &mut SandboxMachine,
-    material: HostLaunchMaterial,
+    inputs: LaunchInputs<'_>,
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) -> Result<(), SessionError> {
-    let delivered = material
+    let delivered = inputs
+        .material
         .deliver_with(|page| sandbox.write_launch_page(page))
         .map_err(|_| SessionError::LaunchPage)?;
     sandbox.start().map_err(|_| SessionError::Create)?;
     let repaired = reach_session(sandbox, delivered)?;
+    let repaired = super::secrets::place(repaired, inputs.secrets)?;
     sandbox.mark(Milestone::Ready);
     serve_commands(sandbox, repaired, requests, responses)
 }
@@ -140,17 +160,21 @@ fn drive_cold(
 /// a caller that did not complete the session.
 fn drive_restored(
     restored: &mut Restored,
-    material: HostLaunchMaterial,
+    inputs: LaunchInputs<'_>,
     instance: [u8; 16],
     operation: [u8; 16],
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) -> Result<(), SessionError> {
-    let delivered = material
+    let delivered = inputs
+        .material
         .deliver_with(|page| restored.resume(page))
         .map_err(|_| SessionError::LaunchPage)?;
     let machine = &restored.machine;
     let repaired = reach_session(machine, delivered)?;
+    // The snapshot this machine resumed from is shared by every Instance of the Generation, so
+    // the secrets are placed after the resume and never appear in the captured state.
+    let repaired = super::secrets::place(repaired, inputs.secrets)?;
 
     let evidence = SessionEvidence::new(instance, operation, repaired.session_transcript())
         .map_err(|_| SessionError::Ready)?;

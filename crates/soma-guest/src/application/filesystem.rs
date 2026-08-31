@@ -46,6 +46,12 @@ pub const MAX_CHUNK_BYTES: usize = {
 };
 /// Largest number of directory entries one listing will return.
 pub const MAX_ENTRIES: usize = 1024;
+/// Largest permission value this protocol will carry.
+///
+/// The set-user, set-group, and sticky bits are deliberately outside the bound. Nothing this
+/// protocol exists for needs them, and a caller able to set them could turn a file it wrote into
+/// a privilege the guest's own users did not have before.
+pub const MAX_FILE_MODE: u32 = 0o777;
 
 /// What a caller asks of the guest's filesystem.
 #[derive(Clone, Eq, PartialEq)]
@@ -91,6 +97,24 @@ pub enum FileRequest {
         /// Absolute guest path.
         path: Box<[u8]>,
     },
+    /// Creates a new file with exactly `mode`, failing when the path already exists.
+    ///
+    /// Refusing an existing path is the point of the operation. A caller that means to bring a
+    /// file into being with a mode of its choosing must not instead write into one that was
+    /// already there, whose mode, owner, and link target it did not choose.
+    Create {
+        /// Absolute guest path.
+        path: Box<[u8]>,
+        /// The permission bits the new file is given, whatever mask the guest would apply.
+        mode: u32,
+    },
+    /// Sets the permission bits of an existing path.
+    SetMode {
+        /// Absolute guest path.
+        path: Box<[u8]>,
+        /// The permission bits to apply.
+        mode: u32,
+    },
     /// Removes a file, or a directory with its contents when `recursive` is set.
     Remove {
         /// Absolute guest path.
@@ -110,6 +134,8 @@ impl FileRequest {
             | Self::MakeDirectory { path, .. }
             | Self::ReadDirectory { path, .. }
             | Self::Exists { path }
+            | Self::Create { path, .. }
+            | Self::SetMode { path, .. }
             | Self::Remove { path, .. } => path,
         }
     }
@@ -127,6 +153,8 @@ impl fmt::Debug for FileRequest {
             Self::MakeDirectory { .. } => "make-directory",
             Self::ReadDirectory { .. } => "read-directory",
             Self::Exists { .. } => "exists",
+            Self::Create { .. } => "create",
+            Self::SetMode { .. } => "set-mode",
             Self::Remove { .. } => "remove",
         };
         write!(
@@ -141,11 +169,19 @@ impl fmt::Debug for FileRequest {
 ///
 /// A path is bounded, non-empty, absolute, and free of interior nul bytes. Everything else about
 /// it, including whether the guest's policy admits it at all, is the executing agent's decision.
-pub(super) fn check_path(path: &[u8]) -> Result<(), Error> {
+pub(crate) fn check_path(path: &[u8]) -> Result<(), Error> {
     if path.is_empty() || path.len() > MAX_PATH_BYTES {
         return Err(Error::ApplicationMessageRejected);
     }
     if path[0] != b'/' || path.contains(&0) {
+        return Err(Error::ApplicationMessageRejected);
+    }
+    Ok(())
+}
+
+/// Rejects a permission value this protocol will not carry.
+pub(super) fn check_mode(mode: u32) -> Result<(), Error> {
+    if mode > MAX_FILE_MODE {
         return Err(Error::ApplicationMessageRejected);
     }
     Ok(())
