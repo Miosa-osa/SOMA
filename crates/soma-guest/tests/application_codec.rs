@@ -88,7 +88,8 @@ fn execute_message_matches_the_frozen_v1_vector() {
     );
     let expected = decode_hex(concat!(
         "534f4d4100010200000011111111111111111111111111111111",
-        "001f000003e8000000000000100000092f62696e2f6563686f0002000268690000",
+        "0025000003e8000000000000100000092f62696e2f6563686f0002000268690000",
+        "000000000000",
     ));
 
     assert_eq!(message.encode().expect("canonical vector"), expected);

@@ -7,7 +7,7 @@ mod operation;
 mod output;
 mod terminal;
 
-pub use command::GuestCommand;
+pub use command::{CommandContext, EnvironmentPair, GuestCommand};
 pub use filesystem::{
     DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES, MAX_ENTRIES,
     MAX_PATH_BYTES,

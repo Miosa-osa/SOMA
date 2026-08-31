@@ -1,10 +1,11 @@
-//! Bounded direct command execution: argv `execve`, fixed environment, own process group,
-//! one bounded poll loop over both pipes with exact accounting, absolute deadline, and
-//! complete descendant reaping.
+//! Bounded direct command execution: argv `execve` in the environment, directory, and account
+//! the command names, its own process group, one bounded poll loop over both pipes with exact
+//! accounting, absolute deadline, and complete descendant reaping.
 //!
 //! No output is queued and no reader thread exists, so a hostile process that writes without
 //! end cannot grow the agent beyond one fixed buffer plus one admitted chunk.
 
+use std::io::Write as _;
 use std::iter;
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -14,7 +15,7 @@ use std::time::{Duration, Instant};
 use soma_guest::{GuestCommand, TerminalStatus};
 
 use crate::descendants;
-use crate::environment::{ENVIRONMENT, InvalidInvocation, Invocation, WORKING_DIRECTORY};
+use crate::environment::{InvalidInvocation, Invocation};
 use crate::output::{Ending, OutputBudget, terminal_status};
 use crate::pid1;
 use crate::timings::{self, Step};
@@ -95,7 +96,7 @@ pub fn execute(
 ) -> Result<Completion, ExecutorFault> {
     let invocation = Invocation::from_command(command).map_err(ExecutorFault::Invocation)?;
     let deadline = Instant::now() + Duration::from_millis(u64::from(command.timeout_millis()));
-    let mut child = match timings::measure(Step::Spawn, || spawn(&invocation)) {
+    let mut child = match timings::measure(Step::Spawn, || spawn(&invocation, command.stdin())) {
         Ok(child) => child,
         Err(errno) => {
             return Ok(Completion {
@@ -143,18 +144,40 @@ pub fn execute(
     })
 }
 
-fn spawn(invocation: &Invocation) -> Result<Child, i32> {
-    Command::new(invocation.program())
+/// Spawns the child and hands it its standard input before any output is read.
+///
+/// The input is written in one go and the pipe is then closed, so a program that reads to the
+/// end sees exactly these bytes and one that reads nothing is not kept waiting. This cannot
+/// deadlock against a child that writes without reading: the wire contract bounds the input
+/// below the capacity of a Linux pipe, so the write completes into the kernel buffer whether or
+/// not anything has read from it yet.
+fn spawn(invocation: &Invocation, stdin: &[u8]) -> Result<Child, i32> {
+    let mut builder = Command::new(invocation.program());
+    builder
         .args(invocation.arguments())
         .env_clear()
-        .envs(ENVIRONMENT.iter().copied())
-        .current_dir(WORKING_DIRECTORY)
-        .stdin(Stdio::null())
+        .envs(invocation.environment().iter().cloned())
+        .current_dir(invocation.working_directory())
+        .stdin(if stdin.is_empty() {
+            Stdio::null()
+        } else {
+            Stdio::piped()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
+        .process_group(0);
+    if let Some(credentials) = invocation.credentials() {
+        builder.uid(credentials.uid).gid(credentials.gid);
+    }
+    let mut child = builder
         .spawn()
-        .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))
+        .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))?;
+    if let Some(mut pipe) = child.stdin.take() {
+        // A child that exited before reading closes the pipe, which is its own answer rather
+        // than an agent fault, so the write's outcome does not change the command's status.
+        let _ = pipe.write_all(stdin);
+    }
+    Ok(child)
 }
 
 /// The waits between reapability checks, in the order the loop takes them.

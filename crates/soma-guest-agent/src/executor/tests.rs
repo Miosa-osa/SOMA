@@ -11,6 +11,7 @@ use super::{
     execute, waits,
 };
 
+mod context;
 mod hostile;
 
 /// Combined allowance the hostile fixtures are given before the limit closes them down.
@@ -284,16 +285,4 @@ fn a_sink_that_disconnects_mid_stream_kills_the_group_within_the_grace() {
         "a disconnect must complete within the kill grace, not the command timeout"
     );
     assert!(KILL_GRACE < Duration::from_secs(5));
-}
-
-#[test]
-fn the_environment_is_the_fixed_allowlist_only() {
-    let (completion, sink) = run(&command("/usr/bin/env", &[], 5_000, 4096));
-
-    assert_eq!(completion.status, TerminalStatus::Exited(0));
-    let text = String::from_utf8_lossy(&sink.stdout);
-    assert!(text.contains("SOMA_SANDBOX=1\n"));
-    assert!(text.contains("HOME=/root\n"));
-    assert!(!text.contains("USER="));
-    assert!(!text.contains("CARGO"));
 }
