@@ -54,6 +54,15 @@ mod x86_64_snapshot_restore_fixture;
 mod x86_64_snapshot_restore_instance;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[allow(dead_code)]
+#[path = "x86_64_snapshot_restore/workload.rs"]
+mod x86_64_snapshot_restore_workload;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_snapshot_restore/capability.rs"]
+mod x86_64_snapshot_restore_capability;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_snapshot_restore/report.rs"]
 mod x86_64_snapshot_restore_report;
 
@@ -75,8 +84,9 @@ mod live {
     use soma_kvm::x86_64::{GuestExit, Milestone};
 
     use crate::{
-        x86_64_sandbox_boot_host::require_kvm, x86_64_snapshot_restore_fixture as fixture,
-        x86_64_snapshot_restore_instance as instance, x86_64_snapshot_restore_report as report,
+        x86_64_sandbox_boot_host::require_kvm, x86_64_sandbox_boot_session as session,
+        x86_64_snapshot_restore_fixture as fixture, x86_64_snapshot_restore_instance as instance,
+        x86_64_snapshot_restore_report as report,
     };
 
     /// The path one Instance creates on its private root so another can look for it.
@@ -137,7 +147,7 @@ mod live {
             restored.threads.1, restored.threads.0,
             "the restored machine leaked threads"
         );
-        let executed = &restored.executed[0];
+        let executed = &restored.output[0];
         assert_eq!(executed.status, TerminalStatus::Exited(0));
         let stdout = String::from_utf8_lossy(&executed.stdout);
         assert!(stdout.starts_with("v22."), "stdout={stdout:?}");
@@ -202,17 +212,17 @@ mod live {
         assert!(hostnames.0.starts_with("soma-"));
 
         assert_eq!(
-            first.executed[3].status,
+            first.output[3].status,
             TerminalStatus::Exited(0),
             "the first Instance could not see its own private write"
         );
         assert_ne!(
-            second.executed[2].status,
+            second.output[2].status,
             TerminalStatus::Exited(0),
             "the second Instance saw the first Instance's private write"
         );
         assert!(
-            String::from_utf8_lossy(&second.executed[3].stdout).starts_with("v22."),
+            String::from_utf8_lossy(&second.output[3].stdout).starts_with("v22."),
             "the second Instance did not report the Node version"
         );
 
@@ -233,8 +243,8 @@ mod live {
         );
     }
 
-    fn text(instance: &instance::Instance, index: usize) -> String {
-        String::from_utf8_lossy(&instance.executed[index].stdout)
+    fn text(instance: &instance::Instance<Vec<session::Executed>>, index: usize) -> String {
+        String::from_utf8_lossy(&instance.output[index].stdout)
             .trim()
             .to_owned()
     }

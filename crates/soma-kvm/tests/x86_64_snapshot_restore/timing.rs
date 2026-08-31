@@ -34,10 +34,10 @@ fn warm_restore_timing_over_ten_iterations() {
     for iteration in 0..ITERATIONS {
         let name = format!("loop-{iteration}");
         let restored = instance::run(&fixture, &name, FIRST_CID + iteration, &commands);
-        assert_eq!(restored.executed[0].status, TerminalStatus::Exited(0));
+        assert_eq!(restored.output[0].status, TerminalStatus::Exited(0));
         assert_eq!(restored.evidence.exit, Ok(GuestExit::Reset));
         assert!(
-            String::from_utf8_lossy(&restored.executed[0].stdout).starts_with("v22."),
+            String::from_utf8_lossy(&restored.output[0].stdout).starts_with("v22."),
             "iteration {iteration} did not report the Node version"
         );
         // The launch-page slot is added while the VM still has no vCPU, where the same
