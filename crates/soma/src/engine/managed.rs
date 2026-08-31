@@ -78,6 +78,13 @@ pub enum ManagedFailure {
     StateStore(StateStoreFailureKind),
     Operation(Box<RunFailure>),
     ReplayUnavailable(ReplayEvidence),
+    /// A backend refused an operation that mints no receipt, so there is no evidence to carry.
+    ///
+    /// Every other operation on this facade produces an [`crate::ExecutionReceipt`] whether it
+    /// succeeded or failed, which is why they report through [`RunFailure`]. A filesystem
+    /// operation produces none, so a receipt-carrying failure would have to invent one, and an
+    /// invented receipt is worse than a bare kind.
+    Backend(crate::BackendFailureKind),
 }
 
 impl ManagedFailure {
