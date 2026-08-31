@@ -96,7 +96,8 @@ here, because neither path completed before.
 A machine's private overlay head is created under `SOMA_HEAD_DIR` and immediately unlinked, so the
 host process holds the only reference to it. Directly observed on a live host: file descriptor 10
 is `/srv/soma/dm-heads/<instance-id> (deleted)`, the process holds 48 descriptors and 8 threads,
-and its resident set is 17.7 MiB. A released Instance therefore has to leave both no file in the
+and its resident set is 17,680 KiB. An idle host is therefore cheap to leave running and
+impossible to leave running by accident, which is what the two halves of this section are about. A released Instance therefore has to leave both no file in the
 head directory and no process holding a deleted one.
 
 After the five-process lifecycle above and again after each hundred-way run:
