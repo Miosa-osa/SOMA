@@ -40,6 +40,8 @@ const NOSUID_NODEV_NOEXEC: libc::c_ulong = libc::MS_NOSUID | libc::MS_NODEV | li
 pub enum BootStep {
     /// Mount devtmpfs on `/dev`.
     Devtmpfs,
+    /// Mount devpts on `/dev/pts`.
+    Devpts,
     /// Mount procfs on `/proc`.
     Procfs,
     /// Mount sysfs on `/sys`.
@@ -85,6 +87,17 @@ pub fn early_init(deadline: Instant) -> Result<(), BootFailure> {
         "/dev",
         "devtmpfs",
         "mode=0755",
+    )?;
+    // Every pseudo-terminal slave lives on devpts, and `/dev/ptmx` cannot allocate a pair
+    // without it, so a guest with no devpts has the terminal protocol and no terminal to serve
+    // it with. It is mounted here, under `/dev`, so the move below carries it into the composed
+    // root with the rest of the device tree.
+    mount_pseudo(
+        BootStep::Devpts,
+        "devpts",
+        "/dev/pts",
+        "devpts",
+        "mode=0620,ptmxmode=0666",
     )?;
     mount_pseudo(BootStep::Procfs, "proc", "/proc", "proc", "")?;
     mount_pseudo(BootStep::Sysfs, "sysfs", "/sys", "sysfs", "")?;
@@ -140,7 +153,9 @@ fn mount_pseudo(
     data: &str,
 ) -> Result<(), BootFailure> {
     fs::create_dir_all(target).map_err(|error| failure(step, &error))?;
-    let flags = if step == BootStep::Devtmpfs {
+    // A device filesystem must keep its device nodes usable, so neither devtmpfs nor devpts may
+    // carry `MS_NODEV`; everything else this function mounts holds no device at all.
+    let flags = if matches!(step, BootStep::Devtmpfs | BootStep::Devpts) {
         libc::MS_NOSUID | libc::MS_NOEXEC
     } else {
         NOSUID_NODEV_NOEXEC

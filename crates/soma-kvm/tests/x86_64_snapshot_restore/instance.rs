@@ -1,15 +1,15 @@
-//! Restoring one Instance from the shared snapshot and driving it to an executed command.
+//! Restoring one Instance from the shared snapshot and driving one workload on it.
 //!
 //! Everything after the resume is the production path: the guest agent consumes a launch page
 //! it has never seen, repairs its entropy, identity, and network state, authenticates over a
-//! fresh vsock endpoint, answers the fixed readiness probe, and only then executes.
+//! fresh vsock endpoint, answers the fixed readiness probe, and only then serves the workload.
 
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
 
-use soma_guest::{GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
+use soma_guest::{HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
 use soma_kvm::snapshot::readiness::{ReadinessRefusal, SessionEvidence};
 use soma_kvm::x86_64::{
     Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, SnapshotError, restore,
@@ -19,16 +19,20 @@ use crate::{
     x86_64_sandbox_boot_control::HostIo,
     x86_64_sandbox_boot_host as host, x86_64_sandbox_boot_session as session,
     x86_64_snapshot_restore_fixture::{self as fixture, Fixture},
+    x86_64_snapshot_restore_workload::{self as workload, Workload},
 };
 
 const EXIT_GRACE: Duration = Duration::from_secs(10);
 
-/// What one restored Instance left behind.
-pub struct Instance {
+/// What one restored Instance left behind, with whatever its workload retained.
+pub struct Instance<T> {
     pub evidence: SandboxEvidence,
-    pub executed: Vec<session::Executed>,
+    /// What the workload produced; a command list produces its ordered results.
+    pub output: T,
     pub facts: RestoreFacts,
     pub identity: [u8; 16],
+    /// The digest of the authenticated session the readiness receipt was minted from.
+    pub session_transcript: [u8; 32],
     pub head_path: PathBuf,
     /// Nanoseconds from the first manifest byte read to the machine being ready to resume.
     pub restore_ns: u64,
@@ -37,13 +41,32 @@ pub struct Instance {
     pub threads: (u64, u64),
 }
 
-/// Restores one Instance, runs `command`, shuts it down, and returns the evidence.
+/// Restores one Instance, runs the ordered commands, shuts it down, and returns the evidence.
 ///
 /// # Panics
 ///
 /// Panics with the session failure; a restored Instance that cannot reach `Ready` is the
 /// result this test exists to catch.
-pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command<'_>]) -> Instance {
+pub fn run(
+    fixture: &Fixture,
+    name: &str,
+    cid: u32,
+    commands: &[session::Command<'_>],
+) -> Instance<Vec<session::Executed>> {
+    run_workload(fixture, name, cid, workload::Commands(commands))
+}
+
+/// Restores one Instance, runs one workload over its ready session, and shuts it down.
+///
+/// # Panics
+///
+/// Panics with the session failure, for the reason [`run`] gives.
+pub fn run_workload<W: Workload>(
+    fixture: &Fixture,
+    name: &str,
+    cid: u32,
+    mut work: W,
+) -> Instance<W::Output> {
     // Every descriptor and thread the Instance uses, including the private head handed to
     // the restore, is opened after these counts and must be gone before the ones taken at the
     // end.
@@ -95,7 +118,7 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
             instance: instance_id,
             operation: launch_operation,
         },
-        commands,
+        &mut work,
     );
     let complete = restored.is_ready();
     let evidence = restored.machine.finish(EXIT_GRACE);
@@ -117,8 +140,8 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
     {
         eprintln!("  | {line}");
     }
-    let executed = match outcome {
-        Ok(executed) => executed,
+    let (output, session_transcript) = match outcome {
+        Ok(finished) => finished,
         Err(error) => {
             panic!(
                 "[{name}] restored session failed: {error}; exit={:?}",
@@ -132,9 +155,10 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
     );
     Instance {
         evidence,
-        executed,
+        output,
         facts,
         identity: instance_id,
+        session_transcript,
         head_path,
         restore_ns,
         descriptors: (descriptors_before, host::open_descriptor_count()),
@@ -148,12 +172,12 @@ pub struct Identity {
     pub operation: [u8; 16],
 }
 
-fn drive(
+fn drive<W: Workload>(
     restored: &soma_kvm::x86_64::Restored,
     delivered: soma_guest::DeliveredHostLaunchMaterial,
     identity: &Identity,
-    commands: &[session::Command<'_>],
-) -> Result<Vec<session::Executed>, String> {
+    work: &mut W,
+) -> Result<(W::Output, [u8; 32]), String> {
     let machine = &restored.machine;
     let deadline = Instant::now() + session::BOOT_DEADLINE;
     machine
@@ -170,12 +194,9 @@ fn drive(
     let repaired = host
         .prepare_and_probe()
         .map_err(|error| format!("repair and probe: {error}"))?;
-    let evidence = SessionEvidence::new(
-        identity.instance,
-        identity.operation,
-        repaired.session_transcript(),
-    )
-    .map_err(|error| format!("session evidence: {error}"))?;
+    let transcript = repaired.session_transcript();
+    let evidence = SessionEvidence::new(identity.instance, identity.operation, transcript)
+        .map_err(|error| format!("session evidence: {error}"))?;
     let demand = restored
         .readiness_demand()
         .ok_or_else(|| "the restore published no readiness demand".to_owned())?;
@@ -191,38 +212,18 @@ fn drive(
         "a spent readiness challenge accepted a second receipt"
     );
     machine.mark(Milestone::Ready);
-    let mut repaired = repaired;
-    let mut executed = Vec::with_capacity(commands.len());
-    for (index, command) in commands.iter().enumerate() {
-        let guest_command = GuestCommand::new(
-            command.program.to_vec(),
-            command.arguments.iter().map(|arg| arg.to_vec()).collect(),
-            command.timeout_millis,
-            command.output_bytes,
-        )
-        .map_err(|error| format!("command: {error}"))?;
-        let (next, outcome) = repaired
-            .execute(
-                OperationId::new(session::random16()).unwrap(),
-                guest_command,
-            )
-            .map_err(|error| format!("execute: {error}"))?;
-        repaired = next;
-        if index == 0 {
-            // The warm timeline measures the first command only; later ones are assertions.
-            machine.mark(Milestone::Execute);
-        }
-        executed.push(session::Executed {
-            status: outcome.status(),
-            stdout: outcome.stdout().to_vec(),
-            stderr: outcome.stderr().to_vec(),
-        });
-    }
+    // A receipt that is never printed cannot be scanned for a value it must not carry, so the
+    // one thing about it that varies with the session travels back to the caller instead.
+    eprintln!(
+        "[receipt] {receipt:?} over session transcript {}",
+        hex(&transcript)
+    );
+    let (repaired, output) = work.run(machine, repaired)?;
     repaired
         .shutdown(OperationId::new(session::random16()).unwrap())
         .map_err(|error| format!("shutdown: {error}"))?;
     machine.mark(Milestone::Shutdown);
-    Ok(executed)
+    Ok((output, transcript))
 }
 
 /// One bounded command with the fixed test budgets.
@@ -234,4 +235,13 @@ pub fn command<'a>(program: &'a [u8], arguments: &'a [&'a [u8]]) -> session::Com
         timeout_millis: 30_000,
         output_bytes: 65_536,
     }
+}
+
+/// Renders bytes for a log line that must never carry tenant data.
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    bytes.iter().fold(String::new(), |mut text, byte| {
+        write!(text, "{byte:02x}").expect("write to a string");
+        text
+    })
 }
