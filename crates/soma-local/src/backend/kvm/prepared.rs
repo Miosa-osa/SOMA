@@ -71,6 +71,11 @@ pub(super) enum PreparedError {
 pub(super) struct PreparedGeneration {
     /// The artifact store holding the root, overlay template, kernel, and agent.
     pub(super) store: PathBuf,
+    /// The image reference this entry claims.
+    ///
+    /// A machine host finds its own entry from this rather than being handed a store path, so
+    /// what it launches is what a prepared entry claims rather than bytes a caller named.
+    pub(super) reference: String,
     /// The Candidate identity, recomputed from the exact published bytes.
     pub(super) id: CandidateId,
     /// The decoded Candidate manifest.
@@ -163,7 +168,11 @@ fn read_bounded(path: &Path, limit: u64) -> Option<Vec<u8>> {
 }
 
 /// Reads the one entry that claims the reference, once it is known to be the only one.
-fn read_entry(root: &Path, entry: &Path) -> Result<PreparedGeneration, PreparedError> {
+fn read_entry(
+    root: &Path,
+    entry: &Path,
+    reference: &str,
+) -> Result<PreparedGeneration, PreparedError> {
     let candidate = entry.join(CANDIDATE);
     let store = entry.join(STORE_DIRECTORY);
     if any_component_is_link(root, entry)
@@ -180,6 +189,7 @@ fn read_entry(root: &Path, entry: &Path) -> Result<PreparedGeneration, PreparedE
     }
     Ok(PreparedGeneration {
         store,
+        reference: reference.to_owned(),
         id: CandidateId::of(&bytes),
         manifest,
     })
@@ -236,7 +246,7 @@ pub(super) fn find(
         // exists. Refusing before the decode also means a damaged entry is still refused as
         // uncertified rather than reporting how it was damaged.
         [_] if !allow_uncertified => Err(PreparedError::Uncertified),
-        [only] => read_entry(root, only),
+        [only] => read_entry(root, only, reference),
         _ => Err(PreparedError::Ambiguous),
     }
 }

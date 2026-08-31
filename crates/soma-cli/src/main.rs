@@ -11,7 +11,7 @@ use clap::{Parser, error::ErrorKind};
 
 use crate::{
     app::execute,
-    cli::{Cli, OutputFormat},
+    cli::{Cli, OutputFormat, RootCommand},
     exit::ProcessExit,
     model::{FailureBody, Response},
 };
@@ -39,6 +39,11 @@ fn run() -> i32 {
         }
         Err(_) => return render_usage_error(format),
     };
+    // A machine host is not a command that produces an envelope: it becomes the process that
+    // holds one sandbox, so it takes the binary over before any response exists.
+    if let RootCommand::MachineHost(arguments) = &cli.command {
+        return soma_local::host_machine(&arguments.socket);
+    }
     let format = cli.format;
     let execution = execute(cli);
     let rendered = render::render(

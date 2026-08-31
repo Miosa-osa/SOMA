@@ -15,6 +15,9 @@ use soma::{
 
 use crate::{LocalFailure, LocalFailureKind};
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::host_machine;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackendSelection {
     #[default]
@@ -66,37 +69,60 @@ pub fn probe_backend(
     }
 }
 
+/// Where machines that outlive their launching process are addressed.
+///
+/// It sits under the same durable state root the lifecycle records are in, because an Instance
+/// whose durable record says it is active and whose host is somewhere else would be two truths a
+/// caller had to reconcile.
+pub(crate) fn machine_host_directory(state_root: &std::path::Path) -> PathBuf {
+    state_root.join("machines")
+}
+
 pub(crate) enum LocalBackend {
     Docker(docker::DockerBackend),
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     Macos(macos::MacBackend),
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    Kvm(kvm::KvmBackend),
+    Kvm(Box<kvm::KvmBackend>),
 }
 
 type PreparedWorkload = Box<dyn Any + Send>;
 
 impl LocalBackend {
+    /// Opens one local backend.
+    ///
+    /// `host_directory` is where machines that must outlive this process are addressed. Only a
+    /// caller performing the managed Machine lifecycle supplies one; a one-shot run does not,
+    /// and keeps its machine in its own process.
     pub(crate) fn open(
         selection: BackendSelection,
         explicit_runtime: Option<PathBuf>,
+        host_directory: Option<PathBuf>,
     ) -> Result<(Self, BackendSelection), LocalFailure> {
         let resolved = resolve_selection(selection)?;
         match resolved {
-            BackendSelection::Docker => docker::DockerBackend::open()
-                .map(|backend| (Self::Docker(backend), resolved))
-                .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable)),
+            BackendSelection::Docker => {
+                drop(host_directory);
+                docker::DockerBackend::open()
+                    .map(|backend| (Self::Docker(backend), resolved))
+                    .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))
+            }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            BackendSelection::Macos => macos::MacBackend::open(explicit_runtime)
-                .map(|backend| (Self::Macos(backend), resolved))
-                .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable)),
+            BackendSelection::Macos => {
+                drop(host_directory);
+                macos::MacBackend::open(explicit_runtime)
+                    .map(|backend| (Self::Macos(backend), resolved))
+                    .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))
+            }
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             BackendSelection::Kvm => {
                 drop(explicit_runtime);
-                kvm::KvmBackend::open().map(|backend| (Self::Kvm(backend), resolved))
+                kvm::KvmBackend::open(host_directory)
+                    .map(|backend| (Self::Kvm(Box::new(backend)), resolved))
             }
             _ => {
                 drop(explicit_runtime);
+                drop(host_directory);
                 Err(LocalFailure::new(LocalFailureKind::UnsupportedTarget))
             }
         }

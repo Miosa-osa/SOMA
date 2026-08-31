@@ -22,8 +22,12 @@ pub(super) fn invoke(
     operation: PreparedOperation,
 ) -> Execution {
     let command = operation.command();
+    // Every managed Machine operation names an Instance a later process must be able to reach,
+    // so its machine is held by a host rather than by this command. A run holds its own machine
+    // for the whole operation and releases it before returning, so it needs no second process.
+    let hosted = !matches!(operation, PreparedOperation::Run { .. });
     let config = match LocalRuntimeConfig::discover(backend.into(), runtime_path, state_root) {
-        Ok(config) => config,
+        Ok(config) => config.with_hosted_machines(hosted),
         Err(failure) => return local_failure(command, failure.kind()),
     };
     let mut runtime = match LocalRuntime::open(config) {

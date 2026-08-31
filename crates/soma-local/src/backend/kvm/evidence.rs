@@ -5,10 +5,9 @@ use soma::{
     EgressPolicy, ExecutionRequest, NetworkAttachment, NetworkPolicy, Observation,
     ObservationUnavailable, ObservedOutput, PortActivationClass,
 };
-use soma_guest::{GuestCommand, TerminalStatus};
+use soma_guest::TerminalStatus;
 
 use super::network::Egress;
-use super::session::Completed;
 
 /// The one machine shape the `x86_64` contract admits.
 pub(super) const CONTRACT_VCPUS: u16 = 1;
@@ -62,20 +61,30 @@ pub(super) fn effective_network(egress: &Egress, policy: &NetworkPolicy) -> Effe
     observed.unwrap_or_else(|_| EffectiveNetwork::unavailable(ObservationUnavailable::NotVerified))
 }
 
-pub(super) fn guest_command(request: &ExecutionRequest<'_>) -> Option<GuestCommand> {
+/// One command lowered to the values a guest agent accepts.
+///
+/// The lowering happens on the side that was asked, whether or not the machine is in this
+/// process, so a request no guest could accept is refused before any other process is addressed.
+pub(super) struct CommandParts {
+    pub(super) program: Vec<u8>,
+    pub(super) arguments: Vec<Vec<u8>>,
+    pub(super) timeout_ms: u32,
+    pub(super) max_output_bytes: u64,
+}
+
+pub(super) fn command_parts(request: &ExecutionRequest<'_>) -> Option<CommandParts> {
     let command = request.command();
     let limits = request.limits();
-    GuestCommand::new(
-        command.executable().as_bytes().to_vec(),
-        command
+    Some(CommandParts {
+        program: command.executable().as_bytes().to_vec(),
+        arguments: command
             .arguments()
             .iter()
             .map(|argument| argument.as_bytes().to_vec())
             .collect(),
-        u32::try_from(limits.timeout_ms()).ok()?,
-        limits.max_output_bytes(),
-    )
-    .ok()
+        timeout_ms: u32::try_from(limits.timeout_ms()).ok()?,
+        max_output_bytes: limits.max_output_bytes(),
+    })
 }
 
 /// The portable status for a command the guest actually ran.
@@ -84,7 +93,7 @@ pub(super) fn guest_command(request: &ExecutionRequest<'_>) -> Option<GuestComma
 /// the first means the program never started, the second that the agent itself failed. Reporting
 /// either as an exit code would describe a command that never ran as one that ran and finished,
 /// so they become a guest failure instead.
-const fn command_status(status: TerminalStatus) -> Option<CommandStatus> {
+pub(super) const fn command_status(status: TerminalStatus) -> Option<CommandStatus> {
     match status {
         TerminalStatus::Exited(code) => Some(CommandStatus::Exited { code }),
         TerminalStatus::Signaled(signal) => Some(CommandStatus::Signaled {
@@ -98,22 +107,21 @@ const fn command_status(status: TerminalStatus) -> Option<CommandStatus> {
 
 pub(super) fn observation(
     request: &ExecutionRequest<'_>,
-    completed: &Completed,
+    status: CommandStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
     times: CommandTimes,
-) -> Option<CommandObservation> {
+) -> CommandObservation {
     // The guest bounds the combined allowance and returns exactly what it kept, so the observed
     // byte counts are the lengths of the bytes themselves rather than a separate claim.
-    let output = ObservedOutput::new(
-        completed.stdout.clone(),
-        completed.stdout.len() as u64,
-        completed.stderr.clone(),
-        completed.stderr.len() as u64,
-    );
-    Some(CommandObservation::new(
+    let observed_stdout = stdout.len() as u64;
+    let observed_stderr = stderr.len() as u64;
+    let output = ObservedOutput::new(stdout, observed_stdout, stderr, observed_stderr);
+    CommandObservation::new(
         request.operation_id().clone(),
         request.instance_id().clone(),
-        command_status(completed.status)?,
+        status,
         output,
         times,
-    ))
+    )
 }

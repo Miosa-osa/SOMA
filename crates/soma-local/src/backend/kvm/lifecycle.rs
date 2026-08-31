@@ -1,36 +1,40 @@
-//! Launch, execute, inspect, and cleanup for one KVM sandbox.
+//! Launch, execute, inspect, and release for one KVM sandbox, in the process that holds it.
 //!
+//! Everything here is resident work: it touches the machine, its memory mapping, its overlay
+//! head, its network lease, and its authenticated session, all of which belong to one process.
 //! The Backend holds at most one live sandbox at a time, keyed by the Instance that launched it,
-//! because one command-line invocation drives one sandbox from launch to cleanup. A request that
-//! names a different Instance is refused rather than served by the wrong machine.
+//! because one process drives one sandbox from launch to release. A request naming a different
+//! Instance is refused rather than served by the wrong machine.
 //!
-//! Ownership of the Instance identity is a separate question from residency of the session.
-//! Where a Host Runtime is configured, it owns the identity across processes, so Launch
-//! registers with it and Cleanup ends that ownership by identity. The guest session is still
-//! resident in the process that launched it, so an Execute from a second process is refused
-//! with a typed unsupported rather than served or reported absent; that stays true until the
-//! machine runs in the worker the Host owns rather than inside the launching process.
+//! Which process performs this work is decided one level up, in `dispatch`. A `soma run` does it
+//! in the command's own process; a `soma machine launch` starts a host that does it and stays.
+//! Neither changes what happens here, so the per-Instance identity, the sterile assignment, and
+//! the Noise session are established exactly once either way.
 
 use std::time::Duration;
 
 use soma::{
     BackendFailure, BackendFailureKind, CleanupDisposition, CleanupEvidence, CleanupMethod,
-    CleanupObservation, CleanupRequest, CleanupTimes, CommandObservation, CommandTimes,
-    DigestBinding, ExecutionRequest, InspectionObservation, InspectionRequest, InstanceId,
-    IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, MachineState,
+    CommandStatus, EffectiveNetwork, InstanceId, MachineShape, MachineState, OperationId,
 };
+use soma_guest::GuestCommand;
 
 use super::{
     KvmBackend, claim,
-    evidence::{CONTRACT_VCPUS, effective_network, effective_shape, guest_command, observation},
+    evidence::{CONTRACT_VCPUS, command_status, effective_network},
+    host::Launched,
     identity::LaunchIdentity,
     network::{Egress, Released},
+    prepared::PreparedGeneration,
     session::{Network, Session},
     start::{Launching, Started, failure_kind},
 };
 
 /// How long one bounded command may take before the session is considered gone.
 pub(in crate::backend::kvm) const COMMAND_CEILING: Duration = Duration::from_secs(300);
+
+/// One command that ran, as the portable lifecycle reports it.
+pub(super) type Ran = (CommandStatus, Vec<u8>, Vec<u8>);
 
 /// The live sandbox this Backend is driving.
 pub(super) struct Live {
@@ -39,34 +43,31 @@ pub(super) struct Live {
     /// The network this Instance holds, released when its sandbox is.
     pub(super) egress: Egress,
     /// What this Instance was told its network is, reported again by every later observation.
-    pub(super) network: soma::EffectiveNetwork,
+    pub(super) network: EffectiveNetwork,
 }
 
 impl KvmBackend {
-    pub(in crate::backend) fn launch(
+    /// Builds the one machine this process will hold, and reports what that established.
+    pub(super) fn launch_resident(
         &mut self,
-        request: &LaunchRequest<'_, Box<dyn std::any::Any + Send>>,
-    ) -> Result<LaunchObservation, BackendFailure> {
-        let operation = request.operation_id();
-        let admitted = self.clocks.elapsed_ns(operation);
+        operation: &OperationId,
+        instance: &InstanceId,
+        prepared: &PreparedGeneration,
+        shape: &MachineShape,
+    ) -> Result<Launched, BackendFailure> {
         // This Backend owns at most one sandbox. Assigning over a live one would drop its
         // Session, and dropping a Session shuts the guest down, so launching B would silently
         // destroy A without any Stop or Cleanup naming A.
         if self.live.is_some() {
             return Err(self.fail(operation, BackendFailureKind::ResourceConflict));
         }
-        let shape = request.shape();
         // The machine contract fixes one vCPU, so a larger shape is refused rather than
         // silently served by a machine that is not the shape the caller asked for.
         if shape.vcpu_count() != CONTRACT_VCPUS {
             return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
         }
-        let prepared = request
-            .prepared()
-            .downcast_ref::<super::prepared::PreparedGeneration>()
-            .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
-        let identity = LaunchIdentity::derive(request.instance_id())
-            .map_err(|kind| self.fail(operation, kind))?;
+        let identity =
+            LaunchIdentity::derive(instance).map_err(|kind| self.fail(operation, kind))?;
         let policy = shape.capabilities().network_policy();
         // A request that needs egress is served by the broker or refused. It is never served by
         // the placeholder device, which would report a working network that drops every packet.
@@ -91,7 +92,7 @@ impl KvmBackend {
         // The placement itself is wired, so a launch given a secret it cannot place fails here
         // rather than running without it.
         let launching = Launching {
-            instance: request.instance_id(),
+            instance,
             prepared,
             identity,
             memory_mib: shape.memory_mib(),
@@ -106,105 +107,64 @@ impl KvmBackend {
             Some(claimed) => self.assign_claimed(operation, launching, &mut egress, claimed)?,
             None => self.restore_on_demand(operation, launching, &mut egress)?,
         };
-        let ready = self.clocks.elapsed_ns(operation);
         self.live = Some(Live {
-            instance: request.instance_id().clone(),
+            instance: instance.clone(),
             session,
             egress,
             network: observed.clone(),
         });
-        Ok(LaunchObservation::new(
-            operation.clone(),
-            request.instance_id().clone(),
-            request.workload().clone(),
-            Self::kind(),
-            IsolationClass::HardwareVirtualMachine,
-            // Only a machine this Launch actually claimed from the pool is reported as
-            // prepared. A depleted pool restored its own machine and says so.
+        Ok(Launched {
             preparation,
-            // What a host prepares today is a Candidate, and no certification gate has
-            // verified it, so the artifacts are observed rather than enforced. Reporting
-            // LaunchEnforced would claim a binding no gate produced. It becomes enforced when
-            // Launch accepts only a certified Generation.
-            DigestBinding::ObservedOnly,
-            effective_shape(shape.memory_mib()),
-            observed,
-            LaunchTimes::new(admitted, launched, ready),
-        ))
+            memory_mib: shape.memory_mib(),
+            network: observed,
+            at_ns: launched,
+        })
     }
 
-    pub(in crate::backend) fn execute(
+    /// Runs one bounded command over the authenticated session this process holds.
+    pub(super) fn execute_resident(
         &mut self,
-        request: ExecutionRequest<'_>,
-    ) -> Result<CommandObservation, BackendFailure> {
-        let operation = request.operation_id();
-        let started = self.clocks.elapsed_ns(operation);
-        let command = guest_command(&request)
-            .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
-        let Some(live) = self.live_for(request.instance_id()) else {
-            let kind = self.absent_kind(request.instance_id());
-            return Err(self.fail(operation, kind));
+        instance: &InstanceId,
+        command: GuestCommand,
+    ) -> Result<Ran, BackendFailureKind> {
+        let Some(live) = self.live_for(instance) else {
+            return Err(self.absent_kind(instance));
         };
         let completed = live
             .session
             .execute(command, COMMAND_CEILING)
-            .map_err(|error| {
-                BackendFailure::new(failure_kind(error), self.clocks.elapsed_ns(operation))
-            })?;
-        let finished = self.clocks.elapsed_ns(operation);
-        observation(&request, &completed, CommandTimes::new(started, finished))
-            .ok_or_else(|| BackendFailure::new(BackendFailureKind::GuestFailure, finished))
+            .map_err(failure_kind)?;
+        let status = command_status(completed.status).ok_or(BackendFailureKind::GuestFailure)?;
+        Ok((status, completed.stdout, completed.stderr))
     }
 
-    pub(in crate::backend) fn inspect(
+    /// Reports the state of the sandbox this process is driving.
+    pub(super) fn inspect_resident(
         &mut self,
-        request: InspectionRequest<'_>,
-    ) -> Result<InspectionObservation, BackendFailure> {
-        let operation = request.operation_id();
-        let observed = self.clocks.elapsed_ns(operation);
+        instance: &InstanceId,
+    ) -> Result<(MachineState, EffectiveNetwork), BackendFailureKind> {
         // A sandbox this Backend is not driving cannot be observed, and reporting it as stopped
         // would claim knowledge of a machine this process never owned.
-        let Some(live) = self.live_for(request.instance_id()) else {
-            let kind = self.absent_kind(request.instance_id());
-            return Err(self.fail(operation, kind));
+        let Some(live) = self.live_for(instance) else {
+            return Err(self.absent_kind(instance));
         };
         let network = live.network.clone();
-        Ok(InspectionObservation::observed(
-            request,
-            Self::kind(),
-            MachineState::Ready,
-            network,
-            observed,
-        ))
+        Ok((MachineState::Ready, network))
     }
 
-    pub(in crate::backend) fn cleanup(
+    /// Shuts the guest down and releases everything this process holds for the Instance.
+    pub(super) fn cleanup_resident(
         &mut self,
-        request: CleanupRequest<'_>,
-    ) -> Result<CleanupObservation, BackendFailure> {
-        let operation = request.operation_id();
-        let started = self.clocks.elapsed_ns(operation);
+        instance: &InstanceId,
+    ) -> Result<CleanupEvidence, BackendFailureKind> {
         // Cleanup is idempotent, but an Instance this Backend never owned is a different fact
-        // from one it owned and released. Reporting resources complete for an unknown Instance
-        // would claim to have released resources this process never held.
-        let Some(mut live) = self.take_live(request.instance_id()) else {
-            // With no session here the Instance identity may still be owned by the Host
-            // Runtime, and ending that ownership is the one terminal act this process can
-            // perform for it. The dispositions stay NotOwned because that is what happened:
-            // this process held no machine, no memory, no head, and no guest authority.
-            let ended = self.ownership.release(request.instance_id());
-            ended.map_err(|kind| self.fail(operation, kind))?;
-            let finished = self.clocks.elapsed_ns(operation);
-            return Ok(CleanupObservation::new(
-                operation.clone(),
-                request.instance_id().clone(),
-                not_owned_evidence(),
-                CleanupTimes::new(started, finished),
-            ));
+        // from one it owned and released.
+        let Some(mut live) = self.take_live(instance) else {
+            return self.release_unowned(instance);
         };
         let outcome = live.session.shutdown();
         if let Ok(evidence) = &outcome {
-            super::timeline::dump(request.instance_id().as_str(), evidence);
+            super::timeline::dump(instance.as_str(), evidence);
         }
         // The lease is released whether or not the guest shut down cleanly. A machine that is
         // gone has no use for a namespace, a TAP, an address lease, or a port mapping, and
@@ -215,46 +175,40 @@ impl KvmBackend {
             // The broker was asked and could not confirm, so this process must not claim it did.
             Released::Incomplete => CleanupDisposition::Incomplete,
         };
-        let released = outcome.is_ok();
-        if !released {
-            let finished = self.clocks.elapsed_ns(operation);
-            return Err(BackendFailure::new(
-                BackendFailureKind::CleanupFailure,
-                finished,
-            ));
+        if outcome.is_err() {
+            return Err(BackendFailureKind::CleanupFailure);
         }
         // The machine is gone, so the Host must stop owning the Instance that named it. A
         // record left behind is a leak only reconciliation could find, and an ownership the
         // Host could not prove ended must not be reported as a complete cleanup.
-        let ended = self.ownership.release(request.instance_id());
-        let proven = ended.map_err(|kind| self.fail(operation, kind))?;
-        let finished = self.clocks.elapsed_ns(operation);
-        if !proven {
-            return Err(BackendFailure::new(
-                BackendFailureKind::CleanupFailure,
-                finished,
-            ));
+        if !self.ownership.release(instance)? {
+            return Err(BackendFailureKind::CleanupFailure);
         }
         // The machine, its memory mapping, the private overlay head, and the Instance authority
         // are all owned by the sandbox thread and released when it ends.
-        let evidence = CleanupEvidence::new(
+        Ok(CleanupEvidence::new(
             CleanupDisposition::Complete,
             CleanupDisposition::Complete,
             CleanupDisposition::Complete,
             network,
             CleanupDisposition::Complete,
         )
-        .with_method(CleanupMethod::Graceful);
-        Ok(CleanupObservation::new(
-            operation.clone(),
-            request.instance_id().clone(),
-            evidence,
-            CleanupTimes::new(started, finished),
-        ))
+        .with_method(CleanupMethod::Graceful))
+    }
+
+    /// Ends what can be ended for an Instance this process holds no machine for.
+    ///
+    /// Every disposition stays `NotOwned` because that is what happened: this process held no
+    /// machine, no memory, no head, and no guest authority. Only the Host Runtime's ownership of
+    /// the identity is ended, which is the one terminal act available here.
+    pub(super) fn release_unowned(
+        &mut self,
+        instance: &InstanceId,
+    ) -> Result<CleanupEvidence, BackendFailureKind> {
+        self.ownership.release(instance)?;
+        Ok(lookup::not_owned_evidence())
     }
 }
 
 #[path = "lifecycle/lookup.rs"]
-mod lookup;
-
-use lookup::not_owned_evidence;
+pub(super) mod lookup;
