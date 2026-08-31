@@ -1136,6 +1136,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-api"
+version = "1.0.0-alpha.1"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "soma",
+ "soma-local",
+ "uuid",
+]
+
+[[package]]
 name = "soma-cli"
 version = "1.0.0-alpha.1"
 dependencies = [
