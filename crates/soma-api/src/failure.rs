@@ -1,4 +1,7 @@
-use soma::{BackendFailureKind, ManagedFailure, ManagedStateError, RunFailure, RunFailureKind};
+use soma::{
+    BackendFailureKind, ManagedFailure, ManagedStateError, RunFailure, RunFailureKind,
+    StateStoreFailureKind,
+};
 
 use crate::envelope::ApiError;
 
@@ -13,12 +16,7 @@ pub fn managed_error(failure: &ManagedFailure) -> ApiError {
     match failure {
         ManagedFailure::Operation(failure) => run_error(failure),
         ManagedFailure::State(state) => state_error(*state),
-        ManagedFailure::StateStore(_) => ApiError::new(
-            500,
-            "state_store_failure",
-            "durable state operation failed",
-            true,
-        ),
+        ManagedFailure::StateStore(kind) => state_store_error(*kind),
         ManagedFailure::ReplayUnavailable(_) => ApiError::new(
             409,
             "replay_unavailable",
@@ -65,12 +63,7 @@ fn run_kind_error(kind: RunFailureKind) -> ApiError {
             "backend evidence violated the SOMA contract",
             false,
         ),
-        RunFailureKind::StateStore { .. } => ApiError::new(
-            500,
-            "state_store_failure",
-            "durable state operation failed",
-            true,
-        ),
+        RunFailureKind::StateStore { kind } => state_store_error(kind),
         RunFailureKind::Backend { kind, .. } => backend_error(kind),
     }
 }
@@ -83,11 +76,14 @@ fn backend_error(kind: BackendFailureKind) -> ApiError {
             "backend operation is unsupported",
             false,
         ),
+        // Not retryable: a capability this host does not have does not appear because a caller
+        // asked again. Clearing it takes operator action, and a client that reads `retryable`
+        // as permission to keep asking would loop forever.
         BackendFailureKind::Unavailable => ApiError::new(
             503,
             "backend_unavailable",
             "backend capability is unavailable",
-            true,
+            false,
         ),
         BackendFailureKind::ResourceConflict => ApiError::new(
             409,
@@ -108,6 +104,23 @@ fn backend_error(kind: BackendFailureKind) -> ApiError {
             true,
         ),
     }
+}
+
+/// The refusal one durable state store condition reports.
+///
+/// Only a lock another caller holds and a momentarily unreachable store clear on their own. A
+/// corrupt, malformed, unknown-version, or full record does not, and marking those retryable
+/// invites a loop that cannot end.
+fn state_store_error(kind: StateStoreFailureKind) -> ApiError {
+    ApiError::new(
+        500,
+        "state_store_failure",
+        "durable state operation failed",
+        matches!(
+            kind,
+            StateStoreFailureKind::Conflict | StateStoreFailureKind::Unavailable
+        ),
+    )
 }
 
 fn state_error(kind: ManagedStateError) -> ApiError {

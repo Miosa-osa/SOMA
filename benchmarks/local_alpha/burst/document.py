@@ -8,6 +8,7 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from .attribution import breakdown_lines
 from .results import BurstResults, statistics
 from .stages import stage_values
 
@@ -118,6 +119,14 @@ def stage_rows(cohort: BurstResults) -> list[list[str]]:
 
 def failure_lines(cohorts: Sequence[BurstResults]) -> list[str]:
     lines: list[str] = []
+    # The breakdown first: a reader who sees a low success rate needs the dominant cause before
+    # a list of every individual slot, not after it.
+    for cohort in cohorts:
+        rows = breakdown_lines(cohort.failure_breakdown)
+        if rows:
+            lines.append(f"`{cohort_id(cohort)}` failed for:")
+            lines += [f"- {row.strip()}" for row in rows]
+            lines.append("")
     for cohort in cohorts:
         for sample in cohort.failed:
             reasons = ", ".join(

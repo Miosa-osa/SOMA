@@ -10,7 +10,7 @@ mod runtime;
 #[cfg(test)]
 mod test_support;
 
-pub use backend::{BackendProbe, BackendSelection, probe_backend};
+pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
 pub use config::LocalRuntimeConfig;
 pub use error::{LocalFailure, LocalFailureKind};
 pub use file_store::FileStateStore;

@@ -1,5 +1,6 @@
 use soma::{
     BackendFailureKind, FailurePhase, ManagedFailure, ManagedStateError, RunFailure, RunFailureKind,
+    StateStoreFailureKind,
 };
 use soma_local::LocalFailureKind;
 
@@ -47,7 +48,10 @@ pub(super) fn managed_failure(
                 exit,
             }
         }
-        ManagedFailure::StateStore(_) => software_failure(command, "state_store_failure"),
+        ManagedFailure::StateStore(kind) => Execution {
+            response: Response::failure(command, state_store_body(*kind)),
+            exit: ProcessExit::Software,
+        },
         ManagedFailure::ReplayUnavailable(replay) => {
             let body = FailureBody::new(
                 "replay_unavailable",
@@ -90,15 +94,15 @@ pub(super) fn local_failure(command: &'static str, kind: LocalFailureKind) -> Ex
             FailureBody::new(
                 "backend_unavailable",
                 "local isolation backend is unavailable",
-                true,
+                false,
             ),
             ProcessExit::CapabilityUnavailable,
         ),
-        LocalFailureKind::StateStore(_) => (
+        LocalFailureKind::StateStore(kind) => (
             FailureBody::new(
                 "state_store_failure",
                 "durable state store could not be opened",
-                true,
+                state_store_retryable(kind),
             ),
             ProcessExit::Software,
         ),
@@ -106,6 +110,27 @@ pub(super) fn local_failure(command: &'static str, kind: LocalFailureKind) -> Ex
     Execution {
         response: Response::failure(command, body),
         exit,
+    }
+}
+
+/// What a launch reports on a backend that cannot host a Machine past this process.
+///
+/// `CapabilityUnavailable` rather than a backend failure: nothing failed, and nothing was
+/// started. The capability the `machine` surface is built on does not exist on this backend yet,
+/// and `soma run` is the one that does.
+pub(super) fn not_hosted(command: &'static str) -> Execution {
+    Execution {
+        response: Response::failure(
+            command,
+            FailureBody::new(
+                "machine_not_hosted",
+                "this backend hosts a machine only inside the launching process, so a launched \
+                 instance identity would not survive this command; use `soma run` for a \
+                 single-process sandbox",
+                false,
+            ),
+        ),
+        exit: ProcessExit::CapabilityUnavailable,
     }
 }
 
@@ -126,7 +151,7 @@ pub(super) fn software_failure(command: &'static str, message: &'static str) -> 
     }
 }
 
-fn failure_details(kind: RunFailureKind) -> (FailureBody, ProcessExit) {
+pub(super) fn failure_details(kind: RunFailureKind) -> (FailureBody, ProcessExit) {
     match kind {
         RunFailureKind::TimedOut => (
             FailureBody::new("guest_timeout", "guest command exceeded its deadline", true),
@@ -160,19 +185,12 @@ fn failure_details(kind: RunFailureKind) -> (FailureBody, ProcessExit) {
             ),
             ProcessExit::Software,
         ),
-        RunFailureKind::StateStore { .. } => (
-            FailureBody::new(
-                "state_store_failure",
-                "durable state operation failed",
-                true,
-            ),
-            ProcessExit::Software,
-        ),
+        RunFailureKind::StateStore { kind } => (state_store_body(kind), ProcessExit::Software),
         RunFailureKind::Backend { phase, kind } => backend_failure_details(phase, kind),
     }
 }
 
-fn backend_failure_details(
+pub(super) fn backend_failure_details(
     _phase: FailurePhase,
     kind: BackendFailureKind,
 ) -> (FailureBody, ProcessExit) {
@@ -189,7 +207,7 @@ fn backend_failure_details(
             FailureBody::new(
                 "backend_unavailable",
                 "backend capability is unavailable",
-                true,
+                false,
             ),
             ProcessExit::CapabilityUnavailable,
         ),
@@ -235,3 +253,30 @@ fn managed_state_details(kind: ManagedStateError) -> (FailureBody, ProcessExit) 
         ),
     }
 }
+
+/// The failure body one durable state store condition reports.
+fn state_store_body(kind: StateStoreFailureKind) -> FailureBody {
+    FailureBody::new(
+        "state_store_failure",
+        "durable state operation failed",
+        state_store_retryable(kind),
+    )
+}
+
+/// Whether resubmitting the identical request, with no operator action in between, could
+/// succeed.
+///
+/// A lock another caller holds and a store that is momentarily unreachable are conditions that
+/// clear on their own. A record that is corrupt, malformed, written by a version this build does
+/// not understand, or already at capacity does not: retrying those is a loop that cannot end,
+/// which is exactly what `retryable` is read as promising will not happen.
+const fn state_store_retryable(kind: StateStoreFailureKind) -> bool {
+    matches!(
+        kind,
+        StateStoreFailureKind::Conflict | StateStoreFailureKind::Unavailable
+    )
+}
+
+#[cfg(test)]
+#[path = "failure_tests.rs"]
+mod tests;

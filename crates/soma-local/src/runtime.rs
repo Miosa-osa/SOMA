@@ -23,7 +23,11 @@ impl LocalRuntime {
     /// Returns a typed local setup failure when target selection, runtime probing, or state-store
     /// setup cannot be completed safely.
     pub fn open(config: LocalRuntimeConfig) -> Result<Self, LocalFailure> {
-        let (backend, configured_backend) = LocalBackend::open(config.backend, config.runtime)?;
+        let host_directory = config
+            .hosted_machines
+            .then(|| crate::backend::machine_host_directory(&config.state_root));
+        let (backend, configured_backend) =
+            LocalBackend::open(config.backend, config.runtime, host_directory)?;
         let backend_kind = backend.kind();
         let state = FileStateStore::open(config.state_root)
             .map_err(|failure| LocalFailure::new(LocalFailureKind::StateStore(failure.kind())))?;
@@ -42,6 +46,12 @@ impl LocalRuntime {
     #[must_use]
     pub const fn backend_kind(&self) -> BackendKind {
         self.backend_kind
+    }
+
+    /// Whether a Machine this runtime launches outlives the process that launched it.
+    #[must_use]
+    pub const fn machine_hosting(&self) -> crate::MachineHosting {
+        crate::machine_hosting(self.backend_kind)
     }
 
     /// Runs one facade-owned, cleanup-proven local transaction.

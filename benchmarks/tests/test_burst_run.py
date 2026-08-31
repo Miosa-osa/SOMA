@@ -28,7 +28,13 @@ def _sample(instance_id: str, *, successful: bool, tti_ns: int) -> BurstSample:
         },
         failures=()
         if successful
-        else ({"reason": "command_unsuccessful", "operation": "exec", "detail": ""},),
+        else (
+            {
+                "reason": "command_unsuccessful",
+                "operation": "exec",
+                "detail": "timed_out:None",
+            },
+        ),
     )
 
 
