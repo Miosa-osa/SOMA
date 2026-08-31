@@ -133,8 +133,11 @@ def _run(arguments: argparse.Namespace) -> int:
         )
     json.dump(summary, sys.stdout, sort_keys=True, separators=(",", ":"))
     sys.stdout.write("\n")
+    for note in summary.get("shape_disagreements") or []:
+        sys.stderr.write(f"soma-burst: {note}\n")
     accepted = summary["tti"]["accepted_count"]
     if accepted == summary["attempted"]:
+        sys.stderr.flush()
         return 0
     _report_failures(summary, accepted)
     return 1

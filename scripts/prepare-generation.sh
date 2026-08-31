@@ -113,7 +113,11 @@ prepare() {
     log "done"
     printf '  entry:  %s\n  launch: SOMA_GENERATION_STORE=%s SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \\\n' \
         "$entry" "$STORE_DIR"
-    printf '          soma --backend kvm run %s -- <command>\n' "$IMAGE"
+    printf '          soma --backend kvm run --memory-mib %s --storage-mib %s %s -- <command>\n' \
+        "$MEM_MIB" "$DISK_MIB" "$IMAGE"
+    printf '  shape:  a snapshot restores only the memory it was captured at; launching this\n'
+    printf '          entry at any other --memory-mib is refused as backend_unavailable\n'
+
     report_boot_path "$entry"
 }
 

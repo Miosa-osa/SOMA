@@ -253,6 +253,7 @@ def _record_receipt(
         observed.update(
             {
                 "backend": receipt.get("backend"),
+                "requested_shape": receipt.get("requested_shape"),
                 "isolation": receipt.get("isolation"),
                 "preparation": receipt.get("preparation"),
                 "workload": receipt.get("workload"),

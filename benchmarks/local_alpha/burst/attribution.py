@@ -144,3 +144,33 @@ def breakdown_lines(breakdown: Sequence[Mapping[str, object]]) -> list[str]:
         for detail in row["details"]:
             lines.append(f"    {detail['count']}x {detail['detail']}")
     return lines
+
+
+SHAPE_DIMENSIONS = ("vcpu_count", "memory_mib", "storage_mib")
+
+
+def shape_disagreement(observed: Mapping[str, object]) -> str:
+    """How the shape a launch delivered differs from the shape it was asked for.
+
+    A launch reports `ok` whether every dimension was observed to match, was observed to differ,
+    or was never checked. The third is the dangerous one: a request for ten gigabytes of writable
+    storage served by a two gigabyte overlay reports `not_verified` and looks like a success.
+    """
+
+    requested = observed.get("requested_shape")
+    effective = observed.get("effective_shape")
+    if not isinstance(requested, Mapping) or not isinstance(effective, Mapping):
+        return ""
+    notes = []
+    for name in SHAPE_DIMENSIONS:
+        asked = requested.get(name)
+        given = effective.get(name)
+        if not isinstance(given, Mapping):
+            continue
+        if given.get("state") != "observed":
+            notes.append(f"{name} requested {asked}, effective {given.get('value')}")
+        elif given.get("value") != asked:
+            notes.append(f"{name} requested {asked}, effective {given.get('value')}")
+    if not notes:
+        return ""
+    return "shape mismatch: " + "; ".join(notes)
