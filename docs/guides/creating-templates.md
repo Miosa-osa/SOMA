@@ -49,7 +49,8 @@ Editing a Template does not change any existing Instance; it produces a new lock
 
 ## 2. The smallest Template and what you get inside it
 
-The smallest valid document names the schema, the Template, one image and platform, one command, three resource dimensions, and three lifecycle values.
+The smallest valid document names the schema, the Template, one image and platform, and one program.
+Those five values have no default; everything else does.
 
 ```toml
 schema = "soma.template/v1alpha1"
@@ -62,18 +63,10 @@ platform = "linux/amd64"
 [command]
 program = "/usr/local/bin/node"
 args = ["--version"]
-
-[resources]
-vcpus = 1
-memory_mib = 1024
-writable_storage_mib = 1024
-
-[lifecycle]
-idle_timeout_seconds = 300
-maximum_lifetime_seconds = 3600
-on_idle = "destroy"
 ```
 
+`[resources]` may be omitted and then means the same Machine shape the command line defaults to.
+`[lifecycle]` may be omitted and then means a 300 second idle timeout, a 3,600 second maximum lifetime, and `destroy` on idle.
 `[network]` may be omitted and then means denied egress and denied ingress.
 `[command]` may be omitted only when exactly one composed module supplies a default command, and this document composes no modules.
 `modules`, `[[environment]]`, and `[[secrets]]` are optional.
@@ -170,13 +163,15 @@ Nothing checks that `working_directory` exists or that `user` exists in the imag
 
 ### `[resources]`
 
-| Key | Required | Accepted |
-|---|---|---|
-| `vcpus` | Yes | Nonzero, at most the Backend maximum, and at most 65,535 |
-| `memory_mib` | Yes | Nonzero and at most the Backend maximum |
-| `writable_storage_mib` | Yes | Nonzero and at most the Backend maximum |
+| Key | Required | Accepted | Default |
+|---|---|---|---|
+| `vcpus` | No | Nonzero, at most the Backend maximum, and at most 65,535 | `MachineShape::DEFAULT_VCPU_COUNT`, which is `1` |
+| `memory_mib` | No | Nonzero and at most the Backend maximum | `MachineShape::DEFAULT_MEMORY_MIB`, which is `1024` |
+| `writable_storage_mib` | No | Nonzero and at most the Backend maximum | `MachineShape::DEFAULT_STORAGE_MIB`, which is `10240` |
 
-The document carries no defaults; all three dimensions must be written.
+The whole table may be omitted, and so may any field in it.
+The defaults are read from the `soma` crate's `MachineShape` constants, which are the same constants the `--vcpus`, `--memory-mib`, and `--storage-mib` flags default to, so a Template and a command line cannot mean two different things by an unstated shape.
+The default shape sits inside the Generation compiler's profile version 1 window, so a Template that states no shape at all still compiles; `crates/soma-generation/tests/template_boundary.rs` holds that to be true.
 The Backend maximums are inputs to validation and are bound into the lock.
 Process count, open file, and output limits from the design are not accepted by this schema version; the parser rejects those keys as unknown.
 
@@ -204,11 +199,15 @@ DNS behavior, protocols, and ports are not accepted by this schema version.
 
 ### `[lifecycle]`
 
-| Key | Required | Accepted |
-|---|---|---|
-| `idle_timeout_seconds` | Yes | 1 through 2,592,000 (thirty days), and not more than `maximum_lifetime_seconds` |
-| `maximum_lifetime_seconds` | Yes | 1 through 2,592,000 |
-| `on_idle` | Yes | `destroy`, `stop`, or `checkpoint`, and the Backend must support the chosen action |
+| Key | Required | Accepted | Default |
+|---|---|---|---|
+| `idle_timeout_seconds` | No | 1 through 2,592,000 (thirty days), and not more than `maximum_lifetime_seconds` | `300` |
+| `maximum_lifetime_seconds` | No | 1 through 2,592,000 | `3600` |
+| `on_idle` | No | `destroy`, `stop`, or `checkpoint`, and the Backend must support the chosen action | `destroy` |
+
+The whole table may be omitted, and so may any field in it.
+Nothing outside `crates/soma-template` has a lifecycle opinion to reuse, so the three defaults are defined once in `crates/soma-template/src/schema.rs` as `DEFAULT_IDLE_TIMEOUT_SECONDS`, `DEFAULT_MAXIMUM_LIFETIME_SECONDS`, and `DEFAULT_ON_IDLE`.
+Five idle minutes outlasts any interactive round trip while still reclaiming an abandoned sandbox in minutes, one hour bounds what a forgotten sandbox can cost, and `destroy` is the only idle action that leaves nothing behind and so the only one safe to apply to an author who never considered idleness.
 
 The thirty-day bound is the Generation compiler's `MAX_TTL_SECONDS`, so every locked maximum lifetime is a valid compiler lifetime limit.
 
@@ -582,7 +581,7 @@ The network device in that run sat behind a link-down loopback backend, so no fr
 | Container | Instance of a Machine | A hardware-virtualized guest with fresh identity per Launch; the Docker Backend is the development exception and says so in its Receipt |
 | `ENTRYPOINT` and `CMD` | `[command]` or a module default command | The image configuration is not consulted |
 | `docker run -e NAME=value` | `[[environment]]` and `[[secrets]]` | Credentials must be references; literals are rejected |
-| `--cpus`, `--memory` | Machine shape under `[resources]` | vCPU count, MiB of memory, and MiB of writable storage, with no defaults in the document |
+| `--cpus`, `--memory` | Machine shape under `[resources]` | vCPU count, MiB of memory, and MiB of writable storage, each defaulting to the same `MachineShape` constant the command line uses |
 | `--network none` | `egress = "deny"` and `ingress = "deny"` | This is the default, and an allowlist is a maximum the ceiling must permit |
 | Volume or bind mount | Workspace volume | Outside the alpha; the writable root is private and disposable |
 | Template in E2B, or a golden image in Firecracker | Generation | A SOMA Template is the recipe; the Generation is the prepared immutable artifact |

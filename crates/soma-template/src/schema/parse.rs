@@ -68,12 +68,18 @@ pub fn parse_template(bytes: &[u8]) -> Result<Template, ParseError> {
         Some(reader) => Some(command(reader)?),
         None => None,
     };
-    let resources = resources(root.table("resources")?)?;
+    let resources = match root.optional_table("resources")? {
+        Some(reader) => resources(reader)?,
+        None => Resources::default(),
+    };
     let network = match root.optional_table("network")? {
         Some(reader) => network(reader)?,
         None => Network::default(),
     };
-    let lifecycle = lifecycle(root.table("lifecycle")?)?;
+    let lifecycle = match root.optional_table("lifecycle")? {
+        Some(reader) => lifecycle(reader)?,
+        None => Lifecycle::default(),
+    };
     let environment = environment(&mut root)?;
     let secrets = secrets(&mut root)?;
     root.finish()?;
@@ -148,11 +154,20 @@ fn command(mut reader: TableReader<'_>) -> Result<Command, ParseError> {
     Ok(command)
 }
 
+/// Reads `[resources]`, filling each absent dimension from the shared Machine shape default.
+///
+/// The dimensions default one at a time rather than all or nothing, so a Template that only
+/// wants more memory says only `memory_mib` instead of restating the two values it agrees with.
 fn resources(mut reader: TableReader<'_>) -> Result<Resources, ParseError> {
+    let default = Resources::default();
     let resources = Resources {
-        vcpus: reader.u32("vcpus")?,
-        memory_mib: reader.u64("memory_mib")?,
-        writable_storage_mib: reader.u64("writable_storage_mib")?,
+        vcpus: reader.optional_u32("vcpus")?.unwrap_or(default.vcpus),
+        memory_mib: reader
+            .optional_u64("memory_mib")?
+            .unwrap_or(default.memory_mib),
+        writable_storage_mib: reader
+            .optional_u64("writable_storage_mib")?
+            .unwrap_or(default.writable_storage_mib),
     };
     reader.finish()?;
     Ok(resources)
@@ -187,14 +202,24 @@ fn network(mut reader: TableReader<'_>) -> Result<Network, ParseError> {
     })
 }
 
+/// Reads `[lifecycle]`, filling each absent field from the schema default.
+///
+/// Each field defaults on its own for the same reason the resource dimensions do: raising the
+/// idle timeout should not force an author to restate the lifetime and the idle action too.
 fn lifecycle(mut reader: TableReader<'_>) -> Result<Lifecycle, ParseError> {
-    let idle_timeout_seconds = reader.u64("idle_timeout_seconds")?;
-    let maximum_lifetime_seconds = reader.u64("maximum_lifetime_seconds")?;
-    let on_idle = match reader.string("on_idle")? {
-        "destroy" => IdleAction::Destroy,
-        "stop" => IdleAction::Stop,
-        "checkpoint" => IdleAction::Checkpoint,
-        _ => return Err(choice(&reader, "on_idle", "destroy, stop, or checkpoint")),
+    let default = Lifecycle::default();
+    let idle_timeout_seconds = reader
+        .optional_u64("idle_timeout_seconds")?
+        .unwrap_or(default.idle_timeout_seconds);
+    let maximum_lifetime_seconds = reader
+        .optional_u64("maximum_lifetime_seconds")?
+        .unwrap_or(default.maximum_lifetime_seconds);
+    let on_idle = match reader.optional_string("on_idle")? {
+        None => default.on_idle,
+        Some("destroy") => IdleAction::Destroy,
+        Some("stop") => IdleAction::Stop,
+        Some("checkpoint") => IdleAction::Checkpoint,
+        Some(_) => return Err(choice(&reader, "on_idle", "destroy, stop, or checkpoint")),
     };
     reader.finish()?;
     Ok(Lifecycle {

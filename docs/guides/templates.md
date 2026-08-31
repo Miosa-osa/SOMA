@@ -26,17 +26,11 @@ platform = "linux/amd64"
 [command]
 program = "/bin/sh"
 args = ["-c", "echo hello from soma"]
-
-[resources]
-vcpus = 1
-memory_mib = 1024
-writable_storage_mib = 2048
-
-[lifecycle]
-idle_timeout_seconds = 300
-maximum_lifetime_seconds = 900
-on_idle = "destroy"
 ```
+
+Five values have no default and must be written: `schema`, `name`, `workload.image`,
+`workload.platform`, and `command.program`. The `args` line above is content rather than
+ceremony; a program with no arguments simply leaves it out.
 
 Then check it:
 
@@ -46,7 +40,7 @@ name: minimal
 image: debian:12-slim
 platform: linux/amd64
 command: /bin/sh ["-c", "echo hello from soma"]
-resources: 1 vcpu, 1024 MiB memory, 2048 MiB writable storage
+resources: 1 vcpu, 1024 MiB memory, 10240 MiB writable storage
 network: egress Deny, ingress Deny
 lock: not computed; pass a pinned image digest to resolve one
 ```
@@ -94,19 +88,23 @@ Optional as a table. Leave it out only when exactly one module supplies a defaul
 | Field | Required | What it does |
 | --- | --- | --- |
 | `program` | yes | Either a bare name looked up by name or an absolute path. It must exist in the base image or be owned by a module. |
-| `args` | yes | Up to 64 arguments. Write `args = []` when there are none. |
+| `args` | no | Up to 64 arguments. Defaults to none, so leave it out when there are none. |
 | `working_directory` | no | Absolute path. Defaults to `/`. |
 | `user` | no | POSIX user name. Defaults to `root`. |
 
 ### `[resources]`
 
-All three are required and all three must be nonzero and within the Backend limits.
+Optional, and so is every field in it. Leaving the table out asks for the same Machine shape
+`soma run` asks for when its `--vcpus`, `--memory-mib`, and `--storage-mib` flags are not
+given, because both read the same `MachineShape` constants. Stating a field overrides only
+that field, so a Template that wants more memory writes `memory_mib` and nothing else.
+Whatever the value ends up being, it must be nonzero and within the Backend limits.
 
-| Field | What it does |
-| --- | --- |
-| `vcpus` | Virtual CPUs given to the Machine. |
-| `memory_mib` | Guest memory in MiB. |
-| `writable_storage_mib` | Size of the writable overlay in MiB. The base image is read only. |
+| Field | Default | Source | What it does |
+| --- | --- | --- | --- |
+| `vcpus` | `1` | `MachineShape::DEFAULT_VCPU_COUNT` | Virtual CPUs given to the Machine. |
+| `memory_mib` | `1024` | `MachineShape::DEFAULT_MEMORY_MIB` | Guest memory in MiB. |
+| `writable_storage_mib` | `10240` | `MachineShape::DEFAULT_STORAGE_MIB` | Size of the writable overlay in MiB. The base image is read only. |
 
 ### `[network]`
 
@@ -125,13 +123,21 @@ A module that declares a destination needs that destination inside the envelope,
 
 ### `[lifecycle]`
 
-All three are required.
+Optional, and so is every field in it, on the same terms as `[resources]`. Nothing outside
+`crates/soma-template` has a lifecycle opinion to reuse, so the defaults are defined in
+`crates/soma-template/src/schema.rs` and that file is the only place they are stated.
 
-| Field | What it does |
-| --- | --- |
-| `idle_timeout_seconds` | How long the sandbox may sit idle before `on_idle` fires. |
-| `maximum_lifetime_seconds` | Hard ceiling on the sandbox's total life. |
-| `on_idle` | `destroy`, `stop`, or `checkpoint`. The Backend must support the action. |
+| Field | Default | Source | What it does |
+| --- | --- | --- | --- |
+| `idle_timeout_seconds` | `300` | `DEFAULT_IDLE_TIMEOUT_SECONDS` | How long the sandbox may sit idle before `on_idle` fires. |
+| `maximum_lifetime_seconds` | `3600` | `DEFAULT_MAXIMUM_LIFETIME_SECONDS` | Hard ceiling on the sandbox's total life. |
+| `on_idle` | `destroy` | `DEFAULT_ON_IDLE` | `destroy`, `stop`, or `checkpoint`. The Backend must support the action. |
+
+Five idle minutes outlasts any interactive round trip but reclaims a sandbox nobody is talking
+to in minutes rather than hours. One hour of life bounds the cost of a sandbox someone walked
+away from. `destroy` leaves nothing behind, which is the only idle action that is safe to
+apply to a Template whose author never thought about idleness; `stop` and `checkpoint` both
+retain guest state and are decisions to make on purpose.
 
 ### `[[environment]]`
 
@@ -216,16 +222,18 @@ module owns `/usr/local/bin/claude`. The same module requires `ANTHROPIC_API_KEY
 `[[secrets]]` table supplies, and declares `api.anthropic.com:443`, which the allowlist admits.
 Drop any one of those three and the Template is rejected with the field named.
 
-## What is verbose about this
+## What the minimum used to be
 
-The minimum document is twelve required values: `schema`, `name`, `workload.image`,
+The minimum document was twelve values: `schema`, `name`, `workload.image`,
 `workload.platform`, `command.program`, `command.args`, all three of `[resources]`, and all
-three of `[lifecycle]`. A Template that runs one command in one image still has to state its
+three of `[lifecycle]`. A Template that ran one command in one image still had to state its
 vCPU count, its memory, its writable storage, its idle timeout, its maximum lifetime, and its
-idle action, because none of those has a default. The comparable E2B document is
+idle action, because none of those had a default. The comparable E2B document is
 `Template().fromImage("node:24").setStartCmd("npm start")`.
 
 Every one of those values is something SOMA genuinely needs before it can boot a Machine, so
-the fix is defaults rather than fewer fields. A default Machine shape and a default lifecycle
-would take the minimum document from twelve values to six, and `args = []` could be implied by
-its own absence.
+the fix was defaults rather than fewer fields, following the pattern `[network]` and
+`[command]` already set: an omitted table is a stated intent, not a missing one. `[resources]`
+and `[lifecycle]` now default the same way, and `command.args` defaults to no arguments, which
+takes the minimum from twelve values to five without removing a single capability. Every value
+is still authorable, and a stated value always wins.

@@ -1,10 +1,13 @@
 # The smallest Template the `soma.template/v1alpha1` schema accepts.
 #
-# Every table below is required. There is no shorter spelling today, because the schema asks
-# for the Machine shape and the lifecycle limits up front instead of defaulting them, so even
-# a template that runs one shell command has to state how big the Machine is and how long it
-# may live. Only `[network]` is left out, and leaving it out means denied egress and denied
-# ingress, which is the safe answer for a template that talks to nothing.
+# Five values are mandatory: the schema, the name, the image, the platform, and the program.
+# Everything else has a default, so this file states only what it actually chooses. The
+# `args` line below is content rather than ceremony; drop it and the program runs bare.
+#
+# The omitted tables resolve to: 1 vCPU, 1024 MiB of memory and 10240 MiB of writable storage
+# from the same `MachineShape` constants `soma run` defaults to; a 300 second idle timeout, a
+# 3600 second maximum lifetime, and `destroy` on idle; and denied egress with denied ingress,
+# which is the safe answer for a Template that talks to nothing.
 
 schema = "soma.template/v1alpha1"
 name = "minimal"
@@ -17,13 +20,3 @@ platform = "linux/amd64"
 [command]
 program = "/bin/sh"
 args = ["-c", "echo hello from soma"]
-
-[resources]
-vcpus = 1
-memory_mib = 1024
-writable_storage_mib = 2048
-
-[lifecycle]
-idle_timeout_seconds = 300
-maximum_lifetime_seconds = 900
-on_idle = "destroy"

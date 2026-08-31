@@ -25,9 +25,19 @@ fn document(vcpus: u32) -> String {
     )
 }
 
+/// The same document with `[resources]` and `[lifecycle]` left out, so what reaches the
+/// compiler is whatever the schema defaults to rather than what this test chose.
+const DEFAULTED: &str = "schema = \"soma.template/v1alpha1\"\nname = \"boundary\"\n\n\
+     [workload]\nimage = \"python:3.12-slim\"\nplatform = \"linux/amd64\"\n\n\
+     [command]\nprogram = \"sh\"\n";
+
 fn view(vcpus: u32) -> View {
+    view_of(&document(vcpus))
+}
+
+fn view_of(text: &str) -> View {
     let digest = OciDigest::parse(DIGEST).expect("canonical digest");
-    let template = parse_template(document(vcpus).as_bytes()).expect("document parses");
+    let template = parse_template(text.as_bytes()).expect("document parses");
     let resolver = TestResolver::new().with_image(
         "python:3.12-slim",
         &OciPlatform::linux_amd64(),
@@ -99,4 +109,17 @@ fn every_locked_lifetime_is_a_valid_lifetime_limit() {
     let thirty_days = 30 * 24 * 60 * 60;
     assert!(LifetimeLimits::new(thirty_days).is_ok());
     assert!(LifetimeLimits::new(thirty_days + 1).is_err());
+}
+
+/// A Template that states no shape and no lifecycle must still compile, because the schema's
+/// defaults and the Generation compiler's profile version 1 window have to agree. If profile
+/// v1 ever narrows past `MachineShape::DEFAULT_MEMORY_MIB` or `DEFAULT_STORAGE_MIB`, the
+/// smallest possible Template stops compiling and this test says so.
+#[test]
+fn the_schema_defaults_fit_profile_v1_without_being_restated() {
+    let revision = compiler_revision(&view_of(DEFAULTED)).expect("defaults are a profile v1 shape");
+    assert_eq!(revision.shape().vcpu_count(), 1);
+    assert_eq!(revision.shape().memory_mib(), 1_024);
+    assert_eq!(revision.shape().storage_mib(), 10_240);
+    assert_eq!(revision.lifetime().ttl_seconds(), 3_600);
 }

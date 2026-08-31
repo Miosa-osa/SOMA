@@ -118,15 +118,15 @@ fn wrong_types_and_missing_required_fields_name_the_field() {
         error(&edit(EXAMPLE, "vcpus = 2", "vcpus = 4294967296")),
         wrong("resources.vcpus", "an integer between 0 and 4294967295")
     );
-    let no_resources = edit(
+    let no_workload = edit(
         EXAMPLE,
-        "[resources]\nvcpus = 2\nmemory_mib = 2048\nwritable_storage_mib = 10240\n",
+        "[workload]\nimage = \"python:3.12-slim\"\nplatform = \"linux/amd64\"\n",
         "",
     );
     assert_eq!(
-        error(&no_resources),
+        error(&no_workload),
         ParseError::MissingField {
-            field: "resources".to_owned()
+            field: "workload".to_owned()
         }
     );
     assert_eq!(

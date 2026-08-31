@@ -30,7 +30,8 @@ pub use rejection::{InvalidReason, Rejection, RejectionClass};
 pub use resolve::{OciResolver, ResolveError, ResolvedImage, TestResolver, resolve, resolve_with};
 pub use revision::{RevisionError, RevisionImage, TemplateRevision};
 pub use schema::{
-    Command, DEFAULT_SECRET_FILE_MODE, DEFAULT_USER, DEFAULT_WORKING_DIRECTORY, EgressIntent,
+    Command, DEFAULT_IDLE_TIMEOUT_SECONDS, DEFAULT_MAXIMUM_LIFETIME_SECONDS, DEFAULT_ON_IDLE,
+    DEFAULT_SECRET_FILE_MODE, DEFAULT_USER, DEFAULT_WORKING_DIRECTORY, EgressIntent,
     EnvironmentEntry, IdleAction, IngressIntent, Lifecycle, MAX_ARGUMENTS, MAX_CIDRS,
     MAX_DOCUMENT_BYTES, MAX_DOMAINS, MAX_ENVIRONMENT, MAX_MODULES, MAX_NAME_BYTES, MAX_SECRETS,
     MAX_STRING_BYTES, Network, Resources, SCHEMA, SecretDelivery, SecretReference, Template,

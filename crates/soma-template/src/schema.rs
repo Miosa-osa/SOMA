@@ -9,8 +9,13 @@
 //! Field notes that go beyond the minimum example in the template system design:
 //!
 //! - `[command]` may be omitted; composition then requires exactly one module default.
+//! - `[command] args` may be omitted and defaults to no arguments.
 //! - `[command] user` is an optional POSIX user name; version 1 defaults to `root`.
 //! - `[network]` may be omitted and defaults to denied egress and denied ingress.
+//! - `[resources]` may be omitted, and so may any field in it; the defaults are the same
+//!   `MachineShape` constants the command line already defaults to, so a Template and a
+//!   `soma run` invocation cannot disagree about what an unstated Machine shape means.
+//! - `[lifecycle]` may be omitted, and so may any field in it; see the default constants.
 //! - `[[secrets]] scope` is required for `file` and `egress-proxy` delivery, and defaults to
 //!   the secret name for `environment` delivery; `mode` applies only to `file` delivery.
 //! - `[[environment]]` entries carry either a literal `value` or `required = true`.
@@ -27,7 +32,7 @@ mod command;
 mod parse;
 mod reader;
 
-use soma::{OciImage, OciPlatform};
+use soma::{MachineShape, OciImage, OciPlatform};
 
 use crate::module::ModuleRef;
 
@@ -49,6 +54,16 @@ pub const DEFAULT_WORKING_DIRECTORY: &str = "/";
 pub const DEFAULT_USER: &str = "root";
 /// Owner-read-only, the mode applied to a file-delivered secret without an explicit `mode`.
 pub const DEFAULT_SECRET_FILE_MODE: u32 = 0o400;
+/// Long enough that no interactive round trip trips it, short enough that a sandbox nobody is
+/// talking to is reclaimed in minutes rather than hours.
+pub const DEFAULT_IDLE_TIMEOUT_SECONDS: u64 = 300;
+/// One hour: an abandoned sandbox must have an end, and an hour is the longest run a caller
+/// can forget about without noticing the bill or the machine.
+pub const DEFAULT_MAXIMUM_LIFETIME_SECONDS: u64 = 3_600;
+/// Destroying an idle sandbox leaves nothing behind, so it is the only choice that is safe to
+/// apply to a Template whose author never thought about idleness. `stop` and `checkpoint` both
+/// retain guest state and are decisions an author has to make on purpose.
+pub const DEFAULT_ON_IDLE: IdleAction = IdleAction::Destroy;
 
 /// One parsed Template document.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -143,6 +158,20 @@ pub struct Resources {
     pub writable_storage_mib: u64,
 }
 
+impl Default for Resources {
+    /// The values are read from `MachineShape` rather than restated here, because the command
+    /// line already defaults its `--vcpus`, `--memory-mib`, and `--storage-mib` flags to those
+    /// same constants. Restating them would let a Template and a `soma run` drift apart into
+    /// two different meanings of "default", which is worse than the verbosity they replace.
+    fn default() -> Self {
+        Self {
+            vcpus: u32::from(MachineShape::DEFAULT_VCPU_COUNT),
+            memory_mib: MachineShape::DEFAULT_MEMORY_MIB,
+            writable_storage_mib: MachineShape::DEFAULT_STORAGE_MIB,
+        }
+    }
+}
+
 /// The authored network intent before normalization into an envelope.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Network {
@@ -168,6 +197,19 @@ pub struct Lifecycle {
     pub idle_timeout_seconds: u64,
     pub maximum_lifetime_seconds: u64,
     pub on_idle: IdleAction,
+}
+
+impl Default for Lifecycle {
+    /// Nothing outside this crate has an opinion about lifecycle yet, so unlike the Machine
+    /// shape there is no existing constant to reuse; the three constants above are the single
+    /// definition, and the reasoning for each sits with it.
+    fn default() -> Self {
+        Self {
+            idle_timeout_seconds: DEFAULT_IDLE_TIMEOUT_SECONDS,
+            maximum_lifetime_seconds: DEFAULT_MAXIMUM_LIFETIME_SECONDS,
+            on_idle: DEFAULT_ON_IDLE,
+        }
+    }
 }
 
 /// One declared environment slot: a literal value or a name that Launch must supply.
