@@ -47,7 +47,7 @@ Stage deltas in milliseconds, `node:22` at one vCPU and 1024 MiB, from
 | Netd activation | 11.4 ms | **0.80 ms** | Four read-only questions per lifecycle were asked by running `nft`; they are now netlink queries |
 | Netd release | 59.8 ms | **49.6 ms** | Same change |
 | [Readiness proved by the repair report](2026-08-31-eval1-ready-segment-split.md) | 27.59 ms | **22.60 ms** | The receipt binds a Noise transcript that is already fixed when the handshake completes, so running a command afterwards attested nothing the receipt could carry. Confirmed at eight times the memory, so it is a fixed cost removed rather than a proportional one |
-| [Declared device set, read-only root](2026-08-31-declared-device-set.md) | 62.46 ms | **0.22 ms** | `machine_launched` at c=100. A Generation that declares no writable storage clones no private head, and the clone was both the largest and the most variable cost between admission and a launched machine |
+| [Declared device set, read-only root](2026-08-31-merged-binary-device-set-c100.md) | 60.5 ms | **35.5 ms** | Time to first command at c=100, median of six cohorts per arm on the merged binary. A Generation that declares no writable storage clones no private head. The clone is also the only unstable segment: it ranges 9.0 to 97.6 ms across cohorts, and removing it takes the arm's spread from **3.2x to 1.3x** |
 
 Time to first command, p50, before and after the head durability change:
 
@@ -118,8 +118,18 @@ Two changes were implemented, measured, and then reverted on the evidence: retir
 early made the segment 1.2 ms **slower**, because removing a memory slot disturbs a running guest
 more than an idle one, and huge pages were slower at concurrency 100. Neither is in the tree.
 
-Two harness lessons are worth repeating because both produced numbers that looked real. A
+Four harness lessons are worth repeating because each produced numbers that looked real. A
 configuration must be launched at the shape its Generation was captured with, or every launch is
-refused before a machine exists and the harness reports zeroes. And a cohort of one sample is not a
+refused before a machine exists and the harness reports zeroes. A cohort of one sample is not a
 distribution: the first `c=1` figures in the ladder are higher than their `c=10` neighbours because
 one sample immediately after a warming launch is the worst estimator available.
+
+A prepared entry with no captured snapshot beside it does not fail either. It cold boots, which
+looks like a working measurement and reads about fifteen times slower, so a `machine_launched` to
+`ready` segment in the hundreds of milliseconds means there is no `snapshot/` directory rather than
+a regression: compiling a Generation and capturing one are two commands, and only the first is in
+`prepare-generation.sh`.
+
+And one hundred-way cohort per arm is not a comparison. A single pair of cohorts ranked the two
+device sets the wrong way round, by catching the writable arm on its best cohort; six cohorts per
+arm reversed it. Repeating is what caught it, not inspection.
