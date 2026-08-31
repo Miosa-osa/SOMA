@@ -1,8 +1,9 @@
 //! Typed broker intent admitted from the portable request against one operator profile.
 //!
 //! Admission fails closed: an unspecified egress or DNS dimension, a proxy profile, a static
-//! or IPv6 guest address, a resolver inside the protected set, or a named profile this broker
-//! does not serve is rejected before any kernel object exists.
+//! or IPv6 guest address, a resolver inside the protected set, an IPv6 host bind on a
+//! publication, or a named profile this broker does not serve is rejected before any kernel
+//! object exists.
 
 use std::net::{IpAddr, Ipv4Addr};
 
@@ -101,6 +102,17 @@ impl NetworkIntent {
         if egress == EgressClass::Denied && !resolvers.is_empty() {
             return reject(R::DnsWithoutEgress);
         }
+        // A publication is translated onto the guest's IPv4 lease, so an IPv6 host bind has no
+        // destination to name in this profile slice. It is refused here with every other
+        // unsupported dimension rather than at the kernel, where the Instance would already be
+        // running and the caller would learn only that activation failed.
+        if policy
+            .published_ports()
+            .iter()
+            .any(|publication| publication.bind().address().is_ipv6())
+        {
+            return reject(R::PublicationFamily);
+        }
         Self::new(
             egress,
             resolvers,
@@ -198,103 +210,4 @@ fn custom_resolvers(servers: &[IpAddr], profile: &NetworkProfile) -> Result<Vec<
 }
 
 #[cfg(test)]
-mod tests {
-    use soma::{
-        GuestAddressIntent, HostBind, HostPort, Ipv4AddressIntent, Ipv6AddressIntent,
-        NetworkProfileSelector, ProxyPolicy, TransportProtocol,
-    };
-
-    use super::*;
-    use crate::profile::tests::test_profile;
-
-    fn policy(egress: EgressPolicy, dns: DnsPolicy) -> NetworkPolicy {
-        NetworkPolicy::new(egress, dns, Vec::new()).expect("portable policy")
-    }
-
-    #[test]
-    fn admission_maps_each_supported_class() {
-        let profile = test_profile();
-        let denied = NetworkIntent::admit(&NetworkPolicy::isolated(), &profile).expect("denied");
-        assert_eq!(denied.egress(), EgressClass::Denied);
-        assert!(!denied.dns_allowed());
-        assert_eq!(denied, NetworkIntent::denied(&profile));
-        let system = NetworkIntent::admit(
-            &policy(EgressPolicy::PublicInternet, DnsPolicy::System),
-            &profile,
-        )
-        .expect("system dns");
-        assert_eq!(system.resolvers(), profile.resolvers());
-        let custom = DnsPolicy::custom(vec![IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9))]).expect("dns");
-        let unrestricted =
-            NetworkIntent::admit(&policy(EgressPolicy::Unrestricted, custom), &profile)
-                .expect("custom dns");
-        assert_eq!(unrestricted.resolvers(), &[Ipv4Addr::new(9, 9, 9, 9)]);
-        assert_ne!(unrestricted.digest(), system.digest());
-        assert_eq!(unrestricted.digest(), unrestricted.clone().digest());
-    }
-
-    #[test]
-    fn admission_fails_closed_on_every_unsupported_dimension() {
-        let profile = test_profile();
-        let cases = [
-            (
-                NetworkPolicy::runtime_default(),
-                IntentRejection::EgressUnspecified,
-            ),
-            (
-                policy(
-                    EgressPolicy::PublicInternet,
-                    DnsPolicy::custom(vec![IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254))])
-                        .expect("dns"),
-                ),
-                IntentRejection::ResolverProtected,
-            ),
-            (
-                NetworkPolicy::from_intent(
-                    NetworkProfileSelector::operator_default(),
-                    GuestAddressIntent::new(
-                        Ipv4AddressIntent::allocated(),
-                        Ipv6AddressIntent::allocated(),
-                    )
-                    .expect("addresses"),
-                    ProxyPolicy::disabled(),
-                    EgressPolicy::PublicInternet,
-                    DnsPolicy::custom(vec!["2606:4700::1111".parse().expect("literal")])
-                        .expect("dns"),
-                    Vec::new(),
-                )
-                .expect("portable policy"),
-                IntentRejection::Ipv6Unimplemented,
-            ),
-        ];
-        for (policy, expected) in cases {
-            assert_eq!(
-                NetworkIntent::admit(&policy, &profile).expect_err("rejected"),
-                Error::InvalidIntent(expected)
-            );
-        }
-    }
-
-    #[test]
-    fn publications_participate_in_the_digest() {
-        let profile = test_profile();
-        let publication = PortPublication::new(
-            HostBind::loopback_v4(),
-            HostPort::from_u16(8080),
-            80,
-            TransportProtocol::Tcp,
-        )
-        .expect("publication");
-        let with = NetworkPolicy::new(
-            EgressPolicy::PublicInternet,
-            DnsPolicy::Denied,
-            vec![publication],
-        )
-        .expect("policy");
-        let without = policy(EgressPolicy::PublicInternet, DnsPolicy::Denied);
-        let with = NetworkIntent::admit(&with, &profile).expect("admitted");
-        let without = NetworkIntent::admit(&without, &profile).expect("admitted");
-        assert_eq!(with.publications().len(), 1);
-        assert_ne!(with.digest(), without.digest());
-    }
-}
+mod tests;

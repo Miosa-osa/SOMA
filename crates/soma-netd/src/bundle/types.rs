@@ -6,7 +6,7 @@ use soma_guest::{ActivationChallenge, ActivationReceipt, LaunchNetwork};
 
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, Error, LeasePair,
-    MacPair, PortReservation, namespace::NetNamespace,
+    MacPair, PortReservation, PublishedPort, namespace::NetNamespace,
 };
 
 /// One prepared, unassigned bundle.
@@ -79,6 +79,7 @@ pub struct Assigned {
     pub(crate) record: AssignmentRecord,
     pub(crate) launch: LaunchNetwork,
     pub(crate) reservations: Vec<PortReservation>,
+    pub(crate) published: Vec<PublishedPort>,
     pub(crate) activation: Option<ActivationChallenge>,
     pub(crate) activated: Option<ActivationReceipt>,
     pub(crate) active: bool,
@@ -107,6 +108,12 @@ impl Assigned {
     #[must_use]
     pub fn reservations(&self) -> &[PortReservation] {
         &self.reservations
+    }
+
+    /// Returns the destination mappings this assignment will publish at activation.
+    #[must_use]
+    pub fn published(&self) -> &[PublishedPort] {
+        &self.published
     }
 
     /// Returns whether forwarding has been activated.

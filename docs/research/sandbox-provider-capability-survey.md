@@ -59,7 +59,8 @@ That is the multi-agent pattern, and it is a guest-side concern SOMA's agent doe
 
 **Exposed ports and preview URLs.**
 Cloudflare generates preview URLs for HTTP services inside the sandbox; the same idea appears across the list.
-SOMA has an `ingress` module inside `soma-netd` and no path from a running Instance to a reachable URL.
+SOMA now publishes a port: activation installs the destination translation and release proves it gone, so a service inside a running Instance is reachable at a host address and port.
+The distance that remains is the URL layer, which is designed but not built in [Published ports and preview URLs](published-ports-and-preview-urls.md).
 
 **Interactive terminals.**
 Cloudflare documents WebSocket terminals with configurable dimensions.

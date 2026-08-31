@@ -133,6 +133,13 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
 
 #[test]
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn a_published_port_is_reachable_only_between_activation_and_release() {
+    live::require_privilege();
+    live::publication::reachable_only_after_activation();
+}
+
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
 fn hundred_way_prepare_assign_activate_release_burst() {
     live::require_privilege();
     live::burst::hundred_way();

@@ -34,6 +34,7 @@ pub(super) fn build(
         guest_mac: macs.guest,
         intent: &denied,
         protected: broker.profile().protected(),
+        published: &[],
     }
     .render();
     netlink::create_veth(

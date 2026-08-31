@@ -3,21 +3,27 @@
 //! Each requested publication is reserved by binding one real exclusive socket with an explicit
 //! `IPV6_V6ONLY` value, so a conflicting listener is detected before assignment.
 //! Reservation is transactional: any failure releases every socket taken so far.
-//! Forwarding or proxy attachment to a reserved port is a later slice and reports
-//! [`Error::Unimplemented`].
+//!
+//! A reservation is not reachability. It proves only that nothing else owns the host endpoint;
+//! the socket is deliberately never put into the listening state, so a client that reaches a
+//! reserved but unpublished port is refused rather than accepted into a backlog the broker has
+//! no way to serve. [`publish`] turns one reservation into the [`PublishedPort`] mapping that
+//! [`crate::activate`] installs, and until that admitted activation step runs, nothing routes
+//! to the guest.
 
-use std::net::IpAddr;
 #[cfg(target_os = "linux")]
 use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr};
 
-#[cfg(target_os = "linux")]
-use soma::TransportProtocol;
 use soma::{HostBind, HostPort, PortPublication};
 
 use crate::Error;
 
+mod published;
 #[cfg(target_os = "linux")]
 mod socket;
+
+pub use published::PublishedPort;
 
 /// One held reservation.
 #[derive(Debug)]
@@ -60,19 +66,46 @@ pub fn reserve(publications: &[PortPublication]) -> Result<Vec<PortReservation>,
 ///
 /// # Errors
 ///
-/// Always returns [`Error::Unimplemented`] in this slice.
+/// Always returns [`Error::Unimplemented`] in this slice; proxy profiles are already refused
+/// at admission, so no admitted intent can reach this call.
 pub fn attach_proxy(_reservation: &PortReservation) -> Result<(), Error> {
     Err(Error::Unimplemented("ingress proxy attachment"))
 }
 
-/// Publishes one reserved port toward the guest.
+/// Turns one reservation into the destination mapping activation installs.
 ///
 /// # Errors
 ///
-/// Always returns [`Error::Unimplemented`] in this slice; ports are reserved but never
-/// forwarded before the ingress activation slice exists.
-pub fn publish(_reservation: &PortReservation) -> Result<(), Error> {
-    Err(Error::Unimplemented("ingress forwarding"))
+/// Returns [`Error::Unimplemented`] for an IPv6 host bind, which cannot be translated onto the
+/// IPv4-only guest lease of this profile slice. Admission already refuses such a publication,
+/// so this is the second, local refusal rather than the first.
+pub fn publish(reservation: &PortReservation, guest: Ipv4Addr) -> Result<PublishedPort, Error> {
+    let publication = reservation.publication();
+    let IpAddr::V4(address) = publication.bind().address() else {
+        return Err(Error::Unimplemented("ingress forwarding for an IPv6 bind"));
+    };
+    Ok(PublishedPort::new(
+        (!address.is_unspecified()).then_some(address),
+        reservation.host_port(),
+        guest,
+        publication.guest_port().get(),
+        publication.protocol(),
+    ))
+}
+
+/// Turns every reservation of one assignment into its mapping, or none of them.
+///
+/// # Errors
+///
+/// Returns the first refusal from [`publish`].
+pub fn publish_all(
+    reservations: &[PortReservation],
+    guest: Ipv4Addr,
+) -> Result<Vec<PublishedPort>, Error> {
+    reservations
+        .iter()
+        .map(|reservation| publish(reservation, guest))
+        .collect()
 }
 
 #[cfg(target_os = "linux")]
@@ -83,7 +116,7 @@ fn reserve_one(publication: &PortPublication) -> Result<PortReservation, Error> 
     let (socket, host_port) = socket::bind_exclusive(
         address,
         v6_only,
-        publication.protocol() == TransportProtocol::Tcp,
+        publication.protocol() == soma::TransportProtocol::Tcp,
     )?;
     Ok(PortReservation {
         publication: publication.clone(),
@@ -114,54 +147,4 @@ pub fn describe(reservation: &PortReservation) -> (IpAddr, u16, Option<bool>, Ho
 }
 
 #[cfg(all(test, target_os = "linux"))]
-mod tests {
-    use super::*;
-
-    fn publication(host_port: u16, protocol: TransportProtocol) -> PortPublication {
-        PortPublication::new(
-            HostBind::loopback_v4(),
-            HostPort::from_u16(host_port),
-            80,
-            protocol,
-        )
-        .expect("publication")
-    }
-
-    #[test]
-    fn automatic_ports_resolve_and_fixed_conflicts_roll_back_the_transaction() {
-        let automatic = reserve(&[publication(0, TransportProtocol::Tcp)]).expect("automatic");
-        let port = automatic[0].host_port();
-        assert_ne!(port, 0);
-        assert_eq!(describe(&automatic[0]).3, HostPort::Automatic);
-        let error = reserve(&[
-            publication(0, TransportProtocol::Udp),
-            publication(port, TransportProtocol::Tcp),
-        ])
-        .expect_err("conflict");
-        assert_eq!(error, Error::PortUnavailable);
-        drop(automatic);
-        let again = reserve(&[publication(port, TransportProtocol::Tcp)]).expect("released");
-        assert_eq!(again[0].host_port(), port);
-        assert_eq!(
-            attach_proxy(&again[0]).expect_err("proxy"),
-            Error::Unimplemented("ingress proxy attachment")
-        );
-        assert_eq!(
-            publish(&again[0]).expect_err("forwarding"),
-            Error::Unimplemented("ingress forwarding")
-        );
-    }
-
-    #[test]
-    fn ipv6_binds_carry_an_explicit_v6only_value() {
-        let publication = PortPublication::new(
-            HostBind::ipv6(std::net::Ipv6Addr::LOCALHOST, true).expect("bind"),
-            HostPort::Automatic,
-            80,
-            TransportProtocol::Tcp,
-        )
-        .expect("publication");
-        let held = reserve(&[publication]).expect("v6");
-        assert_eq!(describe(&held[0]).2, Some(true));
-    }
-}
+mod tests;

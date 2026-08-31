@@ -7,9 +7,10 @@
 
 use std::fmt::Write as _;
 
-use crate::{NetworkIntent, ProtectedSet, ipam::Lease};
+use crate::{NetworkIntent, ProtectedSet, ingress::PublishedPort, ipam::Lease};
 
 pub mod host;
+pub mod publish;
 
 /// The kernel-facing names of one bundle.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -18,6 +19,8 @@ pub struct BundleNames {
     pub sandbox_table: String,
     /// The `inet` table inside the host namespace.
     pub host_table: String,
+    /// The `inet` table inside the host namespace that holds the published translations.
+    pub publication_table: String,
     /// The TAP interface inside the sandbox namespace.
     pub tap: String,
     /// The veth end inside the sandbox namespace.
@@ -33,6 +36,7 @@ impl BundleNames {
         Self {
             sandbox_table: format!("soma_{short_hex}"),
             host_table: format!("somah_{short_hex}"),
+            publication_table: format!("somap_{short_hex}"),
             tap: "tap0".to_owned(),
             sandbox_veth: "vs0".to_owned(),
             host_veth: format!("sv{short_hex}"),
@@ -53,6 +57,12 @@ pub struct SandboxRuleset<'a> {
     pub intent: &'a NetworkIntent,
     /// The complete protected set.
     pub protected: &'a ProtectedSet,
+    /// The published mappings this ruleset admits inbound.
+    ///
+    /// It is empty while the bundle is sterile and while it is merely assigned; activation is
+    /// the only step that renders the table again with the admitted mappings, so an inbound
+    /// connection has nothing to match on until then.
+    pub published: &'a [PublishedPort],
 }
 
 /// Formats one MAC for nftables.
@@ -134,6 +144,21 @@ impl SandboxRuleset<'_> {
         let _ = writeln!(out, "\t\tiifname \"{tap}\" ether saddr != {mac} drop");
         let _ = writeln!(out, "\t\tiifname \"{tap}\" meta nfproto ipv6 drop");
         let _ = writeln!(out, "\t\tiifname \"{tap}\" ip saddr != {guest} drop");
+        // The guest's answer on a published port has to be admitted before the protected sets,
+        // because the host translated the client's source into the bundle's own transit
+        // address and every address the broker could translate to lies inside the private
+        // space the protected sets deny. Those sets bound where the guest may open a
+        // connection, and a packet in the reply direction of a conntrack entry that some other
+        // party opened is not the guest opening anything: the spoofing drops above have
+        // already fixed its source, the rule names one published endpoint, and an entry in
+        // that direction can exist only because the inbound rule further down admitted it.
+        for port in self.published {
+            let _ = writeln!(
+                out,
+                "\t\tiifname \"{tap}\" oifname \"{veth}\" {} ct direction reply ct state established accept",
+                port.reply_match()
+            );
+        }
         let _ = writeln!(out, "\t\tiifname \"{tap}\" ip daddr @protected4 drop");
         let _ = writeln!(out, "\t\tiifname \"{tap}\" ip6 daddr @protected6 drop");
         if self.intent.dns_allowed() {
@@ -152,6 +177,18 @@ impl SandboxRuleset<'_> {
             let _ = writeln!(
                 out,
                 "\t\tiifname \"{tap}\" oifname \"{veth}\" ct state new,established accept"
+            );
+        }
+        // An inbound connection is new in this namespace even though the host already
+        // translated it, because conntrack is per namespace, so the published endpoints are
+        // named explicitly here rather than recognised by translation status. Admitting the
+        // inbound half here, after every drop, is enough; the guest's answer needs the earlier
+        // rule instead.
+        for port in self.published {
+            let _ = writeln!(
+                out,
+                "\t\tiifname \"{veth}\" oifname \"{tap}\" {} ct state new,established accept",
+                port.guest_match()
             );
         }
         let _ = writeln!(

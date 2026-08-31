@@ -53,10 +53,13 @@ pub use authority::{Capability, ControlAuthority, PeerIdentity};
 pub use cidr::Cidr;
 pub use dns::DnsPlan;
 pub use error::{Drift, Error, IntentRejection, Step, Tool, TransferRejection};
-pub use firewall::{BundleNames, SandboxRuleset, host::HostRuleset, mac_text};
+pub use firewall::{
+    BundleNames, SandboxRuleset, host::HostRuleset, mac_text, publish::PublicationRuleset,
+};
 pub use ids::{BundleId, CleanupGeneration, ConntrackZone, InstanceId, OperationId};
 pub use ingress::{
-    PortReservation, attach_proxy, describe as describe_reservation, publish, reserve,
+    PortReservation, PublishedPort, attach_proxy, describe as describe_reservation, publish,
+    publish_all, reserve,
 };
 pub use intent::{EgressClass, IntentDigest, MAX_ENCODED_INTENT, NetworkIntent};
 pub use ipam::{Ipam, Lease, LeasePair, MacPair, SubnetPlan, derive_macs};

@@ -19,6 +19,14 @@ fn intent(egress: EgressClass, resolvers: Vec<Ipv4Addr>) -> NetworkIntent {
 }
 
 fn render(egress: EgressClass, resolvers: Vec<Ipv4Addr>) -> String {
+    render_with(egress, resolvers, &[])
+}
+
+fn render_with(
+    egress: EgressClass,
+    resolvers: Vec<Ipv4Addr>,
+    published: &[PublishedPort],
+) -> String {
     let names = BundleNames::new("0a0b0c0d");
     let intent = intent(egress, resolvers);
     let protected = ProtectedSet::certified_default();
@@ -28,6 +36,7 @@ fn render(egress: EgressClass, resolvers: Vec<Ipv4Addr>) -> String {
         guest_mac: [0x02, 1, 2, 3, 4, 5],
         intent: &intent,
         protected: &protected,
+        published,
     }
     .render()
 }
@@ -145,4 +154,91 @@ fn host_ruleset_binds_zone_masquerade_and_protection() {
         mac_text([0xde, 0xad, 0xbe, 0xef, 0, 1]),
         "de:ad:be:ef:00:01"
     );
+}
+
+#[test]
+fn a_published_port_is_admitted_only_on_its_own_endpoint_and_in_both_directions() {
+    let published = [PublishedPort::new(
+        Some(Ipv4Addr::LOCALHOST),
+        40_000,
+        Ipv4Addr::new(10, 200, 0, 22),
+        80,
+        soma::TransportProtocol::Tcp,
+    )];
+    let ruleset = render_with(EgressClass::Denied, Vec::new(), &published);
+    let forward = chain(&ruleset, "forward");
+    assert!(
+        forward.contains(
+            "iifname \"vs0\" oifname \"tap0\" ip daddr 10.200.0.22 tcp dport 80 ct state new,established accept"
+        ),
+        "the inbound half must be admitted even though egress is denied"
+    );
+    assert!(
+        forward.contains(
+            "iifname \"tap0\" oifname \"vs0\" ip saddr 10.200.0.22 tcp sport 80 ct direction reply ct state established accept"
+        ),
+        "the guest may answer on the published endpoint and nowhere else"
+    );
+    assert!(
+        !forward.contains("iifname \"tap0\" oifname \"vs0\" ct state new,established accept"),
+        "publishing a port must not open general egress"
+    );
+    let spoof = forward
+        .find("ip saddr != 10.200.0.22 drop")
+        .expect("source spoofing is refused");
+    let reply = forward.find("ct direction reply").expect("reply accept");
+    let protected = forward
+        .find("ip daddr @protected4 drop")
+        .expect("protected drop");
+    assert!(
+        spoof < reply,
+        "the guest's source is fixed before its answer is admitted"
+    );
+    assert!(
+        reply < protected,
+        "the answer goes to the translated client address, which the protected set covers"
+    );
+    let unpublished = render_with(EgressClass::Denied, Vec::new(), &[]);
+    assert!(
+        !unpublished.contains("dport 80"),
+        "a bundle with no publication names no guest port"
+    );
+    assert!(
+        !unpublished.contains("ct direction reply"),
+        "nothing precedes the protected drops when nothing is published"
+    );
+}
+
+#[test]
+fn the_host_table_opens_only_for_traffic_its_publication_table_translated() {
+    let names = BundleNames::new("0a0b0c0d");
+    let uplink = InterfaceName::new("uplink0").expect("name");
+    let protected = ProtectedSet::certified_default();
+    let ruleset = HostRuleset {
+        names: &names,
+        lease: lease(),
+        uplink: &uplink,
+        zone: ConntrackZone::new(6).expect("zone"),
+        protected: &protected,
+    }
+    .render();
+    let forward = chain(&ruleset, "forward");
+    let accept = forward
+        .find("oifname \"sv0a0b0c0d\" ip daddr 10.200.0.22 ct status dnat accept")
+        .expect("the translated connection is admitted");
+    let refused = forward
+        .find("oifname \"sv0a0b0c0d\" ct state new,invalid,untracked drop")
+        .expect("everything else toward the guest is dropped");
+    assert!(
+        accept < refused,
+        "the opening must precede the drop it excepts"
+    );
+    let input = chain(&ruleset, "input");
+    let reply = input
+        .find("iifname \"sv0a0b0c0d\" ct status dnat ct state established,related accept")
+        .expect("a locally bound publication must receive its reply");
+    let closed = input
+        .find("iifname \"sv0a0b0c0d\" drop")
+        .expect("nothing else may reach the host");
+    assert!(reply < closed);
 }

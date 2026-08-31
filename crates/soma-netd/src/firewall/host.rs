@@ -57,6 +57,10 @@ impl HostRuleset<'_> {
         let _ = writeln!(out, "\t\tiifname \"{veth}\" oifname != \"{uplink}\" drop");
         let _ = writeln!(
             out,
+            "\t\toifname \"{veth}\" ip daddr {guest} ct status dnat accept"
+        );
+        let _ = writeln!(
+            out,
             "\t\toifname \"{veth}\" ct state new,invalid,untracked drop"
         );
         let _ = writeln!(out, "\t}}");
@@ -64,6 +68,10 @@ impl HostRuleset<'_> {
         let _ = writeln!(
             out,
             "\t\ttype filter hook input priority filter; policy accept;"
+        );
+        let _ = writeln!(
+            out,
+            "\t\tiifname \"{veth}\" ct status dnat ct state established,related accept"
         );
         let _ = writeln!(out, "\t\tiifname \"{veth}\" drop");
         let _ = writeln!(out, "\t}}");

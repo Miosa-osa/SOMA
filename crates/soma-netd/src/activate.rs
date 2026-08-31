@@ -10,8 +10,9 @@
 //! broker's own secret, delivered to that peer, so the peer can compute the receipt without a
 //! guest session. Nothing here proves that guest repair completed.
 //! Only then does the broker verify the ledger, namespace, links, rulesets, and forwarding
-//! state, raise the links, install the routes, and finally enable forwarding, which is the
-//! single step that makes guest traffic flow.
+//! state, raise the links, install the routes, enable forwarding, which is the single step
+//! that makes guest traffic flow, and install the publication table, which is the single step
+//! that makes a published port reachable.
 //!
 //! The challenge is taken before any verification, so one challenge authorizes at most one
 //! activation attempt and a replayed receipt can never reach the kernel.
@@ -20,7 +21,9 @@
 
 use soma_guest::{ActivationReceipt, ActivationScope};
 
-use crate::{Assigned, Cidr, Drift, Error, link, nft, sysctl};
+use crate::{Assigned, Cidr, Drift, Error, PublishedPort, link, nft, sysctl};
+
+mod publish;
 
 /// What activation verified and changed.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,6 +34,8 @@ pub struct ActivationEvidence {
     pub routes: Vec<String>,
     /// Whether forwarding is now enabled inside the sandbox namespace.
     pub forwarding: bool,
+    /// The published mappings installed, in order, one description per mapping.
+    pub published: Vec<String>,
     /// The authenticated guest-session transcript the consumed receipt was minted from.
     pub transcript: [u8; 32],
 }
@@ -68,6 +73,7 @@ pub fn activate(
         links_raised: Vec::new(),
         routes: Vec::new(),
         forwarding: false,
+        published: Vec::new(),
         transcript: *receipt.transcript(),
     };
     let inner_names = names.clone();
@@ -97,6 +103,7 @@ pub fn activate(
     ));
     bundle.namespace.within(|| sysctl::set_forwarding(true))?;
     evidence.forwarding = true;
+    evidence.published = publish::install(assigned)?;
     assigned.activated = Some(*receipt);
     assigned.active = true;
     Ok(evidence)
@@ -133,6 +140,9 @@ fn verify(assigned: &Assigned) -> Result<(), Error> {
     }
     if !nft::table_exists(&bundle.names.host_table)? {
         return Err(Error::Drift(Drift::HostRulesetMissing));
+    }
+    if nft::table_exists(&bundle.names.publication_table)? {
+        return Err(Error::Drift(Drift::PublicationRulesetPresent));
     }
     Ok(())
 }
