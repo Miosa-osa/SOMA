@@ -42,6 +42,10 @@ fn required_dir(name: &str) -> PathBuf {
     path
 }
 
+fn heads_path() -> PathBuf {
+    required_dir("SOMA_XFS_REFLINK_DIR")
+}
+
 fn open_dir(path: &PathBuf) -> File {
     File::open(path).unwrap_or_else(|e| panic!("open {}: {e}", path.display()))
 }
@@ -100,7 +104,12 @@ fn profile_probe_rejects_the_reflink_disabled_mount_and_so_does_clone() {
     let template = template::create_template(&noreflink, &recipe).expect("template on reflink=0");
     let template_file = template.open().expect("open");
     let name = HeadName::new("live-noreflink-head").expect("name");
-    match clone::clone_head(template_file.as_fd(), dir.as_fd(), &name) {
+    match clone::clone_head(
+        template_file.as_fd(),
+        dir.as_fd(),
+        &name,
+        clone::Durability::Persisted,
+    ) {
         Err(CloneError::ReflinkUnsupported) => {}
         other => panic!("expected ReflinkUnsupported, got {other:?}"),
     }
@@ -113,16 +122,55 @@ fn profile_probe_rejects_the_reflink_disabled_mount_and_so_does_clone() {
 
 #[test]
 #[ignore = "requires SOMA_XFS_REFLINK_DIR and SOMA_XFS_TEMPLATE_DIR on XFS with reflink=1"]
+fn an_ephemeral_head_skips_both_syncs_and_still_proves_extent_sharing() {
+    let heads = open_dir(&required_dir("SOMA_XFS_REFLINK_DIR"));
+    let template = template("live-ephemeral", 64);
+    let template_file = template.open().expect("open");
+    let name = HeadName::new("live-ephemeral-head").expect("name");
+    let (head, phases) = clone::clone_head_timed(
+        template_file.as_fd(),
+        heads.as_fd(),
+        &name,
+        clone::Durability::Ephemeral,
+    )
+    .expect("clone");
+    assert_eq!(
+        (phases.file_sync, phases.dir_sync),
+        (std::time::Duration::ZERO, std::time::Duration::ZERO),
+        "an ephemeral head must not be synced"
+    );
+    // The proof the launch path depends on survives the missing syncs: the head is the size of
+    // the template and every extent it has is shared with it rather than freshly allocated.
+    assert_eq!(head.apparent_bytes(), 64 * 1024 * 1024);
+    assert!(head.extents().extents > 0);
+    assert!(head.extents().all_shared());
+    drop(head);
+    std::fs::remove_file(heads_path().join(name.as_str())).expect("remove head");
+}
+
+#[test]
+#[ignore = "requires SOMA_XFS_REFLINK_DIR and SOMA_XFS_TEMPLATE_DIR on XFS with reflink=1"]
 fn clone_shares_every_extent_and_isolation_holds_across_two_clones() {
     let heads = open_dir(&required_dir("SOMA_XFS_REFLINK_DIR"));
     let template = template("live-iso", 64);
     let template_file = template.open().expect("open");
     let name = HeadName::new("live-iso-single").expect("name");
-    let head = clone::clone_head(template_file.as_fd(), heads.as_fd(), &name).expect("clone");
+    let head = clone::clone_head(
+        template_file.as_fd(),
+        heads.as_fd(),
+        &name,
+        clone::Durability::Persisted,
+    )
+    .expect("clone");
     assert_eq!(head.apparent_bytes(), 64 * 1024 * 1024);
     assert!(head.extents().all_shared());
     assert!(head.extents().extents > 0);
-    match clone::clone_head(template_file.as_fd(), heads.as_fd(), &name) {
+    match clone::clone_head(
+        template_file.as_fd(),
+        heads.as_fd(),
+        &name,
+        clone::Durability::Persisted,
+    ) {
         Err(CloneError::AlreadyExists) => {}
         other => panic!("expected AlreadyExists, got {other:?}"),
     }
@@ -199,8 +247,13 @@ fn concurrent_create_and_cleanup_leave_a_clean_directory() {
             let template_file = &template_file;
             let heads = &heads;
             scope.spawn(move || {
-                let head =
-                    clone::clone_head(template_file.as_fd(), heads.as_fd(), name).expect("clone");
+                let head = clone::clone_head(
+                    template_file.as_fd(),
+                    heads.as_fd(),
+                    name,
+                    clone::Durability::Persisted,
+                )
+                .expect("clone");
                 assert!(head.extents().all_shared());
             });
         }
@@ -215,8 +268,13 @@ fn concurrent_create_and_cleanup_leave_a_clean_directory() {
             let heads_path = &heads_path;
             scope.spawn(move || {
                 let extra = HeadName::new(format!("{name}-x")).expect("name");
-                let head =
-                    clone::clone_head(template_file.as_fd(), heads.as_fd(), &extra).expect("clone");
+                let head = clone::clone_head(
+                    template_file.as_fd(),
+                    heads.as_fd(),
+                    &extra,
+                    clone::Durability::Persisted,
+                )
+                .expect("clone");
                 drop(head);
                 std::fs::remove_file(heads_path.join(extra.as_str())).expect("unlink");
             });

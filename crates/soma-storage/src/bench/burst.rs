@@ -110,7 +110,12 @@ fn ficlone_sample(
     thread: usize,
 ) -> Sample {
     let wall = Instant::now();
-    match clone::clone_head_timed(template.file.as_fd(), dir.file.as_fd(), name) {
+    match clone::clone_head_timed(
+        template.file.as_fd(),
+        dir.file.as_fd(),
+        name,
+        clone::Durability::Persisted,
+    ) {
         Ok((head, phases)) => {
             let wall_ns = nanos(wall.elapsed());
             let extents = head.extents();

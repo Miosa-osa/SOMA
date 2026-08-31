@@ -137,7 +137,16 @@ fn clone_or_copy(
     // it is rather than given a suffix the validator would reject.
     let name = soma_storage::HeadName::new(instance.as_str().to_ascii_lowercase())
         .map_err(|_| BackendFailureKind::Unavailable)?;
-    match soma_storage::clone_head(template.as_fd(), directory.as_fd(), &name) {
+    match soma_storage::clone_head(
+        template.as_fd(),
+        directory.as_fd(),
+        &name,
+        // The head is unlinked before this function returns and is read only through the
+        // descriptor handed to the machine, so there is nothing for a sync to publish and no
+        // crash it should survive. Syncing it anyway pushed the filesystem log once per launch
+        // and was almost the whole cost of giving an Instance its overlay.
+        soma_storage::Durability::Ephemeral,
+    ) {
         Ok(head) => {
             // The head is unlinked immediately: the open descriptor keeps it alive for the
             // machine, so nothing on the filesystem outlives the sandbox that owns it. A head

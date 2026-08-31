@@ -111,7 +111,8 @@ fn create(
     dir: BorrowedFd<'_>,
     name: &HeadName,
 ) -> Result<ClonedHead, ConformanceError> {
-    clone::clone_head(template, dir, name).map_err(ConformanceError::Clone)
+    clone::clone_head(template, dir, name, clone::Durability::Persisted)
+        .map_err(ConformanceError::Clone)
 }
 
 /// Runs the two-clone isolation proof under `dir` with head names prefixed by `prefix`.
