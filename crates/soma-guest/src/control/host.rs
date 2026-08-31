@@ -209,7 +209,9 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                     let (stdout, stderr) = accounting.into_output();
                     return Ok((self, ExecuteOutcome::new(status, stdout, stderr)));
                 }
-                GuestMessage::RepairComplete { .. } | GuestMessage::ShutdownAck { .. } => {
+                GuestMessage::RepairComplete { .. }
+                | GuestMessage::ShutdownAck { .. }
+                | GuestMessage::FileOutcome { .. } => {
                     return Err(self
                         .channel
                         .fail(ControlStage::Execute, ControlFailureClass::Lifecycle));
@@ -270,6 +272,7 @@ fn message_operation(message: &GuestMessage) -> OperationId {
         | GuestMessage::Stdout { operation, .. }
         | GuestMessage::Stderr { operation, .. }
         | GuestMessage::Terminal { operation, .. }
+        | GuestMessage::FileOutcome { operation, .. }
         | GuestMessage::ShutdownAck { operation } => *operation,
     }
 }

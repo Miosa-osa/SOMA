@@ -46,8 +46,9 @@ mod secret;
 
 pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
-    GuestCommand, GuestMessage, HostMessage, OperationId, OutputChunk, TerminalReport,
-    TerminalStatus,
+    DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, GuestCommand, GuestMessage,
+    HostMessage, MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_PATH_BYTES, OperationId, OutputChunk,
+    TerminalReport, TerminalStatus,
 };
 pub use binding::SessionBinding;
 pub use control::{

@@ -1,4 +1,5 @@
 mod command;
+mod filesystem;
 mod frame;
 mod guest;
 mod host;
@@ -7,6 +8,10 @@ mod output;
 mod terminal;
 
 pub use command::GuestCommand;
+pub use filesystem::{
+    DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES, MAX_ENTRIES,
+    MAX_PATH_BYTES,
+};
 pub use guest::GuestMessage;
 pub use host::HostMessage;
 pub use operation::OperationId;

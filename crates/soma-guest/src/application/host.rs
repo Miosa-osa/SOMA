@@ -1,6 +1,6 @@
 use crate::Error;
 
-use super::{GuestCommand, OperationId, frame};
+use super::{FileRequest, GuestCommand, OperationId, frame};
 
 /// A host-to-guest application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,6 +16,13 @@ pub enum HostMessage {
         operation: OperationId,
         /// Shell-free direct invocation.
         command: GuestCommand,
+    },
+    /// Asks one bounded filesystem operation of the guest after Repair.
+    File {
+        /// Identity of this exact operation.
+        operation: OperationId,
+        /// The bounded request.
+        request: FileRequest,
     },
     /// Requests graceful termination of the guest agent.
     Shutdown {
@@ -35,6 +42,12 @@ impl HostMessage {
     #[must_use]
     pub const fn execute(operation: OperationId, command: GuestCommand) -> Self {
         Self::Execute { operation, command }
+    }
+
+    /// Creates one filesystem message.
+    #[must_use]
+    pub const fn file(operation: OperationId, request: FileRequest) -> Self {
+        Self::File { operation, request }
     }
 
     /// Creates a graceful Shutdown message.
@@ -57,6 +70,9 @@ impl HostMessage {
             ),
             Self::Execute { operation, command } => {
                 frame::encode(frame::Kind::Execute, *operation, &command.encode_body())
+            }
+            Self::File { operation, request } => {
+                frame::encode(frame::Kind::File, *operation, &request.encode_body())
             }
             Self::Shutdown { operation } => frame::encode(frame::Kind::Shutdown, *operation, &[]),
         }
@@ -81,10 +97,15 @@ impl HostMessage {
                 decoded.operation,
                 GuestCommand::decode_body(decoded.body)?,
             )),
+            frame::Kind::File => Ok(Self::file(
+                decoded.operation,
+                FileRequest::decode_body(decoded.body)?,
+            )),
             frame::Kind::Shutdown if decoded.body.is_empty() => {
                 Ok(Self::shutdown(decoded.operation))
             }
             frame::Kind::Shutdown
+            | frame::Kind::FileOutcome
             | frame::Kind::RepairComplete
             | frame::Kind::Stdout
             | frame::Kind::Stderr

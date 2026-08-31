@@ -1,6 +1,6 @@
 use crate::Error;
 
-use super::{OperationId, OutputChunk, TerminalReport, frame};
+use super::{FileOutcome, OperationId, OutputChunk, TerminalReport, frame};
 
 /// A guest-to-host application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +30,13 @@ pub enum GuestMessage {
         operation: OperationId,
         /// Exact process or agent outcome.
         report: TerminalReport,
+    },
+    /// Answers one bounded filesystem request.
+    FileOutcome {
+        /// Identity of the filesystem operation being answered.
+        operation: OperationId,
+        /// What the guest did, or why it did not.
+        outcome: FileOutcome,
     },
     /// Acknowledges a graceful Shutdown request.
     ShutdownAck {
@@ -63,6 +70,12 @@ impl GuestMessage {
         Self::Terminal { operation, report }
     }
 
+    /// Creates one filesystem answer.
+    #[must_use]
+    pub const fn file_outcome(operation: OperationId, outcome: FileOutcome) -> Self {
+        Self::FileOutcome { operation, outcome }
+    }
+
     /// Creates a graceful Shutdown acknowledgement.
     #[must_use]
     pub const fn shutdown_ack(operation: OperationId) -> Self {
@@ -87,6 +100,9 @@ impl GuestMessage {
             }
             Self::Terminal { operation, report } => {
                 frame::encode(frame::Kind::Terminal, *operation, &report.encode()?)
+            }
+            Self::FileOutcome { operation, outcome } => {
+                frame::encode(frame::Kind::FileOutcome, *operation, &outcome.encode_body())
             }
             Self::ShutdownAck { operation } => {
                 frame::encode(frame::Kind::ShutdownAck, *operation, &[])
@@ -117,10 +133,15 @@ impl GuestMessage {
                 decoded.operation,
                 TerminalReport::decode(decoded.body)?,
             )),
+            frame::Kind::FileOutcome => Ok(Self::file_outcome(
+                decoded.operation,
+                FileOutcome::decode_body(decoded.body)?,
+            )),
             frame::Kind::ShutdownAck if decoded.body.is_empty() => {
                 Ok(Self::shutdown_ack(decoded.operation))
             }
-            frame::Kind::PrepareAndProbe
+            frame::Kind::File
+            | frame::Kind::PrepareAndProbe
             | frame::Kind::Execute
             | frame::Kind::Shutdown
             | frame::Kind::RepairComplete

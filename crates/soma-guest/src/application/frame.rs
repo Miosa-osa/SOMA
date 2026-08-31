@@ -11,11 +11,13 @@ pub(super) enum Kind {
     PrepareAndProbe = 1,
     Execute = 2,
     Shutdown = 3,
+    File = 4,
     RepairComplete = 129,
     Stdout = 130,
     Stderr = 131,
     Terminal = 132,
     ShutdownAck = 133,
+    FileOutcome = 134,
 }
 
 impl Kind {
@@ -24,11 +26,13 @@ impl Kind {
             1 => Ok(Self::PrepareAndProbe),
             2 => Ok(Self::Execute),
             3 => Ok(Self::Shutdown),
+            4 => Ok(Self::File),
             129 => Ok(Self::RepairComplete),
             130 => Ok(Self::Stdout),
             131 => Ok(Self::Stderr),
             132 => Ok(Self::Terminal),
             133 => Ok(Self::ShutdownAck),
+            134 => Ok(Self::FileOutcome),
             _ => Err(Error::ApplicationMessageRejected),
         }
     }
