@@ -47,6 +47,10 @@ check_repository_contract() {
     log "workflow policy"
     "${SCRIPT_DIR}/check-workflows.sh"
 
+    log "documentation evidence"
+    require_command python3
+    PYTHONDONTWRITEBYTECODE=1 python3 "${SCRIPT_DIR}/check-evidence.py" docs
+
     log "release artifact verifier tests"
     "${SCRIPT_DIR}/tests/verify-release-artifacts.sh"
 
@@ -168,7 +172,7 @@ usage: scripts/check.sh [all|portable|linux|security|architecture|release|kvm]
   portable      Run format, lint, and platform-neutral tests.
   linux         Run Ubuntu x86_64 format, lint, test, and build checks.
   security      Run dependency, workflow, spelling, and secret checks.
-  architecture  Run source-size, dash, workflow, and shell checks.
+  architecture  Run source-size, dash, workflow, evidence, and shell checks.
   release       Validate, package, and checksum SOMA_RELEASE_TAG.
   kvm           Run the real KVM smoke test after strict host detection.
 EOF
