@@ -1,13 +1,13 @@
 # A `soma machine` sandbox that survives its launching process - 2026-08-31
 
-Measured on eval-1 at `1cc7b87`, KVM backend, busybox at one vCPU, 1024 MiB of memory and
+Measured on eval-1 at `6234c00`, KVM backend, busybox at one vCPU, 1024 MiB of memory and
 2048 MiB of storage, against a Generation compiled and captured by the same binary at that shape.
 Raw envelopes and result streams are under
 [`raw/2026-08-31-durable-machine-host/`](raw/2026-08-31-durable-machine-host/).
 
 This supersedes the finding in
 [the machine surface does not survive its process](2026-08-31-durable-machine-across-processes.md),
-which recorded the same commands failing at `1cc7b87`'s parent.
+which recorded the same commands failing on the code this branch replaced.
 
 ## What was wrong
 
@@ -27,7 +27,7 @@ cleanup over the socket until the machine is released.
 
 `soma run` and `soma_run` are untouched. Each holds its own machine in its own process for the whole operation and
 releases it before returning, so no second process appears on the path every performance figure
-in this repository was measured on. One `soma run` at this shape still reached Ready in 23.4 ms
+in this repository was measured on. One `soma run` at this shape still reached Ready in 20.5 ms
 and released gracefully ([`one-shot-run.json`](raw/2026-08-31-durable-machine-host/one-shot-run.json)).
 
 ## One sandbox, five separate processes
@@ -37,7 +37,7 @@ Every line below is a separate `soma` invocation.
 
 | Process | Command | Exit | Result |
 | --- | --- | ---: | --- |
-| 1 | `machine launch --instance-id eead...f88` | 0 | `state: ready` |
+| 1 | `machine launch --instance-id a148...f77` | 0 | `state: ready` |
 | 2 | `machine exec ... -- /bin/sh -c 'echo persisted-by-the-first-process > /tmp/proof.txt; ls -l /tmp/proof.txt'` | 0 | `exited: 0` |
 | 3 | `machine exec ... -- /bin/cat /tmp/proof.txt` | 0 | stdout `persisted-by-the-first-process\n` |
 | 4 | `machine inspect ...` | 0 | `state: ready` |
@@ -59,13 +59,17 @@ python3 -m benchmarks.local_alpha.burst run --experiment-class warm-cache-restor
   --build-manifest <abs> --soma-bin <abs> --soma-mcp-bin <abs> --results <abs> -- /bin/echo soma-ok
 ```
 
-| Run | Attempted | Command succeeded | Cleanup complete | TTI p50 | TTI p95 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Concurrency 5 | 5 | 5 | 5 | 343.83 ms | 344.66 ms |
-| Concurrency 100 | 100 | **100** | **100** | 1294.67 ms | 3455.11 ms |
+Three independent hundred-way runs at the same build:
 
-Every one of the three hundred processes the hundred-way run spawned exited zero. The build
-manifest records `git_revision 1cc7b87` and `worktree_clean: true`.
+| Run | Attempted | Command succeeded | Cleanup complete | TTI p50 | TTI p95 | Wall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 100 | **100** | **100** | 1597.92 ms | 3733.20 ms | 6.07 s |
+| 2 | 100 | **100** | **100** | 1367.14 ms | 2745.13 ms | 5.45 s |
+| 3 | 100 | **100** | **100** | 1305.86 ms | 4045.48 ms | 6.56 s |
+
+Every one of the nine hundred processes those runs spawned exited zero: three hundred launches,
+three hundred execs, three hundred destroys, no other exit code anywhere. The build manifest
+records `git_revision 6234c00` and `worktree_clean: true`. The stage table below is from run 1.
 
 The time-to-first-command boundary spans two process spawns by design, and at a hundred concurrent
 slots most of it is not the machine. Stage medians from the retained receipts:
@@ -73,19 +77,19 @@ slots most of it is not the machine. Stage medians from the retained receipts:
 | Stage | p50 | p95 |
 | --- | ---: | ---: |
 | launch: workload resolution | 0.00 ms | 0.00 ms |
-| launch: admission | 308.51 ms | 576.28 ms |
+| launch: admission | 447.46 ms | 700.56 ms |
 | launch: machine creation | 0.00 ms | 0.00 ms |
-| launch: readiness | 25.75 ms | 29.37 ms |
-| exec: command execution | 12.49 ms | 16.06 ms |
-| destroy: cleanup | 799.48 ms | 1037.28 ms |
-| harness: process and transport overhead | 874.37 ms | 2907.75 ms |
+| launch: readiness | 55.41 ms | 95.05 ms |
+| exec: command execution | 14.21 ms | 17.08 ms |
+| destroy: cleanup | 965.91 ms | 1141.33 ms |
+| harness: process and transport overhead | 1076.33 ms | 2970.00 ms |
 
 Readiness is the whole of starting the host process, restoring the machine, and reaching an
-authenticated session: 25.75 ms at the median under a hundred-way burst, against 23.4 ms for the
-single-process `soma run` that does the same restore without a second process. Admission is the
-durable state write, and cleanup is the release; both are the file-backed state store and the
-hundred simultaneous releases, not the sandbox. Neither is measured against a prior figure here,
-because neither path completed before.
+authenticated session: 55.41 ms at the median under a hundred-way burst, against 20.5 ms for the
+single-process `soma run` doing the same restore unloaded and without a second process. Admission
+is the durable state write and cleanup is the release; both are the file-backed state store under
+a hundred simultaneous callers rather than the sandbox. Neither is compared against a prior figure
+here, because neither path completed before.
 
 ## What destroy releases
 
@@ -118,10 +122,10 @@ driven by [`three-server-processes.py`](raw/2026-08-31-durable-machine-host/mcp/
 
 | Call | Server process | Result |
 | --- | ---: | --- |
-| `soma_launch` | 872229 | `state: ready` |
-| `soma_exec` writing `/tmp/two.txt` | 872408 | stdout `wrote\n` |
-| `soma_exec` reading it back | 872495 | stdout `written-by-the-first-mcp-process\n` |
-| `soma_destroy` | 872495 | `state: destroyed` |
+| `soma_launch` | 957875 | `state: ready` |
+| `soma_exec` writing `/tmp/two.txt` | 958101 | stdout `wrote\n` |
+| `soma_exec` reading it back | 958188 | stdout `written-by-the-first-mcp-process\n` |
+| `soma_destroy` | 958188 | `state: destroyed` |
 
 No call reported an error and no socket survived the destroy.
 
@@ -178,7 +182,7 @@ process, no head, and no socket. One sample, at the compiled ceiling; no other c
 
 One further sequence is worth naming: an `exec` that failed against a dead host moves the durable record
 to a terminal phase, and a `destroy` after that is refused with `state_conflict` and exit 69
-rather than succeeding ([`killed-host/destroy.json`](raw/2026-08-31-durable-machine-host/killed-host/destroy.json)).
+rather than succeeding ([`killed-host/exec-first/destroy.json`](raw/2026-08-31-durable-machine-host/killed-host/exec-first/destroy.json)).
 That is the durable state machine's existing behaviour rather than anything the host introduced,
 and it is recorded here because it is the one path on which destroy does not return zero.
 
