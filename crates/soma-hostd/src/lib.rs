@@ -7,6 +7,10 @@
 //! the visual atlas, which every claim reserves from before a worker is granted.
 //! It never executes guest device logic and never returns an assigned worker to a pool.
 //!
+//! The [`Runtime`] adds the persistent Instance ownership of ADR 0031 on top of that pool:
+//! it owns every live Instance of one Host, so an Instance is addressable by identity long
+//! after the client that launched it has gone.
+//!
 //! The jail launcher, the storage clone path, and the network broker are consumed through
 //! the [`WorkerLauncher`] and [`ResourceBroker`] seams; the in-process implementations in
 //! [`testing`] make every policy testable without a kernel.
@@ -15,6 +19,7 @@
 
 pub mod admission;
 pub mod ids;
+pub mod instance;
 pub mod pool;
 pub mod protocol;
 
@@ -24,9 +29,12 @@ pub mod testing;
 #[cfg(target_os = "linux")]
 pub mod daemon;
 
+pub use instance::{
+    InstanceError, InstanceView, Launched, MAX_LISTED, Page, Runtime, TerminalReceipt,
+};
 pub use protocol::{
-    FailureCode, MAX_FRAME, ProtocolError, Reply, Request, claim_failure_code, failure_code,
-    lifecycle_failure_code, transfer_failure_code,
+    FailureCode, LaunchFrame, MAX_FRAME, ProtocolError, Reply, Request, claim_failure_code,
+    failure_code, instance_failure_code, lifecycle_failure_code, transfer_failure_code,
 };
 
 pub use admission::{

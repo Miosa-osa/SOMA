@@ -6,10 +6,10 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use soma_hostd::{
     Admission, AssignmentIntent, CpuClass, CpuInventory, ExhaustedBehavior, GenerationId,
-    HostProfile, InstanceId, LaunchMaterialHandle, Limits, MachineShape, MeasuredOverhead,
-    MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId, OperatorLimits,
-    OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, Request,
-    SingleNode, StorageInventory, ValidShape, WorkloadClass,
+    HostProfile, InstanceId, LaunchFrame, LaunchMaterialHandle, Limits, MachineShape,
+    MeasuredOverhead, MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId,
+    OperatorLimits, OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey,
+    ProcessInventory, Request, Runtime, SingleNode, StorageInventory, ValidShape, WorkloadClass,
     testing::{InProcessBroker, InProcessLauncher, ProcessTable},
 };
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
@@ -18,9 +18,15 @@ use tempfile::TempDir;
 
 mod broker;
 
+#[cfg(target_os = "linux")]
+pub mod client;
+
 pub use broker::SharedBroker;
 
 pub type TestPool = Pool<InProcessLauncher, InProcessBroker>;
+
+/// A Host Runtime over the test pool, which is what owns Instances.
+pub type TestRuntime = Runtime<InProcessLauncher, InProcessBroker>;
 
 /// A pool over the host broker every pool of a test shares.
 pub type SharedPool = Pool<InProcessLauncher, SharedBroker>;
@@ -29,6 +35,7 @@ pub struct Harness {
     pub dir: TempDir,
     pub table: Arc<ProcessTable>,
     pub pool: Arc<TestPool>,
+    pub runtime: Arc<TestRuntime>,
     pub admission: Arc<Admission>,
 }
 
@@ -150,10 +157,12 @@ pub fn harness(limits: Limits) -> Harness {
     let table = ProcessTable::new();
     let admission = admission();
     let pool = open_with(dir.path(), &table, limits, &admission);
+    let runtime = Arc::new(Runtime::new(Arc::clone(&pool)));
     Harness {
         dir,
         table,
         pool,
+        runtime,
         admission,
     }
 }
@@ -217,13 +226,23 @@ pub fn instance(n: u32) -> InstanceId {
 /// The daemon request that produces exactly `intent(n)`.
 pub fn claim_request(n: u32) -> Request {
     let intent = intent(n);
-    Request::Claim {
+    Request::Claim(launch_frame(&intent))
+}
+
+/// The daemon Launch request that produces exactly `intent(n)`.
+pub fn launch_request(n: u32) -> Request {
+    Request::Launch(launch_frame(&intent(n)))
+}
+
+/// The wire frame of one assignment intent.
+pub fn launch_frame(intent: &AssignmentIntent) -> LaunchFrame {
+    LaunchFrame {
         operation: intent.operation,
         instance: intent.instance,
         vsock_cid: intent.vsock_cid,
         deadline_nanos: intent.deadline_nanos(),
         launch_material: intent.launch_material,
-        intent: intent.network,
+        intent: intent.network.clone(),
     }
 }
 

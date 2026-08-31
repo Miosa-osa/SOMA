@@ -4,17 +4,16 @@
 //! or free text, and every failure is a stable code.
 
 mod reply;
+mod request;
 
 use std::fmt;
 
 pub use reply::Reply;
+pub use request::{LaunchFrame, Request};
 
-use soma_netd::{MAX_ENCODED_INTENT, NetworkIntent};
+use soma_netd::MAX_ENCODED_INTENT;
 
-use crate::{
-    ClaimError, InstanceId, LaunchMaterialHandle, LifecycleError, OperationId, TransferFailure,
-    WorkerId,
-};
+use crate::{ClaimError, InstanceError, LifecycleError, TransferFailure};
 
 /// The largest request or reply frame.
 pub const MAX_FRAME: usize = 1 + 16 + 16 + 4 + 8 + 32 + MAX_ENCODED_INTENT;
@@ -33,110 +32,6 @@ impl fmt::Display for ProtocolError {
 
 impl std::error::Error for ProtocolError {}
 
-/// One client request.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Request {
-    /// Claim one sterile worker and transfer fresh authority for the Instance.
-    Claim {
-        /// The operation.
-        operation: OperationId,
-        /// The Instance.
-        instance: InstanceId,
-        /// The vsock CID.
-        vsock_cid: u32,
-        /// Nanoseconds the Instance may live.
-        deadline_nanos: u64,
-        /// The sealed launch material.
-        launch_material: LaunchMaterialHandle,
-        /// The admitted network intent.
-        intent: NetworkIntent,
-    },
-    /// Release one assigned or running worker.
-    Release {
-        /// The worker.
-        worker: WorkerId,
-    },
-    /// Inspect one worker.
-    Inspect {
-        /// The worker.
-        worker: WorkerId,
-    },
-    /// Reconcile the ledger.
-    Reconcile,
-}
-
-impl Request {
-    /// Encodes the request.
-    #[must_use]
-    pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(MAX_FRAME);
-        match self {
-            Self::Claim {
-                operation,
-                instance,
-                vsock_cid,
-                deadline_nanos,
-                launch_material,
-                intent,
-            } => {
-                out.push(1);
-                out.extend_from_slice(operation.as_bytes());
-                out.extend_from_slice(instance.as_bytes());
-                out.extend_from_slice(&vsock_cid.to_be_bytes());
-                out.extend_from_slice(&deadline_nanos.to_be_bytes());
-                out.extend_from_slice(launch_material.as_bytes());
-                out.extend_from_slice(&intent.encode());
-            }
-            Self::Release { worker } => {
-                out.push(2);
-                out.extend_from_slice(worker.as_bytes());
-            }
-            Self::Inspect { worker } => {
-                out.push(3);
-                out.extend_from_slice(worker.as_bytes());
-            }
-            Self::Reconcile => out.push(4),
-        }
-        out
-    }
-
-    /// Decodes one exact request frame.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProtocolError`] for any malformed frame.
-    pub fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
-        if bytes.is_empty() || bytes.len() > MAX_FRAME {
-            return Err(ProtocolError("frame length"));
-        }
-        match bytes[0] {
-            1 if bytes.len() > CLAIM_HEADER => Ok(Self::Claim {
-                operation: OperationId::new(array(&bytes[1..17]))
-                    .map_err(|_| ProtocolError("operation"))?,
-                instance: InstanceId::new(array(&bytes[17..33]))
-                    .map_err(|_| ProtocolError("instance"))?,
-                vsock_cid: u32::from_be_bytes(array(&bytes[33..37])),
-                deadline_nanos: u64::from_be_bytes(array(&bytes[37..45])),
-                launch_material: LaunchMaterialHandle::new(array(&bytes[45..77]))
-                    .map_err(|_| ProtocolError("launch material"))?,
-                intent: NetworkIntent::decode(&bytes[CLAIM_HEADER..])
-                    .map_err(|_| ProtocolError("intent"))?,
-            }),
-            2 | 3 if bytes.len() == 17 => {
-                let worker =
-                    WorkerId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("worker"))?;
-                Ok(if bytes[0] == 2 {
-                    Self::Release { worker }
-                } else {
-                    Self::Inspect { worker }
-                })
-            }
-            4 if bytes.len() == 1 => Ok(Self::Reconcile),
-            _ => Err(ProtocolError("request")),
-        }
-    }
-}
-
 /// Stable failure codes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
@@ -147,7 +42,8 @@ pub enum FailureCode {
     Exhausted = 2,
     /// Bounded structure full.
     Overloaded = 3,
-    /// Changed intent under a replayed operation.
+    /// Changed intent under a replayed operation, or a second operation presenting an
+    /// Instance identity that is already owned.
     Conflict = 4,
     /// Claim deadline.
     Deadline = 5,
@@ -157,7 +53,7 @@ pub enum FailureCode {
     Construction = 7,
     /// Transfer failure.
     Transfer = 8,
-    /// Unknown worker.
+    /// Unknown worker or Instance.
     Unknown = 9,
     /// Wrong phase.
     Phase = 10,
@@ -199,6 +95,24 @@ pub const fn lifecycle_failure_code(error: &LifecycleError) -> FailureCode {
         LifecycleError::Start(_) => FailureCode::Transfer,
         LifecycleError::Ledger(_) => FailureCode::Ledger,
         LifecycleError::State(_) => FailureCode::Invariant,
+    }
+}
+
+/// Maps an Instance lifecycle refusal onto its code.
+///
+/// An Instance refusal reuses the allocator's codes wherever it means the same thing, so a
+/// client learns one vocabulary: a claim, transfer, or lifecycle refusal keeps the code the
+/// worker operation would have returned.
+#[must_use]
+pub const fn instance_failure_code(error: &InstanceError) -> FailureCode {
+    match error {
+        InstanceError::Claim(error) => claim_failure_code(error),
+        InstanceError::Transfer(failure) => transfer_failure_code(failure),
+        InstanceError::Occupied { .. } => FailureCode::Conflict,
+        InstanceError::Terminated(_) => FailureCode::Terminated,
+        InstanceError::Unknown(_) => FailureCode::Unknown,
+        InstanceError::Lifecycle(error) => lifecycle_failure_code(error),
+        InstanceError::Ledger(_) => FailureCode::Ledger,
     }
 }
 

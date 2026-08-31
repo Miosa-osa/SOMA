@@ -1,6 +1,9 @@
-//! The minimal allocator daemon: one pool served over one Unix `SOCK_SEQPACKET` socket.
+//! The minimal Host daemon: one Host Runtime served over one Unix `SOCK_SEQPACKET` socket.
 //!
 //! One request frame yields one reply frame.
+//! The daemon holds the [`Runtime`], which is why an Instance outlives the client that
+//! created it: a client owns nothing but its connection, and closing that connection ends
+//! only the connection.
 //! The skeleton is single-threaded and does not authenticate its peer; the library is the
 //! deliverable and the daemon is the smallest honest composition of it.
 
@@ -13,6 +16,11 @@
     clippy::cast_possible_wrap
 )]
 
+mod dispatch;
+mod lifecycle;
+
+pub use dispatch::{handle, launch_bytes};
+
 use std::{
     ffi::CString,
     fmt, fs,
@@ -22,15 +30,10 @@ use std::{
     },
     path::Path,
     sync::Arc,
-    time::Duration,
 };
 
-use soma_guest::LaunchNetwork;
-
 use crate::{
-    AssignmentIntent, Claim, ClaimOutcome, FailureCode, MAX_FRAME, Pool, Reply, Request,
-    ResourceBroker, WorkerLauncher, claim_failure_code, failure_code, lifecycle_failure_code,
-    transfer_failure_code,
+    FailureCode, MAX_FRAME, Reply, Request, ResourceBroker, Runtime, WorkerLauncher, failure_code,
 };
 
 /// Why the daemon could not serve.
@@ -62,13 +65,13 @@ impl fmt::Display for DaemonError {
 
 impl std::error::Error for DaemonError {}
 
-/// Serves `pool` on `socket` until the listener fails.
+/// Serves `runtime` on `socket` until the listener fails.
 ///
 /// # Errors
 ///
 /// Returns the listener failure.
 pub fn serve<L: WorkerLauncher, R: ResourceBroker>(
-    pool: &Arc<Pool<L, R>>,
+    runtime: &Arc<Runtime<L, R>>,
     socket: &Path,
 ) -> Result<(), DaemonError> {
     let listener = listen(socket)?;
@@ -88,12 +91,12 @@ pub fn serve<L: WorkerLauncher, R: ResourceBroker>(
         }
         // SAFETY: `raw` is a freshly accepted descriptor owned by nothing else.
         let connection = unsafe { OwnedFd::from_raw_fd(raw) };
-        serve_connection(pool, &connection);
+        serve_connection(runtime, &connection);
     }
 }
 
 fn serve_connection<L: WorkerLauncher, R: ResourceBroker>(
-    pool: &Arc<Pool<L, R>>,
+    runtime: &Arc<Runtime<L, R>>,
     connection: &OwnedFd,
 ) {
     let mut frame = [0_u8; MAX_FRAME + 1];
@@ -111,7 +114,7 @@ fn serve_connection<L: WorkerLauncher, R: ResourceBroker>(
             return;
         }
         let reply = match Request::decode(&frame[..received as usize]) {
-            Ok(request) => handle(pool, request),
+            Ok(request) => handle(runtime, request),
             Err(_) => Reply::Failed(failure_code(FailureCode::Protocol)),
         };
         let bytes = reply.encode();
@@ -128,126 +131,6 @@ fn serve_connection<L: WorkerLauncher, R: ResourceBroker>(
             return;
         }
     }
-}
-
-/// Applies one request to the pool.
-pub fn handle<L: WorkerLauncher, R: ResourceBroker>(
-    pool: &Arc<Pool<L, R>>,
-    request: Request,
-) -> Reply {
-    match request {
-        Request::Claim {
-            operation,
-            instance,
-            vsock_cid,
-            deadline_nanos,
-            launch_material,
-            intent,
-        } => {
-            let intent = AssignmentIntent {
-                instance,
-                operation,
-                vsock_cid,
-                network: intent,
-                deadline: Duration::from_nanos(deadline_nanos),
-                launch_material,
-            };
-            let reply = match pool.claim(operation, intent.fingerprint()) {
-                Ok(Claim {
-                    outcome,
-                    grant: None,
-                }) => replayed(pool, outcome),
-                Ok(Claim {
-                    grant: Some(grant), ..
-                }) => match pool.transfer(grant, &intent) {
-                    Ok(evidence) => Reply::Claimed {
-                        worker: evidence.worker,
-                        lease_generation: evidence.lease_generation,
-                        launch: launch_bytes(evidence.launch),
-                    },
-                    Err(failure) => Reply::Failed(failure_code(transfer_failure_code(&failure))),
-                },
-                Err(error) => Reply::Failed(failure_code(claim_failure_code(&error))),
-            };
-            let _ = pool.replenish();
-            reply
-        }
-        Request::Release { worker } => match pool.release(worker) {
-            Ok(evidence) => {
-                let _ = pool.replenish();
-                Reply::Released {
-                    complete: evidence.destroyed.complete && evidence.released.complete,
-                }
-            }
-            Err(error) => Reply::Failed(failure_code(lifecycle_failure_code(&error))),
-        },
-        Request::Inspect { worker } => match pool.inspect(worker) {
-            Some(view) => Reply::Inspected {
-                phase: view.phase.code(),
-                lease_generation: view.lease_generation,
-            },
-            None => Reply::Failed(failure_code(FailureCode::Unknown)),
-        },
-        Request::Reconcile => match pool.reconcile() {
-            Ok(report) => {
-                let (terminated, released, retained) = report.counts();
-                let _ = pool.replenish();
-                Reply::Reconciled {
-                    suspects: report.suspects as u32,
-                    terminated: terminated as u32,
-                    released: released as u32,
-                    retained: retained as u32,
-                }
-            }
-            Err(_) => Reply::Failed(failure_code(FailureCode::Ledger)),
-        },
-    }
-}
-
-/// Answers a replay from the disposition of the worker the operation is bound to.
-///
-/// A replay whose worker was destroyed, by a failed transfer or by a release, is answered
-/// with the typed terminal failure rather than a reply naming a worker that is gone, and a
-/// replay of a transfer this process performed repeats the launch-page values of the reply
-/// that was lost.
-/// Only a worker retained across a restart, whose delivery this process never saw, is
-/// answered with the reduced replay reply.
-fn replayed<L: WorkerLauncher, R: ResourceBroker>(
-    pool: &Arc<Pool<L, R>>,
-    outcome: ClaimOutcome,
-) -> Reply {
-    match pool.inspect(outcome.worker) {
-        Some(view) if view.phase.is_terminal() => {
-            Reply::Failed(failure_code(FailureCode::Terminated))
-        }
-        Some(view) => view.launch.map_or(
-            Reply::Replayed {
-                worker: outcome.worker,
-                lease_generation: outcome.lease_generation,
-            },
-            |launch| Reply::Claimed {
-                worker: outcome.worker,
-                lease_generation: outcome.lease_generation,
-                launch: launch_bytes(launch),
-            },
-        ),
-        None => Reply::Failed(failure_code(FailureCode::Terminated)),
-    }
-}
-
-/// Encodes the launch-page network values in launch-page order.
-#[must_use]
-pub fn launch_bytes(launch: LaunchNetwork) -> [u8; 35] {
-    let mut out = [0; 35];
-    out[..4].copy_from_slice(&launch.vsock_cid().to_be_bytes());
-    out[4..8].copy_from_slice(&launch.generation().to_be_bytes());
-    out[8..14].copy_from_slice(&launch.mac());
-    out[14..18].copy_from_slice(&launch.address());
-    out[18] = launch.prefix_length();
-    out[19..23].copy_from_slice(&launch.gateway());
-    out[23..27].copy_from_slice(&launch.resolver());
-    out[27..35].copy_from_slice(&launch.time_sample_nanos().to_be_bytes());
-    out
 }
 
 fn errno() -> i32 {
