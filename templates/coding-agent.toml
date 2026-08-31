@@ -1,0 +1,58 @@
+# A coding-agent sandbox: a Python runtime, an agent, and the tools an agent reaches for.
+#
+# This is the shape most callers want. The base image supplies the language runtime, the
+# modules supply the agent and its tools, and the network envelope names the only two hosts
+# the sandbox is allowed to reach. The API key is a reference, never a value: the Template is
+# meant to be committed to a repository, so a literal credential in it would be a leak, and
+# validation rejects one on sight.
+
+schema = "soma.template/v1alpha1"
+name = "coding-agent-python"
+description = "Claude Code with git in a Python 3.12 sandbox, allowed to reach only Anthropic and GitHub."
+
+modules = [
+  "soma://agent/claude-code@1",
+  "soma://tools/git@1",
+  "soma://tools/shell@1",
+]
+
+[workload]
+image = "python:3.12-slim"
+platform = "linux/amd64"
+
+[command]
+program = "claude"
+args = []
+working_directory = "/workspace"
+
+[resources]
+vcpus = 2
+memory_mib = 4096
+writable_storage_mib = 20480
+
+# Allowlist egress is the narrowest intent that still lets the agent work: it can call the
+# model API and clone from GitHub, and every other destination is refused.
+[network]
+egress = "allowlist"
+allow_domains = ["api.anthropic.com", "github.com"]
+ingress = "deny"
+
+[lifecycle]
+idle_timeout_seconds = 900
+maximum_lifetime_seconds = 14400
+on_idle = "destroy"
+
+[[environment]]
+name = "CI"
+value = "true"
+
+# The caller must supply this at Launch. Declaring it here means a Launch that forgets it
+# fails before the Machine boots rather than halfway through the agent's first request.
+[[environment]]
+name = "GIT_AUTHOR_NAME"
+required = true
+
+[[secrets]]
+name = "ANTHROPIC_API_KEY"
+source = "secret://anthropic/default"
+delivery = "environment"

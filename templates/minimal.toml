@@ -1,0 +1,29 @@
+# The smallest Template the `soma.template/v1alpha1` schema accepts.
+#
+# Every table below is required. There is no shorter spelling today, because the schema asks
+# for the Machine shape and the lifecycle limits up front instead of defaulting them, so even
+# a template that runs one shell command has to state how big the Machine is and how long it
+# may live. Only `[network]` is left out, and leaving it out means denied egress and denied
+# ingress, which is the safe answer for a template that talks to nothing.
+
+schema = "soma.template/v1alpha1"
+name = "minimal"
+description = "One shell command in a Debian base image with no network."
+
+[workload]
+image = "debian:12-slim"
+platform = "linux/amd64"
+
+[command]
+program = "/bin/sh"
+args = ["-c", "echo hello from soma"]
+
+[resources]
+vcpus = 1
+memory_mib = 1024
+writable_storage_mib = 2048
+
+[lifecycle]
+idle_timeout_seconds = 300
+maximum_lifetime_seconds = 900
+on_idle = "destroy"

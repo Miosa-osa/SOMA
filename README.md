@@ -43,6 +43,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 | See the complete machine as plain-text pictures | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
 | Understand where Node, Python, shells, and user agent programs come from | [Workload selection and execution](docs/architecture/visual-atlas.md#5-where-node-python-or-another-runtime-comes-from) |
 | Build reusable templates for Claude Code, Codex, OSA, Hermes, or another workload | [Composable template system](docs/architecture/template-system.md) |
+| Author a Template from a working example and see every field in one table | [Templates](docs/guides/templates.md) |
 | Write your first Template and learn what the Template compiler accepts, rejects, and locks | [Creating a Template](docs/guides/creating-templates.md) |
 | Implement the template system in dependency order | [Template implementation map](docs/research/template-implementation-map.md) |
 | Understand vCPUs, overcommit, shared memory, and how 200 sandboxes fit on 80 threads | [Host capacity and density](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) |
