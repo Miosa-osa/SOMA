@@ -61,7 +61,9 @@ pub(super) fn resources(
         resources.memory_mib,
         limits.max_memory_mib,
     )?;
-    dimension(
+    // Zero writable storage is a sandbox with no writable disk at all, which is a machine the
+    // backend can build, so it is accepted where zero vCPUs or zero memory are not.
+    bounded(
         "resources.writable_storage_mib",
         resources.writable_storage_mib,
         limits.max_writable_storage_mib,
@@ -72,6 +74,10 @@ fn dimension(field: &str, value: u64, maximum: u64) -> Result<(), Rejection> {
     if value == 0 {
         return Err(invalid(field.to_owned(), InvalidReason::Zero));
     }
+    bounded(field, value, maximum)
+}
+
+fn bounded(field: &str, value: u64, maximum: u64) -> Result<(), Rejection> {
     if value > maximum {
         return Err(invalid(
             field.to_owned(),

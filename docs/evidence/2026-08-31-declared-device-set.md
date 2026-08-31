@@ -121,6 +121,22 @@ saving is the clone, not the boot.
   there is no interface, and raises loopback so that a workload talking to its own address still
   works.
 
+## A snapshot of the other machine is refused
+
+The two Generations were built from the same image, so their prepared entries carry the same
+Candidate identity and their snapshot directories can be swapped. Both swaps were tried.
+
+| Entry | Snapshot | Result |
+| --- | --- | --- |
+| read-only Candidate | writable capture | refused, no `admitted` milestone |
+| writable Candidate | read-only capture | refused, no `admitted` milestone |
+
+Neither reached a machine: the receipt goes `accepted`, `workload_resolved`, `failure_observed`.
+The first is refused by the compatibility check, whose device-contract digest covers the set of
+slots and not only their contents, so a manifest describing four devices cannot restore onto a
+machine built with three. The second is refused earlier still, because a Generation with no
+writable storage publishes no `overlay.raw` for the writable machine's head to be cloned from.
+
 ## What the overlay turned out to be load-bearing for
 
 The first read-only boot failed at `MoveMounts` with `EROFS`, and the second failed in identity

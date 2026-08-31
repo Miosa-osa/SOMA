@@ -136,10 +136,10 @@ fn invalid_resources_and_lifecycle_name_the_dimension() {
         &edit(
             EXAMPLE,
             "writable_storage_mib = 10240",
-            "writable_storage_mib = 0",
+            "writable_storage_mib = 65537",
         ),
         "resources.writable_storage_mib",
-        InvalidReason::Zero,
+        InvalidReason::ExceedsMaximum { maximum: 65_536 },
     );
     invalid(
         &edit(

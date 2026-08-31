@@ -21,6 +21,10 @@
 //! - `[[environment]]` entries carry either a literal `value` or `required = true`.
 //! - `[resources]` carries vCPUs, memory, and writable storage only; the process count, open
 //!   file, and output limits of the design are not yet accepted.
+//! - `[resources] writable_storage_mib = 0` is a sandbox with no writable disk at all. Its
+//!   Generation builds no overlay device, its guest mounts the immutable root read-only, and no
+//!   private disk head is cloned on the launch path. Zero vCPUs or zero memory stay rejected,
+//!   because neither describes a machine.
 //! - `[network]` carries egress, domain and CIDR destinations, and ingress only; DNS
 //!   behavior, protocols, and ports are not yet accepted.
 //!
