@@ -36,6 +36,7 @@ mod error;
 mod exchange;
 mod guest;
 mod guest_connect;
+mod guest_file;
 mod guest_state;
 mod host;
 mod host_connect;

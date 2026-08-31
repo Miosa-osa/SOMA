@@ -1,4 +1,4 @@
-use crate::{GuestCommand, OperationId};
+use crate::{FileRequest, GuestCommand, OperationId};
 
 /// One lifecycle-validated request received by the trusted guest agent.
 #[derive(Debug, Eq, PartialEq)]
@@ -14,6 +14,13 @@ pub enum GuestRequest {
         operation: OperationId,
         /// Validated bounded direct command.
         command: GuestCommand,
+    },
+    /// Perform one bounded filesystem request and answer it with exactly one outcome.
+    File {
+        /// Exact filesystem operation identity.
+        operation: OperationId,
+        /// The decoded request, whose path this protocol has already bounded.
+        request: FileRequest,
     },
     /// Stop the trusted guest agent.
     Shutdown {

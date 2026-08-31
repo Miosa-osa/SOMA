@@ -1183,6 +1183,7 @@ version = "1.0.0-alpha.1"
 dependencies = [
  "libc",
  "soma-guest",
+ "tempfile",
  "zeroize",
 ]
 

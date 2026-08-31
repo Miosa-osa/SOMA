@@ -10,6 +10,7 @@ use soma_guest::{
 };
 
 use crate::executor::{self, ExecutorFault, OutputSink, SinkFault};
+use crate::filesystem;
 use crate::repair::{Controller, Fault, Poisoned, Ready};
 use crate::shutdown;
 use crate::timings::{self, Step};
@@ -20,6 +21,11 @@ pub const IDLE_CEILING: Duration = Duration::from_hours(24);
 pub const DELIVERY_GRACE: Duration = Duration::from_millis(500);
 /// Budget for the single `RepairComplete` report.
 pub const REPORT_BUDGET: Duration = Duration::from_secs(5);
+/// Delivery budget for the single outcome that answers a filesystem request.
+///
+/// The budget starts once the operation is done, so it bounds delivery of one bounded record and
+/// not the work behind it; a removal of a large tree takes as long as it takes.
+pub const OUTCOME_BUDGET: Duration = Duration::from_secs(5);
 
 const PROBE_PROGRAM: &[u8] = b"/proc/self/exe";
 /// The reserved self-check argument of the fixed version 1 readiness probe.
@@ -151,6 +157,16 @@ pub fn serve<I: ControlIo>(
                     Err(fault) => return running.poison(fault),
                 }
             }
+            GuestRequest::File { request, .. } => {
+                // A filesystem request is not a command, so it takes no lifecycle transition:
+                // the controller counts commands, and counting these among them would make the
+                // ledger describe work that never ran a process.
+                let outcome = filesystem::perform(&request);
+                match next.file_outcome(&outcome, Instant::now() + OUTCOME_BUDGET) {
+                    Ok(after) => control = after,
+                    Err(_) => return controller.poison(Fault::Control),
+                }
+            }
             GuestRequest::Shutdown { .. } => match controller.stop(Ok(())) {
                 Ok((_stopping, ())) => shutdown::perform(next),
                 Err(poisoned) => return poisoned,
@@ -180,5 +196,6 @@ mod tests {
         assert_eq!(IDLE_CEILING, Duration::from_hours(24));
         assert_eq!(DELIVERY_GRACE, Duration::from_millis(500));
         assert!(REPORT_BUDGET <= Duration::from_secs(5));
+        assert!(OUTCOME_BUDGET <= Duration::from_secs(5));
     }
 }

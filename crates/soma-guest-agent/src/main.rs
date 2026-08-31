@@ -32,6 +32,8 @@ mod entropy;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod executor;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod filesystem;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod identity;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod ioctl;
