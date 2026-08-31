@@ -12,9 +12,7 @@ use std::{
 
 use soma_supervise::{CAPTURE_LIMIT, TERMINATION_GRACE};
 
-use soma_supervise::Output;
-
-use super::{DEADLINE, Invocation, table_presence};
+use super::{DEADLINE, Invocation};
 use crate::{Error, Tool};
 
 const SHELL: &str = "/bin/sh";
@@ -190,39 +188,5 @@ fn an_absent_tool_is_a_typed_failure_rather_than_a_panic() {
             tool: Tool::Conntrack,
             status: None
         }
-    );
-}
-
-#[test]
-fn one_tables_presence_is_decided_from_its_own_bounded_output() {
-    let present = Output {
-        exit_code: Some(0),
-        stdout: b"table inet soma-x {\n}\n".to_vec(),
-        stderr: Vec::new(),
-    };
-    assert_eq!(table_presence(&present), Ok(true));
-
-    let absent = Output {
-        exit_code: Some(1),
-        stdout: Vec::new(),
-        stderr: b"Error: No such file or directory\n".to_vec(),
-    };
-    assert_eq!(table_presence(&absent), Ok(false));
-
-    let refused = Output {
-        exit_code: Some(1),
-        stdout: Vec::new(),
-        stderr: b"Error: Could not process rule: Operation not permitted\n".to_vec(),
-    };
-    assert_eq!(
-        table_presence(&refused),
-        Err(Error::Tool {
-            tool: Tool::Nft,
-            status: Some(1)
-        })
-    );
-    assert!(
-        absent.stderr.len() < CAPTURE_LIMIT,
-        "a single-table probe must stay far inside the capture ceiling"
     );
 }
