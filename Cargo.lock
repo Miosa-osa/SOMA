@@ -1243,6 +1243,7 @@ dependencies = [
 name = "soma-local"
 version = "1.0.0-alpha.1"
 dependencies = [
+ "libc",
  "serde",
  "serde_json",
  "soma",

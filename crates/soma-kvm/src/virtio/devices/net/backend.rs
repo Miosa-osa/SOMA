@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Write};
+use std::os::fd::{AsRawFd as _, RawFd};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// Why a backend call failed; carries no descriptor or interface name.
@@ -39,6 +40,19 @@ pub trait NetBackend {
     /// # Errors
     /// Returns the typed failure; the device stops on a persistent failure.
     fn receive(&mut self, buf: &mut [u8]) -> Result<Option<usize>, NetBackendError>;
+
+    /// The host descriptor that becomes readable when a frame arrives, when there is one.
+    ///
+    /// Nothing else tells the device thread that the host side has a frame: the guest only
+    /// notifies the receive queue when it posts buffers, so a backend that cannot be watched
+    /// is drained on those notifications alone. A backend fed entirely by the host, such as a
+    /// TAP, must be watchable or its frames would wait for a guest notification that has no
+    /// reason to come.
+    ///
+    /// The descriptor is borrowed for watching only; ownership stays with the backend.
+    fn readable_fd(&self) -> Option<RawFd> {
+        None
+    }
 }
 
 /// Frame I/O on a preopened TAP descriptor.
@@ -84,6 +98,10 @@ impl NetBackend for TapBackend {
             }
             Err(error) => Err(NetBackendError::Io(error.kind())),
         }
+    }
+
+    fn readable_fd(&self) -> Option<RawFd> {
+        Some(self.tap.as_raw_fd())
     }
 }
 

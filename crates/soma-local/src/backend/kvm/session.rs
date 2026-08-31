@@ -14,13 +14,12 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use soma_guest::{GuestCommand, LaunchNetwork, SecretFile, TerminalStatus};
-use soma_kvm::x86_64::{SandboxConfig, SandboxDisks, SandboxEvidence};
+use soma_guest::{ActivationReceipt, GuestCommand, LaunchNetwork, SecretFile, TerminalStatus};
+use soma_kvm::x86_64::{NetworkAttachment, SandboxEvidence};
 
+use super::network::PendingActivation;
 use super::worker::serve;
 
-/// The lowest context identifier a guest may take; 0, 1, and 2 are reserved by the kernel.
-pub(super) const FIRST_GUEST_CID: u32 = 3;
 /// The locally administered MAC the guest sees on its one network device.
 pub(super) const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 /// How long a cold boot has to reach an authenticated Ready.
@@ -30,6 +29,8 @@ pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
 
 /// What the lifecycle asks a live sandbox to do.
 pub(super) enum Request {
+    /// Raise the machine's link gate, now that the broker has activated the assignment.
+    RaiseLink,
     /// Run one bounded command over the authenticated session.
     Execute(GuestCommand),
     /// Ask the guest to shut down, then finish the machine and report its evidence.
@@ -38,6 +39,13 @@ pub(super) enum Request {
 
 /// What a live sandbox reports back.
 pub(super) enum Response {
+    /// The repaired session minted the capability the broker's activation requires.
+    ///
+    /// The receipt can only be minted from inside the session, and activation can only be
+    /// requested by the peer that claimed the assignment, which is the owner of this Session.
+    /// So the two halves meet here: the sandbox thread mints and waits, the owner activates,
+    /// and only then is the link raised.
+    Minted(Box<ActivationReceipt>),
     /// The sandbox reached an authenticated Ready.
     Ready,
     /// One command completed with its typed terminal status.
@@ -65,6 +73,8 @@ pub(super) enum SessionError {
     Create,
     /// The launch page could not be delivered, or the guest never consumed it.
     LaunchPage,
+    /// The assigned network could not be activated, so no traffic may flow.
+    Network,
     /// The guest did not reach the authenticated session before the boot deadline.
     Boot,
     /// Repair or the readiness probe failed.
@@ -93,6 +103,10 @@ pub(super) struct Session {
 }
 
 /// Everything one sandbox needs before it can boot.
+#[path = "session/source.rs"]
+mod source;
+pub(in crate::backend::kvm) use source::Source;
+
 pub(super) struct Boot {
     /// How this sandbox comes into existence.
     pub(super) source: Source,
@@ -106,7 +120,8 @@ pub(super) struct Boot {
     /// command line invocation serves one sandbox, so there is no shared counter to draw from
     /// and the identifier is derived from the Instance identity instead.
     pub(super) guest_cid: u32,
-    pub(super) network: LaunchNetwork,
+    /// The network this Instance was given.
+    pub(super) network: Network,
     /// The secrets this one Instance is launched with.
     ///
     /// They belong to the Boot rather than to the Generation because the Generation, its
@@ -116,20 +131,17 @@ pub(super) struct Boot {
     pub(super) secrets: Vec<SecretFile>,
 }
 
-/// Where a sandbox starts from.
+/// The network one machine is built with.
 ///
-/// Cold boot runs the kernel and userspace init on the request path, which costs hundreds of
-/// milliseconds. Restoring resumes a machine already past that point, captured once for the whole
-/// Generation, so the request path pays only the resume, the session, and the repair.
-pub(super) enum Source {
-    /// Build a machine and boot the kernel.
-    ColdBoot(SandboxConfig),
-    /// Resume the captured machine, giving this Instance its own private head.
-    Restore {
-        snapshot: std::path::PathBuf,
-        disks: SandboxDisks,
-        memory_bytes: u64,
-    },
+/// The launch values are always present, because the guest repairs an interface either way; the
+/// frame path and the activation are present only for an Instance the broker leased a bundle to.
+pub(super) struct Network {
+    /// The values the launch page carries.
+    pub(super) launch: LaunchNetwork,
+    /// The assigned frame path, attached with the link still down.
+    pub(super) attachment: Option<NetworkAttachment>,
+    /// What the repaired session must mint before the broker will let traffic flow.
+    pub(super) activation: Option<PendingActivation>,
 }
 
 impl Session {
@@ -137,7 +149,10 @@ impl Session {
     ///
     /// A failure here leaves no thread behind: the sandbox thread reports it and ends, and the
     /// machine it owned is finished on the way out.
-    pub(super) fn launch(boot: Boot) -> Result<Self, SessionError> {
+    pub(super) fn launch(
+        boot: Boot,
+        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
+    ) -> Result<Self, SessionError> {
         let (request_tx, request_rx) = channel();
         let (response_tx, response_rx) = channel();
         let thread = std::thread::Builder::new()
@@ -152,8 +167,32 @@ impl Session {
         };
         match session.await_response(BOOT_DEADLINE + EXIT_GRACE) {
             Ok(Response::Ready) => Ok(session),
+            Ok(Response::Minted(receipt)) => session.open_the_link(&receipt, activate),
             // A sandbox that answered anything else never reached Ready, and one that answered
             // nothing is gone; both carry the reason the thread reported.
+            Ok(Response::Failed(error)) | Err(error) => Err(error),
+            Ok(_) => Err(SessionError::Boot),
+        }
+    }
+
+    /// Activates the assignment with the minted receipt, then raises the machine's link.
+    ///
+    /// The order is the whole point. The guest has repaired its interface by the time the
+    /// receipt exists; the broker raises its own links, installs the routes, and enables
+    /// forwarding when it accepts the receipt; and only then does the machine stop dropping
+    /// frames. Raising the link any earlier would carry frames to an interface still holding
+    /// the placeholder identity the Generation was captured with.
+    fn open_the_link(
+        mut self,
+        receipt: &ActivationReceipt,
+        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
+    ) -> Result<Self, SessionError> {
+        activate(receipt)?;
+        self.requests
+            .send(Request::RaiseLink)
+            .map_err(|_| SessionError::Gone)?;
+        match self.await_response(BOOT_DEADLINE) {
+            Ok(Response::Ready) => Ok(self),
             Ok(Response::Failed(error)) | Err(error) => Err(error),
             Ok(_) => Err(SessionError::Boot),
         }

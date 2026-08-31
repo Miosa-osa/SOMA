@@ -10,7 +10,7 @@ use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{Prepared, SandboxMachine, Stage, Timeline};
-use crate::virtio::{FileBackend, MmioBus, TapBackend, VsockDevice};
+use crate::virtio::{FileBackend, MmioBus, VsockDevice};
 use crate::x86_64::{
     Machine,
     devices::SharedBus,
@@ -93,10 +93,9 @@ impl SandboxMachine {
         // An Instance without an admitted bundle keeps the device it was built with, which drops
         // every frame while the link is down. That is a machine with no network rather than one
         // whose network failed, and the two must not look alike.
-        if let Some(NetworkAttachment { tap, mac }) = network {
-            bus.net_mut()
-                .device_mut()
-                .attach(Box::new(TapBackend::new(tap)), mac);
+        drop(bus);
+        if let Some(network) = network {
+            self.attach_network(network);
         }
         Ok(())
     }

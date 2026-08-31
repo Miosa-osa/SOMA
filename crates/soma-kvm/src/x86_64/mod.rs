@@ -54,7 +54,9 @@ pub use self::{
     mmio::MmioCounters,
     ports::BusCounters,
     run::GuestExit,
-    sandbox::{Milestone, MilestoneMark, SandboxConfig, SandboxEvidence, SandboxMachine},
+    sandbox::{
+        Milestone, MilestoneMark, NetworkAttachment, SandboxConfig, SandboxEvidence, SandboxMachine,
+    },
     serial::SerialCounters,
     snapshot::{
         Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CaptureRequest,

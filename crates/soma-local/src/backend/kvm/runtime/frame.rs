@@ -12,7 +12,7 @@ use soma_hostd::{
 };
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
 
-use crate::backend::kvm::boot::hex16;
+use crate::backend::kvm::identity::hex16;
 
 /// How long a registered Instance is declared to live.
 ///

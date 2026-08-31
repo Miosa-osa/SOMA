@@ -11,17 +11,25 @@
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
-use soma_guest::{HostControl, HostLaunchMaterial, OperationId, RepairedHostControl, SecretFile};
+use soma_guest::{HostControl, HostLaunchMaterial, RepairedHostControl, SecretFile};
 use soma_kvm::snapshot::readiness::SessionEvidence;
 use soma_kvm::x86_64::{
     DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
     SandboxMachine, SnapshotPaths, restore,
 };
 
+mod activation;
+
+use self::activation::open_network;
 use super::io::HostIo;
+
+#[path = "worker/commands.rs"]
+mod commands;
+use super::network::PendingActivation;
 use super::session::{
-    BOOT_DEADLINE, Boot, Completed, EXIT_GRACE, GUEST_MAC, Request, Response, SessionError, Source,
+    BOOT_DEADLINE, Boot, EXIT_GRACE, GUEST_MAC, Network, Request, Response, SessionError, Source,
 };
+use commands::serve_commands;
 
 /// What one Instance's launch carries into the machine that will serve it.
 ///
@@ -43,8 +51,12 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
         network,
         secrets,
     } = boot;
-    let Ok(material) = HostLaunchMaterial::generate(generation, instance, operation, network)
-    else {
+    let Network {
+        launch,
+        attachment,
+        activation,
+    } = network;
+    let Ok(material) = HostLaunchMaterial::generate(generation, instance, operation, launch) else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));
         return;
     };
@@ -55,13 +67,18 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
                 let _ignored = responses.send(Response::Failed(SessionError::Create));
                 return;
             };
+            // The frame path is attached before the vCPU runs, so the device thread can watch it
+            // from its first wakeup. The link stays down until the assignment is activated.
+            if let Some(attachment) = attachment {
+                sandbox.attach_network(attachment);
+            }
             // The machine is finished on every path out of here, including a failed boot, so no
             // descriptor or thread outlives the sandbox that owned it.
             let inputs = LaunchInputs {
                 material,
                 secrets: &secrets,
             };
-            let outcome = drive_cold(&mut sandbox, inputs, requests, responses);
+            let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
             report(sandbox, outcome, responses, instance);
         }
         Source::Restore {
@@ -77,9 +94,10 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
                 // Re-hashing every byte of the memory object is the installation and audit
                 // boundary, not the request path.
                 verify_artifacts: false,
-                // No network bundle is assigned yet, so the guest keeps the device it was built
-                // with and the link stays down. This is where an admitted bundle will arrive.
-                network: None,
+                // An Instance the broker leased a bundle to arrives here with its frame path;
+                // one that asked for no egress keeps the device it was built with, whose link
+                // stays down and which drops every frame.
+                network: attachment,
             });
             let Ok(mut restored) = restored else {
                 let _ignored = responses.send(Response::Failed(SessionError::Create));
@@ -92,8 +110,7 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
             let outcome = drive_restored(
                 &mut restored,
                 inputs,
-                instance,
-                operation,
+                (instance, operation, activation),
                 requests,
                 responses,
             );
@@ -138,6 +155,7 @@ fn hex(instance: [u8; 16]) -> String {
 fn drive_cold(
     sandbox: &mut SandboxMachine,
     inputs: LaunchInputs<'_>,
+    activation: Option<PendingActivation>,
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) -> Result<(), SessionError> {
@@ -149,6 +167,7 @@ fn drive_cold(
     let repaired = reach_session(sandbox, delivered)?;
     let repaired = super::secrets::place(repaired, inputs.secrets)?;
     sandbox.mark(Milestone::Ready);
+    open_network(sandbox, &repaired, activation, requests, responses)?;
     serve_commands(sandbox, repaired, requests, responses)
 }
 
@@ -161,11 +180,11 @@ fn drive_cold(
 fn drive_restored(
     restored: &mut Restored,
     inputs: LaunchInputs<'_>,
-    instance: [u8; 16],
-    operation: [u8; 16],
+    identity: ([u8; 16], [u8; 16], Option<PendingActivation>),
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) -> Result<(), SessionError> {
+    let (instance, operation, activation) = identity;
     let delivered = inputs
         .material
         .deliver_with(|page| restored.resume(page))
@@ -183,6 +202,7 @@ fn drive_restored(
     restored.ready(&receipt).map_err(|_| SessionError::Ready)?;
     machine.mark(Milestone::Ready);
 
+    open_network(machine, &repaired, activation, requests, responses)?;
     serve_commands(machine, repaired, requests, responses)
 }
 
@@ -204,57 +224,6 @@ fn reach_session(
         HostControl::connect(delivered, HostIo::new(machine)).map_err(|_| SessionError::Boot)?;
     machine.mark(Milestone::Handshake);
     host.prepare_and_probe().map_err(|_| SessionError::Ready)
-}
-
-/// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
-fn serve_commands(
-    machine: &SandboxMachine,
-    mut repaired: RepairedHostControl<HostIo<'_>>,
-    requests: &Receiver<Request>,
-    responses: &Sender<Response>,
-) -> Result<(), SessionError> {
-    responses
-        .send(Response::Ready)
-        .map_err(|_| SessionError::Gone)?;
-
-    // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
-    // shut down exactly as an explicit shutdown would.
-    while let Ok(request) = requests.recv() {
-        match request {
-            Request::Execute(command) => {
-                let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
-                let (next, outcome) = repaired
-                    .execute(operation, command)
-                    .map_err(|_| SessionError::Execute)?;
-                repaired = next;
-                machine.mark(Milestone::Execute);
-                responses
-                    .send(Response::Executed(Box::new(Completed {
-                        status: outcome.status(),
-                        stdout: outcome.stdout().to_vec(),
-                        stderr: outcome.stderr().to_vec(),
-                    })))
-                    .map_err(|_| SessionError::Gone)?;
-            }
-            Request::Shutdown => break,
-        }
-    }
-    let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
-    repaired
-        .shutdown(operation)
-        .map_err(|_| SessionError::Gone)?;
-    machine.mark(Milestone::Shutdown);
-    Ok(())
-}
-
-/// Sixteen fresh bytes for one operation identity.
-fn fresh16() -> [u8; 16] {
-    use std::io::Read as _;
-    let mut bytes = [0_u8; 16];
-    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-        let _ignored = file.read_exact(&mut bytes);
-    }
-    bytes
 }
 
 /// The device identity and shape one sandbox is given.
