@@ -1,0 +1,51 @@
+rseq(0x723887bfffe0, 0x20, 0, 0x53053053) = 0
+set_robust_list(0x723887bff9a0, 24)     = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+prctl(PR_SET_NAME, "soma-kvm-replen"...) = 0
+mmap(NULL, 134217728, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x72387f800000
+munmap(0x72387f800000, 8388608)         = 0
+munmap(0x723884000000, 58720256)        = 0
+mprotect(0x723880000000, 135168, PROT_READ|PROT_WRITE) = 0
+sched_getaffinity(979243, 32, [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79]) = 16
+gettid()                                = 979243
+sigaltstack(NULL, {ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=0}) = 0
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x723887fb9000
+mprotect(0x723887fb9000, 4096, PROT_NONE) = 0
+sigaltstack({ss_sp=0x723887fba000, ss_flags=0, ss_size=8192}, NULL) = 0
+futex(0x5d20148d6540, FUTEX_WAIT_BITSET_PRIVATE, 0, {tv_sec=43952, tv_nsec=357902739}, FUTEX_BITSET_MATCH_ANY) = 0
+openat(AT_FDCWD, "/srv/soma/dm-store/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25", O_RDONLY|O_CLOEXEC|O_PATH|O_DIRECTORY) = 5
+statx(5, "store", AT_STATX_SYNC_AS_STAT|AT_SYMLINK_NOFOLLOW, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFDIR|0775, stx_size=16, ...}) = 0
+openat2(5, "store", {flags=O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_PATH|O_DIRECTORY, resolve=RESOLVE_NO_MAGICLINKS|RESOLVE_BENEATH}, 24) = 7
+statx(7, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFDIR|0775, stx_size=16, ...}) = 0
+close(5)                                = 0
+mkdirat(7, "v1", 0777)                  = -1 EEXIST (File exists)
+openat2(7, "v1", {flags=O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_PATH|O_DIRECTORY, resolve=RESOLVE_NO_MAGICLINKS|RESOLVE_BENEATH}, 24) = 5
+mkdirat(5, "blobs", 0777)               = -1 EEXIST (File exists)
+openat2(5, "blobs", {flags=O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_PATH|O_DIRECTORY, resolve=RESOLVE_NO_MAGICLINKS|RESOLVE_BENEATH}, 24) = 9
+mkdirat(9, "sha256", 0777)              = -1 EEXIST (File exists)
+openat2(9, "sha256", {flags=O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_PATH|O_DIRECTORY, resolve=RESOLVE_NO_MAGICLINKS|RESOLVE_BENEATH}, 24) = 11
+mkdirat(5, "tmp", 0777)                 = -1 EEXIST (File exists)
+openat2(5, "tmp", {flags=O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_PATH|O_DIRECTORY, resolve=RESOLVE_NO_MAGICLINKS|RESOLVE_BENEATH}, 24) = 13
+close(9)                                = 0
+close(5)                                = 0
+close(7)                                = 0
+openat2(11, "2852e6c0e85dae56357b6430b2f5d5120af496cf49a7696de8186015566cc456", {flags=O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC, resolve=RESOLVE_NO_MAGICLINKS|RESOLVE_BENEATH}, 24) = 5
+statx(5, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0444, stx_size=1511424, ...}) = 0
+statx(5, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0444, stx_size=1511424, ...}) = 0
+close(11)                               = 0
+close(13)                               = 0
+getpid()                                = 979242
+mmap(NULL, 2101248, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x7238877fe000
+mprotect(0x7238877ff000, 2097152, PROT_READ|PROT_WRITE) = 0
+rt_sigprocmask(SIG_BLOCK, ~[], [], 8)   = 0
+clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7238879fe990, parent_tid=0x7238879fe990, exit_signal=0, stack=0x7238877fe000, stack_size=0x1fff00, tls=0x7238879fe6c0} => {parent_tid=[979244]}, 88) = 979244
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+futex(0x5d20148d9278, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, {tv_sec=44011, tv_nsec=361897839}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x5d20148d6540, FUTEX_WAIT_BITSET_PRIVATE, 1, {tv_sec=43952, tv_nsec=369767416}, FUTEX_BITSET_MATCH_ANY) = -1 ETIMEDOUT (Connection timed out)
+futex(0x5d20148d6540, FUTEX_WAIT_BITSET_PRIVATE, 1, {tv_sec=43953, tv_nsec=370092033}, FUTEX_BITSET_MATCH_ANY) = -1 ETIMEDOUT (Connection timed out)
+futex(0x5d20148d6540, FUTEX_WAIT_BITSET_PRIVATE, 1, {tv_sec=43954, tv_nsec=370367867}, FUTEX_BITSET_MATCH_ANY) = 0
+sigaltstack({ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=8192}, NULL) = 0
+munmap(0x723887fb9000, 12288)           = 0
+rt_sigprocmask(SIG_BLOCK, ~[RT_1], NULL, 8) = 0
+madvise(0x7238879ff000, 2076672, MADV_DONTNEED) = 0
+exit(0)                                 = ?

@@ -1,0 +1,58 @@
+# Whole host lifetime: the union over the host's main thread and every thread it cloned.
+
+arch_prctl	allowed-startup-only (KILLED in steady state)
+epoll_create1	allowed-startup-only (KILLED in steady state)
+eventfd2	allowed-startup-only (KILLED in steady state)
+fcntl	allowed-startup-only (KILLED in steady state)
+getdents64	allowed-startup-only (KILLED in steady state)
+openat	allowed-startup-only (KILLED in steady state)
+poll	allowed-startup-only (KILLED in steady state)
+prlimit64	allowed-startup-only (KILLED in steady state)
+rt_sigaction	allowed-startup-only (KILLED in steady state)
+set_tid_address	allowed-startup-only (KILLED in steady state)
+statx	allowed-startup-only (KILLED in steady state)
+brk	allowed-startup+steady
+clock_nanosleep	allowed-startup+steady
+clone3	allowed-startup+steady
+close	allowed-startup+steady
+epoll_ctl	allowed-startup+steady
+epoll_wait	allowed-startup+steady
+exit	allowed-startup+steady
+exit_group	allowed-startup+steady
+fdatasync	allowed-startup+steady
+fstat	allowed-startup+steady
+futex	allowed-startup+steady
+getpid	allowed-startup+steady
+getrandom	allowed-startup+steady
+gettid	allowed-startup+steady
+ioctl	allowed-startup+steady
+madvise	allowed-startup+steady
+mmap	allowed-startup+steady
+mprotect	allowed-startup+steady
+munmap	allowed-startup+steady
+prctl	allowed-startup+steady
+pread64	allowed-startup+steady
+pwrite64	allowed-startup+steady
+read	allowed-startup+steady
+recvfrom	allowed-startup+steady
+rseq	allowed-startup+steady
+rt_sigprocmask	allowed-startup+steady
+sendto	allowed-startup+steady
+set_robust_list	allowed-startup+steady
+sigaltstack	allowed-startup+steady
+write	allowed-startup+steady
+mkdirat	KILLED-always (absent from the policy table)
+sched_getaffinity	KILLED-always (absent from the policy table)
+setsockopt	KILLED-always (absent from the policy table)
+accept4	KILLED-always (documented denial surface)
+access	KILLED-always (documented denial surface)
+bind	KILLED-always (documented denial surface)
+chmod	KILLED-always (documented denial surface)
+dup2	KILLED-always (documented denial surface)
+execve	KILLED-always (documented denial surface)
+listen	KILLED-always (documented denial surface)
+mkdir	KILLED-always (documented denial surface)
+openat2	KILLED-always (documented denial surface)
+readlink	KILLED-always (documented denial surface)
+socket	KILLED-always (documented denial surface)
+unlink	KILLED-always (documented denial surface)

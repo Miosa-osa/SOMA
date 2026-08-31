@@ -205,3 +205,10 @@ its Generation store, its head directory, and `/dev/kvm` by path, so moving it i
 means giving it directory descriptors and `openat` throughout, which is a larger change than this
 one and does not change what a caller can do. This document's host is that same one-machine,
 one-process shape without the jail around it.
+
+That last paragraph was measured afterwards and is wrong about the obstacle. The paths are real,
+but `openat` is admitted only in the jail's startup phase, and the binding constraint is that a
+jailed process may not `socket`, `bind`, `listen`, or `accept4` at all: those are in the
+documented denial surface, killed in every phase. The host cannot be jailed because it is a
+server, not because of what it opens. See
+[what it costs to put the durable machine host inside the jail](2026-08-31-jailing-the-machine-host.md).

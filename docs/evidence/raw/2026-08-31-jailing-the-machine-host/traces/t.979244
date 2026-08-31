@@ -1,0 +1,117 @@
+rseq(0x7238879fefe0, 0x20, 0, 0x53053053) = 0
+set_robust_list(0x7238879fe9a0, 24)     = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+prctl(PR_SET_NAME, "soma-kvm-prepar"...) = 0
+mmap(NULL, 134217728, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x723878000000
+munmap(0x72387c000000, 67108864)        = 0
+mprotect(0x723878000000, 135168, PROT_READ|PROT_WRITE) = 0
+sched_getaffinity(979244, 32, [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79]) = 16
+gettid()                                = 979244
+sigaltstack(NULL, {ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=0}) = 0
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x723887f84000
+mprotect(0x723887f84000, 4096, PROT_NONE) = 0
+sigaltstack({ss_sp=0x723887f85000, ss_flags=0, ss_size=8192}, NULL) = 0
+openat(AT_FDCWD, "/dev/kvm", O_RDWR|O_CLOEXEC) = 7
+openat(AT_FDCWD, "/srv/soma/dm-store/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25/snapshot/state.somasnap", O_RDONLY|O_CLOEXEC) = 8
+statx(8, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=9086, ...}) = 0
+read(8, "SOMASNP\0\0\2\0\1\0\0\20\0\16\306\3y\254]\250a\\\3240\240\266\255\217\205"..., 9086) = 9086
+read(8, "", 32)                         = 0
+close(8)                                = 0
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE2) = 4096
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_IRQCHIP) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_IRQFD) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_IOEVENTFD) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_IMMEDIATE_EXIT) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_XCRS) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_VCPU_EVENTS) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_MP_STATE) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_ADJUST_CLOCK) = 14
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_SET_TSS_ADDR) = 1
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_PIT2) = 1
+ioctl(7, KVM_GET_SUPPORTED_CPUID, {nent=46, entries=[...]}) = 0
+ioctl(7, KVM_GET_API_VERSION, 0)        = 12
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS) = 32764
+ioctl(7, KVM_CREATE_VM, 0)              = 12
+ioctl(7, KVM_GET_VCPU_MMAP_SIZE, 0)     = 12288
+openat(AT_FDCWD, "/srv/soma/dm-store/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25/snapshot/memory.raw", O_RDONLY|O_CLOEXEC) = 4
+statx(4, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=1073741824, ...}) = 0
+mmap(NULL, 1073741824, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_NORESERVE, 4, 0) = 0x723838000000
+close(4)                                = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0) = 0x723887fb8000
+ioctl(12, KVM_SET_USER_MEMORY_REGION, {slot=1, flags=0, guest_phys_addr=0xd0100000, memory_size=4096, userspace_addr=0x723887fb8000}) = 0
+ioctl(12, KVM_SET_USER_MEMORY_REGION, {slot=0, flags=0, guest_phys_addr=0, memory_size=1073741824, userspace_addr=0x723838000000}) = 0
+ioctl(12, KVM_SET_TSS_ADDR, 0xfffbd000) = 0
+ioctl(12, KVM_CREATE_IRQCHIP, 0)        = 0
+ioctl(12, KVM_CREATE_PIT2, 0x7238879faeb0) = 0
+statx(5, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0444, stx_size=1511424, ...}) = 0
+openat(AT_FDCWD, "/dev/urandom", O_RDONLY|O_CLOEXEC) = 9
+ioctl(12, KVM_CREATE_VCPU, 0)           = 6
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_SHARED, 6, 0) = 0x723887f7d000
+ioctl(6, KVM_SET_CPUID2, {nent=46, entries=[...]}) = 0
+ioctl(6, KVM_SET_MSRS, 0x723878007db0)  = 22
+ioctl(6, KVM_SET_SREGS, {cs={base=0, limit=4294967295, selector=16, type=11, present=1, dpl=0, db=0, s=1, l=1, g=1, avl=0}, ...}) = 0
+ioctl(6, KVM_SET_REGS, {rax=0xfc8a, ..., rsp=0xffffc90000003fa8, rbp=0xffff8880024614a4, ..., rip=0xffffffff81020ed5, rflags=0x46}) = 0
+ioctl(6, KVM_SET_FPU, 0x7238879f9d50)   = 0
+ioctl(6, KVM_SET_XCRS, 0x7238879fad50)  = 0
+ioctl(7, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE2) = 4096
+ioctl(6, KVM_SET_XSAVE, 0x7238879f9d50) = 0
+ioctl(6, KVM_SET_LAPIC, 0x7238879f9d50) = 0
+ioctl(6, KVM_SET_MP_STATE, 0x7238879f9d1c) = 0
+ioctl(6, KVM_SET_VCPU_EVENTS, 0x7238879f9d50) = 0
+eventfd2(0, EFD_NONBLOCK)               = 10
+ioctl(12, KVM_IRQFD, 0x7238879faee0)    = 0
+eventfd2(0, EFD_NONBLOCK)               = 14
+eventfd2(0, EFD_NONBLOCK)               = 15
+eventfd2(0, EFD_NONBLOCK)               = 16
+eventfd2(0, EFD_NONBLOCK)               = 17
+ioctl(12, KVM_IRQFD, 0x7238879fae60)    = 0
+ioctl(12, KVM_IRQFD, 0x7238879fae60)    = 0
+ioctl(12, KVM_IRQFD, 0x7238879fae60)    = 0
+ioctl(12, KVM_IRQFD, 0x7238879fae60)    = 0
+eventfd2(0, EFD_NONBLOCK)               = 18
+ioctl(12, KVM_IOEVENTFD, 0x7238879fad98) = 0
+eventfd2(0, EFD_NONBLOCK)               = 19
+ioctl(12, KVM_IOEVENTFD, 0x7238879fad98) = 0
+eventfd2(0, EFD_NONBLOCK)               = 21
+ioctl(12, KVM_IOEVENTFD, 0x7238879fad98) = 0
+eventfd2(0, EFD_NONBLOCK)               = 20
+ioctl(12, KVM_IOEVENTFD, 0x7238879fad98) = 0
+eventfd2(0, EFD_NONBLOCK)               = 22
+ioctl(12, KVM_IOEVENTFD, 0x7238879fad98) = 0
+eventfd2(0, EFD_NONBLOCK)               = 23
+ioctl(12, KVM_IOEVENTFD, 0x7238879fad98) = 0
+ioctl(12, KVM_SET_IRQCHIP, 0x7238879face8) = 0
+ioctl(12, KVM_SET_IRQCHIP, 0x7238879face8) = 0
+ioctl(12, KVM_SET_IRQCHIP, 0x7238879face8) = 0
+ioctl(12, KVM_SET_PIT2, 0x7238879fae78) = 0
+ioctl(12, KVM_SET_CLOCK, 0x7238879fb140) = 0
+eventfd2(0, EFD_NONBLOCK)               = 24
+futex(0x5d20148d9278, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x7238800011b8, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+close(12)                               = 0
+close(7)                                = 0
+munmap(0x723838000000, 1073741824)      = 0
+close(5)                                = 0
+close(9)                                = 0
+close(24)                               = 0
+munmap(0x723887fb8000, 4096)            = 0
+close(6)                                = 0
+munmap(0x723887f7d000, 12288)           = 0
+close(10)                               = 0
+close(14)                               = 0
+close(15)                               = 0
+close(16)                               = 0
+close(17)                               = 0
+close(18)                               = 0
+close(19)                               = 0
+close(21)                               = 0
+close(20)                               = 0
+close(22)                               = 0
+close(23)                               = 0
+sigaltstack({ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=8192}, NULL) = 0
+munmap(0x723887f84000, 12288)           = 0
+rt_sigprocmask(SIG_BLOCK, ~[RT_1], NULL, 8) = 0
+madvise(0x7238877fe000, 2076672, MADV_DONTNEED) = 0
+exit(0)                                 = ?

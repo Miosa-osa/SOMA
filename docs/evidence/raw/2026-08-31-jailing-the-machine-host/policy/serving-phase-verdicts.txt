@@ -1,0 +1,14 @@
+# Serving phase: syscalls the host issues from its first accept4 onward.
+# Classified against soma_jail::NEVER_ALLOWED and soma_jail::syscall_rules() by policy/classify.rs.
+
+fcntl	allowed-startup-only (KILLED in steady state)
+close	allowed-startup+steady
+exit_group	allowed-startup+steady
+futex	allowed-startup+steady
+munmap	allowed-startup+steady
+recvfrom	allowed-startup+steady
+sendto	allowed-startup+steady
+sigaltstack	allowed-startup+steady
+setsockopt	KILLED-always (absent from the policy table)
+accept4	KILLED-always (documented denial surface)
+unlink	KILLED-always (documented denial surface)
