@@ -53,11 +53,19 @@ It ignores memory bandwidth, cross-core contention, and lock behaviour, all of w
 | EPYC 9654 class | 192 | about 28 to 33 ms | about 35 to 60 ms |
 | Isorun, for comparison | unknown | 22 ms | 73 ms |
 
+The Isorun row is **not a like-for-like comparison and must not be reported as one**, for two
+reasons rather than one. Its figures are vendor-reported over transatlantic transport with
+undocumented timer endpoints. More importantly, an Isorun sample creates an addressable sandbox and
+then commands it by identity, while every SOMA figure in this table was measured by a single
+one-shot process that never produces a reusable identity - a capability SOMA does not yet have.
+See [why the pairing is invalid](../evidence/2026-08-31-isorun-comparison-is-not-like-for-like.md).
+
 Two consequences follow, and they point at different parts.
 
 **Sequential is won by core speed.**
 One sandbox uses one core, so the fastest desktop part is the right host for a sequential figure.
 A 9950X class part is projected to reach roughly the sequential number Isorun reports rather than to beat it, so sequential is a contest SOMA can enter on the right host and not one it currently wins.
+That projection compares a SOMA one-shot process against an Isorun addressable-sandbox creation, so it is optimistic by however much making a sandbox addressable costs, which is not yet known.
 
 **Burst is won by core count as well as core speed.**
 A hundred sandboxes on 32 threads is three times oversubscribed, which is worse than eval-1's 1.25 even though every core is far faster.

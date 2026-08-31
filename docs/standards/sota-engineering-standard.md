@@ -345,6 +345,32 @@ Required evidence:
 - Separate latency, throughput, and amortized-rate reporting.
 - At least 100 engineering bursts and 10,000 samples before stable performance claims.
 - Exact external benchmark reproduction without moving the timing boundary.
+- An external comparison must match the external product's **flow**, not only its timing boundary.
+  Where the external sample creates an addressable sandbox and then commands it by identity, a SOMA
+  figure measured by a single one-shot process is not a comparison and may not be printed beside
+  it. See [why the Isorun pairing is invalid](../evidence/2026-08-31-isorun-comparison-is-not-like-for-like.md).
+
+### Mechanism claims
+
+A statement about *why* something is slow is a claim, and carries the same evidence burden as the
+latency itself. A mechanism may be asserted only when a measurement **moves when that mechanism is
+manipulated and does not move when something else is**. Plausibility is not evidence.
+
+This rule exists because it was earned. Over one optimisation session, roughly ten mechanism
+hypotheses were asserted from reasoning and then contradicted by measurement: the cost of running
+`nft`, the cost of entering a network namespace, which receipt segment the private head clone lives
+in, whether less guest memory is faster, whether the head clone cost was the clone or the `fsync`,
+whether host demand paging explained the restore resume, whether huge pages would help it, whether
+retiring the launch page earlier would help, whether a shape mismatch explained a benchmark scoring
+zero, and which of two device sets was faster at concurrency. Every one was reasonable. Three were
+only settled by building the change and measuring it **worse** than what it replaced.
+
+Two corollaries:
+
+- A single cohort is not a distribution. One hundred-way cohort per arm ranked two configurations
+  backwards; six cohorts per arm reversed the result. Repeat before reporting an ordering.
+- A negative result is a result. "Pre-faulting moves nothing and costs 57 ms" is retained evidence,
+  not a failed experiment, and prevents the same hypothesis being paid for twice.
 
 The numerical targets remain in [MISSION.md](../../MISSION.md) and the [benchmark contract](../benchmark-contract.md).
 

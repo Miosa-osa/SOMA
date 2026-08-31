@@ -79,7 +79,7 @@ Everything after resume moves:
 An optimized host build removes 13.5 ms of the 26.9 ms that follows resume in the published single sample, and 9.6 ms of the 22.0 ms at p50.
 All of that saving is host-side device, serial, and vsock emulation.
 The readiness probe interval does not improve at all, which is the first evidence that it is guest-side.
-`Ready` at 17.8 ms p50 and 19.4 ms p99 measured from the first manifest byte is now below the 22 ms p50 the coordinator measured against the live Isorun API on 2026-08-30, though the two boundaries are not the same measurement and this one excludes the private head, admission, and transport.
+`Ready` at 17.8 ms p50 and 19.4 ms p99 measured from the first manifest byte is numerically below the 22 ms p50 the coordinator measured against the live Isorun API on 2026-08-30, but the two are not comparable and this sentence should not be read as SOMA being ahead. The boundaries differ - this one excludes the private head, admission, and transport - and the flows differ more: an Isorun sample creates an addressable sandbox and then commands it by identity, while this figure comes from a one-shot process that never produces a reusable identity. See [why the pairing is invalid](2026-08-31-isorun-comparison-is-not-like-for-like.md).
 
 ## Per-step timing inside the guest
 
