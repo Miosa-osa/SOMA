@@ -60,6 +60,7 @@ pub fn run(fixture: &Fixture, name: &str, cid: u32, commands: &[session::Command
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,
         verify_artifacts: false,
+        network: None,
     })
     .expect("restore the snapshot");
     let restore_ns = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);

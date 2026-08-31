@@ -63,6 +63,9 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
                 // Re-hashing every byte of the memory object is the installation and audit
                 // boundary, not the request path.
                 verify_artifacts: false,
+                // No network bundle is assigned yet, so the guest keeps the device it was built
+                // with and the link stays down. This is where an admitted bundle will arrive.
+                network: None,
             });
             let Ok(mut restored) = restored else {
                 let _ignored = responses.send(Response::Failed(SessionError::Create));

@@ -23,6 +23,7 @@ use vmm_sys_util::eventfd::EventFd;
 
 pub(in crate::x86_64) use self::evidence::Timeline;
 pub use self::evidence::{Milestone, MilestoneMark, SandboxEvidence};
+pub use self::restored::NetworkAttachment;
 use super::{
     InterruptController, Machine, MachineError, Phase,
     channel::ControlChannel,

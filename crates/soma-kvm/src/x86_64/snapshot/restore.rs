@@ -35,6 +35,7 @@ use crate::snapshot::{
     section::SectionRole,
 };
 use crate::virtio::Slot;
+use crate::x86_64::sandbox::NetworkAttachment;
 use crate::x86_64::{
     Machine,
     devices::SandboxDisks,
@@ -65,6 +66,8 @@ pub struct RestoreRequest {
     /// This is the installation and audit boundary, not the warm request path: it reads every
     /// byte of both objects.
     pub verify_artifacts: bool,
+    /// The assigned network bundle, when this Instance was given one.
+    pub network: Option<NetworkAttachment>,
 }
 
 /// What the restored machine is, taken from the manifest rather than from the caller.
@@ -145,6 +148,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         guest_cid,
         memory_bytes,
         verify_artifacts,
+        network,
     } = request;
     let SandboxDisks { root, overlay } = disks;
     let overlay_capacity_bytes = overlay
@@ -158,7 +162,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         memory_bytes,
         verify_artifacts,
     })?
-    .assign(overlay, guest_cid)
+    .assign(overlay, guest_cid, network)
 }
 
 /// Restores one machine that holds no Instance authority yet.

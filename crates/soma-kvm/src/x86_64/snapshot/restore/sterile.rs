@@ -8,8 +8,8 @@
 use std::fs::File;
 
 use super::{
-    Cell, Digest, RestoreFacts, RestoreSequence, Restored, SandboxMachine, SnapshotError,
-    SnapshotPaths, readiness,
+    Cell, Digest, NetworkAttachment, RestoreFacts, RestoreSequence, Restored, SandboxMachine,
+    SnapshotError, SnapshotPaths, readiness,
 };
 
 /// What a prepared worker is restored from, before any Instance exists.
@@ -60,13 +60,18 @@ impl Sterile {
     /// # Errors
     ///
     /// Returns a typed failure for an invalid private head, CID, or readiness secret.
-    pub fn assign(self, overlay: File, guest_cid: u32) -> Result<Restored, SnapshotError> {
+    pub fn assign(
+        self,
+        overlay: File,
+        guest_cid: u32,
+        network: Option<NetworkAttachment>,
+    ) -> Result<Restored, SnapshotError> {
         let Self {
             machine,
             facts,
             sequence,
         } = self;
-        machine.assign_instance_resources(overlay, guest_cid)?;
+        machine.assign_instance_resources(overlay, guest_cid, network)?;
         let readiness = readiness::sample_challenge()?;
         Ok(Restored {
             machine,
