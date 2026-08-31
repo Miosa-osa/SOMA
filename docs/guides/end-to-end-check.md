@@ -44,7 +44,9 @@ recorded separately in `cleanup-checks.tsv` as `clean`, `leaked`, or `unverified
 - **`netns`**: the set of network namespaces must be the same before and after.
 - **`nftables`**: the set of nftables tables must be the same before and after. This one is
   recorded `unverified` rather than passed when `nft` cannot be read.
-- **`state_root`**: `du -sb` on the state root must be byte identical across the second run.
+- **`state_root`**: the state root's byte count and its entry count must both be identical across
+  the second run. Bytes alone are not enough, because an added empty file or directory does not
+  move them.
 
 The stage fails only when a check observed a difference. An `unverified` check is printed in the
 summary and carried into the results file rather than being counted as a pass.
