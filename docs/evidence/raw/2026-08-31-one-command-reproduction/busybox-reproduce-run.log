@@ -1,0 +1,242 @@
+
+==> preflight
+  host ok, kernel kernel/out/vmlinux-6.12.107-soma-v1
+
+==> building the workspace, the guest agent, and the two tools
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling typenum v1.20.1
+   Compiling libc v0.2.189
+   Compiling cfg-if v1.0.4
+   Compiling version_check v0.9.5
+   Compiling serde_core v1.0.229
+   Compiling zmij v1.0.23
+   Compiling memchr v2.8.3
+   Compiling serde v1.0.229
+   Compiling serde_json v1.0.151
+   Compiling subtle v2.6.1
+   Compiling semver v1.0.28
+   Compiling itoa v1.0.18
+   Compiling bitflags v2.13.1
+   Compiling rustix v1.1.4
+   Compiling once_cell v1.21.4
+   Compiling linux-raw-sys v0.12.1
+   Compiling cpufeatures v0.2.17
+   Compiling cpufeatures v0.3.1
+   Compiling io-lifetimes v3.0.1
+   Compiling io-lifetimes v2.0.4
+   Compiling zeroize v1.9.0
+   Compiling io-extras v0.19.0
+   Compiling getrandom v0.3.4
+   Compiling opaque-debug v0.3.1
+   Compiling cap-primitives v4.0.3
+   Compiling cap-std v4.0.3
+   Compiling maybe-owned v0.3.4
+   Compiling ipnet v2.12.1
+   Compiling ambient-authority v0.0.2
+   Compiling bitflags v1.3.2
+   Compiling winnow v1.0.4
+   Compiling kvm-ioctls v0.25.0
+   Compiling crc32fast v1.5.1
+   Compiling adler2 v2.0.1
+   Compiling cap-fs-ext v4.0.3
+   Compiling getrandom v0.4.3
+   Compiling pin-project-lite v0.2.17
+   Compiling simd-adler32 v0.3.10
+   Compiling autocfg v1.5.1
+   Compiling futures-sink v0.3.34
+   Compiling futures-core v0.3.34
+   Compiling strsim v0.11.1
+   Compiling ident_case v1.0.1
+   Compiling utf8parse v0.2.2
+   Compiling futures-io v0.3.34
+   Compiling base64 v0.23.1
+   Compiling slab v0.4.12
+   Compiling anstyle-query v1.1.5
+   Compiling is_terminal_polyfill v1.70.2
+   Compiling ref-cast v1.0.27
+   Compiling colorchoice v1.0.5
+   Compiling futures-task v0.3.34
+   Compiling anstyle v1.0.14
+   Compiling clap_lex v1.1.0
+   Compiling heck v0.5.0
+   Compiling bytes v1.12.1
+   Compiling thiserror v2.0.20
+   Compiling dyn-clone v1.0.20
+   Compiling hashbrown v0.17.1
+   Compiling equivalent v1.0.2
+   Compiling rmcp v3.1.4
+   Compiling pastey v0.2.3
+   Compiling futures-channel v0.3.34
+   Compiling anstyle-parse v1.0.0
+   Compiling tracing-core v0.1.36
+   Compiling generic-array v0.14.7
+   Compiling miniz_oxide v0.9.1
+   Compiling rustc_version v0.4.1
+   Compiling anstream v1.0.0
+   Compiling num-traits v0.2.19
+   Compiling curve25519-dalek v4.1.3
+   Compiling snow v0.10.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling clap_builder v4.6.6
+   Compiling flate2 v1.1.10
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling hybrid-array v0.4.14
+   Compiling soma-supervise v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-supervise)
+   Compiling vmm-sys-util v0.15.0
+   Compiling filetime v0.2.29
+   Compiling soma-jail v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-jail)
+   Compiling block-buffer v0.12.1
+   Compiling crypto-common v0.2.2
+   Compiling uuid v1.26.0
+   Compiling tar v0.4.46
+   Compiling crypto-common v0.1.7
+   Compiling inout v0.1.4
+   Compiling block-buffer v0.10.4
+   Compiling universal-hash v0.5.1
+   Compiling aead v0.5.2
+   Compiling cipher v0.4.4
+   Compiling digest v0.10.7
+   Compiling poly1305 v0.8.0
+   Compiling blake2 v0.10.6
+   Compiling chacha20 v0.9.1
+   Compiling kvm-bindings v0.14.1
+   Compiling chacha20poly1305 v0.10.1
+   Compiling soma-vmm v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-vmm)
+   Compiling digest v0.11.3
+   Compiling sha2 v0.11.0
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling indexmap v2.14.1
+   Compiling toml v1.1.4+spec-1.1.0
+   Compiling soma-kvm v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-kvm)
+   Compiling fs-set-times v0.20.3
+   Compiling rustix-linux-procfs v0.1.1
+   Compiling darling_core v0.24.1
+   Compiling serde_derive_internals v0.30.0
+   Compiling serde_derive v1.0.229
+   Compiling futures-macro v0.3.34
+   Compiling tokio-macros v2.7.2
+   Compiling ref-cast-impl v1.0.27
+   Compiling clap_derive v4.6.4
+   Compiling thiserror-impl v2.0.20
+   Compiling schemars_derive v1.2.2
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling tracing-attributes v0.1.31
+   Compiling tokio v1.53.1
+   Compiling futures-util v0.3.34
+   Compiling tracing v0.1.44
+   Compiling clap v4.6.6
+   Compiling darling_macro v0.24.1
+   Compiling soma-guest v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-guest)
+   Compiling darling v0.24.1
+   Compiling rmcp-macros v3.1.4
+   Compiling soma v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma)
+   Compiling soma-storage v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-storage)
+   Compiling chrono v0.4.45
+   Compiling soma-macos v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-macos)
+   Compiling soma-guest-agent v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-guest-agent)
+   Compiling futures-executor v0.3.34
+   Compiling futures v0.3.34
+   Compiling schemars v1.2.2
+   Compiling tokio-util v0.7.19
+   Compiling soma-netd v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-netd)
+   Compiling soma-template v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-template)
+   Compiling soma-hostd v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-hostd)
+   Compiling soma-generation v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-generation)
+   Compiling soma-local v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-local)
+   Compiling soma-api v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-api)
+   Compiling soma-cli v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-cli)
+   Compiling soma-mcp v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-mcp)
+    Finished `release` profile [optimized] target(s) in 27.59s
+   Compiling generic-array v0.14.7
+   Compiling typenum v1.20.1
+   Compiling subtle v2.6.1
+   Compiling cfg-if v1.0.4
+   Compiling cpufeatures v0.2.17
+   Compiling zeroize v1.9.0
+   Compiling libc v0.2.189
+   Compiling opaque-debug v0.3.1
+   Compiling getrandom v0.3.4
+   Compiling curve25519-dalek v4.1.3
+   Compiling snow v0.10.0
+   Compiling syn v2.0.119
+   Compiling crypto-common v0.1.7
+   Compiling inout v0.1.4
+   Compiling block-buffer v0.10.4
+   Compiling universal-hash v0.5.1
+   Compiling aead v0.5.2
+   Compiling cipher v0.4.4
+   Compiling digest v0.10.7
+   Compiling poly1305 v0.8.0
+   Compiling blake2 v0.10.6
+   Compiling chacha20 v0.9.1
+   Compiling chacha20poly1305 v0.10.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling soma-guest v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-guest)
+   Compiling soma-guest-agent v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-guest-agent)
+    Finished `release` profile [optimized] target(s) in 5.03s
+   Compiling serde_core v1.0.229
+   Compiling serde v1.0.229
+   Compiling memchr v2.8.3
+   Compiling fastrand v2.5.0
+   Compiling syn v3.0.4
+   Compiling serde_json v1.0.151
+   Compiling curve25519-dalek v4.1.3
+   Compiling tempfile v3.27.0
+   Compiling snow v0.10.0
+   Compiling soma-guest v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-guest)
+   Compiling serde_derive v1.0.229
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling serde_spanned v1.1.1
+   Compiling toml v1.1.4+spec-1.1.0
+   Compiling soma v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma)
+   Compiling soma-template v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-template)
+   Compiling soma-generation v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-generation)
+    Finished `release` profile [optimized] target(s) in 11.49s
+   Compiling soma-storage v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-storage)
+   Compiling soma-netd v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-netd)
+   Compiling soma-hostd v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-hostd)
+   Compiling soma-local v1.0.0-alpha.1 (/srv/soma/audit2/SOMA/crates/soma-local)
+    Finished `release` profile [optimized] target(s) in 4.45s
+
+==> compiling busybox:stable-musl into a Generation at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
+
+==> exporting busybox:stable-musl to an OCI layout with skopeo
+Getting image source signatures
+Copying blob sha256:05938142326af7d798d22440b1cd54f4c62495b38d2451accbe5ef3b60da7955
+Copying config sha256:31ff19244746e3472cb1f177f200a3e7f8584884f9d4aad5185aed0d9033b5e1
+Writing manifest to image destination
+
+==> compiling the Generation into /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25
+prepared busybox:stable-musl at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25
+  candidate id: sha256:4ce9a20e12b62eb3a7301d78131d029d4195748db98f50f20ef7318dac355f15
+  entries: 427
+
+==> done
+  entry:  /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25
+  launch: SOMA_GENERATION_STORE=/srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048 SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+          soma --backend kvm run busybox:stable-musl -- <command>
+
+==> capturing the snapshot at 512 MiB
+captured /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25/snapshot
+  memory 536870912 bytes
+  overlay 2147483648 bytes
+  state 9086 bytes
+
+==> verifying the prepared store
+  entry /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25
+  shape 1 vCPU, 512 MiB memory, 2048 MiB storage, contract 368f81b2e540ab97
+
+==> measuring 5 launches at concurrency 1
+
+  image        busybox:stable-musl
+  shape        1 vCPU, 512 MiB, concurrency 1
+  launches     5 of 5 succeeded
+  time to first command  p50 28.48 ms, min 28.24 ms, max 28.68 ms
+  segment medians        admitted 0.04 ms, machine_launched 0.71 ms, ready 22.34 ms, command_finished 5.38 ms
+
+  the store is kept at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048 so a rerun measures instead of rebuilding.
+  remove it with: rm -rf /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
