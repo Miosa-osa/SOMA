@@ -42,6 +42,9 @@ pub fn normalize_oci_rootfs(
         )?;
         tree.apply(plan)?;
     }
+    // The mount points go in after every layer, so a layer that deletes one still ends with a
+    // root the machine contract can mount its pseudo-filesystems into.
+    tree.ensure_mount_points()?;
     let stats = tree.stats()?;
     let manifest = tree_manifest::encode(&tree, request.limits.max_manifest_bytes)?;
     let descriptor = store

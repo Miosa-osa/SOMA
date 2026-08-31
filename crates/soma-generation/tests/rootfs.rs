@@ -35,7 +35,9 @@ fn imported_layer_normalizes_to_an_immutable_content_addressed_tree() {
         normalized.source_import_manifest_digest(),
         imported.import_manifest_digest()
     );
-    assert_eq!(normalized.entry_count(), 3);
+    // The three entries the layer published, plus the five mount points the machine contract
+    // requires every root to carry.
+    assert_eq!(normalized.entry_count(), 8);
     assert_eq!(normalized.logical_file_bytes(), 12);
     assert_eq!(normalized.content_blob_count(), 1);
     assert_eq!(normalized.content_blob_bytes(), 12);

@@ -17,6 +17,26 @@ pub fn read_tree(
     tree_manifest::read_tree(store, digest)
 }
 
+/// The tree without the pseudo-filesystem mount points every SOMA root carries.
+///
+/// Normalization adds `/dev`, `/proc`, `/run`, `/sys`, and `/tmp` to every root because the
+/// machine contract mounts something onto each of them. A test about layer semantics is not
+/// about those five, so it reads the tree the layers alone produced.
+pub fn read_layer_tree(
+    store: &std::path::Path,
+    digest: &soma::OciDigest,
+) -> Vec<tree_manifest::TreeEntry> {
+    read_tree(store, digest)
+        .into_iter()
+        .filter(|entry| {
+            !matches!(
+                entry.path.as_slice(),
+                b"dev" | b"proc" | b"run" | b"sys" | b"tmp"
+            )
+        })
+        .collect()
+}
+
 pub struct TarEntry<'a> {
     path: &'a [u8],
     kind: EntryType,

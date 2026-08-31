@@ -78,10 +78,17 @@ impl SectionRole {
         Self::ALL.into_iter().find(|role| role.code() == code)
     }
 
-    /// Whether restore refuses a manifest that lacks this section.
+    /// Whether the codec refuses a manifest that lacks this section.
+    ///
+    /// The two optional device slots are structurally optional here because a Generation that
+    /// declared neither writable storage nor a network never had those devices to capture. That
+    /// is not a weaker check: which slots a manifest must carry is a statement about a
+    /// particular Generation rather than about the format, so it is the compatibility check,
+    /// which knows the device set, that requires exactly the sections that machine has and
+    /// refuses any other combination.
     #[must_use]
     pub const fn is_required(self) -> bool {
-        !matches!(self, Self::Pit)
+        !matches!(self, Self::Pit | Self::Device1 | Self::Device2)
     }
 
     /// The device slot carried by a device section.
