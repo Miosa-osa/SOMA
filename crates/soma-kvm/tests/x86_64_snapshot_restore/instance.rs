@@ -10,7 +10,6 @@ use std::{
 };
 
 use soma_guest::{HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
-use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::readiness::{ReadinessRefusal, SessionEvidence};
 use soma_kvm::x86_64::{
     Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, SnapshotError, restore,
@@ -84,7 +83,7 @@ pub fn run_workload<W: Workload>(
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,
         verify_artifacts: false,
-        devices: DeviceSet::FULL,
+        devices: fixture.devices(),
         network: None,
     })
     .expect("restore the snapshot");
@@ -98,7 +97,12 @@ pub fn run_workload<W: Workload>(
     let network = LaunchNetwork::new(
         cid,
         cid,
-        facts.mac,
+        // A Generation that declares no network device captures the zero
+        // placeholder MAC, and the launch page refuses a zero MAC. Production
+        // (soma-local's link_down_network) installs this same fixed
+        // placeholder for a netless machine; nothing in the guest ever reads
+        // it, because there is no device to install it on.
+        fixture::launch_mac(facts.mac),
         [10, 0, 0, 2],
         24,
         [10, 0, 0, 1],
