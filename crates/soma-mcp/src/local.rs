@@ -34,9 +34,15 @@ impl LocalToolRuntime {
             return Ok(RuntimeResponse::Doctor(self.doctor(backend)));
         }
         let backend = request_backend(&request);
+        // Every managed Machine tool names an Instance a later call must be able to reach, and
+        // each call opens its own runtime, so the machine has to be held by a host rather than by
+        // whichever call happened to create it. `soma_run` needs no host: it launches, runs, and
+        // releases inside one call.
+        let hosted = !matches!(request, RuntimeRequest::Run(_));
         let config =
             LocalRuntimeConfig::discover(selection(backend), self.runtime_path, self.state_root)
-                .map_err(map_local_failure)?;
+                .map_err(map_local_failure)?
+                .with_hosted_machines(hosted);
         let mut runtime = LocalRuntime::open(config).map_err(map_local_failure)?;
         invoke_runtime(&mut runtime, request)
     }
