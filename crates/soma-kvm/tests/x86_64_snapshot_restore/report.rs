@@ -9,7 +9,7 @@ use std::{fs::File, io::Read as _, path::Path};
 use soma_kvm::x86_64::{Milestone, SandboxEvidence};
 
 /// The warm milestones, in the order a restore reaches them.
-pub const WARM: [(Milestone, &str); 18] = [
+pub const WARM: [(Milestone, &str); 20] = [
     (Milestone::ValidateManifest, "validate manifest"),
     (Milestone::CreateVm, "create VM"),
     (Milestone::MapMemory, "map memory privately"),
@@ -22,7 +22,9 @@ pub const WARM: [(Milestone, &str); 18] = [
     (Milestone::Events, "eventfds and interrupt state"),
     (Milestone::LaunchPageWritten, "fresh launch page written"),
     (Milestone::EventLoop, "device thread serving"),
-    (Milestone::RunStart, "resume"),
+    (Milestone::RunStart, "vCPU armed"),
+    (Milestone::FirstRunEntered, "first KVM_RUN entered"),
+    (Milestone::FirstRunReturned, "first KVM_RUN returned"),
     (Milestone::LaunchPageConsumed, "launch page consumed"),
     (Milestone::VsockConnected, "vsock connected"),
     (Milestone::Handshake, "handshake done"),
@@ -52,6 +54,18 @@ pub fn timeline(label: &str, evidence: &SandboxEvidence) {
             i128::from(at) - i128::from(previous)
         );
         previous = at;
+    }
+    let exits = &evidence.exits;
+    eprintln!(
+        "[{label}] KVM_RUN returns: total={} sampled={} inside={} ns outside={} ns first={} ns",
+        exits.total(),
+        exits.sampled,
+        exits.inside_ns,
+        exits.outside_ns,
+        exits.first_run_ns,
+    );
+    for reason in soma_kvm::x86_64::ExitReason::ALL {
+        eprintln!("  {:<32} {}", reason.name(), exits.of(reason));
     }
 }
 

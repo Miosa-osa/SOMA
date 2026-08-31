@@ -1,0 +1,15 @@
+== fault cost microbenchmark, node memory.raw on XFS, 2026-08-31
+sequential read, 100 MiB then 12 MiB
+{"mode":"plain","access":"read","stride_pages":1,"mapped_mib":1024,"touched_mib":12,"map_ns":10479,"touch_ns":1405306,"minor_faults":192,"ns_per_page":457.46,"ns_per_fault":7319.30}
+{"mode":"plain","access":"read","stride_pages":1,"mapped_mib":1024,"touched_mib":12,"map_ns":9587,"touch_ns":1279752,"minor_faults":192,"ns_per_page":416.59,"ns_per_fault":6665.38}
+{"mode":"plain","access":"read","stride_pages":1,"mapped_mib":1024,"touched_mib":12,"map_ns":5842,"touch_ns":734590,"minor_faults":192,"ns_per_page":239.12,"ns_per_fault":3825.99}
+scattered read, stride 1021 pages
+{"mode":"plain","access":"read","stride_pages":1021,"mapped_mib":1024,"touched_mib":12,"map_ns":5572,"touch_ns":8670738,"minor_faults":2177,"ns_per_page":2822.51,"ns_per_fault":3982.88}
+{"mode":"plain","access":"read","stride_pages":1021,"mapped_mib":1024,"touched_mib":12,"map_ns":9703,"touch_ns":12152704,"minor_faults":2177,"ns_per_page":3955.96,"ns_per_fault":5582.32}
+{"mode":"plain","access":"read","stride_pages":1021,"mapped_mib":1024,"touched_mib":12,"map_ns":4015,"touch_ns":5908246,"minor_faults":2177,"ns_per_page":1923.26,"ns_per_fault":2713.94}
+copy-on-write writes, 6 MiB
+{"mode":"plain","access":"write","stride_pages":1,"mapped_mib":1024,"touched_mib":6,"map_ns":2931,"touch_ns":5333639,"minor_faults":1536,"ns_per_page":3472.42,"ns_per_fault":3472.42}
+{"mode":"plain","access":"write","stride_pages":1,"mapped_mib":1024,"touched_mib":6,"map_ns":3740,"touch_ns":6282456,"minor_faults":1536,"ns_per_page":4090.14,"ns_per_fault":4090.14}
+{"mode":"plain","access":"write","stride_pages":1,"mapped_mib":1024,"touched_mib":6,"map_ns":3821,"touch_ns":5763665,"minor_faults":1536,"ns_per_page":3752.39,"ns_per_fault":3752.39}
+MAP_POPULATE over the whole image
+{"mode":"populate","access":"read","stride_pages":1,"mapped_mib":1024,"touched_mib":12,"map_ns":591223305,"touch_ns":124812,"minor_faults":0,"ns_per_page":40.63,"ns_per_fault":0.00}

@@ -1,0 +1,7 @@
+== resident pages of the memory mapping, one restored node:22 idle after ready
+{"label": "cold", "vma_kb": 1048576, "rss_kb": 17240, "private_dirty_kb": 5740, "shared_clean_kb": 36, "faulted_pages": 4310, "cow_pages": 1435, "candidate_vmas": 2, "process_minor_faults": 1982, "process_major_faults": 0}
+{"label": "cold", "vma_kb": 1048576, "rss_kb": 17232, "private_dirty_kb": 5732, "shared_clean_kb": 36, "faulted_pages": 4308, "cow_pages": 1433, "candidate_vmas": 2, "process_minor_faults": 1979, "process_major_faults": 0}
+{"label": "cold", "vma_kb": 1048576, "rss_kb": 17228, "private_dirty_kb": 5728, "shared_clean_kb": 36, "faulted_pages": 4307, "cow_pages": 1432, "candidate_vmas": 2, "process_minor_faults": 1982, "process_major_faults": 0}
+{"label": "warm", "vma_kb": 1048576, "rss_kb": 1048576, "private_dirty_kb": 5768, "shared_clean_kb": 1042808, "faulted_pages": 262144, "cow_pages": 1442, "candidate_vmas": 2, "process_minor_faults": 36100, "process_major_faults": 86}
+{"label": "warm", "vma_kb": 1048576, "rss_kb": 1048576, "private_dirty_kb": 5740, "shared_clean_kb": 1042836, "faulted_pages": 262144, "cow_pages": 1435, "candidate_vmas": 2, "process_minor_faults": 36067, "process_major_faults": 141}
+{"label": "warm", "vma_kb": 1048576, "rss_kb": 1048576, "private_dirty_kb": 5736, "shared_clean_kb": 1042840, "faulted_pages": 262144, "cow_pages": 1434, "candidate_vmas": 2, "process_minor_faults": 35787, "process_major_faults": 149}

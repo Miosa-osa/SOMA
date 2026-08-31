@@ -4,8 +4,8 @@
 use std::time::Instant;
 
 use super::super::{
-    event_loop::EventLoopReport, mmio::MmioCounters, ports::BusCounters, run::GuestExit,
-    serial::SerialCounters, timing::PhaseTiming,
+    event_loop::EventLoopReport, exits::ExitCounts, mmio::MmioCounters, ports::BusCounters,
+    run::GuestExit, serial::SerialCounters, timing::PhaseTiming,
 };
 
 /// One named point on the sandbox timeline.
@@ -19,6 +19,8 @@ pub enum Milestone {
     MapRegister,
     /// A restore mapped the immutable memory object privately, without copying it.
     MapMemory,
+    /// A restore walked the whole memory image, on an operator's diagnostic request.
+    PrefaultMemory,
     /// A restore registered every certified memory slot.
     RegisterSlots,
     /// TSS window, in-kernel irqchip, and PIT exist.
@@ -39,8 +41,12 @@ pub enum Milestone {
     LaunchPageWritten,
     /// The device thread is serving.
     EventLoop,
-    /// vCPU 0 entered `KVM_RUN`.
+    /// vCPU 0 is armed: its worker thread exists and has installed its run mask.
     RunStart,
+    /// The vCPU worker was about to make its first `KVM_RUN` call.
+    FirstRunEntered,
+    /// The first `KVM_RUN` call returned.
+    FirstRunReturned,
     /// The kernel handed control to `/init` (from the console line's host timestamp).
     KernelInit,
     /// The guest overwrote the launch page domain (host-side poll).
@@ -130,6 +136,8 @@ pub struct SandboxEvidence {
     pub devices: EventLoopReport,
     /// Whether the launch page was verified erased and its slot removed.
     pub launch_page_retired: bool,
+    /// Both sides of every `KVM_RUN` vCPU 0 made.
+    pub exits: ExitCounts,
 }
 
 impl SandboxEvidence {

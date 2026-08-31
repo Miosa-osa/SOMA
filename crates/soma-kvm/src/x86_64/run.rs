@@ -6,6 +6,7 @@ use kvm_ioctls::{VcpuExit, VcpuFd};
 
 use super::{
     error::{MachineError, MachineErrorKind, Phase},
+    exits::ExitLedger,
     mmio::MmioDispatch,
     ports::{PortBus, PortEvent},
 };
@@ -34,15 +35,23 @@ pub enum GuestExit {
 /// bus; when `sentinel` is given the loop stops as soon as the captured serial output ends
 /// with it. An interruption is a pause when `pause` is set and a deadline failure otherwise,
 /// so the two uses of the same signal never blur into one another.
+///
+/// `ledger` records each side of `KVM_RUN`. It is the only account of where a resume spends
+/// its time between the vCPU being armed and the guest doing anything the host can observe.
 pub(crate) fn run(
     vcpu: &mut VcpuFd,
     bus: &mut PortBus,
     mut mmio: Option<&mut MmioDispatch>,
     sentinel: Option<&[u8]>,
     pause: &AtomicBool,
+    ledger: &ExitLedger,
 ) -> Result<GuestExit, MachineError> {
+    let mut sampler = ledger.sampler();
     loop {
-        match vcpu.run() {
+        sampler.entering();
+        let exit = vcpu.run();
+        sampler.returned(&exit);
+        match exit {
             Ok(VcpuExit::MmioRead(address, data)) => match mmio.as_deref_mut() {
                 Some(dispatch) => dispatch.read(address, data)?,
                 None => return Err(unexpected(&VcpuExit::MmioRead(address, data))),

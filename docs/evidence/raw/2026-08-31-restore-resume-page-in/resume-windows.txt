@@ -1,0 +1,88 @@
+== tl-node-cold: 20 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=20  p50= -0.011 min= -0.024 max= -0.008
+  first KVM_RUN call                     n=20  p50=  1.945 min=  1.908 max=  2.067
+  first return to launch page erased     n=20  p50=  3.177 min=  3.023 max=  3.502
+  armed to launch page erased            n=20  p50=  5.117 min=  4.950 max=  5.533
+  launch page erased to vsock            n=20  p50=  4.030 min=  3.394 max=  5.740
+  vsock to handshake                     n=20  p50=  9.524 min=  8.243 max= 10.540
+  handshake to ready                     n=20  p50=  6.591 min=  5.967 max=  7.343
+  armed to ready                         n=20  p50= 25.672 min= 23.854 max= 27.589
+  accepted to ready                      n=20  p50= 29.384 min= 27.098 max= 31.061
+== tl-node-warm: 20 samples
+  map memory to prefault done            n=20  p50= -0.003 min= -0.004 max= -0.003
+  armed to first entry                   n=20  p50= -0.002 min= -0.004 max= -0.001
+  first KVM_RUN call                     n=20  p50=  1.983 min=  0.753 max=  2.020
+  first return to launch page erased     n=20  p50=  3.114 min=  1.021 max=  3.358
+  armed to launch page erased            n=20  p50=  5.102 min=  1.770 max=  5.351
+  launch page erased to vsock            n=20  p50=  3.710 min=  1.150 max=  4.014
+  vsock to handshake                     n=20  p50=  9.967 min=  5.842 max= 11.281
+  handshake to ready                     n=20  p50=  6.087 min=  4.624 max=  6.702
+  armed to ready                         n=20  p50= 24.561 min= 13.385 max= 27.009
+  accepted to ready                      n=20  p50= 86.100 min= 70.941 max= 89.320
+== tl-node: 21 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=21  p50= -0.010 min= -0.026 max= -0.007
+  first KVM_RUN call                     n=21  p50=  1.900 min=  1.865 max=  1.977
+  first return to launch page erased     n=21  p50=  3.121 min=  3.027 max=  3.699
+  armed to launch page erased            n=21  p50=  5.002 min=  4.912 max=  5.554
+  launch page erased to vsock            n=21  p50=  4.042 min=  3.090 max=  5.788
+  vsock to handshake                     n=21  p50= 10.170 min=  8.032 max= 12.811
+  handshake to ready                     n=21  p50=  6.494 min=  5.600 max=  7.175
+  armed to ready                         n=21  p50= 25.788 min= 23.550 max= 29.607
+  accepted to ready                      n=21  p50= 29.295 min= 27.251 max= 33.188
+== tl-bb1024: 21 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=21  p50= -0.015 min= -0.016 max= -0.011
+  first KVM_RUN call                     n=21  p50=  0.574 min=  0.545 max=  0.659
+  first return to launch page erased     n=21  p50=  5.308 min=  5.135 max=  5.544
+  armed to launch page erased            n=21  p50=  5.839 min=  5.691 max=  6.174
+  launch page erased to vsock            n=21  p50=  3.890 min=  2.839 max=  5.136
+  vsock to handshake                     n=21  p50=  8.789 min=  7.400 max=  9.377
+  handshake to ready                     n=21  p50=  6.820 min=  4.728 max=  7.655
+  armed to ready                         n=21  p50= 24.794 min= 22.705 max= 26.712
+  accepted to ready                      n=21  p50= 28.546 min= 26.496 max= 30.520
+== tl-bb128: 21 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=21  p50= -0.011 min= -0.015 max= -0.008
+  first KVM_RUN call                     n=21  p50=  0.552 min=  0.511 max=  0.659
+  first return to launch page erased     n=21  p50=  6.726 min=  6.081 max=  7.082
+  armed to launch page erased            n=21  p50=  7.257 min=  6.594 max=  7.634
+  launch page erased to vsock            n=21  p50=  2.320 min=  1.634 max=  3.943
+  vsock to handshake                     n=21  p50=  8.296 min=  6.843 max=  9.471
+  handshake to ready                     n=21  p50=  6.470 min=  5.459 max=  7.194
+  armed to ready                         n=21  p50= 24.721 min= 22.953 max= 27.038
+  accepted to ready                      n=21  p50= 28.251 min= 26.277 max= 30.486
+== tl-node-c100: 100 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=100 p50= -0.010 min=-13.303 max=  0.093
+  first KVM_RUN call                     n=100 p50=  1.233 min=  0.823 max= 19.627
+  first return to launch page erased     n=100 p50=  1.873 min=-13.808 max= 10.440
+  armed to launch page erased            n=100 p50=  2.930 min=  0.013 max= 16.906
+  launch page erased to vsock            n=100 p50=  2.347 min=  0.001 max= 15.654
+  vsock to handshake                     n=100 p50= 15.725 min=  5.768 max= 39.373
+  handshake to ready                     n=100 p50= 11.813 min=  6.875 max= 33.319
+  armed to ready                         n=100 p50= 37.942 min= 16.745 max= 72.379
+  accepted to ready                      n=100 p50= 48.644 min= 22.826 max= 90.991
+== tl-bb-c100: 100 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=100 p50= -0.009 min= -4.724 max=  0.087
+  first KVM_RUN call                     n=100 p50=  0.335 min=  0.231 max=  2.089
+  first return to launch page erased     n=100 p50=  3.124 min=  2.016 max=  7.961
+  armed to launch page erased            n=100 p50=  3.189 min=  0.013 max=  8.301
+  launch page erased to vsock            n=100 p50=  2.254 min=  0.330 max=  9.498
+  vsock to handshake                     n=100 p50= 12.453 min=  6.565 max= 22.582
+  handshake to ready                     n=100 p50=  9.880 min=  6.572 max= 19.431
+  armed to ready                         n=100 p50= 29.570 min= 18.744 max= 44.662
+  accepted to ready                      n=100 p50= 35.527 min= 21.020 max= 51.722
+== bb-c100: 100 samples
+  map memory to prefault done            absent
+  armed to first entry                   n=100 p50= -0.011 min= -3.988 max=  0.025
+  first KVM_RUN call                     n=100 p50=  0.332 min=  0.239 max=  2.136
+  first return to launch page erased     n=100 p50=  3.020 min=  2.062 max= 21.823
+  armed to launch page erased            n=100 p50=  3.240 min=  0.015 max= 22.185
+  launch page erased to vsock            n=100 p50=  2.257 min=  0.001 max= 11.706
+  vsock to handshake                     n=100 p50= 12.372 min=  6.046 max= 33.672
+  handshake to ready                     n=100 p50= 10.365 min=  6.526 max= 34.911
+  armed to ready                         n=100 p50= 30.864 min= 16.607 max= 61.284
+  accepted to ready                      n=100 p50= 36.884 min= 21.749 max= 66.212

@@ -6,6 +6,7 @@
 
 use std::{
     sync::{
+        Arc,
         atomic::AtomicBool,
         mpsc::{Receiver, RecvTimeoutError, SyncSender},
     },
@@ -18,6 +19,7 @@ use kvm_ioctls::VcpuFd;
 use super::{CANCELLATION_GRACE, RunReport, WorkerEvent};
 use crate::x86_64::{
     error::{MachineError, MachineErrorKind, Phase},
+    exits::ExitLedger,
     kick::{self, RunMaskGuard},
     mmio::MmioDispatch,
     ports::PortBus,
@@ -26,11 +28,12 @@ use crate::x86_64::{
 
 const JOIN_POLL: Duration = Duration::from_millis(1);
 
-/// The channel, signal, and pause flag the watchdog shares with its worker thread.
+/// The channel, signal, pause flag, and exit ledger the watchdog shares with its worker.
 pub(super) struct Control<'a> {
     pub(super) signal: libc::c_int,
     pub(super) pause: &'a AtomicBool,
     pub(super) sender: &'a SyncSender<WorkerEvent>,
+    pub(super) ledger: &'a Arc<ExitLedger>,
 }
 
 pub(super) fn worker_main(
@@ -44,11 +47,19 @@ pub(super) fn worker_main(
         signal,
         pause,
         sender,
+        ledger,
     } = *control;
     let result = match RunMaskGuard::install(&vcpu, signal) {
         Ok(mask) => {
             let result = if sender.send(WorkerEvent::Ready).is_ok() {
-                run::run(&mut vcpu, &mut bus, mmio.as_deref_mut(), sentinel, pause)
+                run::run(
+                    &mut vcpu,
+                    &mut bus,
+                    mmio.as_deref_mut(),
+                    sentinel,
+                    pause,
+                    ledger,
+                )
             } else {
                 Err(MachineError::new(Phase::Run, MachineErrorKind::WorkerLost))
             };

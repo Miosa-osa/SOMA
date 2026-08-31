@@ -11,6 +11,9 @@ use std::{
     ptr::{self, NonNull},
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MappingOperation {
     Metadata,
@@ -169,11 +172,45 @@ impl PrivateMapping {
         (this.base.as_ptr(), this.len)
     }
 
+    /// Reads one byte of every page so the whole mapping is resident before it is used.
+    ///
+    /// This installs a present, read-only page-table entry for each page of the image and
+    /// leaves every page shared with the page cache and with every other mapping of the same
+    /// inode, so it costs no copy and no private memory. A later guest write still takes its
+    /// own copy-on-write fault; only the cost of finding the page is paid up front.
+    ///
+    /// It is an eager cost, linear in the size of the image, and therefore belongs to whoever
+    /// can pay it before a request arrives rather than on the launch path.
+    ///
+    /// Returns the number of pages touched.
+    #[must_use]
+    pub fn prefault(&self) -> usize {
+        let stride = page_size();
+        let mut touched = 0;
+        let mut offset = 0;
+        while offset < self.len {
+            // SAFETY: `offset` is inside the mapping, which is `len` readable file-backed
+            // bytes owned by `self`. The read is volatile so it cannot be elided, and it
+            // cannot fault fatally because every byte of the range is backed by the file.
+            let _ignored = unsafe { self.base.as_ptr().add(offset).read_volatile() };
+            touched += 1;
+            offset += stride;
+        }
+        touched
+    }
+
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: as in `as_slice`, plus `&mut self` guarantees unique access to the pages
         // for the lifetime of the returned slice. Writes land in private copy-on-write pages.
         unsafe { std::slice::from_raw_parts_mut(self.base.as_ptr(), self.len) }
     }
+}
+
+/// The host page size, which is the stride a prefault must walk.
+fn page_size() -> usize {
+    // SAFETY: `sysconf` reads a constant of the running system and has no preconditions.
+    let reported = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+    usize::try_from(reported).unwrap_or(4096).max(1)
 }
 
 impl Drop for PrivateMapping {
@@ -183,109 +220,5 @@ impl Drop for PrivateMapping {
         unsafe {
             libc::munmap(self.base.as_ptr().cast(), self.len);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        fs::{self, File, OpenOptions},
-        io::{Read as _, Seek as _, SeekFrom, Write as _},
-        path::PathBuf,
-        process,
-        time::{SystemTime, UNIX_EPOCH},
-    };
-
-    use super::{MappingError, PrivateMapping};
-
-    struct TempFile(PathBuf);
-
-    impl TempFile {
-        fn create(content: &[u8]) -> (Self, File) {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos());
-            let path = std::env::temp_dir().join(format!(
-                "soma-snapshot-mapping-{}-{nanos}.raw",
-                process::id()
-            ));
-            let mut file = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)
-                .unwrap();
-            file.write_all(content).unwrap();
-            file.sync_all().unwrap();
-            (Self(path), file)
-        }
-    }
-
-    impl Drop for TempFile {
-        fn drop(&mut self) {
-            let _ = fs::remove_file(&self.0);
-        }
-    }
-
-    #[test]
-    fn writes_through_one_private_mapping_are_invisible_to_a_sibling_and_the_file() {
-        let original = vec![0x5a_u8; 8192];
-        let (_guard, mut file) = TempFile::create(&original);
-        let mut first = PrivateMapping::map(&file, 8192).unwrap();
-        let second = PrivateMapping::map(&file, 8192).unwrap();
-        assert_eq!(first.len(), 8192);
-        assert!(!first.is_empty());
-        assert_ne!(first.as_ptr(), second.as_ptr());
-        assert_eq!(first.as_slice(), &original[..]);
-
-        first.as_mut_slice()[0] = 0xa5;
-        first.as_mut_slice()[4096] = 0xa5;
-        assert_eq!(first.as_slice()[0], 0xa5);
-        assert_eq!(second.as_slice(), &original[..]);
-
-        let mut on_disk = Vec::new();
-        file.seek(SeekFrom::Start(0)).unwrap();
-        file.read_to_end(&mut on_disk).unwrap();
-        assert_eq!(on_disk, original);
-        drop(first);
-        assert_eq!(second.as_slice(), &original[..]);
-    }
-
-    #[test]
-    fn rejects_zero_length_and_short_files() {
-        let (_guard, file) = TempFile::create(&[1; 4096]);
-        assert_eq!(
-            PrivateMapping::map(&file, 0).unwrap_err(),
-            MappingError::ZeroLength
-        );
-        assert_eq!(
-            PrivateMapping::map(&file, 4097).unwrap_err(),
-            MappingError::FileShorterThanMapping {
-                file_len: 4096,
-                requested: 4097
-            }
-        );
-        assert_eq!(
-            PrivateMapping::map(&file, u64::MAX).unwrap_err(),
-            MappingError::LengthExceedsAddressSpace(u64::MAX)
-        );
-        let directory = File::open(std::env::temp_dir()).unwrap();
-        assert_eq!(
-            PrivateMapping::map(&directory, 4096).unwrap_err(),
-            MappingError::NotRegularFile
-        );
-    }
-
-    #[test]
-    fn into_raw_hands_over_the_exact_range_and_suppresses_the_unmap() {
-        let (_guard, file) = TempFile::create(&[3; 8192]);
-        let mapping = PrivateMapping::map(&file, 8192).unwrap();
-        let expected = mapping.as_ptr();
-        let (base, len) = mapping.into_raw();
-        assert_eq!(base, expected);
-        assert_eq!(len, 8192);
-        // SAFETY: `base` and `len` are exactly the range `into_raw` released, and this is the
-        // only unmap of that range because `into_raw` suppressed the mapping's own `Drop`.
-        assert_eq!(unsafe { libc::munmap(base.cast(), len) }, 0);
     }
 }

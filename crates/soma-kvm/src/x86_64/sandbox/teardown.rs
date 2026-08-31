@@ -60,6 +60,7 @@ impl SandboxMachine {
             cmdline,
             entry,
             initramfs,
+            exits,
             ..
         } = self;
         drop(shared);
@@ -68,6 +69,16 @@ impl SandboxMachine {
             .into_inner()
             .unwrap_or_else(PoisonError::into_inner);
         for (milestone, at) in marks {
+            if let Some(at) = at {
+                timeline.mark_at(milestone, at);
+            }
+        }
+        // The vCPU thread cannot mark the shared timeline while it runs, so the two sides of
+        // its first `KVM_RUN` are transcribed here from the offsets it recorded instead.
+        for (milestone, at) in [
+            (Milestone::FirstRunEntered, exits.first_entry()),
+            (Milestone::FirstRunReturned, exits.first_return()),
+        ] {
             if let Some(at) = at {
                 timeline.mark_at(milestone, at);
             }
@@ -89,6 +100,7 @@ impl SandboxMachine {
             mmio,
             devices,
             launch_page_retired: retired,
+            exits: exits.counts(),
         }
     }
 

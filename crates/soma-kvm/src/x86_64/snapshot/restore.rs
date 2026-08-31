@@ -8,11 +8,12 @@
 //! every state constructor has succeeded.
 
 mod devices;
+mod guest_memory;
 mod readiness;
 mod sections;
 mod sterile;
 
-use std::{cell::Cell, fs::File};
+use std::cell::Cell;
 
 use kvm_ioctls::Kvm;
 use vmm_sys_util::eventfd::EventFd;
@@ -29,7 +30,6 @@ use super::{
 use crate::snapshot::{
     Digest, compatibility,
     manifest::Manifest,
-    memory::PrivateMapping,
     readiness::{PageSession, ReadinessChallenge, ReadinessRefusal, page_session},
     restore::{RestoreSequence, RestoreStep},
     section::SectionRole,
@@ -202,17 +202,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::CreateVm)?;
     timeline.mark(Milestone::CreateVm);
 
-    let layout = GuestLayout::new(manifest.header().memory.size())?;
-    let memory = File::open(paths.memory())
-        .map_err(|error| SnapshotError::io(Artifact::Memory, "open", &error))?;
-    let mapping = PrivateMapping::map(&memory, manifest.header().memory.size())?;
-    let (base, len) = mapping.into_raw();
-    let base = std::ptr::NonNull::new(base).ok_or(SnapshotError::Mapping(
-        crate::snapshot::memory::MappingError::ZeroLength,
-    ))?;
-    // The machine now owns the range and unmaps it exactly once, after the VM is released.
-    let ram = GuestRam::from_mapping(RamMapping::adopt(base, len), layout)?;
-    drop(memory);
+    let ram = guest_memory::map(&paths.memory(), &manifest, &mut timeline)?;
     sequence.complete(RestoreStep::MapMemoryPrivately)?;
     timeline.mark(Milestone::MapMemory);
 

@@ -50,6 +50,22 @@ fn warm_restore_timing_over_ten_iterations() {
             "iteration {iteration} registered the launch-page slot at {mapped} ns, after the \
              vCPU at {vcpu} ns"
         );
+        // The resume is armed, then entered, then returns, and the guest reaches the launch
+        // page only after that. Without this order the two new marks say nothing about where
+        // the window between arming the vCPU and the guest acting is actually spent.
+        let armed = at(&restored.evidence, Milestone::RunStart);
+        let entered = at(&restored.evidence, Milestone::FirstRunEntered);
+        let returned = at(&restored.evidence, Milestone::FirstRunReturned);
+        let consumed = at(&restored.evidence, Milestone::LaunchPageConsumed);
+        assert!(
+            armed <= entered && entered <= returned && returned <= consumed,
+            "iteration {iteration} ordered the resume as armed {armed}, entered {entered}, \
+             returned {returned}, launch page consumed {consumed}"
+        );
+        assert!(
+            restored.evidence.exits.total() > 0,
+            "iteration {iteration} recorded no return from KVM_RUN"
+        );
         if iteration == 0 {
             report::timeline(&name, &restored.evidence);
         }
