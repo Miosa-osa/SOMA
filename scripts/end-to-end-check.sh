@@ -7,9 +7,8 @@
 # that left nothing behind. Every stage records passed, failed, or skipped with a bounded detail
 # string, results are written machine readable, and the summary names the first failing stage. A
 # failure is never worked around: later stages are marked skipped so the break stays visible.
-#
-# It never writes to a shared store. It compiles its own Generation into its own work directory
-# and runs against its own state root and head directory, so the cleanup proof can be exact.
+# It never writes to a shared store, compiling its own Generation into its own work directory and
+# running against its own state root and head directory, so the cleanup proof can be exact.
 #
 # Usage:
 #   end-to-end-check.sh [--image REF] [--work DIR] [--fs-tools DIR] [--expect REGEX]
@@ -32,7 +31,7 @@ PURGE=0
 DETAIL=""
 FIRST_FAILURE=""
 ENTRY=""
-STATE_BYTES_BASE=0
+STATE_BASE=""
 declare -a NAMES=() STATUSES=() DETAILS=() DURATIONS=()
 
 log() { printf '\n==> %s\n' "$1"; }
@@ -165,14 +164,13 @@ soma_run() {
 }
 
 # Stage 5. Two sandboxes, one after the other, each running the command and reporting its cleanup.
-#
-# Two runs rather than one: the first creates the durable state a fresh state root has never held,
-# and the second proves a steady-state run adds nothing to it, which one run cannot separate.
+# Two rather than one because the first creates the durable state a fresh state root has never
+# held, and only the second can show that a steady-state run adds nothing to it.
 stage_run_sandbox() {
     probe before || return 1
     local first second
     first="$(soma_run first)" || { DETAIL="first run: $first"; return 1; }
-    STATE_BYTES_BASE="$(du -sb "$STATE_ROOT" | cut -f1)"
+    STATE_BASE="$(state_fingerprint)"
     second="$(soma_run second)" || { DETAIL="second run: $second"; return 1; }
     DETAIL="first: $first | second: $second"
 }
@@ -181,6 +179,12 @@ stage_run_sandbox() {
 # empty table listing is ambiguous, because a host that holds many refuses to show them without
 # privilege, so the listing command's own status decides and an unreadable one never reads as empty.
 nft_tables() { nft list tables 2>/dev/null || sudo -n nft list tables 2>/dev/null; }
+
+# Bytes alone would miss an empty file or an empty directory, so the entry count is held with them.
+state_fingerprint() {
+    printf '%s bytes in %s entries' \
+        "$(du -sb "$STATE_ROOT" | cut -f1)" "$(find "$STATE_ROOT" | wc -l)"
+}
 
 probe() {
     local when="$1"
@@ -204,11 +208,8 @@ stage_cleanup_proof() {
     }
     local heads after
     heads="$(find "$HEAD_DIR" -mindepth 1 | wc -l)"
-    if (( heads == 0 )); then
-        verdict overlay_heads clean "the head directory holds no entry"
-    else
-        verdict overlay_heads leaked "$heads entries left in $HEAD_DIR"
-    fi
+    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no entry"
+    else verdict overlay_heads leaked "$heads entries left in $HEAD_DIR"; fi
     differed processes "$WORK/procs.before" "$WORK/procs.after" "processes naming the state root"
     differed netns "$WORK/netns.before" "$WORK/netns.after" "network namespaces"
     if grep -qx unreadable "$WORK/nft.after"; then
@@ -216,24 +217,21 @@ stage_cleanup_proof() {
     else
         differed nftables "$WORK/nft.before" "$WORK/nft.after" "nftables tables"
     fi
-    after="$(du -sb "$STATE_ROOT" | cut -f1)"
-    if (( after == STATE_BYTES_BASE )); then
-        verdict state_root clean "$after bytes, unchanged across the second run"
+    after="$(state_fingerprint)"
+    if [[ "$after" == "$STATE_BASE" ]]; then
+        verdict state_root clean "$after, unchanged across the second run"
     else
-        verdict state_root leaked "grew from $STATE_BYTES_BASE to $after bytes across one run"
+        verdict state_root leaked "went from $STATE_BASE to $after across one run"
     fi
     DETAIL="${notes[*]}"
     return "$leaked"
 }
 
 differed() {
-    local name="$1" before="$2" after="$3" what="$4" added
-    added="$(comm -13 "$before" "$after" | bound)"
-    if [[ -z "$added" ]]; then
-        verdict "$name" clean "no $what appeared"
-    else
-        verdict "$name" leaked "$what appeared: $added"
-    fi
+    local name="$1" what="$4" added
+    added="$(comm -13 "$2" "$3" | bound)"
+    if [[ -z "$added" ]]; then verdict "$name" clean "no $what appeared"
+    else verdict "$name" leaked "$what appeared: $added"; fi
 }
 
 write_results() {
@@ -258,7 +256,9 @@ write_results() {
 
 summarize() {
     log "summary"
-    local index=0
+    # `read` assigns into the caller's scope unless the name is local, so every name it fills is
+    # declared. An undeclared `status` here once silently overwrote main's own exit status.
+    local index=0 check outcome detail
     while (( index < ${#NAMES[@]} )); do
         printf '  %-8s %-18s %6s ms  %s\n' "${STATUSES[index]}" "${NAMES[index]}" \
             "${DURATIONS[index]}" "${DETAILS[index]}"
@@ -266,8 +266,8 @@ summarize() {
     done
     if [[ -f "$WORK/cleanup-checks.tsv" ]]; then
         printf '\n  cleanup checks:\n'
-        while IFS=$'\t' read -r name status detail; do
-            printf '    %-12s %-11s %s\n' "$name" "$status" "$detail"
+        while IFS=$'\t' read -r check outcome detail; do
+            printf '    %-14s %-11s %s\n' "$check" "$outcome" "$detail"
         done <"$WORK/cleanup-checks.tsv"
     fi
     printf '\n  results: %s\n  logs:    %s\n' "$(write_results)" "$LOG_DIR"
