@@ -264,7 +264,11 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     // Every route exists before any captured interrupt state is armed.
     platform::write_irqchip(machine.vm_fd(), &state.irqchip)?;
     platform::write_pit(machine.vm_fd(), state.pit)?;
-    platform::write_clock(machine.vm_fd(), state.clock)?;
+    // `frozen()`: install the clock the guest paused with. Passing the
+    // captured KVM_CLOCK_REALTIME pairing through would make KVM advance the
+    // guest's monotonic clock by the whole capture-to-restore wall interval,
+    // which is the netdev-watchdog/cleanup defect - see ClockState::frozen.
+    platform::write_clock(machine.vm_fd(), state.clock.frozen())?;
     sequence.complete(RestoreStep::RestoreDeviceAndInterruptState)?;
     timeline.mark(Milestone::Events);
 

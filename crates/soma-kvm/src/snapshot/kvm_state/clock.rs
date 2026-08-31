@@ -54,6 +54,39 @@ impl ClockState {
         state.validate()?;
         Ok(state)
     }
+
+    /// The state a restore installs: the captured paravirtual clock value with
+    /// the realtime pairing stripped.
+    ///
+    /// `KVM_GET_CLOCK` pairs the clock value with the host's `CLOCK_REALTIME`
+    /// sample and sets `KVM_CLOCK_REALTIME`. `KVM_SET_CLOCK` treats that pair
+    /// as a migration in flight: it advances the installed clock by however
+    /// much host realtime elapsed since the sample. Across a snapshot restore
+    /// that elapse is unbounded - minutes on a test loop, days in a store -
+    /// and the restored guest observes its monotonic clock leap forward by
+    /// exactly that much. The netdev watchdog reads the leap as a transmit
+    /// queue stuck since before the capture and floods the console, and the
+    /// shutdown acknowledgement then fails: the cleanup-proof defect recorded
+    /// in the 2026-08-30 restore-stage-timeline evidence, where successive
+    /// restores of one snapshot reported guest uptimes of 190, 429, and 629
+    /// seconds.
+    ///
+    /// A restored Instance is not a migration in flight. The guest paused at
+    /// its repair point and must resume with the monotonic clock it paused
+    /// with; wall-clock time is the repair step's job, not the restore's.
+    /// `TSC_STABLE` and `HOST_TSC` are get-side diagnostics with no set-side
+    /// meaning, and the `realtime` and `host_tsc` payloads mean nothing
+    /// without their flags, so the installed state carries the captured
+    /// clock value and nothing else.
+    #[must_use]
+    pub const fn frozen(self) -> Self {
+        Self {
+            clock: self.clock,
+            flags: 0,
+            realtime: 0,
+            host_tsc: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

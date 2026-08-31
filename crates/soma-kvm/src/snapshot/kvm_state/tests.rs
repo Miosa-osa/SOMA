@@ -199,3 +199,30 @@ fn vm_layout_rejects_overlap_duplicates_overflow_and_unknown_codes() {
     clock[11] = 1;
     assert!(ClockState::decode(&clock).is_err());
 }
+
+#[test]
+fn frozen_clock_keeps_the_value_and_drops_the_realtime_pairing() {
+    // A restore must install exactly the clock the guest paused with.
+    // Passing the captured KVM_CLOCK_REALTIME pairing through KVM_SET_CLOCK
+    // makes the kernel advance the guest's monotonic clock by the whole
+    // capture-to-restore wall interval - the netdev-watchdog/cleanup defect
+    // in the 2026-08-30 restore-stage-timeline evidence.
+    let captured = ClockState {
+        clock: 987_654_321,
+        // KVM_CLOCK_TSC_STABLE | KVM_CLOCK_REALTIME | KVM_CLOCK_HOST_TSC,
+        // exactly what KVM_GET_CLOCK reports on a modern host.
+        flags: 2 | 4 | 8,
+        realtime: 1_756_500_000_000_000_000,
+        host_tsc: 42_000_000_000,
+    };
+
+    let installed = captured.frozen();
+
+    assert_eq!(installed.clock, captured.clock);
+    assert_eq!(installed.flags, 0);
+    assert_eq!(installed.realtime, 0);
+    assert_eq!(installed.host_tsc, 0);
+    // The captured record itself is untouched by value semantics: the
+    // snapshot remains a faithful read of KVM_GET_CLOCK.
+    assert_eq!(captured.flags, 2 | 4 | 8);
+}
