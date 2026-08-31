@@ -1,4 +1,5 @@
 use soma::OciPlatform;
+use soma_kvm::DeviceSet;
 
 use super::{
     artifacts::{ArtifactDescriptor, Sha256Digest},
@@ -221,6 +222,21 @@ pub struct GenerationManifest {
 }
 
 impl GenerationManifest {
+    /// The optional devices this Generation's machine has.
+    ///
+    /// Both come from what the Template declared rather than from a separate field: writable
+    /// storage of zero bytes is a machine with no overlay, and the fail-closed isolated network
+    /// policy is a machine with no network device rather than one whose link is held down. The
+    /// same derivation runs at compile, capture, and launch, so a Generation cannot be built as
+    /// one machine and launched as another.
+    #[must_use]
+    pub fn device_set(&self) -> DeviceSet {
+        DeviceSet::new(
+            self.template.writable_storage_bytes > 0,
+            self.template.network_policy_class != NetworkPolicyClass::Isolated,
+        )
+    }
+
     /// Returns every artifact descriptor in manifest order.
     #[must_use]
     pub fn descriptors(&self) -> Vec<ArtifactDescriptor> {

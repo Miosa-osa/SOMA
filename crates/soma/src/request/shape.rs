@@ -100,7 +100,12 @@ impl MachineShape {
     pub const MAX_VCPU_COUNT: u16 = u16::MAX;
     pub const MIN_MEMORY_MIB: u64 = 1;
     pub const MAX_MEMORY_MIB: u64 = u64::MAX;
-    pub const MIN_STORAGE_MIB: u64 = 1;
+    /// Zero writable storage is a sandbox with no writable disk at all, not an invalid size.
+    ///
+    /// A workload that runs one command and exits never writes, and giving it a private disk
+    /// costs a copy-on-write clone on the launch path for a device it never touches. Zero is
+    /// the spelling for that, and it is a smaller machine rather than a smaller disk.
+    pub const MIN_STORAGE_MIB: u64 = 0;
     pub const MAX_STORAGE_MIB: u64 = u64::MAX;
     pub const DEFAULT_VCPU_COUNT: u16 = 1;
     pub const DEFAULT_MEMORY_MIB: u64 = 1_024;
@@ -110,7 +115,8 @@ impl MachineShape {
     ///
     /// # Errors
     ///
-    /// Returns [`ValidationError::InvalidShape`] when any dimension is zero.
+    /// Returns [`ValidationError::InvalidShape`] when the vCPU count or memory is zero. Zero
+    /// storage is accepted and means the sandbox has no writable disk.
     pub fn new(
         vcpu_count: u16,
         memory_mib: u64,

@@ -1,3 +1,5 @@
+use soma_kvm::DeviceSet;
+
 use super::artifacts::Sha256Digest;
 
 /// The memory-slot layout version the `x86_64` machine contract fixes.
@@ -50,16 +52,40 @@ loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000
 initramfs=top-down-page-aligned modules-max=1\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off noapic cryptomgr.notests\n";
 
-/// The canonical machine-readable statement of the minimal device contract v1.
-pub const DEVICE_CONTRACT_V1: &[u8] = b"soma-minimal-device-surface-v1\n\
+/// The header every device-contract statement opens with, before its present slots.
+const DEVICE_CONTRACT_HEADER: &str = "soma-minimal-device-surface-v1\n\
 transport=virtio-mmio version=2 magic=0x74726976 features=VIRTIO_F_VERSION_1 queues=split\n\
-irqchip=in-kernel ioapic edge-triggered no-shared-gsi\n\
-slot0 mmio=0xd0000000-0xd0000fff gsi=5 device=block id=2 role=immutable-root queues=request:256\n\
-slot1 mmio=0xd0001000-0xd0001fff gsi=6 device=block id=2 role=writable-overlay queues=request:256\n\
-slot2 mmio=0xd0002000-0xd0002fff gsi=7 device=net id=1 queues=receive:256,transmit:256\n\
-slot3 mmio=0xd0003000-0xd0003fff gsi=8 device=vsock id=19 queues=receive:256,transmit:256,event:64\n\
-slot4 mmio=0xd0004000-0xd0004fff gsi=9 device=entropy id=4 queues=request:64\n\
-excluded=pci,pcie,msi,msix,iommu,packed-ring,vhost,console,balloon,memory,fs,scsi,hotplug\n";
+irqchip=in-kernel ioapic edge-triggered no-shared-gsi\n";
+/// The trailer, listing what version 1 has no device for at all.
+const DEVICE_CONTRACT_TRAILER: &str =
+    "excluded=pci,pcie,msi,msix,iommu,packed-ring,vhost,console,balloon,memory,fs,scsi,hotplug\n";
+/// One line per slot, in table order; a Generation states only the slots it has.
+const DEVICE_CONTRACT_SLOTS: [&str; 5] = [
+    "slot0 mmio=0xd0000000-0xd0000fff gsi=5 device=block id=2 role=immutable-root \
+queues=request:256\n",
+    "slot1 mmio=0xd0001000-0xd0001fff gsi=6 device=block id=2 role=writable-overlay \
+queues=request:256\n",
+    "slot2 mmio=0xd0002000-0xd0002fff gsi=7 device=net id=1 queues=receive:256,transmit:256\n",
+    "slot3 mmio=0xd0003000-0xd0003fff gsi=8 device=vsock id=19 \
+queues=receive:256,transmit:256,event:64\n",
+    "slot4 mmio=0xd0004000-0xd0004fff gsi=9 device=entropy id=4 queues=request:64\n",
+];
+
+/// The canonical machine-readable statement of the device contract for one device set.
+///
+/// The five slots are the maximum, not the minimum: a Generation that declared no writable
+/// storage states no overlay slot and one that declared no egress states no network slot. The
+/// statement therefore says which machine this Generation is, and its digest is what refuses a
+/// snapshot of a different one.
+#[must_use]
+pub fn device_contract_statement(devices: DeviceSet) -> Vec<u8> {
+    let mut statement = String::from(DEVICE_CONTRACT_HEADER);
+    for slot in devices.present() {
+        statement.push_str(DEVICE_CONTRACT_SLOTS[usize::from(slot.index())]);
+    }
+    statement.push_str(DEVICE_CONTRACT_TRAILER);
+    statement.into_bytes()
+}
 
 /// The canonical statement of CPU template v1.
 ///
@@ -68,18 +94,6 @@ excluded=pci,pcie,msi,msix,iommu,packed-ring,vhost,console,balloon,memory,fs,scs
 pub const CPU_TEMPLATE_V1: &[u8] = b"soma-cpu-template-v1\n\
 source=KVM_GET_SUPPORTED_CPUID apply=KVM_SET_CPUID2 vcpu=1\n\
 masks=undefined-pending-ticket status=declaration-only\n";
-
-/// The device command-line fragment fixed by the device contract.
-pub const DEVICE_COMMAND_LINE: &str = "virtio_mmio.device=4K@0xd0000000:5:0 \
-virtio_mmio.device=4K@0xd0001000:6:1 \
-virtio_mmio.device=4K@0xd0002000:7:2 \
-virtio_mmio.device=4K@0xd0003000:8:3 \
-virtio_mmio.device=4K@0xd0004000:9:4";
-
-const BASE_COMMAND_LINE: &str = "console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off \
-pci=off acpi=off noapic cryptomgr.notests";
-
-const GENERATION_COMMAND_LINE: &str = "rdinit=/init soma.lower=/dev/vda soma.upper=/dev/vdb";
 
 /// The fixed readiness command executed after authenticated repair.
 pub const READINESS_COMMAND: &[u8] = b"/proc/self/exe --soma-ready-probe-v1";
@@ -90,10 +104,10 @@ pub fn machine_contract_v1() -> ContractBinding {
     ContractBinding::of(1, MACHINE_CONTRACT_V1)
 }
 
-/// Returns the device contract v1 binding.
+/// Returns the device contract v1 binding for one device set.
 #[must_use]
-pub fn device_contract_v1() -> ContractBinding {
-    ContractBinding::of(1, DEVICE_CONTRACT_V1)
+pub fn device_contract_v1(devices: DeviceSet) -> ContractBinding {
+    ContractBinding::of(1, &device_contract_statement(devices))
 }
 
 /// Returns the CPU template v1 binding.
@@ -104,16 +118,12 @@ pub fn cpu_template_v1() -> ContractBinding {
 
 /// Returns the complete generated kernel command line for Generation profile v1.
 ///
-/// Every field is fixed and ordered; no caller text participates.
+/// Every field is fixed and ordered; no caller text participates. It is composed by the machine
+/// layer rather than restated here, because the manifest binds the line the machine will
+/// actually boot with and a second spelling of it could only ever drift from the first.
 #[must_use]
-pub fn kernel_command_line_v1() -> Vec<u8> {
-    let mut line = String::with_capacity(512);
-    line.push_str(BASE_COMMAND_LINE);
-    line.push(' ');
-    line.push_str(DEVICE_COMMAND_LINE);
-    line.push(' ');
-    line.push_str(GENERATION_COMMAND_LINE);
-    line.into_bytes()
+pub fn kernel_command_line_v1(devices: DeviceSet) -> Vec<u8> {
+    soma_kvm::x86_64::generation_command_line(devices).into_bytes()
 }
 
 /// Returns the digest of the fixed readiness command bytes.

@@ -8,7 +8,7 @@ use soma_generation::{
 use support::manifest::{descriptor, digest, sample};
 
 const GOLDEN_HEX: &str = include_str!("fixtures/somagen_v2.hex");
-const GOLDEN_ID: &str = "sha256:365326f3de6bd2c4fd7ef36a2df8f5990ccd37887c0ab98d4919fde2217701e2";
+const GOLDEN_ID: &str = "sha256:0cd1459616b9b5b6454347a584ab91833d857793103456202b43a435544ce955";
 
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;

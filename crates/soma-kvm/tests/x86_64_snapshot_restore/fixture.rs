@@ -196,7 +196,7 @@ fn capture_source(
             paths: paths.clone(),
             candidate_id,
             root: &mut root,
-            overlay: &mut head,
+            overlay: Some(&mut head),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
         },

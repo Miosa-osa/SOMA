@@ -112,13 +112,16 @@ mod agent {
             pid1::poweroff();
         }
         let controller = Controller::captured();
-        if let Err(failure) = boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
-            console::report(&format!(
-                "boot failed at {:?} errno {}",
-                failure.step, failure.errno
-            ));
-            destroy(&controller.poison(Fault::Boot));
-        }
+        let declared = match boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
+            Ok(declared) => declared,
+            Err(failure) => {
+                console::report(&format!(
+                    "boot failed at {:?} errno {}",
+                    failure.step, failure.errno
+                ));
+                destroy(&controller.poison(Fault::Boot));
+            }
+        };
         // The disconnected repair point. Everything the Generation needs on disk is already
         // written, so the agent flushes the private overlay and announces the wait before it
         // blocks: a Generation builder captures the machine exactly here, with no launch
@@ -153,12 +156,20 @@ mod agent {
             ),
         );
         let repaired = timings::measure(Measured::Identity, || {
-            identity::repair(binding.instance(), network.time_sample_nanos())
+            identity::repair(binding.instance(), network.time_sample_nanos(), declared)
         });
         let (controller, ()) =
             advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));
+        // A machine with no network device has no interface to install an identity on, so the
+        // repair reduces to raising loopback: a sandbox that cannot reach the network still has
+        // to be able to reach itself. Skipping the step entirely would leave `lo` down and
+        // break every workload that binds to its own address.
         let installed = timings::measure(Measured::Network, || {
-            network_repair::repair(&network, &hostname)
+            if declared.net {
+                network_repair::repair(&network, &hostname)
+            } else {
+                network_repair::repair_loopback_only()
+            }
         });
         let (controller, ()) =
             advance(controller.repair_network(installed.map_err(|_| Fault::Network)));

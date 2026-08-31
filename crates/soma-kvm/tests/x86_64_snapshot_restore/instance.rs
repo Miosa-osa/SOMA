@@ -10,6 +10,7 @@ use std::{
 };
 
 use soma_guest::{HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
+use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::readiness::{ReadinessRefusal, SessionEvidence};
 use soma_kvm::x86_64::{
     Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, SnapshotError, restore,
@@ -78,11 +79,12 @@ pub fn run_workload<W: Workload>(
         paths: fixture.paths.clone(),
         disks: SandboxDisks {
             root: fixture.root(),
-            overlay: head,
+            overlay: Some(head),
         },
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,
         verify_artifacts: false,
+        devices: DeviceSet::FULL,
         network: None,
     })
     .expect("restore the snapshot");

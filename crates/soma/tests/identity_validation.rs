@@ -68,14 +68,17 @@ fn machine_shape_has_one_shared_portable_boundary() {
         )
         .is_err()
     );
+    // Zero storage is a sandbox with no writable disk, which is a shape the backend can build,
+    // so it is accepted where zero vCPUs or zero memory are not.
     assert!(
         MachineShape::new(
             MachineShape::MIN_VCPU_COUNT,
             MachineShape::MIN_MEMORY_MIB,
             0,
         )
-        .is_err()
+        .is_ok_and(|shape| shape.storage_mib() == 0)
     );
+    assert!(MachineShape::new(0, MachineShape::MIN_MEMORY_MIB, 0).is_err());
     assert!(
         serde_json::from_str::<MachineShape>(
             r#"{"vcpu_count":65536,"memory_mib":1,"storage_mib":1,"capabilities":{"network_policy":"unspecified"}}"#,

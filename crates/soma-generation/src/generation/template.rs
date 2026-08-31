@@ -1,10 +1,15 @@
 use soma::{MachineShape, NetworkPolicy, OciDigest, OciImage, OciPlatform};
+use soma_kvm::DeviceSet;
 
 use super::{
     artifacts::Sha256Digest,
     contracts,
     error::{CompileError, CompileErrorKind, CompilePhase},
 };
+
+mod network;
+
+pub use network::{NetworkPolicyClass, network_policy_digest};
 
 const MIB: u64 = 1024 * 1024;
 const MINIMUM_MEMORY_BYTES: u64 = 128 * MIB;
@@ -175,10 +180,12 @@ impl TemplateRevision {
         }
         let memory = shape.memory_mib().checked_mul(MIB).ok_or_else(invalid)?;
         let storage = shape.storage_mib().checked_mul(MIB).ok_or_else(invalid)?;
-        if !(MINIMUM_MEMORY_BYTES..=MAXIMUM_MEMORY_BYTES).contains(&memory)
-            || storage < MINIMUM_STORAGE_BYTES
-            || !storage.is_multiple_of(4 * MIB)
-        {
+        // Zero writable storage is a machine with no overlay device at all, which is a smaller
+        // machine rather than an undersized disk; every other value still has to name a real
+        // size class the compiler can build a sterile template for.
+        let storage_valid =
+            storage == 0 || (storage >= MINIMUM_STORAGE_BYTES && storage.is_multiple_of(4 * MIB));
+        if !(MINIMUM_MEMORY_BYTES..=MAXIMUM_MEMORY_BYTES).contains(&memory) || !storage_valid {
             return Err(invalid());
         }
         Ok(Self {
@@ -232,66 +239,25 @@ impl TemplateRevision {
         self.shape.memory_mib() * MIB
     }
 
-    /// Returns the writable-storage size class in bytes.
+    /// Returns the writable-storage size class in bytes; zero means no writable disk at all.
     #[must_use]
     pub fn writable_storage_bytes(&self) -> u64 {
         self.shape.storage_mib() * MIB
     }
-}
 
-/// The network policy classes bound into the manifest alongside the policy digest.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NetworkPolicyClass {
-    /// The fail-closed isolated policy.
-    Isolated,
-    /// Every runtime-controlled dimension deferred to the operator default profile.
-    RuntimeDefault,
-    /// An explicitly composed policy.
-    Explicit,
-}
-
-impl NetworkPolicyClass {
-    /// Classifies a policy.
+    /// The optional devices this revision's machine will have.
+    ///
+    /// Both follow from what the revision already declares. A revision asking for no writable
+    /// storage gets no overlay device, so its Instances never clone a private head; a revision
+    /// whose network policy is the fail-closed isolated one gets no network device, because a
+    /// device whose link can never come up is a cost with no capability behind it.
     #[must_use]
-    pub fn of(policy: &NetworkPolicy) -> Self {
-        if *policy == NetworkPolicy::isolated() {
-            Self::Isolated
-        } else if *policy == NetworkPolicy::runtime_default() {
-            Self::RuntimeDefault
-        } else {
-            Self::Explicit
-        }
+    pub fn device_set(&self) -> DeviceSet {
+        DeviceSet::new(
+            self.writable_storage_bytes() > 0,
+            NetworkPolicyClass::of(self.network_policy()) != NetworkPolicyClass::Isolated,
+        )
     }
-
-    pub(crate) const fn code(self) -> u8 {
-        match self {
-            Self::Isolated => 0,
-            Self::RuntimeDefault => 1,
-            Self::Explicit => 2,
-        }
-    }
-
-    pub(crate) const fn from_code(code: u8) -> Option<Self> {
-        Some(match code {
-            0 => Self::Isolated,
-            1 => Self::RuntimeDefault,
-            2 => Self::Explicit,
-            _ => return None,
-        })
-    }
-}
-
-/// Digests the canonical serialization of a network policy.
-///
-/// The portable `soma` policy serializes with declaration-ordered struct fields and an
-/// ordered port set, so the bytes carry no implementation-dependent ordering.
-///
-/// # Errors
-///
-/// Returns [`CompileErrorKind::InvalidInput`] when the policy cannot be serialized.
-pub fn network_policy_digest(policy: &NetworkPolicy) -> Result<Sha256Digest, CompileError> {
-    let bytes = serde_json::to_vec(policy).map_err(|_| invalid())?;
-    Ok(Sha256Digest::of(&bytes))
 }
 
 const fn invalid() -> CompileError {

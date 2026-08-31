@@ -42,10 +42,15 @@ pub struct HostProfile {
     pub vcpu_count: u16,
     pub memory_bytes: u64,
     pub guest_protocol_version: u16,
-    pub devices: [DeviceExpectation; DEVICE_COUNT as usize],
+    /// What this host expects of each slot, or `None` where its Generation declared no device.
+    pub devices: [Option<DeviceExpectation>; DEVICE_COUNT as usize],
 }
 
 /// Checks the constant-size header, then the VM layout, then every device slot.
+///
+/// A slot this host has no device for must carry no section either. Without that, a snapshot
+/// captured from a machine that had a writable overlay would restore onto a machine built
+/// without one, and the guest inside it would come back believing it still has a disk.
 ///
 /// # Errors
 ///
@@ -54,9 +59,26 @@ pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibil
     check_header(host, manifest)?;
     check_vm_layout(manifest)?;
     for slot in 0..DEVICE_COUNT {
-        check_device(host, manifest, slot)?;
+        if host
+            .devices
+            .get(usize::from(slot))
+            .is_some_and(Option::is_some)
+        {
+            check_device(host, manifest, slot)?;
+        } else if let Some(role) =
+            device_role(slot).filter(|role| manifest.section(*role).is_some())
+        {
+            return Err(Incompatibility::UnexpectedSection(role));
+        }
     }
     Ok(())
+}
+
+/// The manifest section one device slot occupies.
+fn device_role(slot: u8) -> Option<SectionRole> {
+    SectionRole::ALL
+        .into_iter()
+        .find(|role| role.device_slot() == Some(slot))
 }
 
 /// Checks only the constant-size header fields.
@@ -164,13 +186,11 @@ pub fn check_device(
 ) -> Result<(), Incompatibility> {
     let expectation = host
         .devices
-        .iter()
-        .find(|expectation| expectation.kind.slot() == slot)
+        .get(usize::from(slot))
+        .and_then(|expectation| expectation.as_ref())
+        .filter(|expectation| expectation.kind.slot() == slot)
         .ok_or(Incompatibility::NoExpectationForSlot(slot))?;
-    let role = SectionRole::ALL
-        .into_iter()
-        .find(|role| role.device_slot() == Some(slot))
-        .ok_or(Incompatibility::NoExpectationForSlot(slot))?;
+    let role = device_role(slot).ok_or(Incompatibility::NoExpectationForSlot(slot))?;
     let section = manifest
         .section(role)
         .ok_or(Incompatibility::MissingSection(role))?;

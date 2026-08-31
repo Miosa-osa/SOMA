@@ -7,6 +7,7 @@
 use std::{fs, path::Path, time::Duration};
 
 use soma_guest::{GuestLaunchMaterial, HostLaunchMaterial, LAUNCH_PAGE_SIZE, LaunchNetwork};
+use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::compatibility::Incompatibility;
 use soma_kvm::x86_64::{
     LAUNCH_PAGE_GPA, Milestone, RestoreRequest, SandboxDisks, SnapshotError, SnapshotPaths, restore,
@@ -225,8 +226,9 @@ fn attempt(
         paths: paths.clone(),
         disks: SandboxDisks {
             root: fixture.root(),
-            overlay: head,
+            overlay: Some(head),
         },
+        devices: DeviceSet::FULL,
         guest_cid: 30,
         memory_bytes: fixture.ram_bytes,
         verify_artifacts,

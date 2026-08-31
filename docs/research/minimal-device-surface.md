@@ -2,9 +2,19 @@
 
 ## Decision
 
-SOMA machine contract v1 exposes five modern virtio 1.0-or-later devices over fixed virtio-mmio version 2 transports.
+SOMA machine contract v1 exposes at most five modern virtio 1.0-or-later devices over fixed virtio-mmio version 2 transports.
 The devices are one immutable EROFS root block device, one Instance-private writable overlay block device, one network device, one vsock device, and one entropy device.
 Authenticated control and orderly shutdown share the vsock device and do not create another virtual device.
+
+Five is the maximum, not the minimum.
+Three of the devices are what makes the machine a machine and are present in every Generation: without the immutable root there is no code to run, without vsock there is no channel in or out, and without entropy a restored guest wakes holding the snapshot's generator state, which every other Instance of that snapshot holds too.
+The other two carry a declared capability and are present only when a Generation declares it.
+A Generation whose Template asks for no writable storage has no overlay block device, composes no `OverlayFS`, and clones no private disk head on the launch path.
+A Generation whose network policy is the fail-closed isolated one has no network device, because a device whose link can never be raised is a cost with no capability behind it.
+
+The device set is part of the Generation's identity.
+It decides which `virtio_mmio.device=` declarations the kernel command line carries, which device models the VMM builds, which manifest sections a capture writes, and the device-contract digest the snapshot binds.
+Because the digest covers the set and not only the contents of the slots in it, a snapshot captured from a machine with an overlay cannot restore onto a machine built without one, or the reverse: the mismatch is refused against the constant-size manifest header, before a byte of the memory object is mapped.
 
 Version 1 has no PCI or PCIe bus, device enumeration, hotplug, MSI, MSI-X, IOMMU, packed virtqueues, vhost backend, virtio console, balloon, memory device, filesystem device, SCSI controller, or generic user-configurable device.
 The diagnostic 16550 UART belongs only to cold-boot certification and is absent from a production Generation snapshot.
@@ -49,19 +59,32 @@ It cannot silently replace MMIO for an existing Generation.
 The version 1 machine limits RAM to 3 GiB, so the MMIO window begins at `0xd0000000` and cannot overlap RAM.
 Each address, interrupt, device identifier, queue count, queue limit, feature allowlist, and command-line declaration is part of `GenerationId`.
 
-| Slot | MMIO range | GSI | Device | Virtio ID | Queues |
-| ---: | --- | ---: | --- | ---: | --- |
-| 0 | `0xd0000000` to `0xd0000fff` | 5 | Immutable root block | 2 | request: 256 |
-| 1 | `0xd0001000` to `0xd0001fff` | 6 | Writable overlay block | 2 | request: 256 |
-| 2 | `0xd0002000` to `0xd0002fff` | 7 | Network | 1 | receive: 256, transmit: 256 |
-| 3 | `0xd0003000` to `0xd0003fff` | 8 | Vsock control | 19 | receive: 256, transmit: 256, event: 64 |
-| 4 | `0xd0004000` to `0xd0004fff` | 9 | Entropy | 4 | request: 64 |
+| Slot | MMIO range | GSI | Device | Virtio ID | Queues | Present |
+| ---: | --- | ---: | --- | ---: | --- | --- |
+| 0 | `0xd0000000` to `0xd0000fff` | 5 | Immutable root block | 2 | request: 256 | always |
+| 1 | `0xd0001000` to `0xd0001fff` | 6 | Writable overlay block | 2 | request: 256 | writable storage declared |
+| 2 | `0xd0002000` to `0xd0002fff` | 7 | Network | 1 | receive: 256, transmit: 256 | network policy not isolated |
+| 3 | `0xd0003000` to `0xd0003fff` | 8 | Vsock control | 19 | receive: 256, transmit: 256, event: 64 | always |
+| 4 | `0xd0004000` to `0xd0004fff` | 9 | Entropy | 4 | request: 64 | always |
 
-The fixed guest command-line fragment is:
+An absent slot keeps its page and its interrupt reserved and is simply never declared, so the addresses of the slots that remain never move and the guest's root device is the first block device whatever else the machine has.
+A guest that reads a reserved page it was never told about gets an unmapped-address violation rather than a device that answers with zeros.
+
+The guest command-line fragment for a machine with every slot is:
 
 ```text
 virtio_mmio.device=4K@0xd0000000:5:0 virtio_mmio.device=4K@0xd0001000:6:1 virtio_mmio.device=4K@0xd0002000:7:2 virtio_mmio.device=4K@0xd0003000:8:3 virtio_mmio.device=4K@0xd0004000:9:4
 ```
+
+For a read-only sandbox with no egress it is:
+
+```text
+virtio_mmio.device=4K@0xd0000000:5:0 virtio_mmio.device=4K@0xd0003000:8:3 virtio_mmio.device=4K@0xd0004000:9:4
+```
+
+The same command line is what tells the guest agent which devices to look for.
+`soma.lower=` names the immutable root and is always present; `soma.upper=` names the private head and `soma.net=` names the interface, and each appears only when its device does.
+The agent reads them from `/proc/cmdline` rather than probing, so a device that failed to appear is distinguishable from one that was never built: a Generation with no `soma.upper=` waits for one block device rather than two, mounts the EROFS root read-only, and switches into it with no ext4 verification, no upper mount, no work directory, and no `OverlayFS`.
 
 Every interrupt is a distinct edge-triggered IOAPIC route in version 1.
 No device shares an interrupt.
@@ -137,10 +160,12 @@ Destroy still closes every backend and descriptor even if reset did not complete
 
 ## Block devices
 
-The guest sees one read-only raw block device containing the deterministic EROFS Generation root and one writable raw block device containing an Instance-private ext4 overlay.
+The guest sees one read-only raw block device containing the deterministic EROFS Generation root, and, when the Generation declared writable storage, one writable raw block device containing an Instance-private ext4 overlay.
 The immutable EROFS base is shared read-only and is never opened writable by `soma-vmm`.
 The overlay is a fresh private copy-on-write head cloned from a sterile filesystem image before assignment, and no two Instances share a writable head.
 The pinned guest init mounts EROFS read-only, mounts the private ext4 filesystem as the OverlayFS upper and work storage, and pivots to the combined writable root before starting the guest agent.
+Where there is no overlay device, it pivots into the read-only EROFS root instead; the sterile-head checks are unchanged and still run in full for every machine that has a head.
+A read-only guest still mounts a fresh tmpfs over `/run` and `/tmp`, which is what gives it writable scratch space, and it leaves `/etc/hostname` and `/etc/machine-id` alone because it has nowhere to put them; the kernel hostname, which is what `gethostname` reads, is replaced as always.
 
 Each block device exposes one request queue of at most 256 entries.
 The root device exposes `VIRTIO_BLK_F_RO` and `VIRTIO_BLK_F_BLK_SIZE` in addition to the common modern feature.
@@ -162,7 +187,8 @@ Restore opens and verifies the immutable root and assigned private overlay, prov
 
 ## Network device
 
-The guest sees one virtio network interface connected to one already-open TAP descriptor supplied by the privileged network broker.
+A Generation whose network policy is not the fail-closed isolated one sees one virtio network interface connected to one already-open TAP descriptor supplied by the privileged network broker.
+A Generation with the isolated policy has no network device: its guest performs no interface, address, route, or resolver repair, and raises only loopback, so a workload that talks to its own address still works while nothing can leave the machine.
 Version 1 exposes one receive queue and one transmit queue, each with at most 256 entries.
 It exposes only `VIRTIO_NET_F_MAC` in addition to the common modern feature.
 The control queue, multiqueue, mergeable receive buffers, checksum offload, segmentation offload, receive hash, standby, and guest-announcement features are absent.
@@ -286,7 +312,7 @@ SOMA still owns the feature policy, backend safety, event loop, device lifecycle
 
 The device surface is implementation-complete only after Linux x86_64 tests prove:
 
-1. The pinned guest discovers exactly five modern MMIO devices and no PCI bus.
+1. The pinned guest discovers exactly the modern MMIO devices its Generation declared, and no PCI bus.
 2. The EROFS root and ext4 upper compose into a writable root, read a known Generation file, write privately, flush, and leave both shared base artifacts unchanged.
 3. Network transmit and receive work through the supplied TAP while denied traffic remains denied by the host profile.
 4. A fresh vsock session completes authenticated repair, one command, and orderly shutdown.

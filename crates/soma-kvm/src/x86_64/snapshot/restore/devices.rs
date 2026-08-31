@@ -15,7 +15,7 @@ use super::super::{
 };
 use super::sections::Sections;
 use crate::snapshot::{device_state::DeviceSpecific, manifest::Manifest};
-use crate::virtio::{MmioBus, Slot, SlotSnapshot};
+use crate::virtio::{DeviceSet, MmioBus, Slot, SlotSnapshot};
 use crate::x86_64::{
     Machine,
     devices::{self as machine_devices, DeviceIdentity},
@@ -31,9 +31,10 @@ pub(super) struct Identity {
 pub(super) fn recreate_devices(
     machine: &Machine,
     root: std::fs::File,
-    overlay_capacity_bytes: u64,
+    overlay_capacity_bytes: Option<u64>,
     state: &Sections,
     identity: &Identity,
+    set: DeviceSet,
 ) -> Result<MmioBus, SnapshotError> {
     let captured_cid = u32::try_from(identity.captured_cid)
         .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Vsock))?;
@@ -47,22 +48,19 @@ pub(super) fn recreate_devices(
             guest_cid: captured_cid,
             guest_mac: identity.mac,
         },
+        set,
     )?;
     let records = state
         .devices
         .iter()
-        .zip(Slot::ALL)
-        .map(|(certified, slot)| {
+        .map(|(slot, certified)| {
             Ok(SlotSnapshot {
-                slot,
+                slot: *slot,
                 transport: device::transport(certified),
-                device: device::fresh_record(slot, &devices, certified)?,
+                device: device::fresh_record(*slot, &devices, certified)?,
             })
         })
         .collect::<Result<Vec<_>, SnapshotError>>()?;
-    let records: [SlotSnapshot; 5] = records
-        .try_into()
-        .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Root))?;
     // The device keeps the captured identifier here. The fresh one this Instance holds is
     // installed by the assignment step, which every restore goes through, so a prepared worker
     // built before its Instance exists and a restore that already knows its Instance cannot take
@@ -81,8 +79,13 @@ pub(super) fn verify(
         .header()
         .memory
         .verify_generation(memory, file_len(Artifact::Memory, &paths.memory())?)?;
+    // A Generation with no writable storage published no overlay template, so there is no
+    // sterile image to re-hash and nothing that could disagree with a record it never wrote.
+    let Some(record) = state.slot(Slot::Overlay) else {
+        return Ok(());
+    };
     let overlay = artifacts::digest_of(Artifact::Overlay, &paths.overlay())?;
-    match state.devices[Slot::Overlay.index() as usize].specific() {
+    match record.specific() {
         DeviceSpecific::Block(block) if block.image_digest == overlay => Ok(()),
         _ => Err(SnapshotError::DeviceStateNotCanonical(Slot::Overlay)),
     }

@@ -17,8 +17,8 @@ use crate::snapshot::{
     manifest::{Architecture, HostCapability, HostRequirements, PageSize, SCHEMA_VERSION},
 };
 use crate::virtio::{
-    BLOCK_QUEUE_MAX, BlockRole, NET_FEATURES, NET_QUEUE_MAX, RNG_FEATURES, RNG_QUEUE_MAX, Slot,
-    VSOCK_FEATURES, VSOCK_QUEUE_MAX,
+    BLOCK_QUEUE_MAX, BlockRole, DeviceSet, NET_FEATURES, NET_QUEUE_MAX, RNG_FEATURES,
+    RNG_QUEUE_MAX, Slot, VSOCK_FEATURES, VSOCK_QUEUE_MAX,
 };
 use crate::x86_64::{cmdline, cpuid, launch_page, layout};
 
@@ -52,7 +52,7 @@ const REQUIRED: [(HostCapability, Cap); 12] = [
 /// It changes whenever the machine the snapshot was taken on stops being the machine the
 /// snapshot would be restored onto, which is exactly when restore must fail closed.
 #[must_use]
-pub(in crate::x86_64) fn machine_contract() -> Digest {
+pub(in crate::x86_64) fn machine_contract(devices: DeviceSet) -> Digest {
     let mut hasher = Hasher::new();
     hasher.update(b"SOMA-x86_64-machine-contract-v1\0");
     for value in [
@@ -67,16 +67,22 @@ pub(in crate::x86_64) fn machine_contract() -> Digest {
     ] {
         hasher.update(&value.to_be_bytes());
     }
-    hasher.update(cmdline::compose_generation().as_bytes());
+    hasher.update(cmdline::compose_generation(devices).as_bytes());
     hasher.finish()
 }
 
-/// Digest of the fixed five-slot device surface: addresses, interrupts, ids, queues, features.
+/// Digest of this Generation's device surface: which slots it has, and for each of them the
+/// address, interrupt, identifier, queue count, features, and queue limits.
+///
+/// The set is part of the digest, not just the contents of the slots in it, so a snapshot taken
+/// from a machine with an overlay and a network cannot restore onto one built without them.
+/// That check runs against the constant-size manifest header, before a single byte of the
+/// memory object is mapped.
 #[must_use]
-pub(in crate::x86_64) fn device_contract() -> Digest {
+pub(in crate::x86_64) fn device_contract(devices: DeviceSet) -> Digest {
     let mut hasher = Hasher::new();
     hasher.update(b"SOMA-device-surface-v1\0");
-    for slot in Slot::ALL {
+    for slot in devices.present() {
         hasher.update(&slot.base().to_be_bytes());
         hasher.update(&slot.gsi().to_be_bytes());
         hasher.update(&slot.device_id().to_be_bytes());
@@ -172,6 +178,7 @@ pub(in crate::x86_64) fn requirements() -> Result<HostRequirements, SnapshotErro
 pub(in crate::x86_64) fn host_profile(
     kvm: &Kvm,
     memory_bytes: u64,
+    devices: DeviceSet,
 ) -> Result<HostProfile, SnapshotError> {
     let xsave = kvm.check_extension_int(Cap::Xsave2);
     if xsave > XSAVE_LIMIT {
@@ -183,7 +190,7 @@ pub(in crate::x86_64) fn host_profile(
         .map(|(capability, _)| *capability)
         .collect();
     let (_, cpu_template) = cpu_template(kvm)?;
-    let devices = Slot::ALL.map(expectation);
+    let expectations = Slot::ALL.map(|slot| devices.has(slot).then(|| expectation(slot)));
     Ok(HostProfile {
         schema_version: SCHEMA_VERSION,
         architecture: Architecture::X86_64,
@@ -191,12 +198,12 @@ pub(in crate::x86_64) fn host_profile(
         kvm_api_version: u32::try_from(kvm.get_api_version()).unwrap_or(0),
         capabilities,
         memory_slots: u16::try_from(kvm.get_nr_memslots()).unwrap_or(u16::MAX),
-        machine_contract: machine_contract(),
-        device_contract: device_contract(),
+        machine_contract: machine_contract(devices),
+        device_contract: device_contract(devices),
         cpu_template,
         vcpu_count: VCPU_COUNT,
         memory_bytes,
         guest_protocol_version: GUEST_PROTOCOL_VERSION,
-        devices,
+        devices: expectations,
     })
 }

@@ -82,7 +82,13 @@ where
 
     let revision = decide(&normalized, &store)?;
     let mut profile = CompilerProfile::v1();
-    profile.overlay_capacities = vec![revision.writable_storage_bytes()];
+    // A revision with writable storage narrows the profile to the one class it selects, so the
+    // compiler builds exactly the template that Generation needs. A revision with none builds
+    // no template at all, and the profile's declared classes are left alone because nothing
+    // will consult them.
+    if revision.writable_storage_bytes() > 0 {
+        profile.overlay_capacities = vec![revision.writable_storage_bytes()];
+    }
 
     let compiled = compile_generation(CompileGeneration::new(
         &revision,

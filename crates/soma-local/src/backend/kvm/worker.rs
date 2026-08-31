@@ -12,6 +12,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::Instant;
 
 use soma_guest::{HostControl, HostLaunchMaterial, RepairedHostControl, SecretFile};
+use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::readiness::SessionEvidence;
 use soma_kvm::x86_64::{
     DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
@@ -84,11 +85,13 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
         Source::Restore {
             snapshot,
             disks,
+            devices,
             memory_bytes,
         } => {
             let restored = restore(RestoreRequest {
                 paths: SnapshotPaths::new(snapshot),
                 disks,
+                devices,
                 guest_cid,
                 memory_bytes,
                 // Re-hashing every byte of the memory object is the installation and audit
@@ -226,15 +229,29 @@ fn reach_session(
     host.prepare_and_probe().map_err(|_| SessionError::Ready)
 }
 
+/// The opened artifacts and declared shape one cold boot starts from.
+pub(super) struct ColdBootInputs {
+    pub(super) kernel: std::fs::File,
+    pub(super) initramfs: std::fs::File,
+    pub(super) root: std::fs::File,
+    /// The Instance-private head, or `None` for a Generation with no writable storage.
+    pub(super) overlay: Option<std::fs::File>,
+    pub(super) ram_bytes: u64,
+    pub(super) guest_cid: u32,
+    pub(super) devices: DeviceSet,
+}
+
 /// The device identity and shape one sandbox is given.
-pub(super) fn config(
-    kernel: std::fs::File,
-    initramfs: std::fs::File,
-    root: std::fs::File,
-    overlay: std::fs::File,
-    ram_bytes: u64,
-    guest_cid: u32,
-) -> SandboxConfig {
+pub(super) fn config(inputs: ColdBootInputs) -> SandboxConfig {
+    let ColdBootInputs {
+        kernel,
+        initramfs,
+        root,
+        overlay,
+        ram_bytes,
+        guest_cid,
+        devices,
+    } = inputs;
     SandboxConfig {
         kernel,
         initramfs,
@@ -244,5 +261,6 @@ pub(super) fn config(
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
+        devices,
     }
 }

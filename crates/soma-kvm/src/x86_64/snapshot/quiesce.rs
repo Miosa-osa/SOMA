@@ -19,7 +19,9 @@ const PASSES: u32 = 8;
 ///
 /// Returns [`SnapshotError::NotQuiescent`] naming the first device that is not idle.
 pub(super) fn prove_no_ingress(bus: &MmioBus) -> Result<(), SnapshotError> {
-    if bus.net().device().link_up() {
+    // A machine with no network device has no link that could be up, which is the strongest
+    // form of the same statement rather than an unchecked one.
+    if bus.net().is_some_and(|net| net.device().link_up()) {
         return Err(SnapshotError::NotQuiescent(
             "the network link is up at the capture point",
         ));
@@ -42,7 +44,7 @@ pub(super) fn drain<M: GuestMemory + ?Sized>(
     bus: &mut MmioBus,
     memory: &M,
 ) -> Result<(), SnapshotError> {
-    for slot in Slot::ALL {
+    for slot in bus.device_set().present().collect::<Vec<_>>() {
         for queue in 0..slot.queue_count() {
             let mut passes = 0;
             loop {

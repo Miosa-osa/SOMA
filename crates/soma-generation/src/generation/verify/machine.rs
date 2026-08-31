@@ -38,13 +38,17 @@ pub(super) fn require_machine(
     manifest: &GenerationManifest,
     profile: &CompilerProfile,
 ) -> Result<(), CompileError> {
+    // The device set is derived from the manifest's own declared Template fields, so a manifest
+    // whose command line or device contract belongs to a different machine than the one it
+    // declares fails here rather than at the guest's first missing device.
+    let devices = manifest.device_set();
     require(
-        manifest.command_line == contracts::kernel_command_line_v1(),
+        manifest.command_line == contracts::kernel_command_line_v1(devices),
         Incompatibility::CommandLine,
     )?;
     require(
         manifest.machine_contract == contracts::machine_contract_v1()
-            && manifest.device_contract == contracts::device_contract_v1()
+            && manifest.device_contract == contracts::device_contract_v1(devices)
             && manifest.cpu_template == contracts::cpu_template_v1(),
         Incompatibility::ContractStatement,
     )?;
@@ -105,7 +109,11 @@ fn require_template(
     profile: &CompilerProfile,
 ) -> Result<(), CompileError> {
     let template = &manifest.template;
-    require(
+    // No writable storage means no overlay device, so the manifest must name no template
+    // either; any other size must name exactly one the compiler builds.
+    let storage_declared = if template.writable_storage_bytes == 0 {
+        manifest.overlay.templates.is_empty()
+    } else {
         profile
             .overlay_capacities
             .contains(&template.writable_storage_bytes)
@@ -113,9 +121,9 @@ fn require_template(
                 .overlay
                 .templates
                 .iter()
-                .any(|entry| entry.capacity == template.writable_storage_bytes),
-        Incompatibility::WritableStorage,
-    )?;
+                .any(|entry| entry.capacity == template.writable_storage_bytes)
+    };
+    require(storage_declared, Incompatibility::WritableStorage)?;
     require_network(manifest)?;
     require_probe(manifest)?;
     require(

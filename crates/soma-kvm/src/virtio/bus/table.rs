@@ -1,6 +1,13 @@
-//! The fixed v1 device table: one 4 KiB page and one GSI per slot, from the
-//! minimal device surface. Every address, interrupt, identifier, and the
-//! kernel command-line fragment derive from this single table.
+//! The v1 device table: one 4 KiB page and one GSI per slot, from the minimal device surface.
+//! Every address, interrupt, identifier, and the kernel command-line fragment derive from this
+//! single table.
+//!
+//! The five slots are the maximum a machine may expose, not the minimum it must. Two of them
+//! carry a capability rather than the ability to run at all: a sandbox that never writes needs
+//! no private overlay, and a sandbox that may not reach the network needs no network device.
+//! A [`DeviceSet`] says which of those two a Generation declared, and everything downstream,
+//! meaning which device models are built, which pages the guest is told about, and which
+//! contract digest the snapshot binds, is derived from it.
 
 use crate::virtio::transport::registers::{MMIO_PAGE_SIZE, REG_QUEUE_NOTIFY};
 
@@ -103,12 +110,70 @@ impl Slot {
     }
 }
 
-/// The complete kernel command-line fragment for the five devices.
+/// Which optional slots one machine declares, and therefore which devices it has at all.
+///
+/// The root block device, the vsock control device, and the entropy device are not represented
+/// here because they are not optional: without a root there is no code to run, without vsock
+/// there is no channel in or out, and without entropy a restored guest wakes with the
+/// snapshot's stale generator state shared by every other Instance of that snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct DeviceSet {
+    overlay: bool,
+    net: bool,
+}
+
+impl DeviceSet {
+    /// Every optional slot present: the maximum surface the contract allows.
+    pub const FULL: Self = Self {
+        overlay: true,
+        net: true,
+    };
+
+    /// The set a Generation gets from what it declared.
+    #[must_use]
+    pub const fn new(overlay: bool, net: bool) -> Self {
+        Self { overlay, net }
+    }
+
+    /// Whether this machine has a private writable overlay.
+    #[must_use]
+    pub const fn overlay(self) -> bool {
+        self.overlay
+    }
+
+    /// Whether this machine has a network device.
+    #[must_use]
+    pub const fn net(self) -> bool {
+        self.net
+    }
+
+    /// Whether the slot is present in this machine.
+    #[must_use]
+    pub const fn has(self, slot: Slot) -> bool {
+        match slot {
+            Slot::Root | Slot::Vsock | Slot::Rng => true,
+            Slot::Overlay => self.overlay,
+            Slot::Net => self.net,
+        }
+    }
+
+    /// Every present slot in table order.
+    pub fn present(self) -> impl Iterator<Item = Slot> {
+        Slot::ALL.into_iter().filter(move |slot| self.has(*slot))
+    }
+}
+
+/// The kernel command-line fragment naming exactly the present devices.
+///
+/// An absent slot keeps its page and its interrupt reserved but is never declared, so the guest
+/// never probes it and the addresses of the slots that remain do not move. Two machines that
+/// declare different sets therefore differ only by which declarations are missing, which is
+/// what makes the difference visible in the command line the manifest binds.
 #[must_use]
-pub fn kernel_command_line() -> String {
-    Slot::ALL
-        .iter()
-        .map(|slot| slot.command_line_entry())
+pub fn kernel_command_line(devices: DeviceSet) -> String {
+    devices
+        .present()
+        .map(Slot::command_line_entry)
         .collect::<Vec<_>>()
         .join(" ")
 }

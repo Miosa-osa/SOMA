@@ -1,5 +1,6 @@
 //! What a prepared worker must refuse, proved against real KVM.
 
+use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{SterileRequest, restore_sterile};
 
 use super::{fixture, require_kvm};
@@ -9,7 +10,8 @@ fn sterile(fixture: &fixture::Fixture) -> soma_kvm::x86_64::Sterile {
     restore_sterile(SterileRequest {
         paths: fixture.paths.clone(),
         root: fixture.root(),
-        overlay_capacity_bytes: fixture.overlay_capacity_bytes(),
+        overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
+        devices: DeviceSet::FULL,
         memory_bytes: fixture.ram_bytes,
         verify_artifacts: false,
     })
@@ -28,7 +30,7 @@ fn a_head_of_the_wrong_shape_is_refused_and_the_worker_never_starts() {
         .set_len(fixture.overlay_capacity_bytes() / 2)
         .expect("shorten the head");
 
-    let refused = sterile(&fixture).assign(short, 4, None);
+    let refused = sterile(&fixture).assign(Some(short), 4, None);
 
     assert!(
         refused.is_err(),
@@ -53,7 +55,7 @@ fn an_unassignable_context_identifier_is_refused_and_the_worker_never_starts() {
         let descriptors_before = crate::x86_64_sandbox_boot_host::open_descriptor_count();
         let (_path, head) = fixture.private_head("sterile-cid");
 
-        let refused = sterile(&fixture).assign(head, reserved, None);
+        let refused = sterile(&fixture).assign(Some(head), reserved, None);
 
         assert!(
             refused.is_err(),

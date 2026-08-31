@@ -106,6 +106,29 @@ pub fn repair(network: &LaunchNetwork, hostname: &str) -> Result<(), NetworkErro
         })
 }
 
+/// Raises loopback and installs nothing else, for a machine with no network device.
+///
+/// A sandbox that may not reach the network still has to reach itself: a workload that binds a
+/// port on `127.0.0.1` and then connects to it is doing something entirely local, and leaving
+/// `lo` down would break it for a reason that has nothing to do with the policy that denied it
+/// egress. There is no interface, address, route, resolver, or hosts file to write, and the
+/// last two would fail anyway on a read-only root.
+///
+/// # Errors
+///
+/// Returns [`NetworkStep::UnsupportedTarget`] for an unverified ABI, otherwise the failed step.
+pub fn repair_loopback_only() -> Result<(), NetworkError> {
+    target::require(target::COMPILED)?;
+    let socket = control_socket()?;
+    let loopback = get_flags(&socket, LOOPBACK, NetworkStep::LinkUp)?;
+    set_flags(
+        &socket,
+        LOOPBACK,
+        loopback | IFF_UP | IFF_RUNNING,
+        NetworkStep::LinkUp,
+    )
+}
+
 /// Renders the resolver configuration for the single launch resolver.
 #[must_use]
 pub fn resolver_file(resolver: [u8; 4]) -> String {

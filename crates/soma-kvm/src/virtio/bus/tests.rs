@@ -1,5 +1,8 @@
 //! Table, dispatch, routing, seam, and snapshot tests for the bus.
 
+#[path = "tests/optional.rs"]
+mod optional;
+
 use super::slots::{SlotRestoreError, SlotSnapshot};
 use super::*;
 use crate::virtio::device::DeviceStateError;
@@ -9,6 +12,7 @@ use crate::virtio::devices::net::NET_FEATURES;
 use crate::virtio::devices::net::backend::LoopbackBackend;
 use crate::virtio::devices::rng::RNG_FEATURES;
 use crate::virtio::devices::rng::backend::CounterEntropy;
+use crate::virtio::transport::TransportEvent;
 use crate::virtio::transport::registers::*;
 
 const W: AccessWidth = AccessWidth::U32;
@@ -33,8 +37,8 @@ fn block(role: BlockRole) -> BlockDevice {
 fn devices(mac: [u8; 6]) -> BusDevices {
     BusDevices {
         root: block(BlockRole::ImmutableRoot),
-        overlay: block(BlockRole::PrivateOverlay),
-        net: NetDevice::new(Box::new(LoopbackBackend::default()), mac),
+        overlay: Some(block(BlockRole::PrivateOverlay)),
+        net: Some(NetDevice::new(Box::new(LoopbackBackend::default()), mac)),
         vsock: VsockDevice::new(CID).expect("vsock"),
         rng: RngDevice::new(Box::new(CounterEntropy::default())),
     }
@@ -77,7 +81,12 @@ fn init_slot(bus: &mut MmioBus, rig: &GuestRig, slot: Slot, features: u64) {
 
 #[test]
 fn table_matches_the_device_surface_and_command_line_exactly() {
-    assert_eq!(kernel_command_line(), SPEC_COMMAND_LINE);
+    assert_eq!(kernel_command_line(DeviceSet::FULL), SPEC_COMMAND_LINE);
+    assert_eq!(
+        kernel_command_line(DeviceSet::new(false, false)),
+        "virtio_mmio.device=4K@0xd0000000:5:0 virtio_mmio.device=4K@0xd0003000:8:3 \
+virtio_mmio.device=4K@0xd0004000:9:4"
+    );
     let gsis: Vec<u32> = Slot::ALL.iter().map(|slot| slot.gsi()).collect();
     assert_eq!(gsis, vec![5, 6, 7, 8, 9]);
     let ids: Vec<u32> = Slot::ALL.iter().map(|slot| slot.device_id()).collect();
@@ -125,7 +134,7 @@ fn dispatch_reaches_each_slot_and_rejects_unmapped_addresses() {
             ..
         })
     ));
-    assert_eq!(bus.net().violations().total(), 1);
+    assert_eq!(bus.net().expect("net").violations().total(), 1);
     assert_eq!(
         bus.dispatch_read(Slot::Vsock.base() + 0x100, AccessWidth::U64),
         Ok(CID)
@@ -211,23 +220,24 @@ fn snapshot_round_trips_through_restore_and_fails_closed_on_mismatch() {
         snapshots[0].transport.queues[0].size == 256,
         "untouched slot stays reset"
     );
-    let array: [SlotSnapshot; 5] = snapshots.clone().try_into().expect("five");
+    let array: Vec<SlotSnapshot> = snapshots.clone();
     let restored = MmioBus::restore(devices([0; 6]), &array, &rig.mem);
     let mut restored = restored.expect("restore");
-    assert!(restored.net().is_active());
+    let net = restored.net().expect("net");
+    assert!(net.is_active());
     assert_eq!(
-        restored.net().device().mac(),
+        net.device().mac(),
         [2, 0, 0, 0, 0, 1],
         "placeholder MAC restored"
     );
-    assert!(!restored.net().device().link_up());
+    assert!(!net.device().link_up());
     assert_eq!(
         restored.vsock().device().pending_events(),
         1,
         "TRANSPORT_RESET queued"
     );
     assert_eq!(
-        restored.snapshot(Slot::Net).transport,
+        restored.snapshot(Slot::Net).expect("net record").transport,
         snapshots[2].transport
     );
 
@@ -242,7 +252,7 @@ fn snapshot_round_trips_through_restore_and_fails_closed_on_mismatch() {
         })
     );
 
-    let mut wrong_device = array;
+    let mut wrong_device = array.clone();
     wrong_device[4].device[1] = 7;
     let error = MmioBus::restore(devices([0; 6]), &wrong_device, &rig.mem).err();
     assert_eq!(

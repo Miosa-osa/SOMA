@@ -16,13 +16,15 @@ impl SandboxMachine {
     ///
     /// The link is left as it was, so this is safe before the vCPU starts and after a restore:
     /// nothing can be received or transmitted until [`Self::set_network_link`] raises it.
+    ///
+    /// A machine whose Generation declared no network has no device to attach a bundle to, and
+    /// this does nothing rather than pretending it did; the caller never had a bundle to give
+    /// one, because the same declaration is what decided it would get none.
     pub fn attach_network(&self, network: NetworkAttachment) {
         let NetworkAttachment { tap, mac } = network;
-        self.shared
-            .lock()
-            .net_mut()
-            .device_mut()
-            .attach(Box::new(TapBackend::new(tap)), mac);
+        if let Some(net) = self.shared.lock().net_mut() {
+            net.device_mut().attach(Box::new(TapBackend::new(tap)), mac);
+        }
     }
 
     /// Raises or lowers the host-side link gate on the network device.
@@ -30,7 +32,9 @@ impl SandboxMachine {
     /// Only the host holds this gate: the device offers no status feature, so the guest never
     /// observes it and cannot raise it itself.
     pub fn set_network_link(&self, up: bool) {
-        self.shared.lock().net_mut().device_mut().set_link(up);
+        if let Some(net) = self.shared.lock().net_mut() {
+            net.device_mut().set_link(up);
+        }
         // A link that has just come up may already have frames waiting on the backend, and the
         // descriptor's edge-triggered registration reported those before delivery could place
         // them. Waking the device thread makes it drain what is already there rather than wait
@@ -42,6 +46,9 @@ impl SandboxMachine {
 
     /// The host descriptor the device thread watches for inbound frames.
     pub(in crate::x86_64) fn net_backend_fd(&self) -> Option<RawFd> {
-        self.shared.lock().net_mut().device_mut().backend_fd()
+        self.shared
+            .lock()
+            .net_mut()
+            .and_then(|net| net.device_mut().backend_fd())
     }
 }

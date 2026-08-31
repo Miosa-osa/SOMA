@@ -10,6 +10,7 @@ use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 
+use crate::boot::Declared;
 use crate::mounts;
 
 const HOSTNAME_SYSCTL: &str = "/proc/sys/kernel/hostname";
@@ -72,16 +73,32 @@ pub fn timespec(nanos: u64) -> (i64, i64) {
 /// # Errors
 ///
 /// Returns the first failed step with its errno.
-pub fn repair(instance: &[u8; 16], time_sample_nanos: u64) -> Result<(), IdentityError> {
+pub fn repair(
+    instance: &[u8; 16],
+    time_sample_nanos: u64,
+    declared: Declared,
+) -> Result<(), IdentityError> {
     let name = hostname(instance);
+    // The kernel hostname lives in procfs and is replaced whatever the root is made of; it is
+    // what every process actually reads through `uname` and `gethostname`.
     fs::write(HOSTNAME_SYSCTL, name.as_bytes())
         .map_err(|error| IdentityError::Hostname(errno(&error)))?;
-    fs::write(HOSTNAME_FILE, format!("{name}\n"))
-        .map_err(|error| IdentityError::Hostname(errno(&error)))?;
-    fs::write(MACHINE_ID_STAGING, machine_id(instance))
-        .and_then(|()| fs::set_permissions(MACHINE_ID_STAGING, fs::Permissions::from_mode(0o444)))
-        .and_then(|()| fs::rename(MACHINE_ID_STAGING, MACHINE_ID_FILE))
-        .map_err(|error| IdentityError::MachineId(errno(&error)))?;
+    // The two files under `/etc` are copies of identity the kernel already holds, and a machine
+    // with no writable root has nowhere to put them. They are written when there is a private
+    // overlay to write them to and skipped when there is not, rather than failing a boot over a
+    // file the Generation deliberately made unwritable.
+    if declared.overlay {
+        fs::write(HOSTNAME_FILE, format!("{name}\n"))
+            .map_err(|error| IdentityError::Hostname(errno(&error)))?;
+        fs::write(MACHINE_ID_STAGING, machine_id(instance))
+            .and_then(|()| {
+                fs::set_permissions(MACHINE_ID_STAGING, fs::Permissions::from_mode(0o444))
+            })
+            .and_then(|()| fs::rename(MACHINE_ID_STAGING, MACHINE_ID_FILE))
+            .map_err(|error| IdentityError::MachineId(errno(&error)))?;
+    }
+    // The session tmpfs mounts happen either way: they are what gives a read-only sandbox a
+    // writable `/tmp` and `/run` at all, and they carry no captured state into the Instance.
     for (directory, options) in SESSION_TMPFS {
         reset_session_directory(directory, options)?;
     }

@@ -60,6 +60,8 @@ pub enum Incompatibility {
     MalformedVmState(KvmStateError),
     MissingSection(SectionRole),
     NoExpectationForSlot(u8),
+    /// The snapshot carries a device this host's Generation does not have a slot for.
+    UnexpectedSection(SectionRole),
     MalformedDevice {
         slot: u8,
         error: DeviceStateError,

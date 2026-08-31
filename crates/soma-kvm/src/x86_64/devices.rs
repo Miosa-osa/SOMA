@@ -1,9 +1,15 @@
-//! Construction of the five device models behind the shared bus, and the bus handle itself.
+//! Construction of the declared device models behind the shared bus, and the bus handle itself.
 //!
-//! The immutable root and the private overlay are preopened files handed in by the caller,
-//! the network device sits behind the link-down loopback placeholder because this host has no
-//! TAP broker yet, the vsock device carries the assigned guest CID, and entropy comes from a
-//! fresh `/dev/urandom` handle. Nothing here registers with KVM.
+//! The immutable root is a preopened file handed in by the caller, the private overlay is
+//! another when the Generation declared writable storage, the network device sits behind the
+//! link-down loopback placeholder because this host has no TAP broker yet, the vsock device
+//! carries the assigned guest CID, and entropy comes from a fresh `/dev/urandom` handle.
+//! Nothing here registers with KVM.
+//!
+//! The set of devices is the Generation's, not a constant: a machine that declared no writable
+//! storage gets no overlay device and a machine that declared no egress gets no network device.
+//! The caller states the set it means and hands over resources for exactly it, and a
+//! disagreement between the two is refused here rather than resolved by preferring one.
 
 use std::{
     fs::File,
@@ -12,8 +18,8 @@ use std::{
 
 use super::error::{MachineError, MachineErrorKind, Phase};
 use crate::virtio::{
-    BLOCK_SERIAL_LEN, BlockDevice, BlockRole, BusDevices, Detached, FileBackend, LoopbackBackend,
-    MmioBus, NetDevice, OsEntropy, RngDevice, VsockDevice,
+    BLOCK_SERIAL_LEN, BlockDevice, BlockRole, BusDevices, Detached, DeviceSet, FileBackend,
+    LoopbackBackend, MmioBus, NetDevice, OsEntropy, RngDevice, VsockDevice,
 };
 
 /// Logical block size reported by both block devices; equal to the EROFS and ext4 block size.
@@ -57,8 +63,12 @@ impl SharedBus {
 pub struct SandboxDisks {
     /// The EROFS Generation root, opened read-only.
     pub root: File,
-    /// The Instance-private ext4 overlay head, opened read-write.
-    pub overlay: File,
+    /// The Instance-private ext4 overlay head, opened read-write, when there is one.
+    ///
+    /// A Generation that declared no writable storage has none: the guest mounts the immutable
+    /// root read-only and never composes an `OverlayFS`, so there is no head to clone and the
+    /// largest and most variable cost on the launch path is not paid at all.
+    pub overlay: Option<File>,
 }
 
 /// Non-secret device identity assigned to one Instance.
@@ -88,66 +98,89 @@ fn block(
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))
 }
 
-/// Binds the five device models to fresh transports.
+/// Binds the declared device models to fresh transports.
 pub(crate) fn build_bus(
     disks: SandboxDisks,
     identity: DeviceIdentity,
+    devices: DeviceSet,
 ) -> Result<MmioBus, MachineError> {
-    MmioBus::new(build_devices(disks, identity)?)
+    MmioBus::new(build_devices(disks, identity, devices)?)
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Bus(error)))
 }
 
-/// Constructs the five device models with fresh backends and no transport binding.
+/// Constructs the declared device models with fresh backends and no transport binding.
 ///
 /// Snapshot restore needs the unbound models so it can rebuild every transport from captured
 /// state instead of from the power-on defaults `build_bus` installs.
 pub(crate) fn build_devices(
     disks: SandboxDisks,
     identity: DeviceIdentity,
+    devices: DeviceSet,
 ) -> Result<BusDevices, MachineError> {
-    let overlay = block(
-        BlockRole::PrivateOverlay,
-        disks.overlay,
-        false,
-        OVERLAY_SERIAL,
-    )?;
-    build_around_overlay(disks.root, overlay, identity)
+    let overlay = match (devices.overlay(), disks.overlay) {
+        (true, Some(file)) => Some(block(
+            BlockRole::PrivateOverlay,
+            file,
+            false,
+            OVERLAY_SERIAL,
+        )?),
+        (false, None) => None,
+        _ => return Err(overlay_disagreement()),
+    };
+    build_around_overlay(disks.root, overlay, identity, devices)
 }
 
-/// Builds the five device models with the private overlay declared rather than held.
+/// Builds the declared device models with the private overlay declared rather than held.
 ///
 /// A prepared worker is built before the Instance it will serve exists, and the prepared worker
 /// protocol forbids it from holding a private disk head until it is claimed. The overlay device
 /// still has to exist by then, because having built it is most of what preparing a worker in
 /// advance buys, so it is built against the capacity the head will have and the head itself is
-/// attached at claim.
+/// attached at claim. A machine with no overlay at all declares no capacity and gets no device.
 ///
 /// # Errors
 ///
 /// Returns the typed device failure, exactly as [`build_devices`] does.
 pub(crate) fn build_devices_detached_overlay(
     root: File,
-    overlay_capacity_bytes: u64,
+    overlay_capacity_bytes: Option<u64>,
     identity: DeviceIdentity,
+    devices: DeviceSet,
 ) -> Result<BusDevices, MachineError> {
-    let overlay = BlockDevice::new(
-        BlockRole::PrivateOverlay,
-        Box::new(Detached::new(overlay_capacity_bytes, false)),
-        BLOCK_SIZE,
-        serial(OVERLAY_SERIAL),
-    )
-    .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?;
-    build_around_overlay(root, overlay, identity)
+    let overlay = match (devices.overlay(), overlay_capacity_bytes) {
+        (true, Some(capacity)) => Some(
+            BlockDevice::new(
+                BlockRole::PrivateOverlay,
+                Box::new(Detached::new(capacity, false)),
+                BLOCK_SIZE,
+                serial(OVERLAY_SERIAL),
+            )
+            .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?,
+        ),
+        (false, None) => None,
+        _ => return Err(overlay_disagreement()),
+    };
+    build_around_overlay(root, overlay, identity, devices)
 }
 
-/// The four devices that are the same however the overlay was obtained.
+/// A caller that names a device set and hands over resources for a different one has two
+/// different ideas about what the machine is, and picking either would silently launch the
+/// Generation as something it is not.
+fn overlay_disagreement() -> MachineError {
+    MachineError::invalid(Phase::Devices, "the device set and the overlay disagree")
+}
+
+/// The devices that are the same however the overlay was obtained.
 fn build_around_overlay(
     root: File,
-    overlay: BlockDevice,
+    overlay: Option<BlockDevice>,
     identity: DeviceIdentity,
+    devices: DeviceSet,
 ) -> Result<BusDevices, MachineError> {
     let root = block(BlockRole::ImmutableRoot, root, true, ROOT_SERIAL)?;
-    let net = NetDevice::new(Box::new(LoopbackBackend::default()), identity.guest_mac);
+    let net = devices
+        .net()
+        .then(|| NetDevice::new(Box::new(LoopbackBackend::default()), identity.guest_mac));
     let vsock = VsockDevice::new(u64::from(identity.guest_cid))
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
     let entropy = OsEntropy::open()
@@ -180,36 +213,68 @@ mod tests {
         }
     }
 
+    fn full_disks() -> SandboxDisks {
+        SandboxDisks {
+            root: image(64 * 4096),
+            overlay: Some(image(64 * 1024 * 1024)),
+        }
+    }
+
     #[test]
     fn builds_the_five_slots_with_fixed_geometry_and_identity() {
-        let disks = SandboxDisks {
-            root: image(64 * 4096),
-            overlay: image(64 * 1024 * 1024),
-        };
-        let bus = build_bus(disks, identity()).unwrap();
+        let bus = build_bus(full_disks(), identity(), DeviceSet::FULL).unwrap();
         assert_eq!(bus.root().device().role(), BlockRole::ImmutableRoot);
         assert_eq!(bus.root().device().blk_size(), BLOCK_SIZE);
         assert_eq!(bus.root().device().capacity_sectors(), 64 * 8);
         assert_ne!(bus.root().device().feature_allowlist_ro(), 0);
-        assert_eq!(bus.overlay().device().role(), BlockRole::PrivateOverlay);
+        assert_eq!(
+            bus.overlay().unwrap().device().role(),
+            BlockRole::PrivateOverlay
+        );
         assert_eq!(bus.vsock().device().guest_cid(), 3);
-        assert_eq!(bus.net().device().mac(), identity().guest_mac);
-        assert!(!bus.net().device().link_up());
+        assert_eq!(bus.net().unwrap().device().mac(), identity().guest_mac);
+        assert!(!bus.net().unwrap().device().link_up());
         assert_eq!(Slot::ALL.len(), 5);
     }
 
     #[test]
-    fn rejects_a_reserved_cid_and_an_unaligned_root() {
+    fn builds_only_the_declared_devices() {
         let disks = SandboxDisks {
-            root: image(4096),
-            overlay: image(64 * 1024 * 1024),
+            root: image(64 * 4096),
+            overlay: None,
         };
+        let bus = build_bus(disks, identity(), DeviceSet::new(false, false)).unwrap();
+        assert!(bus.overlay().is_none());
+        assert!(bus.net().is_none());
+        assert_eq!(bus.device_set(), DeviceSet::new(false, false));
+        assert_eq!(bus.device_set().present().count(), 3);
+    }
+
+    #[test]
+    fn refuses_a_head_the_declared_set_has_no_slot_for() {
+        let Err(error) = build_bus(full_disks(), identity(), DeviceSet::new(false, true)) else {
+            panic!("an overlay handed to a machine with no overlay slot must be refused");
+        };
+        assert_eq!(error.phase(), Phase::Devices);
+        let disks = SandboxDisks {
+            root: image(64 * 4096),
+            overlay: None,
+        };
+        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL) else {
+            panic!("a declared overlay with no head must be refused");
+        };
+        assert_eq!(error.phase(), Phase::Devices);
+    }
+
+    #[test]
+    fn rejects_a_reserved_cid_and_an_unaligned_root() {
         let Err(error) = build_bus(
-            disks,
+            full_disks(),
             DeviceIdentity {
                 guest_cid: 2,
                 ..identity()
             },
+            DeviceSet::FULL,
         ) else {
             panic!("a reserved CID must be rejected");
         };
@@ -217,9 +282,9 @@ mod tests {
         assert!(matches!(error.kind(), MachineErrorKind::Vsock(_)));
         let disks = SandboxDisks {
             root: image(4096 + 512),
-            overlay: image(64 * 1024 * 1024),
+            overlay: Some(image(64 * 1024 * 1024)),
         };
-        let Err(error) = build_bus(disks, identity()) else {
+        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL) else {
             panic!("an unaligned root must be rejected");
         };
         assert!(matches!(error.kind(), MachineErrorKind::Block(_)));

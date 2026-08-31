@@ -42,6 +42,7 @@ use super::{
     watchdog::VcpuRun,
 };
 use super::{event_loop::EventLoopReport, watchdog::RunReport};
+use crate::virtio::DeviceSet;
 
 /// Inputs for one sandbox.
 pub struct SandboxConfig {
@@ -55,6 +56,8 @@ pub struct SandboxConfig {
     pub identity: DeviceIdentity,
     /// Guest RAM in bytes; a multiple of 4 KiB between 128 MiB and 3 GiB.
     pub ram_bytes: u64,
+    /// The optional devices this Generation declared; it must agree with `disks`.
+    pub devices: DeviceSet,
 }
 
 struct Prepared {
@@ -117,13 +120,13 @@ impl SandboxMachine {
         timeline.mark(Milestone::MapRegister);
         machine.configure_platform(InterruptController::InKernel, true, &mut clock)?;
         timeline.mark(Milestone::Platform);
-        let bus = devices::build_bus(config.disks, config.identity)?;
+        let bus = devices::build_bus(config.disks, config.identity, config.devices)?;
         clock.lap(Phase::Devices);
         timeline.mark(Milestone::Devices);
         let launch_page = LaunchPageSlot::map_and_register(&machine.vm)?;
         clock.lap(Phase::LaunchPage);
         timeline.mark(Milestone::LaunchPageMapped);
-        let line = cmdline::compose_generation();
+        let line = cmdline::compose_generation(config.devices);
         let loaded = loader::load_kernel(&mut machine.ram, &image, Some(&initramfs), &line)?;
         drop(image);
         clock.lap(Phase::LoadGuest);

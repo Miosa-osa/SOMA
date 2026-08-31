@@ -23,8 +23,11 @@ pub struct SterileRequest {
     pub paths: SnapshotPaths,
     /// The immutable root, which every Instance of this Generation shares.
     pub root: File,
-    /// The capacity the private head will have when one is attached.
-    pub overlay_capacity_bytes: u64,
+    /// The capacity the private head will have when one is attached, or `None` for a Generation
+    /// that declared no writable storage and so will never be given one.
+    pub overlay_capacity_bytes: Option<u64>,
+    /// The optional devices this Generation declared.
+    pub devices: crate::virtio::DeviceSet,
     /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.
     pub memory_bytes: u64,
     /// Whether to re-hash the memory object and the overlay template before mapping.
@@ -62,7 +65,7 @@ impl Sterile {
     /// Returns a typed failure for an invalid private head, CID, or readiness secret.
     pub fn assign(
         self,
-        overlay: File,
+        overlay: Option<File>,
         guest_cid: u32,
         network: Option<NetworkAttachment>,
     ) -> Result<Restored, SnapshotError> {
