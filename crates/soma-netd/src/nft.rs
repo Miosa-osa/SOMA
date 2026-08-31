@@ -4,6 +4,18 @@
 //! ruleset on standard input inside the calling thread's namespace, and
 //! `/usr/sbin/conntrack -D -w <zone>` in the host namespace.
 //!
+//! The read-only questions do not go through a tool at all. Presence and listing are asked
+//! over `nf_tables` netlink by [`netlink`], because a read carries no transaction and so pays
+//! neither a process spawn nor an `nf_tables` commit; the two probes on the activation path and
+//! the two on the release path each cost about five milliseconds as tool invocations and
+//! about a tenth of one as netlink reads.
+//!
+//! Applying a ruleset stays on the tool deliberately. The measured cost of an application is
+//! the kernel's own commit, not the tool around it: on the eval host any state changing
+//! `nf_tables` transaction costs about fourteen milliseconds whoever submits it, against about
+//! one and a half milliseconds of tool startup and parsing, so encoding every rule expression
+//! over netlink would remove a tenth of one application in exchange for a large mechanism.
+//!
 //! Presence of one table is asked of that table alone; only reconciliation, which must find
 //! tables no ledger record names, lists the whole namespace.
 //!
@@ -14,14 +26,14 @@
 //! group and reports a typed [`Error::Tool`].
 //! The single-threaded broker therefore always regains control, so release and reconciliation
 //! stay available even when a tool wedges.
-//!
-//! A libnftnl binding replaces this seam later without changing the ruleset generators.
 
 use std::{process::Command, time::Duration};
 
 use soma_supervise::{Contained, Output, Uncontained};
 
 use crate::{ConntrackZone, Error, Tool};
+
+mod netlink;
 
 const NFT: &str = "/usr/sbin/nft";
 const CONNTRACK: &str = "/usr/sbin/conntrack";
@@ -87,21 +99,7 @@ pub(crate) fn apply(ruleset: &str) -> Result<(), Error> {
 
 /// Lists the `inet` table names of the calling thread's namespace.
 pub(crate) fn list_tables() -> Result<Vec<String>, Error> {
-    let output = nft(&["list", "tables", "inet"]).run("")?;
-    if !output.succeeded() {
-        return Err(Error::Tool {
-            tool: Tool::Nft,
-            status: output.exit_code,
-        });
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut names: Vec<String> = text
-        .lines()
-        .filter_map(|line| line.strip_prefix("table inet "))
-        .map(|name| name.trim().to_owned())
-        .collect();
-    names.sort_unstable();
-    Ok(names)
+    netlink::list_tables()
 }
 
 /// Reports whether one `inet` table exists in the calling thread's namespace.
@@ -110,21 +108,7 @@ pub(crate) fn list_tables() -> Result<Vec<String>, Error> {
 /// stays bounded no matter how many tables the namespace holds and cleanup can never be
 /// disabled by an accumulation of leaked tables.
 pub(crate) fn table_exists(name: &str) -> Result<bool, Error> {
-    table_presence(&nft(&["list", "table", "inet", name]).run("")?)
-}
-
-/// The exact presence decision, separated from the invocation that produced the output.
-fn table_presence(output: &Output) -> Result<bool, Error> {
-    if output.succeeded() {
-        return Ok(true);
-    }
-    if String::from_utf8_lossy(&output.stderr).contains("No such file or directory") {
-        return Ok(false);
-    }
-    Err(Error::Tool {
-        tool: Tool::Nft,
-        status: output.exit_code,
-    })
+    netlink::table_exists(name)
 }
 
 /// Deletes one `inet` table; returns `false` when it was already absent.
