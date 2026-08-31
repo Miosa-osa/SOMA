@@ -35,7 +35,7 @@ Stage deltas in milliseconds, `node:22` at one vCPU and 1024 MiB, from
 | Stage | What happens in it | c=1 | c=100 |
 | --- | --- | ---: | ---: |
 | machine launched | The private overlay head is cloned | 3.7 | 47.7 |
-| ready | Launch page, vsock, authenticated handshake, repair, readiness probe | 29.6 | 62.6 |
+| ready | Launch page, vsock, authenticated handshake, repair | 29.6 | 62.6 |
 | command | The workload runs | 27.4 | 77.1 |
 
 ## What was optimised, and by how much
@@ -46,6 +46,8 @@ Stage deltas in milliseconds, `node:22` at one vCPU and 1024 MiB, from
 | [Prepared machine pool](2026-08-31-prepared-machine-request-path.md) | 3.27 ms | **18.4 µs** | Machine construction moved off the request path. Two to three orders of magnitude on this host |
 | Netd activation | 11.4 ms | **0.80 ms** | Four read-only questions per lifecycle were asked by running `nft`; they are now netlink queries |
 | Netd release | 59.8 ms | **49.6 ms** | Same change |
+| [Readiness proved by the repair report](2026-08-31-eval1-ready-segment-split.md) | 27.59 ms | **22.60 ms** | The receipt binds a Noise transcript that is already fixed when the handshake completes, so running a command afterwards attested nothing the receipt could carry. Confirmed at eight times the memory, so it is a fixed cost removed rather than a proportional one |
+| [Declared device set, read-only root](2026-08-31-declared-device-set.md) | 62.46 ms | **0.22 ms** | `machine_launched` at c=100. A Generation that declares no writable storage clones no private head, and the clone was both the largest and the most variable cost between admission and a launched machine |
 
 Time to first command, p50, before and after the head durability change:
 
@@ -63,13 +65,30 @@ Time to first command, p50, before and after the head durability change:
 | Entering a network namespace | 0.06 ms | It was assumed expensive and is not |
 | Applying an `nft` ruleset | 15.9 ms | Of which the spawn is 0.3 and the parse 1.2; about 14 ms is a kernel RCU grace period that netlink would not remove |
 | Less guest memory | 128 MiB is **slower** than 1024 MiB at c=100, 267.3 against 118.5 | A guest too small to cache its own root faults against the immutable image, and a hundred guests doing that collide |
+| Pre-faulting the whole restored memory image | Armed to launch page erased **does not move**: 5.117 ms cold against 5.102 ms pre-faulted | Full residency and eighteen times the minor faults change nothing, and the walk itself costs 57 ms. Host demand paging is not the cost |
+| Huge pages for the memory image | No change at c=1, **worse** at c=100 | A `MAP_PRIVATE` mapping cannot hold a huge EPT entry, so guest faults do not move (3441 against 3396) while copy-on-write faults get about seventy percent more expensive |
 
 ## What is fixed, and why
 
 The `ready` segment measured 28.6, 28.5, 29.1 and 29.6 ms at concurrency one across four
-configurations differing in memory and workload. It does not move, because it is the cost of
-giving one Instance its own cryptographic identity: the launch page, the vsock connection, the
-Noise handshake, the authenticated repair, and the readiness probe.
+configurations differing in memory and workload, and is **22.60 ms** since the readiness probe was
+removed. It barely moves across configurations because most of it is the cost of giving one
+Instance its own cryptographic identity: the launch page, the vsock connection, the Noise
+handshake, and the authenticated repair.
+
+The largest single mechanical cost inside it is now known, and it is not any of the three things
+that were assumed. Between arming the vCPU and the guest reaching its own code sat roughly 7 ms
+that neither the host nor the guest clock could see. It is
+[the guest taking one EPT violation per 4 KiB page it first touches](2026-08-31-restore-resume-page-in.md),
+resolved by KVM inside the kernel without ever returning to userspace, which is precisely why both
+instruments were blind to it: the userspace loop is idle and the guest clock does not advance.
+Over the whole `armed` to `ready` window that is **3199 EPT violations, about 16.8 ms of in-kernel
+exit handling against 11.7 ms of actual guest execution**.
+
+It is not the first `KVM_RUN` entry, not restored-clock catch-up, and not a halted vCPU waiting on
+a restored APIC deadline; all three were measured and excluded, with no gap over 200 µs anywhere in
+the first 10 ms and three halts in total. The cost is proportional to the number of distinct guest
+pages the resume touches and to nothing else, which is the one lever that would move it.
 
 It could be very nearly removed by capturing the snapshot after a session exists instead of at the
 pre-launch repair point. That is forbidden, and the reason is the product rather than the
@@ -88,10 +107,16 @@ itself, and no virtual machine monitor removes it.
 
 ## Method notes, learned the hard way
 
-Five separate times a measurement contradicted the mechanism that had been assumed: the cost of
+Eight separate times a measurement contradicted the mechanism that had been assumed: the cost of
 running `nft`, the cost of entering a namespace, which receipt segment the head clone lives in,
-whether less memory is faster, and whether the head clone was the clone or the sync. In every case
-the assumption was reasonable and wrong.
+whether less memory is faster, whether the head clone was the clone or the sync, whether host
+demand paging explained the resume, whether huge pages would help it, and whether retiring the
+launch page earlier would help. In every case the assumption was reasonable and wrong, and three of
+them were only settled by building the change and measuring it worse than the thing it replaced.
+
+Two changes were implemented, measured, and then reverted on the evidence: retiring the launch page
+early made the segment 1.2 ms **slower**, because removing a memory slot disturbs a running guest
+more than an idle one, and huge pages were slower at concurrency 100. Neither is in the tree.
 
 Two harness lessons are worth repeating because both produced numbers that looked real. A
 configuration must be launched at the shape its Generation was captured with, or every launch is
