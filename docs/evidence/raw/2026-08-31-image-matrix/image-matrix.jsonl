@@ -1,0 +1,24 @@
+{"image":"ubuntu:24.04","stage":"prepare","ok":true,"detail":"11G"}
+{"image":"ubuntu:24.04","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"ubuntu:24.04","stage":"run","ok":true,"detail":"{status: ok, stdout: PRETTY_NAME=\Ubuntu 24.04.4 LTS\\nNAME=\Ubuntu\\nVERSION_ID=\24.04\\nVERSION=\24.04.4 LTS (Noble Numbat)\\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\https://www"}
+{"image":"ubuntu:22.04","stage":"prepare","ok":true,"detail":"11G"}
+{"image":"ubuntu:22.04","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"ubuntu:22.04","stage":"run","ok":true,"detail":"{status: ok, stdout: PRETTY_NAME=\Ubuntu 22.04.5 LTS\\nNAME=\Ubuntu\\nVERSION_ID=\22.04\\nVERSION=\22.04.5 LTS (Jammy Jellyfish)\\nVERSION_CODENAME=jammy\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\https://"}
+{"image":"debian:12","stage":"prepare","ok":true,"detail":"11G"}
+{"image":"debian:12","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"debian:12","stage":"run","ok":true,"detail":"{status: ok, stdout: PRETTY_NAME=\Debian GNU/Linux 12 (bookworm)\\nNAME=\Debian GNU/Linux\\nVERSION_ID=\12\\nVERSION=\12 (bookworm)\\nVERSION_CODENAME=bookworm\nID=debian\nHOME_URL=\https://www.debian"}
+{"image":"alpine:3.20","stage":"prepare","ok":true,"detail":"11G"}
+{"image":"alpine:3.20","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"alpine:3.20","stage":"run","ok":true,"detail":"{status: ok, stdout: NAME=\Alpine Linux\\nID=alpine\nVERSION_ID=3.20.10\nPRETTY_NAME=\Alpine Linux v3.20\\nHOME_URL=\https://alpinelinux.org/\\nBUG_REPORT_URL=\https://gitlab.alpinelinux.org/alpine/ap"}
+{"image":"python:3.12","stage":"prepare","ok":true,"detail":"13G"}
+{"image":"python:3.12","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"python:3.12","stage":"run","ok":true,"detail":"{status: ok, stdout: Python 3.12.14\n, tti_ms: 69.9, error: null}"}
+{"image":"golang:1.23","stage":"prepare","ok":true,"detail":"12G"}
+{"image":"golang:1.23","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"golang:1.23","stage":"run","ok":true,"detail":"{status: ok, stdout: go version go1.23.12 linux/amd64\n, tti_ms: 70.2, error: null}"}
+{"image":"node:22","stage":"prepare","ok":true,"detail":"13G"}
+{"image":"node:22","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"node:22","stage":"run","ok":true,"detail":"{status: ok, stdout: v22.23.2\n, tti_ms: 61.5, error: null}"}
+{"image":"kalilinux/kali-rolling:latest","stage":"prepare","ok":true,"detail":"11G"}
+{"image":"kalilinux/kali-rolling:latest","stage":"capture","ok":true,"detail":"snapshot written"}
+{"image":"kalilinux/kali-rolling:latest","stage":"run","ok":true,"detail":"{status: ok, stdout: PRETTY_NAME=\Kali GNU/Linux Rolling\\nNAME=\Kali GNU/Linux\\nVERSION_ID=\2026.3\\nVERSION=\2026.3\\nVERSION_CODENAME=kali-rolling\nID=kali\nID_LIKE=debian\nHOME_URL=\https://www.k"}
