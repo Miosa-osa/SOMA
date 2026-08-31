@@ -43,9 +43,10 @@ fn gzip_layer_is_revalidated_and_normalized_through_the_verified_handle() {
     let imported = import_fixture(&fixture);
 
     let normalized = run(&fixture, &imported).unwrap();
+    // Two entries from the layer, plus the five mount points every SOMA root carries.
     assert_eq!(
         (normalized.entry_count(), normalized.logical_file_bytes()),
-        (2, 8)
+        (7, 8)
     );
 }
 

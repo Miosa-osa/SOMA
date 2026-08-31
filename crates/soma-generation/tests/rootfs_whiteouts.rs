@@ -1,6 +1,6 @@
 mod support;
 
-use support::rootfs::{TarEntry, normalize_layers as normalize, read_tree, tar};
+use support::rootfs::{TarEntry, normalize_layers as normalize, read_layer_tree, read_tree, tar};
 
 #[test]
 fn whiteout_is_applied_before_same_layer_addition_independent_of_tar_order() {
@@ -21,7 +21,7 @@ fn whiteout_is_applied_before_same_layer_addition_independent_of_tar_order() {
     let (second_fixture, second) = normalize(&[lower, addition_first]);
 
     assert_eq!(first.tree_manifest_digest(), second.tree_manifest_digest());
-    let entries = read_tree(&first_fixture.store, first.tree_manifest_digest());
+    let entries = read_layer_tree(&first_fixture.store, first.tree_manifest_digest());
     assert_eq!(
         entries
             .iter()
@@ -49,7 +49,7 @@ fn opaque_whiteout_removes_only_lower_children_and_keeps_new_children() {
     ]);
 
     let (fixture, normalized) = normalize(&[lower, upper]);
-    let paths: Vec<_> = read_tree(&fixture.store, normalized.tree_manifest_digest())
+    let paths: Vec<_> = read_layer_tree(&fixture.store, normalized.tree_manifest_digest())
         .into_iter()
         .map(|entry| entry.path)
         .collect();
@@ -70,7 +70,7 @@ fn ordinary_whiteout_without_replacement_removes_the_lower_subtree() {
     let upper = tar(&[TarEntry::file(b".wh.removed", b"")]);
 
     let (fixture, normalized) = normalize(&[lower, upper]);
-    let paths: Vec<_> = read_tree(&fixture.store, normalized.tree_manifest_digest())
+    let paths: Vec<_> = read_layer_tree(&fixture.store, normalized.tree_manifest_digest())
         .into_iter()
         .map(|entry| entry.path)
         .collect();
@@ -86,7 +86,7 @@ fn whiteout_only_paths_create_their_missing_parent_directory_deterministically()
     ] {
         let layer = tar(&[marker]);
         let (fixture, normalized) = normalize(&[layer]);
-        let paths: Vec<_> = read_tree(&fixture.store, normalized.tree_manifest_digest())
+        let paths: Vec<_> = read_layer_tree(&fixture.store, normalized.tree_manifest_digest())
             .into_iter()
             .map(|entry| entry.path)
             .collect();
@@ -103,7 +103,7 @@ fn explicit_root_directory_replaces_metadata_without_removing_children() {
         .mtime(99)]);
 
     let (fixture, normalized) = normalize(&[lower, upper]);
-    let entries = read_tree(&fixture.store, normalized.tree_manifest_digest());
+    let entries = read_layer_tree(&fixture.store, normalized.tree_manifest_digest());
 
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].path, b"");

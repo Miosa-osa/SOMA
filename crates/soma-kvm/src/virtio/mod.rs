@@ -13,8 +13,8 @@ pub mod transport;
 
 pub use bus::slots::{PendingWork, SlotRestoreError, SlotSnapshot};
 pub use bus::{
-    BusConfigError, BusDevices, BusEvent, BusViolation, FIRST_GSI, IrqSink, MMIO_WINDOW_BASE,
-    MmioBus, NotifySource, SLOT_COUNT, Slot, kernel_command_line,
+    BusConfigError, BusDevices, BusEvent, BusViolation, DeviceSet, FIRST_GSI, IrqSink,
+    MMIO_WINDOW_BASE, MmioBus, NotifySource, SLOT_COUNT, Slot, kernel_command_line,
 };
 pub use device::{
     ActivateError, ConfigAccessError, DeviceStateError, MAX_CONFIG_LEN, MAX_QUEUES, SOMA_VENDOR_ID,

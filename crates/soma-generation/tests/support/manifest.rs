@@ -10,6 +10,11 @@ use soma_generation::{
     },
     template::{NetworkPolicyClass, network_policy_digest},
 };
+use soma_kvm::DeviceSet;
+
+/// The device set the sample manifest's own Template fields imply: writable storage and the
+/// fail-closed isolated network policy, so an overlay device and no network device.
+const DEVICES: DeviceSet = DeviceSet::new(true, false);
 
 pub fn digest(fill: u8) -> Sha256Digest {
     Sha256Digest::from_bytes([fill; 32])
@@ -75,9 +80,9 @@ pub fn sample() -> GenerationManifest {
             application_protocol_version: 1,
             handshake_protocol_version: 1,
         },
-        command_line: contracts::kernel_command_line_v1(),
+        command_line: contracts::kernel_command_line_v1(DEVICES),
         machine_contract: contracts::machine_contract_v1(),
-        device_contract: contracts::device_contract_v1(),
+        device_contract: contracts::device_contract_v1(DEVICES),
         cpu_template: contracts::cpu_template_v1(),
         shape: MachineShapeBinding {
             memory_bytes: 512 << 20,

@@ -22,12 +22,21 @@ fn the_network_class_and_the_canonical_policy_digest_must_name_one_policy() {
     let mut manifest = fixture::profile_v1();
     manifest.template.network_policy_class = NetworkPolicyClass::RuntimeDefault;
     manifest.template.network_policy_digest = runtime;
+    // Leaving the isolated class is what gives the machine a network device, so the command
+    // line and device contract have to become the ones that machine boots with. A manifest that
+    // changed only the class would be describing two different machines at once, and the check
+    // below is what refuses that.
+    let devices = manifest.device_set();
+    assert!(devices.net());
+    manifest.command_line = contracts::kernel_command_line_v1(devices);
+    manifest.device_contract = contracts::device_contract_v1(devices);
     assert!(require_profile(&manifest, &profile()).is_ok());
-
-    rejected(Incompatibility::NetworkPolicy, |m| {
+    rejected(Incompatibility::CommandLine, |m| {
         m.template.network_policy_class = NetworkPolicyClass::RuntimeDefault;
+        m.template.network_policy_digest = runtime;
     });
-    rejected(Incompatibility::NetworkPolicy, |m| {
+
+    rejected(Incompatibility::CommandLine, |m| {
         m.template.network_policy_class = NetworkPolicyClass::Explicit;
     });
     rejected(Incompatibility::NetworkPolicy, |m| {

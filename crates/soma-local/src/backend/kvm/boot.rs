@@ -34,11 +34,21 @@ pub(super) fn boot_for(
     let kernel = open(&manifest.kernel.descriptor)?;
     let initramfs = open(&manifest.initramfs.descriptor)?;
     let root = open(&manifest.root.descriptor)?;
-    let template = manifest
-        .overlay
-        .templates
-        .first()
-        .ok_or(BackendFailureKind::Unavailable)?;
+    // A Generation that declared no writable storage published no sterile template, and the
+    // whole point of it is that no head is cloned on the request path: the clone of a private
+    // head is the largest and most variable cost between admission and a launched machine.
+    let devices = manifest.device_set();
+    let template = if devices.overlay() {
+        Some(
+            manifest
+                .overlay
+                .templates
+                .first()
+                .ok_or(BackendFailureKind::Unavailable)?,
+        )
+    } else {
+        None
+    };
     // A prepared entry may carry a snapshot taken once for the whole Generation. When it does,
     // this launch resumes that machine instead of booting a kernel, which is the difference
     // between hundreds of milliseconds and tens on the request path.
@@ -48,24 +58,31 @@ pub(super) fn boot_for(
         {
             // The restore clones its own head from the snapshot's sterile overlay template, not
             // from the Candidate's, because the captured machine has already written to it.
-            let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
+            let overlay = devices
+                .overlay()
+                .then(|| private_head_from(&snapshot.join("overlay.raw"), instance))
+                .transpose()?;
             Source::Restore {
                 snapshot,
                 disks: SandboxDisks { root, overlay },
+                devices,
                 memory_bytes: memory_mib * MIB,
             }
         }
     } else {
         {
-            let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
-            Source::ColdBoot(super::worker::config(
+            let overlay = template
+                .map(|template| private_head(&prepared.store, &template.descriptor, instance))
+                .transpose()?;
+            Source::ColdBoot(super::worker::config(super::worker::ColdBootInputs {
                 kernel,
                 initramfs,
                 root,
                 overlay,
-                memory_mib * MIB,
+                ram_bytes: memory_mib * MIB,
                 guest_cid,
-            ))
+                devices,
+            }))
         }
     };
     Ok(Boot {

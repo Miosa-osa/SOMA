@@ -11,6 +11,7 @@ use soma_hostd::{Claiming, Constructing, Phase, Slot, Worker, WorkerId};
 
 use super::{MachineKey, MachinePool, destroy};
 use crate::backend::kvm::limits;
+use soma_kvm::DeviceSet;
 
 /// Any key; the pool only ever compares one for equality and digests it.
 fn key() -> MachineKey {
@@ -20,6 +21,7 @@ fn key() -> MachineKey {
         memory_bytes: 1 << 30,
         overlay_capacity_bytes: 256 << 20,
         vcpus: 1,
+        devices: DeviceSet::new(true, true),
     }
 }
 

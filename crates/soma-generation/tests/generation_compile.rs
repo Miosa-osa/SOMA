@@ -90,8 +90,9 @@ fn same_tree_compiles_to_byte_identical_artifacts_and_identity() {
         compiled_a.candidate.manifest.snapshot,
         SnapshotBinding::Absent
     );
-    assert_eq!(compiled_a.overlay.classes.len(), 2);
-    for class in &compiled_a.overlay.classes {
+    let overlay_a = compiled_a.overlay.as_ref().expect("overlay evidence");
+    assert_eq!(overlay_a.classes.len(), 2);
+    for class in &overlay_a.classes {
         assert_eq!(class.check.exit_code, Some(0));
     }
     eprintln!(

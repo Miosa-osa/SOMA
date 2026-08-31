@@ -38,7 +38,10 @@ pub struct CaptureRequest<'a> {
     /// The immutable EROFS root, for its installation-time identity only.
     pub root: &'a mut File,
     /// The Instance-private overlay head, which becomes this snapshot's sterile template.
-    pub overlay: &'a mut File,
+    ///
+    /// A Generation with no writable storage has no head, publishes no `overlay.raw`, and every
+    /// Instance restored from its snapshot therefore clones nothing.
+    pub overlay: Option<&'a mut File>,
     /// The console line the agent prints at the repair point.
     pub repair_point_line: Vec<u8>,
     /// How long the vCPU may take to leave `KVM_RUN` after it is kicked.
@@ -74,7 +77,7 @@ pub struct CaptureOutcome {
 #[allow(clippy::too_many_lines)]
 pub fn capture(
     sandbox: &mut SandboxMachine,
-    request: CaptureRequest<'_>,
+    mut request: CaptureRequest<'_>,
     deadline: Instant,
 ) -> Result<CaptureOutcome, SnapshotError> {
     let mut quiesced = Quiesce::new();
@@ -148,26 +151,41 @@ pub fn capture(
         memory.write(&buffer[..span])?;
         offset += u64::try_from(span).unwrap_or(0);
     }
-    let mut overlay = Staging::create(&request.paths, Artifact::Overlay, request.paths.overlay())?;
-    overlay.write_file(request.overlay)?;
-    let overlay_digest = overlay.running_digest();
+    let mut overlay = request
+        .overlay
+        .take()
+        .map(|head| {
+            let mut staging =
+                Staging::create(&request.paths, Artifact::Overlay, request.paths.overlay())?;
+            staging.write_file(head)?;
+            Ok::<_, SnapshotError>(staging)
+        })
+        .transpose()?;
+    let overlay_digest = overlay
+        .as_ref()
+        .map_or_else(|| Digest::from_bytes([0; 32]), Staging::running_digest);
 
+    // Only the slots this machine has are captured, and each keeps its own section role, so a
+    // manifest says which devices existed by which sections it carries.
     let devices = live
         .iter()
-        .zip(Slot::ALL)
-        .map(|(record, slot)| {
+        .map(|record| {
+            let slot = record.slot;
             let image = match slot {
                 Slot::Root => root_digest,
                 _ => overlay_digest,
             };
-            let state = device::canonical(slot, record, device::specific(&bus, slot, image))?;
+            let specific = device::specific(&bus, slot, image)
+                .ok_or(SnapshotError::DeviceStateNotCanonical(slot))?;
+            let state = device::canonical(slot, record, specific)?;
             if device::reproduces(slot, record, &state) {
-                Ok(state)
+                Ok((slot, state))
             } else {
                 Err(SnapshotError::DeviceStateNotCanonical(slot))
             }
         })
-        .collect::<Result<Vec<DeviceState>, SnapshotError>>()?;
+        .collect::<Result<Vec<(Slot, DeviceState)>, SnapshotError>>()?;
+    let device_set = bus.device_set();
     drop(bus);
 
     let manifest = build(
@@ -181,6 +199,7 @@ pub fn capture(
             clock: &clock,
             pit: &pit,
             devices: &devices,
+            device_set,
             memory: MemoryDescriptor::new(
                 memory.running_digest(),
                 memory.written(),
@@ -199,15 +218,21 @@ pub fn capture(
     sequence.complete(CaptureStep::IndependentlyDecodeStaging)?;
 
     let memory_digest = memory.seal()?;
-    let overlay_digest = overlay.seal()?;
+    let overlay_digest = overlay
+        .as_mut()
+        .map(Staging::seal)
+        .transpose()?
+        .unwrap_or_else(|| Digest::from_bytes([0; 32]));
     let state_digest = state.seal()?;
     sequence.complete(CaptureStep::HashThroughRetainedHandles)?;
 
     let memory_bytes = memory.written();
-    let overlay_bytes = overlay.written();
+    let overlay_bytes = overlay.as_ref().map_or(0, Staging::written);
     let state_bytes = state.written();
     memory.link()?;
-    overlay.link()?;
+    if let Some(overlay) = overlay {
+        overlay.link()?;
+    }
     state.link()?;
     artifacts::sync_directory(request.paths.directory())?;
     sequence.complete(CaptureStep::PublishGenerationManifest)?;
@@ -232,7 +257,8 @@ struct Parts<'a> {
     routing: &'a crate::snapshot::kvm_state::IrqRoutingState,
     clock: &'a crate::snapshot::kvm_state::ClockState,
     pit: &'a crate::snapshot::kvm_state::PitState,
-    devices: &'a [DeviceState],
+    devices: &'a [(Slot, DeviceState)],
+    device_set: crate::virtio::DeviceSet,
     memory: MemoryDescriptor,
 }
 
@@ -246,8 +272,8 @@ fn build(
         architecture: Architecture::X86_64,
         page_size: PageSize::FOUR_KIB,
         candidate_id: CandidateId::new(request.candidate_id)?,
-        machine_contract: profile::machine_contract(),
-        device_contract: profile::device_contract(),
+        machine_contract: profile::machine_contract(parts.device_set),
+        device_contract: profile::device_contract(parts.device_set),
         cpu_template: parts.cpu_template,
         host: profile::requirements()?,
         memory: parts.memory,
@@ -262,13 +288,8 @@ fn build(
         Section::new(SectionRole::KvmClock, parts.clock.encode())?,
         Section::new(SectionRole::Pit, parts.pit.encode())?,
     ];
-    for (state, role) in parts.devices.iter().zip([
-        SectionRole::Device0,
-        SectionRole::Device1,
-        SectionRole::Device2,
-        SectionRole::Device3,
-        SectionRole::Device4,
-    ]) {
+    for (slot, state) in parts.devices {
+        let role = device::role(*slot).ok_or(SnapshotError::DeviceStateNotCanonical(*slot))?;
         sections.push(Section::new(role, state.encode())?);
     }
     sections.push(Section::new(

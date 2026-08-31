@@ -27,10 +27,12 @@ pub(crate) fn matching_host() -> HostProfile {
         vcpu_count: 1,
         memory_bytes: MEMORY_BYTES,
         guest_protocol_version: header.guest_protocol_version,
-        devices: DeviceKind::ALL.map(|kind| DeviceExpectation {
-            kind,
-            negotiated_features: device_fixtures::features_for(kind),
-            queue_limits: device_fixtures::queue_limits_for(kind),
+        devices: DeviceKind::ALL.map(|kind| {
+            Some(DeviceExpectation {
+                kind,
+                negotiated_features: device_fixtures::features_for(kind),
+                queue_limits: device_fixtures::queue_limits_for(kind),
+            })
         }),
     }
 }
@@ -135,7 +137,7 @@ fn every_header_field_rejects_on_mismatch() {
 fn queue_limit_feature_and_missing_slot_expectations_reject() {
     let manifest = sample_manifest();
     let mut host = matching_host();
-    host.devices[4].negotiated_features = 0;
+    expectation(&mut host, 4).negotiated_features = 0;
     assert_eq!(
         check(&host, &manifest),
         Err(Incompatibility::FeatureNegotiation {
@@ -145,7 +147,7 @@ fn queue_limit_feature_and_missing_slot_expectations_reject() {
         })
     );
     let mut host = matching_host();
-    host.devices[3].queue_limits[2] = 128;
+    expectation(&mut host, 3).queue_limits[2] = 128;
     assert_eq!(
         check(&host, &manifest),
         Err(Incompatibility::QueueLimit {
@@ -156,11 +158,26 @@ fn queue_limit_feature_and_missing_slot_expectations_reject() {
         })
     );
     let mut host = matching_host();
-    host.devices[2].kind = DeviceKind::Rng;
+    expectation(&mut host, 2).kind = DeviceKind::Rng;
     assert_eq!(
         check(&host, &manifest),
         Err(Incompatibility::NoExpectationForSlot(2))
     );
+    // A host whose Generation declared no network must refuse a snapshot that still carries the
+    // device: the captured guest negotiated one, and this machine would not have it.
+    let mut host = matching_host();
+    host.devices[2] = None;
+    assert_eq!(
+        check(&host, &manifest),
+        Err(Incompatibility::UnexpectedSection(SectionRole::Device2))
+    );
+}
+
+/// The expectation for one slot, which the matching host has for every slot.
+fn expectation(host: &mut HostProfile, slot: usize) -> &mut DeviceExpectation {
+    host.devices[slot]
+        .as_mut()
+        .expect("a matching host expects every slot")
 }
 
 #[test]

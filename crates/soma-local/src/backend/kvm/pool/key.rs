@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest as _, Sha256};
 use soma_hostd::PoolKeyDigest;
+use soma_kvm::DeviceSet;
 
 use crate::backend::kvm::sterile::SterileSpec;
 
@@ -28,6 +29,13 @@ pub(in crate::backend::kvm) struct MachineKey {
     /// The machine contract fixes this at one today. It is still part of the key so that
     /// widening the contract cannot silently let a one-vCPU machine serve a larger request.
     pub(super) vcpus: u16,
+    /// The optional devices this machine was built with.
+    ///
+    /// A pool is keyed on this for the same reason it is keyed on the shape: a machine built
+    /// with no overlay device has no slot to attach a private head to, so serving a request
+    /// that wants writable storage from that pool would hand back a machine that cannot take
+    /// the head it is about to be assigned.
+    pub(super) devices: DeviceSet,
 }
 
 impl MachineKey {
@@ -39,6 +47,10 @@ impl MachineKey {
         hasher.update(self.memory_bytes.to_be_bytes());
         hasher.update(self.overlay_capacity_bytes.to_be_bytes());
         hasher.update(self.vcpus.to_be_bytes());
+        hasher.update([
+            u8::from(self.devices.overlay()),
+            u8::from(self.devices.net()),
+        ]);
         hasher.update(self.snapshot.as_os_str().as_encoded_bytes());
         PoolKeyDigest::from_bytes(hasher.finalize().into())
     }
@@ -54,20 +66,47 @@ pub(in crate::backend::kvm) struct Recipe {
     root: soma_generation::ArtifactDescriptor,
 }
 
+/// Everything [`Recipe::new`] needs to describe one pool and open its artifacts.
+pub(in crate::backend::kvm) struct RecipeInputs<'a> {
+    /// The Candidate's store, which the immutable root is opened from.
+    pub(in crate::backend::kvm) store: &'a Path,
+    /// The immutable root every Instance of this Generation shares.
+    pub(in crate::backend::kvm) root: soma_generation::ArtifactDescriptor,
+    /// The published snapshot directory.
+    pub(in crate::backend::kvm) snapshot: PathBuf,
+    /// Guest RAM in bytes.
+    pub(in crate::backend::kvm) memory_bytes: u64,
+    /// The vCPU count.
+    pub(in crate::backend::kvm) vcpus: u16,
+    /// The Candidate the snapshot was captured from.
+    pub(in crate::backend::kvm) candidate: [u8; 32],
+    /// The optional devices machines in this pool are built with.
+    pub(in crate::backend::kvm) devices: DeviceSet,
+}
+
 impl Recipe {
     /// Describes the pool a request for this snapshot, shape, and head size belongs to.
     ///
     /// Returns `None` when the snapshot carries no sterile overlay template, because the head
     /// capacity is read from that template and a machine cannot be prepared without it.
-    pub(in crate::backend::kvm) fn new(
-        store: &Path,
-        root: soma_generation::ArtifactDescriptor,
-        snapshot: PathBuf,
-        memory_bytes: u64,
-        vcpus: u16,
-        candidate: [u8; 32],
-    ) -> Option<Self> {
-        let overlay_capacity_bytes = std::fs::metadata(snapshot.join("overlay.raw")).ok()?.len();
+    pub(in crate::backend::kvm) fn new(inputs: RecipeInputs) -> Option<Self> {
+        let RecipeInputs {
+            store,
+            root,
+            snapshot,
+            memory_bytes,
+            vcpus,
+            candidate,
+            devices,
+        } = inputs;
+        // A Generation that declared no writable storage published no overlay template, so
+        // there is no capacity to read and none is needed: the machine has no overlay device
+        // to attach a head to. Only a machine that wants one and cannot find it has no pool.
+        let overlay_capacity_bytes = if devices.overlay() {
+            std::fs::metadata(snapshot.join("overlay.raw")).ok()?.len()
+        } else {
+            0
+        };
         Some(Self {
             key: MachineKey {
                 candidate,
@@ -75,6 +114,7 @@ impl Recipe {
                 memory_bytes,
                 overlay_capacity_bytes,
                 vcpus,
+                devices,
             },
             store: store.to_path_buf(),
             root,
@@ -95,14 +135,21 @@ impl Recipe {
         Some(SterileSpec {
             snapshot: self.key.snapshot.clone(),
             root,
-            overlay_capacity_bytes: self.key.overlay_capacity_bytes,
+            overlay_capacity_bytes: self
+                .key
+                .devices
+                .overlay()
+                .then_some(self.key.overlay_capacity_bytes),
             memory_bytes: self.key.memory_bytes,
+            devices: self.key.devices,
         })
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use soma_kvm::DeviceSet;
+
     use super::MachineKey;
 
     fn key() -> MachineKey {
@@ -112,6 +159,7 @@ mod tests {
             memory_bytes: 1 << 30,
             overlay_capacity_bytes: 256 << 20,
             vcpus: 1,
+            devices: DeviceSet::new(true, true),
         }
     }
 

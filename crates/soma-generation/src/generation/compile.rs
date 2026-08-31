@@ -48,8 +48,8 @@ pub struct CompiledCandidate {
     pub kernel: VerifiedKernel,
     /// EROFS build evidence.
     pub erofs: ErofsEvidence,
-    /// Overlay-template build evidence.
-    pub overlay: OverlayEvidence,
+    /// Overlay-template build evidence, absent for a Generation with no writable storage.
+    pub overlay: Option<OverlayEvidence>,
     /// The phases this compiler cannot perform; the Generation is not launchable until they run.
     pub unimplemented: [UnimplementedPhase; 1],
 }
@@ -97,15 +97,25 @@ pub fn compile_generation(
         &store,
         &staging.path,
     )?;
-    let (templates, overlay_evidence) = overlay::compile_overlay_templates(
-        request.host.toolchain.e2fsprogs,
-        profile,
-        &store,
-        &staging.path,
-    )?;
+    // A Generation with no writable storage has no overlay device to fill, so it builds no
+    // sterile template and never runs `e2fsprogs` at all: the filesystem toolchain is not part
+    // of its identity because it was not part of its construction.
+    let (templates, overlay_evidence) = if template.device_set().overlay() {
+        let (templates, evidence) = overlay::compile_overlay_templates(
+            request.host.toolchain.e2fsprogs,
+            profile,
+            &store,
+            &staging.path,
+        )?;
+        (templates, Some(evidence))
+    } else {
+        (Vec::new(), None)
+    };
     drop(staging);
     let mut builder = erofs_evidence.tools.clone();
-    builder.absorb(&overlay_evidence.tools, CompilePhase::EncodeManifest)?;
+    if let Some(evidence) = &overlay_evidence {
+        builder.absorb(&evidence.tools, CompilePhase::EncodeManifest)?;
+    }
 
     let parts = ManifestParts {
         template,
@@ -191,9 +201,9 @@ impl ManifestParts<'_> {
                 application_protocol_version: profile.application_protocol_version,
                 handshake_protocol_version: profile.handshake_protocol_version,
             },
-            command_line: contracts::kernel_command_line_v1(),
+            command_line: contracts::kernel_command_line_v1(template.device_set()),
             machine_contract: contracts::machine_contract_v1(),
-            device_contract: contracts::device_contract_v1(),
+            device_contract: contracts::device_contract_v1(template.device_set()),
             cpu_template: contracts::cpu_template_v1(),
             shape: MachineShapeBinding {
                 memory_bytes: template.memory_bytes(),
@@ -245,10 +255,9 @@ fn require_template_matches(
             CompileErrorKind::Integrity,
         ));
     }
+    let storage = template.writable_storage_bytes();
     if template.profile_version() != profile.policy_version
-        || !profile
-            .overlay_capacities
-            .contains(&template.writable_storage_bytes())
+        || (storage != 0 && !profile.overlay_capacities.contains(&storage))
     {
         return Err(CompileError::new(
             CompilePhase::ResolveInputs,

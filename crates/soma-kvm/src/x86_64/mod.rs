@@ -41,7 +41,7 @@ use kvm_ioctls::{Kvm, VcpuFd, VmFd};
 
 pub use self::{
     channel::{ChannelError, ControlChannel},
-    cmdline::BootNonce,
+    cmdline::{BootNonce, compose_generation as generation_command_line},
     devices::{BLOCK_SIZE, DeviceIdentity, SandboxDisks},
     elf::ElfError,
     error::{MachineError, MachineErrorKind, Phase},

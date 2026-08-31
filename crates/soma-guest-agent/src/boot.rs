@@ -1,14 +1,18 @@
 //! Bounded early-init sequence from the Generation compiler contract.
 //!
 //! The agent is `/init` of the deterministic initramfs, so it performs the sequence itself:
-//! mount devtmpfs, procfs, and sysfs, wait for exactly the two virtio block devices, verify and
-//! mount the EROFS lower and the private ext4 upper, compose `OverlayFS`, and switch into the
-//! composed root.
+//! mount devtmpfs, procfs, and sysfs, read what the Generation declared, wait for exactly the
+//! block devices that declaration implies, verify and mount the EROFS lower, compose a writable
+//! root over it when there is a private head, and switch into whichever root resulted.
 //! The guest holds no immutable authentication secret: the responder static secret is fresh
 //! per Instance and arrives later through the launch page.
 //! Every step is typed and every failure is reported with the step and errno before poweroff.
+//!
+//! A Generation that declared no writable storage has no second block device and no `OverlayFS`
+//! at all: it verifies one superblock, performs one mount, and enters the immutable root. The
+//! sterile-head checks are not weakened for it, they simply have nothing to run against, and
+//! they still run in full for every machine that does have a head.
 
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -16,22 +20,23 @@ use std::time::{Duration, Instant};
 use crate::mounts::{self, Errno};
 
 use self::devices::wait_for_devices;
-use self::superblock::{erofs_superblock_ok, ext4_superblock_ok, verify_superblock};
+use self::superblock::{erofs_superblock_ok, verify_superblock};
 
+mod declared;
 mod devices;
 mod superblock;
+mod upper;
+
+pub use self::declared::Declared;
 
 /// First virtio-blk device: the immutable EROFS Generation root.
 pub const ROOT_DEVICE: &str = "/dev/vda";
-/// Second virtio-blk device: the Instance-private ext4 overlay head.
+/// Second virtio-blk device: the Instance-private ext4 overlay head, when there is one.
 pub const OVERLAY_DEVICE: &str = "/dev/vdb";
 /// Upper bound for the complete early-init sequence.
 pub const BOOT_BUDGET: Duration = Duration::from_secs(10);
 
 const LOWER_MOUNT: &str = "/mnt/lower";
-const UPPER_MOUNT: &str = "/mnt/upper";
-const UPPER_DIR: &str = "/mnt/upper/upper";
-const WORK_DIR: &str = "/mnt/upper/work";
 const ROOT_MOUNT: &str = "/mnt/root";
 const NOSUID_NODEV_NOEXEC: libc::c_ulong = libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC;
 
@@ -46,7 +51,7 @@ pub enum BootStep {
     Procfs,
     /// Mount sysfs on `/sys`.
     Sysfs,
-    /// Wait for exactly the expected virtio block devices.
+    /// Wait for exactly the declared virtio block devices.
     Devices,
     /// Verify the EROFS superblock of the root device.
     LowerIdentity,
@@ -60,9 +65,9 @@ pub enum BootStep {
     UpperDirectories,
     /// Mount `OverlayFS` over the composed directories.
     Overlay,
-    /// Move `/dev`, `/proc`, and `/sys` into the composed root.
+    /// Move `/dev`, `/proc`, and `/sys` into the root.
     MoveMounts,
-    /// Move the composed root over `/` and enter it.
+    /// Move the root over `/` and enter it.
     Pivot,
 }
 
@@ -77,10 +82,14 @@ pub struct BootFailure {
 
 /// Performs the complete early-init sequence before the given absolute deadline.
 ///
+/// Returns what the Generation declared, because the same declaration decides what the rest of
+/// the agent must do: a machine with no network device has no interface to repair, and a
+/// machine with no writable root cannot be asked to write to one.
+///
 /// # Errors
 ///
 /// Returns the first failed step; the caller must report it and power off.
-pub fn early_init(deadline: Instant) -> Result<(), BootFailure> {
+pub fn early_init(deadline: Instant) -> Result<Declared, BootFailure> {
     mount_pseudo(
         BootStep::Devtmpfs,
         "devtmpfs",
@@ -90,8 +99,8 @@ pub fn early_init(deadline: Instant) -> Result<(), BootFailure> {
     )?;
     // Every pseudo-terminal slave lives on devpts, and `/dev/ptmx` cannot allocate a pair
     // without it, so a guest with no devpts has the terminal protocol and no terminal to serve
-    // it with. It is mounted here, under `/dev`, so the move below carries it into the composed
-    // root with the rest of the device tree.
+    // it with. It is mounted here, under `/dev`, so the move below carries it into the root
+    // with the rest of the device tree.
     mount_pseudo(
         BootStep::Devpts,
         "devpts",
@@ -101,7 +110,10 @@ pub fn early_init(deadline: Instant) -> Result<(), BootFailure> {
     )?;
     mount_pseudo(BootStep::Procfs, "proc", "/proc", "proc", "")?;
     mount_pseudo(BootStep::Sysfs, "sysfs", "/sys", "sysfs", "")?;
-    wait_for_devices(deadline)?;
+    // The declaration is read only after procfs exists and before any device is waited for, so
+    // the wait knows how many devices to expect rather than assuming the maximum.
+    let declared = Declared::from_proc();
+    wait_for_devices(deadline, declared)?;
     verify_superblock(BootStep::LowerIdentity, ROOT_DEVICE, erofs_superblock_ok)?;
     fs::create_dir_all(LOWER_MOUNT).map_err(|error| failure(BootStep::LowerMount, &error))?;
     mounts::mount(
@@ -115,34 +127,17 @@ pub fn early_init(deadline: Instant) -> Result<(), BootFailure> {
         step: BootStep::LowerMount,
         errno: errno.0,
     })?;
-    verify_superblock(BootStep::UpperIdentity, OVERLAY_DEVICE, ext4_superblock_ok)?;
-    fs::create_dir_all(UPPER_MOUNT).map_err(|error| failure(BootStep::UpperMount, &error))?;
-    mounts::mount(
-        OVERLAY_DEVICE,
-        UPPER_MOUNT,
-        "ext4",
-        libc::MS_NOSUID | libc::MS_NODEV,
-        "errors=remount-ro",
-    )
-    .map_err(|errno| BootFailure {
-        step: BootStep::UpperMount,
-        errno: errno.0,
-    })?;
-    prepare_upper_directories()?;
-    fs::create_dir_all(ROOT_MOUNT).map_err(|error| failure(BootStep::Overlay, &error))?;
-    mounts::mount(
-        "overlay",
-        ROOT_MOUNT,
-        "overlay",
-        libc::MS_NOSUID | libc::MS_NODEV,
-        &format!("lowerdir={LOWER_MOUNT},upperdir={UPPER_DIR},workdir={WORK_DIR}"),
-    )
-    .map_err(|errno| BootFailure {
-        step: BootStep::Overlay,
-        errno: errno.0,
-    })?;
-    move_mounts()?;
-    switch_root()
+    // With no private head the immutable root is the root: there is no second layer to compose
+    // it with, so the mount that is already there is the one the guest enters.
+    let root = if declared.overlay {
+        upper::compose()?;
+        ROOT_MOUNT
+    } else {
+        LOWER_MOUNT
+    };
+    move_mounts(root)?;
+    switch_root(root)?;
+    Ok(declared)
 }
 
 fn mount_pseudo(
@@ -169,58 +164,15 @@ fn mount_pseudo(
     }
 }
 
-/// Creates or verifies the `upper` and `work` directories on the sterile head.
+/// Moves the pseudo filesystems into the root the guest is about to enter.
 ///
-/// The Generation compiler publishes overlay templates that already carry both directories
-/// empty, so a head may contain exactly `lost+found`, `upper`, and `work`; anything else, or
-/// a non-empty or non-directory `upper` or `work`, is tenant state or tampering and fails.
-fn prepare_upper_directories() -> Result<(), BootFailure> {
-    let step = BootStep::UpperDirectories;
-    let entries = fs::read_dir(UPPER_MOUNT)
-        .map_err(|error| failure(step, &error))?
-        .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
-        .collect::<Result<BTreeSet<_>, _>>()
-        .map_err(|error| failure(step, &error))?;
-    if !entries
-        .iter()
-        .all(|name| matches!(name.as_str(), "lost+found" | "upper" | "work"))
-    {
-        return Err(BootFailure {
-            step,
-            errno: libc::EEXIST,
-        });
-    }
-    for directory in [UPPER_DIR, WORK_DIR] {
-        match fs::symlink_metadata(directory) {
-            Ok(metadata) if metadata.is_dir() => {
-                let mut children =
-                    fs::read_dir(directory).map_err(|error| failure(step, &error))?;
-                if children.next().is_some() {
-                    return Err(BootFailure {
-                        step,
-                        errno: libc::ENOTEMPTY,
-                    });
-                }
-            }
-            Ok(_) => {
-                return Err(BootFailure {
-                    step,
-                    errno: libc::ENOTDIR,
-                });
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                fs::create_dir(directory).map_err(|error| failure(step, &error))?;
-            }
-            Err(error) => return Err(failure(step, &error)),
-        }
-    }
-    Ok(())
-}
-
-fn move_mounts() -> Result<(), BootFailure> {
+/// The mount points must already exist on a read-only root, and every OCI image carries them,
+/// so `create_dir_all` succeeding on a directory that is already there is the ordinary case
+/// rather than a fallback.
+fn move_mounts(root: &str) -> Result<(), BootFailure> {
     let step = BootStep::MoveMounts;
     for name in ["dev", "proc", "sys"] {
-        let target = format!("{ROOT_MOUNT}/{name}");
+        let target = format!("{root}/{name}");
         fs::create_dir_all(&target).map_err(|error| failure(step, &error))?;
         mounts::move_mount(&format!("/{name}"), &target).map_err(|errno| BootFailure {
             step,
@@ -230,9 +182,9 @@ fn move_mounts() -> Result<(), BootFailure> {
     Ok(())
 }
 
-fn switch_root() -> Result<(), BootFailure> {
+fn switch_root(root: &str) -> Result<(), BootFailure> {
     let step = BootStep::Pivot;
-    std::env::set_current_dir(ROOT_MOUNT).map_err(|error| failure(step, &error))?;
+    std::env::set_current_dir(root).map_err(|error| failure(step, &error))?;
     mounts::move_mount(".", "/").map_err(|errno| BootFailure {
         step,
         errno: errno.0,

@@ -1,25 +1,28 @@
-//! Waiting for exactly the two contract virtio block devices to appear.
+//! Waiting for exactly the virtio block devices this Generation declared.
 
 use std::collections::BTreeSet;
 use std::fs;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::{BootFailure, BootStep, OVERLAY_DEVICE, ROOT_DEVICE};
+use super::{BootFailure, BootStep, Declared, OVERLAY_DEVICE, ROOT_DEVICE};
 
-const EXPECTED_BLOCK_DEVICES: [&str; 2] = ["vda", "vdb"];
 const DEVICE_POLL: Duration = Duration::from_millis(5);
 
-pub(super) fn wait_for_devices(deadline: Instant) -> Result<(), BootFailure> {
+/// Waits until the declared block devices, and no others, exist.
+///
+/// The count comes from the declaration rather than from a constant, so a machine built with no
+/// private head stops waiting as soon as its single root device appears instead of timing out
+/// on a second device nobody built, and a machine that was given one still refuses to boot
+/// until it has both.
+pub(super) fn wait_for_devices(deadline: Instant, declared: Declared) -> Result<(), BootFailure> {
+    let expected = expected_block_devices(declared);
     loop {
         let names = block_device_names().unwrap_or_default();
-        if names == expected_block_devices()
-            && is_block_device(ROOT_DEVICE)
-            && is_block_device(OVERLAY_DEVICE)
-        {
+        if names == expected && present(declared) {
             return Ok(());
         }
-        if names.len() > EXPECTED_BLOCK_DEVICES.len() || Instant::now() >= deadline {
+        if names.len() > expected.len() || Instant::now() >= deadline {
             return Err(BootFailure {
                 step: BootStep::Devices,
                 errno: libc::ETIMEDOUT,
@@ -29,15 +32,21 @@ pub(super) fn wait_for_devices(deadline: Instant) -> Result<(), BootFailure> {
     }
 }
 
+/// Whether every declared device node is a block device.
+fn present(declared: Declared) -> bool {
+    is_block_device(ROOT_DEVICE) && (!declared.overlay || is_block_device(OVERLAY_DEVICE))
+}
+
 fn block_device_names() -> std::io::Result<BTreeSet<String>> {
     fs::read_dir("/sys/block")?
         .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
         .collect()
 }
 
-fn expected_block_devices() -> BTreeSet<String> {
-    EXPECTED_BLOCK_DEVICES
+fn expected_block_devices(declared: Declared) -> BTreeSet<String> {
+    ["vda", "vdb"]
         .iter()
+        .take(declared.block_devices())
         .map(|name| (*name).to_owned())
         .collect()
 }
@@ -52,10 +61,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_device_contract_is_exactly_two_virtio_block_devices() {
+    fn the_declared_set_decides_how_many_block_devices_are_expected() {
         assert_eq!(ROOT_DEVICE, "/dev/vda");
         assert_eq!(OVERLAY_DEVICE, "/dev/vdb");
-        assert_eq!(expected_block_devices().len(), 2);
+        let writable = Declared {
+            overlay: true,
+            net: true,
+        };
+        assert_eq!(expected_block_devices(writable).len(), 2);
+        assert_eq!(expected_block_devices(Declared::default()).len(), 1);
+        assert!(
+            expected_block_devices(Declared::default()).contains("vda"),
+            "the immutable root is never optional"
+        );
         assert!(!is_block_device("/proc/self/exe"));
     }
 }

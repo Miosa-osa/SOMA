@@ -21,28 +21,41 @@ use crate::virtio::{
 
 use super::{error::SnapshotError, profile};
 
+/// The manifest section a device slot occupies.
+///
+/// The mapping is by slot rather than by position in the captured list, so a manifest that
+/// leaves a slot out still puts every other device in the section a restore looks for it in.
+pub(super) fn role(slot: Slot) -> Option<crate::snapshot::section::SectionRole> {
+    crate::snapshot::section::SectionRole::ALL
+        .into_iter()
+        .find(|role| role.device_slot() == Some(slot.index()))
+}
+
 /// Reads the device-specific fields of one slot from the live bus.
-pub(super) fn specific(bus: &MmioBus, slot: Slot, image: Digest) -> DeviceSpecific {
-    match slot {
+///
+/// A slot the machine does not have has no fields to read; the caller captures no section for
+/// it, so `None` here and a missing section in the manifest are the same statement.
+pub(super) fn specific(bus: &MmioBus, slot: Slot, image: Digest) -> Option<DeviceSpecific> {
+    Some(match slot {
         Slot::Root => DeviceSpecific::Block(CanonicalBlock {
             capacity_sectors: bus.root().device().capacity_sectors(),
             block_size: bus.root().device().blk_size(),
             image_digest: image,
         }),
         Slot::Overlay => DeviceSpecific::Block(CanonicalBlock {
-            capacity_sectors: bus.overlay().device().capacity_sectors(),
-            block_size: bus.overlay().device().blk_size(),
+            capacity_sectors: bus.overlay()?.device().capacity_sectors(),
+            block_size: bus.overlay()?.device().blk_size(),
             image_digest: image,
         }),
         Slot::Net => DeviceSpecific::Net {
-            mac: bus.net().device().mac(),
-            link_up: bus.net().device().link_up(),
+            mac: bus.net()?.device().mac(),
+            link_up: bus.net()?.device().link_up(),
         },
         Slot::Vsock => DeviceSpecific::Vsock {
             cid_placeholder: bus.vsock().device().guest_cid(),
         },
         Slot::Rng => DeviceSpecific::Rng,
-    }
+    })
 }
 
 /// Converts one live slot record into its canonical section value.
@@ -156,7 +169,7 @@ pub(super) fn fresh_record(
             device.snapshot_state()
         }
         (DeviceKind::OverlayBlock, DeviceSpecific::Block(block)) => {
-            let device = &devices.overlay;
+            let device = devices.overlay.as_ref().ok_or_else(mismatch)?;
             if device.capacity_sectors() != block.capacity_sectors
                 || device.blk_size() != block.block_size
             {
@@ -165,10 +178,11 @@ pub(super) fn fresh_record(
             device.snapshot_state()
         }
         (DeviceKind::Net, DeviceSpecific::Net { mac, link_up }) => {
-            if devices.net.mac() != mac || devices.net.link_up() != link_up || link_up {
+            let device = devices.net.as_ref().ok_or_else(mismatch)?;
+            if device.mac() != mac || device.link_up() != link_up || link_up {
                 return Err(mismatch());
             }
-            devices.net.snapshot_state()
+            device.snapshot_state()
         }
         (DeviceKind::Vsock, DeviceSpecific::Vsock { cid_placeholder }) => {
             if devices.vsock.guest_cid() != cid_placeholder {

@@ -67,7 +67,7 @@ impl SandboxMachine {
     /// identifier is not one a guest may hold.
     pub(in crate::x86_64) fn assign_instance_resources(
         &self,
-        overlay: std::fs::File,
+        overlay: Option<std::fs::File>,
         guest_cid: u32,
         network: Option<NetworkAttachment>,
     ) -> Result<(), MachineError> {
@@ -76,13 +76,29 @@ impl SandboxMachine {
         // held, so assignment cannot expose a half-updated device set.
         VsockDevice::validate_guest_cid(u64::from(guest_cid))
             .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
-        let backend = FileBackend::new(overlay, false)
+        let backend = overlay
+            .map(|overlay| FileBackend::new(overlay, false))
+            .transpose()
             .map_err(|error| MachineError::io(Phase::Devices, &error))?;
         let mut bus = self.shared.lock();
-        bus.overlay_mut()
-            .device_mut()
-            .attach(Box::new(backend))
-            .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?;
+        // A head for a machine with no overlay slot, or a slot with no head to fill it, is a
+        // caller that thinks this is a different machine than it is; neither is resolved by
+        // going ahead with whichever half was supplied.
+        match (bus.overlay_mut(), backend) {
+            (Some(overlay), Some(backend)) => overlay
+                .device_mut()
+                .attach(Box::new(backend))
+                .map_err(|error| {
+                    MachineError::new(Phase::Devices, MachineErrorKind::Block(error))
+                })?,
+            (None, None) => {}
+            _ => {
+                return Err(MachineError::invalid(
+                    Phase::Devices,
+                    "the machine's overlay slot and the assigned head disagree",
+                ));
+            }
+        }
         bus.vsock_mut()
             .device_mut()
             .set_guest_cid(u64::from(guest_cid))

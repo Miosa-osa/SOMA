@@ -13,7 +13,7 @@ use soma_guest::SecretFile;
 use super::boot::private_head_from;
 use super::evidence::CONTRACT_VCPUS;
 use super::identity::{LaunchIdentity, candidate_bytes};
-use super::pool::{Claimed, MachinePool, Recipe};
+use super::pool::{Claimed, MachinePool, Recipe, RecipeInputs};
 use super::prepared::PreparedGeneration;
 use super::session::Network;
 use super::sterile::Assignment;
@@ -40,16 +40,18 @@ pub(super) fn snapshot_dir(prepared: &PreparedGeneration) -> Option<PathBuf> {
 /// prepared machine nor an on-demand restore exists for it and there is nothing to pool.
 fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64, vcpus: u16) -> Option<Recipe> {
     let snapshot = snapshot_dir(prepared)?;
+    let devices = prepared.manifest.device_set();
     let root = prepared.manifest.root.descriptor;
     let candidate = candidate_bytes(&prepared.id).ok()?;
-    Recipe::new(
-        &prepared.store,
+    Recipe::new(RecipeInputs {
+        store: &prepared.store,
         root,
         snapshot,
-        memory_mib * MIB,
+        memory_bytes: memory_mib * MIB,
         vcpus,
         candidate,
-    )
+        devices,
+    })
 }
 
 /// The fresh authority one claimed machine receives, exactly once.
@@ -67,8 +69,16 @@ pub(super) fn assignment_for(
 ) -> Result<Assignment, BackendFailureKind> {
     let instance = InstanceId::new(hex(identity.instance))
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+    // A machine built with no overlay device has no slot to attach a head to, so cloning one
+    // here would produce a private disk nothing could mount.
+    let overlay = prepared
+        .manifest
+        .device_set()
+        .overlay()
+        .then(|| private_head_from(&snapshot.join("overlay.raw"), &instance))
+        .transpose()?;
     Ok(Assignment {
-        overlay: private_head_from(&snapshot.join("overlay.raw"), &instance)?,
+        overlay,
         generation: candidate_bytes(&prepared.id)?,
         instance: identity.instance,
         operation: identity.operation,

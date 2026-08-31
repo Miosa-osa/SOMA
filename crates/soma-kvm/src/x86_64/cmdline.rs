@@ -6,6 +6,8 @@
 
 use std::fmt::Write as _;
 
+use crate::virtio::DeviceSet;
+
 /// The fixed ordered diagnostic arguments from the `x86_64` machine contract.
 pub(crate) const FIXED_ARGUMENTS: [&str; 9] = [
     "console=ttyS0",
@@ -21,8 +23,12 @@ pub(crate) const FIXED_ARGUMENTS: [&str; 9] = [
 
 /// Init path inside the SOMA initramfs fixture and the compiled Generation initramfs.
 pub(crate) const INITRAMFS_INIT: &str = "rdinit=/init";
-/// Root and overlay identification appended by the Generation compiler contract.
-pub(crate) const GENERATION_DISKS: &str = "soma.lower=/dev/vda soma.upper=/dev/vdb";
+/// The immutable root, which every Generation has.
+pub(crate) const GENERATION_LOWER: &str = "soma.lower=/dev/vda";
+/// The private overlay head, named only by a Generation that declared writable storage.
+pub(crate) const GENERATION_UPPER: &str = "soma.upper=/dev/vdb";
+/// The network interface, named only by a Generation that declared a network device.
+pub(crate) const GENERATION_NET: &str = "soma.net=eth0";
 /// The kernel argument that carries the challenge nonce to the guest.
 pub(crate) const NONCE_ARGUMENT: &str = "soma.nonce";
 /// The prefix of the challenge-bound sentinel the guest writes to its console.
@@ -57,19 +63,31 @@ impl BootNonce {
     }
 }
 
-/// Composes the complete command line for one compiled Generation: the fixed contract set,
-/// the five `virtio_mmio.device=` declarations from the bus table, the initramfs init, and
-/// the root and overlay identification.
+/// Composes the complete command line for one compiled Generation: the fixed contract set, the
+/// `virtio_mmio.device=` declarations for the devices this Generation has, the initramfs init,
+/// and the identification of each of those devices the guest agent has to find.
 ///
-/// It must equal the command line bound into the Generation manifest byte for byte.
-pub(crate) fn compose_generation() -> String {
-    [
+/// The command line is what tells the guest which devices exist, so the same [`DeviceSet`]
+/// decides both which devices are built and which the guest is told to look for. A guest whose
+/// line names no upper mounts its root read-only; one whose line names no interface performs no
+/// network repair. It must equal the command line bound into the Generation manifest byte for
+/// byte, which is what makes a device-set mismatch a refused restore rather than a guest that
+/// waits forever for a device nobody built.
+#[must_use]
+pub fn compose_generation(devices: DeviceSet) -> String {
+    let mut arguments = vec![
         FIXED_ARGUMENTS.join(" "),
-        crate::virtio::kernel_command_line(),
+        crate::virtio::kernel_command_line(devices),
         INITRAMFS_INIT.to_owned(),
-        GENERATION_DISKS.to_owned(),
-    ]
-    .join(" ")
+        GENERATION_LOWER.to_owned(),
+    ];
+    if devices.overlay() {
+        arguments.push(GENERATION_UPPER.to_owned());
+    }
+    if devices.net() {
+        arguments.push(GENERATION_NET.to_owned());
+    }
+    arguments.join(" ")
 }
 
 /// Composes the complete command line for one diagnostic boot.
@@ -96,13 +114,28 @@ mod tests {
 
     #[test]
     fn generation_line_is_contract_devices_init_and_disks() {
-        let line = compose_generation();
+        let line = compose_generation(DeviceSet::FULL);
         assert!(line.starts_with(DIAGNOSTIC_CMDLINE));
         assert!(line.contains(" virtio_mmio.device=4K@0xd0000000:5:0 "));
         assert!(line.contains(" virtio_mmio.device=4K@0xd0004000:9:4 "));
-        assert!(line.ends_with(" rdinit=/init soma.lower=/dev/vda soma.upper=/dev/vdb"));
+        assert!(
+            line.ends_with(" rdinit=/init soma.lower=/dev/vda soma.upper=/dev/vdb soma.net=eth0")
+        );
         assert_eq!(line.matches("virtio_mmio.device=").count(), 5);
         assert!(!line.contains("soma.nonce"));
+    }
+
+    #[test]
+    fn a_read_only_generation_declares_neither_the_overlay_page_nor_an_upper() {
+        let line = compose_generation(DeviceSet::new(false, false));
+        assert_eq!(line.matches("virtio_mmio.device=").count(), 3);
+        assert!(!line.contains("0xd0001000"));
+        assert!(!line.contains("0xd0002000"));
+        // The slots that remain keep the addresses they always had, so the guest's root device
+        // is still the first block device and no address depends on what was left out.
+        assert!(line.contains(" virtio_mmio.device=4K@0xd0000000:5:0 "));
+        assert!(line.contains(" virtio_mmio.device=4K@0xd0003000:8:3 "));
+        assert!(line.ends_with(" rdinit=/init soma.lower=/dev/vda"));
     }
 
     #[test]

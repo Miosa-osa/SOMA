@@ -8,9 +8,12 @@
 //! every state constructor has succeeded.
 
 mod devices;
+mod handle;
 mod readiness;
 mod sections;
 mod sterile;
+
+pub use handle::Restored;
 
 use std::{cell::Cell, fs::File};
 
@@ -30,18 +33,17 @@ use crate::snapshot::{
     Digest, compatibility,
     manifest::Manifest,
     memory::PrivateMapping,
-    readiness::{PageSession, ReadinessChallenge, ReadinessRefusal, page_session},
     restore::{RestoreSequence, RestoreStep},
     section::SectionRole,
 };
-use crate::virtio::Slot;
+use crate::virtio::{DeviceSet, Slot};
 use crate::x86_64::sandbox::NetworkAttachment;
 use crate::x86_64::{
     Machine,
     devices::SandboxDisks,
     error::{MachineError, Phase},
     events::{IrqLines, NotifyFds},
-    launch_page::{LAUNCH_PAGE_SIZE, LaunchPageSlot},
+    launch_page::LaunchPageSlot,
     layout::GuestLayout,
     memory::{GuestRam, RamMapping},
     sandbox::{Milestone, SandboxMachine, Timeline, restored::RestoredParts},
@@ -55,8 +57,11 @@ pub use sterile::{Sterile, SterileRequest};
 pub struct RestoreRequest {
     /// The published snapshot directory.
     pub paths: SnapshotPaths,
-    /// The immutable root and the Instance-private overlay head cloned from `overlay.raw`.
+    /// The immutable root and, when the Generation declared writable storage, the
+    /// Instance-private overlay head cloned from `overlay.raw`.
     pub disks: SandboxDisks,
+    /// The optional devices this Generation declared; a snapshot of a different set is refused.
+    pub devices: DeviceSet,
     /// The fresh vsock context identifier this Instance is assigned.
     pub guest_cid: u32,
     /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.
@@ -87,54 +92,6 @@ pub struct RestoreFacts {
     pub guest_cid: u32,
 }
 
-/// A restored machine and its remaining ordered steps.
-pub struct Restored {
-    /// The machine, ready for its fresh launch page.
-    pub machine: SandboxMachine,
-    /// What the snapshot said this machine is.
-    pub facts: RestoreFacts,
-    sequence: Cell<RestoreSequence>,
-    /// The fresh single-use secret this restore requires in its readiness receipt.
-    readiness: ReadinessChallenge,
-    /// Whether one readiness attempt has already spent that challenge.
-    spent: Cell<bool>,
-    /// The launch authority this restore published and the session that page binds, once it
-    /// has published one.
-    launch: Cell<Option<(Digest, PageSession)>>,
-}
-
-impl Restored {
-    /// Publishes the fresh launch material and resumes vCPU 0.
-    ///
-    /// # Errors
-    ///
-    /// Returns the ordering violation or the machine failure.
-    pub fn resume(&mut self, page: &[u8; LAUNCH_PAGE_SIZE]) -> Result<(), SnapshotError> {
-        self.step(RestoreStep::AttachFreshAuthority)?;
-        self.machine.write_launch_page(page)?;
-        let session = page_session(page).ok_or(ReadinessRefusal::Unbound)?;
-        self.launch.set(Some((Digest::of(page), session)));
-        self.machine.start()?;
-        // The vsock restore queued a transport-reset event; delivering it now is what makes
-        // the guest driver re-read the fresh context identifier before the agent connects.
-        self.machine.wake_devices();
-        self.step(RestoreStep::ResumeVcpu)
-    }
-
-    /// Whether every ordered step completed.
-    #[must_use]
-    pub fn is_ready(&self) -> bool {
-        self.sequence.get().is_ready()
-    }
-
-    fn step(&self, step: RestoreStep) -> Result<(), SnapshotError> {
-        let mut sequence = self.sequence.get();
-        sequence.complete(step)?;
-        self.sequence.set(sequence);
-        Ok(())
-    }
-}
-
 /// Restores one Instance from a published snapshot.
 ///
 /// # Errors
@@ -145,6 +102,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     let RestoreRequest {
         paths,
         disks,
+        devices,
         guest_cid,
         memory_bytes,
         verify_artifacts,
@@ -152,13 +110,19 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     } = request;
     let SandboxDisks { root, overlay } = disks;
     let overlay_capacity_bytes = overlay
-        .metadata()
-        .map_err(|error| SnapshotError::io(Artifact::Overlay, "metadata", &error))?
-        .len();
+        .as_ref()
+        .map(|overlay| {
+            overlay
+                .metadata()
+                .map(|metadata| metadata.len())
+                .map_err(|error| SnapshotError::io(Artifact::Overlay, "metadata", &error))
+        })
+        .transpose()?;
     restore_sterile(SterileRequest {
         paths,
         root,
         overlay_capacity_bytes,
+        devices,
         memory_bytes,
         verify_artifacts,
     })?
@@ -177,6 +141,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         paths,
         root,
         overlay_capacity_bytes,
+        devices,
         memory_bytes,
         verify_artifacts,
     } = request;
@@ -186,9 +151,12 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     let state_bytes = artifacts::read_state(&paths.state())?;
     let snapshot = Digest::of(&state_bytes);
     let manifest = Manifest::decode(&state_bytes)?;
-    let profile = profile::host_profile(&kvm, memory_bytes)?;
+    // The device set comes from the Generation being launched, never from the snapshot: a set
+    // read out of the artifact would agree with itself, and the point of the check is that the
+    // machine this host means to build and the machine the snapshot describes are the same one.
+    let profile = profile::host_profile(&kvm, memory_bytes, devices)?;
     compatibility::check(&profile, &manifest)?;
-    let state = Sections::read(&manifest)?;
+    let state = Sections::read(&manifest, devices)?;
     let repair_point_line = marker::decode(section(&manifest, SectionRole::RepairPointMarker)?)?;
     if verify_artifacts {
         verify(&paths, &manifest, &state)?;
@@ -230,8 +198,8 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::RegisterMemorySlots)?;
     timeline.mark(Milestone::RegisterSlots);
 
-    let mac = net_mac(&state.devices[Slot::Net.index() as usize])?;
-    let captured_cid = vsock_cid(&state.devices[Slot::Vsock.index() as usize])?;
+    let mac = net_mac(state.slot(Slot::Net))?;
+    let captured_cid = vsock_cid(state.slot(Slot::Vsock))?;
     machine.recreate_platform(&state.vm, &state.routing)?;
     timeline.mark(Milestone::Platform);
     let bus = recreate_devices(
@@ -240,6 +208,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         overlay_capacity_bytes,
         &state,
         &Identity { mac, captured_cid },
+        devices,
     )?;
     sequence.complete(RestoreStep::RecreateIrqchipAndDevices)?;
     timeline.mark(Milestone::Devices);
@@ -262,7 +231,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         .vm_fd()
         .register_irqfd(&serial_line, SERIAL_GSI)
         .map_err(|error| MachineError::os(Phase::Restore, error))?;
-    let mut irq = IrqLines::create()?;
+    let mut irq = IrqLines::create(devices)?;
     irq.register(machine.vm_fd())?;
     let notify = NotifyFds::register(machine.vm_fd(), &bus)?;
     // Every route exists before any captured interrupt state is armed.
@@ -282,7 +251,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         launch_page,
         clock: Stopwatch::new(),
         timeline,
-        cmdline: crate::x86_64::cmdline::compose_generation(),
+        cmdline: crate::x86_64::cmdline::compose_generation(devices),
     })?;
     Ok(Sterile {
         machine,

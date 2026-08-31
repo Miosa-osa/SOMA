@@ -28,7 +28,7 @@ use std::time::Duration;
 use soma_guest::ActivationReceipt;
 use soma_hostd::{Claiming, Limits, LimitsError, Phase, Slot, Worker, WorkerId};
 
-pub(super) use key::{MachineKey, Recipe};
+pub(super) use key::{MachineKey, Recipe, RecipeInputs};
 
 use super::session::{Session, SessionError};
 use super::sterile::Assignment;

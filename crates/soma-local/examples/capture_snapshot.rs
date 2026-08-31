@@ -86,14 +86,24 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         .map_err(|error| format!("initramfs: {error:?}"))?;
     let mut root = open_artifact(&store, &manifest.root.descriptor)
         .map_err(|error| format!("root: {error:?}"))?;
-    let template_descriptor = &manifest
-        .overlay
-        .templates
-        .first()
-        .ok_or("the Candidate declares no overlay template")?
-        .descriptor;
-    let mut template = open_artifact(&store, template_descriptor)
-        .map_err(|error| format!("overlay template: {error:?}"))?;
+    // The source machine is built as exactly the machine the Candidate declares. A Candidate
+    // with no writable storage has no template to open, no head to seed, and publishes no
+    // `overlay.raw`, so every Instance restored from its snapshot clones nothing.
+    let devices = manifest.device_set();
+    let mut template = if devices.overlay() {
+        let template_descriptor = &manifest
+            .overlay
+            .templates
+            .first()
+            .ok_or("the Candidate declares writable storage but no overlay template")?
+            .descriptor;
+        Some(
+            open_artifact(&store, template_descriptor)
+                .map_err(|error| format!("overlay template: {error:?}"))?,
+        )
+    } else {
+        None
+    };
 
     let snapshot = entry.join("snapshot");
     if snapshot.exists() {
@@ -106,7 +116,10 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     // The capture writes staging objects inside this directory; it does not create it.
     fs::create_dir_all(&snapshot)?;
     let head_path = entry.join("capture-head.ext4");
-    let mut head = source_head(&mut template, &head_path)?;
+    let mut head = template
+        .as_mut()
+        .map(|template| source_head(template, &head_path))
+        .transpose()?;
     // The agent warms the workload runtime itself before it parks, so the runtime's pages are
     // resident when the capture records guest memory. Nothing is seeded into the overlay here:
     // the agent requires a sterile upper layer and refuses to boot if anything is placed in it.
@@ -117,13 +130,14 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         disks: SandboxDisks {
             root: open_artifact(&store, &manifest.root.descriptor)
                 .map_err(|error| format!("root: {error:?}"))?,
-            overlay: head.try_clone()?,
+            overlay: head.as_ref().map(File::try_clone).transpose()?,
         },
         identity: DeviceIdentity {
             guest_cid: CAPTURE_CID,
             guest_mac: GUEST_MAC,
         },
         ram_bytes: memory_mib * MIB,
+        devices,
     };
 
     let mut sandbox = SandboxMachine::create(config).map_err(|error| format!("create: {error}"))?;
@@ -139,7 +153,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             paths: soma_kvm::x86_64::SnapshotPaths::new(snapshot.clone()),
             candidate_id,
             root: &mut root,
-            overlay: &mut head,
+            overlay: head.as_mut(),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
         },

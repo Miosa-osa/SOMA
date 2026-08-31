@@ -30,6 +30,8 @@ pub struct SlotSnapshot {
 pub enum SlotRestoreError {
     /// The record names a different slot than its position.
     SlotMismatch { expected: Slot, actual: Slot },
+    /// The snapshot was captured from a machine with a different set of devices.
+    SlotSetMismatch { expected: usize, actual: usize },
     /// The device record was rejected.
     Device { slot: Slot, error: DeviceStateError },
     /// The transport record was rejected.
@@ -67,11 +69,22 @@ impl MmioBus {
                 },
             ));
         }
+        // An absent slot has no queue and no registered ioeventfd, so nothing can legitimately
+        // notify it; there is no work to do and none is reported as done.
         match (slot, queue) {
             (Slot::Root, _) => service_queue(&mut self.root, mem, queue, budget),
-            (Slot::Overlay, _) => service_queue(&mut self.overlay, mem, queue, budget),
-            (Slot::Net, NET_RX_QUEUE) => deliver_rx(&mut self.net, mem, budget),
-            (Slot::Net, _) => service_queue(&mut self.net, mem, queue, budget),
+            (Slot::Overlay, _) => match self.overlay.as_mut() {
+                Some(overlay) => service_queue(overlay, mem, queue, budget),
+                None => Ok(ServiceReport::default()),
+            },
+            (Slot::Net, NET_RX_QUEUE) => match self.net.as_mut() {
+                Some(net) => deliver_rx(net, mem, budget),
+                None => Ok(ServiceReport::default()),
+            },
+            (Slot::Net, _) => match self.net.as_mut() {
+                Some(net) => service_queue(net, mem, queue, budget),
+                None => Ok(ServiceReport::default()),
+            },
             (Slot::Vsock, VSOCK_RX_QUEUE) => deliver_vsock_rx(&mut self.vsock, mem, budget),
             (Slot::Vsock, VSOCK_EVENT_QUEUE) => deliver_events(&mut self.vsock, mem),
             (Slot::Vsock, _) => {
@@ -96,7 +109,10 @@ impl MmioBus {
         budget: u32,
     ) -> Result<ServiceReport, ServiceError> {
         match slot {
-            Slot::Net => deliver_rx(&mut self.net, mem, budget),
+            Slot::Net => match self.net.as_mut() {
+                Some(net) => deliver_rx(net, mem, budget),
+                None => Ok(ServiceReport::default()),
+            },
             Slot::Vsock => {
                 let mut report = deliver_vsock_rx(&mut self.vsock, mem, budget)?;
                 let events = deliver_events(&mut self.vsock, mem)?;
@@ -124,9 +140,12 @@ impl MmioBus {
         let mut pending = PendingWork::default();
         for slot in Slot::ALL {
             for index in 0..slot.queue_count() {
+                // The outer level is slot presence and the next is whether the transport has
+                // that queue at all; both mean the same thing here, so they flatten together.
                 let queue = with_slot!(self, slot, |t| t
                     .queue_and_device_mut(index)
-                    .map(|(queue, _)| queue.is_ready().then(|| queue.pending(mem))));
+                    .map(|(queue, _)| queue.is_ready().then(|| queue.pending(mem))))
+                .flatten();
                 match queue {
                     Some(Some(Ok(count))) => {
                         pending[usize::from(slot.index())][usize::from(index)] = u32::from(count);
@@ -140,21 +159,29 @@ impl MmioBus {
     }
 
     /// Captures one slot; the caller proves quiescence first.
+    ///
+    /// An absent slot has no transport and no device state, so there is nothing to capture and
+    /// nothing a restore would have to reproduce.
     #[must_use]
-    pub fn snapshot(&mut self, slot: Slot) -> SlotSnapshot {
+    pub fn snapshot(&mut self, slot: Slot) -> Option<SlotSnapshot> {
         let (transport, device) =
-            with_slot!(self, slot, |t| (t.state(), t.device().snapshot_state()));
-        SlotSnapshot {
+            with_slot!(self, slot, |t| (t.state(), t.device().snapshot_state()))?;
+        Some(SlotSnapshot {
             slot,
             transport,
             device,
-        }
+        })
     }
 
-    /// Captures all five slots in table order.
+    /// Captures every present slot in table order.
     #[must_use]
     pub fn snapshot_all(&mut self) -> Vec<SlotSnapshot> {
-        Slot::ALL.iter().map(|slot| self.snapshot(*slot)).collect()
+        self.device_set()
+            .present()
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter_map(|slot| self.snapshot(slot))
+            .collect()
     }
 
     /// Rebuilds a bus from fresh devices and captured records, validating
@@ -163,11 +190,30 @@ impl MmioBus {
     ///
     /// # Errors
     /// Returns the first rejected slot in table order.
+    /// The records must name exactly the present slots, in table order: a snapshot taken from a
+    /// machine with a different device set is a different machine, and restoring one into the
+    /// other would give the guest a device its captured driver never negotiated.
     pub fn restore<M: GuestMemory + ?Sized>(
         devices: BusDevices,
-        snapshots: &[SlotSnapshot; super::SLOT_COUNT],
+        snapshots: &[SlotSnapshot],
         mem: &M,
     ) -> Result<Self, SlotRestoreError> {
+        let present = devices.device_set().present().collect::<Vec<_>>();
+        if snapshots.len() != present.len() {
+            return Err(SlotRestoreError::SlotSetMismatch {
+                expected: present.len(),
+                actual: snapshots.len(),
+            });
+        }
+        for (expected, record) in present.iter().zip(snapshots) {
+            if record.slot != *expected {
+                return Err(SlotRestoreError::SlotMismatch {
+                    expected: *expected,
+                    actual: record.slot,
+                });
+            }
+        }
+        let record = |slot: Slot| snapshots.iter().find(|record| record.slot == slot);
         let BusDevices {
             mut root,
             mut overlay,
@@ -175,26 +221,44 @@ impl MmioBus {
             mut vsock,
             mut rng,
         } = devices;
-        for (expected, snapshot) in Slot::ALL.iter().zip(snapshots) {
-            if snapshot.slot != *expected {
-                return Err(SlotRestoreError::SlotMismatch {
-                    expected: *expected,
-                    actual: snapshot.slot,
-                });
-            }
+        let (Some(root_record), Some(vsock_record), Some(rng_record)) =
+            (record(Slot::Root), record(Slot::Vsock), record(Slot::Rng))
+        else {
+            return Err(SlotRestoreError::SlotSetMismatch {
+                expected: present.len(),
+                actual: snapshots.len(),
+            });
+        };
+        let overlay_record = record(Slot::Overlay);
+        let net_record = record(Slot::Net);
+        apply_device(Slot::Root, &mut root, root_record)?;
+        if let (Some(device), Some(record)) = (overlay.as_mut(), overlay_record) {
+            apply_device(Slot::Overlay, device, record)?;
         }
-        apply_device(Slot::Root, &mut root, &snapshots[0])?;
-        apply_device(Slot::Overlay, &mut overlay, &snapshots[1])?;
-        apply_device(Slot::Net, &mut net, &snapshots[2])?;
-        apply_device(Slot::Vsock, &mut vsock, &snapshots[3])?;
-        apply_device(Slot::Rng, &mut rng, &snapshots[4])?;
+        if let (Some(device), Some(record)) = (net.as_mut(), net_record) {
+            apply_device(Slot::Net, device, record)?;
+        }
+        apply_device(Slot::Vsock, &mut vsock, vsock_record)?;
+        apply_device(Slot::Rng, &mut rng, rng_record)?;
         Ok(Self {
-            root: restore_transport(Slot::Root, root, &snapshots[0], mem)?,
-            overlay: restore_transport(Slot::Overlay, overlay, &snapshots[1], mem)?,
-            net: restore_transport(Slot::Net, net, &snapshots[2], mem)?,
-            vsock: restore_transport(Slot::Vsock, vsock, &snapshots[3], mem)?,
-            rng: restore_transport(Slot::Rng, rng, &snapshots[4], mem)?,
+            root: restore_transport(Slot::Root, root, root_record, mem)?,
+            overlay: restore_optional(Slot::Overlay, overlay, overlay_record, mem)?,
+            net: restore_optional(Slot::Net, net, net_record, mem)?,
+            vsock: restore_transport(Slot::Vsock, vsock, vsock_record, mem)?,
+            rng: restore_transport(Slot::Rng, rng, rng_record, mem)?,
         })
+    }
+}
+
+fn restore_optional<D: VirtioDevice, M: GuestMemory + ?Sized>(
+    slot: Slot,
+    device: Option<D>,
+    snapshot: Option<&SlotSnapshot>,
+    mem: &M,
+) -> Result<Option<MmioTransport<D>>, SlotRestoreError> {
+    match (device, snapshot) {
+        (Some(device), Some(snapshot)) => restore_transport(slot, device, snapshot, mem).map(Some),
+        _ => Ok(None),
     }
 }
 

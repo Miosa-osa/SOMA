@@ -28,15 +28,17 @@ impl EffectiveShape {
     ///
     /// # Errors
     ///
-    /// Returns [`ValidationError::InvalidShape`] when an observed resource dimension is zero.
+    /// Returns [`ValidationError::InvalidShape`] when an observed vCPU count or memory size is
+    /// zero; observed storage of zero is a sandbox with no writable disk.
     pub fn new(
         vcpu_count: Observation<u16>,
         memory_mib: Observation<u64>,
         storage_mib: Observation<u64>,
     ) -> Result<Self, ValidationError> {
+        // Zero observed storage is a real backend answer: the sandbox was given no writable
+        // disk, which is what a request for none asks for.
         if matches!(vcpu_count, Observation::Observed(0))
             || matches!(memory_mib, Observation::Observed(0))
-            || matches!(storage_mib, Observation::Observed(0))
         {
             return Err(ValidationError::InvalidShape);
         }

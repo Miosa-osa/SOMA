@@ -12,6 +12,7 @@
 use std::time::{Duration, Instant};
 
 use soma_guest::{HostLaunchMaterial, LaunchNetwork, TerminalStatus};
+use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{
     Milestone, RestoreRequest, SandboxDisks, Sterile, SterileRequest, restore, restore_sterile,
 };
@@ -49,8 +50,9 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
             paths: fixture.paths.clone(),
             disks: SandboxDisks {
                 root: fixture.root(),
-                overlay: head,
+                overlay: Some(head),
             },
+            devices: DeviceSet::new(true, false),
             guest_cid: cid,
             memory_bytes: fixture.ram_bytes,
             verify_artifacts: false,
@@ -66,15 +68,16 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
         let sterile = restore_sterile(SterileRequest {
             paths: fixture.paths.clone(),
             root: fixture.root(),
-            overlay_capacity_bytes: fixture.overlay_capacity_bytes(),
+            overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
             memory_bytes: fixture.ram_bytes,
+            devices: DeviceSet::new(true, false),
             verify_artifacts: false,
         })
         .expect("a sterile machine restores without an Instance");
         let (path, head) = fixture.private_head(&format!("prepared-{iteration}"));
         let started = Instant::now();
         let assigned = sterile
-            .assign(head, cid, None)
+            .assign(Some(head), cid, None)
             .expect("a prepared machine accepts one Instance's authority");
         prepared.push(elapsed_ns(started));
         drop(assigned);
@@ -111,8 +114,9 @@ fn sterile() -> Sterile {
     restore_sterile(SterileRequest {
         paths: fixture.paths.clone(),
         root: fixture.root(),
-        overlay_capacity_bytes: fixture.overlay_capacity_bytes(),
+        overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
         memory_bytes: fixture.ram_bytes,
+        devices: DeviceSet::new(true, false),
         verify_artifacts: false,
     })
     .expect("a sterile machine restores without an Instance")
@@ -134,7 +138,7 @@ fn a_prepared_machine_reaches_ready_and_runs_one_command() {
     let (head_path, head) = fixture.private_head("prepared-ready");
 
     let mut restored = prepared
-        .assign(head, cid, None)
+        .assign(Some(head), cid, None)
         .expect("a prepared machine accepts one Instance's authority");
 
     let identity = instance::Identity {

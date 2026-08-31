@@ -33,7 +33,10 @@ fn every_tool_that_shaped_an_artifact_is_bound_by_the_bytes_that_ran() {
 
     let mut environment = compiled.erofs.tools.clone();
     environment
-        .absorb(&compiled.overlay.tools, CompilePhase::EncodeManifest)
+        .absorb(
+            &compiled.overlay.as_ref().expect("overlay evidence").tools,
+            CompilePhase::EncodeManifest,
+        )
         .unwrap();
     let bound: Vec<&str> = environment.tools().iter().map(BoundTool::name).collect();
     assert_eq!(bound, MATERIAL_TOOLS);
@@ -71,7 +74,10 @@ fn the_manifest_binds_the_sealed_builder_environment_rather_than_one_formatter()
 
     let mut environment = compiled.erofs.tools.clone();
     environment
-        .absorb(&compiled.overlay.tools, CompilePhase::EncodeManifest)
+        .absorb(
+            &compiled.overlay.as_ref().expect("overlay evidence").tools,
+            CompilePhase::EncodeManifest,
+        )
         .unwrap();
     let root = &compiled.candidate.manifest.root;
     let sealed = environment.digest(CompilePhase::EncodeManifest).unwrap();

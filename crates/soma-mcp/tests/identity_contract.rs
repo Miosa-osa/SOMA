@@ -184,7 +184,6 @@ async fn portable_contract_rejects_pathological_requests_before_runtime() {
     let invalid_overrides = vec![
         serde_json::json!({ "vcpu_count": 0 }),
         serde_json::json!({ "memory_mib": 0 }),
-        serde_json::json!({ "storage_mib": 0 }),
         serde_json::json!({ "timeout_ms": 86_400_001 }),
         serde_json::json!({ "max_output_bytes": 16_777_217 }),
         serde_json::json!({ "network": {"egress": "sometimes"} }),

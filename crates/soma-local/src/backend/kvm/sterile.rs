@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::{HostLaunchMaterial, SecretFile};
+use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{SnapshotPaths, Sterile, SterileRequest, restore_sterile};
 
 use super::session::{Network, Request, Response, SessionError};
@@ -32,16 +33,19 @@ pub(super) struct SterileSpec {
     pub(super) snapshot: PathBuf,
     /// The immutable root every Instance of this Generation shares.
     pub(super) root: File,
-    /// The capacity the private head will have once one is attached.
-    pub(super) overlay_capacity_bytes: u64,
+    /// The capacity the private head will have once one is attached, absent on a machine that
+    /// declared no writable storage and therefore has no overlay device to attach one to.
+    pub(super) overlay_capacity_bytes: Option<u64>,
     /// Guest RAM in bytes.
     pub(super) memory_bytes: u64,
+    /// The optional devices this machine is built with.
+    pub(super) devices: DeviceSet,
 }
 
 /// The fresh per-Instance authority a claim transfers into one prepared worker, exactly once.
 pub(super) struct Assignment {
-    /// This Instance's private writable head.
-    pub(super) overlay: File,
+    /// This Instance's private writable head, absent on a machine built with no overlay device.
+    pub(super) overlay: Option<File>,
     /// The Generation the launch material is bound to.
     pub(super) generation: [u8; 32],
     /// The Instance identity.
@@ -68,12 +72,14 @@ pub(super) fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: 
         root,
         overlay_capacity_bytes,
         memory_bytes,
+        devices,
     } = spec;
     let sterile = restore_sterile(SterileRequest {
         paths: SnapshotPaths::new(snapshot),
         root,
         overlay_capacity_bytes,
         memory_bytes,
+        devices,
         // Re-hashing every byte of the memory object is the installation and audit boundary,
         // not the preparation path.
         verify_artifacts: false,

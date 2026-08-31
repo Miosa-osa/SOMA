@@ -4,6 +4,7 @@
 //! is the single most consequential thing about it, and it is worth naming on its own rather than
 //! reading it out of a struct field beside the identities.
 
+use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{SandboxConfig, SandboxDisks};
 
 /// Where a sandbox starts from.
@@ -18,6 +19,8 @@ pub(in crate::backend::kvm) enum Source {
     Restore {
         snapshot: std::path::PathBuf,
         disks: SandboxDisks,
+        /// The optional devices the Generation declared, which the snapshot must agree with.
+        devices: DeviceSet,
         memory_bytes: u64,
     },
 }

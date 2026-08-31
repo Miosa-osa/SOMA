@@ -12,6 +12,7 @@ use soma_guest::{
     GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, RepairedHostControl,
     TerminalStatus,
 };
+use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{
     DeviceIdentity, GuestExit, Milestone, SandboxConfig, SandboxDisks, SandboxEvidence,
     SandboxMachine,
@@ -187,7 +188,6 @@ fn execute_one<'a>(
     ))
 }
 
-/// Assembles the sandbox inputs from opened artifacts.
 pub fn config(
     kernel: File,
     initramfs: File,
@@ -195,6 +195,7 @@ pub fn config(
     overlay: File,
     ram_bytes: u64,
 ) -> SandboxConfig {
+    let overlay = Some(overlay);
     SandboxConfig {
         kernel,
         initramfs,
@@ -204,6 +205,7 @@ pub fn config(
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
+        devices: DeviceSet::FULL,
     }
 }
 

@@ -127,7 +127,9 @@ fn assert_input_schemas(tools: &BTreeMap<String, rmcp::model::Tool>) {
         assert_eq!(properties["memory_mib"]["minimum"], 1);
         assert!(properties["memory_mib"].get("maximum").is_none());
         assert_eq!(properties["storage_mib"]["default"], 10240);
-        assert_eq!(properties["storage_mib"]["minimum"], 1);
+        // Zero is a sandbox with no writable disk at all, which the schema must be able to ask
+        // for; it is not a size below a floor.
+        assert_eq!(properties["storage_mib"]["minimum"], 0);
         assert!(properties["storage_mib"].get("maximum").is_none());
         assert_eq!(properties["network"]["default"]["egress"], "denied");
         assert_eq!(properties["network"]["default"]["dns"], "denied");
