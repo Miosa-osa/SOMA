@@ -1,0 +1,29 @@
+== node, cold mapping, kvm tracepoints (/tmp/k2.txt)
+first KVM_RUN call: wall=0.888 ms  guest=0.298 ms  kernel_exit_handling=0.590 ms
+    [('EPT_VIOLATION', 58), ('EXTERNAL_INTERRUPT', 1), ('IO_INSTRUCTION', 1)]
+first 5 ms of the resume: wall=4.994 ms  guest=1.909 ms  kernel_exit_handling=3.085 ms
+    [('EPT_VIOLATION', 332), ('IO_INSTRUCTION', 29), ('EPT_MISCONFIG', 4), ('PENDING_INTERRUPT', 3), ('EXTERNAL_INTERRUPT', 2), ('MSR_WRITE', 1)]
+first 10 ms of the resume: wall=9.999 ms  guest=4.131 ms  kernel_exit_handling=5.868 ms
+    [('EPT_VIOLATION', 751), ('IO_INSTRUCTION', 64), ('EXTERNAL_INTERRUPT', 7), ('EPT_MISCONFIG', 6), ('PENDING_INTERRUPT', 3), ('MSR_WRITE', 1)]
+first 30 ms of the resume: wall=30.000 ms  guest=12.321 ms  kernel_exit_handling=17.679 ms
+    [('EPT_VIOLATION', 3396), ('IO_INSTRUCTION', 383), ('EPT_MISCONFIG', 40), ('EXTERNAL_INTERRUPT', 32), ('PENDING_INTERRUPT', 13), ('HLT', 6), ('CPUID', 6), ('MSR_WRITE', 1)]
+
+== node, pre-faulted mapping (/tmp/k4.txt)
+first KVM_RUN call: wall=0.935 ms  guest=0.355 ms  kernel_exit_handling=0.580 ms
+    [('EPT_VIOLATION', 72), ('IO_INSTRUCTION', 1)]
+first 5 ms of the resume: wall=4.998 ms  guest=2.048 ms  kernel_exit_handling=2.950 ms
+    [('EPT_VIOLATION', 358), ('IO_INSTRUCTION', 29), ('EPT_MISCONFIG', 4), ('EXTERNAL_INTERRUPT', 3), ('PENDING_INTERRUPT', 2), ('MSR_WRITE', 1)]
+first 10 ms of the resume: wall=9.517 ms  guest=3.766 ms  kernel_exit_handling=5.751 ms
+    [('EPT_VIOLATION', 701), ('IO_INSTRUCTION', 64), ('EPT_MISCONFIG', 6), ('EXTERNAL_INTERRUPT', 5), ('PENDING_INTERRUPT', 2), ('HLT', 2), ('MSR_WRITE', 1)]
+first 30 ms of the resume: wall=29.996 ms  guest=12.335 ms  kernel_exit_handling=17.661 ms
+    [('EPT_VIOLATION', 3465), ('IO_INSTRUCTION', 360), ('EPT_MISCONFIG', 35), ('EXTERNAL_INTERRUPT', 27), ('PENDING_INTERRUPT', 13), ('HLT', 7), ('CPUID', 6), ('MSR_WRITE', 1)]
+
+== node, huge-page-backed image on tmpfs (/tmp/k3.txt)
+first KVM_RUN call: wall=0.885 ms  guest=0.308 ms  kernel_exit_handling=0.577 ms
+    [('EPT_VIOLATION', 57), ('EXTERNAL_INTERRUPT', 1), ('IO_INSTRUCTION', 1)]
+first 5 ms of the resume: wall=4.997 ms  guest=1.991 ms  kernel_exit_handling=3.006 ms
+    [('EPT_VIOLATION', 333), ('IO_INSTRUCTION', 34), ('EPT_MISCONFIG', 4), ('EXTERNAL_INTERRUPT', 3), ('PENDING_INTERRUPT', 3), ('MSR_WRITE', 1)]
+first 10 ms of the resume: wall=9.995 ms  guest=4.247 ms  kernel_exit_handling=5.748 ms
+    [('EPT_VIOLATION', 775), ('IO_INSTRUCTION', 70), ('EXTERNAL_INTERRUPT', 12), ('EPT_MISCONFIG', 7), ('PENDING_INTERRUPT', 5), ('MSR_WRITE', 1), ('HLT', 1)]
+first 30 ms of the resume: wall=29.994 ms  guest=12.860 ms  kernel_exit_handling=17.134 ms
+    [('EPT_VIOLATION', 3441), ('IO_INSTRUCTION', 410), ('EPT_MISCONFIG', 49), ('EXTERNAL_INTERRUPT', 37), ('PENDING_INTERRUPT', 17), ('HLT', 6), ('CPUID', 6), ('MSR_WRITE', 1)]

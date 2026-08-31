@@ -23,6 +23,7 @@ use kvm_ioctls::VcpuFd;
 use self::worker::{Control, cancel, finish, join_then, worker_main};
 use super::{
     error::{MachineError, MachineErrorKind, Phase},
+    exits::ExitLedger,
     kick::{self, HandlerGuard},
     mmio::MmioDispatch,
     ports::PortBus,
@@ -93,7 +94,7 @@ pub(crate) fn run_with_deadline(
             MachineError::invalid(Phase::Run, "deadline must be positive"),
         );
     }
-    match VcpuRun::start(vcpu, bus, mmio, sentinel) {
+    match VcpuRun::start(vcpu, bus, mmio, sentinel, &Arc::new(ExitLedger::new())) {
         Ok(run) => run.wait(timeout),
         Err(report) => report,
     }
@@ -122,6 +123,7 @@ impl VcpuRun {
         bus: PortBus,
         mmio: Option<MmioDispatch>,
         sentinel: Option<Vec<u8>>,
+        ledger: &Arc<ExitLedger>,
     ) -> Result<Self, RunReport> {
         // The interrupt handler is process-wide, so concurrent proofs in one process serialize
         // here instead of failing. A poisoned lock only means a previous proof panicked after
@@ -142,6 +144,7 @@ impl VcpuRun {
         let mmio = mmio.map(Box::new);
         let pause = Arc::new(AtomicBool::new(false));
         let worker_pause = Arc::clone(&pause);
+        let worker_ledger = Arc::clone(ledger);
         let worker = match thread::Builder::new()
             .name("soma-kvm-vcpu-0".to_owned())
             .spawn(move || {
@@ -154,6 +157,7 @@ impl VcpuRun {
                         signal,
                         pause: &worker_pause,
                         sender: &sender,
+                        ledger: &worker_ledger,
                     },
                 );
             }) {

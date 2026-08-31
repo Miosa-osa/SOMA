@@ -18,6 +18,7 @@ mod elf;
 mod error;
 mod event_loop;
 mod events;
+mod exits;
 mod guest;
 mod halt;
 mod kernel;
@@ -46,6 +47,7 @@ pub use self::{
     elf::ElfError,
     error::{MachineError, MachineErrorKind, Phase},
     event_loop::{EventLoopReport, SlotActivity},
+    exits::{ExitCounts, ExitReason},
     guest::EXPECTED_SERIAL,
     halt::{HaltGuestConfig, HaltGuestEvidence, InterruptController, run_halt_guest},
     kernel::{BootKernelConfig, KernelBootEvidence, KernelBootFailure, run_kernel_boot},

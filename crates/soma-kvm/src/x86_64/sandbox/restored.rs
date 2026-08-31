@@ -131,6 +131,7 @@ impl SandboxMachine {
             finished: Arc::new(AtomicBool::new(false)),
             launch_page: Mutex::new(Some(parts.launch_page)),
             console: None,
+            exits: Arc::new(crate::x86_64::exits::ExitLedger::new()),
             stage: Stage::Prepared(Prepared {
                 vcpu: parts.vcpu,
                 serial_line: parts.serial_line,

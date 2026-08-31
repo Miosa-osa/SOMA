@@ -33,6 +33,7 @@ use super::{
     devices::{self, DeviceIdentity, SandboxDisks, SharedBus},
     event_loop::EventLoop,
     events::{IrqLines, NotifyFds},
+    exits::ExitLedger,
     launch_page::LaunchPageSlot,
     loader::{self, INITRAMFS_LIMIT, KERNEL_IMAGE_LIMIT},
     mmio::MmioDispatch,
@@ -94,6 +95,8 @@ pub struct SandboxMachine {
     finished: Arc<AtomicBool>,
     launch_page: Mutex<Option<LaunchPageSlot>>,
     console: Option<Arc<ConsoleTap>>,
+    /// Both sides of every `KVM_RUN` this machine's vCPU makes.
+    exits: Arc<ExitLedger>,
     stage: Stage,
     clock: Stopwatch,
     timeline: Mutex<Timeline>,
@@ -153,6 +156,7 @@ impl SandboxMachine {
             finished: Arc::new(AtomicBool::new(false)),
             launch_page: Mutex::new(Some(launch_page)),
             console: None,
+            exits: Arc::new(ExitLedger::new()),
             stage: Stage::Prepared(Prepared {
                 vcpu,
                 serial_line,
@@ -202,12 +206,14 @@ impl SandboxMachine {
             Some(prepared.serial_line),
             self.console.clone(),
         ));
-        let vcpu = VcpuRun::start(prepared.vcpu, bus, Some(dispatch), None).map_err(|report| {
-            report
-                .result
-                .err()
-                .unwrap_or_else(|| MachineError::invalid(Phase::Run, "vCPU failed to start"))
-        })?;
+        let vcpu = VcpuRun::start(prepared.vcpu, bus, Some(dispatch), None, &self.exits).map_err(
+            |report| {
+                report
+                    .result
+                    .err()
+                    .unwrap_or_else(|| MachineError::invalid(Phase::Run, "vCPU failed to start"))
+            },
+        )?;
         self.mark(Milestone::RunStart);
         self.stage = Stage::Running(Running { vcpu, event_loop });
         Ok(())
