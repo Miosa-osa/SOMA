@@ -14,9 +14,9 @@ use super::{
 
 /// Guest owner of one authenticated lifecycle and byte transport.
 pub struct GuestControl<I: ControlIo> {
-    channel: AuthChannel<I>,
-    state: GuestState,
-    operations: OperationLedger,
+    pub(super) channel: AuthChannel<I>,
+    pub(super) state: GuestState,
+    pub(super) operations: OperationLedger,
 }
 
 impl<I: ControlIo> GuestControl<I> {
@@ -89,7 +89,9 @@ impl<I: ControlIo> GuestControl<I> {
             }
             (
                 GuestState::AwaitPrepare(_),
-                HostMessage::Execute { .. } | HostMessage::Shutdown { .. },
+                HostMessage::Execute { .. }
+                | HostMessage::File { .. }
+                | HostMessage::Shutdown { .. },
             )
             | (GuestState::RepairedIdle, HostMessage::PrepareAndProbe { .. }) => {
                 Err(channel.fail(ControlStage::Repair, ControlFailureClass::Lifecycle))
@@ -109,6 +111,19 @@ impl<I: ControlIo> GuestControl<I> {
                         operations,
                     },
                     GuestRequest::Execute { operation, command },
+                ))
+            }
+            (GuestState::RepairedIdle, HostMessage::File { operation, request }) => {
+                if !operations.reserve(operation) {
+                    return Err(channel.fail(ControlStage::File, ControlFailureClass::Lifecycle));
+                }
+                Ok((
+                    Self {
+                        channel,
+                        state: GuestState::FilePending(operation),
+                        operations,
+                    },
+                    GuestRequest::File { operation, request },
                 ))
             }
             (GuestState::RepairedIdle, HostMessage::Shutdown { operation }) => {

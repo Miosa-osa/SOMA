@@ -11,6 +11,8 @@ pub enum ControlStage {
     Probe,
     /// One direct command exchange.
     Execute,
+    /// One bounded filesystem request and its outcome.
+    File,
     /// Graceful guest-agent shutdown.
     Shutdown,
 }
