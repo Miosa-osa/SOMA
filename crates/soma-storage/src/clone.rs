@@ -1,13 +1,13 @@
 //! Private head creation with `FICLONE` under a capability directory descriptor.
 //!
 //! The caller passes an open read-only template and an open directory; it receives an open
-//! read-write descriptor for the new head and never a path.
+//! read-write descriptor for the new head and never a path, and chooses whether the head is
+//! published durably or is ephemeral and therefore never synced.
 //! Any failure after the destination exists unlinks it before the error is returned.
 
 #![allow(unsafe_code)]
 
 use std::ffi::CString;
-use std::fmt;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd};
 use std::time::{Duration, Instant};
@@ -15,7 +15,11 @@ use std::time::{Duration, Instant};
 use crate::fiemap::{self, ExtentSummary};
 use crate::head::HeadName;
 
-/// One created, synced, and verified head.
+mod error;
+
+pub use error::CloneError;
+
+/// One created and verified head.
 #[derive(Debug)]
 pub struct ClonedHead {
     fd: OwnedFd,
@@ -56,9 +60,9 @@ pub struct ClonePhases {
     pub create: Duration,
     /// The `FICLONE` call.
     pub clone: Duration,
-    /// `fsync` of the destination file.
+    /// `fsync` of the destination file, zero for an ephemeral head.
     pub file_sync: Duration,
-    /// `fsync` of the directory that publishes the name.
+    /// `fsync` of the directory that publishes the name, zero for an ephemeral head.
     pub dir_sync: Duration,
     /// Size and extent-sharing verification.
     pub verify: Duration,
@@ -72,66 +76,20 @@ impl ClonePhases {
     }
 }
 
-/// Why a head could not be created.
-#[derive(Debug)]
-pub enum CloneError {
-    /// The name already exists in the directory.
-    AlreadyExists,
-    /// Exclusive creation failed for another reason.
-    Create(io::Error),
-    /// The filesystem has no space for the clone metadata.
-    NoSpace,
-    /// The kernel refused `FICLONE`; the mount is not a certified reflink profile.
-    ReflinkUnsupported,
-    /// Template and destination live on different filesystems.
-    CrossDevice,
-    /// `FICLONE` failed for another reason.
-    Clone(io::Error),
-    /// `fsync` of the destination failed.
-    FileSync(io::Error),
-    /// `fsync` of the directory failed.
-    DirSync(io::Error),
-    /// Size or extent verification could not run.
-    Verify(io::Error),
-    /// The destination size differs from the template.
-    SizeMismatch {
-        /// Template size.
-        expected: u64,
-        /// Destination size.
-        actual: u64,
-    },
-    /// At least one destination extent is not shared with the template.
-    ExtentsNotShared {
-        /// Extents reported.
-        extents: u64,
-        /// Extents flagged shared.
-        shared: u64,
-    },
+/// Whether a head's name and extent map are made durable before it is handed over.
+///
+/// A head that is unlinked the instant it is created and read only through the descriptor its
+/// creator keeps has nothing to survive a crash for: the two `fsync` calls that publish it push
+/// the filesystem log for a file that must not outlive its sandbox. Extent sharing is still
+/// proved either way, because the `FIEMAP` verification asks the kernel to flush the inode
+/// itself before it maps it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Durability {
+    /// `fsync` the head and then the directory that names it.
+    Persisted,
+    /// Skip both syncs; the head is ephemeral and is not published to anyone.
+    Ephemeral,
 }
-
-impl fmt::Display for CloneError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::AlreadyExists => f.write_str("head name already exists"),
-            Self::Create(error) => write!(f, "head creation failed: {error}"),
-            Self::NoSpace => f.write_str("filesystem has no space for the head"),
-            Self::ReflinkUnsupported => f.write_str("filesystem refused FICLONE"),
-            Self::CrossDevice => f.write_str("template and directory are on different filesystems"),
-            Self::Clone(error) => write!(f, "FICLONE failed: {error}"),
-            Self::FileSync(error) => write!(f, "head fsync failed: {error}"),
-            Self::DirSync(error) => write!(f, "directory fsync failed: {error}"),
-            Self::Verify(error) => write!(f, "head verification failed: {error}"),
-            Self::SizeMismatch { expected, actual } => {
-                write!(f, "head has {actual} bytes, template has {expected}")
-            }
-            Self::ExtentsNotShared { extents, shared } => {
-                write!(f, "only {shared} of {extents} head extents are shared")
-            }
-        }
-    }
-}
-
-impl std::error::Error for CloneError {}
 
 /// Creates the head `name` under `dir` as a reflink clone of `template`.
 ///
@@ -142,8 +100,9 @@ pub fn clone_head(
     template: BorrowedFd<'_>,
     dir: BorrowedFd<'_>,
     name: &HeadName,
+    durability: Durability,
 ) -> Result<ClonedHead, CloneError> {
-    clone_head_timed(template, dir, name).map(|(head, _)| head)
+    clone_head_timed(template, dir, name, durability).map(|(head, _)| head)
 }
 
 /// [`clone_head`] with the duration of every phase.
@@ -155,6 +114,7 @@ pub fn clone_head_timed(
     template: BorrowedFd<'_>,
     dir: BorrowedFd<'_>,
     name: &HeadName,
+    durability: Durability,
 ) -> Result<(ClonedHead, ClonePhases), CloneError> {
     let c_name =
         CString::new(name.as_str()).map_err(|error| CloneError::Create(io::Error::other(error)))?;
@@ -162,7 +122,7 @@ pub fn clone_head_timed(
     let started = Instant::now();
     let fd = create_exclusive(dir, &c_name)?;
     phases.create = started.elapsed();
-    match finish(template, dir, fd.as_fd(), &mut phases) {
+    match finish(template, dir, fd.as_fd(), durability, &mut phases) {
         Ok((apparent_bytes, extents)) => Ok((
             ClonedHead {
                 fd,
@@ -182,6 +142,7 @@ fn finish(
     template: BorrowedFd<'_>,
     dir: BorrowedFd<'_>,
     fd: BorrowedFd<'_>,
+    durability: Durability,
     phases: &mut ClonePhases,
 ) -> Result<(u64, ExtentSummary), CloneError> {
     let started = Instant::now();
@@ -189,17 +150,19 @@ fn finish(
     // are live for the duration of the call.
     let rc = unsafe { libc::ioctl(fd.as_raw_fd(), libc::FICLONE, template.as_raw_fd()) };
     if rc != 0 {
-        return Err(classify_clone_error(io::Error::last_os_error()));
+        return Err(error::classify_clone_error(io::Error::last_os_error()));
     }
     phases.clone = started.elapsed();
 
-    let started = Instant::now();
-    fsync(fd).map_err(CloneError::FileSync)?;
-    phases.file_sync = started.elapsed();
+    if durability == Durability::Persisted {
+        let started = Instant::now();
+        fsync(fd).map_err(CloneError::FileSync)?;
+        phases.file_sync = started.elapsed();
 
-    let started = Instant::now();
-    fsync(dir).map_err(CloneError::DirSync)?;
-    phases.dir_sync = started.elapsed();
+        let started = Instant::now();
+        fsync(dir).map_err(CloneError::DirSync)?;
+        phases.dir_sync = started.elapsed();
+    }
 
     let started = Instant::now();
     let expected = file_size(template).map_err(CloneError::Verify)?;
@@ -218,15 +181,6 @@ fn finish(
     Ok((actual, extents))
 }
 
-fn classify_clone_error(error: io::Error) -> CloneError {
-    match error.raw_os_error() {
-        Some(libc::ENOSPC | libc::EDQUOT) => CloneError::NoSpace,
-        Some(libc::EOPNOTSUPP | libc::ENOTTY | libc::EINVAL) => CloneError::ReflinkUnsupported,
-        Some(libc::EXDEV) => CloneError::CrossDevice,
-        _ => CloneError::Clone(error),
-    }
-}
-
 fn create_exclusive(dir: BorrowedFd<'_>, name: &CString) -> Result<OwnedFd, CloneError> {
     let flags = libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC | libc::O_NOFOLLOW;
     // SAFETY: `name` is NUL-terminated and outlives the call, `dir` is a live directory
@@ -235,11 +189,7 @@ fn create_exclusive(dir: BorrowedFd<'_>, name: &CString) -> Result<OwnedFd, Clon
     let fd = unsafe { libc::openat(dir.as_raw_fd(), name.as_ptr(), flags, 0o600 as libc::c_uint) };
     if fd < 0 {
         let error = io::Error::last_os_error();
-        return Err(match error.raw_os_error() {
-            Some(libc::EEXIST) => CloneError::AlreadyExists,
-            Some(libc::ENOSPC | libc::EDQUOT) => CloneError::NoSpace,
-            _ => CloneError::Create(error),
-        });
+        return Err(error::classify_create_error(error));
     }
     // SAFETY: `fd` was just returned by `openat` and is owned by no one else.
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })

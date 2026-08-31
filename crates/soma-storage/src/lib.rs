@@ -12,8 +12,10 @@
 //!   profile that proves XFS with reflink support before any head is created.
 //! - [`template`] creates sterile ext4 templates with a pinned `mke2fs` invocation and records
 //!   their digest.
-//! - [`clone`] creates one private head from a template with `FICLONE`, syncs publication, and
-//!   verifies apparent size and extent sharing before handing back an open descriptor only.
+//! - [`clone`] creates one private head from a template with `FICLONE` and verifies apparent
+//!   size and extent sharing before handing back an open descriptor only. A head that is kept
+//!   is synced to publish it; a head that is unlinked the instant it exists is not, because
+//!   nothing is left for a sync to make durable.
 //! - [`verify`] is the conformance proof that two clones of one template diverge without
 //!   touching the template or each other.
 //! - [`lease`], [`release`], and [`reconcile`] own single-use head ownership, destruction, and
@@ -60,6 +62,6 @@ pub use reconcile::{Disposition, ReconcileReport};
 pub use release::{ReleaseError, ReleaseOutcome};
 
 #[cfg(target_os = "linux")]
-pub use clone::{CloneError, ClonePhases, ClonedHead, clone_head, clone_head_timed};
+pub use clone::{CloneError, ClonePhases, ClonedHead, Durability, clone_head, clone_head_timed};
 #[cfg(target_os = "linux")]
 pub use fiemap::ExtentSummary;

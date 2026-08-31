@@ -117,10 +117,15 @@ fn run_cell(
         let victims = if cell.pressure == Pressure::Cleanup {
             let victims = next_names(counter, cell.concurrency);
             for victim in &victims {
-                let head = clone::clone_head(template.file.as_fd(), heads.file.as_fd(), victim)
-                    .map_err(|e| {
-                        BenchError::Io("precreate victim", std::io::Error::other(e.to_string()))
-                    })?;
+                let head = clone::clone_head(
+                    template.file.as_fd(),
+                    heads.file.as_fd(),
+                    victim,
+                    clone::Durability::Persisted,
+                )
+                .map_err(|e| {
+                    BenchError::Io("precreate victim", std::io::Error::other(e.to_string()))
+                })?;
                 drop(head);
             }
             victims
