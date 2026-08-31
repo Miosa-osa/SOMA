@@ -30,6 +30,10 @@ impl LocalFacade {
 }
 
 impl SandboxFacade for LocalFacade {
+    fn hosts_addressable_sandboxes(&self) -> bool {
+        self.runtime.machine_hosting() == soma_local::MachineHosting::OutlivesProcess
+    }
+
     fn launch(
         &mut self,
         request: LaunchMachineRequest,

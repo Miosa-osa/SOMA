@@ -45,6 +45,7 @@ pub enum Call {
 pub struct FakeFacade {
     mode: Mode,
     pub calls: Vec<Call>,
+    hosts_addressable_sandboxes: bool,
 }
 
 impl FakeFacade {
@@ -53,7 +54,15 @@ impl FakeFacade {
         Self {
             mode,
             calls: Vec::new(),
+            hosts_addressable_sandboxes: true,
         }
+    }
+
+    /// A facade whose backend keeps the machine in the process that created it.
+    #[must_use]
+    pub fn without_addressable_sandboxes(mut self) -> Self {
+        self.hosts_addressable_sandboxes = false;
+        self
     }
 
     fn record(&mut self, call: Call) -> Result<(), ManagedFailure> {
@@ -76,6 +85,10 @@ impl FakeFacade {
 }
 
 impl SandboxFacade for FakeFacade {
+    fn hosts_addressable_sandboxes(&self) -> bool {
+        self.hosts_addressable_sandboxes
+    }
+
     fn launch(
         &mut self,
         _request: LaunchMachineRequest,

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from benchmarks.local_alpha.runner.identities import IdentityGenerator
 
+from .attribution import failure_breakdown, shape_disagreement
 from .invocation import OPERATIONS
 from .plan import BurstPlan
 from .results import ResultsWriter, statistics
@@ -111,6 +112,14 @@ def _summary(
     wall_ns: int,
 ) -> dict[str, object]:
     successful = [sample for sample in samples if sample.successful]
+    breakdown = failure_breakdown([sample.failures for sample in samples])
+    shapes = sorted(
+        {
+            note
+            for note in (shape_disagreement(sample.observed) for sample in samples)
+            if note
+        }
+    )
     return {
         "record_type": "run_completion",
         "run_id": run_id,
@@ -124,6 +133,12 @@ def _summary(
             sample.command_succeeded for sample in samples
         ),
         "cleanup_complete_count": sum(sample.cleanup_complete for sample in samples),
+        # Why the run scored what it scored, in the run's own completion record. A count with
+        # no attributable reason is what made a zero unreadable without opening every slot.
+        "failure_breakdown": breakdown,
+        # A launch answers ok for a shape it was never shown to have delivered. Saying so here
+        # is the difference between a measurement and a measurement of something else.
+        "shape_disagreements": shapes,
         "tti": statistics(
             [int(sample.tti_ns) for sample in successful if sample.tti_ns is not None],
             failed_count=len(samples) - len(successful),

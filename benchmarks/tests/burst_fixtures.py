@@ -145,7 +145,12 @@ def sample_record(
     return record
 
 
-def completion_record(declared: BurstPlan, attempted: int) -> dict[str, object]:
+def completion_record(
+    declared: BurstPlan,
+    attempted: int,
+    *,
+    failure_breakdown: Sequence[Mapping[str, object]] = (),
+) -> dict[str, object]:
     return {
         "record_type": "run_completion",
         "run_id": RUN_ID,
@@ -153,6 +158,7 @@ def completion_record(declared: BurstPlan, attempted: int) -> dict[str, object]:
         "experiment_class": declared.experiment_class,
         "attempted": attempted,
         "wall_ns": 9_000,
+        "failure_breakdown": list(failure_breakdown),
     }
 
 

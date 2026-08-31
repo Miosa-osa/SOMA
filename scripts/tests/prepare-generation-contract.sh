@@ -34,4 +34,38 @@ if [[ "$first" == "$second" ]]; then
     exit 1
 fi
 
+# An entry with no snapshot cold boots, roughly fifteen times slower, and nothing at launch
+# says so. The script must refuse to end quietly on one.
+WORK="$(mktemp -d)"
+trap 'rm -rf -- "$WORK"' EXIT
+MEM_MIB=1024
+
+expect_boot_report() {
+    local entry="$1" expected_status="$2" expected_text="$3" allow="$4"
+    local status=0 output
+    output="$(SOMA_ALLOW_COLD_BOOT_ENTRY="$allow" report_boot_path "$entry" 2>&1)" || status=$?
+    if (( status != expected_status )); then
+        printf 'boot report for %s exited %s, expected %s\n' \
+            "$entry" "$status" "$expected_status" >&2
+        return 1
+    fi
+    case "$output" in
+        *"$expected_text"*) ;;
+        *)
+            printf 'boot report for %s did not mention %s\n' "$entry" "$expected_text" >&2
+            printf '%s\n' "$output" >&2
+            return 1
+            ;;
+    esac
+}
+
+mkdir -p "$WORK/cold"
+expect_boot_report "$WORK/cold" 3 "COLD BOOT ONLY" 0
+expect_boot_report "$WORK/cold" 3 "capture_snapshot" 0
+expect_boot_report "$WORK/cold" 0 "accepted a cold boot only entry" 1
+
+mkdir -p "$WORK/warm/snapshot"
+: >"$WORK/warm/snapshot/state.somasnap"
+expect_boot_report "$WORK/warm" 0 "RESTORE from" 0
+
 printf 'prepare-generation shell contract passed\n'

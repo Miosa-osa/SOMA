@@ -15,6 +15,11 @@
 #
 # Example:
 #   scripts/prepare-generation.sh node:22 /srv/soma/prepared /srv/soma/fs-tools
+#
+# A compiled entry with no snapshot still launches: it cold boots a kernel instead of restoring
+# a captured machine, which is roughly fifteen times slower and is reported nowhere at launch.
+# This script therefore refuses to end quietly on such an entry. Set
+# SOMA_ALLOW_COLD_BOOT_ENTRY=1 to accept one deliberately.
 
 set -euo pipefail
 
@@ -108,7 +113,47 @@ prepare() {
     log "done"
     printf '  entry:  %s\n  launch: SOMA_GENERATION_STORE=%s SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \\\n' \
         "$entry" "$STORE_DIR"
-    printf '          soma --backend kvm run %s -- <command>\n' "$IMAGE"
+    printf '          soma --backend kvm run --memory-mib %s --storage-mib %s %s -- <command>\n' \
+        "$MEM_MIB" "$DISK_MIB" "$IMAGE"
+    printf '  shape:  a snapshot restores only the memory it was captured at; launching this\n'
+    printf '          entry at any other --memory-mib is refused as backend_unavailable\n'
+
+    report_boot_path "$entry"
+}
+
+# The path a launch from this entry will actually take, said out loud.
+#
+# The backend chooses restore over cold boot by the presence of one file and reports neither
+# choice, so an entry with no snapshot produces a measurement that looks exactly like a working
+# one and is an order of magnitude slower. Silence here is the whole defect.
+snapshot_state_file() {
+    printf '%s/snapshot/state.somasnap' "$1"
+}
+
+report_boot_path() {
+    local entry="$1"
+    local state
+    state="$(snapshot_state_file "$entry")"
+    if [[ -f "$state" ]]; then
+        printf '  boot:   RESTORE from %s/snapshot\n' "$entry"
+        return 0
+    fi
+    printf '  boot:   COLD BOOT; this entry has no snapshot\n'
+    {
+        printf '\n'
+        printf 'COLD BOOT ONLY: %s does not exist.\n' "$state"
+        printf 'A launch from this entry boots a kernel instead of restoring a captured\n'
+        printf 'machine. That is roughly fifteen times slower, and nothing at launch says\n'
+        printf 'which path was taken, so a measurement against this entry is indistinguishable\n'
+        printf 'from a working one. Capture a snapshot before measuring anything:\n\n'
+        printf '  ./target/release/examples/capture_snapshot %s %s\n\n' "$entry" "$MEM_MIB"
+        printf 'Set SOMA_ALLOW_COLD_BOOT_ENTRY=1 to accept a cold boot only entry on purpose.\n'
+    } >&2
+    if [[ "${SOMA_ALLOW_COLD_BOOT_ENTRY:-0}" == "1" ]]; then
+        printf 'SOMA_ALLOW_COLD_BOOT_ENTRY=1: accepted a cold boot only entry.\n' >&2
+        return 0
+    fi
+    return 3
 }
 
 main() {

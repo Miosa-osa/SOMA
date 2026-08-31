@@ -66,6 +66,37 @@ pub fn probe_backend(
     }
 }
 
+/// Whether a Machine one backend launches is still addressable once the launching process is
+/// gone.
+///
+/// This is the difference between an instance identity a later command can use and one that
+/// names a Machine which died with the process that reported it. A surface that hands an
+/// identity back has to know which it is holding, because reporting a launch as ready without
+/// it is reporting a success no second process can act on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MachineHosting {
+    /// The Machine and its guest session are resident in the launching process.
+    LaunchingProcess,
+    /// The Machine is hosted outside the launching process and outlives it.
+    OutlivesProcess,
+}
+
+/// How long a Machine launched on `backend` remains reachable.
+#[must_use]
+pub const fn machine_hosting(backend: BackendKind) -> MachineHosting {
+    match backend {
+        // A container is registered with the host daemon under a name derived from the Instance,
+        // and a later process reaches it by that name.
+        BackendKind::DockerContainer | BackendKind::Remote => MachineHosting::OutlivesProcess,
+        // The virtual machine and its authenticated guest session are held by the process that
+        // launched them, so nothing survives that process for a second command to reach. This
+        // becomes `OutlivesProcess` when the machine runs in a host-owned worker instead.
+        BackendKind::LinuxKvm | BackendKind::MacosVirtualization => {
+            MachineHosting::LaunchingProcess
+        }
+    }
+}
+
 pub(crate) enum LocalBackend {
     Docker(docker::DockerBackend),
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

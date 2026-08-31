@@ -109,6 +109,8 @@ def validate_samples(
     metadata: Mapping[str, object],
     samples: Sequence[Mapping[str, object]],
     completion: Mapping[str, object],
+    *,
+    require_attribution: bool = False,
 ) -> None:
     """Validate completeness, identity, outcomes, and cleanup for all samples."""
 
@@ -128,6 +130,10 @@ def validate_samples(
             _require_command(sample)
         elif not sample.get("failures"):
             raise ValueError("an unsuccessful sample lacks a typed failure reason")
+        elif require_attribution:
+            _require_attribution(sample)
+    if require_attribution and completion.get("failure_breakdown") is None:
+        raise ValueError("a completed run must carry its failure breakdown")
 
 
 def require(value: object, fields: Sequence[str], label: str) -> None:
@@ -138,6 +144,21 @@ def require(value: object, fields: Sequence[str], label: str) -> None:
     for field in fields:
         if value.get(field) in (None, "", {}):
             raise ValueError(f"{label} is missing required field: {field}")
+
+
+def _require_attribution(sample: Mapping[str, object]) -> None:
+    """Refuse a failure that names no cause.
+
+    A typed reason says which step refused. It does not say why, and a run whose every sample
+    carries `launch_process_failed` and nothing else is a zero no one can act on.
+    """
+
+    for failure in sample["failures"]:
+        if not str(failure.get("detail") or "").strip():
+            raise ValueError(
+                f"failure {failure.get('reason')} at {failure.get('operation')} "
+                "carries no attributable detail"
+            )
 
 
 def _require_command(sample: Mapping[str, object]) -> None:

@@ -98,6 +98,12 @@ fn dispatch<F: SandboxFacade + ?Sized>(
 
 fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Response, ApiError> {
     let (_, request) = parse::<CreateSandboxBody>(body)?.into_facade()?;
+    // Refused before a machine is built rather than answered 201 with an identity that dies
+    // with this connection. A caller that keeps the identity and returns is the whole point of
+    // the create route, and there would be nothing here for it to return to.
+    if !facade.hosts_addressable_sandboxes() {
+        return Err(MissingCapability::DurableMachineHosting.error());
+    }
     let outcome = facade.launch(request).map_err(|f| managed_error(&f))?;
     // A created sandbox answers 201, matching what a provider contract expects of a create call
     // that produced a new addressable resource.

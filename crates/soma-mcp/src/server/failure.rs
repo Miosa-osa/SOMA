@@ -61,11 +61,14 @@ const fn runtime_failure_message(failure: &RuntimeFailure) -> &'static str {
     }
 }
 
+/// Whether resubmitting the identical call, with no operator action in between, could succeed.
+///
+/// `Unavailable` is not one of them. A backend capability this host does not have does not
+/// appear because the caller asked a second time, and a client that reads `retryable` as
+/// permission to keep asking would retry a permanently fatal condition forever.
 const fn runtime_failure_retryable(failure: &RuntimeFailure) -> bool {
     matches!(
         failure.kind(),
-        RuntimeFailureKind::Unavailable
-            | RuntimeFailureKind::Timeout
-            | RuntimeFailureKind::Internal
+        RuntimeFailureKind::Timeout | RuntimeFailureKind::Internal
     )
 }

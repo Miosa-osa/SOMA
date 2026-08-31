@@ -14,6 +14,10 @@ pub enum MissingCapability {
     /// portable facade's `Backend` trait carries only resolve, launch, execute, inspect, and
     /// cleanup, so no engine call reaches them and this service has nothing to drive.
     GuestFilesystemTransfer,
+    /// The backend hosts a Machine inside the process that launched it, and this service opens
+    /// one runtime per connection, so a created sandbox identity would name a Machine that is
+    /// gone before the caller can address it again.
+    DurableMachineHosting,
 }
 
 impl MissingCapability {
@@ -36,6 +40,11 @@ impl MissingCapability {
             Self::GuestFilesystemTransfer => {
                 "the SOMA portable facade exposes no guest filesystem transfer; \
                  the guest protocol implements one, but no backend or engine method reaches it"
+            }
+            Self::DurableMachineHosting => {
+                "this backend hosts a machine inside the process that launched it, and this \
+                 service opens one runtime per connection, so the sandbox identity a create \
+                 would return could not be addressed by any later request"
             }
         }
     }

@@ -45,6 +45,13 @@ pub struct SandboxSnapshot {
 /// are absent because the engine cannot perform them, and a method that cannot be implemented
 /// honestly is worse here than no method at all.
 pub trait SandboxFacade {
+    /// Whether a sandbox this facade creates can still be addressed by a later request.
+    ///
+    /// This service opens one runtime per connection, so a backend that keeps the machine in
+    /// the launching process produces an identity nothing can use. Reporting that up front is
+    /// what stops `create` returning 201 for a sandbox that is already gone.
+    fn hosts_addressable_sandboxes(&self) -> bool;
+
     /// Creates one durably managed sandbox.
     ///
     /// # Errors
