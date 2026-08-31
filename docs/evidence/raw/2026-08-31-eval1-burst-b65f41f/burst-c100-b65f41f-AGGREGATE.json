@@ -1,0 +1,32 @@
+{
+  "commit": "b65f41f",
+  "concurrency": 100,
+  "cohorts": 5,
+  "sandboxes_total": 500,
+  "success_rate_all": 1.0,
+  "tti_p50_per_cohort_ms": [
+    166.0,
+    170.5,
+    181.4,
+    195.9,
+    233.5
+  ],
+  "tti_p50_median_of_cohorts_ms": 181.4,
+  "tti_p50_min_ms": 166.0,
+  "tti_p50_max_ms": 233.5,
+  "stage_machine_launched_ms": {
+    "median": 48.0,
+    "min": 36.7,
+    "max": 59.2
+  },
+  "stage_ready_delta_ms": {
+    "median": 57.7,
+    "min": 53.0,
+    "max": 61.6
+  },
+  "stage_command_delta_ms": {
+    "median": 79.0,
+    "min": 72.9,
+    "max": 117.6
+  }
+}

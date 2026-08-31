@@ -4,6 +4,20 @@ Entries are dated and append-only.
 Each one records what was true when it was written, and none of them is updated afterwards.
 For the current status of any capability, read [the claim ledger](docs/claim-ledger.md) rather than an entry below.
 
+## 2026-08-31 - Five hundred sandboxes, and the figures that had no files
+
+eval-1 was never off. `ssh eval-1` resolved to 192.168.1.1 through a wildcard `.lan` answer, which is a router that refuses SSH, and a subnet scan that covered only half its range was then read as proof the host was gone. It is at 10.0.110.245 with 80 threads and its whole prepared store intact. The lesson is the cheap one: a name that resolves is not a name that resolves correctly, and a partial scan proves nothing.
+
+Checking the retained files before quoting them found that two of the three figures in use had nothing behind them. There was no 62.6 ms sequential result anywhere; the only retained sequential sample was a single run at 79.9 ms, which is not a distribution. The stage medians that the whole prepared-worker argument rested on had never been written down at all, because the script that produced them only printed. The one figure that was real was 164.9 ms at concurrency 100.
+
+So all of it was measured again on `b65f41f` and retained, in [the eval-1 burst and sequential record](docs/evidence/2026-08-31-eval1-burst-and-sequential.md). Sequential is 65.5 ms over 25 samples, close to the figure that had been quoted and now with a file behind it. Concurrency 100 is a cohort p50 between 166.0 and 233.5 ms with a cohort median of 181.4 ms, over five cohorts, and **five hundred of five hundred sandboxes succeeded**.
+
+The spread is the finding that matters for method. Sixty-seven milliseconds between the fastest and slowest cohort is about 40 percent of the median, so a single hundred-way cohort is not a point estimate, and the previously retained 164.9 ms sits at the optimistic edge of the same distribution rather than showing a regression. Comparing one cohort against one cohort, which is what had been done, cannot distinguish a change from noise. Cohort order was not a factor and the host held no leaked state between runs.
+
+Stage medians are now retained beside the totals they describe, from the same sandboxes: machine construction 48.0 ms, Ready a further 57.7 ms, the command a further 79.0 ms. Machine construction is the segment a prepared worker removes and it measured 2.71 ms uncontended, so the prepared-worker case now rests on artifacts. Removing all of it would leave about 133 ms, which is arithmetic rather than a measurement, and 133 ms against Isorun's 73 ms is why [host class](docs/research/host-class-and-burst-projection.md) remains part of the result.
+
+Both harnesses now write their samples and their stage medians to disk from one cohort. The reason a stage median could be quoted that no file contained is that the two came from different scripts on different runs and one of them only printed.
+
 ## 2026-08-30 - Restore was broken on main, and the host is part of the result
 
 Two findings, one a defect and one a constraint.

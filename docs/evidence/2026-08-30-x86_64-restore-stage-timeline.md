@@ -54,7 +54,7 @@ Offsets are nanoseconds from the start of machine creation, as recorded by the m
 
 **Machine construction is 2.71 ms and all of it precedes the guest.**
 Everything up to `RunStart` is work that does not depend on which Instance the machine will serve, which is what makes a prepared worker possible: the [prepared worker protocol](../research/prepared-worker-protocol.md) moves exactly this segment off the request path.
-The retained eval-1 stage medians put the equivalent public milestone at 44.4 ms at concurrency 100, so the same work costs an order of magnitude more when a hundred launches contend for it, and none of that cost is arithmetic that had to happen then.
+The [eval-1 cohorts](2026-08-31-eval1-burst-and-sequential.md) put the equivalent public milestone at a median of 48.0 ms at concurrency 100, so the same work costs more than an order of magnitude more when a hundred launches contend for it, and none of that cost is arithmetic that had to happen then.
 
 **The two largest steps after the guest resumes are the handshake and the command.**
 `VsockConnected` to `Handshake` is 9.2 ms and `AgentReadyLine` to `Execute` is 31.5 ms on this host.
