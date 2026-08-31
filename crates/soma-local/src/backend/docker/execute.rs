@@ -22,8 +22,10 @@ impl DockerBackend {
         ];
         args.extend(request.command().arguments().iter().map(ToOwned::to_owned));
         let result = command_owned(&args, Duration::from_millis(request.limits().timeout_ms()));
-        if result.timed_out || result.output_limited {
-            let _ = remove(&name);
+        // A container is recorded as already cleaned only when its removal was proven. Marking
+        // it regardless made the later Cleanup report a complete release for a container that
+        // may still be running, which is cleanup evidence the host cannot back.
+        if (result.timed_out || result.output_limited) && remove(&name) {
             self.already_cleaned
                 .insert(request.instance_id().as_str().to_owned());
         }

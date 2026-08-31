@@ -20,6 +20,7 @@ from benchmarks.local_alpha.provenance import (
 from benchmarks.local_alpha.runner.identities import IdentityGenerator
 
 from . import metadata as host_metadata
+from .attribution import breakdown_lines
 from .plan import BACKENDS, EXPERIMENT_CLASSES, BurstPlan
 from .report import generate
 from .run import run_burst
@@ -74,8 +75,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _report(arguments)
         return _run(arguments)
     except ValueError as error:
-        argument_parser.error(str(error))
-    raise AssertionError("argparse.error does not return")
+        # Not `argparse.error`: it buries one sentence under a usage block, and a caller that
+        # only reads the results file sees a run that produced nothing and said nothing.
+        sys.stderr.write(f"soma-burst: error: {error}\n")
+        sys.stderr.flush()
+        raise SystemExit(2) from error
 
 
 def _run(arguments: argparse.Namespace) -> int:
@@ -129,7 +133,30 @@ def _run(arguments: argparse.Namespace) -> int:
         )
     json.dump(summary, sys.stdout, sort_keys=True, separators=(",", ":"))
     sys.stdout.write("\n")
-    return 0 if summary["attempted"] == summary["tti"]["accepted_count"] else 1
+    accepted = summary["tti"]["accepted_count"]
+    if accepted == summary["attempted"]:
+        return 0
+    _report_failures(summary, accepted)
+    return 1
+
+
+def _report_failures(summary: dict[str, object], accepted: int) -> None:
+    """Say on stderr why a run did not score what it attempted.
+
+    A score alone is not a result. Every reason is already retained per slot, so the only thing
+    that made a zero unreadable was that nothing summarised it where a person would look.
+    """
+
+    attempted = summary["attempted"]
+    sys.stderr.write(
+        f"soma-burst: {accepted} of {attempted} samples succeeded. Why:\n"
+    )
+    lines = breakdown_lines(summary.get("failure_breakdown") or [])
+    if not lines:
+        lines = ["no failure reason was retained; this is a harness fault"]
+    for line in lines:
+        sys.stderr.write(f"  {line}\n")
+    sys.stderr.flush()
 
 
 def _report(arguments: argparse.Namespace) -> int:
@@ -145,7 +172,10 @@ def _report(arguments: argparse.Namespace) -> int:
 
 def _absolute(path: Path, label: str) -> Path:
     if not path.is_absolute():
-        raise ValueError(f"{label} path must be absolute")
+        raise ValueError(
+            f"{label} path must be absolute, but {str(path)!r} is relative; "
+            f"pass {Path.cwd() / path}"
+        )
     return path
 
 

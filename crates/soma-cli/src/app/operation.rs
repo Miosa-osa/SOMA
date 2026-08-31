@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use soma_local::{LocalRuntime, LocalRuntimeConfig};
+use soma_local::{LocalRuntime, LocalRuntimeConfig, MachineHosting};
 
 use crate::{
     cli::BackendSelection,
@@ -11,7 +11,7 @@ use crate::{
 
 use super::{
     Execution,
-    failure::{local_failure, managed_failure, run_failure},
+    failure::{local_failure, managed_failure, not_hosted, run_failure},
     success::{command_success, machine_success},
 };
 
@@ -48,6 +48,16 @@ fn dispatch(
             }
             Err(failure) => run_failure(command, instance_id, &failure),
         },
+        // A launch this process cannot outlive is refused before a machine is built rather than
+        // reported ready. The command line hands its instance identity to a caller who will use
+        // it from a second process, and on a backend that hosts the machine here there is
+        // nothing for that second process to reach. Refusing costs the caller a machine it could
+        // never have used; reporting ready costs it a retry loop against a dead identity.
+        PreparedOperation::Launch { .. }
+            if runtime.machine_hosting() == MachineHosting::LaunchingProcess =>
+        {
+            not_hosted(command)
+        }
         PreparedOperation::Launch {
             instance_id,
             request,

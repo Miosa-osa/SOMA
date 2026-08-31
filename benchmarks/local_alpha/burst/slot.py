@@ -11,6 +11,7 @@ from pathlib import Path
 from benchmarks.local_alpha.capture import ProcessCapture, run_external_process
 from benchmarks.local_alpha.metrics import parse_milestones
 
+from .attribution import process_detail
 from .envelope import command_evidence, destroyed, launched_ready
 from .invocation import display_argv, slot_calls
 from .plan import BurstPlan
@@ -108,6 +109,7 @@ def execute_slot(
     processes: dict[str, object] = {}
     stages: dict[str, object] = {}
     observed: dict[str, object] = {}
+    details: dict[str, str] = {}
     failures: list[dict[str, str]] = []
 
     def invoke(operation: str) -> tuple[bool, Mapping[str, object] | None]:
@@ -123,28 +125,45 @@ def execute_slot(
                 maximum_stream_bytes=MAXIMUM_STREAM_BYTES,
             )
         except OSError as error:
-            processes[operation] = {"spawn_error": type(error).__name__}
+            record = {"spawn_error": type(error).__name__}
+            processes[operation] = record
+            details[operation] = process_detail(record, None)
             return False, None
-        processes[operation] = {
+        record = {
             "exit_code": capture.exit_code,
             "duration_ns": capture.duration_ns,
             "harness_timed_out": capture.harness_timed_out,
             "stderr": capture.stderr.as_dict(),
         }
-        if capture.harness_timed_out or capture.exit_code != 0:
-            return False, None
+        processes[operation] = record
+        # The envelope is read whether or not the process succeeded: a refusal carries the typed
+        # error code that says why, and discarding it on a nonzero exit is what left a zero
+        # scoring run with nothing but a count.
         envelope = _envelope(capture.stdout.retained)
+        if capture.harness_timed_out or capture.exit_code != 0:
+            details[operation] = process_detail(record, envelope)
+            return False, None
         if envelope is not None:
             _record_receipt(stages, observed, operation, envelope)
+        else:
+            details[operation] = "response was not one JSON object"
         return True, envelope
 
     started_ns = clock()
     launch_ran, launched = invoke("launch")
     if not launch_ran:
-        failures.append(_failure("launch_process_failed", "launch"))
+        failures.append(
+            _failure("launch_process_failed", "launch", details.get("launch", ""))
+        )
     elif launched is None or not launched_ready(launched, instance_id):
         launched = None
-        failures.append(_failure("launch_response_invalid", "launch"))
+        failures.append(
+            _failure(
+                "launch_response_invalid",
+                "launch",
+                details.get("launch", "response did not report a ready instance"),
+            )
+        )
 
     command: dict[str, object] | None = None
     tti_ns: int | None = None
@@ -153,12 +172,18 @@ def execute_slot(
         exec_ran, executed = invoke("exec")
         tti_ns = clock() - started_ns
         command_succeeded, command = _judge_command(
-            exec_ran, executed, instance_id, failures
+            exec_ran, executed, instance_id, failures, details
         )
 
     cleanup_complete = destroyed(invoke("destroy")[1], instance_id)
     if not cleanup_complete:
-        failures.append(_failure("cleanup_failed", "destroy"))
+        failures.append(
+            _failure(
+                "cleanup_failed",
+                "destroy",
+                details.get("destroy", "destroy did not report a destroyed instance"),
+            )
+        )
     return BurstSample(
         instance_id=instance_id,
         operation_ids=dict(operation_ids),
@@ -178,13 +203,22 @@ def _judge_command(
     executed: Mapping[str, object] | None,
     instance_id: str,
     failures: list[dict[str, str]],
+    details: Mapping[str, str],
 ) -> tuple[bool, dict[str, object] | None]:
     if not executed_ran:
-        failures.append(_failure("command_process_failed", "exec"))
+        failures.append(
+            _failure("command_process_failed", "exec", details.get("exec", ""))
+        )
         return False, None
     command = command_evidence(executed, instance_id) if executed else None
     if command is None:
-        failures.append(_failure("command_response_invalid", "exec"))
+        failures.append(
+            _failure(
+                "command_response_invalid",
+                "exec",
+                details.get("exec", "response carried no command evidence"),
+            )
+        )
         return False, None
     if command["status"] != "exited" or command["exit_code"] != 0:
         failures.append(

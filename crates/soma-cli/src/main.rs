@@ -7,7 +7,10 @@ mod request;
 
 use std::{env, ffi::OsString, io, process};
 
-use clap::{Parser, error::ErrorKind};
+use clap::{
+    Parser,
+    error::{ContextKind, ContextValue, ErrorKind},
+};
 
 use crate::{
     app::execute,
@@ -37,7 +40,7 @@ fn run() -> i32 {
                 ProcessExit::Software.code()
             };
         }
-        Err(_) => return render_usage_error(format),
+        Err(error) => return render_usage_error(format, &error),
     };
     let format = cli.format;
     let execution = execute(cli);
@@ -54,7 +57,16 @@ fn run() -> i32 {
     execution.exit.code()
 }
 
-fn render_usage_error(format: OutputFormat) -> i32 {
+fn render_usage_error(format: OutputFormat, error: &clap::Error) -> i32 {
+    // The envelope deliberately never echoes an argument value: an image reference or a guest
+    // argument can be private, and a refusal must not be the thing that publishes it. The name
+    // of the argument that failed is not a value, so naming it costs nothing and is the one
+    // piece of information that turns "validation failed" into something an operator can act
+    // on. Without it stderr is empty and the operator is left guessing.
+    if let Some(name) = failing_argument(error) {
+        let reason = usage_reason(error.kind());
+        let _ = eprintln_bounded(&format!("soma: usage: {reason}: {name}; use --help"));
+    }
     let response = Response::failure("cli", FailureBody::usage());
     if render::render(
         &response,
@@ -68,6 +80,52 @@ fn render_usage_error(format: OutputFormat) -> i32 {
         return ProcessExit::Software.code();
     }
     ProcessExit::Usage.code()
+}
+
+/// The names of the arguments clap refused, when they are names rather than caller text.
+///
+/// An unrecognised argument is echoed back by clap as it was written, and what was written may
+/// be `--flag=secret`. Only plain option and command names are reported, so no value can travel
+/// out through this path.
+/// What clap refused, as a phrase that names no caller value.
+const fn usage_reason(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::MissingRequiredArgument | ErrorKind::MissingSubcommand => {
+            "missing required argument"
+        }
+        ErrorKind::UnknownArgument | ErrorKind::InvalidSubcommand => "unrecognised argument",
+        ErrorKind::InvalidValue | ErrorKind::ValueValidation => "invalid value for",
+        ErrorKind::ArgumentConflict => "conflicting argument",
+        ErrorKind::TooManyValues | ErrorKind::TooFewValues | ErrorKind::WrongNumberOfValues => {
+            "wrong number of values for"
+        }
+        _ => "rejected argument",
+    }
+}
+
+fn failing_argument(error: &clap::Error) -> Option<String> {
+    let names: Vec<String> = match error.get(ContextKind::InvalidArg) {
+        Some(ContextValue::String(name)) => safe_name(name).into_iter().collect(),
+        Some(ContextValue::Strings(names)) => {
+            names.iter().filter_map(|name| safe_name(name)).collect()
+        }
+        _ => Vec::new(),
+    };
+    (!names.is_empty()).then(|| names.join(", "))
+}
+
+/// One argument name, when what clap recorded is a name rather than something a caller typed.
+///
+/// clap writes an option that takes a value as `--name <PLACEHOLDER>`, so everything after the
+/// first space is dropped, which also drops anything a caller could have smuggled into the rest
+/// of the token. A token that is not a plain lowercase name is reported as nothing at all.
+fn safe_name(recorded: &str) -> Option<String> {
+    let name = recorded.split_whitespace().next()?;
+    let bare = name.trim_start_matches('-');
+    let plain = |character: char| {
+        character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '<' | '>' | '.')
+    };
+    (!bare.is_empty() && bare.len() <= 64 && bare.chars().all(plain)).then(|| name.to_owned())
 }
 
 fn requested_format(arguments: &[OsString]) -> OutputFormat {

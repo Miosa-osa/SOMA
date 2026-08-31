@@ -83,6 +83,10 @@ class BurstResults:
         return tuple(sample for sample in self.samples if sample["successful"])
 
     @property
+    def failure_breakdown(self) -> tuple[Mapping[str, object], ...]:
+        return tuple(self.completion.get("failure_breakdown") or ())
+
+    @property
     def failed(self) -> tuple[Mapping[str, object], ...]:
         return tuple(sample for sample in self.samples if not sample["successful"])
 
@@ -152,8 +156,9 @@ def load_results(path: Path) -> BurstResults:
         raise ValueError("results records contain multiple run identities")
     if len(schemas) != 1:
         raise ValueError("results records contain multiple schema versions")
-    validate_metadata(metadata, require_engine=next(iter(schemas)) == RESULTS_SCHEMA)
-    validate_samples(metadata, samples, completion)
+    current = next(iter(schemas)) == RESULTS_SCHEMA
+    validate_metadata(metadata, require_engine=current)
+    validate_samples(metadata, samples, completion, require_attribution=current)
     return BurstResults(
         path=path,
         metadata=metadata,

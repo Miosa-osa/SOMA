@@ -44,6 +44,12 @@ impl LocalRuntime {
         self.backend_kind
     }
 
+    /// Whether a Machine this runtime launches outlives the process that launched it.
+    #[must_use]
+    pub const fn machine_hosting(&self) -> crate::MachineHosting {
+        crate::machine_hosting(self.backend_kind)
+    }
+
     /// Runs one facade-owned, cleanup-proven local transaction.
     ///
     /// # Errors
