@@ -19,11 +19,12 @@ It proves four things and nothing more:
   bytes), byte-identical to the root the warm-path evidence pins. The OCI import evidence
   recorded cross-host reproduction of one image revision as open; for this revision it is now
   observed once.
-- All thirteen live KVM tests pass on this host: `kvm_probe` 1, `x86_64_halt_guest` 2,
-  `x86_64_kernel_boot` 2, `x86_64_sandbox_boot` 2, `x86_64_snapshot_restore` 7 as the suite
-  counts them (capture and restore through `node -v`, two-instance independence, certification,
-  the three rejection proofs, and the timing loop). A cold-booted `node:22` Generation and a
-  restored one both returned `v22.23.2` through the authenticated session.
+- All fourteen live KVM tests pass on this host: `kvm_probe` 1, `x86_64_halt_guest` 2,
+  `x86_64_kernel_boot` 2, `x86_64_sandbox_boot` 2, and `x86_64_snapshot_restore` 7 (capture and
+  restore through `node -v`, two-instance independence, certification, the three rejection
+  proofs, and the timing loop). Earlier evidence counted thirteen; the restore suite has grown
+  by one test since. A cold-booted `node:22` Generation and a restored one both returned
+  `v22.23.2` through the authenticated session.
 - The warm restore timing on this hardware class lands where the host-class analysis predicts:
   Ready p50 20.72 ms over ten restores, between the retained Core Ultra 9 275HX result
   (about 12 ms) and the Xeon Gold 6138 result (about 29 ms).
