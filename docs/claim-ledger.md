@@ -69,6 +69,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 | XFS reflink storage profile, sterile templates, clone, lease, reconcile | Live-proved at `f91f219` | [XFS reflink profile](evidence/2026-08-29-xfs-reflink-profile.md); the launch path does not yet consume prepared heads |
 | Prepared-worker allocator, ledger, reconciliation, capacity admission | Component-tested | `crates/soma-hostd` tests; the daemon starts only with the explicitly requested development launcher |
 | Persistent Instance ownership: Launch, lookup by identity, listing, idempotent Destroy | Component-tested | `crates/soma-hostd` instance and ownership tests; an Instance outlives its client connection over the real daemon socket, but the Instance owns a prepared worker rather than a jailed `soma-vmm` process |
+| Tenant identity, per-host quota and fairness, metering, and the two receipt projections | Designed | [ADR 0035](adr/0035-tenancy-metering-and-observability.md). No surface authenticates a caller, no record is tenant scoped, no usage is counted, and the receipt has one projection rather than two |
 
 ## Performance
 
