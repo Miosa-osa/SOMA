@@ -8,8 +8,9 @@ use soma_guest::LaunchNetwork;
 use soma_kvm::x86_64::SandboxDisks;
 use soma_storage::CloneError;
 
+use super::identity::{LaunchIdentity, candidate_bytes, now_unix_nanos};
 use super::prepared::PreparedGeneration;
-use super::session::{Boot, FIRST_GUEST_CID, Source};
+use super::session::{Boot, Network, Source};
 
 /// Opens the prepared artifacts and gives this Instance its own writable overlay head.
 ///
@@ -19,8 +20,11 @@ use super::session::{Boot, FIRST_GUEST_CID, Source};
 pub(super) fn boot_for(
     prepared: &PreparedGeneration,
     memory_mib: u64,
-    instance: &InstanceId,
+    identity: LaunchIdentity,
+    network: Network,
 ) -> Result<Boot, BackendFailureKind> {
+    let instance = &InstanceId::new(hex(identity.instance))
+        .map_err(|_| BackendFailureKind::WorkloadRejected)?;
     let manifest = &prepared.manifest;
     let open = |descriptor| {
         soma_generation::open_artifact(&prepared.store, descriptor)
@@ -38,7 +42,7 @@ pub(super) fn boot_for(
     // this launch resumes that machine instead of booting a kernel, which is the difference
     // between hundreds of milliseconds and tens on the request path.
     let snapshot = prepared.store.parent().map(|entry| entry.join("snapshot"));
-    let guest_cid = guest_cid_for(instance)?;
+    let guest_cid = identity.guest_cid;
     let source =
         if let Some(snapshot) = snapshot.filter(|path| path.join("state.somasnap").is_file()) {
             {
@@ -67,11 +71,22 @@ pub(super) fn boot_for(
     Ok(Boot {
         source,
         generation: candidate_bytes(&prepared.id)?,
-        instance: instance_bytes(instance)?,
-        operation: fresh16(),
+        instance: identity.instance,
+        operation: identity.operation,
         guest_cid,
-        network: link_down_network(guest_cid)?,
+        network,
     })
+}
+
+/// The Instance identity as the lowercase hexadecimal its portable form is written in.
+fn hex(instance: [u8; 16]) -> String {
+    use std::fmt::Write as _;
+    instance
+        .iter()
+        .fold(String::with_capacity(32), |mut out, byte| {
+            let _ignored = write!(out, "{byte:02x}");
+            out
+        })
 }
 
 /// Bytes in one mebibyte.
@@ -196,7 +211,7 @@ fn unlink(directory: &std::fs::File, name: &str) -> Result<(), BackendFailureKin
 /// authority. So this must be given the same identifier the machine was built with rather than
 /// a constant: a launch page naming a different one leaves a correctly built machine unable to
 /// form a session at all.
-fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, BackendFailureKind> {
+pub(super) fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, BackendFailureKind> {
     LaunchNetwork::new(
         guest_cid,
         1,
@@ -208,82 +223,6 @@ fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, BackendFailureKind
         now_unix_nanos(),
     )
     .map_err(|_| BackendFailureKind::Unavailable)
-}
-
-fn now_unix_nanos() -> u64 {
-    u64::try_from(
-        std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos(),
-    )
-    .unwrap_or(0)
-}
-
-/// The exact sixteen bytes the launch page carries for this Instance.
-///
-/// The guest authenticates an Instance identity, and the receipt reports one. If those were
-/// allowed to differ, the authenticated session would prove one Instance while the public
-/// evidence described another, and no reader could tell. This is the only conversion between
-/// them, and it is exact rather than derived: a `InstanceId` is thirty-two lowercase hexadecimal
-/// characters, which is these sixteen bytes written out.
-fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
-    let hex = instance.as_str();
-    if hex.len() != 32 {
-        return Err(BackendFailureKind::WorkloadRejected);
-    }
-    let mut bytes = [0_u8; 16];
-    for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
-        let text = std::str::from_utf8(pair).map_err(|_| BackendFailureKind::WorkloadRejected)?;
-        bytes[index] =
-            u8::from_str_radix(text, 16).map_err(|_| BackendFailureKind::WorkloadRejected)?;
-    }
-    Ok(bytes)
-}
-
-/// Sixteen fresh bytes for one identity.
-fn fresh16() -> [u8; 16] {
-    use std::io::Read as _;
-    let mut bytes = [0_u8; 16];
-    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-        let _ignored = file.read_exact(&mut bytes);
-    }
-    bytes
-}
-
-/// The Candidate identity as the thirty-two bytes the launch page binds.
-///
-/// The identity is carried as its canonical `sha256:` form, and the launch page binds raw bytes,
-/// so the hex is decoded rather than re-hashed: re-hashing would bind a different value.
-fn candidate_bytes(id: &soma_generation::CandidateId) -> Result<[u8; 32], BackendFailureKind> {
-    let hex = id
-        .as_str()
-        .strip_prefix("sha256:")
-        .ok_or(BackendFailureKind::Unavailable)?;
-    let mut bytes = [0_u8; 32];
-    if hex.len() != 64 {
-        return Err(BackendFailureKind::Unavailable);
-    }
-    for (index, pair) in hex.as_bytes().as_chunks::<2>().0.iter().enumerate() {
-        let text = std::str::from_utf8(pair).map_err(|_| BackendFailureKind::Unavailable)?;
-        bytes[index] = u8::from_str_radix(text, 16).map_err(|_| BackendFailureKind::Unavailable)?;
-    }
-    Ok(bytes)
-}
-
-/// The vsock context identifier this Instance takes.
-///
-/// Context identifiers are host global, so two concurrent sandboxes sharing one would contend for
-/// the same endpoint. One command line invocation serves one sandbox and cannot see the others,
-/// so there is no counter to draw from: the identifier is derived from the Instance identity,
-/// which is already unique per sandbox. Zero, one, and two are reserved by the kernel, so the
-/// derived value is folded into the range above them.
-fn guest_cid_for(instance: &InstanceId) -> Result<u32, BackendFailureKind> {
-    let bytes = instance_bytes(instance)?;
-    let derived = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    // `u32::MAX` is reserved as the "any" identifier, so the usable span ends one below it.
-    let span = u32::MAX - FIRST_GUEST_CID;
-    Ok(FIRST_GUEST_CID + (derived % span))
 }
 
 #[cfg(test)]

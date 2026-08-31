@@ -2,11 +2,12 @@
 
 use soma::{
     CommandObservation, CommandStatus, CommandTimes, DnsPolicy, EffectiveNetwork, EffectiveShape,
-    EgressPolicy, ExecutionRequest, NetworkAttachment, Observation, ObservationUnavailable,
-    ObservedOutput, PortActivationClass,
+    EgressPolicy, ExecutionRequest, NetworkAttachment, NetworkPolicy, Observation,
+    ObservationUnavailable, ObservedOutput, PortActivationClass,
 };
 use soma_guest::{GuestCommand, TerminalStatus};
 
+use super::network::Egress;
 use super::session::Completed;
 
 /// The one machine shape the `x86_64` contract admits.
@@ -34,18 +35,31 @@ pub(super) fn effective_shape(memory_mib: u64) -> EffectiveShape {
 
 /// The network a caller is told it received.
 ///
-/// The guest's one device is link down and no egress path exists, so both are observed facts
-/// rather than unverified ones.
-pub(super) fn effective_network() -> EffectiveNetwork {
-    EffectiveNetwork::new(
-        Observation::Observed(NetworkAttachment::Detached),
-        Observation::Observed(EgressPolicy::Denied),
-        Observation::Observed(DnsPolicy::Denied),
-        Observation::Observed(Vec::new()),
-        Observation::Observed(Vec::new()),
-        Observation::Observed(PortActivationClass::NotApplicable),
-    )
-    .unwrap_or_else(|_| EffectiveNetwork::unavailable(ObservationUnavailable::NotVerified))
+/// Every dimension is observed rather than unverified, because each is a fact this process
+/// established: an Instance that asked for no egress holds the link-down device and reaches
+/// nothing, and an Instance the broker leased a bundle to holds exactly the address the broker
+/// leased under exactly the policy the broker admitted. Reporting a request's policy back as
+/// effective would describe what was asked for rather than what was given.
+pub(super) fn effective_network(egress: &Egress, policy: &NetworkPolicy) -> EffectiveNetwork {
+    let observed = match egress {
+        Egress::Declined => EffectiveNetwork::new(
+            Observation::Observed(NetworkAttachment::Detached),
+            Observation::Observed(EgressPolicy::Denied),
+            Observation::Observed(DnsPolicy::Denied),
+            Observation::Observed(Vec::new()),
+            Observation::Observed(Vec::new()),
+            Observation::Observed(PortActivationClass::NotApplicable),
+        ),
+        Egress::Leased(lease) => EffectiveNetwork::new(
+            Observation::Observed(NetworkAttachment::Attached),
+            Observation::Observed(policy.egress()),
+            Observation::Observed(policy.dns().clone()),
+            Observation::Observed(lease.addresses()),
+            Observation::Observed(Vec::new()),
+            Observation::Observed(PortActivationClass::NotApplicable),
+        ),
+    };
+    observed.unwrap_or_else(|_| EffectiveNetwork::unavailable(ObservationUnavailable::NotVerified))
 }
 
 pub(super) fn guest_command(request: &ExecutionRequest<'_>) -> Option<GuestCommand> {

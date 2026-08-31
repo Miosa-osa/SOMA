@@ -29,6 +29,8 @@ mod activate;
 #[cfg(target_os = "linux")]
 mod bundle;
 #[cfg(target_os = "linux")]
+mod client;
+#[cfg(target_os = "linux")]
 mod daemon;
 #[cfg(target_os = "linux")]
 mod link;
@@ -70,6 +72,8 @@ pub use transfer::{MAX_HEADER, TransferHeader};
 pub use activate::{ActivationEvidence, activate};
 #[cfg(target_os = "linux")]
 pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
+#[cfg(target_os = "linux")]
+pub use client::{BrokerClient, ClientError};
 #[cfg(target_os = "linux")]
 pub use daemon::serve;
 #[cfg(target_os = "linux")]

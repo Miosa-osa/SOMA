@@ -9,16 +9,17 @@ use std::time::Duration;
 use soma::{
     BackendFailure, BackendFailureKind, CleanupDisposition, CleanupEvidence, CleanupMethod,
     CleanupObservation, CleanupRequest, CleanupTimes, CommandObservation, CommandTimes,
-    DigestBinding, EgressPolicy, ExecutionRequest, InspectionObservation, InspectionRequest,
-    InstanceId, IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, MachineState,
-    PreparationClass,
+    DigestBinding, ExecutionRequest, InspectionObservation, InspectionRequest, InstanceId,
+    IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, MachineState, PreparationClass,
 };
 
 use super::{
     KvmBackend,
     boot::boot_for,
     evidence::{CONTRACT_VCPUS, effective_network, effective_shape, guest_command, observation},
-    session::{Session, SessionError},
+    identity::LaunchIdentity,
+    network::{Egress, Released},
+    session::{Network, Session, SessionError},
 };
 
 /// How long one bounded command may take before the session is considered gone.
@@ -28,13 +29,19 @@ const COMMAND_CEILING: Duration = Duration::from_secs(300);
 pub(super) struct Live {
     pub(super) instance: InstanceId,
     pub(super) session: Session,
+    /// The network this Instance holds, released when its sandbox is.
+    pub(super) egress: Egress,
+    /// What this Instance was told its network is, reported again by every later observation.
+    pub(super) network: soma::EffectiveNetwork,
 }
 
 const fn failure_kind(error: SessionError) -> BackendFailureKind {
     match error {
         // The machine could not be built from artifacts the host presented as prepared, which
         // is a property of the host rather than of the request.
-        SessionError::Create | SessionError::LaunchPage => BackendFailureKind::Unavailable,
+        SessionError::Create | SessionError::LaunchPage | SessionError::Network => {
+            BackendFailureKind::Unavailable
+        }
         // The guest exists but never reached, or lost, its authenticated session.
         SessionError::Boot
         | SessionError::Ready
@@ -63,28 +70,42 @@ impl KvmBackend {
         if shape.vcpu_count() != CONTRACT_VCPUS {
             return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
         }
-        // The guest's one network device is link down today, so a request that needs egress
-        // cannot be served. Saying so is the whole point of a fail-closed network.
-        if !matches!(
-            shape.capabilities().network_policy().egress(),
-            EgressPolicy::Denied | EgressPolicy::Unspecified
-        ) {
-            return Err(self.fail(operation, BackendFailureKind::Unsupported));
-        }
         let prepared = request
             .prepared()
             .downcast_ref::<super::prepared::PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
-        let boot = boot_for(prepared, shape.memory_mib(), request.instance_id())
+        let identity = LaunchIdentity::derive(request.instance_id())
+            .map_err(|kind| self.fail(operation, kind))?;
+        let policy = shape.capabilities().network_policy();
+        // A request that needs egress is served by the broker or refused. It is never served by
+        // the placeholder device, which would report a working network that drops every packet.
+        let mut egress = Egress::claim(self.broker.as_deref(), policy, identity)
+            .map_err(|kind| self.fail(operation, kind))?;
+        let network = Network {
+            launch: egress
+                .launch(identity)
+                .map_err(|kind| self.fail(operation, kind))?,
+            attachment: egress.attachment(),
+            activation: egress.pending_activation(),
+        };
+        let observed = effective_network(&egress, policy);
+        let boot = boot_for(prepared, shape.memory_mib(), identity, network)
             .map_err(|kind| self.fail(operation, kind))?;
         let launched = self.clocks.elapsed_ns(operation);
-        let session = Session::launch(boot).map_err(|error| {
+        // A launch that ends here drops the lease, and dropping a lease releases it, so a guest
+        // that never reached its session leaves the broker holding nothing.
+        let session = Session::launch(boot, &mut |receipt| {
+            egress.activate(receipt).map_err(|()| SessionError::Network)
+        })
+        .map_err(|error| {
             BackendFailure::new(failure_kind(error), self.clocks.elapsed_ns(operation))
         })?;
         let ready = self.clocks.elapsed_ns(operation);
         self.live = Some(Live {
             instance: request.instance_id().clone(),
             session,
+            egress,
+            network: observed.clone(),
         });
         Ok(LaunchObservation::new(
             operation.clone(),
@@ -100,7 +121,7 @@ impl KvmBackend {
             // Launch accepts only a certified Generation.
             DigestBinding::ObservedOnly,
             effective_shape(shape.memory_mib()),
-            effective_network(),
+            observed,
             LaunchTimes::new(admitted, launched, ready),
         ))
     }
@@ -135,16 +156,15 @@ impl KvmBackend {
         let observed = self.clocks.elapsed_ns(operation);
         // A sandbox this Backend is not driving cannot be observed, and reporting it as stopped
         // would claim knowledge of a machine this process never owned.
-        let state = if self.live_for(request.instance_id()).is_some() {
-            MachineState::Ready
-        } else {
+        let Some(live) = self.live_for(request.instance_id()) else {
             return Err(self.fail(operation, BackendFailureKind::Unavailable));
         };
+        let network = live.network.clone();
         Ok(InspectionObservation::observed(
             request,
             Self::kind(),
-            state,
-            effective_network(),
+            MachineState::Ready,
+            network,
             observed,
         ))
     }
@@ -158,7 +178,7 @@ impl KvmBackend {
         // Cleanup is idempotent, but an Instance this Backend never owned is a different fact
         // from one it owned and released. Reporting resources complete for an unknown Instance
         // would claim to have released resources this process never held.
-        let Some(live) = self.take_live(request.instance_id()) else {
+        let Some(mut live) = self.take_live(request.instance_id()) else {
             let finished = self.clocks.elapsed_ns(operation);
             return Ok(CleanupObservation::new(
                 operation.clone(),
@@ -171,6 +191,15 @@ impl KvmBackend {
         if let Ok(evidence) = &outcome {
             super::timeline::dump(request.instance_id().as_str(), evidence);
         }
+        // The lease is released whether or not the guest shut down cleanly. A machine that is
+        // gone has no use for a namespace, a TAP, an address lease, or a port mapping, and
+        // leaving them behind is the failure that compounds fastest across many sandboxes.
+        let network = match live.egress.release() {
+            Released::Complete => CleanupDisposition::Complete,
+            Released::NothingHeld => CleanupDisposition::NotOwned,
+            // The broker was asked and could not confirm, so this process must not claim it did.
+            Released::Incomplete => CleanupDisposition::Incomplete,
+        };
         let released = outcome.is_ok();
         let finished = self.clocks.elapsed_ns(operation);
         if !released {
@@ -180,13 +209,12 @@ impl KvmBackend {
             ));
         }
         // The machine, its memory mapping, the private overlay head, and the Instance authority
-        // are all owned by the sandbox thread and released when it ends. The network is not
-        // owned at all, because the device is link down and no host resource backs it.
+        // are all owned by the sandbox thread and released when it ends.
         let evidence = CleanupEvidence::new(
             CleanupDisposition::Complete,
             CleanupDisposition::Complete,
             CleanupDisposition::Complete,
-            CleanupDisposition::NotOwned,
+            network,
             CleanupDisposition::Complete,
         )
         .with_method(CleanupMethod::Graceful);

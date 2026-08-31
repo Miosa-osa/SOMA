@@ -101,6 +101,12 @@ impl NetDevice {
         self.link_up
     }
 
+    /// The host descriptor the device thread must watch to notice inbound frames.
+    #[must_use]
+    pub fn backend_fd(&self) -> Option<std::os::fd::RawFd> {
+        self.backend.readable_fd()
+    }
+
     #[must_use]
     pub const fn counters(&self) -> NetCounters {
         self.counters

@@ -9,6 +9,7 @@
 
 pub(in crate::x86_64) mod evidence;
 mod launch;
+mod network;
 mod pause;
 pub(in crate::x86_64) mod restored;
 mod teardown;
@@ -181,6 +182,9 @@ impl SandboxMachine {
             self.host_work
                 .try_clone()
                 .map_err(|error| MachineError::io(Phase::EventLoop, &error))?,
+            // An Instance with an assigned bundle has its TAP attached before this point, so
+            // the device thread can watch it from its first wakeup.
+            self.net_backend_fd(),
         )
         .map_err(|error| MachineError::io(Phase::EventLoop, &error))?;
         self.clock.lap(Phase::EventLoop);

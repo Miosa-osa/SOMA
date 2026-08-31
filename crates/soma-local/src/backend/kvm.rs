@@ -1,7 +1,9 @@
 mod boot;
 mod evidence;
+mod identity;
 mod io;
 mod lifecycle;
+mod network;
 mod prepared;
 mod resolve;
 mod session;
@@ -11,11 +13,18 @@ mod worker;
 use soma::BackendKind;
 
 use super::clock::OperationClocks;
+use network::BrokerConfiguration;
 
 pub(crate) struct KvmBackend {
     clocks: OperationClocks,
     /// The one sandbox this Backend is driving, if any.
     live: Option<lifecycle::Live>,
+    /// The privileged network broker this host is configured to reach, if it has one.
+    ///
+    /// This is read once rather than per request: whether a host has a broker is a property of
+    /// the host, and a launch that found one and a later launch that did not would otherwise
+    /// disagree about what this Backend can serve.
+    broker: Option<Box<BrokerConfiguration>>,
 }
 
 impl KvmBackend {
@@ -29,6 +38,7 @@ impl KvmBackend {
         Self {
             clocks: OperationClocks::new(),
             live: None,
+            broker: BrokerConfiguration::from_environment().map(Box::new),
         }
     }
 
