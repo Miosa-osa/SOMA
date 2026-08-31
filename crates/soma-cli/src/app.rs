@@ -36,6 +36,12 @@ pub fn execute(cli: Cli) -> Execution {
             |error| invalid("machine", error),
             |operation| invoke(backend, runtime, state_root, operation),
         ),
+        // The binary takes this over before any response is built, so reaching it here means it
+        // was reached some other way, and there is no envelope that describes serving a machine.
+        RootCommand::MachineHost(_) => Execution {
+            response: Response::failure("machine-host", crate::model::FailureBody::usage()),
+            exit: ProcessExit::Usage,
+        },
     }
 }
 

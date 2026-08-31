@@ -28,7 +28,7 @@ impl KvmBackend {
     /// launched it, so no session here can serve it. That is a capability this Backend does not
     /// have yet rather than an absent Machine, and it stays missing until the machine runs in
     /// the worker the Host owns instead of inside the launching process.
-    pub(super) fn absent_kind(&self, instance: &InstanceId) -> BackendFailureKind {
+    pub(in crate::backend::kvm) fn absent_kind(&self, instance: &InstanceId) -> BackendFailureKind {
         if self.ownership.is_live(instance) {
             BackendFailureKind::Unsupported
         } else {
@@ -40,13 +40,13 @@ impl KvmBackend {
     ///
     /// A poisoned session is not live: it has already been ended, and reporting it as Ready or
     /// executing against it would attribute work to a machine that is gone.
-    pub(super) fn live_for(&mut self, instance: &InstanceId) -> Option<&mut Live> {
+    pub(in crate::backend::kvm) fn live_for(&mut self, instance: &InstanceId) -> Option<&mut Live> {
         self.live
             .as_mut()
             .filter(|live| &live.instance == instance && live.session.is_usable())
     }
 
-    pub(super) fn take_live(&mut self, instance: &InstanceId) -> Option<Live> {
+    pub(in crate::backend::kvm) fn take_live(&mut self, instance: &InstanceId) -> Option<Live> {
         if self
             .live
             .as_ref()
@@ -64,7 +64,7 @@ impl KvmBackend {
 /// Every resource is `NotOwned` rather than `Complete`: this process holds no record that these
 /// resources existed, so it cannot report having released them. A caller can still distinguish
 /// this from a real release, which is the point.
-pub(super) fn not_owned_evidence() -> CleanupEvidence {
+pub(in crate::backend::kvm) fn not_owned_evidence() -> CleanupEvidence {
     CleanupEvidence::new(
         CleanupDisposition::NotOwned,
         CleanupDisposition::NotOwned,

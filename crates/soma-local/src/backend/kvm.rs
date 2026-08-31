@@ -1,6 +1,8 @@
 mod boot;
 mod claim;
+mod dispatch;
 mod evidence;
+mod host;
 mod identity;
 mod io;
 mod lifecycle;
@@ -16,7 +18,7 @@ mod sterile;
 mod timeline;
 mod worker;
 
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 
 use soma::BackendKind;
 use soma_hostd::{ExhaustedBehavior, Limits};
@@ -24,9 +26,12 @@ use soma_hostd::{ExhaustedBehavior, Limits};
 use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
+use host::Role;
 use network::BrokerConfiguration;
 use pool::MachinePool;
 use runtime::Ownership;
+
+pub(crate) use host::host_machine;
 
 /// Names how many sterile machines this host keeps prepared per Generation.
 ///
@@ -47,6 +52,8 @@ const CONSTRUCTION_DEADLINE: Duration = Duration::from_secs(60);
 
 pub(crate) struct KvmBackend {
     clocks: OperationClocks,
+    /// Which process holds the machines this Backend launches.
+    role: Role,
     /// Who owns the Instances this Backend launches.
     ownership: Ownership,
     /// The one sandbox this Backend is driving, if any.
@@ -62,9 +69,14 @@ pub(crate) struct KvmBackend {
 }
 
 impl KvmBackend {
-    /// Opens the Backend.
+    /// Opens the Backend for a caller whose machines must outlive its process.
     ///
-    /// There is nothing to probe. Every artifact a machine needs lives in the store of the
+    /// `host_directory` names where hosted machines are addressed. A caller that gives one is
+    /// asking for a machine it can reach again from a later process, so every launch starts a
+    /// host that holds it. A caller that gives none keeps the one-shot lifecycle, where the
+    /// machine lives in this process and dies with it, which is what `soma run` is.
+    ///
+    /// There is nothing else to probe. Every artifact a machine needs lives in the store of the
     /// Generation the host prepared, named by digest in its manifest, so a request either finds
     /// a prepared Generation or is refused by name. A Backend that probed the host here would
     /// be asserting something about Generations it has not looked at.
@@ -78,11 +90,30 @@ impl KvmBackend {
     ///
     /// Returns [`LocalFailureKind::BackendUnavailable`] when a Host Runtime is configured and
     /// nothing serves it.
-    pub(super) fn open() -> Result<Self, LocalFailure> {
+    pub(super) fn open(host_directory: Option<PathBuf>) -> Result<Self, LocalFailure> {
+        let role = match host_directory {
+            Some(directory) => Role::Hosted(directory),
+            None => Role::Resident,
+        };
+        Self::with_role(role)
+    }
+
+    /// Opens the Backend for the process that will hold the machine itself.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalFailureKind::BackendUnavailable`] when a Host Runtime is configured and
+    /// nothing serves it.
+    pub(super) fn resident() -> Result<Self, LocalFailure> {
+        Self::with_role(Role::Resident)
+    }
+
+    fn with_role(role: Role) -> Result<Self, LocalFailure> {
         let ownership = Ownership::resolve(Ownership::configured().as_deref())
             .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
         Ok(Self {
             clocks: OperationClocks::new(),
+            role,
             ownership,
             live: None,
             machines: MachinePool::open(limits(configured_target()))

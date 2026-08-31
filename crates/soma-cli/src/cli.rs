@@ -66,6 +66,18 @@ pub enum RootCommand {
     Doctor(DoctorArgs),
     /// Print the SOMA command-line contract version.
     Version,
+    /// Hold one durable machine for the launch that started this process.
+    ///
+    /// This is not a user-facing operation. A managed launch re-enters this executable here so
+    /// that the machine it builds belongs to a process which outlives the launching command.
+    #[command(hide = true)]
+    MachineHost(MachineHostArgs),
+}
+
+#[derive(Args)]
+pub struct MachineHostArgs {
+    /// The socket this host binds before it builds anything.
+    pub socket: PathBuf,
 }
 
 #[derive(Args)]

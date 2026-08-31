@@ -42,7 +42,7 @@ Stage deltas in milliseconds, `node:22` at one vCPU and 1024 MiB, from
 
 | Change | Before | After | Mechanism |
 | --- | ---: | ---: | --- |
-| [Ephemeral head durability](raw/2026-08-31-eval1-head-sync/) | 72.4 ms | **6.8 ms** | The head was being `fsync`ed. It is unlinked before the clone returns and dies with its machine, so durability bought nothing |
+| [Ephemeral head durability](2026-08-31-eval1-head-sync) | 72.4 ms | **6.8 ms** | The head was being `fsync`ed. It is unlinked before the clone returns and dies with its machine, so durability bought nothing |
 | [Prepared machine pool](2026-08-31-prepared-machine-request-path.md) | 3.27 ms | **18.4 µs** | Machine construction moved off the request path. Two to three orders of magnitude on this host |
 | Netd activation | 11.4 ms | **0.80 ms** | Four read-only questions per lifecycle were asked by running `nft`; they are now netlink queries |
 | Netd release | 59.8 ms | **49.6 ms** | Same change |

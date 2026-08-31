@@ -7,6 +7,7 @@ pub struct LocalRuntimeConfig {
     pub(crate) backend: BackendSelection,
     pub(crate) runtime: Option<PathBuf>,
     pub(crate) state_root: PathBuf,
+    pub(crate) hosted_machines: bool,
 }
 
 impl std::fmt::Debug for LocalRuntimeConfig {
@@ -16,6 +17,7 @@ impl std::fmt::Debug for LocalRuntimeConfig {
             .field("backend", &self.backend)
             .field("runtime", &self.runtime.as_ref().map(|_| "[REDACTED]"))
             .field("state_root", &"[REDACTED]")
+            .field("hosted_machines", &self.hosted_machines)
             .finish()
     }
 }
@@ -27,7 +29,19 @@ impl LocalRuntimeConfig {
             backend: BackendSelection::Auto,
             runtime: None,
             state_root: state_root.into(),
+            hosted_machines: false,
         }
+    }
+
+    /// Requires machines launched through this runtime to outlive the process that launched them.
+    ///
+    /// Only the managed Machine lifecycle asks for this. A one-shot run holds its machine in its
+    /// own process for the whole operation and releases it before returning, so hosting one would
+    /// add a process to a path that never needs a second one.
+    #[must_use]
+    pub const fn with_hosted_machines(mut self, hosted: bool) -> Self {
+        self.hosted_machines = hosted;
+        self
     }
 
     #[must_use]
