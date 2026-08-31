@@ -95,7 +95,7 @@ is `/srv/soma/dm-heads/<instance-id> (deleted)`, the process holds 48 descriptor
 and its resident set is 17.7 MiB. A released Instance therefore has to leave both no file in the
 head directory and no process holding a deleted one.
 
-After the five-process lifecycle above and again after the hundred-way run:
+After the five-process lifecycle above and again after each hundred-way run:
 
 | Check | Observed |
 | --- | ---: |
