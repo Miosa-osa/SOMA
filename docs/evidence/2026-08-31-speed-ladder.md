@@ -21,6 +21,15 @@ sandbox actually moves its time to first command.
 Each configuration is a separate Generation with its own capture, because a restore maps exactly
 the memory its snapshot was taken with. Memory is a build parameter, not a launch flag.
 
+## The two workloads
+
+`node:22` is the official Node.js image and the workload the public benchmark uses, so a figure
+taken with it is comparable to a competitor's. `busybox` is an unrelated upstream project that
+packs roughly four hundred Unix utilities into a single executable of a few megabytes, and it is
+here as the control: it does almost nothing when it starts, so what it measures is the engine
+rather than the program. Comparing the two on one machine shape separates the cost of the sandbox
+from the cost of what runs inside it.
+
 ## The ladder
 
 Time to first command, p50 in milliseconds.

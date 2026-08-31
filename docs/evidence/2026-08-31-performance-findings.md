@@ -8,6 +8,25 @@ record that retains its samples.
 **Read the caveats before quoting anything.** A single hundred-way cohort varies by about forty
 percent between repeats, so no single cell below is a point estimate.
 
+## Two workloads, and why both
+
+Every measurement below runs one of two things inside the sandbox, and the difference between them
+is the point rather than an accident.
+
+`node:22` is the official Node.js image, about four hundred megabytes, and it is what the public
+benchmark this engine is measured against runs. A figure taken with it is comparable to a
+competitor's figure.
+
+`busybox` is an unrelated upstream project that packs roughly four hundred Unix utilities into one
+executable of a few megabytes; a minimal Linux system is often nothing but that single binary. It
+does almost nothing when it starts, which is exactly why it is here: it is the control. Running it
+measures what the engine costs, because the workload costs nearly nothing.
+
+Without the control the two costs are one number and cannot be separated. With it they can:
+`node --version` spends 27.4 ms and `busybox --help` spends 3.1 ms on the same machine, so about
+twenty-four milliseconds of any Node figure is the language runtime starting itself rather than
+anything this engine does.
+
 ## Where the time goes in one launch
 
 Stage deltas in milliseconds, `node:22` at one vCPU and 1024 MiB, from
