@@ -11,6 +11,9 @@
 //! it owns every live Instance of one Host, so an Instance is addressable by identity long
 //! after the client that launched it has gone.
 //!
+//! The [`client`] module is the other half of the same protocol: an adapter links this crate
+//! and addresses a Machine by identity from any process, so the encoding never exists twice.
+//!
 //! The jail launcher, the storage clone path, and the network broker are consumed through
 //! the [`WorkerLauncher`] and [`ResourceBroker`] seams; the in-process implementations in
 //! [`testing`] make every policy testable without a kernel.
@@ -25,6 +28,9 @@ pub mod protocol;
 
 #[cfg(unix)]
 pub mod testing;
+
+#[cfg(target_os = "linux")]
+pub mod client;
 
 #[cfg(target_os = "linux")]
 pub mod daemon;

@@ -144,3 +144,34 @@ fn a_listing_frame_that_does_not_match_its_own_count_is_refused() {
         "a page above the bound is refused rather than allocated"
     );
 }
+
+#[test]
+fn every_failure_code_survives_the_wire_and_an_unknown_one_is_not_invented() {
+    for code in [
+        FailureCode::Protocol,
+        FailureCode::Exhausted,
+        FailureCode::Overloaded,
+        FailureCode::Conflict,
+        FailureCode::Deadline,
+        FailureCode::Ledger,
+        FailureCode::Construction,
+        FailureCode::Transfer,
+        FailureCode::Unknown,
+        FailureCode::Phase,
+        FailureCode::Invariant,
+        FailureCode::Capacity,
+        FailureCode::Terminated,
+    ] {
+        assert_eq!(
+            FailureCode::from_wire(failure_code(code)),
+            Some(code),
+            "a client must read back the exact refusal the Host sent"
+        );
+    }
+    assert_eq!(
+        FailureCode::from_wire(0),
+        None,
+        "a code this build does not know stays a number rather than a refusal it does know"
+    );
+    assert_eq!(FailureCode::from_wire(14), None);
+}

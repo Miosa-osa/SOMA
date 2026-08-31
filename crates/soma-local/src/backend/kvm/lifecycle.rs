@@ -3,6 +3,13 @@
 //! The Backend holds at most one live sandbox at a time, keyed by the Instance that launched it,
 //! because one command-line invocation drives one sandbox from launch to cleanup. A request that
 //! names a different Instance is refused rather than served by the wrong machine.
+//!
+//! Ownership of the Instance identity is a separate question from residency of the session.
+//! Where a Host Runtime is configured, it owns the identity across processes, so Launch
+//! registers with it and Cleanup ends that ownership by identity. The guest session is still
+//! resident in the process that launched it, so an Execute from a second process is refused
+//! with a typed unsupported rather than served or reported absent; that stays true until the
+//! machine runs in the worker the Host owns rather than inside the launching process.
 
 use std::time::Duration;
 
@@ -22,7 +29,7 @@ use super::{
 };
 
 /// How long one bounded command may take before the session is considered gone.
-const COMMAND_CEILING: Duration = Duration::from_secs(300);
+pub(in crate::backend::kvm) const COMMAND_CEILING: Duration = Duration::from_secs(300);
 
 /// The live sandbox this Backend is driving.
 pub(super) struct Live {
@@ -77,10 +84,26 @@ impl KvmBackend {
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
         let boot = boot_for(prepared, shape.memory_mib(), request.instance_id())
             .map_err(|kind| self.fail(operation, kind))?;
+        // The Host Runtime, where one is configured, owns the Instance identity from before the
+        // machine exists, so a later process can address and end this Instance rather than
+        // finding nothing once this process is gone.
+        let registered = self
+            .ownership
+            .register(request.instance_id(), operation, boot.guest_cid);
+        registered.map_err(|kind| self.fail(operation, kind))?;
         let launched = self.clocks.elapsed_ns(operation);
-        let session = Session::launch(boot).map_err(|error| {
-            BackendFailure::new(failure_kind(error), self.clocks.elapsed_ns(operation))
-        })?;
+        let session = match Session::launch(boot) {
+            Ok(session) => session,
+            Err(error) => {
+                // A registration whose machine never reached Ready would leave the Host owning
+                // an Instance that no process is serving and no client will ever end.
+                self.ownership.withdraw(request.instance_id());
+                return Err(BackendFailure::new(
+                    failure_kind(error),
+                    self.clocks.elapsed_ns(operation),
+                ));
+            }
+        };
         let ready = self.clocks.elapsed_ns(operation);
         self.live = Some(Live {
             instance: request.instance_id().clone(),
@@ -114,7 +137,8 @@ impl KvmBackend {
         let command = guest_command(&request)
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
         let Some(live) = self.live_for(request.instance_id()) else {
-            return Err(self.fail(operation, BackendFailureKind::Unavailable));
+            let kind = self.absent_kind(request.instance_id());
+            return Err(self.fail(operation, kind));
         };
         let completed = live
             .session
@@ -138,7 +162,8 @@ impl KvmBackend {
         let state = if self.live_for(request.instance_id()).is_some() {
             MachineState::Ready
         } else {
-            return Err(self.fail(operation, BackendFailureKind::Unavailable));
+            let kind = self.absent_kind(request.instance_id());
+            return Err(self.fail(operation, kind));
         };
         Ok(InspectionObservation::observed(
             request,
@@ -159,6 +184,12 @@ impl KvmBackend {
         // from one it owned and released. Reporting resources complete for an unknown Instance
         // would claim to have released resources this process never held.
         let Some(live) = self.take_live(request.instance_id()) else {
+            // With no session here the Instance identity may still be owned by the Host
+            // Runtime, and ending that ownership is the one terminal act this process can
+            // perform for it. The dispositions stay NotOwned because that is what happened:
+            // this process held no machine, no memory, no head, and no guest authority.
+            let ended = self.ownership.release(request.instance_id());
+            ended.map_err(|kind| self.fail(operation, kind))?;
             let finished = self.clocks.elapsed_ns(operation);
             return Ok(CleanupObservation::new(
                 operation.clone(),
@@ -172,8 +203,20 @@ impl KvmBackend {
             super::timeline::dump(request.instance_id().as_str(), evidence);
         }
         let released = outcome.is_ok();
-        let finished = self.clocks.elapsed_ns(operation);
         if !released {
+            let finished = self.clocks.elapsed_ns(operation);
+            return Err(BackendFailure::new(
+                BackendFailureKind::CleanupFailure,
+                finished,
+            ));
+        }
+        // The machine is gone, so the Host must stop owning the Instance that named it. A
+        // record left behind is a leak only reconciliation could find, and an ownership the
+        // Host could not prove ended must not be reported as a complete cleanup.
+        let ended = self.ownership.release(request.instance_id());
+        let proven = ended.map_err(|kind| self.fail(operation, kind))?;
+        let finished = self.clocks.elapsed_ns(operation);
+        if !proven {
             return Err(BackendFailure::new(
                 BackendFailureKind::CleanupFailure,
                 finished,
@@ -200,6 +243,21 @@ impl KvmBackend {
 
     fn fail(&mut self, operation: &soma::OperationId, kind: BackendFailureKind) -> BackendFailure {
         BackendFailure::new(kind, self.clocks.elapsed_ns(operation))
+    }
+
+    /// What an operation naming an Instance this process is not driving reports.
+    ///
+    /// An Instance the Host Runtime still owns is a different fact from an unknown one. It
+    /// exists and it is addressable, but its guest session is resident in the process that
+    /// launched it, so no session here can serve it. That is a capability this Backend does not
+    /// have yet rather than an absent Machine, and it stays missing until the machine runs in
+    /// the worker the Host owns instead of inside the launching process.
+    fn absent_kind(&self, instance: &InstanceId) -> BackendFailureKind {
+        if self.ownership.is_live(instance) {
+            BackendFailureKind::Unsupported
+        } else {
+            BackendFailureKind::Unavailable
+        }
     }
 
     /// The live sandbox for `instance`, if this Backend owns one that is still usable.
