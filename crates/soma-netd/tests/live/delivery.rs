@@ -178,10 +178,18 @@ fn a_peer_that_stops_reading_its_replies_is_disconnected_rather_than_served_fore
         "the broker accepted {offered} unread replies without refusing delivery"
     );
 
-    assert!(
-        client.frame().is_none(),
-        "the broker kept serving a peer that never read its replies"
-    );
+    // The replies delivered before the peer's queue filled are still queued in it, and an
+    // `AF_UNIX` peer can read them after the sender closes. So the proof that the broker let
+    // this peer go is that the queue ends: draining it reaches end of file rather than blocking
+    // on a broker that is still answering.
+    let mut drained = 0;
+    while client.frame().is_some() {
+        drained += 1;
+        assert!(
+            drained <= offered,
+            "the broker delivered more replies than it was asked for"
+        );
+    }
     drop(client);
 
     let survivor = Client::connect(&socket);
