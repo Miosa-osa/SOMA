@@ -4,6 +4,7 @@
 //! configuration space, and a parser that turns each chain into one
 //! validated [`BlockOp`] before any backend call.
 
+mod attachment;
 pub mod backend;
 mod construct;
 mod execute;
