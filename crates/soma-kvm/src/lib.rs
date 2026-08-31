@@ -10,11 +10,6 @@ mod arm64;
 ))]
 mod linux;
 
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-#[allow(unsafe_code)]
 /// The SOMA-owned kernel command line: portable string composition, no KVM.
 ///
 /// Lives outside the `x86_64` machine gate because the Generation manifest
@@ -23,6 +18,11 @@ mod linux;
 /// a Linux x86_64 host can boot it.
 pub mod cmdline;
 
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[allow(unsafe_code)]
 mod machine;
 
 /// The `x86_64` machine floor: memory slot, protected-mode vCPU, port I/O capture, and `hlt`.
