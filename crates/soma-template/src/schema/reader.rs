@@ -60,13 +60,8 @@ impl<'a> TableReader<'a> {
         }
     }
 
-    pub(super) fn u64(&mut self, key: &str) -> Result<u64, ParseError> {
-        self.optional_u64(key)?
-            .ok_or_else(|| ParseError::MissingField {
-                field: self.field(key),
-            })
-    }
-
+    /// There is no required-integer accessor: every integer the document carries now has a
+    /// default, so a missing one is answered by the schema rather than rejected.
     pub(super) fn optional_u64(&mut self, key: &str) -> Result<Option<u64>, ParseError> {
         let field = self.field(key);
         match self.claim(key) {
@@ -84,14 +79,6 @@ impl<'a> TableReader<'a> {
                 expected: "a non-negative integer",
             }),
         }
-    }
-
-    pub(super) fn u32(&mut self, key: &str) -> Result<u32, ParseError> {
-        let field = self.field(key);
-        u32::try_from(self.u64(key)?).map_err(|_| ParseError::WrongType {
-            field,
-            expected: "an integer between 0 and 4294967295",
-        })
     }
 
     pub(super) fn optional_u32(&mut self, key: &str) -> Result<Option<u32>, ParseError> {
