@@ -6,6 +6,9 @@ const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);
 const REPAIR_BUDGET: Duration = Duration::from_secs(5);
 const PROBE_DELIVERY_GRACE: Duration = Duration::from_secs(1);
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
+// One filesystem request moves at most one bounded chunk, so the budget covers the guest
+// touching its disk once rather than any amount of work the caller asked for.
+const FILE_BUDGET: Duration = Duration::from_secs(10);
 const EXECUTE_DELIVERY_GRACE: Duration = Duration::from_secs(1);
 
 pub(super) fn handshake() -> Instant {
@@ -23,6 +26,10 @@ pub(super) fn probe() -> Instant {
 
 pub(super) fn execute(command: &GuestCommand) -> Instant {
     after(command_budget(command))
+}
+
+pub(super) fn file() -> Instant {
+    after(FILE_BUDGET)
 }
 
 pub(super) fn shutdown() -> Instant {
@@ -53,6 +60,7 @@ mod tests {
         assert_eq!(HANDSHAKE_BUDGET, Duration::from_secs(10));
         assert_eq!(REPAIR_BUDGET, Duration::from_secs(5));
         assert_eq!(SHUTDOWN_BUDGET, Duration::from_secs(5));
+        assert_eq!(FILE_BUDGET, Duration::from_secs(10));
         assert_eq!(PROBE_DELIVERY_GRACE, Duration::from_secs(1));
         assert_eq!(EXECUTE_DELIVERY_GRACE, Duration::from_secs(1));
         assert_eq!(

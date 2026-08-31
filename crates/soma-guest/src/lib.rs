@@ -53,7 +53,8 @@ pub use application::{
 pub use binding::SessionBinding;
 pub use control::{
     CONTROL_VSOCK_PORT, ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome,
-    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl,
+    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl, WholeFileRead,
+    WholeFileWrite,
 };
 pub use error::Error;
 pub(crate) use handshake::{

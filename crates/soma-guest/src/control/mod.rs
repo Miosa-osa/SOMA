@@ -53,7 +53,7 @@ pub use error::{ControlError, ControlFailureClass, ControlStage};
 /// machine contract so both peers change it together.
 pub const CONTROL_VSOCK_PORT: u32 = 0x534f_4d41;
 pub use guest::GuestControl;
-pub use host::{HostControl, RepairedHostControl};
+pub use host::{HostControl, RepairedHostControl, WholeFileRead, WholeFileWrite};
 pub use io::{ControlIo, HostControlIo};
 pub use outcome::ExecuteOutcome;
 pub use request::GuestRequest;

@@ -1,3 +1,4 @@
+mod host_file;
 mod hostile;
 mod hostile_host;
 mod io_failures;
