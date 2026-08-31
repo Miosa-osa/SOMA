@@ -58,8 +58,9 @@ pub use self::{
     serial::SerialCounters,
     snapshot::{
         Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CaptureRequest,
-        RestoreFacts, RestoreRequest, Restored, SnapshotError, SnapshotPaths, VerifiedCapture,
-        capture, inspect_capture_artifacts, restore,
+        RestoreFacts, RestoreRequest, Restored, SnapshotError, SnapshotPaths, Sterile,
+        SterileRequest, VerifiedCapture, capture, inspect_capture_artifacts, restore,
+        restore_sterile,
     },
     timing::PhaseTiming,
 };

@@ -10,7 +10,7 @@ use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{Prepared, SandboxMachine, Stage, Timeline};
-use crate::virtio::{FileBackend, MmioBus, VsockDevice};
+use crate::virtio::{FileBackend, MmioBus, TapBackend, VsockDevice};
 use crate::x86_64::{
     Machine,
     devices::SharedBus,
@@ -35,6 +35,20 @@ pub(in crate::x86_64) struct RestoredParts {
     pub(in crate::x86_64) cmdline: String,
 }
 
+/// The frame path and address identity of one assigned network bundle.
+///
+/// A bundle is per-Instance authority, so a prepared worker cannot hold one and its network
+/// device is built without a frame path. This is what arrives when the worker is claimed.
+///
+/// The descriptor must already be non-blocking: the device thread reads it inline, so a blocking
+/// descriptor would stall every other device on the bus.
+pub struct NetworkAttachment {
+    /// The prepared TAP descriptor from the assigned bundle.
+    pub tap: std::fs::File,
+    /// The MAC the bundle leased for this Instance.
+    pub mac: [u8; 6],
+}
+
 impl SandboxMachine {
     /// Gives a machine built without them the private disk head and context identifier.
     ///
@@ -55,6 +69,7 @@ impl SandboxMachine {
         &self,
         overlay: std::fs::File,
         guest_cid: u32,
+        network: Option<NetworkAttachment>,
     ) -> Result<(), MachineError> {
         // Validate every fallible identity input before replacing either detached resource.
         // Once this succeeds, `set_guest_cid` cannot reject the same value while the bus lock is
@@ -72,6 +87,17 @@ impl SandboxMachine {
             .device_mut()
             .set_guest_cid(u64::from(guest_cid))
             .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
+        // Attaching the frame path cannot fail, so it runs after every fallible step and keeps
+        // the invariant above: no partly assigned device set is ever observable.
+        //
+        // An Instance without an admitted bundle keeps the device it was built with, which drops
+        // every frame while the link is down. That is a machine with no network rather than one
+        // whose network failed, and the two must not look alike.
+        if let Some(NetworkAttachment { tap, mac }) = network {
+            bus.net_mut()
+                .device_mut()
+                .attach(Box::new(TapBackend::new(tap)), mac);
+        }
         Ok(())
     }
 

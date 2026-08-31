@@ -31,6 +31,8 @@ pub use artifacts::SnapshotPaths;
 pub use capture::{CaptureOutcome, CaptureRequest, capture};
 pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;
-pub use restore::{RestoreFacts, RestoreRequest, Restored, restore};
+pub use restore::{
+    RestoreFacts, RestoreRequest, Restored, Sterile, SterileRequest, restore, restore_sterile,
+};
 
 pub(in crate::x86_64) use platform::write_routing;

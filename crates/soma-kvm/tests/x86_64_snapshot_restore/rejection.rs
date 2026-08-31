@@ -230,8 +230,18 @@ fn attempt(
         guest_cid: 30,
         memory_bytes: fixture.ram_bytes,
         verify_artifacts,
+        network: None,
     });
     let result = outcome.map(|restored| drop(restored.machine.finish(EXIT_GRACE)));
     let _ignored = fs::remove_file(&head_path);
     result
 }
+
+/// What a prepared worker must refuse, and prove it refused before anything could run.
+///
+/// [ADR 0033](../../../docs/adr/0033-sterile-restored-machine-authority-boundary.md) requires
+/// that a wrong private head shape and an unassignable context identifier both destroy the
+/// worker without it reaching Ready. These are the tests that hold it to that: a sterile machine
+/// is built, assignment is given something it must reject, and the machine is gone afterwards.
+#[path = "sterile_rejection.rs"]
+mod sterile;

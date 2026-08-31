@@ -6,6 +6,10 @@
 //! raised only by the host after network repair; while down, transmit
 //! frames are dropped and nothing is read from the backend.
 
+mod attachment;
+#[cfg(test)]
+#[path = "net/attachment_tests.rs"]
+mod attachment_tests;
 pub mod backend;
 pub mod frame;
 pub mod rx;

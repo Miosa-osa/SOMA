@@ -4,6 +4,20 @@ Entries are dated and append-only.
 Each one records what was true when it was written, and none of them is updated afterwards.
 For the current status of any capability, read [the claim ledger](docs/claim-ledger.md) rather than an entry below.
 
+## 2026-08-31 - The contract, the dimensions, and the gap map
+
+SOMA is measured against an interface that already exists rather than against a competitor feature list. ComputeSDK defines one provider surface and MIOSA is already on its provider list beside E2B, Modal, Vercel, Daytona, Runloop, Superserve, Isorun, and Declaw, so the interface is a specification. The three records are [the provider contract](docs/research/provider-contract-gap-analysis.md), [the capability survey](docs/research/sandbox-provider-capability-survey.md), and [the gap map](docs/research/gap-map.md).
+
+The gap that costs the most is not a missing subsystem but an unwired one. `soma-netd` is about 7,800 lines of namespaces, netlink, nftables, address management, DNS, ingress, and reconciliation, and `soma-kvm` implements a TAP backend, and the KVM Backend uses neither: `link_down_network` hands the guest a placeholder with the link down. Installing a package, cloning a repository, pulling an image, and calling a model API are the same missing thing wearing four names.
+
+The gap that is deepest is the guest protocol. It carries eight frame kinds and `GuestCommand` carries a program, arguments, a timeout, and an output bound. There is no standard input, environment, working directory, user, signal, or streaming, and no frame reads a file or attaches to a terminal. Six filesystem operations and an interactive terminal are in the contract and cannot be written above that protocol however the host API is designed, so framing precedes operations.
+
+Shape turned out to be the finding worth the most care, because the obvious statement about it is wrong. SOMA does accept a `MachineShape` and the command line accepts all three fields. The vCPU count is fixed at one by the machine contract and the receipt honestly reports the contract's value rather than echoing the request. The memory size must exactly equal the size the Generation's snapshot was captured with, and `compatibility::check_header` rejects a mismatch as a memory-layout incompatibility rather than quietly ignoring it. The overlay comes from the Generation. So shape is a Generation build parameter and each Generation has exactly one launchable shape, which is a harder constraint than a fixed default because a range means a Generation and a captured snapshot per size.
+
+Two things the survey found that SOMA has never designed, as opposed to not yet built: a per-sandbox snapshot, which every provider has and which holds tenant state that SOMA's build-time snapshot deliberately does not; and credential delivery, where the Template schema carries secrets and nothing delivers one to a running Instance.
+
+On the optimisation side the map records that cohort variance at concurrency 100 is about 40 percent of the median, so an improvement smaller than roughly 60 ms cannot be told from noise by one cohort. Measurement method is on the critical path for optimisation work, not beside it.
+
 ## 2026-08-31 - Five hundred sandboxes, and the figures that had no files
 
 eval-1 was never off. `ssh eval-1` resolved to 192.168.1.1 through a wildcard `.lan` answer, which is a router that refuses SSH, and a subnet scan that covered only half its range was then read as proof the host was gone. It is at 10.0.110.245 with 80 threads and its whole prepared store intact. The lesson is the cheap one: a name that resolves is not a name that resolves correctly, and a partial scan proves nothing.
