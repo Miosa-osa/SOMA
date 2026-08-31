@@ -1,10 +1,12 @@
 use soma::{
-    DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, InspectMachineRequest,
-    LaunchMachineRequest, ManagedFailure, StopMachineRequest,
+    DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileMachineRequest,
+    InspectMachineRequest, LaunchMachineRequest, ManagedFailure, StopMachineRequest,
 };
 use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
-use crate::facade::{CommandOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot};
+use crate::facade::{
+    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot,
+};
 
 /// The production facade: a durable local runtime, driven exactly as the CLI drives it.
 ///
@@ -64,6 +66,15 @@ impl SandboxFacade for LocalFacade {
             stdout: outcome.output().stdout().to_vec(),
             stderr: outcome.output().stderr().to_vec(),
             receipt: receipt.clone(),
+        })
+    }
+
+    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
+        let outcome = self.runtime.file_machine(request)?;
+        Ok(FileOutcome {
+            instance_id: outcome.instance_id().clone(),
+            operation: outcome.operation().name(),
+            answer: outcome.answer().clone(),
         })
     }
 

@@ -2,8 +2,10 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+mod file;
 mod network;
 
+pub use file::{FileArgs, FileCommand, FilePathArgs};
 pub use network::{DnsInput, EgressInput, NetworkArgs, ProtocolInput};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
@@ -98,6 +100,8 @@ pub enum MachineCommand {
     Stop(ControlArgs),
     /// Force-destroy a sandbox and release its runtime state.
     Destroy(ControlArgs),
+    /// Read and change files inside a running sandbox.
+    File(FileArgs),
 }
 
 #[derive(Args)]

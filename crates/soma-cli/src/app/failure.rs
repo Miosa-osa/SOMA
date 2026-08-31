@@ -48,6 +48,15 @@ pub(super) fn managed_failure(
             }
         }
         ManagedFailure::StateStore(_) => software_failure(command, "state_store_failure"),
+        // An operation that mints no receipt reports the backend kind directly. The phase named
+        // here is only for the shared table's benefit; it does not change any code or status.
+        ManagedFailure::Backend(kind) => {
+            let (body, exit) = backend_failure_details(FailurePhase::Command, *kind);
+            Execution {
+                response: Response::failure(command, body),
+                exit,
+            }
+        }
         ManagedFailure::ReplayUnavailable(replay) => {
             let body = FailureBody::new(
                 "replay_unavailable",

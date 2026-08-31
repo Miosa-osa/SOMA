@@ -5,6 +5,7 @@ pub mod capability;
 pub mod envelope;
 pub mod facade;
 pub mod failure;
+pub mod filesystem;
 pub mod handler;
 pub mod http;
 pub mod local;
@@ -15,7 +16,8 @@ pub mod wire;
 
 pub use capability::MissingCapability;
 pub use envelope::{ApiError, ENVELOPE_SCHEMA, Envelope, FailureBody};
-pub use facade::{CommandOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot};
+pub use facade::{CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot};
+pub use filesystem::{FilesystemBody, FilesystemReport};
 pub use handler::handle;
 pub use http::{
     request::{Method, Request},

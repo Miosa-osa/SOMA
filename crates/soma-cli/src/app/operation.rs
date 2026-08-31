@@ -5,7 +5,7 @@ use soma_local::{LocalRuntime, LocalRuntimeConfig};
 use crate::{
     cli::BackendSelection,
     exit::ProcessExit,
-    model::{InspectionReport, Response, ResultBody},
+    model::{FileReport, InspectionReport, Response, ResultBody},
     request::PreparedOperation,
 };
 
@@ -82,6 +82,13 @@ fn dispatch(
             Ok(outcome) => machine_success(command, instance_id, "stopped", outcome.receipt()),
             Err(failure) => managed_failure(command, instance_id, &failure),
         },
+        PreparedOperation::File {
+            instance_id,
+            request,
+        } => match runtime.file_machine(request) {
+            Ok(outcome) => file_success(command, instance_id, &outcome),
+            Err(failure) => managed_failure(command, instance_id, &failure),
+        },
         PreparedOperation::Destroy {
             instance_id,
             request,
@@ -89,6 +96,39 @@ fn dispatch(
             Ok(outcome) => machine_success(command, instance_id, "destroyed", outcome.receipt()),
             Err(failure) => managed_failure(command, instance_id, &failure),
         },
+    }
+}
+
+/// Reports one filesystem answer.
+///
+/// A refusal the guest reported is a failed command line operation rather than a successful one:
+/// a script that wrote to a read-only root must not see a zero exit. The report is still carried,
+/// because the typed cause is the useful part of the answer.
+fn file_success(
+    command: &'static str,
+    instance_id: soma::InstanceId,
+    outcome: &soma::MachineFile,
+) -> Execution {
+    let report = FileReport::new(instance_id, outcome.operation().name(), outcome.answer());
+    let refused = report.refused();
+    let body = ResultBody::File(report);
+    if refused {
+        return Execution {
+            response: Response::failure_with_result(
+                command,
+                body,
+                crate::model::FailureBody::new(
+                    "filesystem_refused",
+                    "the guest declined the filesystem operation",
+                    false,
+                ),
+            ),
+            exit: ProcessExit::Conflict,
+        };
+    }
+    Execution {
+        response: Response::success(command, body),
+        exit: ProcessExit::Success,
     }
 }
 

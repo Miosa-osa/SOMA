@@ -42,6 +42,14 @@ pub(super) fn map_managed_failure(failure: &ManagedFailure) -> RuntimeFailure {
             | ManagedStateError::ReplayCapacityReached => RuntimeFailureKind::Conflict,
         }),
         ManagedFailure::StateStore(_) => RuntimeFailure::new(RuntimeFailureKind::Internal),
+        // An operation that mints no receipt reports the backend kind directly, through the same
+        // table a receipt-carrying backend failure goes through.
+        ManagedFailure::Backend(kind) => {
+            RuntimeFailure::new(map_run_failure_kind(RunFailureKind::Backend {
+                phase: soma::FailurePhase::Command,
+                kind: *kind,
+            }))
+        }
         ManagedFailure::ReplayUnavailable(replay) => replay.receipt().map_or_else(
             || RuntimeFailure::new(RuntimeFailureKind::Conflict),
             |evidence| {

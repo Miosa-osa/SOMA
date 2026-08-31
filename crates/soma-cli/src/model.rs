@@ -4,6 +4,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Serialize, Serializer, ser::SerializeStruct as _};
 use soma::{BackendKind, CommandStatus, ExecutionReceipt, InstanceId, MachineState};
 
+mod file;
+
+pub use file::FileReport;
+
 pub const ENVELOPE_SCHEMA: &str = "soma.cli.v1";
 pub const MAX_OUTPUT_BYTES_USIZE: usize = 16 * 1024 * 1024;
 
@@ -160,6 +164,7 @@ pub enum ResultBody {
     Command(CommandReport),
     Machine(MachineReport),
     Inspection(InspectionReport),
+    File(FileReport),
 }
 
 pub struct Response {
@@ -200,6 +205,24 @@ impl Response {
         Self {
             command,
             result: None,
+            error: Some(error),
+            receipt: None,
+        }
+    }
+
+    /// A failure that still carries the result document describing it.
+    ///
+    /// A filesystem refusal is the case this exists for: the operation reached the guest and the
+    /// guest declined, so the typed cause is in the result and the envelope still reports error.
+    #[must_use]
+    pub const fn failure_with_result(
+        command: &'static str,
+        result: ResultBody,
+        error: FailureBody,
+    ) -> Self {
+        Self {
+            command,
+            result: Some(result),
             error: Some(error),
             receipt: None,
         }

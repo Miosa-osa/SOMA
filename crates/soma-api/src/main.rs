@@ -32,6 +32,11 @@ fn run() -> i32 {
             options.runtime.clone(),
             options.state_root.clone(),
         )
+        // Every route this service serves names an Instance a later request must be able to
+        // reach, so the machine has to be held by a host process rather than by whichever
+        // connection happened to create it. Without this the sandbox a create call returns is
+        // already gone by the time the caller addresses it.
+        .map(|config| config.with_hosted_machines(true))
         .and_then(LocalFacade::open)
         .map_err(|_| {
             ApiError::new(

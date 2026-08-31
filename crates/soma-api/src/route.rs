@@ -8,16 +8,33 @@ use crate::{
 
 /// The filesystem operations the provider contract expects a sandbox service to expose.
 ///
-/// They are enumerated even though none can be served, because a caller that asks for a write
-/// and a caller that asks for a directory listing are each entitled to be told which capability
-/// is missing rather than meeting an unrouted path.
+/// Each is one call reaching one guest operation. They are named on the path rather than in the
+/// body because a caller that asked for a write and a caller that asked for a removal are doing
+/// different things to the same resource, and a proxy or a log should be able to tell them apart
+/// without reading the body.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FilesystemOperation {
     Read,
     Write,
     List,
+    Exists,
     Remove,
     MakeDirectory,
+}
+
+impl FilesystemOperation {
+    /// The operation's own name, as the response envelope reports it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Read => "read",
+            Self::Write => "write",
+            Self::List => "list",
+            Self::Exists => "exists",
+            Self::Remove => "remove",
+            Self::MakeDirectory => "mkdir",
+        }
+    }
 }
 
 /// One resolved route.
@@ -103,6 +120,7 @@ fn filesystem_operation(operation: &str) -> Result<FilesystemOperation, ApiError
         "read" => Ok(FilesystemOperation::Read),
         "write" => Ok(FilesystemOperation::Write),
         "list" => Ok(FilesystemOperation::List),
+        "exists" => Ok(FilesystemOperation::Exists),
         "remove" => Ok(FilesystemOperation::Remove),
         "mkdir" => Ok(FilesystemOperation::MakeDirectory),
         _ => Err(ApiError::not_found()),

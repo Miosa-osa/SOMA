@@ -19,6 +19,9 @@ pub fn managed_error(failure: &ManagedFailure) -> ApiError {
             "durable state operation failed",
             true,
         ),
+        // An operation that mints no receipt reports the backend kind directly; the mapping is
+        // the same one a receipt-carrying backend failure goes through.
+        ManagedFailure::Backend(kind) => backend_error(*kind),
         ManagedFailure::ReplayUnavailable(_) => ApiError::new(
             409,
             "replay_unavailable",

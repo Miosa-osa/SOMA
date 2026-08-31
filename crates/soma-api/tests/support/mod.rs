@@ -1,10 +1,14 @@
+use std::collections::BTreeMap;
 use std::io::Cursor;
 
 use soma::{
-    DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, InspectMachineRequest,
+    BackendFailureKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
+    FileEntry, FileKind, FileMachineRequest, FileOperation, FileRefusal, InspectMachineRequest,
     LaunchMachineRequest, MachineState, ManagedFailure, ManagedStateError, StopMachineRequest,
 };
-use soma_api::{CommandOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot, handle};
+use soma_api::{
+    CommandOutcome, FileOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot, handle,
+};
 
 /// The instance id carried by the retained receipt these tests replay.
 pub const FIXTURE_INSTANCE_ID: &str = "89db112753324c3e890ef78b74381aa5";
@@ -26,6 +30,8 @@ pub enum Mode {
     Succeed,
     NotFound,
     Conflict,
+    /// The backend holds no machine a later call could address, which is what a macOS host does.
+    Unsupported,
 }
 
 /// Which facade call the handler made.
@@ -34,6 +40,7 @@ pub enum Call {
     Launch,
     Inspect,
     Execute,
+    File,
     Stop,
     Destroy,
 }
@@ -45,6 +52,8 @@ pub enum Call {
 pub struct FakeFacade {
     mode: Mode,
     pub calls: Vec<Call>,
+    /// A flat in-memory filesystem, so every filesystem route can be proved without KVM.
+    files: BTreeMap<Vec<u8>, Vec<u8>>,
 }
 
 impl FakeFacade {
@@ -53,6 +62,7 @@ impl FakeFacade {
         Self {
             mode,
             calls: Vec::new(),
+            files: BTreeMap::new(),
         }
     }
 
@@ -62,6 +72,7 @@ impl FakeFacade {
             Mode::Succeed => Ok(()),
             Mode::NotFound => Err(ManagedFailure::State(ManagedStateError::MachineNotFound)),
             Mode::Conflict => Err(ManagedFailure::State(ManagedStateError::OperationConflict)),
+            Mode::Unsupported => Err(ManagedFailure::Backend(BackendFailureKind::Unsupported)),
         }
     }
 
@@ -112,6 +123,18 @@ impl SandboxFacade for FakeFacade {
         })
     }
 
+    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
+        self.record(Call::File)?;
+        let operation = request.operation().clone();
+        let answer = answer_for(&mut self.files, &operation);
+        Ok(FileOutcome {
+            instance_id: soma::InstanceId::new(FIXTURE_INSTANCE_ID)
+                .expect("the fixture instance id is canonical"),
+            operation: operation.name(),
+            answer,
+        })
+    }
+
     fn stop(&mut self, _request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
         self.lifecycle(Call::Stop)
     }
@@ -155,4 +178,58 @@ fn request_with_headers(method: &str, path: &str, headers: &str, body: &str) -> 
         "{method} {path} HTTP/1.1\r\nhost: localhost\r\n{headers}content-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
         body.len()
     )
+}
+
+/// The in-memory answer to one operation, deliberately flat: directories exist only as the
+/// prefixes of the paths stored under them.
+fn answer_for(files: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: &FileOperation) -> FileAnswer {
+    match operation {
+        FileOperation::Read { path } => {
+            files
+                .get(path)
+                .map_or(FileAnswer::Refused(FileRefusal::NotFound), |bytes| {
+                    FileAnswer::Read {
+                        bytes: bytes.clone(),
+                    }
+                })
+        }
+        FileOperation::Write { path, bytes } => {
+            if path.starts_with(b"/readonly/") {
+                return FileAnswer::Refused(FileRefusal::Denied);
+            }
+            files.insert(path.clone(), bytes.clone());
+            FileAnswer::Written {
+                bytes: bytes.len() as u64,
+            }
+        }
+        FileOperation::MakeDirectory { .. } => FileAnswer::Done,
+        FileOperation::ReadDirectory { path } => {
+            let mut prefix = path.clone();
+            if prefix.last() != Some(&b'/') {
+                prefix.push(b'/');
+            }
+            FileAnswer::Listed {
+                entries: files
+                    .keys()
+                    .filter_map(|stored| stored.strip_prefix(prefix.as_slice()))
+                    .filter(|name| !name.is_empty() && !name.contains(&b'/'))
+                    .map(|name| FileEntry {
+                        name: name.to_vec(),
+                        kind: FileKind::File,
+                    })
+                    .collect(),
+                more: false,
+            }
+        }
+        FileOperation::Exists { path } => FileAnswer::Status {
+            kind: files.contains_key(path).then_some(FileKind::File),
+        },
+        FileOperation::Remove { path, .. } => {
+            if files.remove(path).is_some() {
+                FileAnswer::Done
+            } else {
+                FileAnswer::Refused(FileRefusal::NotFound)
+            }
+        }
+    }
 }
