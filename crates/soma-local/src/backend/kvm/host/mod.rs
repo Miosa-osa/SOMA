@@ -1,0 +1,253 @@
+//! A machine that outlives the process which asked for it.
+//!
+//! A KVM sandbox is a set of descriptors, a guest memory mapping, a vCPU thread, and an
+//! authenticated session. All four belong to one process, so a machine can only survive its
+//! launching command if some other process is holding them. That process is what this module
+//! starts and addresses.
+//!
+//! One host serves one Instance for its whole life. It binds the socket named by that Instance
+//! before it builds anything, launches exactly the machine the client asked for, reports the
+//! facts of that launch on its standard output, and then answers execute, inspect, and cleanup
+//! over the socket until the machine is released. Nothing about the machine changes: the host
+//! runs the same resident lifecycle the one-shot path runs, so per-Instance identity, the
+//! sterile assignment, and the Noise session are established exactly once, by the process that
+//! holds them.
+
+pub(super) mod channel;
+mod serve;
+mod wire;
+
+use std::{
+    io::BufReader,
+    path::Path,
+    process::{Child, Command, Stdio},
+    time::Duration,
+};
+
+use soma::{BackendFailureKind, CommandStatus, InstanceId, MachineShape, OperationId};
+
+pub(crate) use serve::host_machine;
+pub(in crate::backend::kvm) use wire::Launched;
+use wire::{Answer, Call, LaunchWire, Ready};
+
+use channel::Unreachable;
+
+/// Who holds the machines this Backend launches.
+pub(super) enum Role {
+    /// This process does, for as long as it runs. That is the one-shot lifecycle `soma run`
+    /// needs, and it is measured without a second process in the path.
+    Resident,
+    /// A host process does, addressed by Instance identity under this directory.
+    Hosted(std::path::PathBuf),
+}
+
+/// How long a caller waits for the answer to one bounded command.
+const EXECUTE_CEILING: Duration = Duration::from_secs(330);
+/// How long a caller waits for an inspection or a release.
+const CONTROL_CEILING: Duration = Duration::from_secs(120);
+
+/// Starts the host that will hold one machine, and returns what its launch established.
+///
+/// The host is spawned before the machine exists, so there is never a moment where a live
+/// machine belongs to a process that is about to exit.
+pub(super) fn launch(
+    directory: &Path,
+    operation_id: &OperationId,
+    instance_id: &InstanceId,
+    reference: String,
+    shape: &MachineShape,
+) -> Result<Launched, BackendFailureKind> {
+    channel::prepare_directory(directory).map_err(|()| BackendFailureKind::Unavailable)?;
+    let socket = channel::socket_path(directory, instance_id);
+    let executable = std::env::current_exe().map_err(|_| BackendFailureKind::Unavailable)?;
+    let mut child = Command::new(executable)
+        .arg("machine-host")
+        .arg(&socket)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        // A host that inherited this process's error stream would hold a pipe its caller drains,
+        // so a caller waiting for that stream to close would wait for the machine's whole life.
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|_| BackendFailureKind::Unavailable)?;
+    match handshake(&mut child, operation_id, instance_id, reference, shape) {
+        Ok(launched) => Ok(launched),
+        Err(kind) => {
+            // Nothing was established, so no host may be left holding this Instance identity.
+            let _ignored = child.kill();
+            let _ignored = child.wait();
+            Err(kind)
+        }
+    }
+}
+
+/// Hands the host its launch and reads the single line it answers with.
+fn handshake(
+    child: &mut Child,
+    operation_id: &OperationId,
+    instance_id: &InstanceId,
+    reference: String,
+    shape: &MachineShape,
+) -> Result<Launched, BackendFailureKind> {
+    let request = LaunchWire {
+        operation_id: operation_id.clone(),
+        instance_id: instance_id.clone(),
+        reference,
+        shape: shape.clone(),
+    };
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or(BackendFailureKind::Unavailable)?;
+    channel::write_line(&mut stdin, &request).map_err(|()| BackendFailureKind::Unavailable)?;
+    // Closing the input is what tells the host its launch is complete.
+    drop(stdin);
+    let stdout = child.stdout.take().ok_or(BackendFailureKind::Unavailable)?;
+    let mut reader = BufReader::new(stdout);
+    // The reply is read before the reader is dropped, and the host writes nothing afterwards, so
+    // the pipe closes here rather than at the end of the machine's life.
+    match channel::read_line::<Ready>(&mut reader) {
+        Some(Ready::Launched(launched)) => Ok(launched),
+        Some(Ready::Refused(refusal)) => Err(refusal.into()),
+        None => Err(BackendFailureKind::Unavailable),
+    }
+}
+
+/// One completed command as it crossed back from the host.
+pub(super) struct Executed {
+    pub(super) status: CommandStatus,
+    pub(super) stdout: Vec<u8>,
+    pub(super) stderr: Vec<u8>,
+}
+
+/// Why an operation against a hosted Instance did not produce an answer.
+pub(super) enum HostFailure {
+    /// No host here serves this Instance.
+    Absent,
+    /// A host answered with a refusal, or the exchange with it broke.
+    Refused(BackendFailureKind),
+}
+
+pub(super) fn execute(
+    directory: &Path,
+    instance: &InstanceId,
+    program: Vec<u8>,
+    arguments: Vec<Vec<u8>>,
+    timeout_ms: u32,
+    max_output_bytes: u64,
+) -> Result<Executed, HostFailure> {
+    let call = Call::Execute {
+        instance_id: instance.clone(),
+        program,
+        arguments,
+        timeout_ms,
+        max_output_bytes,
+    };
+    match ask(directory, instance, &call, EXECUTE_CEILING)? {
+        Answer::Executed {
+            status,
+            stdout,
+            stderr,
+        } => Ok(Executed {
+            status,
+            stdout,
+            stderr,
+        }),
+        Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
+        _ => Err(HostFailure::Refused(BackendFailureKind::GuestFailure)),
+    }
+}
+
+pub(super) fn inspect(
+    directory: &Path,
+    instance: &InstanceId,
+) -> Result<(soma::MachineState, soma::EffectiveNetwork), HostFailure> {
+    let call = Call::Inspect {
+        instance_id: instance.clone(),
+    };
+    match ask(directory, instance, &call, CONTROL_CEILING)? {
+        Answer::Inspected { state, network } => Ok((state, network)),
+        Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
+        _ => Err(HostFailure::Refused(BackendFailureKind::Unavailable)),
+    }
+}
+
+/// Releases the hosted machine and waits for the host process to end.
+///
+/// The wait is the proof. A host that has answered but not yet exited still holds the machine,
+/// the memory mapping, and the overlay head, so cleanup is not complete until its socket reaches
+/// end of stream, which happens only when the process is gone.
+pub(super) fn cleanup(
+    directory: &Path,
+    instance: &InstanceId,
+) -> Result<soma::CleanupEvidence, HostFailure> {
+    let call = Call::Cleanup {
+        instance_id: instance.clone(),
+    };
+    let mut stream = open(directory, instance, CONTROL_CEILING)?;
+    let evidence = match exchange(&mut stream, &call)? {
+        Answer::Cleaned { evidence } => evidence,
+        Answer::Refused(refusal) => return Err(HostFailure::Refused(refusal.into())),
+        _ => return Err(HostFailure::Refused(BackendFailureKind::CleanupFailure)),
+    };
+    await_exit(&mut stream)?;
+    let _ignored = std::fs::remove_file(channel::socket_path(directory, instance));
+    Ok(evidence)
+}
+
+/// Whether a host is serving this Instance here.
+pub(super) fn is_hosted(directory: &Path, instance: &InstanceId) -> bool {
+    matches!(channel::connect(directory, instance), Ok(_))
+}
+
+fn ask(
+    directory: &Path,
+    instance: &InstanceId,
+    call: &Call,
+    within: Duration,
+) -> Result<Answer, HostFailure> {
+    let mut stream = open(directory, instance, within)?;
+    exchange(&mut stream, call)
+}
+
+fn open(
+    directory: &Path,
+    instance: &InstanceId,
+    within: Duration,
+) -> Result<std::os::unix::net::UnixStream, HostFailure> {
+    let stream = channel::connect(directory, instance).map_err(|reason| match reason {
+        Unreachable::Absent => HostFailure::Absent,
+        Unreachable::Broken => HostFailure::Refused(BackendFailureKind::Unavailable),
+    })?;
+    // A caller that waited without a bound would hold the command line open for as long as a
+    // stalled host chose to, which is the one outcome a bounded operation may not have.
+    stream
+        .set_read_timeout(Some(within))
+        .and_then(|()| stream.set_write_timeout(Some(within)))
+        .map_err(|_| HostFailure::Refused(BackendFailureKind::Unavailable))?;
+    Ok(stream)
+}
+
+fn exchange(
+    stream: &mut std::os::unix::net::UnixStream,
+    call: &Call,
+) -> Result<Answer, HostFailure> {
+    channel::write_line(stream, call)
+        .map_err(|()| HostFailure::Refused(BackendFailureKind::Unavailable))?;
+    let mut reader = BufReader::new(stream.try_clone().map_err(|_| {
+        HostFailure::Refused(BackendFailureKind::Unavailable)
+    })?);
+    channel::read_line::<Answer>(&mut reader)
+        .ok_or(HostFailure::Refused(BackendFailureKind::Unavailable))
+}
+
+/// Waits for the host to close the connection, which it does only by ending.
+fn await_exit(stream: &mut std::os::unix::net::UnixStream) -> Result<(), HostFailure> {
+    use std::io::Read as _;
+
+    let mut remainder = [0u8; 1];
+    match stream.read(&mut remainder) {
+        Ok(0) => Ok(()),
+        _ => Err(HostFailure::Refused(BackendFailureKind::CleanupFailure)),
+    }
+}
