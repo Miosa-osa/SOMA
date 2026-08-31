@@ -153,20 +153,25 @@ pub fn normalize_layers_for(layers: &[Vec<u8>], architecture: &str) -> (Fixture,
     } else {
         OciPlatform::linux_arm64()
     };
+    let normalized = normalize_existing(&fixture, &platform);
+    (fixture, normalized)
+}
+
+/// Imports and normalizes the image an already written layout holds for one platform.
+pub fn normalize_existing(fixture: &Fixture, platform: &OciPlatform) -> NormalizedRootfs {
     let imported = import_oci_layout(ImportOciLayout::new(
         &fixture.layout,
         &fixture.store,
-        OciSelection::Platform(&platform),
+        OciSelection::Platform(platform),
         ImportLimits::default(),
     ))
     .unwrap();
-    let normalized = normalize_oci_rootfs(NormalizeOciRootfs::new(
+    normalize_oci_rootfs(NormalizeOciRootfs::new(
         &imported,
         &fixture.store,
         RootfsLimits::default(),
     ))
-    .unwrap();
-    (fixture, normalized)
+    .unwrap()
 }
 
 pub fn pax_layer(path: &str, key: &str, value: &[u8]) -> Vec<u8> {

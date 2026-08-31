@@ -17,6 +17,7 @@ sha2 = { version = "=0.11.0", default-features = false }
 soma = { path = "../soma", version = "=1.0.0-alpha.1" }
 soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.1" }
 soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.1" }
+soma-template = { path = "../soma-template", version = "=1.0.0-alpha.1" }
 tar = { version = "=0.4.46", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
@@ -27,7 +28,6 @@ rustix = { version = "=1.1.4", features = ["fs"] }
 
 [dev-dependencies]
 soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
-soma-template = { path = "../soma-template", version = "=1.0.0-alpha.1" }
 tempfile = "=3.27.0"
 
 [lints]

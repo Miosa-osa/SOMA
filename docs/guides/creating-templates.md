@@ -119,7 +119,8 @@ Within one table a missing or mistyped required field is reported before an unkn
 
 The parser checks shape and bounds.
 The validator then checks semantics in one fixed order: platforms, resources, lifecycle, description, command shape, module values, environment, network envelope, secrets, required environment, and finally the executable check.
-The validator needs four external inputs, all of which are seams with deterministic test implementations at this revision: an OCI resolver, a policy ceiling, the Backend capabilities, and a filesystem oracle.
+The validator needs four external inputs: an OCI resolver, a policy ceiling, the Backend capabilities, and a filesystem oracle.
+The resolver and the oracle have production implementations in `soma-generation`, which answer from a local OCI layout and from the normalized rootfs of the resolved image; the ceiling and the Backend capabilities are values the caller supplies.
 
 ### Top-level keys
 
@@ -245,8 +246,9 @@ A Template stores references only; no secret value exists anywhere in the compil
 ### Compiling a document today
 
 The library entry points are `soma_template::parse_template`, which turns document bytes into a `Template`, and `soma_template::resolve`, or `resolve_with` for a custom module registry, which turns a `Template` into a `TemplateLock`.
-There is no `soma template` command, and the `OciResolver` and `FilesystemOracle` traits have no production implementation anywhere in the workspace, so no shipped code can resolve a real Template against a registry or inspect a real root filesystem.
-The only way to compile a document today is a Rust test that supplies `TestResolver`, `PolicyCeiling`, `BackendCapabilities`, and `TestFilesystemOracle`; the pattern is in `crates/soma-template/tests/support/mod.rs`.
+There is no `soma template` command, and nothing asks a registry: `soma_generation::LayoutResolver` resolves a reference from the local OCI layout it was exported to, and `soma_generation::RootfsOracle` answers the executable check from the normalized rootfs the compiler builds.
+`cargo run -p soma-generation --example prepare_from_template` is the end-to-end command; see [Templates](templates.md).
+A test that supplies `TestResolver`, `PolicyCeiling`, `BackendCapabilities`, and `TestFilesystemOracle` remains the way to exercise a document without an image on disk; the pattern is in `crates/soma-template/tests/support/mod.rs`.
 `cargo test --locked -p soma-template` is the executable reference: 94 integration tests, all passing at this revision.
 
 ## 4. Modules
@@ -413,7 +415,7 @@ Template  --compile-->  Template Lock  --build-->  Generation  --Launch-->  Inst
 
 | Transition | What happens | What it costs, with boundary and build type | Status at this revision |
 |---|---|---|---|
-| Template to Template Lock | Parse, compose modules, pin the OCI digest through the resolver, validate against the ceiling, Backend, and oracle, encode `SOMALOCK` version 1, hash to the `LockId` | In-process work with no disk or network I/O; no timing was retained | Library path: `parse_template` then `resolve` in `crates/soma-template`, exercised by 94 tests plus the crate-boundary test in `soma-generation`; the resolver and oracle are test seams |
+| Template to Template Lock | Parse, compose modules, pin the OCI digest through the resolver, validate against the ceiling, Backend, and oracle, encode `SOMALOCK` version 1, hash to the `LockId` | In-process work with no disk or network I/O; no timing was retained | Library path: `parse_template` then `resolve` in `crates/soma-template`, exercised by 94 tests plus the crate-boundary and template-to-Candidate tests in `soma-generation`; the module registry is still a test seam |
 | Template Lock to Generation | Import and verify the OCI layout, normalize the layers into one tree, format the EROFS root, build the sterile overlay templates, verify the kernel, write the initramfs, encode the `SOMAGEN` manifest, hash to the `GenerationId` | `node:22`: 369 s wall for the whole test on the Linux x86_64 host, one debug-build run; OCI import verification of an extracted `node:22` ARM64 layout: 28.1 s and 27.9 s on the development Mac | Component-tested for phases 1 through 3 and 6; certification is designed only, so no Generation is launchable in the production sense; the compiler consumes the lock through the `TemplateRevision` view only for one vCPU and only for a fully denied or unrestricted envelope |
 | Generation to Instance | Create the VM, map RAM, attach the five virtio devices, write the launch page, boot the kernel, run the Guest agent as PID 1, compose the root, consume the page, handshake over vsock, Repair, retire the page, pass the fixed probe, report Ready | `Ready` 129 ms after `KVM_RUN` for `node:22`, 164 ms and 193 ms in two busybox samples; debug build, cold boot, single samples, busy host, inside a container | Live-proved at `71161ea`, historical: the ignored `x86_64_sandbox_boot` test in `crates/soma-kvm` on a Linux x86_64 host with `/dev/kvm`, the pinned kernel, erofs-utils 1.9.4, and the static Guest agent, run before initramfs layout v3 and launch-page schema 3; no network egress, no jail, no prepared worker. Snapshot capture and restore are live-proved separately at `7c1127d` and equally historical, and neither path starts from a Template Lock |
 | Instance to Receipt | One authenticated bounded Execute, then an authenticated Shutdown and orderly reset | `node --version` round trip 39.6 ms and busybox `uname -a` 7.5 ms, same samples | The test drives `soma-guest` directly; the default command locked in the Template is not started by any code yet |
@@ -438,7 +440,7 @@ A bare-name `program`, including the `claude` and `osa` module default commands,
 ## 8. Worked examples
 
 Each document below parses and resolves to a lock at this revision against a resolver, ceiling, Backend, and oracle that admit the referenced images, domains, and executables.
-Whether the image really contains the program is the oracle's answer; today only the test oracle exists, so treat the executable check as a promise the real oracle will keep, not as proof about a registry image.
+Whether the image really contains the program is the oracle's answer, and `soma_generation::RootfsOracle` gives that answer from the normalized rootfs of the resolved image; the documents below use the test oracle, so treat their executable checks as stated inputs rather than as proof about a registry image.
 
 ### A Node agent sandbox
 

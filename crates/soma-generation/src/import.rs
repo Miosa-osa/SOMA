@@ -12,7 +12,7 @@ pub fn import_oci_layout(request: ImportOciLayout<'_>) -> Result<crate::Imported
     validate_request(request)?;
     let layout = Layout::open(request.layout, request.limits.max_blob_bytes)?;
     let traversal = layout.traverse(request.selection, request.limits)?;
-    let selected = select_image(&layout, &traversal, request)?;
+    let selected = select_image(&layout, &traversal, request.selection, request.limits)?;
     publish::publish(&layout, traversal, selected, request)
 }
 

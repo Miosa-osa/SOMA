@@ -34,8 +34,8 @@ No signed admission report, admission policy, or revocation state exists yet.
 | Generation Candidate cold-booting on real KVM | Live-proved at `71161ea`, historical | [First sandbox command](evidence/2026-08-29-x86_64-first-sandbox-command.md); the run used initramfs layout v2, so its `GenerationId` values are no longer reproducible |
 | Generation snapshot certification and ready-manifest publication | Component-tested, fresh live proof pending | `install_snapshot`, `certify_candidate`, `promote_candidate`, and `verify_generation`; the ignored live KVM test binds the full hardware run |
 | Signed attestations, SBOM, revocation, and registry distribution | Designed | [Generation compiler](research/generation-compiler.md) |
-| Template document to canonical Template Lock | Component-tested | `crates/soma-template` slice 1; the registry, resolver, and filesystem oracle are test-only seams |
-| A Generation built from a Template Lock | Designed | [Template implementation map](research/template-implementation-map.md), tickets T6 through T18 |
+| Template document to canonical Template Lock | Component-tested | `crates/soma-template` slice 1; the module registry is still a test-only seam, while the OCI resolver and the filesystem oracle are answered from a local OCI layout and the normalized rootfs by `soma_generation::template_inputs` |
+| A Generation built from a Template Lock | Component-tested | `crates/soma-generation/tests/template_generation.rs` resolves `templates/minimal.toml` against a fixture layout and projects it onto the compiler's Candidate inputs, and `examples/prepare_from_template.rs` compiles a prepared entry from a document. The locked command, modules, environment, secrets, idle policy, and allowlist egress reach nothing, because the compiler has no input for them: [Template implementation map](research/template-implementation-map.md), tickets T6 through T18 |
 
 ## Machine, guest, and snapshot
 

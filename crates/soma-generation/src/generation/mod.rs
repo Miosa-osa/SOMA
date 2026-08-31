@@ -36,7 +36,7 @@ mod tar_stream;
 pub mod template;
 /// The sealed builder environment: every external tool one build executed.
 pub mod toolchain;
-mod tree_decoder;
+pub(crate) mod tree_decoder;
 mod verify;
 
 pub use artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest};
