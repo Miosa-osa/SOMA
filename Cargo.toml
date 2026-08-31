@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/soma",
+    "crates/soma-api",
     "crates/soma-cli",
     "crates/soma-generation",
     "crates/soma-guest",

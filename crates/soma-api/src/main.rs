@@ -1,0 +1,113 @@
+use std::{env, net::TcpListener, path::PathBuf, process};
+
+use soma_api::{ApiError, LocalFacade, serve};
+use soma_local::{BackendSelection, LocalRuntimeConfig};
+
+/// The address the service binds when none is given.
+///
+/// It binds loopback rather than every interface. This service has no finished authentication
+/// scheme, so a default that exposed it to a network would be a default that leaked sandboxes.
+const DEFAULT_LISTEN: &str = "127.0.0.1:8787";
+
+fn main() {
+    process::exit(run());
+}
+
+fn run() -> i32 {
+    let Some(options) = Options::parse(env::args().skip(1)) else {
+        eprintln!(
+            "soma-api: usage: soma-api [--listen ADDR] [--backend auto|kvm|macos|docker] \
+             [--runtime PATH] [--state-root PATH]"
+        );
+        return 64;
+    };
+    let Ok(listener) = TcpListener::bind(&options.listen) else {
+        eprintln!("soma-api: could not bind {}", options.listen);
+        return 74;
+    };
+    eprintln!("soma-api: listening on {}", options.listen);
+    let open_facade = move || {
+        LocalRuntimeConfig::discover(
+            options.backend,
+            options.runtime.clone(),
+            options.state_root.clone(),
+        )
+        .and_then(LocalFacade::open)
+        .map_err(|_| {
+            ApiError::new(
+                503,
+                "backend_unavailable",
+                "the local sandbox runtime could not be opened",
+                true,
+            )
+        })
+    };
+    if serve(&listener, open_facade).is_err() {
+        eprintln!("soma-api: the listener stopped accepting connections");
+        return 74;
+    }
+    0
+}
+
+#[derive(Clone, Debug)]
+struct Options {
+    listen: String,
+    backend: BackendSelection,
+    runtime: Option<PathBuf>,
+    state_root: Option<PathBuf>,
+}
+
+impl Options {
+    /// Parses the small fixed option set this binary accepts.
+    ///
+    /// The options are parsed by hand rather than with an argument-parsing crate: there are four
+    /// of them, none is positional, and a dependency added for four options is a dependency the
+    /// whole workspace then has to keep pinned and audited.
+    fn parse(arguments: impl Iterator<Item = String>) -> Option<Self> {
+        let mut options = Self {
+            listen: DEFAULT_LISTEN.to_owned(),
+            backend: BackendSelection::Auto,
+            runtime: None,
+            state_root: None,
+        };
+        let mut arguments = arguments;
+        while let Some(argument) = arguments.next() {
+            let value = arguments.next()?;
+            match argument.as_str() {
+                "--listen" => options.listen = value,
+                "--backend" => options.backend = backend(&value)?,
+                "--runtime" => options.runtime = Some(PathBuf::from(value)),
+                "--state-root" => options.state_root = Some(PathBuf::from(value)),
+                _ => return None,
+            }
+        }
+        Some(options)
+    }
+}
+
+fn backend(value: &str) -> Option<BackendSelection> {
+    match value {
+        "auto" => Some(BackendSelection::Auto),
+        "kvm" => Some(BackendSelection::Kvm),
+        "macos" => Some(BackendSelection::Macos),
+        "docker" => Some(BackendSelection::Docker),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Options;
+
+    #[test]
+    fn rejects_an_option_without_a_value() {
+        assert!(Options::parse(["--listen".to_owned()].into_iter()).is_none());
+    }
+
+    #[test]
+    fn defaults_to_loopback_when_no_address_is_given() {
+        let options = Options::parse(std::iter::empty()).expect("empty arguments parse");
+
+        assert_eq!(options.listen, "127.0.0.1:8787");
+    }
+}
