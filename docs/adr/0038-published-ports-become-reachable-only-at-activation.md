@@ -1,4 +1,4 @@
-# ADR 0034: A published port becomes reachable only at activation and provably stops at release
+# ADR 0038: A published port becomes reachable only at activation and provably stops at release
 
 - Status: Accepted
 - Date: 2026-08-31
