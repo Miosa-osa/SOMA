@@ -37,6 +37,7 @@ It provides a small CLI, a portable Rust interface, and an MCP server for agents
 |---|---|
 | Learn what the sandbox, VMM, KVM, guest, Template, Generation, and Instance are | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
 | Follow one sandbox end to end, from Template to cleanup, as it exists on the Linux KVM path today | [How one SOMA sandbox works today](docs/guides/how-it-works.md) |
+| Prove the whole flow still works on a host, from setup to a sandbox that left nothing behind | [The end to end check](docs/guides/end-to-end-check.md) |
 | See exactly what sits on top of what, what connects, and which pieces are required | [What makes one SOMA sandbox](docs/architecture/sandbox-stack.md) |
 | Understand the measurable engineering bar for state-of-the-art admission | [SOMA engineering standard](docs/standards/sota-engineering-standard.md) |
 | See every capability against one status vocabulary with its evidence | [Claim ledger](docs/claim-ledger.md) |

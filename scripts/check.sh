@@ -53,6 +53,9 @@ check_repository_contract() {
     log "release packager tests"
     "${SCRIPT_DIR}/tests/package-release.sh"
 
+    log "end to end check contract tests"
+    "${SCRIPT_DIR}/tests/end-to-end-check-contract.sh"
+
     log "shell scripts"
     require_command shellcheck
     local shellcheck_failed=0
