@@ -202,4 +202,7 @@ impl BlockBackend for MemoryBackend {
 
 mod detached;
 
+// The same gate every item inside carries: a Detached backend exists for the
+// prepared-worker seam, which is Linux x86_64 plus the portable tests.
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub use detached::Detached;
