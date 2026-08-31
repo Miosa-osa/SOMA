@@ -15,6 +15,14 @@ mod linux;
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 #[allow(unsafe_code)]
+/// The SOMA-owned kernel command line: portable string composition, no KVM.
+///
+/// Lives outside the `x86_64` machine gate because the Generation manifest
+/// binds this exact line on every host that compiles a Generation - an ARM64
+/// or macOS client must compose and verify it byte for byte even though only
+/// a Linux x86_64 host can boot it.
+pub mod cmdline;
+
 mod machine;
 
 /// The `x86_64` machine floor: memory slot, protected-mode vCPU, port I/O capture, and `hlt`.
@@ -38,6 +46,8 @@ pub use linux::{
     any(target_arch = "x86_64", target_arch = "aarch64")
 ))]
 pub use machine::{KvmMachine, KvmMachineError};
+
+pub use cmdline::{BootNonce, compose_generation as generation_command_line};
 
 pub use virtio::{
     AccessWidth, ActivateError, BLK_ID_LEN, BLOCK_CONFIG_LEN, BLOCK_QUEUE_MAX, BLOCK_SERIAL_LEN,
