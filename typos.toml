@@ -6,6 +6,9 @@ extend-exclude = [
     # Retained raw evidence is base64 and hex captured from real runs. It is data, not prose, and
     # it must stay byte for byte as it was recorded, so it is never spell corrected.
     "docs/evidence/raw/",
+    # Shell test fixtures are captured machine envelopes, carrying base64 output and digests from
+    # a real run. They are data the tests compare against, so nothing in them may be rewritten.
+    "scripts/tests/fixtures/",
     # The pinned kernel configuration is upstream Linux symbol names, not prose. It is compared
     # byte for byte against the kernel build, so nothing in it may be rewritten.
     "kernel/config-x86_64-soma-v1",
