@@ -12,7 +12,7 @@ use soma_guest::SecretFile;
 
 use super::boot::private_head_from;
 use super::evidence::CONTRACT_VCPUS;
-use super::identity::{LaunchIdentity, candidate_bytes};
+use super::identity::{LaunchIdentity, generation_bytes};
 use super::pool::{Claimed, MachinePool, Recipe, RecipeInputs};
 use super::prepared::PreparedGeneration;
 use soma_vmm::sandbox::{Assignment, Network};
@@ -41,7 +41,7 @@ fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64, vcpus: u16) -> Opt
     let snapshot = snapshot_dir(prepared)?;
     let devices = prepared.manifest.device_set();
     let root = prepared.manifest.root.descriptor;
-    let candidate = candidate_bytes(&prepared.id).ok()?;
+    let candidate = generation_bytes(&prepared.id).ok()?;
     Recipe::new(RecipeInputs {
         store: &prepared.store,
         root,
@@ -78,7 +78,7 @@ pub(super) fn assignment_for(
         .transpose()?;
     Ok(Assignment {
         overlay,
-        generation: candidate_bytes(&prepared.id)?,
+        generation: generation_bytes(&prepared.id)?,
         instance: identity.instance,
         operation: identity.operation,
         guest_cid: identity.guest_cid,

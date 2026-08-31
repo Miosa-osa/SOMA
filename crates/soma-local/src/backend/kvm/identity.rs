@@ -73,13 +73,11 @@ fn guest_cid_for(instance: [u8; 16]) -> u32 {
     FIRST_GUEST_CID + (derived % span)
 }
 
-/// The Candidate identity as the thirty-two bytes the launch page binds.
+/// The certified Generation identity as the thirty-two bytes the launch page binds.
 ///
 /// The identity is carried as its canonical `sha256:` form, and the launch page binds raw bytes,
 /// so the hex is decoded rather than re-hashed: re-hashing would bind a different value.
-pub(super) fn candidate_bytes(
-    id: &soma_generation::CandidateId,
-) -> Result<[u8; 32], BackendFailureKind> {
+pub(super) fn generation_bytes(id: &soma::GenerationId) -> Result<[u8; 32], BackendFailureKind> {
     let hex = id
         .as_str()
         .strip_prefix("sha256:")

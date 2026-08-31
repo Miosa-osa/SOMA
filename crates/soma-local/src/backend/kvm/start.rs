@@ -17,7 +17,7 @@ use super::{
     KvmBackend,
     boot::boot_for,
     claim,
-    identity::{LaunchIdentity, candidate_bytes},
+    identity::{LaunchIdentity, generation_bytes},
     network::Egress,
     prepared::PreparedGeneration,
 };
@@ -149,7 +149,7 @@ impl KvmBackend {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         };
         let generation_bytes =
-            candidate_bytes(&prepared.id).map_err(|kind| self.fail(operation, kind))?;
+            generation_bytes(&prepared.id).map_err(|kind| self.fail(operation, kind))?;
         self.register(operation, instance, identity.guest_cid)?;
         let launched = self.clocks.elapsed_ns(operation);
         match Jailed::launch(

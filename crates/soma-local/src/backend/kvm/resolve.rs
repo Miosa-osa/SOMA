@@ -51,12 +51,8 @@ impl KvmBackend {
     ) -> Result<ResolutionObservation<Box<dyn std::any::Any + Send>>, BackendFailure> {
         let operation = request.operation_id();
         let reference = request.image().as_str();
-        let found = prepared::find(
-            prepared::store_root().as_deref(),
-            reference,
-            prepared::uncertified_allowed(),
-        )
-        .map_err(|error| self.failure(operation, kind_for(&error)))?;
+        let found = prepared::find(prepared::store_root().as_deref(), reference)
+            .map_err(|error| self.failure(operation, kind_for(&error)))?;
         let workload = identity(&found)
             .ok_or_else(|| self.failure(operation, BackendFailureKind::WorkloadRejected))?;
         let elapsed = self.clocks.elapsed_ns(operation);
@@ -77,12 +73,13 @@ impl KvmBackend {
 
 /// The workload identity a prepared Generation reports.
 ///
-/// `generation_id` stays `None`: what a host prepares today is a Candidate, and a Candidate is
-/// not launchable until certification exists. Reporting one here would name a Generation
-/// identity that no gate has produced.
 #[allow(dead_code, reason = "used by resolve, which is not yet wired")]
 fn identity(found: &PreparedGeneration) -> Option<WorkloadIdentity> {
     let source = &found.manifest.source;
     let digest = OciDigest::parse(source.oci_manifest_digest.to_string()).ok()?;
-    Some(WorkloadIdentity::new(digest, source.platform.clone(), None))
+    Some(WorkloadIdentity::new(
+        digest,
+        source.platform.clone(),
+        Some(found.id.clone()),
+    ))
 }

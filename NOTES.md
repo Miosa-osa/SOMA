@@ -874,3 +874,11 @@ KVM benchmark state now uses a securely generated short directory under `/tmp`, 
 At clean revision `4688224`, the 34/33/33 distributed cohort completed 100 of 100 Node 22 commands and cleanups at p50 62.27 ms and p99 78.80 ms through one persistent MCP session per host.
 Separate 100-concurrent cohorts also completed 100 of 100 on each host at p50 164.69 ms on host 03, 154.77 ms on host 04, and 139.77 ms on host 10.
 These are warm-cache on-demand snapshot restores, not prepared-worker results and not evidence for the 10 ms objective.
+
+## 2026-08-30 - Public KVM admission consumes only certified Generations
+
+The Linux capture workflow now completes the existing Candidate lifecycle instead of leaving the prepared entry permanently uncertified.
+After snapshot capture it installs the memory, overlay, and state objects into the immutable store, certifies their binding to the exact Candidate, promotes the Candidate into a ready Generation, and publishes `generation.id` last with create-exclusive owner-only semantics.
+The public KVM resolver no longer has an environment-variable escape hatch for Candidate launch.
+It parses the ready `GenerationId`, independently runs `verify_generation` over the manifest and every artifact, reports that identity in workload evidence, and binds the same certified identity into the guest launch page.
+Linux x86_64 tests for Candidate refusal run inside an amd64 Docker environment on the Apple Silicon development host; live capture and KVM launch still require the production Linux host.

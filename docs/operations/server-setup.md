@@ -165,7 +165,9 @@ Successful output proves this development path reached guest command execution.
 It does not independently certify the host, Candidate, cleanup, jail, networking, or production readiness.
 
 The `SOMA_ALLOW_UNCERTIFIED_GENERATION` flag is required on purpose.
-Generation certification does not exist yet, so every template a host can build today is an unverified Candidate.
+The preparation command first publishes a non-launchable Candidate.
+On Linux x86_64, `capture_snapshot` installs the captured objects, runs certification, promotes the exact Candidate into a ready Generation, and publishes `generation.id` last.
+The public KVM resolver refuses Candidate-only entries and independently re-verifies the ready Generation and every bound artifact before machine creation.
 The backend refuses to launch one unless this flag is set, so that unverified images cannot boot by accident.
 Setting it is the explicit opt in for a development host.
 

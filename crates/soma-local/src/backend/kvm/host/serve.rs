@@ -82,12 +82,8 @@ fn serve(listener: &UnixListener, socket: &Path) -> i32 {
 /// in this host's own store claims for the reference, read by exactly the check the one-shot
 /// path performs.
 fn launch(backend: &mut KvmBackend, request: &LaunchWire) -> Result<Launched, BackendFailureKind> {
-    let found = prepared::find(
-        prepared::store_root().as_deref(),
-        &request.reference,
-        prepared::uncertified_allowed(),
-    )
-    .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+    let found = prepared::find(prepared::store_root().as_deref(), &request.reference)
+        .map_err(|_| BackendFailureKind::WorkloadRejected)?;
     backend
         .launch_resident(
             &request.operation_id,

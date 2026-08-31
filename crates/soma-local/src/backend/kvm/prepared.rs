@@ -9,23 +9,17 @@
 //! Identity is recomputed from the bytes on every read rather than recorded beside them, so a
 //! tampered or truncated entry cannot present itself as a Generation it is not.
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use soma_generation::{CandidateId, GenerationManifest, generation_manifest::decode_candidate};
+use soma::GenerationId;
+use soma_generation::{CompilerProfile, GenerationManifest, verify_generation};
 
 /// Names the root holding Generations prepared for this host.
 pub(super) const STORE: &str = "SOMA_GENERATION_STORE";
 
-/// Opts this host into launching uncertified Candidates.
-///
-/// Certification does not exist yet, so every Generation a host can prepare today is a
-/// Candidate that no gate has verified. Launching one is a development and diagnostic
-/// behaviour, not a production one, and it must not be reachable by accident: without this
-/// variable set to `1`, a Candidate is refused before any machine is created.
-pub(super) const ALLOW_UNCERTIFIED: &str = "SOMA_ALLOW_UNCERTIFIED_GENERATION";
-
-/// The exact published Candidate bytes, from which identity and manifest are recovered.
+/// The ready Generation identity published only after certification succeeds.
+const GENERATION_ID: &str = "generation.id";
+/// The non-launchable build result retained for diagnostics and later certification.
 const CANDIDATE: &str = "candidate.somacan";
 /// The image reference this Generation was prepared for, with no trailing newline.
 const REFERENCE: &str = "reference";
@@ -34,8 +28,8 @@ const STORE_DIRECTORY: &str = "store";
 
 /// Most a reference file may hold. An image reference is short.
 const MAX_REFERENCE_BYTES: u64 = 4096;
-/// Most a published Candidate may hold, matching the manifest size the encoder admits.
-const MAX_CANDIDATE_BYTES: u64 = 1 << 20;
+/// Exact upper bound for `sha256:` plus 64 lowercase hexadecimal digits.
+const GENERATION_ID_BYTES: u64 = 72;
 
 /// Why a request cannot be served from the prepared root.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,7 +42,7 @@ pub(super) enum PreparedError {
     NotPrepared,
     /// More than one entry claims this reference, so which one launches is undefined.
     Ambiguous,
-    /// The entry holds a Candidate and this host has not opted into launching one.
+    /// The entry holds only a Candidate and therefore cannot be launched.
     Uncertified,
     /// An entry, or a file inside it, is a symbolic link.
     ///
@@ -76,9 +70,9 @@ pub(super) struct PreparedGeneration {
     /// A machine host finds its own entry from this rather than being handed a store path, so
     /// what it launches is what a prepared entry claims rather than bytes a caller named.
     pub(super) reference: String,
-    /// The Candidate identity, recomputed from the exact published bytes.
-    pub(super) id: CandidateId,
-    /// The decoded Candidate manifest.
+    /// The identity of the independently re-verified ready Generation.
+    pub(super) id: GenerationId,
+    /// The decoded ready Generation manifest.
     pub(super) manifest: GenerationManifest,
 }
 
@@ -173,25 +167,37 @@ fn read_entry(
     entry: &Path,
     reference: &str,
 ) -> Result<PreparedGeneration, PreparedError> {
-    let candidate = entry.join(CANDIDATE);
+    let generation_id = entry.join(GENERATION_ID);
     let store = entry.join(STORE_DIRECTORY);
-    if any_component_is_link(root, entry)
-        || is_link(&entry.join(REFERENCE))
-        || is_link(&candidate)
-        || is_link(&store)
-    {
+    if any_component_is_link(root, entry) || is_link(&entry.join(REFERENCE)) || is_link(&store) {
         return Err(PreparedError::Linked);
     }
-    let bytes = read_bounded(&candidate, MAX_CANDIDATE_BYTES).ok_or(PreparedError::Damaged)?;
-    let manifest = decode_candidate(&bytes).map_err(|_| PreparedError::Damaged)?;
+    if !generation_id.exists() {
+        return if entry.join(CANDIDATE).is_file() {
+            Err(PreparedError::Uncertified)
+        } else {
+            Err(PreparedError::Damaged)
+        };
+    }
+    if is_link(&generation_id) {
+        return Err(PreparedError::Linked);
+    }
     if !store.is_dir() {
         return Err(PreparedError::Damaged);
+    }
+    let bytes = read_bounded(&generation_id, GENERATION_ID_BYTES).ok_or(PreparedError::Damaged)?;
+    let text = std::str::from_utf8(&bytes).map_err(|_| PreparedError::Damaged)?;
+    let id = GenerationId::new(text.trim().to_owned()).map_err(|_| PreparedError::Damaged)?;
+    let verified = verify_generation(&store, &id, &CompilerProfile::v1())
+        .map_err(|_| PreparedError::Damaged)?;
+    if !verified.launchable {
+        return Err(PreparedError::Uncertified);
     }
     Ok(PreparedGeneration {
         store,
         reference: reference.to_owned(),
-        id: CandidateId::of(&bytes),
-        manifest,
+        id: verified.id,
+        manifest: verified.manifest,
     })
 }
 
@@ -208,7 +214,6 @@ fn read_entry(
 pub(super) fn find(
     root: Option<&Path>,
     reference: &str,
-    allow_uncertified: bool,
 ) -> Result<PreparedGeneration, PreparedError> {
     let root = root.ok_or(PreparedError::StoreUnset)?;
     // A root that is simply absent is a different operator problem from one that is a link, and
@@ -241,28 +246,9 @@ pub(super) fn find(
     }
     match claimants.as_slice() {
         [] => Err(PreparedError::NotPrepared),
-        // Nothing a host can prepare today carries a certification, so a Candidate is stopped
-        // here, before it is decoded and before any overlay, machine, vCPU, or guest thread
-        // exists. Refusing before the decode also means a damaged entry is still refused as
-        // uncertified rather than reporting how it was damaged.
-        [_] if !allow_uncertified => Err(PreparedError::Uncertified),
         [only] => read_entry(root, only, reference),
         _ => Err(PreparedError::Ambiguous),
     }
-}
-
-/// Whether this host opted into launching an uncertified Candidate.
-pub(super) fn uncertified_allowed() -> bool {
-    allows_uncertified(std::env::var_os(ALLOW_UNCERTIFIED).as_deref())
-}
-
-/// The opt-in rule, over an already-read value so it is testable without touching the process.
-///
-/// Only the exact value `1` opts in. Any other setting, including an empty value or the word
-/// `true`, leaves the host refusing Candidates, because a half-recognised setting must not be
-/// the difference between refusing and launching unverified bytes.
-fn allows_uncertified(value: Option<&OsStr>) -> bool {
-    value == Some(OsStr::new("1"))
 }
 
 /// The prepared root this host names, if any.

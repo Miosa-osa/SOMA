@@ -9,7 +9,7 @@ use soma_guest::{LaunchNetwork, SecretFile};
 use soma_kvm::x86_64::{Hypervisor, SandboxDisks, SnapshotObjects, SnapshotPaths};
 use soma_storage::CloneError;
 
-use super::identity::{LaunchIdentity, candidate_bytes, now_unix_nanos};
+use super::identity::{LaunchIdentity, generation_bytes, now_unix_nanos};
 use super::prepared::PreparedGeneration;
 use soma_vmm::sandbox::{Boot, ColdBootInputs, Network, Source, cold_boot_config};
 
@@ -91,7 +91,7 @@ pub(super) fn boot_for(
     };
     Ok(Boot {
         source,
-        generation: candidate_bytes(&prepared.id)?,
+        generation: generation_bytes(&prepared.id)?,
         instance: identity.instance,
         operation: identity.operation,
         guest_cid,

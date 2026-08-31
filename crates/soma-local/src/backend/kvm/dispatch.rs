@@ -57,10 +57,7 @@ impl KvmBackend {
             // Only a machine this Launch actually claimed from the pool is reported as
             // prepared. A depleted pool restored its own machine and says so.
             launched.preparation,
-            // What a host prepares today is a Candidate, and no certification gate has verified
-            // it, so the artifacts are observed rather than enforced. Reporting LaunchEnforced
-            // would claim a binding no gate produced.
-            DigestBinding::ObservedOnly,
+            DigestBinding::LaunchEnforced,
             effective_shape(launched.memory_mib, launched.storage_mib),
             launched.network,
             // The launch stamp is taken on the clock of whichever process built the machine, so
