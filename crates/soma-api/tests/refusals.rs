@@ -104,3 +104,27 @@ fn a_known_path_under_the_wrong_method_reports_the_method_rather_than_absence() 
     assert!(facade.calls.is_empty());
     assert_eq!(body["error"]["code"], "method_not_allowed");
 }
+
+#[test]
+fn creating_a_sandbox_no_later_request_could_address_is_refused_before_it_is_built() {
+    let mut facade = FakeFacade::new(Mode::Succeed).without_addressable_sandboxes();
+    let request = identified("POST", "/v1/sandboxes", r#"{"image":"node:22"}"#);
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 501);
+    assert!(
+        facade.calls.is_empty(),
+        "nothing is launched for an identity the caller could never use"
+    );
+    assert_eq!(body["status"], "error");
+    assert_eq!(body["operation"], "sandbox.create");
+    assert_eq!(body["error"]["code"], "capability_unavailable");
+    assert_eq!(body["error"]["retryable"], false);
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .expect("the failure carries a message")
+            .contains("hosts a machine inside the process that launched it")
+    );
+}
