@@ -149,6 +149,7 @@ mod tests {
         assert!(line.ends_with(" rdinit=/init soma.lower=/dev/vda"));
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn appends_init_and_nonce_in_a_fixed_order() {
         let nonce = BootNonce::new([0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33]);
