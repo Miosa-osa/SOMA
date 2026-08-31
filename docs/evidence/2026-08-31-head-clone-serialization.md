@@ -18,7 +18,8 @@ The host is shared with other agents. Every cohort in this record was preceded b
 12 percent busy, and every raw record carries the busy figure and the load average it was taken
 under. The one minute load average is not usable as a gate here: a cohort of one hundred
 sandboxes raises it by itself, so a run gated on it stalls on its own last sample. No cohort in
-the headline table was discarded, and the busy figure before each was under one percent.
+the headline table was discarded, and the highest busy figure recorded on either side of
+any of the eighty cohorts was 1.99 percent.
 
 Earlier measurements taken this evening while three other agents were building on this host are
 not in this record. They agreed with what follows, but they are not evidence.
