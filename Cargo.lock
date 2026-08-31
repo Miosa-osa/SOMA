@@ -1246,6 +1246,7 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "soma",
  "soma-generation",
  "soma-guest",

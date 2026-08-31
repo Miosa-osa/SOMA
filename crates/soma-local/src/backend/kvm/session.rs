@@ -18,6 +18,7 @@ use soma_guest::{ActivationReceipt, GuestCommand, LaunchNetwork, SecretFile, Ter
 use soma_kvm::x86_64::{NetworkAttachment, SandboxEvidence};
 
 use super::network::PendingActivation;
+use super::sterile::Assignment;
 use super::worker::serve;
 
 /// The locally administered MAC the guest sees on its one network device.
@@ -29,6 +30,11 @@ pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
 
 /// What the lifecycle asks a live sandbox to do.
 pub(super) enum Request {
+    /// Transfer fresh Instance authority into a parked sterile machine, exactly once.
+    ///
+    /// The assignment is boxed because it is far larger than the other requests and only one
+    /// sandbox in its whole life ever receives it.
+    Assign(Box<Assignment>),
     /// Raise the machine's link gate, now that the broker has activated the assignment.
     RaiseLink,
     /// Run one bounded command over the authenticated session.
@@ -39,6 +45,8 @@ pub(super) enum Request {
 
 /// What a live sandbox reports back.
 pub(super) enum Response {
+    /// The machine is restored, holds no Instance authority, and is parked to be claimed.
+    Prepared,
     /// The repaired session minted the capability the broker's activation requires.
     ///
     /// The receipt can only be minted from inside the session, and activation can only be
@@ -101,6 +109,9 @@ pub(super) struct Session {
     /// output as another's, so an uncertain outcome ends the session instead.
     poisoned: bool,
 }
+
+#[path = "session/assign.rs"]
+mod assign;
 
 /// Everything one sandbox needs before it can boot.
 #[path = "session/source.rs"]
@@ -187,15 +198,8 @@ impl Session {
         receipt: &ActivationReceipt,
         activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
     ) -> Result<Self, SessionError> {
-        activate(receipt)?;
-        self.requests
-            .send(Request::RaiseLink)
-            .map_err(|_| SessionError::Gone)?;
-        match self.await_response(BOOT_DEADLINE) {
-            Ok(Response::Ready) => Ok(self),
-            Ok(Response::Failed(error)) | Err(error) => Err(error),
-            Ok(_) => Err(SessionError::Boot),
-        }
+        self.raise_the_link(receipt, activate)?;
+        Ok(self)
     }
 
     /// Runs one bounded command and returns its typed result.

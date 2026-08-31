@@ -50,6 +50,10 @@ pub(super) fn serve_commands(
                     })))
                     .map_err(|_| SessionError::Gone)?;
             }
+            // A machine that is already serving an Instance cannot be assigned another. The
+            // pool only ever sends this to a parked sterile worker, so reaching it here means
+            // the session is being addressed by something that does not own it.
+            Request::Assign(_) => return Err(SessionError::Execute),
             Request::Shutdown => break,
         }
     }

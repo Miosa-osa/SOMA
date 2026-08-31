@@ -172,7 +172,7 @@ pub struct Identity {
     pub operation: [u8; 16],
 }
 
-fn drive<W: Workload>(
+pub fn drive<W: Workload>(
     restored: &soma_kvm::x86_64::Restored,
     delivered: soma_guest::DeliveredHostLaunchMaterial,
     identity: &Identity,

@@ -1,0 +1,20 @@
+   Compiling soma-kvm v1.0.0-alpha.1 (/home/miosa/projects/SOMA/.claude/worktrees/agent-a62a39abb883785ae/crates/soma-kvm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.92s
+     Running tests/x86_64_snapshot_restore.rs (target/debug/deps/x86_64_snapshot_restore-44eb371e4f9bccf4)
+
+running 2 tests
+test x86_64_snapshot_restore_prepared::a_prepared_machine_reaches_ready_and_runs_one_command ... [capture] candidate_id=sha256:e2d841415e6ad187ff3a946490c3df54f0207fc102fa43a5a383d2261e89ea91 root=sha256:48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48 (1129172992 bytes) overlay_template=sha256:ecfecc597f7dfa7b98dec28adb5eeb3a15357e090cbadf62fb1c627dc41fb790 (268435456 bytes) initramfs=sha256:765de755724a045f8fc54fcb94fc13ffccfd6b15d74b1464be18b2408d94409c
+[capture] console 12154 bytes retained at /home/miosa/projects/SOMA/.claude/worktrees/agent-a62a39abb883785ae/target/tmp/x86_64-sandbox-boot/node22-2217722-1788152995030032427/capture-serial.log; repair point announced on it: true
+[capture] posted receive buffers at the capture point: net=0 vsock=256 events=8
+[capture] memory=7f9f9304c8d7f71c4e329ceebd628d49a33f9f1956dd289fce36b21e31728cba (1073741824 bytes) overlay=0fe206b4508c04ec92c3d4d856fb343220c0a23d4b900cfb123b53cb7d2e65dd (268435456 bytes) state=0a6addc28217da7013ee527a053a2f000f46b335159e33de429c249fc16c7408 (9566 bytes) root=48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48
+[receipt] ReadinessReceipt([REDACTED]) over session transcript 7cff2edf44307fae15470a79770c698f9e79cad28334f8403a9211383805779e
+ok
+test x86_64_snapshot_restore_prepared::preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path ... [prepared] machine construction on the request path, ns:
+  on demand, whole restore         n=10 p50=3272392 p99=4007472 min=2693967 max=4007472 samples=[2693967, 2800137, 2907362, 3161759, 3272392, 3282275, 3468047, 3574910, 3816026, 4007472]
+  prepared, assignment only        n=10 p50=18388 p99=24464 min=15325 max=24464 samples=[15325, 16589, 17527, 18079, 18388, 21751, 22187, 22421, 23708, 24464]
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 363.02s
+
+
+[exited with code 0]

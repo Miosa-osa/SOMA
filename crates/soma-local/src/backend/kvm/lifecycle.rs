@@ -17,16 +17,16 @@ use soma::{
     BackendFailure, BackendFailureKind, CleanupDisposition, CleanupEvidence, CleanupMethod,
     CleanupObservation, CleanupRequest, CleanupTimes, CommandObservation, CommandTimes,
     DigestBinding, ExecutionRequest, InspectionObservation, InspectionRequest, InstanceId,
-    IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, MachineState, PreparationClass,
+    IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, MachineState,
 };
 
 use super::{
-    KvmBackend,
-    boot::boot_for,
+    KvmBackend, claim,
     evidence::{CONTRACT_VCPUS, effective_network, effective_shape, guest_command, observation},
     identity::LaunchIdentity,
     network::{Egress, Released},
-    session::{Network, Session, SessionError},
+    session::{Network, Session},
+    start::{Launching, Started, failure_kind},
 };
 
 /// How long one bounded command may take before the session is considered gone.
@@ -40,23 +40,6 @@ pub(super) struct Live {
     pub(super) egress: Egress,
     /// What this Instance was told its network is, reported again by every later observation.
     pub(super) network: soma::EffectiveNetwork,
-}
-
-const fn failure_kind(error: SessionError) -> BackendFailureKind {
-    match error {
-        // The machine could not be built from artifacts the host presented as prepared, which
-        // is a property of the host rather than of the request.
-        SessionError::Create | SessionError::LaunchPage | SessionError::Network => {
-            BackendFailureKind::Unavailable
-        }
-        // The guest exists but never reached, or lost, its authenticated session.
-        SessionError::Boot
-        | SessionError::Ready
-        | SessionError::Secret
-        | SessionError::Execute
-        | SessionError::Gone
-        | SessionError::Poisoned => BackendFailureKind::GuestFailure,
-    }
 }
 
 impl KvmBackend {
@@ -97,37 +80,31 @@ impl KvmBackend {
             activation: egress.pending_activation(),
         };
         let observed = effective_network(&egress, policy);
+        // Preparation is registered before the claim, so this Launch may find nothing prepared
+        // and the next one for the same Generation finds a machine that is already restored.
+        // An empty pool is not a failure and is never reported as a prepared launch: the Launch
+        // restores its own machine on the path below and says so.
+        let claimed = claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib());
         // No secret reaches this Backend yet. The portable Launch request carries a Template's
         // secret references, not their values, and the host side that resolves a reference into
         // a value is the credential mediator of the second delivery mode, which does not exist.
         // The placement itself is wired, so a launch given a secret it cannot place fails here
         // rather than running without it.
-        let secrets = Vec::new();
-        let boot = boot_for(prepared, shape.memory_mib(), identity, network, secrets)
-            .map_err(|kind| self.fail(operation, kind))?;
-        // The Host Runtime, where one is configured, owns the Instance identity from before the
-        // machine exists, so a later process can address and end this Instance rather than
-        // finding nothing once this process is gone.
-        let registered = self
-            .ownership
-            .register(request.instance_id(), operation, boot.guest_cid);
-        registered.map_err(|kind| self.fail(operation, kind))?;
-        let launched = self.clocks.elapsed_ns(operation);
-        // A launch that ends here drops the lease, and dropping a lease releases it, so a guest
-        // that never reached its session leaves the broker holding nothing. The registration is
-        // withdrawn for the same reason: a Host owning an Instance no process serves is an
-        // Instance no client can ever end.
-        let session = match Session::launch(boot, &mut |receipt| {
-            egress.activate(receipt).map_err(|()| SessionError::Network)
-        }) {
-            Ok(session) => session,
-            Err(error) => {
-                self.ownership.withdraw(request.instance_id());
-                return Err(BackendFailure::new(
-                    failure_kind(error),
-                    self.clocks.elapsed_ns(operation),
-                ));
-            }
+        let launching = Launching {
+            instance: request.instance_id(),
+            prepared,
+            identity,
+            memory_mib: shape.memory_mib(),
+            network,
+            secrets: Vec::new(),
+        };
+        let Started {
+            preparation,
+            session,
+            launched,
+        } = match claimed {
+            Some(claimed) => self.assign_claimed(operation, launching, &mut egress, claimed)?,
+            None => self.restore_on_demand(operation, launching, &mut egress)?,
         };
         let ready = self.clocks.elapsed_ns(operation);
         self.live = Some(Live {
@@ -142,8 +119,9 @@ impl KvmBackend {
             request.workload().clone(),
             Self::kind(),
             IsolationClass::HardwareVirtualMachine,
-            // Every launch cold boots its own machine; no worker was prepared for it.
-            PreparationClass::OnDemand,
+            // Only a machine this Launch actually claimed from the pool is reported as
+            // prepared. A depleted pool restored its own machine and says so.
+            preparation,
             // What a host prepares today is a Candidate, and no certification gate has
             // verified it, so the artifacts are observed rather than enforced. Reporting
             // LaunchEnforced would claim a binding no gate produced. It becomes enforced when

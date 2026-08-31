@@ -13,7 +13,7 @@ use soma::{
 use super::{KvmBackend, Live};
 
 impl KvmBackend {
-    pub(super) fn fail(
+    pub(in crate::backend::kvm) fn fail(
         &mut self,
         operation: &soma::OperationId,
         kind: BackendFailureKind,

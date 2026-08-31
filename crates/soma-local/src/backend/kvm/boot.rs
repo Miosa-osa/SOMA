@@ -42,33 +42,32 @@ pub(super) fn boot_for(
     // A prepared entry may carry a snapshot taken once for the whole Generation. When it does,
     // this launch resumes that machine instead of booting a kernel, which is the difference
     // between hundreds of milliseconds and tens on the request path.
-    let snapshot = prepared.store.parent().map(|entry| entry.join("snapshot"));
+    let snapshot = super::claim::snapshot_dir(prepared);
     let guest_cid = identity.guest_cid;
-    let source =
-        if let Some(snapshot) = snapshot.filter(|path| path.join("state.somasnap").is_file()) {
-            {
-                // The restore clones its own head from the snapshot's sterile overlay template, not
-                // from the Candidate's, because the captured machine has already written to it.
-                let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
-                Source::Restore {
-                    snapshot,
-                    disks: SandboxDisks { root, overlay },
-                    memory_bytes: memory_mib * MIB,
-                }
+    let source = if let Some(snapshot) = snapshot {
+        {
+            // The restore clones its own head from the snapshot's sterile overlay template, not
+            // from the Candidate's, because the captured machine has already written to it.
+            let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
+            Source::Restore {
+                snapshot,
+                disks: SandboxDisks { root, overlay },
+                memory_bytes: memory_mib * MIB,
             }
-        } else {
-            {
-                let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
-                Source::ColdBoot(super::worker::config(
-                    kernel,
-                    initramfs,
-                    root,
-                    overlay,
-                    memory_mib * MIB,
-                    guest_cid,
-                ))
-            }
-        };
+        }
+    } else {
+        {
+            let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
+            Source::ColdBoot(super::worker::config(
+                kernel,
+                initramfs,
+                root,
+                overlay,
+                memory_mib * MIB,
+                guest_cid,
+            ))
+        }
+    };
     Ok(Boot {
         source,
         generation: candidate_bytes(&prepared.id)?,
@@ -98,7 +97,7 @@ const MIB: u64 = 1024 * 1024;
 ///
 /// The snapshot carries its own sterile overlay template, quiesced at the capture point, so a
 /// restored Instance must clone that rather than the Candidate's untouched one.
-fn private_head_from(
+pub(super) fn private_head_from(
     template_path: &std::path::Path,
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
