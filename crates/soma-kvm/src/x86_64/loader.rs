@@ -146,8 +146,8 @@ fn write_boot_pages(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cmdline::{self, BootNonce};
     use crate::x86_64::{
-        cmdline::{self, BootNonce},
         elf::synthetic::{PF_R, Segment, SyntheticElf},
         error::MachineErrorKind,
         layout::{GuestLayout, MIN_RAM_BYTES},

@@ -105,13 +105,19 @@ pub(crate) fn compose(initramfs: bool, nonce: Option<&BootNonce>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The contract constant lives inside the x86_64 machine tree; the
+    // composition itself is portable, so only the comparisons against that
+    // constant are gated, not this module.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     use crate::x86_64::boot_info::DIAGNOSTIC_CMDLINE;
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn fixed_set_matches_the_contract_line() {
         assert_eq!(compose(false, None), DIAGNOSTIC_CMDLINE);
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn generation_line_is_contract_devices_init_and_disks() {
         let line = compose_generation(DeviceSet::FULL);
