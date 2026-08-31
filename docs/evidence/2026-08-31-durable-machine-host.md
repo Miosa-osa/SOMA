@@ -25,9 +25,9 @@ host binds that socket before it builds anything, runs the unchanged resident li
 what the launch established on its standard output, and then answers execute, inspect, and
 cleanup over the socket until the machine is released.
 
-`soma run` and `soma_run` are untouched. Each holds its own machine in its own process for the whole operation and
-releases it before returning, so no second process appears on the path every performance figure
-in this repository was measured on. One `soma run` at this shape still reached Ready in 20.5 ms
+`soma run` and `soma_run` are untouched. Each holds its own machine in its own process for the
+whole operation and releases it before returning, so no second process appears on the path every
+performance figure in this repository was measured on. One `soma run` at this shape still reached Ready in 20.5 ms
 and released gracefully ([`one-shot-run.json`](raw/2026-08-31-durable-machine-host/one-shot-run.json)).
 
 ## One sandbox, five separate processes
