@@ -1,0 +1,35 @@
+instance=ea83d6e8ef2e43a18a33e579b3317fbd
+launch exit=0 at 2026-08-31T09:37:03+00:00
+host after launch: 1
+heads after launch: 0
+2026-08-31T09:38:03+00:00 minute=1 hosts=1 heads=0 sockets=1
+2026-08-31T09:39:03+00:00 minute=2 hosts=1 heads=0 sockets=1
+2026-08-31T09:40:03+00:00 minute=3 hosts=1 heads=0 sockets=1
+2026-08-31T09:41:03+00:00 minute=4 hosts=1 heads=0 sockets=1
+2026-08-31T09:42:03+00:00 minute=5 hosts=1 heads=0 sockets=1
+2026-08-31T09:43:03+00:00 minute=6 hosts=1 heads=0 sockets=1
+2026-08-31T09:44:04+00:00 minute=7 hosts=1 heads=0 sockets=1
+2026-08-31T09:45:04+00:00 minute=8 hosts=1 heads=0 sockets=1
+2026-08-31T09:46:04+00:00 minute=9 hosts=1 heads=0 sockets=1
+2026-08-31T09:47:04+00:00 minute=10 hosts=1 heads=0 sockets=1
+2026-08-31T09:48:04+00:00 minute=11 hosts=1 heads=0 sockets=1
+2026-08-31T09:49:04+00:00 minute=12 hosts=1 heads=0 sockets=1
+2026-08-31T09:50:05+00:00 minute=13 hosts=1 heads=0 sockets=1
+2026-08-31T09:51:05+00:00 minute=14 hosts=1 heads=0 sockets=1
+2026-08-31T09:52:05+00:00 minute=15 hosts=1 heads=0 sockets=1
+2026-08-31T09:53:05+00:00 minute=16 hosts=1 heads=0 sockets=1
+2026-08-31T09:54:05+00:00 minute=17 hosts=1 heads=0 sockets=1
+2026-08-31T09:55:05+00:00 minute=18 hosts=1 heads=0 sockets=1
+2026-08-31T09:56:05+00:00 minute=19 hosts=1 heads=0 sockets=1
+2026-08-31T09:57:05+00:00 minute=20 hosts=1 heads=0 sockets=1
+2026-08-31T09:58:06+00:00 minute=21 hosts=1 heads=0 sockets=1
+2026-08-31T09:59:06+00:00 minute=22 hosts=1 heads=0 sockets=1
+2026-08-31T10:00:06+00:00 minute=23 hosts=1 heads=0 sockets=1
+2026-08-31T10:01:06+00:00 minute=24 hosts=1 heads=0 sockets=1
+2026-08-31T10:02:06+00:00 minute=25 hosts=1 heads=0 sockets=1
+2026-08-31T10:03:06+00:00 minute=26 hosts=1 heads=0 sockets=1
+2026-08-31T10:04:06+00:00 minute=27 hosts=1 heads=0 sockets=1
+2026-08-31T10:05:06+00:00 minute=28 hosts=1 heads=0 sockets=1
+2026-08-31T10:06:06+00:00 minute=29 hosts=1 heads=0 sockets=1
+2026-08-31T10:07:06+00:00 minute=30 hosts=0 heads=0 sockets=0
+REAPED at minute 30

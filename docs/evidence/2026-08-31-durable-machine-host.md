@@ -155,7 +155,28 @@ never held, and it still closes the durable record. The stale socket is removed 
 lookup that finds nothing behind it. No head and no socket survived the kill, because the killed
 process was the only holder of both.
 
-One sequence is worth naming: an `exec` that failed against a dead host moves the durable record
+### A client that never comes back
+
+The harder case is a client that dies holding a live sandbox and never destroys it. A host whose
+machine nothing has addressed for half an hour asks its own socket to shut down, which ends the
+serve loop on the one thread that owns the machine and releases it there.
+
+One sandbox was launched and then deliberately never addressed again
+([`abandoned-machine/idle-release.log`](raw/2026-08-31-durable-machine-host/abandoned-machine/idle-release.log)),
+with the host process, the head directory, and the socket sampled once a minute:
+
+```
+launch exit=0 at 2026-08-31T09:37:03+00:00
+2026-08-31T10:05:06+00:00 minute=28 hosts=1 heads=0 sockets=1
+2026-08-31T10:06:06+00:00 minute=29 hosts=1 heads=0 sockets=1
+2026-08-31T10:07:06+00:00 minute=30 hosts=0 heads=0 sockets=0
+REAPED at minute 30
+```
+
+The machine stayed up for twenty-nine minutes of being ignored and was gone at thirty, leaving no
+process, no head, and no socket. One sample, at the compiled ceiling; no other ceiling was tested.
+
+One further sequence is worth naming: an `exec` that failed against a dead host moves the durable record
 to a terminal phase, and a `destroy` after that is refused with `state_conflict` and exit 69
 rather than succeeding ([`killed-host/destroy.json`](raw/2026-08-31-durable-machine-host/killed-host/destroy.json)).
 That is the durable state machine's existing behaviour rather than anything the host introduced,
@@ -163,9 +184,6 @@ and it is recorded here because it is the one path on which destroy does not ret
 
 ## What is not proved here
 
-- A host whose client never returns ends itself after half an hour of nobody addressing it. The
-  ceiling is in the code and the mechanism is a shutdown request the host sends to its own socket;
-  no run in this document waited it out, so it is designed rather than live-proved.
 - The host is an ordinary child process. It is not jailed, and `soma-vmm`, which is, still does
   not host a machine. See the note below.
 - `soma-api` still opens its runtime without asking for hosted machines, so the HTTP surface keeps
