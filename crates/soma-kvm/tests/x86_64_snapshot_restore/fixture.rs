@@ -64,6 +64,15 @@ impl Fixture {
         open_artifact(&self.compiled.store, &manifest.root.descriptor).expect("open the root")
     }
 
+    /// The capacity every private head cloned from this snapshot's template has.
+    ///
+    /// A prepared worker builds its overlay slot against this before it may hold a head.
+    pub fn overlay_capacity_bytes(&self) -> u64 {
+        fs::metadata(self.paths.overlay())
+            .expect("stat the sterile overlay template")
+            .len()
+    }
+
     /// Clones one Instance-private overlay head from the snapshot's sterile template.
     pub fn private_head(&self, name: &str) -> (PathBuf, File) {
         let directory = self.scratch.join("heads");
