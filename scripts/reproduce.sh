@@ -228,7 +228,10 @@ prepare() {
     log "compiling $IMAGE into a Generation at $STORE_DIR"
     rm -rf -- "$STORE_DIR"
     mkdir -p "$STORE_DIR"
-    ./scripts/prepare-generation.sh "$IMAGE" "$STORE_DIR" "$FS_TOOLS" "$MEM_MIB" "$DISK_MIB"
+    # The primitive refuses a snapshot-less entry; this is the one caller entitled to the escape
+    # hatch, because it captures on the next step.
+    SOMA_ALLOW_COLD_BOOT_ENTRY=1 \
+        ./scripts/prepare-generation.sh "$IMAGE" "$STORE_DIR" "$FS_TOOLS" "$MEM_MIB" "$DISK_MIB"
     local entry
     entry="$(compgen -G "$STORE_DIR/ref-*" | head -1 || true)"
     [[ -n "$entry" ]] || die "prepare-generation.sh wrote no ref-* entry into $STORE_DIR"

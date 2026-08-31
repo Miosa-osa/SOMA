@@ -249,3 +249,15 @@ that call aborts before the capture. The one line fix on the merged tree is to i
 escape hatch is for: `reproduce.sh` knows it is about to capture. The two guards are
 complementary, `reproduce.sh` closing the launch site and `prepare-generation.sh` closing the
 primitive that the documented build sequence invokes directly.
+
+## Retained samples
+
+The live runs behind every claim above are retained in
+[`raw/2026-08-31-honest-status-surface/`](raw/2026-08-31-honest-status-surface/): the build
+manifest the runs were made with, the eight-slot KVM burst that now names why it scored zero
+(`kvm8.jsonl`), and the two-slot Docker burst that reports the unverified shape
+(`docker2.jsonl`).
+
+The interaction with `reproduce.sh` described above has since been applied on the merged tree:
+that script now invokes the primitive with `SOMA_ALLOW_COLD_BOOT_ENTRY=1`, because it captures the
+snapshot on the following line and is the one caller entitled to the uncaptured entry.

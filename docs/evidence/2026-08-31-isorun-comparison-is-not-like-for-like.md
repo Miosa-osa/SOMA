@@ -36,8 +36,8 @@ describes.
 **SOMA cannot do that at all.** `soma machine launch` returns an instance identity that is already
 dead, because the machine lives inside the launching process
 ([evidence](2026-08-31-durable-machine-across-processes.md)). Every SOMA performance figure in this
-repository — 31.31 ms sequential, 35.5 ms at concurrency 100, the whole speed ladder, the entire
-`ready` segment analysis — was measured with `soma run`, which launches, executes, and destroys
+repository, 31.31 ms sequential, 35.5 ms at concurrency 100, the whole speed ladder, the entire
+`ready` segment analysis, was measured with `soma run`, which launches, executes, and destroys
 inside one process and never produces a reusable identity.
 
 So the two sides of the comparison are not the same operation measured differently. They are
