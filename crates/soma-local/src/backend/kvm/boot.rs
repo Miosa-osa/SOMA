@@ -37,33 +37,32 @@ pub(super) fn boot_for(
     // A prepared entry may carry a snapshot taken once for the whole Generation. When it does,
     // this launch resumes that machine instead of booting a kernel, which is the difference
     // between hundreds of milliseconds and tens on the request path.
-    let snapshot = prepared.store.parent().map(|entry| entry.join("snapshot"));
+    let snapshot = super::claim::snapshot_dir(prepared);
     let guest_cid = guest_cid_for(instance)?;
-    let source =
-        if let Some(snapshot) = snapshot.filter(|path| path.join("state.somasnap").is_file()) {
-            {
-                // The restore clones its own head from the snapshot's sterile overlay template, not
-                // from the Candidate's, because the captured machine has already written to it.
-                let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
-                Source::Restore {
-                    snapshot,
-                    disks: SandboxDisks { root, overlay },
-                    memory_bytes: memory_mib * MIB,
-                }
+    let source = if let Some(snapshot) = snapshot {
+        {
+            // The restore clones its own head from the snapshot's sterile overlay template, not
+            // from the Candidate's, because the captured machine has already written to it.
+            let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
+            Source::Restore {
+                snapshot,
+                disks: SandboxDisks { root, overlay },
+                memory_bytes: memory_mib * MIB,
             }
-        } else {
-            {
-                let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
-                Source::ColdBoot(super::worker::config(
-                    kernel,
-                    initramfs,
-                    root,
-                    overlay,
-                    memory_mib * MIB,
-                    guest_cid,
-                ))
-            }
-        };
+        }
+    } else {
+        {
+            let overlay = private_head(&prepared.store, &template.descriptor, instance)?;
+            Source::ColdBoot(super::worker::config(
+                kernel,
+                initramfs,
+                root,
+                overlay,
+                memory_mib * MIB,
+                guest_cid,
+            ))
+        }
+    };
     Ok(Boot {
         source,
         generation: candidate_bytes(&prepared.id)?,
@@ -81,7 +80,7 @@ const MIB: u64 = 1024 * 1024;
 ///
 /// The snapshot carries its own sterile overlay template, quiesced at the capture point, so a
 /// restored Instance must clone that rather than the Candidate's untouched one.
-fn private_head_from(
+pub(super) fn private_head_from(
     template_path: &std::path::Path,
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
@@ -196,7 +195,7 @@ fn unlink(directory: &std::fs::File, name: &str) -> Result<(), BackendFailureKin
 /// authority. So this must be given the same identifier the machine was built with rather than
 /// a constant: a launch page naming a different one leaves a correctly built machine unable to
 /// form a session at all.
-fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, BackendFailureKind> {
+pub(super) fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, BackendFailureKind> {
     LaunchNetwork::new(
         guest_cid,
         1,
@@ -227,7 +226,7 @@ fn now_unix_nanos() -> u64 {
 /// evidence described another, and no reader could tell. This is the only conversion between
 /// them, and it is exact rather than derived: a `InstanceId` is thirty-two lowercase hexadecimal
 /// characters, which is these sixteen bytes written out.
-fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
+pub(super) fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
     let hex = instance.as_str();
     if hex.len() != 32 {
         return Err(BackendFailureKind::WorkloadRejected);
@@ -242,7 +241,7 @@ fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind>
 }
 
 /// Sixteen fresh bytes for one identity.
-fn fresh16() -> [u8; 16] {
+pub(super) fn fresh16() -> [u8; 16] {
     use std::io::Read as _;
     let mut bytes = [0_u8; 16];
     if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
@@ -255,7 +254,9 @@ fn fresh16() -> [u8; 16] {
 ///
 /// The identity is carried as its canonical `sha256:` form, and the launch page binds raw bytes,
 /// so the hex is decoded rather than re-hashed: re-hashing would bind a different value.
-fn candidate_bytes(id: &soma_generation::CandidateId) -> Result<[u8; 32], BackendFailureKind> {
+pub(super) fn candidate_bytes(
+    id: &soma_generation::CandidateId,
+) -> Result<[u8; 32], BackendFailureKind> {
     let hex = id
         .as_str()
         .strip_prefix("sha256:")
@@ -278,7 +279,7 @@ fn candidate_bytes(id: &soma_generation::CandidateId) -> Result<[u8; 32], Backen
 /// so there is no counter to draw from: the identifier is derived from the Instance identity,
 /// which is already unique per sandbox. Zero, one, and two are reserved by the kernel, so the
 /// derived value is folded into the range above them.
-fn guest_cid_for(instance: &InstanceId) -> Result<u32, BackendFailureKind> {
+pub(super) fn guest_cid_for(instance: &InstanceId) -> Result<u32, BackendFailureKind> {
     let bytes = instance_bytes(instance)?;
     let derived = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
     // `u32::MAX` is reserved as the "any" identifier, so the usable span ends one below it.

@@ -17,6 +17,7 @@ use std::time::Duration;
 use soma_guest::{GuestCommand, LaunchNetwork, TerminalStatus};
 use soma_kvm::x86_64::{SandboxConfig, SandboxDisks, SandboxEvidence};
 
+use super::sterile::{Assignment, SterileSpec};
 use super::worker::serve;
 
 /// The lowest context identifier a guest may take; 0, 1, and 2 are reserved by the kernel.
@@ -27,9 +28,19 @@ pub(super) const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 pub(super) const BOOT_DEADLINE: Duration = Duration::from_secs(60);
 /// How long the guest has to leave `KVM_RUN` after it acknowledges shutdown.
 pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
+/// How long restoring one sterile machine has before the worker is considered lost.
+///
+/// A restore is milliseconds of work, so this is a liveness bound on a wedged host rather than
+/// a budget: a preparation that takes this long has already failed at whatever it was doing.
+pub(super) const PREPARE_DEADLINE: Duration = Duration::from_secs(60);
 
 /// What the lifecycle asks a live sandbox to do.
 pub(super) enum Request {
+    /// Transfer fresh Instance authority into a parked sterile machine, exactly once.
+    ///
+    /// The assignment is boxed because it is far larger than the other requests and only one
+    /// sandbox in its whole life ever receives it.
+    Assign(Box<Assignment>),
     /// Run one bounded command over the authenticated session.
     Execute(GuestCommand),
     /// Ask the guest to shut down, then finish the machine and report its evidence.
@@ -38,6 +49,8 @@ pub(super) enum Request {
 
 /// What a live sandbox reports back.
 pub(super) enum Response {
+    /// The machine is restored, holds no Instance authority, and is parked to be claimed.
+    Prepared,
     /// The sandbox reached an authenticated Ready.
     Ready,
     /// One command completed with its typed terminal status.
@@ -147,6 +160,48 @@ impl Session {
             // nothing is gone; both carry the reason the thread reported.
             Ok(Response::Failed(error)) | Err(error) => Err(error),
             Ok(_) => Err(SessionError::Boot),
+        }
+    }
+
+    /// Restores one sterile machine on its own thread and returns once it is parked.
+    ///
+    /// The returned session owns a machine that has paid for everything a restore costs except
+    /// the two authorities an Instance owns. Dropping it destroys the machine, which is what a
+    /// single-use worker must do rather than return to a pool.
+    pub(super) fn prepare(spec: SterileSpec) -> Result<Self, SessionError> {
+        let (request_tx, request_rx) = channel();
+        let (response_tx, response_rx) = channel();
+        let thread = std::thread::Builder::new()
+            .name("soma-kvm-prepared".to_owned())
+            .spawn(move || super::sterile::serve(spec, &request_rx, &response_tx))
+            .map_err(|_| SessionError::Create)?;
+        let mut session = Self {
+            requests: request_tx,
+            responses: response_rx,
+            thread: Some(thread),
+            poisoned: false,
+        };
+        match session.await_response(PREPARE_DEADLINE) {
+            Ok(Response::Prepared) => Ok(session),
+            // Anything else means no sterile machine exists behind this session, so the caller
+            // must not be handed one that looks claimable.
+            Ok(Response::Failed(error)) | Err(error) => Err(error),
+            Ok(_) => Err(SessionError::Create),
+        }
+    }
+
+    /// Transfers fresh Instance authority into a parked sterile machine and waits for Ready.
+    ///
+    /// A failure poisons the session, which stops its thread and releases the machine, because
+    /// a transfer that did not certainly complete leaves authority nobody can describe.
+    pub(super) fn assign(&mut self, assignment: Assignment) -> Result<(), SessionError> {
+        self.requests
+            .send(Request::Assign(Box::new(assignment)))
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        match self.await_response(BOOT_DEADLINE + EXIT_GRACE) {
+            Ok(Response::Ready) => Ok(()),
+            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
+            Ok(_) => Err(self.poison(SessionError::Boot)),
         }
     }
 

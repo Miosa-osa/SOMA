@@ -1,0 +1,20 @@
+   Compiling soma-kvm v1.0.0-alpha.1 (/home/miosa/projects/SOMA/.claude/worktrees/agent-a62a39abb883785ae/crates/soma-kvm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.55s
+     Running tests/x86_64_snapshot_restore.rs (target/debug/deps/x86_64_snapshot_restore-0858a4cf76b66849)
+
+running 2 tests
+test x86_64_snapshot_restore_prepared::a_prepared_machine_reaches_ready_and_runs_one_command ... [cache] reopened the compiled Generation at /home/miosa/projects/SOMA/.claude/worktrees/agent-a62a39abb883785ae/target/tmp/generation-cache/5b2b0d9a6d34cc1785c4cc8a2c16e46cc6ede8cf2dece7c270ac23be8d44cd23
+[capture] candidate_id=sha256:e2d841415e6ad187ff3a946490c3df54f0207fc102fa43a5a383d2261e89ea91 root=sha256:48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48 (1129172992 bytes) overlay_template=sha256:ecfecc597f7dfa7b98dec28adb5eeb3a15357e090cbadf62fb1c627dc41fb790 (268435456 bytes) initramfs=sha256:765de755724a045f8fc54fcb94fc13ffccfd6b15d74b1464be18b2408d94409c
+[capture] console 12153 bytes retained at /home/miosa/projects/SOMA/.claude/worktrees/agent-a62a39abb883785ae/target/tmp/x86_64-sandbox-boot/node22-1189097-1788146890813518452/capture-serial.log; repair point announced on it: true
+[capture] posted receive buffers at the capture point: net=0 vsock=256 events=8
+[capture] memory=59c36ebcb8f14d2fa36ab0bf1bb762d53a6a59f1cddf49aa3e1db16a00bac828 (1073741824 bytes) overlay=e6eceab9d383152f9e5adeabcc8c6459160025514939a5f15cca924136bc7197 (268435456 bytes) state=283868450d33f96d4973843050a68bc13f922b9d31bcf5dbb697c06d39b08513 (9566 bytes) root=48a6cf92bd0b4a57ee7ea87f0d3efe774ad26bd47d6db4ed6c23c83dcfe8aa48
+ok
+test x86_64_snapshot_restore_prepared::preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path ... [prepared] machine construction on the request path, ns:
+  on demand, whole restore         n=10 p50=3693944 p99=6494165 min=3189821 max=6494165 samples=[3189821, 3479211, 3624709, 3667424, 3693944, 3706991, 3861214, 4092338, 4701125, 6494165]
+  prepared, assignment only        n=10 p50=17753 p99=36899 min=14122 max=36899 samples=[14122, 15997, 17047, 17084, 17753, 17994, 21550, 24734, 24830, 36899]
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 89.54s
+
+
+[exited with code 0]

@@ -1,0 +1,110 @@
+//! Turning one request into the pool key it belongs to and the authority a claim transfers.
+//!
+//! The two halves are deliberately separate. The key describes a machine that could serve this
+//! request and holds nothing about the request itself, which is what lets it be computed before
+//! any Instance exists. The assignment is everything that belongs to exactly one Instance, and
+//! it is built on the request path because none of it can be prepared in advance.
+
+use std::path::{Path, PathBuf};
+
+use soma::{BackendFailureKind, InstanceId};
+
+use super::boot::{
+    candidate_bytes, guest_cid_for, instance_bytes, link_down_network, private_head_from,
+};
+use super::evidence::CONTRACT_VCPUS;
+use super::pool::{Claimed, MachinePool, Recipe};
+use super::prepared::PreparedGeneration;
+use super::sterile::Assignment;
+
+/// Bytes in one mebibyte.
+const MIB: u64 = 1024 * 1024;
+
+/// The published snapshot directory of a prepared Generation, when it has one.
+///
+/// A prepared entry holds the Candidate's store beside a snapshot taken once for the whole
+/// Generation. Only an entry that carries a captured machine can be restored at all, so an
+/// entry without one has no pool and no prepared machine.
+pub(super) fn snapshot_dir(prepared: &PreparedGeneration) -> Option<PathBuf> {
+    let snapshot = prepared.store.parent()?.join("snapshot");
+    snapshot
+        .join("state.somasnap")
+        .is_file()
+        .then_some(snapshot)
+}
+
+/// The pool a request for this Generation and shape belongs to, and how to fill it.
+///
+/// Returns `None` when the entry carries no snapshot or no immutable root, because neither a
+/// prepared machine nor an on-demand restore exists for it and there is nothing to pool.
+pub(super) fn recipe_for(
+    prepared: &PreparedGeneration,
+    memory_mib: u64,
+    vcpus: u16,
+) -> Option<Recipe> {
+    let snapshot = snapshot_dir(prepared)?;
+    let root = prepared.manifest.root.descriptor;
+    let candidate = candidate_bytes(&prepared.id).ok()?;
+    Recipe::new(
+        &prepared.store,
+        root,
+        snapshot,
+        memory_mib * MIB,
+        vcpus,
+        candidate,
+    )
+}
+
+/// The fresh authority one claimed machine receives, exactly once.
+///
+/// The private head is cloned here rather than in the pool: it is this Instance's disk, and a
+/// prepared machine that already held one would not be sterile. The head is cloned from the
+/// snapshot's own quiesced overlay template rather than the Candidate's untouched one, because
+/// the captured machine has already written to it.
+pub(super) fn assignment_for(
+    snapshot: &Path,
+    prepared: &PreparedGeneration,
+    instance: &InstanceId,
+) -> Result<Assignment, BackendFailureKind> {
+    let overlay = private_head_from(&snapshot.join("overlay.raw"), instance)?;
+    let guest_cid = guest_cid_for(instance)?;
+    Ok(Assignment {
+        overlay,
+        generation: candidate_bytes(&prepared.id)?,
+        instance: instance_bytes(instance)?,
+        operation: super::boot::fresh16(),
+        guest_cid,
+        network: link_down_network(guest_cid)?,
+    })
+}
+
+/// One machine claimed from the pool, with the snapshot its private head must be cloned from.
+pub(super) struct ClaimedMachine {
+    /// The published snapshot directory the claimed machine was restored from.
+    pub(super) snapshot: PathBuf,
+    /// The claimed machine, which must be assigned or destroyed.
+    pub(super) machine: Claimed,
+}
+
+/// Registers this Generation with the pool, then claims a machine prepared for it.
+///
+/// Registration and the claim are one step because the request path is the only place that
+/// learns which Generation and shape this host is being asked for. Registering does not
+/// construct anything on this path: it names the key and wakes the replenisher, which builds
+/// on its own thread, so the first request for a Generation finds nothing prepared and a later
+/// one does.
+///
+/// Returns `None` when the entry cannot be pooled at all or when the pool is empty. Neither is
+/// a failure, and neither may be reported as a prepared launch.
+pub(super) fn prepare_and_claim(
+    pool: &MachinePool,
+    prepared: &PreparedGeneration,
+    memory_mib: u64,
+) -> Option<ClaimedMachine> {
+    let recipe = recipe_for(prepared, memory_mib, CONTRACT_VCPUS)?;
+    let key = recipe.key().clone();
+    let snapshot = snapshot_dir(prepared)?;
+    pool.serve(recipe);
+    pool.claim(&key)
+        .map(|machine| ClaimedMachine { snapshot, machine })
+}

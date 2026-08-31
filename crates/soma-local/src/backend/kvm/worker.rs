@@ -85,7 +85,7 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
 }
 
 /// Finishes the machine and reports its evidence, or the failure that ended it.
-fn report(
+pub(super) fn report(
     sandbox: SandboxMachine,
     outcome: Result<(), SessionError>,
     responses: &Sender<Response>,
@@ -138,7 +138,7 @@ fn drive_cold(
 /// `resume` rather than written before `start`, and Ready must be claimed with a receipt binding
 /// this Instance and operation to the live session transcript, so readiness cannot be asserted by
 /// a caller that did not complete the session.
-fn drive_restored(
+pub(super) fn drive_restored(
     restored: &mut Restored,
     material: HostLaunchMaterial,
     instance: [u8; 16],
@@ -213,6 +213,10 @@ fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::Shutdown => break,
+            // A machine that is already serving an Instance cannot be assigned another. The
+            // pool only ever sends this to a parked sterile worker, so reaching it here means
+            // the session is being addressed by something that does not own it.
+            Request::Assign(_) => return Err(SessionError::Execute),
         }
     }
     let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;

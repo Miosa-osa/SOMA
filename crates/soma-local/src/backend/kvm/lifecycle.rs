@@ -11,14 +11,13 @@ use soma::{
     CleanupObservation, CleanupRequest, CleanupTimes, CommandObservation, CommandTimes,
     DigestBinding, EgressPolicy, ExecutionRequest, InspectionObservation, InspectionRequest,
     InstanceId, IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, MachineState,
-    PreparationClass,
 };
 
 use super::{
-    KvmBackend,
-    boot::boot_for,
+    KvmBackend, claim,
     evidence::{CONTRACT_VCPUS, effective_network, effective_shape, guest_command, observation},
-    session::{Session, SessionError},
+    session::Session,
+    start::{Started, failure_kind},
 };
 
 /// How long one bounded command may take before the session is considered gone.
@@ -28,20 +27,6 @@ const COMMAND_CEILING: Duration = Duration::from_secs(300);
 pub(super) struct Live {
     pub(super) instance: InstanceId,
     pub(super) session: Session,
-}
-
-const fn failure_kind(error: SessionError) -> BackendFailureKind {
-    match error {
-        // The machine could not be built from artifacts the host presented as prepared, which
-        // is a property of the host rather than of the request.
-        SessionError::Create | SessionError::LaunchPage => BackendFailureKind::Unavailable,
-        // The guest exists but never reached, or lost, its authenticated session.
-        SessionError::Boot
-        | SessionError::Ready
-        | SessionError::Execute
-        | SessionError::Gone
-        | SessionError::Poisoned => BackendFailureKind::GuestFailure,
-    }
 }
 
 impl KvmBackend {
@@ -75,12 +60,24 @@ impl KvmBackend {
             .prepared()
             .downcast_ref::<super::prepared::PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
-        let boot = boot_for(prepared, shape.memory_mib(), request.instance_id())
-            .map_err(|kind| self.fail(operation, kind))?;
-        let launched = self.clocks.elapsed_ns(operation);
-        let session = Session::launch(boot).map_err(|error| {
-            BackendFailure::new(failure_kind(error), self.clocks.elapsed_ns(operation))
-        })?;
+        // Preparation is registered before the claim, so this Launch may find nothing and the
+        // next one for the same Generation finds a machine that is already restored.
+        let claimed = claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib());
+        let Started {
+            preparation,
+            session,
+            launched,
+        } = match claimed {
+            Some(claimed) => {
+                self.assign_claimed(operation, claimed, prepared, request.instance_id())?
+            }
+            None => self.restore_on_demand(
+                operation,
+                prepared,
+                request.instance_id(),
+                shape.memory_mib(),
+            )?,
+        };
         let ready = self.clocks.elapsed_ns(operation);
         self.live = Some(Live {
             instance: request.instance_id().clone(),
@@ -92,8 +89,9 @@ impl KvmBackend {
             request.workload().clone(),
             Self::kind(),
             IsolationClass::HardwareVirtualMachine,
-            // Every launch cold boots its own machine; no worker was prepared for it.
-            PreparationClass::OnDemand,
+            // Only a machine this Launch actually claimed from the pool is reported as
+            // prepared. A depleted pool restored its own machine and says so.
+            preparation,
             // What a host prepares today is a Candidate, and no certification gate has
             // verified it, so the artifacts are observed rather than enforced. Reporting
             // LaunchEnforced would claim a binding no gate produced. It becomes enforced when
@@ -198,7 +196,11 @@ impl KvmBackend {
         ))
     }
 
-    fn fail(&mut self, operation: &soma::OperationId, kind: BackendFailureKind) -> BackendFailure {
+    pub(super) fn fail(
+        &mut self,
+        operation: &soma::OperationId,
+        kind: BackendFailureKind,
+    ) -> BackendFailure {
         BackendFailure::new(kind, self.clocks.elapsed_ns(operation))
     }
 

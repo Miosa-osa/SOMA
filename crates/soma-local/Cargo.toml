@@ -16,8 +16,10 @@ serde_json = "=1.0.151"
 soma-macos = { path = "../soma-macos", version = "=1.0.0-alpha.1" }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+sha2 = { version = "=0.11.0", default-features = false }
 soma-generation = { path = "../soma-generation", version = "=1.0.0-alpha.1" }
 soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+soma-hostd = { path = "../soma-hostd", version = "=1.0.0-alpha.1" }
 soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.1" }
 soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.1" }
 

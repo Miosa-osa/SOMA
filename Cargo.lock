@@ -1232,9 +1232,11 @@ version = "1.0.0-alpha.1"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
  "soma",
  "soma-generation",
  "soma-guest",
+ "soma-hostd",
  "soma-kvm",
  "soma-macos",
  "soma-storage",
