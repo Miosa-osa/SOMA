@@ -1,29 +1,25 @@
 //! One bounded filesystem request and the guest's single answer to it.
 
-use crate::{FileOutcome, FileRequest, GuestMessage, HostMessage, OperationId};
+use crate::{FileOutcome, FileRequest, GuestMessage, HostMessage};
 
 use super::super::{
     channel::channel_failure,
     deadline,
     error::{ControlError, ControlFailureClass, ControlStage},
 };
-use super::{HostControlIo, RepairedHostControl, message_operation};
+use super::{HostControlIo, RepairedHostControl, fresh_operation, message_operation};
 
 impl<I: HostControlIo> RepairedHostControl<I> {
     /// Issues one filesystem request and returns the guest's answer with the reusable owner.
     ///
-    /// The operation identity is minted here rather than taken from the caller. An Execute
-    /// identity names work the caller tracks across the whole system, while a filesystem
-    /// identity exists only to pair one answer with one question, and a caller forced to invent
-    /// one could reuse a value this session has already spent and lose the transport for it.
+    /// The operation identity is minted rather than taken from the caller, for the reason
+    /// [`super::operation`] gives.
     ///
     /// # Errors
     ///
     /// Returns a redacted File error after poisoning the transport exactly once.
     pub fn file(mut self, request: FileRequest) -> Result<(Self, FileOutcome), ControlError> {
         let Some(operation) = fresh_operation() else {
-            // The only thing that can fail here is local randomness, and a session that cannot
-            // name its next request can no longer tell an answer from a replay of an older one.
             return Err(self
                 .channel
                 .fail(ControlStage::File, ControlFailureClass::Io));
@@ -65,19 +61,10 @@ impl<I: HostControlIo> RepairedHostControl<I> {
             | GuestMessage::Stderr { .. }
             | GuestMessage::Terminal { .. }
             | GuestMessage::RepairComplete { .. }
-            | GuestMessage::ShutdownAck { .. } => Err(self
+            | GuestMessage::ShutdownAck { .. }
+            | GuestMessage::PtyOutcome { .. } => Err(self
                 .channel
                 .fail(ControlStage::File, ControlFailureClass::Lifecycle)),
         }
     }
-}
-
-/// Mints the identity of one filesystem request from operating-system randomness.
-///
-/// A random identity is not one the caller can also have chosen for an Execute or a Shutdown, so
-/// minting one here never spends a value the caller was still going to need.
-fn fresh_operation() -> Option<OperationId> {
-    let mut bytes = [0_u8; 16];
-    crate::resolver::fill_os_random(&mut bytes).ok()?;
-    OperationId::new(bytes).ok()
 }

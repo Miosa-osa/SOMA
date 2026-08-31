@@ -1,4 +1,4 @@
-use crate::{FileRequest, GuestCommand, OperationId};
+use crate::{FileRequest, GuestCommand, OperationId, PtyRequest};
 
 /// One lifecycle-validated request received by the trusted guest agent.
 #[derive(Debug, Eq, PartialEq)]
@@ -21,6 +21,13 @@ pub enum GuestRequest {
         operation: OperationId,
         /// The decoded request, whose path this protocol has already bounded.
         request: FileRequest,
+    },
+    /// Perform one interactive terminal request and answer it with exactly one outcome.
+    Pty {
+        /// Exact terminal operation identity.
+        operation: OperationId,
+        /// The decoded request, whose dimensions and chunk this protocol has already bounded.
+        request: PtyRequest,
     },
     /// Stop the trusted guest agent.
     Shutdown {

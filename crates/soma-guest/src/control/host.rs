@@ -16,7 +16,11 @@ use super::{
 
 mod file;
 mod network;
+mod operation;
+mod pty;
 mod whole_file;
+
+use operation::fresh_operation;
 
 pub use whole_file::{WholeFileRead, WholeFileWrite};
 
@@ -215,7 +219,8 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                 }
                 GuestMessage::RepairComplete { .. }
                 | GuestMessage::ShutdownAck { .. }
-                | GuestMessage::FileOutcome { .. } => {
+                | GuestMessage::FileOutcome { .. }
+                | GuestMessage::PtyOutcome { .. } => {
                     return Err(self
                         .channel
                         .fail(ControlStage::Execute, ControlFailureClass::Lifecycle));
@@ -277,6 +282,7 @@ fn message_operation(message: &GuestMessage) -> OperationId {
         | GuestMessage::Stderr { operation, .. }
         | GuestMessage::Terminal { operation, .. }
         | GuestMessage::FileOutcome { operation, .. }
+        | GuestMessage::PtyOutcome { operation, .. }
         | GuestMessage::ShutdownAck { operation } => *operation,
     }
 }

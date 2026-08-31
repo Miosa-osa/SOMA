@@ -13,6 +13,8 @@ pub enum ControlStage {
     Execute,
     /// One bounded filesystem request and its outcome.
     File,
+    /// One interactive terminal request and its outcome.
+    Pty,
     /// Graceful guest-agent shutdown.
     Shutdown,
 }

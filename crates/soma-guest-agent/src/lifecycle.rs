@@ -11,6 +11,7 @@ use soma_guest::{
 
 use crate::executor::{self, ExecutorFault, OutputSink, SinkFault};
 use crate::filesystem;
+use crate::pty::Terminal;
 use crate::repair::{Controller, Fault, Poisoned, Ready};
 use crate::shutdown;
 use crate::timings::{self, Step};
@@ -21,6 +22,11 @@ pub const IDLE_CEILING: Duration = Duration::from_hours(24);
 pub const DELIVERY_GRACE: Duration = Duration::from_millis(500);
 /// Budget for the single `RepairComplete` report.
 pub const REPORT_BUDGET: Duration = Duration::from_secs(5);
+/// Delivery budget for the single outcome that answers a terminal request.
+///
+/// Like the filesystem budget, it starts once the work is done, so it bounds delivery of one
+/// bounded record and not the wait a read carried.
+pub const TERMINAL_BUDGET: Duration = Duration::from_secs(5);
 /// Delivery budget for the single outcome that answers a filesystem request.
 ///
 /// The budget starts once the operation is done, so it bounds delivery of one bounded record and
@@ -136,6 +142,10 @@ pub fn serve<I: ControlIo>(
 ) -> Controller<Poisoned> {
     let mut controller = controller;
     let mut control = control;
+    // The one terminal outlives every request, because a session a caller opened has to still
+    // be there when the caller's next request arrives. It is created here rather than lazily so
+    // that the loop owns it for exactly as long as it owns the session.
+    let mut terminal = Terminal::new();
     loop {
         let Ok((next, request)) = control.next_request(Instant::now() + IDLE_CEILING) else {
             return controller.poison(Fault::Control);
@@ -163,6 +173,15 @@ pub fn serve<I: ControlIo>(
                 // ledger describe work that never ran a process.
                 let outcome = filesystem::perform(&request);
                 match next.file_outcome(&outcome, Instant::now() + OUTCOME_BUDGET) {
+                    Ok(after) => control = after,
+                    Err(_) => return controller.poison(Fault::Control),
+                }
+            }
+            GuestRequest::Pty { request, .. } => {
+                // A terminal request is not a command either, so it takes no lifecycle
+                // transition, for the same reason a filesystem request takes none.
+                let outcome = terminal.perform(&request);
+                match next.pty_outcome(&outcome, Instant::now() + TERMINAL_BUDGET) {
                     Ok(after) => control = after,
                     Err(_) => return controller.poison(Fault::Control),
                 }
@@ -197,5 +216,6 @@ mod tests {
         assert_eq!(DELIVERY_GRACE, Duration::from_millis(500));
         assert!(REPORT_BUDGET <= Duration::from_secs(5));
         assert!(OUTCOME_BUDGET <= Duration::from_secs(5));
+        assert!(TERMINAL_BUDGET <= Duration::from_secs(5));
     }
 }

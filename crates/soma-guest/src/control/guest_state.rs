@@ -9,6 +9,7 @@ pub(super) enum GuestState {
     RepairedIdle,
     ExecuteStreaming(ActiveExchange),
     FilePending(OperationId),
+    PtyPending(OperationId),
     ShutdownPending(OperationId),
 }
 
@@ -23,6 +24,7 @@ pub(super) fn active_stage(state: &GuestState) -> ControlStage {
         GuestState::ProbeStreaming(_) => ControlStage::Probe,
         GuestState::RepairedIdle | GuestState::ExecuteStreaming(_) => ControlStage::Execute,
         GuestState::FilePending(_) => ControlStage::File,
+        GuestState::PtyPending(_) => ControlStage::Pty,
         GuestState::ShutdownPending(_) => ControlStage::Shutdown,
     }
 }

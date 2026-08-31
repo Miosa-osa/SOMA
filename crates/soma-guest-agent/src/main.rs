@@ -48,6 +48,8 @@ mod network_repair;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pid1;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod pty;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod shutdown;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod timings;

@@ -5,7 +5,7 @@ use super::{
     channel::{AuthChannel, channel_failure},
     error::{ControlError, ControlFailureClass, ControlStage},
     exchange::{OutputAccounting, output_chunk},
-    guest_connect,
+    guest_connect, guest_idle,
     guest_state::{ActiveExchange, GuestState, active_stage, receive_stage},
     io::ControlIo,
     operation_ledger::OperationLedger,
@@ -47,7 +47,7 @@ impl<I: ControlIo> GuestControl<I> {
         let Self {
             mut channel,
             state,
-            mut operations,
+            operations,
         } = self;
         if !matches!(
             state,
@@ -87,60 +87,12 @@ impl<I: ControlIo> GuestControl<I> {
             (GuestState::AwaitPrepare(_), HostMessage::PrepareAndProbe { .. }) => {
                 Err(channel.fail(ControlStage::Repair, ControlFailureClass::Protocol))
             }
-            (
-                GuestState::AwaitPrepare(_),
-                HostMessage::Execute { .. }
-                | HostMessage::File { .. }
-                | HostMessage::Shutdown { .. },
-            )
-            | (GuestState::RepairedIdle, HostMessage::PrepareAndProbe { .. }) => {
+            // Every other message is one this state cannot serve, whether it names repair
+            // work that is already done or ordinary work that repair has not admitted yet.
+            (GuestState::AwaitPrepare(_), _) => {
                 Err(channel.fail(ControlStage::Repair, ControlFailureClass::Lifecycle))
             }
-            (GuestState::RepairedIdle, HostMessage::Execute { operation, command }) => {
-                if !operations.reserve(operation) {
-                    return Err(channel.fail(ControlStage::Execute, ControlFailureClass::Lifecycle));
-                }
-                let allowance = command.output_bytes();
-                Ok((
-                    Self {
-                        channel,
-                        state: GuestState::ExecuteStreaming(ActiveExchange {
-                            operation,
-                            accounting: OutputAccounting::new(allowance),
-                        }),
-                        operations,
-                    },
-                    GuestRequest::Execute { operation, command },
-                ))
-            }
-            (GuestState::RepairedIdle, HostMessage::File { operation, request }) => {
-                if !operations.reserve(operation) {
-                    return Err(channel.fail(ControlStage::File, ControlFailureClass::Lifecycle));
-                }
-                Ok((
-                    Self {
-                        channel,
-                        state: GuestState::FilePending(operation),
-                        operations,
-                    },
-                    GuestRequest::File { operation, request },
-                ))
-            }
-            (GuestState::RepairedIdle, HostMessage::Shutdown { operation }) => {
-                if !operations.reserve(operation) {
-                    return Err(
-                        channel.fail(ControlStage::Shutdown, ControlFailureClass::Lifecycle)
-                    );
-                }
-                Ok((
-                    Self {
-                        channel,
-                        state: GuestState::ShutdownPending(operation),
-                        operations,
-                    },
-                    GuestRequest::Shutdown { operation },
-                ))
-            }
+            (GuestState::RepairedIdle, request) => guest_idle::accept(channel, operations, request),
             _ => unreachable!("active states return before receiving"),
         }
     }

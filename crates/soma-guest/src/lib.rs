@@ -48,7 +48,9 @@ pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
     CommandContext, DirectoryEntry, EntryKind, EnvironmentPair, FileFailure, FileOutcome,
     FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_CHUNK_BYTES, MAX_ENTRIES,
-    MAX_PATH_BYTES, OperationId, OutputChunk, TerminalReport, TerminalStatus,
+    MAX_PATH_BYTES, MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS,
+    OperationId, OutputChunk, PtyFailure, PtyOutcome, PtyRequest, PtySize, TerminalReport,
+    TerminalStatus,
 };
 pub use binding::SessionBinding;
 pub use control::{
