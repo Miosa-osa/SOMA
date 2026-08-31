@@ -82,11 +82,13 @@ These are measured or structural, and none of them is a feature gap.
 
 The cost is mechanical rather than mysterious. `assign` renders a ruleset and applies it by executing `/usr/sbin/nft -f -` as a subprocess inside a scoped thread that has entered the bundle's namespace. At a hundred launches that is a hundred process spawns and a hundred ruleset parses on the request path. `prepare` already runs `nft` once, to install a fully denied ruleset, so the second application is the one that could move.
 
-There are two ways to remove it and they differ in what they cost elsewhere.
+**That paragraph was measured afterwards and it is wrong about where the cost is.** One 15.9 ms ruleset application decomposes into about 0.3 ms of process spawn, about 1.2 ms of `nft` startup and parse, and about 14 ms of kernel transaction, which is an RCU grace period in the `nf_tables` commit path and is the same whether the transaction adds one rule or three chains. Entering the namespace, which the paragraph above implies is expensive, costs 0.06 ms.
 
-Applying the admitted ruleset at prepare, with bundles pooled by intent class, would take the exec off the request path entirely. The prepared worker protocol already keys resource bundles by network profile, so the pooling exists in the design. It appears safe because traffic is gated by forwarding, which activation enables and prepare leaves off, and the links stay down until then. It is still a deliberate weakening: a sterile bundle would hold a permissive ruleset instead of a denied one, and `sterile_bundle_stays_down_until_activation_and_policy_holds_after_it` exists to hold that layer. That makes it a decision for the design's owner rather than an optimisation to take unilaterally.
+So applying the ruleset over netlink removes about 1.5 ms of 15.9 ms, at the cost of encoding every rule expression by hand. It is not worth it, and the reason is recorded in the `nft` module so it is not rediscovered.
 
-Applying the ruleset over netlink instead of by executing `nft` removes the process spawn and the parse without changing a single policy property. It is the larger implementation and the smaller risk.
+The cost that was worth removing was elsewhere and had not been noticed at all: the broker asked four read-only questions per lifecycle by running `nft list table`, each about 5.4 ms of which almost none is kernel work. Asking `NETLINK_NETFILTER` directly answers the same question in 0.02 ms, changes no policy property, and made activation 93 percent faster and release 19 percent faster. What remains in assign is a ledger fsync and one `nf_tables` commit, and neither can be improved from inside that crate.
+
+The lesson is the one this document keeps relearning: the mechanism has to be measured before it is optimised, because the obvious explanation was wrong twice here, first about the spawn and then about the namespace.
 
 **Cohort variance is 40 percent of the median.** Until that is understood, an optimisation smaller than about 60 ms cannot be distinguished from noise by a single hundred-way cohort, so measurement method is itself on the critical path for optimisation work.
 
