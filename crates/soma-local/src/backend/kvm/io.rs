@@ -45,6 +45,11 @@ impl ControlIo for HostIo<'_> {
 impl HostControlIo for HostIo<'_> {
     /// Retires the launch page slot, which is what makes repair irreversible.
     ///
+    /// This is where the removal is cheapest: it costs a KVM read-side grace period, and here
+    /// the guest is idle waiting for its next request rather than running the repair it would
+    /// have to re-fault its way through afterwards. Retiring it earlier, while the guest is
+    /// still repairing, was measured slower on the same host.
+    ///
     /// A failure here is reported as a closed channel: the session cannot continue against a
     /// machine whose launch material may still be mapped.
     fn commit_repair(&mut self, _deadline: Instant) -> Result<(), ChannelError> {

@@ -40,7 +40,7 @@ Launch is the atomic operation that realizes a Generation as an Instance and pro
 
 ## Ready
 
-Ready means clone repair is complete and an authenticated command has succeeded inside the guest.
+Ready means clone repair is complete and reported to the host under the Instance's own authenticated session.
 A process existing or a virtual CPU running is not sufficient evidence of Ready.
 
 ## Repair

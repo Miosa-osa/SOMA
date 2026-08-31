@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-29
 - Extends: ADR 0003 and ADR 0017
+- Amended by: [ADR 0039, the authenticated repair report alone proves readiness](0039-repair-report-alone-proves-readiness.md)
 - Extended by: ADR 0021, ADR 0023, [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md), and [ADR 0030, pre-launch snapshot capture point](0030-pre-launch-snapshot-capture-point.md)
 
 ## Context
@@ -124,7 +125,7 @@ The fixed kind table is:
 
 | Value | Direction | Meaning | Body |
 | ---: | --- | --- | --- |
-| 1 | Host to guest | `PrepareAndProbe` | Command |
+| 1 | Host to guest | `Prepare` | Empty |
 | 2 | Host to guest | `Execute` | Command |
 | 3 | Host to guest | `Shutdown` | Empty |
 | 129 | Guest to host | `RepairComplete` | Empty |
@@ -133,9 +134,8 @@ The fixed kind table is:
 | 132 | Guest to host | `Terminal` | Terminal report |
 | 133 | Guest to host | `ShutdownAck` | Empty |
 
-`PrepareAndProbe` instructs the trusted agent to complete the certified Generation Repair contract and then run ADR 0021's fixed self-probe through the same executor and result path as `Execute`.
-`RepairComplete` is an authenticated agent report bound to the session and Launch operation.
-It is not independently sufficient evidence for Ready.
+`Prepare` instructs the trusted agent to complete the certified Generation Repair contract.
+`RepairComplete` is an authenticated agent report bound to the session and Launch operation, and under ADR 0039 it is the whole of the Ready transition.
 
 ### Command body
 
@@ -187,7 +187,7 @@ Codec validity alone is never semantic acceptance, lifecycle evidence, or author
 ADR 0021 implements the authenticated session owner that enforces exactly one in-flight command or Shutdown operation.
 It must reject a kind that is illegal for the current direction or exchange phase.
 It must require every guest response operation to equal the exact in-flight operation.
-It must allow `RepairComplete` only once and only during `PrepareAndProbe`, before any command output or terminal report.
+It must allow `RepairComplete` only once and only in answer to `Prepare`, before any command output or terminal report.
 It must accumulate stdout and stderr lengths with checked arithmetic and enforce the requested combined-output allowance while chunks arrive.
 It must require the terminal stdout and stderr counts to equal the exact accumulated authenticated chunk counts.
 For `OutputLimit`, it must additionally require the terminal count sum to equal the requested allowance.

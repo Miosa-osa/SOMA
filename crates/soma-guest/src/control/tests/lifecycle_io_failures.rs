@@ -50,7 +50,7 @@ fn successful_host_lifecycle_traffic() -> (usize, usize) {
     });
     let host = HostControl::connect(host_material, host_io)
         .expect("host connect")
-        .prepare_and_probe()
+        .prepare()
         .expect("host Ready");
     drive_host(host).expect("host lifecycle");
     guest_thread.join().expect("guest thread");
@@ -64,7 +64,7 @@ fn successful_guest_lifecycle_traffic() -> (usize, usize) {
     let host_thread = thread::spawn(move || {
         let host = HostControl::connect(host_material, host_io)
             .expect("host connect")
-            .prepare_and_probe()
+            .prepare()
             .expect("host Ready");
         drive_host(host).expect("host lifecycle");
     });
@@ -84,7 +84,7 @@ fn assert_host_lifecycle_fails(direction: Direction, fail_at: usize) {
     });
     let host = HostControl::connect(host_material, host_io)
         .expect("host connect")
-        .prepare_and_probe()
+        .prepare()
         .expect("host Ready");
 
     assert!(drive_host(host).is_err());
@@ -98,7 +98,7 @@ fn assert_guest_lifecycle_fails(direction: Direction, fail_at: usize) {
     let (guest_io, _) = FaultIo::new(guest_io, direction, Some(fail_at));
     let host_thread = thread::spawn(move || {
         let host = HostControl::connect(host_material, host_io)?;
-        let host = host.prepare_and_probe()?;
+        let host = host.prepare()?;
         drive_host(host)
     });
     let guest = GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect");
@@ -122,7 +122,6 @@ fn drive_host<I: crate::HostControlIo>(
 fn drive_guest<I: ControlIo>(guest: GuestControl<I>) -> Result<(), ControlError> {
     let (guest, _) = guest.next_request(deadline())?;
     let guest = guest.repair_complete(deadline())?;
-    let guest = guest.terminal(TerminalStatus::Exited(0), deadline())?;
     let (guest, _) = guest.next_request(deadline())?;
     let guest = guest.stdout(b"ok".to_vec(), deadline())?;
     let guest = guest.terminal(TerminalStatus::Exited(17), deadline())?;

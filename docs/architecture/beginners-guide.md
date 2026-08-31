@@ -118,8 +118,7 @@ The exact mechanism varies by Backend, but the lifecycle meaning stays stable.
 4. `soma-vmm` attaches the minimal virtual devices required by the fixed machine contract.
 5. The guest resumes and `soma-guest` repairs cloned identity, entropy, time, network, and transport state.
 6. The host and guest establish an authenticated control session.
-7. SOMA runs a bounded no-op command inside the guest.
-8. Only then does SOMA return Ready with a Receipt.
+7. The guest reports repair complete under that session, and only then does SOMA return Ready with a Receipt.
 
 Stopping is not merely killing a PID.
 SOMA must stop execution, revoke authority, release network and storage resources, remove private state, and record cleanup evidence.

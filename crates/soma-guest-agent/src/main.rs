@@ -6,8 +6,6 @@
 //! repair modules encode; on every other target the agent builds but refuses to run, and
 //! `network_repair::target` refuses again if that gate is ever widened without verified
 //! layouts.
-//! Invoked with the reserved readiness argument it exits immediately with no output, which is
-//! the fixed version 1 self-probe executed through the production executor.
 
 #![cfg_attr(
     not(all(target_os = "linux", target_arch = "x86_64")),
@@ -57,15 +55,7 @@ mod timings;
 #[cfg(target_os = "linux")]
 mod warm;
 
-const PROBE_ARGUMENT: &str = "--soma-ready-probe-v1";
-
 fn main() {
-    if std::env::args_os()
-        .nth(1)
-        .is_some_and(|argument| argument == PROBE_ARGUMENT)
-    {
-        return;
-    }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     agent::run();
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
@@ -170,14 +160,14 @@ mod agent {
         );
         let (controller, authenticated) =
             advance(controller.authenticate(authenticated.map_err(|_| Fault::Control)));
-        let (controller, probed) = advance(controller.probe(lifecycle::probe(authenticated)));
+        let (controller, prepared) = advance(controller.prepare(lifecycle::prepare(authenticated)));
         let (controller, ()) = advance(controller.ready(Ok(())));
         console::report("ready");
         #[cfg(feature = "timing-report")]
         for line in timings::lines() {
             console::report(&line);
         }
-        destroy(&lifecycle::serve(controller, probed))
+        destroy(&lifecycle::serve(controller, prepared))
     }
 
     fn advance<S: State, T>(step: Step<S, T>) -> (Controller<S>, T) {

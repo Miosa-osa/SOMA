@@ -229,8 +229,7 @@ restore
 -> repair entropy, identity, time, and network state
 -> erase and retire launch authority
 -> authenticate a fresh control session
--> run the fixed readiness probe
--> report a successful authenticated terminal result
+-> report repair complete under that session
 -> Ready
 ```
 

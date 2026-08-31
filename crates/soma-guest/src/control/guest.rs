@@ -1,12 +1,12 @@
-use crate::{GuestCommand, GuestMessage, GuestSessionMaterial, HostMessage, TerminalStatus};
+use crate::{GuestMessage, GuestSessionMaterial, HostMessage, TerminalStatus};
 use std::time::Instant;
 
 use super::{
     channel::{AuthChannel, channel_failure},
     error::{ControlError, ControlFailureClass, ControlStage},
-    exchange::{OutputAccounting, output_chunk},
+    exchange::output_chunk,
     guest_connect, guest_idle,
-    guest_state::{ActiveExchange, GuestState, active_stage, receive_stage},
+    guest_state::{GuestState, active_stage, receive_stage},
     io::ControlIo,
     operation_ledger::OperationLedger,
     request::GuestRequest,
@@ -66,25 +66,19 @@ impl<I: ControlIo> GuestControl<I> {
             }
         };
         match (state, request) {
-            (GuestState::AwaitPrepare(expected), HostMessage::PrepareAndProbe { operation })
+            (GuestState::AwaitPrepare(expected), HostMessage::Prepare { operation })
                 if operation == expected =>
             {
-                let exchange = ActiveExchange {
-                    operation,
-                    accounting: OutputAccounting::new(
-                        GuestCommand::readiness_probe().output_bytes(),
-                    ),
-                };
                 Ok((
                     Self {
                         channel,
-                        state: GuestState::ProbeAwaitRepair(exchange),
+                        state: GuestState::PrepareReporting(operation),
                         operations,
                     },
-                    GuestRequest::PrepareAndProbe { operation },
+                    GuestRequest::Prepare { operation },
                 ))
             }
-            (GuestState::AwaitPrepare(_), HostMessage::PrepareAndProbe { .. }) => {
+            (GuestState::AwaitPrepare(_), HostMessage::Prepare { .. }) => {
                 Err(channel.fail(ControlStage::Repair, ControlFailureClass::Protocol))
             }
             // Every other message is one this state cannot serve, whether it names repair
@@ -97,7 +91,7 @@ impl<I: ControlIo> GuestControl<I> {
         }
     }
 
-    /// Reports Repair completion exactly once before any self-probe result and caller deadline.
+    /// Reports Repair completion exactly once, by the caller deadline, and becomes idle.
     ///
     /// # Errors
     ///
@@ -108,18 +102,18 @@ impl<I: ControlIo> GuestControl<I> {
             state,
             operations,
         } = self;
-        let exchange = match state {
-            GuestState::ProbeAwaitRepair(exchange) => exchange,
+        let operation = match state {
+            GuestState::PrepareReporting(operation) => operation,
             other => return Err(channel.fail(active_stage(&other), ControlFailureClass::Lifecycle)),
         };
         if let Err(failure) =
-            channel.send_guest(&GuestMessage::repair_complete(exchange.operation), deadline)
+            channel.send_guest(&GuestMessage::repair_complete(operation), deadline)
         {
             return Err(channel_failure(&mut channel, ControlStage::Repair, failure));
         }
         Ok(Self {
             channel,
-            state: GuestState::ProbeStreaming(exchange),
+            state: GuestState::RepairedIdle,
             operations,
         })
     }
@@ -146,24 +140,20 @@ impl<I: ControlIo> GuestControl<I> {
     ///
     /// # Errors
     ///
-    /// Returns a redacted Probe or Execute error after poisoning an invalid or failed terminal.
+    /// Returns a redacted Execute error after poisoning an invalid or failed terminal.
     pub fn terminal(self, status: TerminalStatus, deadline: Instant) -> Result<Self, ControlError> {
         let Self {
             mut channel,
             state,
             operations,
         } = self;
-        let (exchange, stage, probe) = match state {
-            GuestState::ProbeStreaming(exchange) => (exchange, ControlStage::Probe, true),
-            GuestState::ExecuteStreaming(exchange) => (exchange, ControlStage::Execute, false),
+        let (exchange, stage) = match state {
+            GuestState::ExecuteStreaming(exchange) => (exchange, ControlStage::Execute),
             other => return Err(channel.fail(active_stage(&other), ControlFailureClass::Lifecycle)),
         };
         let Ok(report) = exchange.accounting.report(status) else {
             return Err(channel.fail(stage, ControlFailureClass::Accounting));
         };
-        if probe && status != TerminalStatus::Exited(0) {
-            return Err(channel.fail(stage, ControlFailureClass::Accounting));
-        }
         if let Err(failure) = channel.send_guest(
             &GuestMessage::terminal(exchange.operation, report),
             deadline,
@@ -210,9 +200,6 @@ impl<I: ControlIo> GuestControl<I> {
         } = self;
         let mut exchange = match state {
             GuestState::ExecuteStreaming(exchange) => exchange,
-            GuestState::ProbeStreaming(_) => {
-                return Err(channel.fail(ControlStage::Probe, ControlFailureClass::Accounting));
-            }
             other => return Err(channel.fail(active_stage(&other), ControlFailureClass::Lifecycle)),
         };
         let Ok(chunk) = output_chunk(bytes) else {

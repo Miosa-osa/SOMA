@@ -10,7 +10,7 @@ use super::support::{MemoryIo, Observation, RawHost, deadline, launch, pair};
 #[test]
 fn every_host_kind_illegal_before_repair_poisons_once() {
     let hostile = [
-        HostMessage::prepare_and_probe(operation(9)),
+        HostMessage::prepare(operation(9)),
         HostMessage::execute(operation(7), command()),
         HostMessage::shutdown(operation(7)),
     ];
@@ -45,19 +45,15 @@ fn authenticated_guest_direction_bytes_from_host_poison_once() {
 fn a_second_prepare_after_ready_poisons_once() {
     let (guest, mut raw, observed) = connected_guest();
     raw.send_payload(
-        &HostMessage::prepare_and_probe(operation(3))
+        &HostMessage::prepare(operation(3))
             .encode()
             .expect("prepare"),
     );
     let (guest, _) = guest.next_request(deadline()).expect("prepare request");
     let guest = guest.repair_complete(deadline()).expect("repair report");
     assert!(matches!(raw.receive(), GuestMessage::RepairComplete { .. }));
-    let guest = guest
-        .terminal(TerminalStatus::Exited(0), deadline())
-        .expect("probe terminal");
-    assert!(matches!(raw.receive(), GuestMessage::Terminal { .. }));
     raw.send_payload(
-        &HostMessage::prepare_and_probe(operation(3))
+        &HostMessage::prepare(operation(3))
             .encode()
             .expect("late prepare"),
     );
@@ -71,17 +67,13 @@ fn a_second_prepare_after_ready_poisons_once() {
 fn an_execute_operation_identity_cannot_be_reused() {
     let (guest, mut raw, observed) = connected_guest();
     raw.send_payload(
-        &HostMessage::prepare_and_probe(operation(3))
+        &HostMessage::prepare(operation(3))
             .encode()
             .expect("prepare"),
     );
     let (guest, _) = guest.next_request(deadline()).expect("prepare request");
     let guest = guest.repair_complete(deadline()).expect("repair report");
     assert!(matches!(raw.receive(), GuestMessage::RepairComplete { .. }));
-    let guest = guest
-        .terminal(TerminalStatus::Exited(0), deadline())
-        .expect("probe terminal");
-    assert!(matches!(raw.receive(), GuestMessage::Terminal { .. }));
     let execute = operation(7);
     raw.send_payload(
         &HostMessage::execute(execute, command())

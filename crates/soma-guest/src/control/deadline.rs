@@ -4,7 +4,6 @@ use crate::{GuestCommand, PtyRequest};
 
 const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);
 const REPAIR_BUDGET: Duration = Duration::from_secs(5);
-const PROBE_DELIVERY_GRACE: Duration = Duration::from_secs(1);
 const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 // One filesystem request moves at most one bounded chunk, so the budget covers the guest
 // touching its disk once rather than any amount of work the caller asked for.
@@ -22,11 +21,6 @@ pub(super) fn handshake() -> Instant {
 
 pub(super) fn repair() -> Instant {
     after(REPAIR_BUDGET)
-}
-
-pub(super) fn probe() -> Instant {
-    let command = GuestCommand::readiness_probe();
-    after(command_budget_with_grace(&command, PROBE_DELIVERY_GRACE))
 }
 
 pub(super) fn execute(command: &GuestCommand) -> Instant {
@@ -76,14 +70,9 @@ mod tests {
         assert_eq!(REPAIR_BUDGET, Duration::from_secs(5));
         assert_eq!(SHUTDOWN_BUDGET, Duration::from_secs(5));
         assert_eq!(FILE_BUDGET, Duration::from_secs(10));
-        assert_eq!(PROBE_DELIVERY_GRACE, Duration::from_secs(1));
         assert_eq!(EXECUTE_DELIVERY_GRACE, Duration::from_secs(1));
         assert_eq!(PTY_BUDGET, Duration::from_secs(10));
         assert_eq!(PTY_DELIVERY_GRACE, Duration::from_secs(1));
-        assert_eq!(
-            command_budget(&GuestCommand::readiness_probe()),
-            Duration::from_secs(2)
-        );
     }
 
     #[test]

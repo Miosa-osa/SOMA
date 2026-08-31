@@ -21,8 +21,8 @@ fn every_guest_kind_illegal_before_repair_poisons_once() {
         GuestMessage::shutdown_ack(operation(3)),
     ] {
         let (host, mut raw, observed) = connected_host();
-        let host_thread = thread::spawn(move || host.prepare_and_probe());
-        assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
+        let host_thread = thread::spawn(move || host.prepare());
+        assert!(matches!(raw.receive(), HostMessage::Prepare { .. }));
         raw.send(response);
         let error = control_error(host_thread.join().expect("host thread"));
         assert!(matches!(
@@ -39,8 +39,8 @@ fn every_guest_kind_illegal_before_repair_poisons_once() {
 #[test]
 fn authenticated_host_direction_bytes_from_guest_poison_once() {
     let (host, mut raw, observed) = connected_host();
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
-    assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
+    let host_thread = thread::spawn(move || host.prepare());
+    assert!(matches!(raw.receive(), HostMessage::Prepare { .. }));
     raw.send_payload(
         &HostMessage::shutdown(operation(3))
             .encode()
@@ -53,14 +53,13 @@ fn authenticated_host_direction_bytes_from_guest_poison_once() {
 }
 
 #[test]
-fn duplicate_repair_after_commit_poisons_once() {
-    let (host, mut raw, observed) = connected_host();
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
-    assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
-    raw.send(GuestMessage::repair_complete(operation(3)));
+fn a_second_repair_report_after_commit_poisons_the_next_exchange() {
+    let (host, raw, observed) = connected_host();
+    let (host, mut raw) = repaired(host, raw);
     raw.send(GuestMessage::repair_complete(operation(3)));
 
-    control_error(host_thread.join().expect("host thread"));
+    let error = control_error(host.execute(operation(7), command(1)));
+    assert_eq!(error.class(), ControlFailureClass::Protocol);
     assert_eq!(observed.repair(), 1);
     assert_eq!(observed.poison(), 1);
 }
@@ -72,8 +71,8 @@ fn repair_commit_failure_poisons_once_before_probe_acceptance() {
     let guest_thread = thread::spawn(move || RawGuest::connect(guest_material, guest_io));
     let host = HostControl::connect(host_material, CommitFailIo(host_io)).expect("host connect");
     let mut raw = guest_thread.join().expect("guest thread");
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
-    assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
+    let host_thread = thread::spawn(move || host.prepare());
+    assert!(matches!(raw.receive(), HostMessage::Prepare { .. }));
     raw.send(GuestMessage::repair_complete(operation(3)));
 
     let error = control_error(host_thread.join().expect("host thread"));
@@ -82,8 +81,9 @@ fn repair_commit_failure_poisons_once_before_probe_acceptance() {
     assert_eq!(host_observed.poison(), 1);
 }
 
+/// Repair carries no work, so a Prepare that smuggles a body is a different message.
 #[test]
-fn fixed_probe_cannot_be_substituted_by_an_authenticated_host() {
+fn a_prepare_carrying_a_body_is_rejected_by_the_guest() {
     let (host_material, guest_material) = launch();
     let (host_io, guest_io, _host_observed, guest_observed) = pair();
     let guest_thread = thread::spawn(move || {
@@ -91,12 +91,11 @@ fn fixed_probe_cannot_be_substituted_by_an_authenticated_host() {
     });
     let mut raw_host = RawHost::connect(host_material, host_io);
     let guest = guest_thread.join().expect("guest thread");
-    let mut substituted = HostMessage::prepare_and_probe(operation(3))
+    let mut smuggled = HostMessage::prepare(operation(3))
         .encode()
-        .expect("fixed probe");
-    assert_eq!(&substituted[42..56], b"/proc/self/exe");
-    substituted[42..56].copy_from_slice(b"/tmp/not-probe");
-    raw_host.send_payload(&substituted);
+        .expect("prepare");
+    smuggled.push(0xA5);
+    raw_host.send_payload(&smuggled);
 
     let error = control_error(guest.next_request(deadline()));
     assert_eq!(error.class(), ControlFailureClass::Protocol);
@@ -217,18 +216,14 @@ fn connected_host() -> (Host, RawGuest, Observation) {
 }
 
 fn repaired(host: Host, mut raw: RawGuest) -> (Repaired, RawGuest) {
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
-    assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
+    let host_thread = thread::spawn(move || host.prepare());
+    assert!(matches!(raw.receive(), HostMessage::Prepare { .. }));
     raw.send(GuestMessage::repair_complete(operation(3)));
-    raw.send(GuestMessage::terminal(
-        operation(3),
-        report(TerminalStatus::Exited(0), 0, 0),
-    ));
     (
         host_thread
             .join()
             .expect("host thread")
-            .expect("repair and probe"),
+            .expect("repaired host"),
         raw,
     )
 }

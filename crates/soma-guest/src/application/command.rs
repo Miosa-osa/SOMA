@@ -49,11 +49,6 @@ pub const MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
 /// allowance, the program length, the argument count, the environment count, the two optional
 /// presence flags, and the standard-input length.
 pub(super) const FIXED_BODY_SIZE: usize = 4 + 8 + 2 + 2 + 2 + 1 + 1 + 2;
-const PROBE_ARGUMENT: &[u8] = b"--soma-ready-probe-v1";
-const PROBE_PROGRAM: &[u8] = b"/proc/self/exe";
-const PROBE_TIMEOUT_MILLIS: u32 = 1_000;
-const PROBE_OUTPUT_BYTES: u64 = 1;
-
 /// One environment name and the value bound to it, in the form a command stores them.
 pub type EnvironmentPair = (Box<[u8]>, Box<[u8]>);
 
@@ -71,16 +66,6 @@ pub struct GuestCommand {
 }
 
 impl GuestCommand {
-    pub(crate) fn readiness_probe() -> Self {
-        Self::new(
-            PROBE_PROGRAM.to_vec(),
-            vec![PROBE_ARGUMENT.to_vec()],
-            PROBE_TIMEOUT_MILLIS,
-            PROBE_OUTPUT_BYTES,
-        )
-        .expect("fixed readiness probe satisfies the wire contract")
-    }
-
     /// Creates a command with an empty context: no environment, no working directory, no user,
     /// and no standard input.
     ///

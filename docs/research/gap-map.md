@@ -24,7 +24,7 @@ Open beyond the wiring: the placeholder MAC must become an admitted per-Instance
 
 ## 2. The guest protocol
 
-Eight frame kinds exist: `PrepareAndProbe`, `Execute`, `Shutdown`, `RepairComplete`, `Stdout`, `Stderr`, `Terminal`, `ShutdownAck`, where `Terminal` is a command's exit status rather than a pseudo-terminal.
+Eight frame kinds exist: `Prepare`, `Execute`, `Shutdown`, `RepairComplete`, `Stdout`, `Stderr`, `Terminal`, `ShutdownAck`, where `Terminal` is a command's exit status rather than a pseudo-terminal.
 
 `GuestCommand` carries a program, arguments, a timeout, and an output bound. It carries no standard input, no environment, no working directory, no user, and no signal. Output is bounded and delivered when the command ends, so nothing streams.
 
@@ -72,9 +72,9 @@ These are measured or structural, and none of them is a feature gap.
 
 **Machine construction, 48.0 ms at concurrency 100** against 2.71 ms uncontended. Entirely pre-claimable, and removed by a prepared worker pool. This is the largest single measured cost and it is already specified.
 
-**The readiness probe is a full command round trip.** `PrepareAndProbe` runs a fixed probe inside the guest before an Instance is Ready. Whether readiness needs a whole execution, or can be proven by the repair receipt alone, is worth asking before optimising anything smaller.
+**The restored guest loses about 7 ms before its own code runs.** `RunStart` to `LaunchPageConsumed` is 7.0 ms on eval-1, and the guest's own clock reports none of it: with the launch-page wait turned into a spin, the agent still measures zero elapsed inside its loop. It is guest-kernel resume work and demand paging, invisible from both ends, and it is now the largest item in the ready segment. See [the eval-1 readiness split](../evidence/2026-08-31-eval1-ready-segment-split.md).
 
-**Handshake cost sits on the request path.** The host's ephemeral keypair is generated per session; generating it before a claim would move an X25519 keygen off the measured path without weakening the handshake.
+**Identity and network repair are 7 ms of the ready segment.** Writing the hostname, the machine identity, and the two session tmpfs mounts costs 3.9 ms, and installing the network identity costs 3.1 ms, both inside the guest. Neither is removable: they are exactly the per-Instance identity the pre-launch capture point exists to keep out of the image.
 
 **The warm list is a heuristic.** The guest agent warms a conventional set of runtime paths because nothing tells it what the workload actually is. A compiler-emitted list from the Generation's entrypoint would warm exactly what runs and nothing else.
 

@@ -140,9 +140,7 @@ fn drive(
     let host = HostControl::connect(delivered, HostIo::new(sandbox))
         .map_err(|error| format!("handshake: {error}"))?;
     sandbox.mark(Milestone::Handshake);
-    let repaired = host
-        .prepare_and_probe()
-        .map_err(|error| format!("repair and probe: {error}"))?;
+    let repaired = host.prepare().map_err(|error| format!("repair: {error}"))?;
     sandbox.mark(Milestone::Ready);
     // PID 1 must survive a hostile unbounded producer on both pipes and still accept the next
     // lifecycle operation, so the ordinary command runs second on the same session.

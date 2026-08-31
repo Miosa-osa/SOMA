@@ -8,7 +8,7 @@ const CHAIN: [Phase; 9] = [
     Phase::IdentityRepaired,
     Phase::NetworkRepaired,
     Phase::Authenticated,
-    Phase::Probed,
+    Phase::Prepared,
     Phase::Ready,
 ];
 
@@ -21,7 +21,7 @@ fn ready() -> Controller<Ready> {
     let (c, ()) = c.repair_identity(Ok(())).expect("identity");
     let (c, ()) = c.repair_network(Ok(())).expect("network");
     let (c, ()) = c.authenticate(Ok(())).expect("authenticate");
-    let (c, ()) = c.probe(Ok(())).expect("probe");
+    let (c, ()) = c.prepare(Ok(())).expect("prepare");
     let (c, ()) = c.ready(Ok(())).expect("ready");
     c
 }

@@ -2,7 +2,7 @@
 //!
 //! The live tests must present the same capability a production Instance presents, so this
 //! scaffolding runs the actual `soma-guest` handshake, authenticated repair, and fixed
-//! readiness probe over an in-process byte transport before it mints anything.
+//! repair report over an in-process byte transport before it mints anything.
 
 use std::{
     collections::VecDeque,
@@ -12,7 +12,7 @@ use std::{
 
 use soma_guest::{
     ActivationReceipt, ControlIo, GuestControl, GuestLaunchMaterial, HostControl, HostControlIo,
-    HostLaunchMaterial, LAUNCH_PAGE_SIZE, LaunchNetwork, RepairedHostControl, TerminalStatus,
+    HostLaunchMaterial, LAUNCH_PAGE_SIZE, LaunchNetwork, RepairedHostControl,
 };
 use soma_netd::Assigned;
 
@@ -88,7 +88,7 @@ fn fixture_network() -> LaunchNetwork {
     .expect("fixture network")
 }
 
-/// Runs one authenticated session through repair and the fixed probe for these identities.
+/// Runs one authenticated session through repair for these identities.
 #[must_use]
 pub fn repaired(instance: [u8; 16], operation: [u8; 16]) -> RepairedHostControl<MemoryIo> {
     let host = HostLaunchMaterial::generate([0x2c; 32], instance, operation, fixture_network())
@@ -109,16 +109,12 @@ pub fn repaired(instance: [u8; 16], operation: [u8; 16]) -> RepairedHostControl<
         let guest =
             GuestControl::connect(guest, guest_io, deadline()).expect("guest owner connected");
         let (guest, _) = guest.next_request(deadline()).expect("prepare request");
-        guest
-            .repair_complete(deadline())
-            .expect("repair complete")
-            .terminal(TerminalStatus::Exited(0), deadline())
-            .expect("probe terminal")
+        guest.repair_complete(deadline()).expect("repair complete")
     });
     let repaired = HostControl::connect(host, host_io)
         .expect("host owner connected")
-        .prepare_and_probe()
-        .expect("authenticated repair and probe");
+        .prepare()
+        .expect("authenticated repair");
     drop(guest_thread.join().expect("guest thread"));
     repaired
 }

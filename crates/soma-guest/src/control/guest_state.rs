@@ -4,8 +4,7 @@ use super::{error::ControlStage, exchange::OutputAccounting};
 
 pub(super) enum GuestState {
     AwaitPrepare(OperationId),
-    ProbeAwaitRepair(ActiveExchange),
-    ProbeStreaming(ActiveExchange),
+    PrepareReporting(OperationId),
     RepairedIdle,
     ExecuteStreaming(ActiveExchange),
     FilePending(OperationId),
@@ -20,8 +19,7 @@ pub(super) struct ActiveExchange {
 
 pub(super) fn active_stage(state: &GuestState) -> ControlStage {
     match state {
-        GuestState::AwaitPrepare(_) | GuestState::ProbeAwaitRepair(_) => ControlStage::Repair,
-        GuestState::ProbeStreaming(_) => ControlStage::Probe,
+        GuestState::AwaitPrepare(_) | GuestState::PrepareReporting(_) => ControlStage::Repair,
         GuestState::RepairedIdle | GuestState::ExecuteStreaming(_) => ControlStage::Execute,
         GuestState::FilePending(_) => ControlStage::File,
         GuestState::PtyPending(_) => ControlStage::Pty,

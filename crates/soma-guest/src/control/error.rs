@@ -7,8 +7,6 @@ pub enum ControlStage {
     Handshake,
     /// Authenticated guest repair and its host commit gate.
     Repair,
-    /// The fixed readiness self-probe.
-    Probe,
     /// One direct command exchange.
     Execute,
     /// One bounded filesystem request and its outcome.
