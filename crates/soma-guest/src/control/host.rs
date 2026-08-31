@@ -14,7 +14,11 @@ use super::{
     outcome::ExecuteOutcome,
 };
 
+mod file;
 mod network;
+mod whole_file;
+
+pub use whole_file::{WholeFileRead, WholeFileWrite};
 
 /// Host owner of one authenticated pre-repair guest-control session.
 pub struct HostControl<I: HostControlIo> {
