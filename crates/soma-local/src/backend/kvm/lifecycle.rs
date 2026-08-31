@@ -18,6 +18,7 @@ use soma::{
     CommandStatus, EffectiveNetwork, InstanceId, MachineShape, MachineState, OperationId,
 };
 use soma_guest::GuestCommand;
+use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
 
 use super::{
     KvmBackend, claim,
@@ -32,6 +33,15 @@ use super::{
 
 /// How long one bounded command may take before the session is considered gone.
 pub(in crate::backend::kvm) const COMMAND_CEILING: Duration = Duration::from_secs(300);
+
+/// Whether a release may end the machine without asking the guest.
+#[derive(Clone, Copy)]
+pub(super) enum Force {
+    /// End the machine now. This is what a forced destroy is.
+    Immediately,
+    /// Ask the guest to shut down, and end the machine when it will not.
+    OnlyIfTheGuestWillNotLeave,
+}
 
 /// One command that ran, as the portable lifecycle reports it.
 pub(super) type Ran = (CommandStatus, Vec<u8>, Vec<u8>);
@@ -152,32 +162,55 @@ impl KvmBackend {
         Ok((MachineState::Ready, network))
     }
 
-    /// Shuts the guest down and releases everything this process holds for the Instance.
+    /// Releases everything this process holds for the Instance, the way the caller asked.
+    ///
+    /// A graceful stop asks the guest to shut down and waits for it. A forced destroy does not
+    /// ask: it ends the sandbox thread, which finishes the machine on its way out. The two are
+    /// separate paths rather than one path with a flag inside it, because the method a caller is
+    /// told about has to be the one that actually happened.
     pub(super) fn cleanup_resident(
         &mut self,
         instance: &InstanceId,
+        force: Force,
     ) -> Result<CleanupEvidence, BackendFailureKind> {
         // Cleanup is idempotent, but an Instance this Backend never owned is a different fact
         // from one it owned and released.
-        let Some(mut live) = self.take_live(instance) else {
+        let Some(live) = self.take_live(instance) else {
             return self.release_unowned(instance);
         };
-        let outcome = live.session.shutdown();
-        if let Ok(evidence) = &outcome {
-            super::timeline::dump(instance.as_str(), evidence);
-        }
+        let Live {
+            session,
+            mut egress,
+            ..
+        } = live;
+        let method = match force {
+            // Dropping the session ends the sandbox thread, and the thread finishes the machine
+            // before it returns, so everything the Instance owned is released without the guest
+            // ever being asked.
+            Force::Immediately => {
+                drop(session);
+                Some(CleanupMethod::Forced)
+            }
+            Force::OnlyIfTheGuestWillNotLeave => match session.shutdown() {
+                Ok(evidence) => {
+                    super::timeline::dump(instance.as_str(), &evidence);
+                    Some(shutdown_method(&evidence))
+                }
+                Err(_) => None,
+            },
+        };
         // The lease is released whether or not the guest shut down cleanly. A machine that is
         // gone has no use for a namespace, a TAP, an address lease, or a port mapping, and
         // leaving them behind is the failure that compounds fastest across many sandboxes.
-        let network = match live.egress.release() {
+        let network = match egress.release() {
             Released::Complete => CleanupDisposition::Complete,
             Released::NothingHeld => CleanupDisposition::NotOwned,
             // The broker was asked and could not confirm, so this process must not claim it did.
             Released::Incomplete => CleanupDisposition::Incomplete,
         };
-        if outcome.is_err() {
+        let Some(method) = method else {
             return Err(BackendFailureKind::CleanupFailure);
-        }
+        };
         // The machine is gone, so the Host must stop owning the Instance that named it. A
         // record left behind is a leak only reconciliation could find, and an ownership the
         // Host could not prove ended must not be reported as a complete cleanup.
@@ -193,7 +226,7 @@ impl KvmBackend {
             network,
             CleanupDisposition::Complete,
         )
-        .with_method(CleanupMethod::Graceful))
+        .with_method(method))
     }
 
     /// Ends what can be ended for an Instance this process holds no machine for.
@@ -207,6 +240,20 @@ impl KvmBackend {
     ) -> Result<CleanupEvidence, BackendFailureKind> {
         self.ownership.release(instance)?;
         Ok(lookup::not_owned_evidence())
+    }
+}
+
+/// How a guest that was asked to shut down actually left.
+///
+/// A guest that halted, shut down, reset, or reached its sentinel left on its own, which is a
+/// graceful release. Anything else means the host had to end a machine the guest was still in,
+/// and reporting that as graceful would describe a termination that did not happen.
+fn shutdown_method(evidence: &SandboxEvidence) -> CleanupMethod {
+    match evidence.exit {
+        Ok(GuestExit::Halt | GuestExit::Shutdown | GuestExit::Reset | GuestExit::Sentinel) => {
+            CleanupMethod::Graceful
+        }
+        Ok(GuestExit::Paused) | Err(_) => CleanupMethod::GracefulThenForced,
     }
 }
 

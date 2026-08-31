@@ -63,6 +63,8 @@ pub(super) enum Call {
     },
     Cleanup {
         instance_id: InstanceId,
+        /// Whether the machine may be ended without asking the guest.
+        forced: bool,
     },
     /// End the host, because nothing has addressed its machine for long enough.
     Shutdown,

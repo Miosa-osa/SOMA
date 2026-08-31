@@ -23,7 +23,7 @@ use std::{
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::GuestCommand;
 
-use crate::backend::kvm::{KvmBackend, prepared};
+use crate::backend::kvm::{KvmBackend, lifecycle::Force, prepared};
 
 use super::{
     Launched, channel,
@@ -70,7 +70,7 @@ fn serve(listener: &UnixListener, socket: &Path) -> i32 {
     if channel::write_line(&mut io::stdout(), &Ready::Launched(launched)).is_err() {
         // The client is gone and will never address this Instance, so the machine it asked for
         // must not outlive the answer it never received.
-        let _ignored = backend.cleanup_resident(&instance);
+        let _ignored = backend.cleanup_resident(&instance, Force::Immediately);
         return REFUSED;
     }
     answer_until_released(listener, socket, &mut backend, &instance)
@@ -117,8 +117,12 @@ fn answer_until_released(
         if matches!(call, Call::Shutdown) {
             break;
         }
-        if let Call::Cleanup { instance_id } = &call {
-            let answer = release(backend, instance_id);
+        if let Call::Cleanup {
+            instance_id,
+            forced,
+        } = &call
+        {
+            let answer = release(backend, instance_id, force_for(*forced));
             let released = matches!(answer, Answer::Cleaned { .. });
             let _ignored = channel::write_line(&mut stream, &answer);
             if released {
@@ -132,7 +136,7 @@ fn answer_until_released(
     }
     // Nothing more is coming, so this host releases what it still holds rather than keeping a
     // machine alive that no process can reach.
-    let _ignored = backend.cleanup_resident(instance);
+    let _ignored = backend.cleanup_resident(instance, Force::Immediately);
     RELEASED
 }
 
@@ -176,8 +180,16 @@ fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
     }
 }
 
-fn release(backend: &mut KvmBackend, instance: &InstanceId) -> Answer {
-    match backend.cleanup_resident(instance) {
+const fn force_for(forced: bool) -> Force {
+    if forced {
+        Force::Immediately
+    } else {
+        Force::OnlyIfTheGuestWillNotLeave
+    }
+}
+
+fn release(backend: &mut KvmBackend, instance: &InstanceId, force: Force) -> Answer {
+    match backend.cleanup_resident(instance, force) {
         Ok(evidence) => Answer::Cleaned { evidence },
         Err(kind) => Answer::Refused(kind.into()),
     }

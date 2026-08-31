@@ -184,9 +184,11 @@ pub(super) fn inspect(
 pub(super) fn cleanup(
     directory: &Path,
     instance: &InstanceId,
+    forced: bool,
 ) -> Result<CleanupEvidence, HostFailure> {
     let call = Call::Cleanup {
         instance_id: instance.clone(),
+        forced,
     };
     let mut stream = open(directory, instance, CONTROL_CEILING)?;
     let evidence = match exchange(&mut stream, &call)? {

@@ -8,9 +8,10 @@
 use std::{any::Any, path::PathBuf};
 
 use soma::{
-    BackendFailure, BackendFailureKind, CleanupObservation, CleanupRequest, CleanupTimes,
-    CommandObservation, CommandTimes, DigestBinding, ExecutionRequest, InspectionObservation,
-    InspectionRequest, InstanceId, IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes,
+    BackendFailure, BackendFailureKind, CleanupObservation, CleanupReason, CleanupRequest,
+    CleanupTimes, CommandObservation, CommandTimes, DigestBinding, ExecutionRequest,
+    InspectionObservation, InspectionRequest, InstanceId, IsolationClass, LaunchObservation,
+    LaunchRequest, LaunchTimes,
 };
 use soma_guest::GuestCommand;
 
@@ -18,6 +19,7 @@ use super::{
     KvmBackend,
     evidence::{command_parts, effective_shape, observation},
     host::{self, HostFailure, Role},
+    lifecycle::Force,
     prepared::PreparedGeneration,
 };
 
@@ -142,15 +144,26 @@ impl KvmBackend {
         let operation = request.operation_id();
         let started = self.clocks.elapsed_ns(operation);
         let instance = request.instance_id().clone();
+        // A forced destroy ends the machine without asking the guest. Every other reason asks
+        // first, because a release the caller described as graceful must have been one.
+        let force = match request.reason() {
+            CleanupReason::ForcedDestroy => Force::Immediately,
+            CleanupReason::RunCompleted
+            | CleanupReason::GracefulStop
+            | CleanupReason::Rollback
+            | CleanupReason::UncertainCommandTermination => Force::OnlyIfTheGuestWillNotLeave,
+        };
         let outcome = match self.hosted_directory() {
-            None => self.cleanup_resident(&instance),
-            Some(directory) => match host::cleanup(&directory, &instance) {
-                Ok(evidence) => Ok(evidence),
-                // No host serves this Instance, so there is no machine here to release and the
-                // one terminal act left is ending the Host Runtime's ownership of the identity.
-                Err(HostFailure::Absent) => self.release_unowned(&instance),
-                Err(HostFailure::Refused(kind)) => Err(kind),
-            },
+            None => self.cleanup_resident(&instance, force),
+            Some(directory) => {
+                match host::cleanup(&directory, &instance, matches!(force, Force::Immediately)) {
+                    Ok(evidence) => Ok(evidence),
+                    // No host serves this Instance, so there is no machine here to release and the
+                    // one terminal act left is ending the Host Runtime's ownership of the identity.
+                    Err(HostFailure::Absent) => self.release_unowned(&instance),
+                    Err(HostFailure::Refused(kind)) => Err(kind),
+                }
+            }
         };
         let evidence = outcome.map_err(|kind| self.fail(operation, kind))?;
         let finished = self.clocks.elapsed_ns(operation);
