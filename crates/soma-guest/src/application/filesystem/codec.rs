@@ -23,8 +23,12 @@ const SET_MODE: u8 = 8;
 
 impl FileRequest {
     /// Encodes this request as one frame body.
+    ///
+    /// The bytes are the same ones the record layer carries, and they are public so a host that
+    /// must relay a request across a process boundary can carry exactly this form rather than
+    /// inventing a second encoding of the same request that could drift from it.
     #[must_use]
-    pub(in super::super) fn encode_body(&self) -> Vec<u8> {
+    pub fn encode_body(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(self.path().len() + 32);
         match self {
             Self::Read {
@@ -91,7 +95,7 @@ impl FileRequest {
     /// Returns [`Error::ApplicationMessageRejected`] for every malformed body, including a
     /// trailing byte, an inadmissible path, an oversized payload, and a boolean that is neither
     /// zero nor one.
-    pub(in super::super) fn decode_body(body: &[u8]) -> Result<Self, Error> {
+    pub fn decode_body(body: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(body);
         let request = match reader.u8()? {
             READ => {

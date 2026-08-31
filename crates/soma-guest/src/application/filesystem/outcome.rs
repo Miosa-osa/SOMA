@@ -167,8 +167,11 @@ const FAILED: u8 = 6;
 
 impl FileOutcome {
     /// Encodes this outcome as one frame body.
+    ///
+    /// Public for the reason [`super::FileRequest::encode_body`] gives: a relayed answer must be
+    /// the same bytes the record layer carried, not a second encoding of them.
     #[must_use]
-    pub(in super::super) fn encode_body(&self) -> Vec<u8> {
+    pub fn encode_body(&self) -> Vec<u8> {
         let mut out = Vec::new();
         match self {
             Self::Read { bytes, end } => {
@@ -208,7 +211,7 @@ impl FileOutcome {
     /// # Errors
     ///
     /// Returns [`Error::ApplicationMessageRejected`] for every malformed body.
-    pub(in super::super) fn decode_body(body: &[u8]) -> Result<Self, Error> {
+    pub fn decode_body(body: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(body);
         let outcome = match reader.u8()? {
             READ => {
