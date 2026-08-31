@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Builds the static jail probe and the jail_live test binary on the host, then runs the
-# privileged live tests as root inside a pinned Ubuntu 24.04 container with its own cgroup
-# namespace and a delegated cgroup2 subtree.
+# Builds the static jail probe, the static soma-vmm worker, and the jail_live test binary on
+# the host, then runs the privileged live tests as root inside a pinned Ubuntu 24.04 container
+# with its own cgroup namespace and a delegated cgroup2 subtree.
 #
 # The host only needs cargo with the x86_64-unknown-linux-musl target and a Docker daemon
 # that allows --privileged; unprivileged user namespaces may be blocked on the host itself.
@@ -41,8 +41,9 @@ if ! rustup target list --installed | grep -qx "${TARGET}"; then
     exit 1
 fi
 
-printf '==> building the static jail-probe and jail_live test binary for %s\n' "${TARGET}"
+printf '==> building the static jail-probe, soma-vmm, and jail_live binaries for %s\n' "${TARGET}"
 cargo build --locked -p soma-jail --bin jail-probe --target "${TARGET}"
+cargo build --locked -p soma-vmm --bin soma-vmm --target "${TARGET}"
 test_binary="$(
     cargo test --locked -p soma-jail --test jail_live --target "${TARGET}" --no-run \
         --message-format=json \
@@ -57,8 +58,9 @@ for line in sys.stdin:
 '
 )"
 probe_binary="${REPO_ROOT}/target/${TARGET}/debug/jail-probe"
+vmm_binary="${REPO_ROOT}/target/${TARGET}/debug/soma-vmm"
 
-for binary in "${test_binary}" "${probe_binary}"; do
+for binary in "${test_binary}" "${probe_binary}" "${vmm_binary}"; do
     if [[ ! -x "${binary}" ]]; then
         printf 'expected binary is missing: %s\n' "${binary}" >&2
         exit 1
@@ -72,6 +74,7 @@ done
 
 relative_test="${test_binary#"${REPO_ROOT}"/}"
 relative_probe="${probe_binary#"${REPO_ROOT}"/}"
+relative_vmm="${vmm_binary#"${REPO_ROOT}"/}"
 
 printf '==> image %s\n' "${IMAGE}"
 docker image inspect --format '{{.Id}}' "${IMAGE}" >/dev/null 2>&1 || docker pull "${IMAGE}"
@@ -97,6 +100,7 @@ ls -l /dev/kvm 2>/dev/null || printf '/dev/kvm: absent\n'
 export SOMA_JAIL_CGROUP_ROOT=/sys/fs/cgroup/soma-jail
 export SOMA_JAIL_ROOT_PARENT=/tmp/soma-jail-live
 export SOMA_JAIL_PROBE="$WORK/$RELATIVE_PROBE"
+export SOMA_VMM_BINARY="$WORK/$RELATIVE_VMM"
 exec "$WORK/$RELATIVE_TEST" --ignored --test-threads=1 --skip helper_ "$@"
 INNER
 )"
@@ -107,4 +111,5 @@ docker run --rm --privileged --cgroupns=private \
     --env "WORK=${WORK}" \
     --env "RELATIVE_TEST=${relative_test}" \
     --env "RELATIVE_PROBE=${relative_probe}" \
+    --env "RELATIVE_VMM=${relative_vmm}" \
     "${IMAGE}" bash -c "${container_script}" -- "$@"

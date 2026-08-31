@@ -49,7 +49,11 @@ impl Control {
     }
 
     pub(crate) fn send(&self, command: ProbeCommand) {
-        let text = command.encode();
+        self.send_text(&command.encode());
+    }
+
+    /// Sends one already encoded packet, which is how the `soma-vmm` worker is driven.
+    pub(crate) fn send_text(&self, text: &str) {
         // SAFETY: the buffer and length describe a live string slice.
         let sent = unsafe { libc::send(self.0.as_raw_fd(), text.as_ptr().cast(), text.len(), 0) };
         assert_eq!(
@@ -89,27 +93,29 @@ impl Jail {
 
     /// Sends `command` and expects a reply starting with `prefix`.
     pub(crate) fn expect(&mut self, command: ProbeCommand, prefix: &str) -> String {
-        self.control.send(command);
+        self.expect_text(&command.encode(), prefix)
+    }
+
+    /// Sends one packet and expects a reply starting with `prefix`.
+    pub(crate) fn expect_text(&mut self, packet: &str, prefix: &str) -> String {
+        self.control.send_text(packet);
         let Some(reply) = self.control.recv(RECV_TIMEOUT) else {
-            panic!(
-                "no reply to {}; child {}",
-                command.encode(),
-                self.describe_exit()
-            );
+            panic!("no reply to {packet}; child {}", self.describe_exit());
         };
-        assert!(
-            reply.starts_with(prefix),
-            "reply to {}: {reply:?}",
-            command.encode()
-        );
+        assert!(reply.starts_with(prefix), "reply to {packet}: {reply:?}");
         reply
     }
 
     /// Sends `command` and expects the probe to die without replying.
     pub(crate) fn expect_silence(&self, command: ProbeCommand) {
-        self.control.send(command);
+        self.expect_silence_text(&command.encode());
+    }
+
+    /// Sends one packet and expects the child to die without replying.
+    pub(crate) fn expect_silence_text(&self, packet: &str) {
+        self.control.send_text(packet);
         let reply = self.control.recv(RECV_TIMEOUT);
-        assert_eq!(reply, None, "probe survived {}", command.encode());
+        assert_eq!(reply, None, "child survived {packet}");
     }
 
     /// Waits for `expected`, reconciles, and proves nothing is left behind.
@@ -131,10 +137,15 @@ impl Jail {
     }
 
     /// Sends a command the filter must kill and proves the recorded `SIGSYS` death.
-    pub(crate) fn expect_kill(mut self, live: &Live, command: ProbeCommand) -> JailEvidence {
-        self.expect_silence(command);
+    pub(crate) fn expect_kill(self, live: &Live, command: ProbeCommand) -> JailEvidence {
+        self.expect_kill_text(live, &command.encode())
+    }
+
+    /// Sends one packet the filter must kill and proves the recorded `SIGSYS` death.
+    pub(crate) fn expect_kill_text(mut self, live: &Live, packet: &str) -> JailEvidence {
+        self.expect_silence_text(packet);
         let exit = self.handle.wait(deadline(10)).expect("child exit");
-        assert!(exit.is_seccomp_kill(), "{}: {exit}", command.encode());
+        assert!(exit.is_seccomp_kill(), "{packet}: {exit}");
         self.finish(live, exit)
     }
 }

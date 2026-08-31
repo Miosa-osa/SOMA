@@ -16,6 +16,8 @@ mod seccomp;
 mod spec;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod attest;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod cgroup;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod descriptors;
@@ -40,6 +42,8 @@ pub use seccomp::{
 };
 pub use spec::{CgroupLimits, CpuMax, Identity, IoMax, JailSpec, LeafName, Rlimits, SpecError};
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use attest::attest;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use cgroup::{CgroupError, CgroupLeaf, CgroupReadback};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
