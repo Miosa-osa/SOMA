@@ -25,7 +25,7 @@ host binds that socket before it builds anything, runs the unchanged resident li
 what the launch established on its standard output, and then answers execute, inspect, and
 cleanup over the socket until the machine is released.
 
-`soma run` is untouched. It holds its own machine in its own process for the whole operation and
+`soma run` and `soma_run` are untouched. Each holds its own machine in its own process for the whole operation and
 releases it before returning, so no second process appears on the path every performance figure
 in this repository was measured on. One `soma run` at this shape still reached Ready in 23.4 ms
 and released gracefully ([`one-shot-run.json`](raw/2026-08-31-durable-machine-host/one-shot-run.json)).
@@ -104,6 +104,27 @@ After the five-process lifecycle above and again after each hundred-way run:
 | `soma machine-host` processes | 0 |
 | Mount entries naming the scratch tree | 0 |
 
+## The MCP server, which is the surface an agent actually holds
+
+`soma-mcp` opens a fresh runtime for every tool call, so a sandbox `soma_launch` created had
+exactly the lifetime of that one call. It now asks for a hosted machine for the same reason the
+command line does, and because a launch starts its host by re-executing the binary it is already
+running, the MCP executable serves that host too, ahead of argument parsing and off the tool
+surface entirely.
+
+Three separate `soma-mcp` server processes over one sandbox
+([`mcp/three-server-processes.txt`](raw/2026-08-31-durable-machine-host/mcp/three-server-processes.txt),
+driven by [`three-server-processes.py`](raw/2026-08-31-durable-machine-host/mcp/three-server-processes.py)):
+
+| Call | Server process | Result |
+| --- | ---: | --- |
+| `soma_launch` | 872229 | `state: ready` |
+| `soma_exec` writing `/tmp/two.txt` | 872408 | stdout `wrote\n` |
+| `soma_exec` reading it back | 872495 | stdout `written-by-the-first-mcp-process\n` |
+| `soma_destroy` | 872495 | `state: destroyed` |
+
+No call reported an error and no socket survived the destroy.
+
 ## Stop and destroy are different terminations, and the evidence says which happened
 
 A forced destroy ends the machine without asking the guest; a graceful stop asks and waits. The
@@ -147,6 +168,9 @@ and it is recorded here because it is the one path on which destroy does not ret
   no run in this document waited it out, so it is designed rather than live-proved.
 - The host is an ordinary child process. It is not jailed, and `soma-vmm`, which is, still does
   not host a machine. See the note below.
+- `soma-api` still opens its runtime without asking for hosted machines, so the HTTP surface keeps
+  the in-process lifetime it had. It is a single long-lived process, so its sandboxes outlive each
+  request already; nothing here changes or proves it.
 - Nothing here was measured on a second host, and every figure is one run.
 
 ## The jail is still ahead of this

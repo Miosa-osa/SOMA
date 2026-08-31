@@ -1,0 +1,5 @@
+instance 1dc4375fa5164617afcf3951ddbce7cd
+launch      server_pid=872229 error=None state=ready execution=None stdout=None
+exec-write  server_pid=872408 error=None state=None execution=None stdout='wrote\n'
+exec-read   server_pid=872495 error=None state=None execution=None stdout='written-by-the-first-mcp-process\n'
+destroy     server_pid=872495 error=None state=destroyed execution=None stdout=None
