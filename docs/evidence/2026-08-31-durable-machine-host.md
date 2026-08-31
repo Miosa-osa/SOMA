@@ -104,6 +104,21 @@ After the five-process lifecycle above and again after the hundred-way run:
 | `soma machine-host` processes | 0 |
 | Mount entries naming the scratch tree | 0 |
 
+## Stop and destroy are different terminations, and the evidence says which happened
+
+A forced destroy ends the machine without asking the guest; a graceful stop asks and waits. The
+portable contract refuses evidence naming the wrong one, which is what `machine destroy` hit the
+moment it could reach a machine at all. Both were then observed, on separate sandboxes:
+
+| Command | Exit | Terminal status | Cleanup method |
+| --- | ---: | --- | --- |
+| `machine stop` ([`graceful-stop/stop.json`](raw/2026-08-31-durable-machine-host/graceful-stop/stop.json)) | 0 | `stopped` | `graceful` |
+| `machine destroy` ([`lifecycle/5-destroy.json`](raw/2026-08-31-durable-machine-host/lifecycle/5-destroy.json)) | 0 | `destroyed` | `forced` |
+
+`graceful` is reported only because the guest actually halted on its own; a guest the host had to
+end would have been reported as `graceful_then_forced`. An `exec` naming a stopped Instance is
+refused with `state_conflict`, and the stopped sandbox left no socket behind.
+
 ## When the client is gone
 
 A host that has been killed outright is not a machine anybody can reach, and the surface says so
