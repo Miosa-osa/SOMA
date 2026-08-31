@@ -32,6 +32,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The evidence check resolves every commit a live-proved ledger row names, and a
+          # shallow checkout would make a commit that exists look missing.
+          fetch-depth: 0
 
       - name: Check architecture and claim policy
         run: ./scripts/check-architecture.sh
+
+      - name: Check evidence links, ledger commits, and retained samples
+        run: python3 ./scripts/check-evidence.py docs

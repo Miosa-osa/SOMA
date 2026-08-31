@@ -1,18 +1,21 @@
-**/target/
-__pycache__/
+# No pattern here ends in a slash. A trailing slash matches a directory and nothing else, so the
+# day a build output is replaced by a symlink to one, the pattern stops matching and the link is
+# tracked. That is exactly how the kernel/out link came back into the tree through a merge.
+**/target
+__pycache__
 *.py[cod]
-/.cache/
-/.idea/
-/.vscode/
+/.cache
+/.idea
+/.vscode
 .DS_Store
 *.profraw
 *.profdata
 *.snap.new
-coverage/
-/result/
-benchmarks/results/
-/fuzz/artifacts/
-/fuzz/corpus/
+coverage
+/result
+benchmarks/results
+/fuzz/artifacts
+/fuzz/corpus
 
 # Built guest-kernel artifacts, sources, and build trees (see kernel/README.md)
 kernel/out

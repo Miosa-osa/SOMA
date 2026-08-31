@@ -51,6 +51,21 @@ held **zero** files afterwards and `/srv` was at twelve percent, so no head leak
 filled. It is variance, not accumulation - cohorts four to six fall back to 45.9, 67.5 and 53.4
 after the 133.0 peak.
 
+## Retained samples
+
+The twelve concurrency-100 cohorts and the first misleading pair are retained at
+[`raw/2026-08-31-merged-binary-device-set-c100/`](raw/2026-08-31-merged-binary-device-set-c100/),
+one summary object per cohort. `r1` through `r6` are the six cohorts of each arm in run order, so
+the writable list above reads 42.1, 120.7, 133.0, 45.9, 67.5, 53.4 there rather than sorted;
+`final-s-rw` and `final-s-ro` are the single pair that ranked the arms the wrong way round. Each
+object carries the cohort's attempt count, percentiles, and per-stage medians, so every figure in
+the tables above can be recomputed rather than believed.
+
+The sequential arm at the top of this record is **not** retained. Its thirty samples per arm were
+not written to a file that survived the run, so the 29.40 ms and 26.94 ms figures rest on the
+console output of a run that no longer exists. Treat them as weaker than the concurrency-100
+figures below them, which are recomputable.
+
 ## What this does not say
 
 The comparison is busybox at one shape on one host. It does not measure a workload that writes,

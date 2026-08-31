@@ -87,6 +87,31 @@ Open a new login shell afterward so group changes take effect, then return to th
 
 This builds the three artifacts, the `soma` command line, the static guest agent, and the pinned guest kernel (about 60 seconds of compile), and prints the path and digest of each.
 
+## The short path: one command
+
+Steps 4 to 6 below are the manual sequence, and every step in it is a place to fail. Three of them
+fail silently: a Candidate compiled but never captured cold boots instead of restoring, at about
+fifteen times the time and with no error; a launch at a shape the snapshot was not captured at is
+refused before a machine exists; and a store prepared against an older wire contract cannot launch
+at all. None of the three says so.
+
+`scripts/reproduce.sh` does the whole sequence, checks each precondition before it can fail
+silently, and ends with a measured result:
+
+```sh
+./scripts/reproduce.sh --memory-mib 1024 --storage-mib 10240 --samples 25 \
+    --expect v22 node:22 -- /usr/local/bin/node --version
+```
+
+It builds the workspace, the guest agent and both tools, compiles the image into a Generation,
+captures its snapshot, verifies that the prepared store answers the shape and the wire contract of
+the checkout in front of it, and then measures launches and prints percentiles and per-stage
+medians. It refuses, naming the cause and the fix, when the kernel link dangles, `cargo` is off the
+non-interactive PATH, the store is stale, the shape does not match, or the snapshot is missing.
+
+Read the rest of this document to understand what it is doing, or when a step needs to be run on
+its own.
+
 ## Step 4: build the pinned filesystem tools
 
 ```sh
