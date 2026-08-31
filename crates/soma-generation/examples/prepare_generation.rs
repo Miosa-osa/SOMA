@@ -9,6 +9,9 @@
 //! `candidate.somacan` (the exact published Candidate bytes), and `reference` (the image the entry
 //! was prepared for). Point the backend at the parent directory with `SOMA_GENERATION_STORE`.
 //!
+//! The Machine shape comes from the command line here. `prepare_from_template` runs the same
+//! pipeline with the shape, lifetime, and network envelope taken from a Template document.
+//!
 //! Usage:
 //!
 //! ```text
@@ -17,35 +20,27 @@
 //! ```
 
 use std::error::Error;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use soma::{MachineShape, OciImage, OciPlatform};
+use soma::{MachineShape, OciImage};
 use soma_generation::{
-    BuildHost, CompileGeneration, CompilerProfile, ImportLimits, ImportOciLayout, LifetimeLimits,
-    MachineInputs, NormalizeOciRootfs, OciSelection, RootfsLimits, StartupBehavior, TemplateImage,
-    TemplateRevision, Toolchain, compile_generation, generation_manifest::encode_candidate,
-    import_oci_layout, normalize_oci_rootfs,
+    LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision as CompilerRevision,
 };
 
+#[path = "prepare_generation/build.rs"]
+mod build;
 #[path = "prepare_generation/publication.rs"]
 mod publication;
 
-use publication::Publication;
+use build::BuildInputs;
 
-const MIB: u64 = 1024 * 1024;
 const DEFAULT_MEMORY_MIB: u64 = 1024;
 const DEFAULT_STORAGE_MIB: u64 = 10240;
+const DEFAULT_TTL_SECONDS: u64 = 3600;
 
 struct Args {
     reference: String,
-    layout: PathBuf,
-    kernel: PathBuf,
-    kernel_config: PathBuf,
-    agent: PathBuf,
-    erofs_tools: PathBuf,
-    e2fsprogs: PathBuf,
-    out_entry: PathBuf,
+    inputs: BuildInputs,
     memory_mib: u64,
     storage_mib: u64,
 }
@@ -67,13 +62,15 @@ fn parse_args() -> Result<Args, String> {
     };
     Ok(Args {
         reference: raw[0].clone(),
-        layout: PathBuf::from(&raw[1]),
-        kernel: PathBuf::from(&raw[2]),
-        kernel_config: PathBuf::from(&raw[3]),
-        agent: PathBuf::from(&raw[4]),
-        erofs_tools: PathBuf::from(&raw[5]),
-        e2fsprogs: PathBuf::from(&raw[6]),
-        out_entry: PathBuf::from(&raw[7]),
+        inputs: BuildInputs {
+            layout: PathBuf::from(&raw[1]),
+            kernel: PathBuf::from(&raw[2]),
+            kernel_config: PathBuf::from(&raw[3]),
+            agent: PathBuf::from(&raw[4]),
+            erofs_tools: PathBuf::from(&raw[5]),
+            e2fsprogs: PathBuf::from(&raw[6]),
+            out_entry: PathBuf::from(&raw[7]),
+        },
         memory_mib: raw
             .get(8)
             .map_or(Ok(DEFAULT_MEMORY_MIB), |v| number(v, "memory_mib"))?,
@@ -83,89 +80,22 @@ fn parse_args() -> Result<Args, String> {
     })
 }
 
-fn require_present(path: &Path, kind: &str, directory: bool) -> Result<(), String> {
-    let present = if directory {
-        path.is_dir()
-    } else {
-        path.is_file()
-    };
-    if present {
-        Ok(())
-    } else {
-        Err(format!("{kind} not found at {}", path.display()))
-    }
-}
-
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
-    require_present(&args.layout.join("oci-layout"), "OCI layout", false)?;
-    require_present(&args.kernel, "kernel", false)?;
-    require_present(&args.kernel_config, "kernel configuration", false)?;
-    require_present(&args.agent, "guest agent", false)?;
-    require_present(&args.erofs_tools, "erofs tools directory", true)?;
-    require_present(&args.e2fsprogs, "e2fsprogs directory", true)?;
-
-    let publication = Publication::begin(&args.out_entry)?;
-    let store = publication.path().join("store");
-    let staging = publication.path().join("staging");
-    fs::create_dir_all(&store)?;
-    fs::create_dir_all(&staging)?;
-
-    let platform = OciPlatform::new("linux", "amd64", None)?;
-    let imported = import_oci_layout(ImportOciLayout::new(
-        &args.layout,
-        &store,
-        OciSelection::Platform(&platform),
-        ImportLimits::default(),
-    ))?;
-    let normalized = normalize_oci_rootfs(NormalizeOciRootfs::new(
-        &imported,
-        &store,
-        RootfsLimits::default(),
-    ))?;
-
-    let workload = normalized.workload();
-    let template = TemplateRevision::new(
-        TemplateImage::new(
-            OciImage::parse(&args.reference)?,
-            workload.manifest_digest().clone(),
-            workload.platform().clone(),
-        ),
-        MachineShape::new(1, args.memory_mib, args.storage_mib)?,
-        StartupBehavior::readiness_only(),
-        LifetimeLimits::new(3600)?,
-        1,
-    )?;
-
-    let mut profile = CompilerProfile::v1();
-    profile.overlay_capacities = vec![args.storage_mib * MIB];
-
-    let compiled = compile_generation(CompileGeneration::new(
-        &template,
-        &normalized,
-        &store,
-        &profile,
-        BuildHost::new(
-            &staging,
-            Toolchain::new(&args.erofs_tools, &args.e2fsprogs),
-            MachineInputs::new(&args.kernel, &args.kernel_config, &args.agent, &args.agent),
-        ),
-    ))?;
-
-    // The entry is what a prepared store holds: the published Candidate bytes, the artifact store
-    // those bytes describe, and the reference this entry answers to.
-    let candidate_bytes = encode_candidate(&compiled.candidate.manifest)?;
-    publication.write_private("candidate.somacan", &candidate_bytes)?;
-    publication.write_private("reference", args.reference.as_bytes())?;
-    fs::remove_dir_all(&staging)?;
-    publication.commit()?;
-
-    println!(
-        "prepared {} at {}\n  candidate id: {}\n  entries: {}",
-        args.reference,
-        args.out_entry.display(),
-        compiled.candidate.id.as_str(),
-        normalized.entry_count(),
-    );
+    let prepared = build::prepare(&args.inputs, |normalized, _store| {
+        let workload = normalized.workload();
+        Ok(CompilerRevision::new(
+            TemplateImage::new(
+                OciImage::parse(&args.reference)?,
+                workload.manifest_digest().clone(),
+                workload.platform().clone(),
+            ),
+            MachineShape::new(1, args.memory_mib, args.storage_mib)?,
+            StartupBehavior::readiness_only(),
+            LifetimeLimits::new(DEFAULT_TTL_SECONDS)?,
+            1,
+        )?)
+    })?;
+    build::report(&prepared, &args.inputs.out_entry);
     Ok(())
 }
 

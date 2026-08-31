@@ -1,12 +1,14 @@
 //! Validate one Template document and print the Template Lock identity it would receive.
 //!
 //! This lives here rather than behind a `soma template` subcommand on purpose. Resolving a
-//! Template needs two external inputs the workspace does not have yet: an OCI resolver that
-//! asks a registry for the exact manifest digest of a reference, and a filesystem oracle that
-//! can say whether the base image actually carries the command's program. Both are stubbed
-//! below. Shipping those stubs inside the `soma` binary would mean the product printing a
-//! lock identity it did not really resolve, so the stub-driven pipeline stays an example
-//! until a registry client exists, and the subcommand can then be a thin wrapper over it.
+//! Template needs two external inputs: an OCI resolver that turns a reference into an exact
+//! manifest digest, and a filesystem oracle that can say whether the base image actually
+//! carries the command's program. Both are stubbed below, because this crate answers neither.
+//! `soma-generation` answers both for real, from a local OCI layout and from the normalized
+//! rootfs it builds, and `cargo run -p soma-generation --example prepare_from_template` is the
+//! command that resolves a document rather than trusting one. Shipping these stubs inside the
+//! `soma` binary would mean the product printing a lock identity it did not really resolve, so
+//! this example prints one only for a digest the caller supplied.
 //!
 //! Usage: `cargo run -p soma-template --example validate -- <template.toml> [<image-digest>]`
 //!

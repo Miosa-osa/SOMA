@@ -1,7 +1,7 @@
 use soma::{OciDigest, OciPlatform};
 
 use crate::{
-    ImportError, ImportErrorKind, ImportOciLayout, ImportPhase, OciSelection, digest,
+    ImportError, ImportErrorKind, ImportLimits, ImportPhase, OciSelection, digest,
     layout::Layout,
     oci::{
         CONFIG_MEDIA_TYPE, ConfigWire, Descriptor, GZIP_LAYER, MANIFEST_MEDIA_TYPE, ManifestWire,
@@ -24,14 +24,19 @@ pub(crate) struct SelectedImage {
 pub(crate) fn select_image(
     layout: &Layout,
     traversal: &Traversal,
-    request: ImportOciLayout<'_>,
+    selection: OciSelection<'_>,
+    limits: ImportLimits,
 ) -> Result<SelectedImage, ImportError> {
     let mut matches = Vec::new();
     let mut descriptor_count = traversal.descriptor_count;
     for candidate in &traversal.candidates {
-        if let Some(image) =
-            verify_candidate(layout, candidate.clone(), request, &mut descriptor_count)?
-        {
+        if let Some(image) = verify_candidate(
+            layout,
+            candidate.clone(),
+            selection,
+            limits,
+            &mut descriptor_count,
+        )? {
             matches.push(image);
         }
     }
@@ -51,10 +56,11 @@ pub(crate) fn select_image(
 fn verify_candidate(
     layout: &Layout,
     candidate: Candidate,
-    request: ImportOciLayout<'_>,
+    selection: OciSelection<'_>,
+    limits: ImportLimits,
     descriptor_count: &mut u32,
 ) -> Result<Option<SelectedImage>, ImportError> {
-    let document_limit = request.limits.max_blob_bytes.min(MAX_DOCUMENT_BYTES);
+    let document_limit = limits.max_blob_bytes.min(MAX_DOCUMENT_BYTES);
     let manifest_bytes = layout.read_blob(
         &candidate.manifest,
         document_limit,
@@ -79,7 +85,7 @@ fn verify_candidate(
     *descriptor_count = descriptor_count
         .checked_add(referenced)
         .ok_or_else(descriptor_limit)?;
-    if *descriptor_count > request.limits.max_descriptors {
+    if *descriptor_count > limits.max_descriptors {
         return Err(descriptor_limit());
     }
     let config = manifest.config.validate(ImportPhase::VerifyConfig)?;
@@ -100,12 +106,12 @@ fn verify_candidate(
         ));
     }
     let platform = effective_platform(&candidate, &config_platform)?;
-    let selection_matches = match request.selection {
+    let selection_matches = match selection {
         OciSelection::Platform(requested) => platform_matches(requested, &platform),
         OciSelection::Exact(identity) => platform_matches(identity.platform(), &platform),
     };
     if !selection_matches {
-        return match request.selection {
+        return match selection {
             OciSelection::Platform(_) => Ok(None),
             OciSelection::Exact(_) => Err(ImportError::new(
                 ImportPhase::VerifyConfig,
@@ -128,7 +134,7 @@ fn verify_candidate(
                 ImportErrorKind::Unsupported,
             ));
         }
-        if descriptor.size > request.limits.max_blob_bytes {
+        if descriptor.size > limits.max_blob_bytes {
             return Err(ImportError::new(
                 ImportPhase::VerifyLayer,
                 ImportErrorKind::LimitExceeded,

@@ -52,8 +52,8 @@ lock: not computed; pass a pinned image digest to resolve one
 ```
 
 A Lock identity needs the exact manifest digest of the image, because the Lock records which
-bytes were selected and a mutable tag such as `debian:12-slim` does not name any. Nothing in
-the workspace asks a registry for that digest yet, so pass one on the command line:
+bytes were selected and a mutable tag such as `debian:12-slim` does not name any. This example
+asks no registry, so pass a digest on the command line:
 
 ```console
 $ cargo run -p soma-template --example validate -- \
@@ -63,9 +63,68 @@ $ cargo run -p soma-template --example validate -- \
 lock: sha256:c82b1d62cc1729e7786854b75955d76eda070a4c8219fa053125ac86dbb186d9
 ```
 
-There is no `soma template` subcommand. The example binary stubs the registry lookup and the
-image filesystem inspection that a real subcommand would perform, and the `soma` binary should
-not print a lock identity it did not really resolve.
+That prints a lock for a digest you supplied rather than one anything resolved, which is why it
+is a `soma-template` example and not a `soma template` subcommand. To have the digest resolved
+for you, and to get a Generation out of the far end, use the build command below.
+
+## Build a Generation from one
+
+`prepare_from_template` runs the whole path: it exports the image to a local OCI layout,
+resolves the document against it, and compiles the Template Lock into a prepared-store entry the
+KVM backend can launch. It takes the same build inputs as `prepare_generation` (a pinned kernel,
+the static guest agent, and the filesystem tools), and it takes the Machine shape, the network
+envelope, and the lifetime from the document instead of the command line.
+
+```console
+$ skopeo copy --override-os linux --override-arch amd64 \
+    docker://docker.io/library/debian:12-slim oci:/tmp/layout:soma
+$ cargo run --release -p soma-generation --example prepare_from_template -- \
+    templates/minimal.toml \
+    /tmp/layout \
+    kernel/out/vmlinux-6.12.8-soma-v1 \
+    kernel/out/final.config \
+    target/x86_64-unknown-linux-musl/release/soma-guest-agent \
+    /srv/soma/fs-tools/erofs \
+    /srv/soma/fs-tools/e2fsprogs \
+    /srv/soma/prepared/minimal
+lock: sha256:...
+prepared debian:12-slim at /srv/soma/prepared/minimal
+  candidate id: ...
+  entries: ...
+```
+
+Run `scripts/build-soma.sh` and `scripts/build-fs-tools.sh` first for the kernel, the agent, and
+the tools. Launch the result by pointing the backend at the parent directory:
+
+```console
+$ SOMA_GENERATION_STORE=/srv/soma/prepared SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+    soma --backend kvm run debian:12-slim -- /bin/sh -c 'echo hello from soma'
+```
+
+Two of the document's answers really are resolved here rather than assumed. The image digest
+comes from the OCI layout on disk, so the Lock binds the bytes the build is about to compile.
+The `command.program` check reads the normalized rootfs the compiler built, following symbolic
+links the way the guest will, so `program = "/bin/sh"` is confirmed against Debian's real
+`/bin -> usr/bin` layout and a program the image lacks is rejected before anything is built.
+
+### What the Generation does not carry
+
+A Lock binds more than a Generation has room for, and the difference is dropped loudly rather
+than quietly. The compiler binds the image, the Machine shape, the readiness behavior, the
+lifetime, and the profile version; these locked fields reach nothing:
+
+| Locked field | Why it stops here |
+| --- | --- |
+| `command` | The Generation has no command field. The workload command arrives at Launch; the locked program is used to check the base image and nothing more. |
+| `modules` | Staging module content into the root is ticket T7. A document with modules compiles to the same Generation as one without, so use modules for what they validate, not for what they install. |
+| `environment`, `secrets` | Launch-time delivery. Neither the Candidate nor the Generation manifest has a slot for them. |
+| `lifecycle.idle_timeout_seconds`, `lifecycle.on_idle` | Only `maximum_lifetime_seconds` projects, as the Generation's time to live. The idle policy belongs to the Backend. |
+| `network` with `egress = "allowlist"` or unrestricted ingress | The portable network policy has no destination-filtered egress class, so the projection fails closed rather than widening or narrowing the envelope. |
+
+Two document shapes are therefore refused by this path today even though they are valid
+Templates. `templates/coding-agent.toml` is both of them: it asks for two vCPUs, and compiler
+profile v1 admits exactly one, and it asks for allowlist egress, which has no portable policy
+yet. Compile it and the failure names the field.
 
 ## Every field
 
