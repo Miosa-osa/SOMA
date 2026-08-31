@@ -15,4 +15,4 @@ benchmarks/results/
 /fuzz/corpus/
 
 # Built guest-kernel artifacts, sources, and build trees (see kernel/README.md)
-kernel/out/
+kernel/out
