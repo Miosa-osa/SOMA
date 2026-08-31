@@ -10,13 +10,13 @@ evidence of what that costs and what it saves.
 The saving is the private head clone. `admitted` to `machine_launched` is the segment where a
 launch opens the prepared artifacts and gives the Instance its own copy-on-write disk head. A
 Generation that declared no writable storage has no head to clone, and the segment collapses from
-a median of 5.79 ms to 0.36 ms at concurrency 1, and from 94.67 ms to 0.23 ms at concurrency 100.
+a median of 6.03 ms to 0.36 ms at concurrency 1, and from 62.46 ms to 0.22 ms at concurrency 100.
 
 ## Run identity
 
 | | |
 | --- | --- |
-| Commit | `2423b9493f25b4b8a6fcdf8afaae48fe21b61ba5` |
+| Commit | `cd83aa4` on `worktree-agent-ab32e90e5be11b008` |
 | Host | eval-1, Linux 6.8.0-138-generic, 80 threads, Intel Xeon Gold 6138 @ 2.00 GHz |
 | Head directory | `/srv/soma/heads`, XFS with reflink, so the writable arm takes the fast clone path |
 | Build | release |
@@ -74,19 +74,22 @@ last sandbox exits.
 
 | Configuration | Concurrency | min | p50 | p95 | max |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| writable | 1 | 3.10 | 5.79 | 21.68 | 22.15 |
-| read-only | 1 | 0.35 | **0.36** | 0.39 | 0.39 |
-| writable | 100 | 84.27 | 94.67 | 100.10 | 103.07 |
-| read-only | 100 | 0.15 | **0.23** | 0.27 | 0.42 |
+| writable | 1 | 1.89 | 6.03 | 7.32 | 39.49 |
+| read-only | 1 | 0.35 | **0.36** | 0.38 | 0.38 |
+| writable | 100 | 44.09 | 62.46 | 67.04 | 68.38 |
+| read-only | 100 | 0.15 | **0.22** | 0.92 | 1.11 |
 
 Every one of the 260 sandboxes reached its command and produced the expected output.
 
-Two things are worth separating. The median saving at concurrency 1 is about 5.4 ms, which is
-real but small next to a 33 ms time to first command. The saving at concurrency 100 is 94 ms,
-which is most of the difference between the two totals, and it is also where the variance was:
-the writable segment spread from 84 to 103 ms under contention, and the read-only segment stayed
-inside 0.15 to 0.42 ms. Removing the clone removes the spread as well as the cost, because there
-is no longer a filesystem operation on the request path to contend for.
+Two things are worth separating. The median saving at concurrency 1 is about 5.7 ms, which is
+real but small next to a 34 ms time to first command. The saving at concurrency 100 is 62 ms,
+which is most of the difference between the two totals, and it is also where the variance was.
+The writable segment is the unstable one in both directions: within this cohort it spread from
+44 to 68 ms, its single worst sequential sample was 39.49 ms against a 6.03 ms median, and an
+earlier cohort of the same 100 sandboxes on the same host put its median at 94.67 ms rather than
+62.46 ms. The read-only segment stayed inside 0.15 to 1.11 ms across every run. Removing the
+clone removes the spread as well as the cost, because there is no longer a filesystem operation
+on the request path to contend for.
 
 ## What that does to the whole launch
 
@@ -94,15 +97,15 @@ Time to first command, in milliseconds:
 
 | Configuration | Concurrency | p50 | p95 |
 | --- | ---: | ---: | ---: |
-| writable | 1 | 32.78 | 49.18 |
-| read-only | 1 | 26.19 | 28.75 |
-| writable | 100 | 139.6 | 151.7 |
-| read-only | 100 | **30.8** | 43.3 |
+| writable | 1 | 33.63 | 36.39 |
+| read-only | 1 | 26.53 | 30.51 |
+| writable | 100 | 107.6 | 123.8 |
+| read-only | 100 | **28.8** | 45.1 |
 
 At concurrency 100 a read-only sandbox reaches its first command in less time than a writable one
 takes to acquire its disk. The rest of the launch is almost unchanged: `machine_launched` to
 `ready`, which is the restore, the authenticated session, and the guest's own repair, runs
-25.49 ms at the writable median and 24.26 ms at the read-only one. The guest saves about a
+26.54 ms at the writable median and 24.36 ms at the read-only one. The guest saves about a
 millisecond by skipping the ext4 superblock verification, the upper mount, the work directory,
 and the `OverlayFS` composition, which is roughly what those cost and no more. The launch-path
 saving is the clone, not the boot.
