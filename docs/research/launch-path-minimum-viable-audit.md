@@ -254,6 +254,32 @@ and would have to be kept or consciously dropped. And the whole step must stay e
 an Instance the broker leased a bundle to, where every one of those values is real and
 per-Instance. What is unjustified is paying it on the path where none of them are.
 
+#### Correction, 2026-08-31: a third caveat, and why this row is not a small edit
+
+Reading the step against the code before cutting it turned up a caveat this row missed. Among the
+steps it lists is `set_flags(LOOPBACK, loopback | up)`: the same function that installs the
+unroutable egress values also raises **loopback**. A fresh Linux guest creates `lo` but leaves it
+administratively down, so skipping `network_repair::repair` wholesale on a declined egress would
+hand the workload a sandbox where nothing can bind or reach `127.0.0.1`. That is not a latency
+trade, it is a broken sandbox for a large class of ordinary programs, and it would have been the
+direct result of taking this row at face value.
+
+So the removable part is narrower than the row states. The cut that is actually available is
+loopback-only repair: raise `lo`, and skip the MAC, address, netmask, default route, `resolv.conf`
+and `hosts` work. That is most of the ten operations but not all of them, and the 2.65 ms figure
+above is therefore an **upper bound on the saving, not the saving**. What loopback alone costs has
+not been measured and is not claimed here.
+
+There is also a blocker in the way, which is why this is not a quick edit. `LaunchNetwork`
+(`crates/soma-guest/src/launch_page/network.rs:48`) has no representation for "no egress": every
+field is mandatory and `LaunchNetwork::new` validates each one, rejecting the zero and unspecified
+values that would be the natural way to say "none". Making the guest able to tell a declined egress
+from a granted one means changing the launch page's wire form, which is the same contract ADR 0039
+just changed by removing the readiness probe. Doing both at once, without a machine to measure the
+result on, would risk the correctness of a shipped contract to chase a saving whose size is
+unknown. Deferred deliberately, with the design question recorded: the launch page needs an
+egress-declined representation before this row can be acted on.
+
 ### The readiness probe sweeps a group that is provably empty, 0.99 ms
 
 After the fixed self probe exits, `executor.rs:130` kills the process group, reaps the group, reaps
@@ -375,7 +401,8 @@ point already refuses.
 
 1. Instrument the first `KVM_RUN` on a restored vCPU. Worth up to 7.2 ms, which is 30 percent of
    the arming to ready block, and currently invisible to both halves of the instrumentation.
-2. Skip network repair when the Instance was given no egress. Worth 2.65 ms, 11 percent of the
+2. Skip the *egress* half of network repair when the Instance was given no egress, keeping
+   loopback. Worth at most 2.65 ms, 11 percent of the
    same block, with the `/etc/hosts` write to decide about separately.
 3. Give the entropy and CID polls the same first interval and backoff the executor's wait already
    has. Worth about 2 ms on the launches that hit the tail.

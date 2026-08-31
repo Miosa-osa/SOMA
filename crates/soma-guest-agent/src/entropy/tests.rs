@@ -5,8 +5,8 @@ use std::io::{self, Read};
 use std::time::{Duration, Instant};
 
 use super::{
-    CONTRIBUTION_BYTES, CREDITED_BITS, EntropyError, Pool, UNCREDITED_BITS, credit, kernel,
-    read_hardware,
+    CONTRIBUTION_BYTES, CREDITED_BITS, EntropyError, FIRST_POLL, POLL, Pool, UNCREDITED_BITS,
+    credit, kernel, polls, read_hardware,
 };
 
 /// Every contribution the policy handed to the kernel, in order.
@@ -232,4 +232,20 @@ fn getrandom_is_nonblocking_once_the_repair_sequence_has_completed() {
         Ok(())
     );
     assert_eq!(kernel::verify_nonblocking(), Ok(()));
+}
+
+#[test]
+fn first_poll_is_the_shortest_and_the_sequence_saturates_at_the_ceiling() {
+    assert!(FIRST_POLL < POLL);
+    let taken: Vec<_> = polls().take(64).collect();
+    assert_eq!(taken.first(), Some(&FIRST_POLL));
+    assert!(
+        taken.windows(2).all(|pair| pair[0] <= pair[1]),
+        "the sequence must never wait less than it already did"
+    );
+    assert_eq!(
+        taken.last(),
+        Some(&POLL),
+        "a device that stays empty must settle on the ceiling rather than grow past it"
+    );
 }

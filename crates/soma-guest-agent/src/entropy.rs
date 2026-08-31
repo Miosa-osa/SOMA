@@ -19,6 +19,7 @@
 //! made by Snow's operating-system resolver.
 
 use std::io::{self, Read};
+use std::iter;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -37,6 +38,13 @@ pub(crate) const CONTRIBUTION_BYTES: usize = 64;
 const CREDITED_BITS: libc::c_int = 512;
 /// Bits credited for the launch seed, which is mixed but never counted.
 const UNCREDITED_BITS: libc::c_int = 0;
+/// First wait after the hardware device reports it has nothing yet.
+///
+/// The virtio entropy device answers a request within microseconds once the Host queues it, so
+/// the first wait must not cost more than that; the flat ceiling below would otherwise be paid
+/// in full on the common path where the device is merely a moment behind the first read.
+const FIRST_POLL: Duration = Duration::from_micros(50);
+/// Longest wait between reads, for a device that stays empty.
 const POLL: Duration = Duration::from_millis(2);
 
 /// Redacted entropy-repair failure.
@@ -90,6 +98,16 @@ fn credit(
     pool.reseed()
 }
 
+/// The waits between reads of the hardware device, in the order the loop takes them.
+///
+/// The sequence starts at [`FIRST_POLL`], doubles, and saturates at [`POLL`]; it is endless, so
+/// the caller's deadline is what ends the wait.
+fn polls() -> impl Iterator<Item = Duration> {
+    iter::successors(Some(FIRST_POLL), |poll| {
+        Some(poll.saturating_mul(2).min(POLL))
+    })
+}
+
 /// Fills one complete contribution from the nonblocking hardware device before the deadline.
 fn read_hardware(
     device: &mut impl Read,
@@ -97,6 +115,7 @@ fn read_hardware(
 ) -> Result<Zeroizing<[u8; CONTRIBUTION_BYTES]>, EntropyError> {
     let mut bytes = Zeroizing::new([0_u8; CONTRIBUTION_BYTES]);
     let mut filled = 0;
+    let mut polls = polls();
     while filled < CONTRIBUTION_BYTES {
         match device.read(&mut bytes[filled..]) {
             Ok(0) => return Err(EntropyError::HardwareUnavailable(libc::ENODATA)),
@@ -105,7 +124,7 @@ fn read_hardware(
                 if Instant::now() >= deadline {
                     return Err(EntropyError::HardwareUnavailable(libc::ETIMEDOUT));
                 }
-                thread::sleep(POLL);
+                thread::sleep(polls.next().unwrap_or(POLL));
             }
             Err(error) => {
                 return Err(EntropyError::HardwareUnavailable(kernel::errno_of(&error)));
