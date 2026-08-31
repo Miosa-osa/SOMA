@@ -51,6 +51,15 @@ impl MacBackend {
     ) -> BackendFailure {
         BackendFailure::new(kind, self.clocks.elapsed_ns(operation))
     }
+
+    /// Refuses an operation this backend has no machine to perform against.
+    ///
+    /// This backend's machines do not outlive the process that launched them, so there is no
+    /// later call that could address one. Answering a filesystem request here would have to
+    /// invent a machine, so it refuses instead.
+    pub(super) fn unsupported(&mut self, operation: &OperationId) -> BackendFailure {
+        self.failure(operation, BackendFailureKind::Unsupported)
+    }
 }
 
 pub(super) fn create_failure_proved_cleanup(error: &BackendError) -> bool {

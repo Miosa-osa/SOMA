@@ -7,8 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 use soma::{
-    BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, InstanceId, MachineShape,
-    MachineState, OperationId, PreparationClass,
+    BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, FileAnswer,
+    FileOperation, InstanceId, MachineShape, MachineState, OperationId, PreparationClass,
 };
 
 /// The largest line either side will read, so neither can spend the other's memory.
@@ -58,6 +58,16 @@ pub(super) enum Call {
         timeout_ms: u32,
         max_output_bytes: u64,
     },
+    /// Perform one bounded filesystem operation inside the machine this host holds.
+    ///
+    /// The portable operation crosses as itself rather than as a guest protocol body, because
+    /// the host rebuilds the guest request from it with exactly the mapping the resident path
+    /// uses. Relaying a pre-built body would let a client choose a request the mapping would not
+    /// have produced, including one naming a path this side never meant to allow.
+    File {
+        instance_id: InstanceId,
+        operation: FileOperation,
+    },
     Inspect {
         instance_id: InstanceId,
     },
@@ -78,6 +88,9 @@ pub(super) enum Answer {
         status: CommandStatus,
         stdout: Vec<u8>,
         stderr: Vec<u8>,
+    },
+    FileAnswered {
+        answer: FileAnswer,
     },
     Inspected {
         state: MachineState,

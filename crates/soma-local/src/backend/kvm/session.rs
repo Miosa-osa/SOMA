@@ -27,6 +27,11 @@ pub(super) const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 pub(super) const BOOT_DEADLINE: Duration = Duration::from_secs(60);
 /// How long the guest has to leave `KVM_RUN` after it acknowledges shutdown.
 pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
+/// How long one whole filesystem operation has to answer.
+///
+/// A whole-file transfer is several bounded records rather than one, so the ceiling covers the
+/// loop and not a single exchange; the guest protocol bounds each record inside it.
+pub(super) const FILE_CEILING: Duration = Duration::from_secs(120);
 
 /// What the lifecycle asks a live sandbox to do.
 pub(super) enum Request {
@@ -39,6 +44,8 @@ pub(super) enum Request {
     RaiseLink,
     /// Run one bounded command over the authenticated session.
     Execute(GuestCommand),
+    /// Perform one bounded filesystem operation over the authenticated session.
+    File(soma::FileOperation),
     /// Ask the guest to shut down, then finish the machine and report its evidence.
     Shutdown,
 }
@@ -58,6 +65,8 @@ pub(super) enum Response {
     Ready,
     /// One command completed with its typed terminal status.
     Executed(Box<Completed>),
+    /// One filesystem operation was performed and the guest answered it.
+    FileAnswered(Box<soma::FileAnswer>),
     /// The machine stopped and released everything it owned.
     Finished(Box<SandboxEvidence>),
     /// The session failed and the thread is ending.
@@ -91,6 +100,8 @@ pub(super) enum SessionError {
     Secret,
     /// A command could not be run over the session.
     Execute,
+    /// A filesystem operation could not be performed over the session.
+    File,
     /// The sandbox thread ended without answering.
     Gone,
     /// An earlier operation ended without a certain answer, so this session was ended.
@@ -112,6 +123,10 @@ pub(super) struct Session {
 
 #[path = "session/assign.rs"]
 mod assign;
+
+/// The two bounded operations a live session answers.
+#[path = "session/operations.rs"]
+mod operations;
 
 /// Everything one sandbox needs before it can boot.
 #[path = "session/source.rs"]
@@ -200,27 +215,6 @@ impl Session {
     ) -> Result<Self, SessionError> {
         self.raise_the_link(receipt, activate)?;
         Ok(self)
-    }
-
-    /// Runs one bounded command and returns its typed result.
-    pub(super) fn execute(
-        &mut self,
-        command: GuestCommand,
-        deadline: Duration,
-    ) -> Result<Completed, SessionError> {
-        if self.poisoned {
-            return Err(SessionError::Poisoned);
-        }
-        self.requests
-            .send(Request::Execute(command))
-            .map_err(|_| self.poison(SessionError::Gone))?;
-        match self.await_response(deadline) {
-            Ok(Response::Executed(completed)) => Ok(*completed),
-            // Every other outcome leaves the answer uncertain, so the session ends carrying the
-            // reason: a reported failure, an unexpected reply, or no reply at all.
-            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
-            Ok(_) => Err(self.poison(SessionError::Execute)),
-        }
     }
 
     /// Whether this session may still be used.

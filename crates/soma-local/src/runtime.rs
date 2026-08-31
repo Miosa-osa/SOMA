@@ -1,7 +1,8 @@
 use soma::{
     Backend as _, BackendKind, DestroyMachineRequest, Engine, ExecuteMachineRequest,
-    LaunchMachineRequest, MachineDestroy, MachineExecution, MachineInspection, MachineLaunch,
-    MachineStop, ManagedFailure, RunFailure, RunOutcome, RunRequest, StopMachineRequest,
+    FileMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
+    MachineInspection, MachineLaunch, MachineStop, ManagedFailure, RunFailure, RunOutcome,
+    RunRequest, StopMachineRequest,
 };
 
 use crate::{
@@ -79,6 +80,18 @@ impl LocalRuntime {
         request: ExecuteMachineRequest,
     ) -> Result<MachineExecution, ManagedFailure> {
         self.engine.execute_machine(request)
+    }
+
+    /// Performs one bounded filesystem operation in a durably managed Machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    pub fn file_machine(
+        &mut self,
+        request: FileMachineRequest,
+    ) -> Result<MachineFile, ManagedFailure> {
+        self.engine.file_machine(request)
     }
 
     /// Inspects one durably managed Machine.

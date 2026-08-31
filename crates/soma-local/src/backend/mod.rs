@@ -9,8 +9,8 @@ use std::{any::Any, path::PathBuf};
 
 use soma::{
     Backend, BackendFailure, BackendKind, CleanupObservation, CleanupRequest, CommandObservation,
-    ExecutionRequest, InspectionObservation, InspectionRequest, LaunchObservation, LaunchRequest,
-    ResolutionObservation, ResolutionRequest,
+    ExecutionRequest, FileObservation, FileRequest, InspectionObservation, InspectionRequest,
+    LaunchObservation, LaunchRequest, ResolutionObservation, ResolutionRequest,
 };
 
 use crate::{LocalFailure, LocalFailureKind};
@@ -178,6 +178,18 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.execute(request),
+        }
+    }
+
+    fn file(&mut self, request: FileRequest<'_>) -> Result<FileObservation, BackendFailure> {
+        match self {
+            // Neither of these holds a machine a later process can address, so a filesystem call
+            // has nothing to reach and says so rather than answering about a machine that is gone.
+            Self::Docker(_) => Err(docker::DockerBackend::unsupported(request.operation_id())),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => Err(backend.unsupported(request.operation_id())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.file(request),
         }
     }
 

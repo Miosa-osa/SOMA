@@ -176,7 +176,7 @@ impl KvmBackend {
     }
 
     /// Where hosted machines are addressed, or nothing when this process holds its own.
-    fn hosted_directory(&self) -> Option<PathBuf> {
+    pub(super) fn hosted_directory(&self) -> Option<PathBuf> {
         match &self.role {
             Role::Resident => None,
             Role::Hosted(directory) => Some(directory.clone()),
@@ -184,7 +184,11 @@ impl KvmBackend {
     }
 
     /// The failure kind for an operation that never reached a host.
-    fn host_kind(&self, failure: HostFailure, instance: &InstanceId) -> BackendFailureKind {
+    pub(super) fn host_kind(
+        &self,
+        failure: HostFailure,
+        instance: &InstanceId,
+    ) -> BackendFailureKind {
         match failure {
             HostFailure::Absent => self.absent_kind(instance),
             HostFailure::Refused(kind) => kind,

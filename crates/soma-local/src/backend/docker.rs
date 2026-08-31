@@ -34,6 +34,11 @@ impl DockerBackend {
     pub(super) const fn kind() -> BackendKind {
         BackendKind::DockerContainer
     }
+
+    /// Refuses an operation this backend has no machine to perform against.
+    pub(super) fn unsupported(operation: &soma::OperationId) -> BackendFailure {
+        failure(operation, BackendFailureKind::Unsupported)
+    }
 }
 
 fn failure(operation: &soma::OperationId, kind: BackendFailureKind) -> BackendFailure {
