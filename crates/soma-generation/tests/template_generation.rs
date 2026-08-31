@@ -111,10 +111,25 @@ fn the_minimal_template_becomes_the_candidate_inputs_the_compiler_binds() {
     );
     assert_eq!(revision.image().reference().as_str(), "debian:12-slim");
     assert_eq!(revision.image().platform(), &OciPlatform::linux_amd64());
-    assert_eq!(revision.shape().vcpu_count(), 1);
-    assert_eq!(revision.shape().memory_mib(), 1024);
-    assert_eq!(revision.shape().storage_mib(), 2048);
-    assert_eq!(revision.lifetime().ttl_seconds(), 900);
+    // The minimal document states no shape at all, so what reaches the compiler must be the
+    // same default the command line uses. Asserting against the constants rather than against
+    // literals is what makes a drift between the two fail here instead of in a sandbox.
+    assert_eq!(
+        revision.shape().vcpu_count(),
+        soma::MachineShape::DEFAULT_VCPU_COUNT
+    );
+    assert_eq!(
+        revision.shape().memory_mib(),
+        soma::MachineShape::DEFAULT_MEMORY_MIB
+    );
+    assert_eq!(
+        revision.shape().storage_mib(),
+        soma::MachineShape::DEFAULT_STORAGE_MIB
+    );
+    assert_eq!(
+        revision.lifetime().ttl_seconds(),
+        soma_template::DEFAULT_MAXIMUM_LIFETIME_SECONDS
+    );
     assert_eq!(revision.profile_version(), 1);
     assert_eq!(revision.network_policy(), &soma::NetworkPolicy::isolated());
 }
