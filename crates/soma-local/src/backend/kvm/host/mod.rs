@@ -17,6 +17,9 @@ pub(super) mod channel;
 mod serve;
 mod wire;
 
+#[cfg(test)]
+mod tests;
+
 use std::{
     io::BufReader,
     os::unix::net::UnixStream,
