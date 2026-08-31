@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soma-sdk"
+version = "0.1.0"
+description = "Python SDK for the SOMA sandbox engine, driving the soma command line"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+# No dependencies, deliberately. The SDK talks to one local binary over a
+# documented JSON envelope, which the standard library covers completely.
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Miosa-osa/SOMA"
+
+[tool.setuptools]
+# Explicit, so the test package is never shipped as part of the distribution.
+packages = ["soma"]
