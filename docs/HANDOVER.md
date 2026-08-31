@@ -48,19 +48,17 @@ Each row links the evidence that proves it. Nothing here is production-admitted.
 
 Both were running when this was written. Check whether their branches merged before starting either.
 
-1. **Jail the durable machine host** - branch `feat/jail-machine-host`. The host currently runs as
-   an ordinary unjailed child process holding a live KVM machine, while everything else in the
-   system runs confined. The blocker is known: a jailed process has no usable filesystem
-   namespace, so the KVM lifecycle needs directory descriptors and `openat` throughout instead of
-   paths.
-2. **Guest filesystem through the facade** - branch `feat/guest-filesystem`. See gap 2 below for
-   what it is closing.
+1. **Guest filesystem through the facade** - branch `feat/guest-filesystem`. See gap 2 below for
+   what it is closing. Still running when this was written.
 
 ---
 
 ## What is left
 
 Ranked. Each says what it is, why it matters, where the code is, and what would prove it done.
+
+Gap 5 is a security gap and gap 1 is a competitiveness gap. Which comes first is a judgement call
+that has not been made.
 
 ### 1. The durable path is slow
 
@@ -114,14 +112,39 @@ an idle host is not identified. The probe alone spreads 1.98x over 150 cohorts w
 launcher spreads 9.88x, and the difference is the 100 machines each restoring a 1 GiB snapshot.
 Stated as a hypothesis in the record, not a finding.
 
-### 5. macOS hands back an identity that cannot be used
+### 5. The machine host cannot be jailed as it is, because it is a server
+
+Investigated and **not built**, deliberately. The result is a measured negative that changes the
+shape of the work rather than just deferring it.
+[Evidence](evidence/2026-08-31-jailing-the-machine-host.md).
+
+The blocker the previous record predicted - needing `openat` throughout - is not the real one.
+`socket`, `bind`, `listen` and `accept4` are in `soma_jail::NEVER_ALLOWED`, and the test on the
+compiled BPF proves `KILL_PROCESS` for each in **both** jail phases. **A jailed process cannot be a
+server.** That is deliberate, not an oversight. A full `strace -ff` of the host across a lifecycle,
+classified against the real tables, found 15 syscalls killed always and 11 more admitted only in
+the startup phase. Notably `readlink`: the overlay head recovers its path through
+`/proc/self/fd/<n>` (`boot.rs:221`), and the jail refuses service unless procfs is invisible.
+
+The constructive half is the useful part. **All 27 KVM ioctls the machine issues are already on the
+jail's allowlist**; the only two missing belong to head creation. The jail was designed correctly
+for the machine and refuses only the hosting. So the shape that fits is a **split, not a move**: an
+unjailed broker keeps the socket and the filesystem and hands a sealed descriptor table to a jailed
+machine, which speaks over the pre-connected `Control` descriptor `soma-vmm` already declares.
+
+That port was not started because it is a real multi-session change: `soma-vmm`'s `Platform` is
+`UnavailablePlatform`, a stub that restores nothing, and reaching it means roughly 115 path
+operations across five crates becoming descriptor operations. Until it is done, the host holding a
+live KVM machine runs unconfined, and that is the largest security gap in the system.
+
+### 6. macOS hands back an identity that cannot be used
 
 `machine_hosting(BackendKind::MacosVirtualization)` is `LaunchingProcess`
 (`crates/soma-local/src/backend/mod.rs`). It is now the only backend that does. The CLI and the
 HTTP API both refuse a launch there rather than lying about it, which is correct but is a refusal,
 not a capability. Closing it means the same host-process work done for KVM.
 
-### 6. EPT violations are the largest remaining cost in `ready`
+### 7. EPT violations are the largest remaining cost in `ready`
 
 About 16.8 ms of in-kernel exit handling, proportional to the number of distinct guest pages the
 resume touches **and to nothing else**. Pre-faulting the whole image moves nothing and costs 57 ms;
@@ -129,7 +152,7 @@ huge pages are worse because a `MAP_PRIVATE` mapping cannot hold a huge EPT entr
 and measured. The only lever is touching fewer guest pages on resume, which is snapshot and
 kernel-state work that has not been attempted.
 
-### 7. Loopback-only network repair on a declined egress
+### 8. Loopback-only network repair on a declined egress
 
 Worth **at most** 2.65 ms and probably less. `network_repair::repair` installs unroutable egress
 values on a sandbox that was given no network, but the same function also raises loopback, which a
@@ -138,14 +161,14 @@ on a design decision: `LaunchNetwork` (`crates/soma-guest/src/launch_page/networ
 representation for "no egress", so this is a launch-page wire change. Low priority, recorded so
 nobody re-derives it.
 
-### 8. Eight files sit at exactly 300 lines
+### 9. Eight files sit at exactly 300 lines
 
 The architecture limit is being treated as a target rather than a ceiling, so the next honest error
 message in any of them breaks the build and the cheapest fix is always deleting an explanation.
 `scripts/reproduce.sh` was split today along a real seam as the pattern to follow. The rule: split,
 or ask for an exemption - never delete the reason something exists.
 
-### 9. Then re-measure against Isorun, honestly
+### 10. Then re-measure against Isorun, honestly
 
 Only once gap 1 is closed. The comparable figure is the durable path measured create-then-command-
 by-identity, matching their flow. It will be worse than the one-shot numbers in this repository,
