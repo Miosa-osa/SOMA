@@ -1,0 +1,14 @@
+rseq(0x7238871fafe0, 0x20, 0, 0x53053053) = 0
+set_robust_list(0x7238871fa9a0, 24)     = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+prctl(PR_SET_NAME, "soma-machine-id"...) = 0
+mmap(NULL, 134217728, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x7237e8000000
+munmap(0x7237ec000000, 67108864)        = 0
+mprotect(0x7237e8000000, 135168, PROT_READ|PROT_WRITE) = 0
+sched_getaffinity(979252, 32, [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79]) = 16
+gettid()                                = 979252
+sigaltstack(NULL, {ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=0}) = 0
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x723887f6f000
+mprotect(0x723887f6f000, 4096, PROT_NONE) = 0
+sigaltstack({ss_sp=0x723887f70000, ss_flags=0, ss_size=8192}, NULL) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=15, tv_nsec=0},  <unfinished ...>) = ?

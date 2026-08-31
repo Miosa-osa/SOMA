@@ -1,0 +1,272 @@
+rseq(0x7238877fdfe0, 0x20, 0, 0x53053053) = 0
+set_robust_list(0x7238877fd9a0, 24)     = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+prctl(PR_SET_NAME, "soma-kvm-sandbo"...) = 0
+mmap(0x72387c000000, 67108864, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0) = 0x72387c000000
+mprotect(0x72387c000000, 135168, PROT_READ|PROT_WRITE) = 0
+sched_getaffinity(979245, 32, [0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79]) = 16
+gettid()                                = 979245
+sigaltstack(NULL, {ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=0}) = 0
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x723887f81000
+mprotect(0x723887f81000, 4096, PROT_NONE) = 0
+sigaltstack({ss_sp=0x723887f82000, ss_flags=0, ss_size=8192}, NULL) = 0
+getrandom("", 0, 0)                     = 0
+getrandom("\x9a\x68\xe9\xaa\x9f\x5f\x13\x0c\x95\x74\x81\x53\x15\x60\xc0\x0f\x2f\x06\xb3\xae\x11\xb0\x69\x54\xbf\x13\x83\xcc\x58\x34\x68\x31"..., 160, 0) = 160
+statx(11, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0600, stx_size=2147483648, ...}) = 0
+openat(AT_FDCWD, "/dev/kvm", O_RDWR|O_CLOEXEC) = 4
+openat(AT_FDCWD, "/srv/soma/dm-store/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25/snapshot/state.somasnap", O_RDONLY|O_CLOEXEC) = 6
+statx(6, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=9086, ...}) = 0
+read(6, "SOMASNP\0\0\2\0\1\0\0\20\0\16\306\3y\254]\250a\\\3240\240\266\255\217\205"..., 9086) = 9086
+read(6, "", 32)                         = 0
+close(6)                                = 0
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE2) = 4096
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_USER_MEMORY) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_IRQCHIP) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_IRQFD) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_IOEVENTFD) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_IMMEDIATE_EXIT) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_XCRS) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_VCPU_EVENTS) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_MP_STATE) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_ADJUST_CLOCK) = 14
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_SET_TSS_ADDR) = 1
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_PIT2) = 1
+ioctl(4, KVM_GET_SUPPORTED_CPUID, {nent=46, entries=[...]}) = 0
+ioctl(4, KVM_GET_API_VERSION, 0)        = 12
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_NR_MEMSLOTS) = 32764
+ioctl(4, KVM_CREATE_VM, 0)              = 13
+ioctl(4, KVM_GET_VCPU_MMAP_SIZE, 0)     = 12288
+openat(AT_FDCWD, "/srv/soma/dm-store/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25/snapshot/memory.raw", O_RDONLY|O_CLOEXEC) = 20
+statx(20, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=1073741824, ...}) = 0
+mmap(NULL, 1073741824, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_NORESERVE, 20, 0) = 0x7237f8000000
+close(20)                               = 0
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0) = 0x723887f7c000
+ioctl(13, KVM_SET_USER_MEMORY_REGION, {slot=1, flags=0, guest_phys_addr=0xd0100000, memory_size=4096, userspace_addr=0x723887f7c000}) = 0
+ioctl(13, KVM_SET_USER_MEMORY_REGION, {slot=0, flags=0, guest_phys_addr=0, memory_size=1073741824, userspace_addr=0x7237f8000000}) = 0
+ioctl(13, KVM_SET_TSS_ADDR, 0xfffbd000) = 0
+ioctl(13, KVM_CREATE_IRQCHIP, 0)        = 0
+ioctl(13, KVM_CREATE_PIT2, 0x7238877f8d30) = 0
+statx(8, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0444, stx_size=1511424, ...}) = 0
+openat(AT_FDCWD, "/dev/urandom", O_RDONLY|O_CLOEXEC) = 25
+ioctl(13, KVM_CREATE_VCPU, 0)           = 26
+mmap(NULL, 12288, PROT_READ|PROT_WRITE, MAP_SHARED, 26, 0) = 0x723887f78000
+ioctl(26, KVM_SET_CPUID2, {nent=46, entries=[...]}) = 0
+ioctl(26, KVM_SET_MSRS, 0x72387c007dc0) = 22
+ioctl(26, KVM_SET_SREGS, {cs={base=0, limit=4294967295, selector=16, type=11, present=1, dpl=0, db=0, s=1, l=1, g=1, avl=0}, ...}) = 0
+ioctl(26, KVM_SET_REGS, {rax=0xfc8a, ..., rsp=0xffffc90000003fa8, rbp=0xffff8880024614a4, ..., rip=0xffffffff81020ed5, rflags=0x46}) = 0
+ioctl(26, KVM_SET_FPU, 0x7238877f7bd0)  = 0
+ioctl(26, KVM_SET_XCRS, 0x7238877f8bd0) = 0
+ioctl(4, KVM_CHECK_EXTENSION, KVM_CAP_XSAVE2) = 4096
+ioctl(26, KVM_SET_XSAVE, 0x7238877f7bd0) = 0
+ioctl(26, KVM_SET_LAPIC, 0x7238877f7bd0) = 0
+ioctl(26, KVM_SET_MP_STATE, 0x7238877f7b9c) = 0
+ioctl(26, KVM_SET_VCPU_EVENTS, 0x7238877f7bd0) = 0
+eventfd2(0, EFD_NONBLOCK)               = 27
+ioctl(13, KVM_IRQFD, 0x7238877f8d60)    = 0
+eventfd2(0, EFD_NONBLOCK)               = 28
+eventfd2(0, EFD_NONBLOCK)               = 29
+eventfd2(0, EFD_NONBLOCK)               = 30
+eventfd2(0, EFD_NONBLOCK)               = 31
+ioctl(13, KVM_IRQFD, 0x7238877f8ce0)    = 0
+ioctl(13, KVM_IRQFD, 0x7238877f8ce0)    = 0
+ioctl(13, KVM_IRQFD, 0x7238877f8ce0)    = 0
+ioctl(13, KVM_IRQFD, 0x7238877f8ce0)    = 0
+eventfd2(0, EFD_NONBLOCK)               = 32
+ioctl(13, KVM_IOEVENTFD, 0x7238877f8c18) = 0
+eventfd2(0, EFD_NONBLOCK)               = 33
+ioctl(13, KVM_IOEVENTFD, 0x7238877f8c18) = 0
+eventfd2(0, EFD_NONBLOCK)               = 34
+ioctl(13, KVM_IOEVENTFD, 0x7238877f8c18) = 0
+eventfd2(0, EFD_NONBLOCK)               = 35
+ioctl(13, KVM_IOEVENTFD, 0x7238877f8c18) = 0
+eventfd2(0, EFD_NONBLOCK)               = 36
+ioctl(13, KVM_IOEVENTFD, 0x7238877f8c18) = 0
+eventfd2(0, EFD_NONBLOCK)               = 37
+ioctl(13, KVM_IOEVENTFD, 0x7238877f8c18) = 0
+ioctl(13, KVM_SET_IRQCHIP, 0x7238877f8b68) = 0
+ioctl(13, KVM_SET_IRQCHIP, 0x7238877f8b68) = 0
+ioctl(13, KVM_SET_IRQCHIP, 0x7238877f8b68) = 0
+ioctl(13, KVM_SET_PIT2, 0x7238877f8cf8) = 0
+ioctl(13, KVM_SET_CLOCK, 0x7238877f8fc0) = 0
+eventfd2(0, EFD_NONBLOCK)               = 38
+statx(11, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0600, stx_size=2147483648, ...}) = 0
+openat(AT_FDCWD, "/dev/urandom", O_RDONLY|O_CLOEXEC) = 39
+read(39, "\347S\333\312Y\315m\351\316\t\277\3540\214\207x}y%\200\236\24\2753iVB\20\36\221\236g", 32) = 32
+close(39)                               = 0
+fcntl(32, F_DUPFD_CLOEXEC, 3)           = 39
+fcntl(33, F_DUPFD_CLOEXEC, 3)           = 40
+fcntl(34, F_DUPFD_CLOEXEC, 3)           = 41
+fcntl(35, F_DUPFD_CLOEXEC, 3)           = 42
+fcntl(36, F_DUPFD_CLOEXEC, 3)           = 43
+fcntl(37, F_DUPFD_CLOEXEC, 3)           = 44
+fcntl(38, F_DUPFD_CLOEXEC, 3)           = 45
+eventfd2(0, EFD_NONBLOCK)               = 46
+epoll_create1(EPOLL_CLOEXEC)            = 47
+epoll_ctl(47, EPOLL_CTL_ADD, 32, {events=EPOLLIN, data={u32=0, u64=0}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 33, {events=EPOLLIN, data={u32=1, u64=1}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 34, {events=EPOLLIN, data={u32=2, u64=2}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 35, {events=EPOLLIN, data={u32=3, u64=3}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 36, {events=EPOLLIN, data={u32=4, u64=4}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 37, {events=EPOLLIN, data={u32=5, u64=5}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 45, {events=EPOLLIN, data={u32=4294967294, u64=18446744073709551614}}) = 0
+epoll_ctl(47, EPOLL_CTL_ADD, 46, {events=EPOLLIN, data={u32=4294967295, u64=18446744073709551615}}) = 0
+mmap(NULL, 2101248, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x7238873fc000
+mprotect(0x7238873fd000, 2097152, PROT_READ|PROT_WRITE) = 0
+rt_sigprocmask(SIG_BLOCK, ~[], [], 8)   = 0
+clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7238875fc990, parent_tid=0x7238875fc990, exit_signal=0, stack=0x7238873fc000, stack_size=0x1fff00, tls=0x7238875fc6c0} => {parent_tid=[979249]}, 88) = 979249
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+rt_sigaction(SIGRT_9, {sa_handler=0x5d2004585880, sa_mask=~[RTMIN RT_1], sa_flags=SA_RESTORER|SA_SIGINFO, sa_restorer=0x723887c45330}, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=0}, 8) = 0
+mmap(NULL, 2101248, PROT_NONE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_STACK, -1, 0) = 0x7238871fb000
+mprotect(0x7238871fc000, 2097152, PROT_READ|PROT_WRITE) = 0
+rt_sigprocmask(SIG_BLOCK, ~[], [], 8)   = 0
+clone3({flags=CLONE_VM|CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|CLONE_SYSVSEM|CLONE_SETTLS|CLONE_PARENT_SETTID|CLONE_CHILD_CLEARTID, child_tid=0x7238873fb990, parent_tid=0x7238873fb990, exit_signal=0, stack=0x7238871fb000, stack_size=0x1fff00, tls=0x7238873fb6c0} => {parent_tid=[979250]}, 88) = 979250
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+futex(0x5d20148db678, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, {tv_sec=43953, tv_nsec=374993850}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+clock_nanosleep(CLOCK_MONOTONIC, 0, {tv_sec=0, tv_nsec=100000}, 0x7238877f93b8) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 3, {tv_sec=44011, tv_nsec=376251628}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 4, {tv_sec=44011, tv_nsec=376251741}, FUTEX_BITSET_MATCH_ANY) = 0
+getrandom("\x23\x1b\xa1\x48\xca\xad\xb7\x78\x6a\x1c\x1c\x43\x31\xcc\x55\xca\xed\x3e\xc7\x04\x5a\xd9\x61\x58\x52\x6c\x98\x0c\x51\xa0\xcd\x01", 32, 0) = 32
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 5, {tv_sec=43961, tv_nsec=385095142}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 7, {tv_sec=43961, tv_nsec=385095279}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 8, {tv_sec=43961, tv_nsec=385095272}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 1
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+getrandom("\x23\x7a\x2c\x43\xf0\x31\x02\xea\x7d\x63\x0e\xe0\x4b\xf2\xcd\x39", 16, GRND_INSECURE) = 16
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x72387c0081f0, FUTEX_WAIT_BITSET_PRIVATE, 2, NULL, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN (Resource temporarily unavailable)
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 11, {tv_sec=43956, tv_nsec=393265422}, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN (Resource temporarily unavailable)
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 12, {tv_sec=43956, tv_nsec=393207617}, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN (Resource temporarily unavailable)
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 13, {tv_sec=43956, tv_nsec=393207563}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 15, {tv_sec=43956, tv_nsec=393207779}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 0
+ioctl(13, KVM_SET_USER_MEMORY_REGION, {slot=1, flags=0, guest_phys_addr=0xd0100000, memory_size=0, userspace_addr=0}) = 0
+munmap(0x723887f7c000, 4096)            = 0
+futex(0x5d20148cf768, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x5d20148db678, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+openat(AT_FDCWD, "/dev/urandom", O_RDONLY|O_CLOEXEC) = 49
+read(49, "d\rb.\336\357\326%6E\215F,\214\311l", 16) = 16
+close(49)                               = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 22, {tv_sec=43984, tv_nsec=638820343}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 24, {tv_sec=43984, tv_nsec=638820301}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 25, {tv_sec=43984, tv_nsec=638820206}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 0
+futex(0x5d20148cf768, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x5d20148db678, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+openat(AT_FDCWD, "/dev/urandom", O_RDONLY|O_CLOEXEC) = 49
+read(49, "\224\242\375)\344B2\322\310>\225\206\217z\3255", 16) = 16
+close(49)                               = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 30, {tv_sec=43984, tv_nsec=714059088}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 32, {tv_sec=43984, tv_nsec=714059027}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 33, {tv_sec=43984, tv_nsec=714058986}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 1
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 35, {tv_sec=43984, tv_nsec=714059070}, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN (Resource temporarily unavailable)
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 36, {tv_sec=43984, tv_nsec=714058775}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 38, {tv_sec=43984, tv_nsec=714059001}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c0081f0, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x5d20148cf768, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x5d20148db678, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+openat(AT_FDCWD, "/dev/urandom", O_RDONLY|O_CLOEXEC) = 49
+read(49, "hC\22(<x\361\216\323vs\223\313w\360\310", 16) = 16
+close(49)                               = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 43, {tv_sec=43958, tv_nsec=791130847}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 45, {tv_sec=43958, tv_nsec=791130957}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 46, {tv_sec=43958, tv_nsec=791130710}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 47, {tv_sec=43958, tv_nsec=791131112}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 48, {tv_sec=43958, tv_nsec=791131111}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 49, {tv_sec=43958, tv_nsec=791131113}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 50, {tv_sec=43958, tv_nsec=791131261}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 51, {tv_sec=43958, tv_nsec=791130706}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 52, {tv_sec=43958, tv_nsec=791130714}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 53, {tv_sec=43958, tv_nsec=791131121}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x72387c008628, FUTEX_WAIT_BITSET_PRIVATE, 54, {tv_sec=43958, tv_nsec=791131116}, FUTEX_BITSET_MATCH_ANY) = 0
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+write(38, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x5d20148db678, FUTEX_WAIT_BITSET_PRIVATE, 4294967295, {tv_sec=43963, tv_nsec=845279490}, FUTEX_BITSET_MATCH_ANY) = 0
+futex(0x7238873fb990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 979250, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+rt_sigaction(SIGRT_9, {sa_handler=SIG_DFL, sa_mask=[], sa_flags=SA_RESTORER, sa_restorer=0x723887c45330}, NULL, 8) = 0
+write(46, "\1\0\0\0\0\0\0\0", 8)        = 8
+futex(0x7238875fc990, FUTEX_WAIT_BITSET|FUTEX_CLOCK_REALTIME, 979249, NULL, FUTEX_BITSET_MATCH_ANY) = 0
+close(46)                               = 0
+ioctl(13, KVM_IOEVENTFD, 0x7238877fa588) = 0
+close(32)                               = 0
+ioctl(13, KVM_IOEVENTFD, 0x7238877fa588) = 0
+close(33)                               = 0
+ioctl(13, KVM_IOEVENTFD, 0x7238877fa588) = 0
+close(34)                               = 0
+ioctl(13, KVM_IOEVENTFD, 0x7238877fa588) = 0
+close(35)                               = 0
+ioctl(13, KVM_IOEVENTFD, 0x7238877fa588) = 0
+close(36)                               = 0
+ioctl(13, KVM_IOEVENTFD, 0x7238877fa588) = 0
+close(37)                               = 0
+ioctl(13, KVM_IRQFD, 0x7238877fa5d0)    = 0
+ioctl(13, KVM_IRQFD, 0x7238877fa5d0)    = 0
+ioctl(13, KVM_IRQFD, 0x7238877fa5d0)    = 0
+ioctl(13, KVM_IRQFD, 0x7238877fa5d0)    = 0
+close(28)                               = 0
+close(29)                               = 0
+close(30)                               = 0
+close(31)                               = 0
+close(13)                               = 0
+close(4)                                = 0
+close(27)                               = 0
+close(8)                                = 0
+close(11)                               = 0
+close(25)                               = 0
+munmap(0x7237f8000000, 1073741824)      = 0
+close(39)                               = 0
+close(40)                               = 0
+close(41)                               = 0
+close(42)                               = 0
+close(43)                               = 0
+close(44)                               = 0
+close(38)                               = 0
+sigaltstack({ss_sp=NULL, ss_flags=SS_DISABLE, ss_size=8192}, NULL) = 0
+munmap(0x723887f81000, 12288)           = 0
+rt_sigprocmask(SIG_BLOCK, ~[RT_1], NULL, 8) = 0
+madvise(0x7238875fd000, 2076672, MADV_DONTNEED) = 0
+exit(0)                                 = ?
