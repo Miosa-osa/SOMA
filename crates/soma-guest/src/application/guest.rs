@@ -162,7 +162,7 @@ impl GuestMessage {
             }
             frame::Kind::File
             | frame::Kind::Pty
-            | frame::Kind::PrepareAndProbe
+            | frame::Kind::Prepare
             | frame::Kind::Execute
             | frame::Kind::Shutdown
             | frame::Kind::RepairComplete

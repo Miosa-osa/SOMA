@@ -20,10 +20,10 @@ fn control_io_interfaces_are_public() {
 }
 
 #[test]
-fn readiness_message_has_no_caller_supplied_command() {
+fn the_readiness_message_carries_nothing_but_its_operation() {
     let operation = OperationId::new([7; 16]).expect("operation");
-    let message = HostMessage::prepare_and_probe(operation);
-    let encoded = message.encode().expect("fixed readiness probe");
+    let message = HostMessage::prepare(operation);
+    let encoded = message.encode().expect("readiness message");
 
     assert_eq!(HostMessage::decode(&encoded), Ok(message));
 }
@@ -85,14 +85,11 @@ fn one_owner_path_repairs_executes_and_shuts_down() {
         let (guest, request) = guest.next_request(deadline()).expect("prepare request");
         assert_eq!(
             request,
-            GuestRequest::PrepareAndProbe {
+            GuestRequest::Prepare {
                 operation: OperationId::new([6; 16]).expect("launch operation")
             }
         );
         let guest = guest.repair_complete(deadline()).expect("repair complete");
-        let guest = guest
-            .terminal(TerminalStatus::Exited(0), deadline())
-            .expect("probe terminal");
         let (guest, request) = guest.next_request(deadline()).expect("execute request");
         assert_eq!(
             request,
@@ -119,7 +116,7 @@ fn one_owner_path_repairs_executes_and_shuts_down() {
     });
 
     let host = HostControl::connect(host, host_io).expect("host owner connected");
-    let host = host.prepare_and_probe().expect("authenticated Ready");
+    let host = host.prepare().expect("authenticated Ready");
     assert_eq!(host_observed.repair_commits(), 1);
     let (host, outcome) = host.execute(execute, command).expect("execute outcome");
     assert_eq!(outcome.status(), TerminalStatus::Exited(17));
@@ -140,11 +137,11 @@ fn one_owner_path_repairs_executes_and_shuts_down() {
     assert_eq!(repair_deadlines, vec![host_writes[1]]);
     assert_eq!(host_reads[2], host_writes[1]);
     assert!(
-        host_reads[6..12]
+        host_reads[4..10]
             .iter()
             .all(|value| *value == host_writes[2])
     );
-    assert_eq!(host_reads[12], host_writes[3]);
+    assert_eq!(host_reads[10], host_writes[3]);
 
     let guest_reads = guest_observed.read_deadlines();
     assert_frame_deadlines_are_shared(&guest_reads);
@@ -213,9 +210,6 @@ fn every_valid_terminal_outcome_and_exact_output_limit_succeeds() {
             GuestControl::connect(guest, guest_io, deadline()).expect("guest owner connected");
         let (guest, _) = guest.next_request(deadline()).expect("prepare request");
         let mut guest = guest.repair_complete(deadline()).expect("repair complete");
-        guest = guest
-            .terminal(TerminalStatus::Exited(0), deadline())
-            .expect("probe terminal");
         for status in statuses {
             let (next, request) = guest.next_request(deadline()).expect("execute request");
             assert!(matches!(request, GuestRequest::Execute { .. }));
@@ -235,7 +229,7 @@ fn every_valid_terminal_outcome_and_exact_output_limit_succeeds() {
 
     let mut host = HostControl::connect(host, host_io)
         .expect("host owner connected")
-        .prepare_and_probe()
+        .prepare()
         .expect("authenticated Ready");
     for (index, status) in statuses.into_iter().enumerate() {
         let operation = OperationId::new([20 + u8::try_from(index).expect("small index"); 16])

@@ -28,7 +28,7 @@ fn every_typed_application_message_has_one_canonical_round_trip() {
     let command = GuestCommand::new(b"/bin/true".to_vec(), vec![], 3_600_000, 16 * 1024 * 1024)
         .expect("command");
     let host_messages = [
-        HostMessage::prepare_and_probe(operation),
+        HostMessage::prepare(operation),
         HostMessage::execute(operation, command),
         HostMessage::shutdown(operation),
     ];

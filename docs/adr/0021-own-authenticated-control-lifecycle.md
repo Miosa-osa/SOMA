@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-29
 - Extends: ADR 0017 and ADR 0020
-- Amended by: [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md)
+- Amended by: [ADR 0024, per-Instance guest responder authority](0024-per-instance-guest-responder-authority.md) and [ADR 0039, the authenticated repair report alone proves readiness](0039-repair-report-alone-proves-readiness.md)
 - Extended by: [ADR 0030, pre-launch snapshot capture point](0030-pre-launch-snapshot-capture-point.md)
 
 ## Context
@@ -62,18 +62,17 @@ The failure path invokes `ControlIo::poison` exactly once.
 It returns only `ControlError`, which contains a redacted stage and class.
 It never returns the transport, Noise state, peer bytes, adapter error, or a reusable poisoned owner.
 
-The public stages are Handshake, Repair, Probe, Execute, and Shutdown.
+The public stages are Handshake, Repair, Execute, and Shutdown.
 The public classes are Io, Authentication, Protocol, Lifecycle, and Accounting.
 
 ### Host lifecycle
 
 `HostControl` represents one authenticated session before repair.
-`prepare_and_probe` consumes it and returns `RepairedHostControl` only after all readiness requirements succeed.
-It sends exactly one fixed PrepareAndProbe request for the Launch operation bound into the Noise transcript.
+`prepare` consumes it and returns `RepairedHostControl` only after all readiness requirements succeed.
+It sends exactly one Prepare request, carrying no body, for the Launch operation bound into the Noise transcript.
 It requires one authenticated RepairComplete with that exact operation.
-It calls `commit_repair` exactly after that report authenticates and before it can accept probe completion.
-It then requires one zero-output terminal report with status Exited(0) and exact zero counts.
-RepairComplete alone is never Ready.
+It calls `commit_repair` exactly after that report authenticates and before it returns the repaired owner.
+Under ADR 0039 that report is the whole of the Ready transition.
 
 `RepairedHostControl::execute` consumes the idle owner while one operation is in flight.
 It returns the only next repaired owner together with one typed `ExecuteOutcome` on success.
@@ -85,25 +84,13 @@ The host and guest each retain a private ledger capped at 65,536 identities per 
 Reuse or exhaustion is a lifecycle failure that consumes and poisons the owner before another request can be accepted.
 This prevents a late terminal record from being interpreted as the result of a later operation that reused the same identity.
 
-### Fixed readiness self-probe
-
-Version 1 uses the trusted guest agent executable at `/proc/self/exe` with the single argument `--soma-ready-probe-v1`.
-The timeout is 1,000 milliseconds and the output allowance is one byte because the version 1 command contract forbids a zero allowance.
-Successful readiness still requires exactly zero output.
-
-Public callers supply only the Launch operation when constructing PrepareAndProbe.
-The codec constructs the fixed command internally.
-The decoder rejects any substituted program, argument, timeout, or allowance.
-`GuestRequest::PrepareAndProbe` exposes no command bytes to the trusted guest-agent caller.
-The static guest agent must reserve this exact mode and make it a deterministic no-output self-check through the same executor and terminal path as Execute.
-
 ### Guest lifecycle
 
-`GuestControl` owns the internal AwaitPrepare, ProbeAwaitRepair, ProbeStreaming, RepairedIdle, ExecuteStreaming, and ShutdownPending states.
+`GuestControl` owns the internal AwaitPrepare, PrepareReporting, RepairedIdle, ExecuteStreaming, and ShutdownPending states.
 `next_request` can receive only while no operation is in flight.
-The initial request must be the fixed PrepareAndProbe for the Launch operation bound into the session.
-RepairComplete is legal once and before any probe output or terminal result.
-The version 1 probe rejects all stdout and stderr.
+The initial request must be the Prepare message for the Launch operation bound into the session.
+Public callers supply only that operation, the message carries no body, and the decoder rejects any body at all.
+RepairComplete is legal exactly once and returns the guest owner to idle.
 
 Execute output is admitted chunk by chunk against the command allowance before it is written.
 The guest owner constructs terminal counts from the bytes it successfully sent.
@@ -127,12 +114,12 @@ The trusted guest agent and its authenticated control channel therefore form a t
 
 ## Verification
 
-Public integration tests cross fresh launch material through the byte-only seam, complete both handshake messages, commit repair, pass the fixed probe, execute counted binary output, retain typed process outcomes, and require exact shutdown acknowledgement.
+Public integration tests cross fresh launch material through the byte-only seam, complete both handshake messages, commit repair, execute counted binary output, retain typed process outcomes, and require exact shutdown acknowledgement.
 Compile-fail tests prove that raw handshake and transport states cannot be imported and that consumed host states cannot be reused.
-Hostile authenticated-peer tests cover every guest message kind before repair, wrong operations, duplicate and late repair, output before repair, substituted probes, allowance overflow, count mismatch, incorrect OutputLimit, duplicate terminal, output after terminal, and wrong shutdown acknowledgement.
+Hostile authenticated-peer tests cover every guest message kind before repair, wrong operations, duplicate and late repair, output before repair, a Prepare carrying a body, allowance overflow, count mismatch, incorrect OutputLimit, duplicate terminal, output after terminal, and wrong shutdown acknowledgement.
 Host and guest tests prove that a completed operation identity cannot be reused.
 Local guest tests cover output and terminal before repair, duplicate repair, allowance overflow, incorrect OutputLimit, and a second receive while an operation is active.
-Scripted transports fail every individual read and write byte across handshake, repair, probe, Execute, and Shutdown.
+Scripted transports fail every individual read and write byte across handshake, repair, Execute, and Shutdown.
 Every injected failure returns no owner and records exactly one poison call.
 Deadline-aware end-to-end tests prove that an already expired guest receive fails closed without peer input.
 They record propagated `Instant` values and prove that both frame reads, host repair commit, and each host exchange retain their original absolute deadline.

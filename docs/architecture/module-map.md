@@ -211,7 +211,7 @@ Internal error chains may be retained for operator evidence while the public fau
 ### `machine/`
 
 `machine/` is the deep implementation behind `Launch`, `Execute`, and `Stop`.
-It owns the lifecycle state machine, legal transition ordering, failure conversion, rollback initiation, and the rule that Ready follows authenticated Repair and a no-op Execute probe.
+It owns the lifecycle state machine, legal transition ordering, failure conversion, rollback initiation, and the rule that Ready follows the authenticated Repair report.
 It is the only module allowed to advance the terminal Machine lifecycle.
 
 `machine/mod.rs` owns shared state, while `launch.rs`, `execute.rs`, `stop.rs`, and `fault.rs` keep cohesive orchestration and failure conversion local.
@@ -247,7 +247,7 @@ If deleting the adapter merely moves pass-through calls into `machine/`, the sea
 ### `tests/`
 
 Focused files under `tests/` drive the public `Launch`, `Execute`, and `Stop` interface.
-They cover successful ordering, failure before Ready, idempotent replay, operation conflict, Execute rejection before Ready, authenticated no-op readiness, and idempotent Stop.
+They cover successful ordering, failure before Ready, idempotent replay, operation conflict, Execute rejection before Ready, authenticated repair readiness, and idempotent Stop.
 They use deterministic host behavior only to test provider-neutral semantics.
 
 Linux KVM evidence belongs in `soma-kvm` integration tests and later full target-host tests.
@@ -839,7 +839,7 @@ Its owned authenticated probe state is necessary but cannot authorize a Machine 
 ## `soma-guest-agent` responsibilities
 
 `soma-guest-agent` is the statically linked Linux executable that runs as PID 1 inside a SOMA microVM.
-It performs the early-init sequence from the Generation compiler contract, waits at the disconnected repair point, consumes the launch page, repairs entropy, transport, identity, and network state in the fixed order, authenticates the host over vsock, runs the fixed readiness probe through the production executor, serves bounded direct commands, and performs authenticated shutdown.
+It performs the early-init sequence from the Generation compiler contract, waits at the disconnected repair point, consumes the launch page, repairs entropy, transport, identity, and network state in the fixed order, authenticates the host over vsock, reports repair complete, serves bounded direct commands, and performs authenticated shutdown.
 It consumes `soma-guest` for every byte of the launch page, handshake, record, application message, and lifecycle state and reimplements none of them.
 
 The source map is:
@@ -882,7 +882,7 @@ crates/soma-guest-agent/tests/fixtures/README.md
 The crate compiles on every workspace target but only the Linux `x86_64` modules do work; every other target exits with an unsupported result.
 That gate is the exact ABI whose classic `ifreq` and `rtentry` request layouts `network_repair/encoding.rs` transcribes: constant assertions there fail the build on a different C integer, pointer, or byte-order shape, and `network_repair/target.rs` compares the compiled ABI with the verified one and refuses with `NetworkStep::UnsupportedTarget` before a socket or an unsafe `ioctl` if the binary gate is ever widened without verified layouts.
 Host tests cover the state machine, page consumption and erasure, output accounting, invocation bounds, transport deadlines, kernel structure layouts, and the executor against host binaries.
-Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the readiness probe, one Execute, and authenticated shutdown are live-proved on a cold boot at `71161ea`, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), and that run is historical because it predates initramfs layout v3 and launch-page schema 3.
+Booting as PID 1, composing the root, consuming and erasing the launch page, kernel entropy credit, identity and network installation, the vsock handshake, the repair report, one Execute, and authenticated shutdown are live-proved on a cold boot at `71161ea`, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), and that run is historical because it predates initramfs layout v3 and launch-page schema 3.
 The same path after a snapshot restore was live-proved at `5d71524`, but that run is historical after the schema 2 identity correction.
 The stop path uses the restart command because the version 1 machine has no ACPI or paravirtual power-off, and `reboot=k` turns it into the reset pulse the VMM observes as the orderly exit.
 

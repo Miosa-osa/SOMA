@@ -25,7 +25,7 @@ This guide adds machine terms that neither CONTEXT.md nor [GLOSSARY.md](../../GL
 A SOMA sandbox is one hardware-isolated Linux virtual machine, the Machine, created and owned by one host-side process for exactly one Instance lifetime.
 At build time the Template compiler turns a Template into a Template Lock.
 The Generation compiler then turns a lock and the normalized image tree into an immutable Generation.
-At Launch time the owner process creates the Machine through Linux KVM, boots the Generation, delivers fresh per-Instance material through a dedicated launch page, waits for the Guest agent inside the Machine to complete Repair and authenticate over vsock, runs one fixed readiness probe, and only then reports Ready.
+At Launch time the owner process creates the Machine through Linux KVM, boots the Generation, delivers fresh per-Instance material through a dedicated launch page, waits for the Guest agent inside the Machine to complete Repair and authenticate over vsock, and only then reports Ready.
 Commands are argument vectors executed by the Guest agent over the authenticated channel, and shutdown is an authenticated request followed by cleanup evidence.
 That path is live-proved twice on a real Ubuntu 24.04 x86_64 host, both times by ignored tests in `crates/soma-kvm`: at `71161ea` a cold boot of a compiled `busybox` Generation and a compiled `node:22` Generation returned one bounded command from each and proved cleanup, recorded in [the first sandbox command evidence](../evidence/2026-08-29-x86_64-first-sandbox-command.md), and at `7c1127d` one captured `node:22` Generation was restored thirteen times into independent authenticated Instances, recorded in [the x86_64 snapshot restore evidence](../evidence/2026-08-29-x86_64-snapshot-restore.md).
 Both runs are historical: the code has since moved to initramfs layout v3, launch-page schema 3, and an authenticated readiness receipt after restore, so on current bytes the path is component-tested until it is run again.
@@ -251,11 +251,10 @@ The host side calls `soma_guest::HostControl::connect` over the Machine's `Contr
 The protocol is `Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s`, pinned in `crates/soma-guest/src/lib.rs`, with the Instance pre-shared key from the launch page.
 Neither peer accepts a caller-supplied responder key: the Host samples the keypair fresh for this Instance, delivers the private half at launch-page byte 247, and keeps the public half itself, so no responder key is bound into the Generation manifest at all.
 
-Repair commit and readiness probe.
-The host side sends `PrepareAndProbe`, the guest reports `RepairComplete`, and the host side commits Repair by verifying that all 4,096 bytes of the launch page read as zero and removing slot 1 with a zero-length `KVM_SET_USER_MEMORY_REGION`; that is the `LaunchPageRetired` milestone.
-The guest then runs the fixed version 1 probe `/proc/self/exe --soma-ready-probe-v1` through the production executor with a 1,000 ms timeout and a one-byte output allowance, and Ready requires `Exited(0)`.
-Only after that does the agent print `soma-guest-agent: ready` and enter the request loop.
-Ready therefore means what [CONTEXT.md](../../CONTEXT.md) says: Repair is complete and an authenticated command succeeded inside the guest.
+Repair commit.
+The host side sends `Prepare`, which carries nothing but the Launch operation, the guest reports `RepairComplete`, and the host side commits Repair by verifying that all 4,096 bytes of the launch page read as zero and removing slot 1 with a zero-length `KVM_SET_USER_MEMORY_REGION`; that is the `LaunchPageRetired` milestone.
+The agent then prints `soma-guest-agent: ready` and enters the request loop.
+Ready means Repair is complete and reported under this Instance's own authenticated session; [ADR 0039](../adr/0039-repair-report-alone-proves-readiness.md) records why a command round trip is not part of it.
 
 ### 3.6 Execute
 

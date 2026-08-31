@@ -175,17 +175,13 @@ fn exists() -> FileRequest {
 
 pub(super) fn repaired_host() -> (Repaired, RawGuest, Observation) {
     let (host, mut raw, observed) = connected_host();
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
-    assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
+    let host_thread = thread::spawn(move || host.prepare());
+    assert!(matches!(raw.receive(), HostMessage::Prepare { .. }));
     raw.send(GuestMessage::repair_complete(operation(3)));
-    raw.send(GuestMessage::terminal(
-        operation(3),
-        TerminalReport::new(TerminalStatus::Exited(0), 0, 0).expect("report"),
-    ));
     let host = host_thread
         .join()
         .expect("host thread")
-        .expect("repair and probe");
+        .expect("repaired host");
     (host, raw, observed)
 }
 

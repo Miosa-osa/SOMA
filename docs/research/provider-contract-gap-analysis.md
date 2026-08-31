@@ -29,7 +29,7 @@ A provider that implements only part of it is not a provider that is merely slow
 | Interactive PTY terminal | **Missing** |
 
 The guest control protocol is the reason the second half of that table is empty.
-It carries eight frame kinds: `PrepareAndProbe`, `Execute`, and `Shutdown` from the host, and `RepairComplete`, `Stdout`, `Stderr`, `Terminal`, and `ShutdownAck` from the guest, where `Terminal` is the exit status of a command rather than a pseudo-terminal.
+It carries eight frame kinds: `Prepare`, `Execute`, and `Shutdown` from the host, and `RepairComplete`, `Stdout`, `Stderr`, `Terminal`, and `ShutdownAck` from the guest, where `Terminal` is the exit status of a command rather than a pseudo-terminal.
 There is no frame that reads a file, writes one, lists a directory, or attaches to a terminal, so no host API can offer those however it is written.
 
 `getById` and `list` are missing for a different reason, already decided rather than undecided: the KVM Backend owns at most one live Machine inside the calling process, so an Instance cannot outlive the command that created it.

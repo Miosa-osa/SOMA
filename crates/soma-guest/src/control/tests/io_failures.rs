@@ -1,6 +1,6 @@
 use std::thread;
 
-use crate::{ControlError, ControlIo, GuestControl, HostControl, TerminalStatus};
+use crate::{ControlError, ControlIo, GuestControl, HostControl};
 
 use super::support::{
     deadline,
@@ -96,7 +96,7 @@ pub(super) fn successful_host_repair_traffic() -> (usize, usize) {
     });
     let host = HostControl::connect(host_material, host_io)
         .expect("host owner")
-        .prepare_and_probe()
+        .prepare()
         .expect("host Ready");
     drop((host, guest_thread.join().expect("guest thread")));
     (traffic.read(), traffic.written())
@@ -109,7 +109,7 @@ pub(super) fn successful_guest_repair_traffic() -> (usize, usize) {
     let host_thread = thread::spawn(move || {
         HostControl::connect(host_material, host_io)
             .expect("host owner")
-            .prepare_and_probe()
+            .prepare()
             .expect("host Ready")
     });
     let guest = GuestControl::connect(guest_material, guest_io, deadline()).expect("guest owner");
@@ -153,7 +153,7 @@ fn assert_host_repair_fails(direction: Direction, fail_at: usize) {
     });
     let host = HostControl::connect(host_material, host_io).expect("handshake succeeds");
 
-    assert_error(host.prepare_and_probe());
+    assert_error(host.prepare());
     assert_eq!(host_observed.poison(), 1);
     let _ = guest_thread.join().expect("guest thread");
 }
@@ -164,7 +164,7 @@ fn assert_guest_repair_fails(direction: Direction, fail_at: usize) {
     let (guest_io, _) = FaultIo::new(guest_io, direction, Some(fail_at));
     let host_thread = thread::spawn(move || {
         let host = HostControl::connect(host_material, host_io)?;
-        host.prepare_and_probe()
+        host.prepare()
     });
     let guest =
         GuestControl::connect(guest_material, guest_io, deadline()).expect("handshake succeeds");
@@ -178,8 +178,7 @@ fn drive_guest_ready<I: ControlIo>(
     guest: GuestControl<I>,
 ) -> Result<GuestControl<I>, ControlError> {
     let (guest, _) = guest.next_request(deadline())?;
-    let guest = guest.repair_complete(deadline())?;
-    guest.terminal(TerminalStatus::Exited(0), deadline())
+    guest.repair_complete(deadline())
 }
 
 fn assert_error<T>(result: Result<T, ControlError>) {

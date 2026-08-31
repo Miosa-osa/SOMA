@@ -3,8 +3,8 @@ use crate::{FileRequest, GuestCommand, OperationId, PtyRequest};
 /// One lifecycle-validated request received by the trusted guest agent.
 #[derive(Debug, Eq, PartialEq)]
 pub enum GuestRequest {
-    /// Complete certified repair, then run the fixed version 1 self-probe.
-    PrepareAndProbe {
+    /// Complete certified repair and report it.
+    Prepare {
         /// Exact Launch operation bound into the authenticated session.
         operation: OperationId,
     },

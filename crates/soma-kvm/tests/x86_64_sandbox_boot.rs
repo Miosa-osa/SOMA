@@ -1,5 +1,5 @@
 //! Live `x86_64` sandbox proof: a compiled Generation cold-boots on KVM, the static guest agent
-//! consumes the launch page, authenticates over vsock, answers the readiness probe, executes
+//! consumes the launch page, authenticates over vsock, reports repair complete, executes
 //! one bounded command, and shuts down through the authenticated channel.
 //!
 //! Run on an `x86_64` Linux host with readable and writable `/dev/kvm`, the pinned kernel, the

@@ -8,7 +8,6 @@ use core::convert::Infallible;
 use soma_guest::{
     ActivationChallenge, ActivationScope, Error, GuestControl, GuestLaunchMaterial, GuestRequest,
     HostControl, HostLaunchMaterial, LAUNCH_PAGE_SIZE, OperationId, RepairedHostControl,
-    TerminalStatus,
 };
 
 use control_support::{MemoryIo, deadline, launch_network, pair};
@@ -39,20 +38,16 @@ fn repaired() -> RepairedHostControl<MemoryIo> {
         let (guest, request) = guest.next_request(deadline()).expect("prepare request");
         assert_eq!(
             request,
-            GuestRequest::PrepareAndProbe {
+            GuestRequest::Prepare {
                 operation: OperationId::new(OPERATION).expect("launch operation"),
             }
         );
-        guest
-            .repair_complete(deadline())
-            .expect("repair complete")
-            .terminal(TerminalStatus::Exited(0), deadline())
-            .expect("probe terminal")
+        guest.repair_complete(deadline()).expect("repair complete")
     });
     let repaired = HostControl::connect(host, host_io)
         .expect("host owner connected")
-        .prepare_and_probe()
-        .expect("authenticated repair and probe");
+        .prepare()
+        .expect("authenticated repair");
     drop(guest_thread.join().expect("guest thread"));
     repaired
 }

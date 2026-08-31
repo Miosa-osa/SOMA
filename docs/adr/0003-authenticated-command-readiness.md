@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-28
 - Decision owners: SOMA maintainers
+- Amended by: [ADR 0039, the authenticated repair report alone proves readiness](0039-repair-report-alone-proves-readiness.md)
 
 ## Context
 
@@ -16,6 +17,7 @@ SOMA therefore needs a readiness definition that is both a security property and
 ## Decision
 
 An Instance is Ready only after the expected guest agent authenticates to the Launch and completes all required Repair work, then successfully executes an authenticated no-op command over the repaired control channel.
+ADR 0039 removed the no-op command from that definition on measured cost: Ready is the authenticated repair report, and every other requirement below still stands.
 The Phase 0 Ready value contains the Instance identity, Generation identity, operation identity, the Generation's exact `MachineSpec`, and ordered milestones.
 It does not yet contain a normalized request fingerprint, command outcome, evidence digest, or monotonic host timestamps.
 Those fields remain production receipt requirements after their wire representations and authenticated evidence formats are specified.
@@ -29,14 +31,13 @@ AGENT_AUTHENTICATED
 GENERATION_ACKNOWLEDGED
 IDENTITY_REPAIRED
 NETWORK_REPAIRED
-FIRST_COMMAND_SUCCEEDED
+REPAIR_REPORTED
 READY
 ```
 
 The guest agent must answer a fresh per-Launch challenge and prove that it belongs to the expected Generation rather than merely presenting a static image credential.
 Challenge material and authenticated channel state from an earlier Instance are invalid and must not become reusable snapshot authority.
 The control protocol must resist replay of a success from an earlier Instance or connection generation.
-The no-op probe must travel through the same authenticated Execute path used by subsequent commands.
 
 Repair replaces or invalidates cloned machine identity, hostname, entropy-dependent user-space state, time assumptions, network identity, vsock generation, stale connections, and captured one-time credentials before user work may execute.
 If a Generation cannot satisfy the declared Repair contract, Launch fails and cleanup begins.
@@ -71,11 +72,11 @@ It is rejected because the command execution path, process setup, process creati
 
 Executing the caller's first workload command provides the closest product signal.
 It makes Launch semantics depend on arbitrary command behavior and can conflate a workload error with a Machine failure.
-Production SOMA uses a bounded no-op Execute probe for the Ready transition, while an external benchmark continues through its required command such as `node -v`.
+Production SOMA transitions to Ready on the authenticated repair report, while an external benchmark continues through its required command such as `node -v`.
 
 ## Consequences
 
-Launch latency includes guest control, Repair, and one real execution round trip.
+Launch latency includes guest control and Repair.
 This definition is intentionally stricter than VMM resume microbenchmarks.
 The guest agent and its authentication protocol become security-critical parts of every Generation.
 The operator may expose intermediate milestones for diagnosis but may not label them Ready.
@@ -85,7 +86,7 @@ Both measurements must be retained without substituting one for the other.
 
 ## Verification
 
-End-to-end tests must prove that Ready is impossible when authentication, Generation acknowledgement, any Repair step, no-op execution, or result authentication fails.
+End-to-end tests must prove that Ready is impossible when authentication, Generation acknowledgement, any Repair step, or result authentication fails.
 Replay tests must reject receipts and agent messages from another Instance or Launch.
 Concurrent restore tests must prove unique machine, network, transport, and entropy-derived identities before Ready.
 Milestone-order tests must reject missing, repeated, reordered, or regressing lifecycle evidence.

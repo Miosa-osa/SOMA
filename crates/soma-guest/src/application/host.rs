@@ -5,8 +5,8 @@ use super::{FileRequest, GuestCommand, OperationId, PtyRequest, frame};
 /// A host-to-guest application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HostMessage {
-    /// Repairs cloned state and runs the fixed Ready no-op through the command path.
-    PrepareAndProbe {
+    /// Commits repair of cloned state under this Instance's authenticated session.
+    Prepare {
         /// Identity of this exact Launch operation.
         operation: OperationId,
     },
@@ -39,10 +39,10 @@ pub enum HostMessage {
 }
 
 impl HostMessage {
-    /// Creates a Repair and readiness-probe message.
+    /// Creates a Repair message.
     #[must_use]
-    pub const fn prepare_and_probe(operation: OperationId) -> Self {
-        Self::PrepareAndProbe { operation }
+    pub const fn prepare(operation: OperationId) -> Self {
+        Self::Prepare { operation }
     }
 
     /// Creates an Execute message.
@@ -76,11 +76,7 @@ impl HostMessage {
     /// Returns an error if the message cannot fit one record.
     pub fn encode(&self) -> Result<Vec<u8>, Error> {
         match self {
-            Self::PrepareAndProbe { operation } => frame::encode(
-                frame::Kind::PrepareAndProbe,
-                *operation,
-                &GuestCommand::readiness_probe().encode_body(),
-            ),
+            Self::Prepare { operation } => frame::encode(frame::Kind::Prepare, *operation, &[]),
             Self::Execute { operation, command } => {
                 frame::encode(frame::Kind::Execute, *operation, &command.encode_body())
             }
@@ -102,13 +98,7 @@ impl HostMessage {
     pub fn decode(encoded: &[u8]) -> Result<Self, Error> {
         let decoded = frame::decode(encoded)?;
         match decoded.kind {
-            frame::Kind::PrepareAndProbe => {
-                let command = GuestCommand::decode_body(decoded.body)?;
-                if command != GuestCommand::readiness_probe() {
-                    return Err(Error::ApplicationMessageRejected);
-                }
-                Ok(Self::prepare_and_probe(decoded.operation))
-            }
+            frame::Kind::Prepare if decoded.body.is_empty() => Ok(Self::prepare(decoded.operation)),
             frame::Kind::Execute => Ok(Self::execute(
                 decoded.operation,
                 GuestCommand::decode_body(decoded.body)?,
@@ -124,7 +114,8 @@ impl HostMessage {
             frame::Kind::Shutdown if decoded.body.is_empty() => {
                 Ok(Self::shutdown(decoded.operation))
             }
-            frame::Kind::Shutdown
+            frame::Kind::Prepare
+            | frame::Kind::Shutdown
             | frame::Kind::FileOutcome
             | frame::Kind::RepairComplete
             | frame::Kind::Stdout

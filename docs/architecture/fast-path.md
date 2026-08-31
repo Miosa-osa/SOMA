@@ -101,7 +101,7 @@ The agent performs no user work until it receives a fresh authenticated challeng
 Repair replaces or invalidates cloned identity, entropy-derived state, time assumptions, network configuration, transport sessions, and captured credentials.
 
 Repair uses one bounded request and one bounded response rather than a sequence of host polling loops.
-Ready requires an authenticated no-op execution result over the repaired channel.
+Ready requires the authenticated repair report over that channel.
 The user-visible `Execute` operation then runs the benchmark command through the same channel.
 
 ## Avoided request-path costs
@@ -131,7 +131,7 @@ The working warm-host budget is:
 | Private mapping and KVM memory-slot binding | below 0.10 ms | below 0.30 ms |
 | KVM, vCPU, interrupt, and device restore | below 0.55 ms | below 1.50 ms |
 | Resume through guest control wake | below 0.50 ms | below 1.50 ms |
-| Combined authentication, repair, and no-op | below 1.50 ms | below 3.50 ms |
+| Combined authentication and repair | below 1.50 ms | below 3.50 ms |
 | Receipt publication | below 0.10 ms | below 0.30 ms |
 | Additive server create budget | below 3.25 ms | below 8.90 ms |
 | Complete server-side create | below 5 ms | below 10 ms |

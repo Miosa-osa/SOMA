@@ -194,13 +194,10 @@ fn repaired_owners() -> (Repaired, Guest, Observation, Observation) {
         let guest =
             GuestControl::connect(guest_material, guest_io, deadline()).expect("guest connect");
         let (guest, _) = guest.next_request(deadline()).expect("prepare request");
-        let guest = guest.repair_complete(deadline()).expect("repair report");
-        guest
-            .terminal(TerminalStatus::Exited(0), deadline())
-            .expect("probe terminal")
+        guest.repair_complete(deadline()).expect("repair report")
     });
     let host = HostControl::connect(host_material, host_io).expect("host connect");
-    let host = host.prepare_and_probe().expect("ready host");
+    let host = host.prepare().expect("ready host");
     (
         host,
         guest_thread.join().expect("guest thread"),
@@ -215,17 +212,13 @@ fn repaired_host() -> (Repaired, RawGuest, Observation) {
     let guest_thread = thread::spawn(move || RawGuest::connect(guest_material, guest_io));
     let host = HostControl::connect(host_material, host_io).expect("host connect");
     let mut raw = guest_thread.join().expect("guest thread");
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
-    assert!(matches!(raw.receive(), HostMessage::PrepareAndProbe { .. }));
+    let host_thread = thread::spawn(move || host.prepare());
+    assert!(matches!(raw.receive(), HostMessage::Prepare { .. }));
     raw.send(GuestMessage::repair_complete(operation(3)));
-    raw.send(GuestMessage::terminal(
-        operation(3),
-        TerminalReport::new(TerminalStatus::Exited(0), 0, 0).expect("report"),
-    ));
     let host = host_thread
         .join()
         .expect("host thread")
-        .expect("repair and probe");
+        .expect("repaired host");
     (host, raw, host_observed)
 }
 

@@ -38,7 +38,8 @@ fn duplicate_local_repair_poisons_the_guest_once() {
     let error = control_error(guest.repair_complete(deadline()));
     assert_eq!(error.class(), ControlFailureClass::Lifecycle);
     assert_eq!(guest_observed.poison(), 1);
-    control_error(host_thread.join().expect("host thread"));
+    // The host reached Ready on the first report and never sees the second.
+    drop(host_thread.join().expect("host thread"));
 }
 
 #[test]
@@ -91,18 +92,15 @@ fn awaiting_repair() -> (
     Observation,
 ) {
     let (host, guest, host_observed, guest_observed) = connected_owners();
-    let host_thread = thread::spawn(move || host.prepare_and_probe());
+    let host_thread = thread::spawn(move || host.prepare());
     let (guest, request) = guest.next_request(deadline()).expect("prepare request");
-    assert!(matches!(request, GuestRequest::PrepareAndProbe { .. }));
+    assert!(matches!(request, GuestRequest::Prepare { .. }));
     (host_thread, guest, host_observed, guest_observed)
 }
 
 fn repaired_owners() -> (RepairedHost, Guest, Observation, Observation) {
     let (host_thread, guest, host_observed, guest_observed) = awaiting_repair();
     let guest = guest.repair_complete(deadline()).expect("repair report");
-    let guest = guest
-        .terminal(TerminalStatus::Exited(0), deadline())
-        .expect("probe terminal");
     let host = host_thread
         .join()
         .expect("host thread")

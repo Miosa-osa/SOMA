@@ -7,8 +7,8 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     ///
     /// The value is not a secret; it already crosses the wire inside every activation receipt.
     /// It identifies the authenticated session and nothing more: it is fixed when the handshake
-    /// completes and neither repair nor the readiness probe changes it, so a verifier that sees
-    /// it learns which session it belongs to, never that repair had finished when it was taken.
+    /// completes and repair does not change it, so a verifier that sees it learns which session
+    /// it belongs to, never that repair had finished when it was taken.
     /// That this owner exists only after repair is a Rust visibility fact inside one trusted
     /// process, not a property of the value.
     #[must_use]

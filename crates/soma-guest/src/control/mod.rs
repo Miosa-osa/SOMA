@@ -12,8 +12,8 @@
 //! use soma_guest::{HostControl, HostControlIo};
 //!
 //! fn start_twice<I: HostControlIo>(host: HostControl<I>) {
-//!     let _first = host.prepare_and_probe();
-//!     let _second = host.prepare_and_probe();
+//!     let _first = host.prepare();
+//!     let _second = host.prepare();
 //! }
 //! ```
 //!

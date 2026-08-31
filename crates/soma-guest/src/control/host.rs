@@ -1,6 +1,6 @@
 use crate::{
     DeliveredHostLaunchMaterial, GuestCommand, GuestMessage, HostMessage, OperationId,
-    SessionBinding, TerminalStatus,
+    SessionBinding,
 };
 
 use super::{
@@ -58,14 +58,18 @@ impl<I: HostControlIo> HostControl<I> {
         })
     }
 
-    /// Commits authenticated repair and requires the fixed zero-output self-probe to succeed.
+    /// Commits authenticated repair, which is the whole of the readiness transition.
+    ///
+    /// The guest's `RepairComplete` is authenticated under this Instance's own session, so it
+    /// proves the same thing a command round trip would have proved about who is answering,
+    /// and it proves it without one.
     ///
     /// # Errors
     ///
-    /// Returns a redacted Repair or Probe error after poisoning the transport exactly once.
-    pub fn prepare_and_probe(mut self) -> Result<RepairedHostControl<I>, ControlError> {
+    /// Returns a redacted Repair error after poisoning the transport exactly once.
+    pub fn prepare(mut self) -> Result<RepairedHostControl<I>, ControlError> {
         let repair_deadline = deadline::repair();
-        let request = HostMessage::prepare_and_probe(self.launch_operation);
+        let request = HostMessage::prepare(self.launch_operation);
         if let Err(failure) = self.channel.send_host(&request, repair_deadline) {
             return Err(channel_failure(
                 &mut self.channel,
@@ -100,47 +104,6 @@ impl<I: HostControlIo> HostControl<I> {
             return Err(self
                 .channel
                 .fail(ControlStage::Repair, ControlFailureClass::Io));
-        }
-        self.finish_probe()
-    }
-
-    fn finish_probe(mut self) -> Result<RepairedHostControl<I>, ControlError> {
-        let deadline = deadline::probe();
-        let accounting = OutputAccounting::new(GuestCommand::readiness_probe().output_bytes());
-        let terminal = match self.channel.receive_guest(deadline) {
-            Ok(message) => message,
-            Err(failure) => {
-                return Err(channel_failure(
-                    &mut self.channel,
-                    ControlStage::Probe,
-                    failure,
-                ));
-            }
-        };
-        let report = match terminal {
-            GuestMessage::Terminal { operation, report } if operation == self.launch_operation => {
-                report
-            }
-            GuestMessage::Terminal { .. } => {
-                return Err(self
-                    .channel
-                    .fail(ControlStage::Probe, ControlFailureClass::Protocol));
-            }
-            GuestMessage::Stdout { .. } | GuestMessage::Stderr { .. } => {
-                return Err(self
-                    .channel
-                    .fail(ControlStage::Probe, ControlFailureClass::Accounting));
-            }
-            _ => {
-                return Err(self
-                    .channel
-                    .fail(ControlStage::Probe, ControlFailureClass::Lifecycle));
-            }
-        };
-        if accounting.validate(report).is_err() || report.status() != TerminalStatus::Exited(0) {
-            return Err(self
-                .channel
-                .fail(ControlStage::Probe, ControlFailureClass::Accounting));
         }
         Ok(RepairedHostControl {
             channel: self.channel,

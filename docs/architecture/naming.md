@@ -33,7 +33,7 @@ An operator may build a sandbox, function, computer, runner, or agent environmen
 | Instance | One globally unique concrete Machine lifetime owned by one `soma-vmm` process | Stable resource, sandbox |
 | Launch | The atomic request that creates or restores an Instance and proves readiness | Boot, spawn |
 | Milestone | One monotonic observation within Launch | Status, log line |
-| Ready | Clone repair is complete and an authenticated first command succeeded | Running, resumed, connected |
+| Ready | Clone repair is complete and reported under the Instance's own authenticated session | Running, resumed, connected |
 | Repair | Replacement of cloned identity, entropy, time, network, and transport state | Initialization |
 | Receipt | The immutable result that binds a request, Instance, Generation, milestones, and outcome | Response |
 

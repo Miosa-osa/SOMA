@@ -223,7 +223,7 @@ fn reach_session(
     let host =
         HostControl::connect(delivered, HostIo::new(machine)).map_err(|_| SessionError::Boot)?;
     machine.mark(Milestone::Handshake);
-    host.prepare_and_probe().map_err(|_| SessionError::Ready)
+    host.prepare().map_err(|_| SessionError::Ready)
 }
 
 /// The device identity and shape one sandbox is given.

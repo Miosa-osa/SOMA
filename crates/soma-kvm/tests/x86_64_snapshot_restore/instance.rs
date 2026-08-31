@@ -167,9 +167,7 @@ fn drive(
     let host = HostControl::connect(delivered, HostIo::new(machine))
         .map_err(|error| format!("handshake: {error}"))?;
     machine.mark(Milestone::Handshake);
-    let repaired = host
-        .prepare_and_probe()
-        .map_err(|error| format!("repair and probe: {error}"))?;
+    let repaired = host.prepare().map_err(|error| format!("repair: {error}"))?;
     let evidence = SessionEvidence::new(
         identity.instance,
         identity.operation,

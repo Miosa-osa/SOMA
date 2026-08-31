@@ -1,4 +1,4 @@
-//! Authenticated request loop: the readiness probe, bounded Execute exchanges, and Shutdown.
+//! Authenticated request loop: the repair report, bounded Execute exchanges, and Shutdown.
 //!
 //! The protocol crate owns the Noise state, framing, accounting, and poisoning; this module
 //! only sequences the executor and the typestate controller around it.
@@ -33,25 +33,8 @@ pub const TERMINAL_BUDGET: Duration = Duration::from_secs(5);
 /// not the work behind it; a removal of a large tree takes as long as it takes.
 pub const OUTCOME_BUDGET: Duration = Duration::from_secs(5);
 
-const PROBE_PROGRAM: &[u8] = b"/proc/self/exe";
-/// The reserved self-check argument of the fixed version 1 readiness probe.
-pub const PROBE_ARGUMENT: &[u8] = b"--soma-ready-probe-v1";
-const PROBE_TIMEOUT_MILLIS: u32 = 1_000;
-const PROBE_OUTPUT_BYTES: u64 = 1;
 const AGENT_FAILED_INVOCATION: i32 = 2;
 const AGENT_FAILED_PROCESS_GROUP: i32 = 3;
-
-/// Returns the fixed readiness self-probe command executed through the production executor.
-#[must_use]
-pub fn readiness_probe() -> GuestCommand {
-    GuestCommand::new(
-        PROBE_PROGRAM.to_vec(),
-        vec![PROBE_ARGUMENT.to_vec()],
-        PROBE_TIMEOUT_MILLIS,
-        PROBE_OUTPUT_BYTES,
-    )
-    .expect("the fixed probe satisfies the wire contract")
-}
 
 type SendChunk<I> = fn(GuestControl<I>, Vec<u8>, Instant) -> Result<GuestControl<I>, ControlError>;
 
@@ -111,28 +94,27 @@ fn run_command<I: ControlIo>(
     Ok((control, status))
 }
 
-/// Receives `PrepareAndProbe`, reports repair, and runs the fixed self-probe to completion.
+/// Receives `Prepare` and reports repair complete under the authenticated session.
+///
+/// Nothing is executed here. The report is the readiness evidence: it is authenticated with
+/// this Instance's own session key, so it already proves the guest that answers is the guest
+/// this launch repaired, and running a command to say so again only costs a process.
 ///
 /// # Errors
 ///
 /// Returns the fault that must poison the guest.
-pub fn probe<I: ControlIo>(control: GuestControl<I>) -> Result<GuestControl<I>, Fault> {
+pub fn prepare<I: ControlIo>(control: GuestControl<I>) -> Result<GuestControl<I>, Fault> {
     let (control, request) = timings::measure(Step::RequestWait, || {
         control.next_request(Instant::now() + IDLE_CEILING)
     })
     .map_err(|_| Fault::Control)?;
-    if !matches!(request, GuestRequest::PrepareAndProbe { .. }) {
+    if !matches!(request, GuestRequest::Prepare { .. }) {
         return Err(Fault::Control);
     }
-    let control = timings::measure(Step::RepairReport, || {
+    timings::measure(Step::RepairReport, || {
         control.repair_complete(Instant::now() + REPORT_BUDGET)
     })
-    .map_err(|_| Fault::Control)?;
-    let (control, status) = run_command(control, &readiness_probe())?;
-    if status != TerminalStatus::Exited(0) {
-        return Err(Fault::Executor);
-    }
-    Ok(control)
+    .map_err(|_| Fault::Control)
 }
 
 /// Serves authenticated requests until shutdown powers the machine off or a fault poisons it.
@@ -190,7 +172,7 @@ pub fn serve<I: ControlIo>(
                 Ok((_stopping, ())) => shutdown::perform(next),
                 Err(poisoned) => return poisoned,
             },
-            GuestRequest::PrepareAndProbe { .. } => return controller.poison(Fault::Control),
+            GuestRequest::Prepare { .. } => return controller.poison(Fault::Control),
         }
     }
 }
@@ -198,17 +180,6 @@ pub fn serve<I: ControlIo>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_readiness_probe_matches_the_fixed_version_one_contract() {
-        let probe = readiness_probe();
-
-        assert_eq!(probe.program(), b"/proc/self/exe");
-        assert_eq!(probe.arguments().len(), 1);
-        assert_eq!(&*probe.arguments()[0], b"--soma-ready-probe-v1");
-        assert_eq!(probe.timeout_millis(), 1_000);
-        assert_eq!(probe.output_bytes(), 1);
-    }
 
     #[test]
     fn budgets_are_failure_ceilings_not_latency_targets() {

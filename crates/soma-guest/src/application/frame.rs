@@ -8,7 +8,7 @@ const VERSION: u16 = 1;
 #[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(u8)]
 pub(super) enum Kind {
-    PrepareAndProbe = 1,
+    Prepare = 1,
     Execute = 2,
     Shutdown = 3,
     File = 4,
@@ -25,7 +25,7 @@ pub(super) enum Kind {
 impl Kind {
     fn parse(value: u8) -> Result<Self, Error> {
         match value {
-            1 => Ok(Self::PrepareAndProbe),
+            1 => Ok(Self::Prepare),
             2 => Ok(Self::Execute),
             3 => Ok(Self::Shutdown),
             4 => Ok(Self::File),

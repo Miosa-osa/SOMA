@@ -35,7 +35,7 @@ pub(super) fn accept<I: ControlIo>(
         HostMessage::Shutdown { operation } => (ControlStage::Shutdown, *operation),
         // Repair happened once, before this owner was ever idle, so asking for it again is a
         // host that lost track of the lifecycle rather than a request this state can serve.
-        HostMessage::PrepareAndProbe { .. } => {
+        HostMessage::Prepare { .. } => {
             return Err(channel.fail(ControlStage::Repair, ControlFailureClass::Lifecycle));
         }
     };
@@ -65,7 +65,7 @@ pub(super) fn accept<I: ControlIo>(
             GuestState::ShutdownPending(operation),
             GuestRequest::Shutdown { operation },
         ),
-        HostMessage::PrepareAndProbe { .. } => unreachable!("repair was refused above"),
+        HostMessage::Prepare { .. } => unreachable!("repair was refused above"),
     };
     Ok((
         GuestControl {

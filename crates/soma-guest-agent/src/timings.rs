@@ -49,15 +49,15 @@ pub enum Step {
     HandshakeSend,
     /// Handshake time that is not transport, which is the Noise work.
     HandshakeWork,
-    /// Time blocked waiting for the `PrepareAndProbe` request.
+    /// Time blocked waiting for the `Prepare` request.
     RequestWait,
     /// Sending the `RepairComplete` report.
     RepairReport,
-    /// Forking and executing the probe.
+    /// Forking and executing the first command.
     Spawn,
-    /// Streaming the probe's pipes until both close.
+    /// Streaming that command's pipes until both close.
     Stream,
-    /// Waiting for the probe's exit status after its pipes closed.
+    /// Waiting for its exit status after its pipes closed.
     Wait,
     /// Killing, reaping, and sweeping every descendant.
     Reap,

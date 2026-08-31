@@ -2,8 +2,8 @@
 //!
 //! The privileged network broker samples one fresh [`ActivationChallenge`] while it assigns a
 //! network bundle and returns it only to the peer that claimed that assignment.
-//! [`crate::RepairedHostControl`], which exists only after authenticated repair and the fixed
-//! readiness probe succeeded, converts that challenge into an [`ActivationReceipt`].
+//! [`crate::RepairedHostControl`], which exists only after authenticated repair succeeded,
+//! converts that challenge into an [`ActivationReceipt`].
 //!
 //! The receipt is a keyed tag over the exact [`ActivationScope`] and the live Noise transcript,
 //! so it cannot be moved to another Instance, assignment generation, Launch operation, or

@@ -24,8 +24,6 @@ pub enum Fault {
     Network,
     /// The authenticated control lifecycle failed or the peer violated it.
     Control,
-    /// The executor could not spawn, bound, or reap a command.
-    Executor,
     /// A lifecycle transition was attempted out of the fixed order.
     Order,
 }
@@ -47,8 +45,8 @@ pub enum Phase {
     NetworkRepaired,
     /// The Noise session with the host is authenticated.
     Authenticated,
-    /// The fixed no-op probe ran through the production executor.
-    Probed,
+    /// Repair was committed and reported under the authenticated session.
+    Prepared,
     /// Authenticated commands are accepted.
     Ready,
     /// One command is in flight.
@@ -74,8 +72,8 @@ impl Phase {
                 | (Self::TransportFresh, Self::IdentityRepaired)
                 | (Self::IdentityRepaired, Self::NetworkRepaired)
                 | (Self::NetworkRepaired, Self::Authenticated)
-                | (Self::Authenticated, Self::Probed)
-                | (Self::Probed | Self::Running, Self::Ready)
+                | (Self::Authenticated, Self::Prepared)
+                | (Self::Prepared | Self::Running, Self::Ready)
                 | (Self::Ready, Self::Running | Self::Stopping)
         )
     }
@@ -172,7 +170,7 @@ states! {
     IdentityRepaired => IdentityRepaired,
     NetworkRepaired => NetworkRepaired,
     Authenticated => Authenticated,
-    Probed => Probed,
+    Prepared => Prepared,
     Ready => Ready,
     Running => Running,
     Stopping => Stopping,
@@ -260,8 +258,8 @@ transition!(EntropyRepaired, freshen_transport, TransportFresh);
 transition!(TransportFresh, repair_identity, IdentityRepaired);
 transition!(IdentityRepaired, repair_network, NetworkRepaired);
 transition!(NetworkRepaired, authenticate, Authenticated);
-transition!(Authenticated, probe, Probed);
-transition!(Probed, ready, Ready);
+transition!(Authenticated, prepare, Prepared);
+transition!(Prepared, ready, Ready);
 transition!(Ready, run, Running);
 transition!(Running, finish, Ready);
 transition!(Ready, stop, Stopping);

@@ -33,8 +33,8 @@ pub const RESIDENT_OUTPUT_BYTES: usize = crate::output::MAX_CHUNK_BYTES;
 /// First wait between reapability checks after the child's pipes reached their end.
 ///
 /// A child that closed its pipes is already inside its own exit and becomes reapable within
-/// microseconds, so the first check must not cost more than that; the flat ceiling below was
-/// the whole of the readiness probe whenever the parent lost that race.
+/// microseconds, so the first check must not cost more than that; the flat ceiling below would
+/// otherwise dominate every short command whenever the parent lost that race.
 const FIRST_WAIT_POLL: Duration = Duration::from_micros(50);
 /// Longest wait between reapability checks, for a child that outlives its own pipes.
 const WAIT_POLL: Duration = Duration::from_millis(5);
