@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use soma::{
-    BackendFailureKind, ManagedFailure, ManagedStateError, RunFailure, RunFailureKind,
-    TerminalStatus,
-};
+use soma::TerminalStatus;
 use soma_local::{
     BackendSelection, LocalFailureKind, LocalRuntime, LocalRuntimeConfig, probe_backend,
 };
@@ -34,9 +31,15 @@ impl LocalToolRuntime {
             return Ok(RuntimeResponse::Doctor(self.doctor(backend)));
         }
         let backend = request_backend(&request);
+        // Every managed Machine tool names an Instance a later call must be able to reach, and
+        // each call opens its own runtime, so the machine has to be held by a host rather than by
+        // whichever call happened to create it. `soma_run` needs no host: it launches, runs, and
+        // releases inside one call.
+        let hosted = !matches!(request, RuntimeRequest::Run(_));
         let config =
             LocalRuntimeConfig::discover(selection(backend), self.runtime_path, self.state_root)
-                .map_err(map_local_failure)?;
+                .map_err(map_local_failure)?
+                .with_hosted_machines(hosted);
         let mut runtime = LocalRuntime::open(config).map_err(map_local_failure)?;
         invoke_runtime(&mut runtime, request)
     }
@@ -73,6 +76,10 @@ impl ToolRuntime for LocalToolRuntime {
             .map_err(|_| RuntimeFailure::new(RuntimeFailureKind::Internal))?
     }
 }
+
+mod failure;
+
+use self::failure::{map_managed_failure, map_run_failure};
 
 fn invoke_runtime(
     runtime: &mut LocalRuntime,
@@ -174,7 +181,9 @@ fn machine_result(
     Ok(MachineResult::new(instance, state, receipt(evidence)?))
 }
 
-fn receipt(evidence: &soma::ExecutionReceipt) -> Result<ExecutionReceipt, RuntimeFailure> {
+pub(super) fn receipt(
+    evidence: &soma::ExecutionReceipt,
+) -> Result<ExecutionReceipt, RuntimeFailure> {
     serde_json::to_value(evidence)
         .map_err(|_| RuntimeFailure::new(RuntimeFailureKind::Internal))
         .and_then(|value| {
@@ -183,75 +192,7 @@ fn receipt(evidence: &soma::ExecutionReceipt) -> Result<ExecutionReceipt, Runtim
         })
 }
 
-fn map_run_failure(failure: &RunFailure) -> RuntimeFailure {
-    let kind = map_run_failure_kind(failure.kind());
-    let Ok(receipt) = receipt(failure.receipt()) else {
-        return RuntimeFailure::new(RuntimeFailureKind::Internal);
-    };
-    if let (Some(output), Some(status)) = (
-        failure.output(),
-        terminal_status(*failure.receipt().terminal_status()),
-    ) {
-        RuntimeFailure::with_command_evidence(
-            kind,
-            receipt,
-            status,
-            output.stdout().to_vec(),
-            output.stderr().to_vec(),
-        )
-    } else {
-        RuntimeFailure::with_receipt(kind, receipt)
-    }
-}
-
-fn map_managed_failure(failure: &ManagedFailure) -> RuntimeFailure {
-    match failure {
-        ManagedFailure::Operation(failure) => map_run_failure(failure),
-        ManagedFailure::State(state) => RuntimeFailure::new(match state {
-            ManagedStateError::MachineNotFound => RuntimeFailureKind::NotFound,
-            ManagedStateError::MachineAlreadyExists
-            | ManagedStateError::MachineStopped
-            | ManagedStateError::OperationConflict
-            | ManagedStateError::RecoveryRequired
-            | ManagedStateError::ReplayCapacityReached => RuntimeFailureKind::Conflict,
-        }),
-        ManagedFailure::StateStore(_) => RuntimeFailure::new(RuntimeFailureKind::Internal),
-        ManagedFailure::ReplayUnavailable(replay) => replay.receipt().map_or_else(
-            || RuntimeFailure::new(RuntimeFailureKind::Conflict),
-            |evidence| {
-                receipt(evidence).map_or_else(
-                    |_| RuntimeFailure::new(RuntimeFailureKind::Internal),
-                    |receipt| RuntimeFailure::with_receipt(RuntimeFailureKind::Conflict, receipt),
-                )
-            },
-        ),
-    }
-}
-
-const fn map_run_failure_kind(kind: RunFailureKind) -> RuntimeFailureKind {
-    match kind {
-        RunFailureKind::Backend { kind, .. } => match kind {
-            BackendFailureKind::Unsupported => RuntimeFailureKind::Unsupported,
-            BackendFailureKind::Unavailable => RuntimeFailureKind::Unavailable,
-            BackendFailureKind::ResourceConflict => RuntimeFailureKind::Conflict,
-            BackendFailureKind::WorkloadRejected => RuntimeFailureKind::Rejected,
-            BackendFailureKind::Timeout => RuntimeFailureKind::Timeout,
-            BackendFailureKind::OutputLimit => RuntimeFailureKind::OutputLimit,
-            BackendFailureKind::CleanupFailure => RuntimeFailureKind::CleanupIncomplete,
-            BackendFailureKind::IsolationFailure | BackendFailureKind::GuestFailure => {
-                RuntimeFailureKind::Internal
-            }
-        },
-        RunFailureKind::TimedOut => RuntimeFailureKind::Timeout,
-        RunFailureKind::OutputLimitExceeded => RuntimeFailureKind::OutputLimit,
-        RunFailureKind::CleanupIncomplete => RuntimeFailureKind::CleanupIncomplete,
-        RunFailureKind::Interrupted
-        | RunFailureKind::ObservationMismatch
-        | RunFailureKind::StateStore { .. } => RuntimeFailureKind::Internal,
-    }
-}
-
-const fn terminal_status(status: TerminalStatus) -> Option<CommandStatus> {
+pub(super) const fn terminal_status(status: TerminalStatus) -> Option<CommandStatus> {
     match status {
         TerminalStatus::Exited { code } => Some(CommandStatus::Exited { code }),
         TerminalStatus::Signaled { signal } => Some(CommandStatus::Signaled { signal }),

@@ -1,0 +1,1 @@
+{"schema":"soma.cli.v1","command":"machine.exec","status":"error","result":null,"error":{"code":"state_conflict","message":"sandbox state rejected the operation","retryable":false},"receipt":null}

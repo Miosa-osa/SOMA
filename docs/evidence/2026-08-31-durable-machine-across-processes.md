@@ -1,5 +1,9 @@
 # The `soma machine` surface does not survive its launching process - 2026-08-31
 
+**Superseded by [a `soma machine` sandbox that survives its launching process](2026-08-31-durable-machine-host.md),
+measured the same day at `1cc7b87`.** Everything below is retained as the observation that was
+made at `2082c03`; the closing paragraph names what closed it.
+
 Measured on eval-1 at `2082c03`, KVM backend, busybox at one vCPU and 1024 MiB, against a
 Generation compiled and captured by the same binary.
 

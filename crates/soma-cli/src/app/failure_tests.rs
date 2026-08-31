@@ -111,11 +111,14 @@ fn a_launch_this_process_cannot_host_is_refused_rather_than_reported_ready() {
     assert_eq!(execution.exit, ProcessExit::CapabilityUnavailable);
 }
 
+/// A managed Launch on KVM starts a host process that holds the machine and answers on a socket
+/// named by the Instance, so an identity it hands back is one a later command can use. macOS has
+/// no such host yet, and this test is what fails when that changes.
 #[test]
 fn the_backends_that_host_a_machine_only_in_this_process_are_named() {
     assert_eq!(
         soma_local::machine_hosting(soma::BackendKind::LinuxKvm),
-        MachineHosting::LaunchingProcess
+        MachineHosting::OutlivesProcess
     );
     assert_eq!(
         soma_local::machine_hosting(soma::BackendKind::MacosVirtualization),
