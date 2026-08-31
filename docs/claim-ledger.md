@@ -84,6 +84,7 @@ No signed admission report, admission policy, or revocation state exists yet.
 |---|---|---|
 | Burst harness enforcing the benchmark contract | Live-proved at `ccf7bcf` against the Docker Backend only | [Burst harness dry run](evidence/2026-08-30-burst-harness-dry-run.md); this proves the harness, not SOMA performance |
 | Admitted KVM burst campaign and the 10 ms objective | Designed | [Benchmark contract](benchmark-contract.md) and [production admission evidence](research/production-admission-evidence.md). The current process-lifetime blocker and the required persistent Host Runtime are recorded in [the blocked burst attempt](evidence/2026-08-30-burst-against-kvm-blocked.md) |
+| Durable sandbox across processes: `soma machine launch`, then `exec` against the returned identity | Designed | [The `soma machine` surface does not survive its launching process](evidence/2026-08-31-durable-machine-across-processes.md). `launch` reports `ok` and `state: ready`, and a separate `exec` against the identity it returned refuses with `backend_unavailable`, because the machine and its guest session live in the launching process. `soma run`, which launches and executes in one process, works and is what every performance figure here was measured with. This is why the two-process contract benchmark reports 0 of 100: its `launch` exits 0 and its `exec` exits 76 |
 
 ## What no row claims
 
