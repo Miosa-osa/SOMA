@@ -34,6 +34,16 @@ pub(crate) fn disable_ipv6() -> Result<(), Error> {
     Ok(())
 }
 
+/// Sets `route_localnet` on one link in the calling thread's namespace.
+///
+/// The setting is scoped to one link rather than to the whole namespace, so publishing a
+/// loopback endpoint for one bundle changes nothing for any other link and the change
+/// disappears with the veth at release instead of persisting as host state.
+pub(crate) fn set_route_localnet(link: &str, enabled: bool) -> Result<(), Error> {
+    let path = format!("/proc/sys/net/ipv4/conf/{link}/route_localnet");
+    write(&path, if enabled { "1\n" } else { "0\n" })
+}
+
 fn write(path: &str, value: &str) -> Result<(), Error> {
     fs::write(path, value).map_err(|error| Error::io(Step::Sysctl, &error))
 }

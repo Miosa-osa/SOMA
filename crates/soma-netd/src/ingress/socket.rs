@@ -60,12 +60,9 @@ pub(super) fn bind_exclusive(
     if result != 0 {
         return Err(Error::PortUnavailable);
     }
-    if stream {
-        // SAFETY: `listen` only reads the descriptor and backlog.
-        if unsafe { libc::listen(socket.as_raw_fd(), 1) } != 0 {
-            return Err(Error::PortUnavailable);
-        }
-    }
+    // The socket is never made to listen. A bound socket already excludes every other bind,
+    // which is all a reservation claims, while a listening one would complete handshakes the
+    // broker cannot forward and make an unpublished port look reachable.
     // SAFETY: `sockaddr_storage` is a plain C aggregate for which all-zero bytes are valid.
     let mut bound: libc::sockaddr_storage = unsafe { mem::zeroed() };
     let mut bound_len = mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t;

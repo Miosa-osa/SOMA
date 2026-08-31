@@ -5,6 +5,10 @@
 //! something, found it already absent, or failed, and a final live inspection decides
 //! `complete`.
 //!
+//! The final inspection asks for the publication table by name alongside the host table and
+//! the host veth, so a port mapping that outlived its Instance is a failed release rather than
+//! an invisible one.
+//!
 //! Teardown is total rather than fail-fast: a step that fails is recorded and the remaining
 //! steps still run, so one wedged tool can never leave the namespace, the veth, and the host
 //! ruleset behind. An incomplete release writes no ledger release record, so reconciliation
@@ -39,6 +43,8 @@ pub enum StepResult {
 pub struct ReleaseEvidence {
     /// Port reservations dropped.
     pub ingress: usize,
+    /// The publication table carrying every published translation.
+    pub published: StepResult,
     /// Forwarding disabled inside the namespace.
     pub forwarding: StepResult,
     /// Conntrack zone flushed on the host.
@@ -124,6 +130,14 @@ pub(crate) fn teardown(
     let ingress = reservations.len();
     drop(reservations);
     let mut failure = None;
+    // Ingress goes first, and it goes as one object: deleting the publication table removes
+    // every translation this bundle installed in a single transaction, so no window exists in
+    // which one mapping outlives the release of another. The per-link `route_localnet` a
+    // loopback publication needed is not unset here because it is a property of the veth,
+    // which this teardown deletes outright a few steps later.
+    let published = step(&mut failure, || {
+        Ok(removed(nft::delete_table(&names.publication_table)?))
+    });
     let forwarding = step(&mut failure, || {
         if !pin.exists() {
             return Ok(StepResult::Skipped);
@@ -156,7 +170,8 @@ pub(crate) fn teardown(
     let inspected = step(&mut failure, || {
         let clean = !pin.exists()
             && !link::list_links()?.contains(&names.host_veth)
-            && !nft::table_exists(&names.host_table)?;
+            && !nft::table_exists(&names.host_table)?
+            && !nft::table_exists(&names.publication_table)?;
         Ok(if clean {
             StepResult::Removed
         } else {
@@ -165,6 +180,7 @@ pub(crate) fn teardown(
     });
     ReleaseEvidence {
         ingress,
+        published,
         forwarding,
         conntrack,
         routes: StepResult::RemovedWithParent,

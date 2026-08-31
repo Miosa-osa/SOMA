@@ -17,6 +17,8 @@ use soma_guest::LaunchNetwork;
 
 use super::codec::{checksum, ethernet, ethertype, transport_checksum};
 
+mod inbound;
+
 const ETH_ARP: u16 = 0x0806;
 const ETH_IP: u16 = 0x0800;
 const BROADCAST: [u8; 6] = [0xff; 6];

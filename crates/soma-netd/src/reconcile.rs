@@ -78,8 +78,12 @@ pub fn reconcile(broker: &Broker) -> Result<ReconcileReport, Error> {
         let pin = pins.contains(&short);
         let veth = links.contains(&names.host_veth);
         let table = tables.contains(&names.host_table);
+        // A leaked publication table would otherwise be invisible here, because it is not one
+        // of the three objects an assigned entry must own; a released entry that still has one
+        // is orphaned exactly as it would be with a leftover host table.
+        let published = tables.contains(&names.publication_table);
         let disposition = if entry.released {
-            if pin || veth || table {
+            if pin || veth || table || published {
                 Disposition::Orphaned
             } else {
                 Disposition::Released
@@ -113,11 +117,15 @@ pub fn reconcile(broker: &Broker) -> Result<ReconcileReport, Error> {
         .collect();
     report.unowned_tables = tables
         .into_iter()
-        .filter(|name| name.starts_with("soma_") || name.starts_with("somah_"))
         .filter(|name| {
-            !owned_short
-                .iter()
-                .any(|short| *name == format!("soma_{short}") || *name == format!("somah_{short}"))
+            name.starts_with("soma_") || name.starts_with("somah_") || name.starts_with("somap_")
+        })
+        .filter(|name| {
+            !owned_short.iter().any(|short| {
+                *name == format!("soma_{short}")
+                    || *name == format!("somah_{short}")
+                    || *name == format!("somap_{short}")
+            })
         })
         .collect();
     Ok(report)

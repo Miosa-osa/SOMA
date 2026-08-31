@@ -76,6 +76,9 @@ pub enum IntentRejection {
     Ipv6Unimplemented,
     /// A network profile selector named a profile that this broker does not serve.
     ProfileMismatch,
+    /// A publication asked for an IPv6 host bind, which has no destination to name while the
+    /// guest lease is IPv4 only.
+    PublicationFamily,
 }
 
 /// One kernel-facing or durable-storage step.
@@ -133,6 +136,7 @@ pub enum Drift {
     HostRulesetMissing,
     ForwardingAlreadyEnabled,
     LinkAlreadyUp,
+    PublicationRulesetPresent,
 }
 
 /// Why a descriptor transfer was refused.

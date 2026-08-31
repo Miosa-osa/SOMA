@@ -16,8 +16,8 @@ use soma_guest::{ActivationChallenge, LaunchNetwork};
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, DnsPlan, Error,
     InstanceId, Ipam, Ledger, NetworkIntent, NetworkProfile, OperationId, PortReservation,
-    RecordOutcome, SandboxRuleset, Step, derive_macs, ingress, namespace::NetNamespace, nft,
-    release,
+    PublishedPort, RecordOutcome, SandboxRuleset, Step, derive_macs, ingress,
+    namespace::NetNamespace, nft, release,
 };
 
 mod prepare;
@@ -25,12 +25,13 @@ mod types;
 
 pub use types::{AssignFailure, Assigned, SterileBundle};
 
-type AssignedParts = (
-    AssignmentRecord,
-    LaunchNetwork,
-    Vec<PortReservation>,
-    ActivationChallenge,
-);
+struct AssignedParts {
+    record: AssignmentRecord,
+    launch: LaunchNetwork,
+    reservations: Vec<PortReservation>,
+    published: Vec<PublishedPort>,
+    activation: ActivationChallenge,
+}
 
 /// The broker state shared by every bundle operation.
 #[derive(Debug)]
@@ -148,12 +149,13 @@ impl Broker {
         claim: (u32, u32),
     ) -> Result<Assigned, AssignFailure> {
         match self.try_assign(&bundle, instance, operation, intent, claim) {
-            Ok((record, launch, reservations, activation)) => Ok(Assigned {
+            Ok(parts) => Ok(Assigned {
                 bundle,
-                record,
-                launch,
-                reservations,
-                activation: Some(activation),
+                record: parts.record,
+                launch: parts.launch,
+                reservations: parts.reservations,
+                published: parts.published,
+                activation: Some(parts.activation),
                 activated: None,
                 active: false,
             }),
@@ -196,16 +198,20 @@ impl Broker {
                 record = self.ledger.lookup(bundle.id, bundle.generation)?.record;
             }
         }
+        // The host endpoints are taken before any ruleset changes, so a port already owned by
+        // something else fails the assignment while the sandbox is still denied.
+        let reservations = ingress::reserve(intent.publications())?;
+        let published = ingress::publish_all(&reservations, bundle.leases.guest.guest())?;
         let ruleset = SandboxRuleset {
             names: &bundle.names,
             lease: bundle.leases.guest,
             guest_mac: bundle.macs.guest,
             intent,
             protected: self.profile.protected(),
+            published: &published,
         }
         .render();
         bundle.namespace.within(move || nft::apply(&ruleset))?;
-        let reservations = ingress::reserve(intent.publications())?;
         let dns = DnsPlan::from_intent(intent, bundle.leases.guest.host());
         let launch = LaunchNetwork::new(
             record.vsock_cid,
@@ -220,7 +226,13 @@ impl Broker {
         .map_err(|_| Error::InvalidState("launch network"))?;
         let activation =
             ActivationChallenge::generate().map_err(|_| Error::InvalidState("activation"))?;
-        Ok((record, launch, reservations, activation))
+        Ok(AssignedParts {
+            record,
+            launch,
+            reservations,
+            published,
+            activation,
+        })
     }
 }
 

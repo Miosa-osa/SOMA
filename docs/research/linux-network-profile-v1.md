@@ -20,6 +20,9 @@ DNS uses only declared resolvers and follows the same destination policy.
 The guest link remains down and ingress maps remain inactive during restore and repair.
 After authenticated network repair, the broker verifies namespace, link, lease, route, nftables, resolver, and listener state and atomically activates forwarding.
 Automatic ports are reserved before Launch and published only after Ready.
+A reservation binds one exclusive socket that is never made to listen, so a reserved but unpublished port refuses a connection rather than accepting one nothing can serve.
+Activation, the same step that enables forwarding, installs one publication table per bundle carrying the destination translation at the prerouting and output hooks and a masquerade out through the bundle veth; release deletes that table first and proves it gone by name.
+The layer above a published port is decided in [Published ports and preview URLs](published-ports-and-preview-urls.md) and is not part of this broker.
 Egress and ingress counters are bound to Instance identity, not a reusable interface name.
 
 Proxy profiles transfer no raw credential to the VMM.
