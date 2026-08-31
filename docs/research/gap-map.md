@@ -78,6 +78,16 @@ These are measured or structural, and none of them is a feature gap.
 
 **The warm list is a heuristic.** The guest agent warms a conventional set of runtime paths because nothing tells it what the workload actually is. A compiler-emitted list from the Generation's entrypoint would warm exactly what runs and nothing else.
 
+**The network hot path costs more than a whole sandbox launch.** The retained privileged run on eval-1 measured, at concurrency 100, network assign at 86.1 ms median and 370.7 ms at the ninety-ninth percentile, activation at 19.0 ms median, and release at 144.4 ms median with a 1.74 s maximum. The whole sandbox time to first command at that concurrency is 181 ms, so wiring the network in as it stands would roughly double it. Those figures were taken while the image matrix was running on the same host, so they are contended and need a clean repeat before anyone quotes them; the order of magnitude is the point.
+
+The cost is mechanical rather than mysterious. `assign` renders a ruleset and applies it by executing `/usr/sbin/nft -f -` as a subprocess inside a scoped thread that has entered the bundle's namespace. At a hundred launches that is a hundred process spawns and a hundred ruleset parses on the request path. `prepare` already runs `nft` once, to install a fully denied ruleset, so the second application is the one that could move.
+
+There are two ways to remove it and they differ in what they cost elsewhere.
+
+Applying the admitted ruleset at prepare, with bundles pooled by intent class, would take the exec off the request path entirely. The prepared worker protocol already keys resource bundles by network profile, so the pooling exists in the design. It appears safe because traffic is gated by forwarding, which activation enables and prepare leaves off, and the links stay down until then. It is still a deliberate weakening: a sterile bundle would hold a permissive ruleset instead of a denied one, and `sterile_bundle_stays_down_until_activation_and_policy_holds_after_it` exists to hold that layer. That makes it a decision for the design's owner rather than an optimisation to take unilaterally.
+
+Applying the ruleset over netlink instead of by executing `nft` removes the process spawn and the parse without changing a single policy property. It is the larger implementation and the smaller risk.
+
 **Cohort variance is 40 percent of the median.** Until that is understood, an optimisation smaller than about 60 ms cannot be distinguished from noise by a single hundred-way cohort, so measurement method is itself on the critical path for optimisation work.
 
 ## Not gaps, recorded so they are not rediscovered
