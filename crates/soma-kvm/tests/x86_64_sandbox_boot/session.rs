@@ -188,12 +188,18 @@ fn execute_one<'a>(
     ))
 }
 
+/// The machine this session runs, built with exactly the devices the
+/// Generation's manifest declares. `DeviceSet::FULL` here would build a
+/// machine the manifest never described - since `ba0cde7` the manifest's
+/// command line names only declared devices, so the machine/manifest
+/// cmdline equality this suite asserts is the declaration honored.
 pub fn config(
     kernel: File,
     initramfs: File,
     root: File,
     overlay: File,
     ram_bytes: u64,
+    devices: DeviceSet,
 ) -> SandboxConfig {
     let overlay = Some(overlay);
     SandboxConfig {
@@ -205,7 +211,7 @@ pub fn config(
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
-        devices: DeviceSet::FULL,
+        devices,
     }
 }
 

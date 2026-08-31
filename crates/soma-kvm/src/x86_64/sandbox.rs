@@ -206,6 +206,13 @@ impl SandboxMachine {
             Some(prepared.serial_line),
             self.console.clone(),
         ));
+        // RunStart is stamped BEFORE the vCPU thread exists: the timing
+        // contract reads "armed <= entered", and the thread this call spawns
+        // stamps FirstRunEntered on its own way into KVM_RUN. Stamping after
+        // the spawn returns loses that order on a small host - a 2-core
+        // machine was observed entering the guest 3.6us before the spawning
+        // thread got to the mark.
+        self.mark(Milestone::RunStart);
         let vcpu = VcpuRun::start(prepared.vcpu, bus, Some(dispatch), None, &self.exits).map_err(
             |report| {
                 report
@@ -214,7 +221,6 @@ impl SandboxMachine {
                     .unwrap_or_else(|| MachineError::invalid(Phase::Run, "vCPU failed to start"))
             },
         )?;
-        self.mark(Milestone::RunStart);
         self.stage = Stage::Running(Running { vcpu, event_loop });
         Ok(())
     }

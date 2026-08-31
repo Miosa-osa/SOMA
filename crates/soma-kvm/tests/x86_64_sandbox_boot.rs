@@ -136,7 +136,14 @@ mod live {
             "the private head must start as an exact copy of the sterile template"
         );
         let ram_bytes = memory_mib * MIB;
-        let config = session::config(kernel, initramfs, root, head, ram_bytes);
+        let config = session::config(
+            kernel,
+            initramfs,
+            root,
+            head,
+            ram_bytes,
+            manifest.device_set(),
+        );
         let expected_cmdline = String::from_utf8(manifest.command_line.clone()).unwrap();
 
         let host_before = x86_64_host_sample::sample(ram_bytes / 1024);
