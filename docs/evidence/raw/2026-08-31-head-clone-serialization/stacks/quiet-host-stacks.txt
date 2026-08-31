@@ -1,0 +1,295 @@
+=== catch 1 at 10:03:38.038297370 blocked=11
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 23944300 22202
+ig 1456991 195385 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24608060 0 434108 170379 0 57275 4761 1492795 0 5996
+=== catch 2 at 10:03:39.285357016 blocked=39
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24001022 22202
+ig 1461396 199790 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24664786 0 434132 170379 0 57275 4761 1492795 0 5996
+=== catch 3 at 10:03:40.224623234 blocked=29
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24044050 22202
+ig 1464791 203185 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24707810 0 434151 170379 0 57275 4761 1492795 0 5996
+=== catch 4 at 10:03:41.155818531 blocked=10
+--- probe thread stacks, grouped
+COUNT 1
+[<0>] xfs_ilock2_io_mmap+0x17b/0x390 [xfs]
+[<0>] xfs_reflink_remap_prep+0x55/0x2a0 [xfs]
+[<0>] xfs_file_remap_range+0x89/0x360 [xfs]
+[<0>] vfs_clone_file_range+0x110/0x360
+[<0>] ioctl_file_clone+0x52/0xc0
+[<0>] do_vfs_ioctl+0x699/0x920
+[<0>] __x64_sys_ioctl+0x7d/0xf0
+[<0>] x64_sys_call+0x12a3/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 1
+[<0>] futex_wait_queue+0x64/0xa0
+[<0>] __futex_wait+0x155/0x1d0
+[<0>] futex_wait+0x74/0x120
+[<0>] do_futex+0x105/0x260
+[<0>] __x64_sys_futex+0x12a/0x200
+[<0>] x64_sys_call+0x111/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+--- other tasks in uninterruptible sleep
+[1109 md1_raid10]
+[<0>] md_super_wait+0xaa/0xe0
+[<0>] write_sb_page+0xea/0x140
+[<0>] md_bitmap_update_sb.part.0+0x13e/0x170
+[<0>] md_bitmap_update_sb+0x26/0x40
+[<0>] md_update_sb.part.0+0x2a8/0x6f0
+[<0>] md_check_recovery+0x2d0/0x420
+[<0>] raid10d+0x6f/0x310 [raid10]
+[<0>] md_thread+0xab/0x190
+[1185 jbd2/dm-0-8]
+[<0>] md_write_start.part.0+0x13f/0x230
+[<0>] md_write_start+0x14/0x30
+[<0>] raid10_make_request+0x51/0x1a0 [raid10]
+[<0>] md_handle_request+0x15b/0x280
+[<0>] md_submit_bio+0x63/0xb0
+[<0>] __submit_bio+0xe4/0x1c0
+[<0>] __submit_bio_noacct+0x90/0x230
+[<0>] submit_bio_noacct_nocheck+0x1ac/0x1f0
+--- xfs stat
+trans 249 24086804 22202
+ig 1468091 206485 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24750565 0 434169 170379 0 57275 4761 1492795 0 5996
+=== catch 5 at 10:03:41.596240376 blocked=18
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24105432 22202
+ig 1469591 207985 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24769192 0 434177 170379 0 57275 4761 1492795 0 5996
+=== catch 6 at 10:03:42.853755911 blocked=25
+--- probe thread stacks, grouped
+COUNT 1
+[<0>] __dentry_kill+0x9a/0x180
+[<0>] dput+0xef/0x1b0
+[<0>] __fput+0xf7/0x2e0
+[<0>] __fput_sync+0x1c/0x30
+[<0>] __x64_sys_close+0x3e/0x90
+[<0>] x64_sys_call+0x1fec/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24161745 22202
+ig 1473991 212385 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24825506 0 434202 170379 0 57275 4761 1492795 0 5996
+=== catch 1 at 10:03:43.267755660 blocked=50
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24181738 22202
+ig 1475491 213885 1 1261606 0 750406 1971311
+log 732992 46911488 19436 766636 866136
+push_ail 24845498 0 434210 170379 0 57275 4761 1492795 0 5996
+=== catch 2 at 10:05:02.780538363 blocked=100
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24190747 22202
+ig 1476250 214385 1 1261865 0 1261699 1971313
+log 732999 46911936 19436 766643 866140
+push_ail 24854515 0 435653 170512 0 57379 4806 1493212 0 5998
+=== catch 3 at 10:05:07.161269256 blocked=100
+--- probe thread stacks, grouped
+COUNT 23
+[<0>] xfs_ilock2_io_mmap+0x17b/0x390 [xfs]
+[<0>] xfs_reflink_remap_prep+0x55/0x2a0 [xfs]
+[<0>] xfs_file_remap_range+0x89/0x360 [xfs]
+[<0>] vfs_clone_file_range+0x110/0x360
+[<0>] ioctl_file_clone+0x52/0xc0
+[<0>] do_vfs_ioctl+0x699/0x920
+[<0>] __x64_sys_ioctl+0x7d/0xf0
+[<0>] x64_sys_call+0x12a3/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 20
+[<0>] open_last_lookups+0x137/0x400
+[<0>] path_openat+0x99/0x2d0
+[<0>] do_filp_open+0xaf/0x170
+[<0>] do_sys_openat2+0xb3/0xe0
+[<0>] __x64_sys_openat+0x55/0xa0
+[<0>] x64_sys_call+0x1eb1/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 2
+[<0>] xfs_buf_iowait+0x1f/0xd0 [xfs]
+[<0>] __xfs_buf_submit+0x141/0x1f0 [xfs]
+[<0>] xfs_buf_read_map+0x155/0x340 [xfs]
+[<0>] xfs_trans_read_buf_map+0x13b/0x2f0 [xfs]
+[<0>] xfs_btree_read_buf_block+0xc1/0xf0 [xfs]
+[<0>] xfs_btree_lookup_get_block+0xa8/0x190 [xfs]
+[<0>] xfs_btree_lookup+0x115/0x610 [xfs]
+[<0>] xfs_dialloc_ag_update_inobt+0x60/0x190 [xfs]
+[<0>] xfs_dialloc_ag+0x1e0/0x300 [xfs]
+[<0>] xfs_dialloc+0x275/0x440 [xfs]
+[<0>] xfs_create+0x259/0x570 [xfs]
+[<0>] xfs_generic_create+0x2f6/0x360 [xfs]
+[<0>] xfs_vn_create+0x17/0x30 [xfs]
+[<0>] lookup_open.isra.0+0x4ef/0x570
+[<0>] open_last_lookups+0x14f/0x400
+[<0>] path_openat+0x99/0x2d0
+[<0>] do_filp_open+0xaf/0x170
+[<0>] do_sys_openat2+0xb3/0xe0
+[<0>] __x64_sys_openat+0x55/0xa0
+[<0>] x64_sys_call+0x1eb1/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 1
+[<0>] xfs_buf_iowait+0x1f/0xd0 [xfs]
+[<0>] __xfs_buf_submit+0x141/0x1f0 [xfs]
+[<0>] xfs_buf_read_map+0x155/0x340 [xfs]
+[<0>] xfs_trans_read_buf_map+0x13b/0x2f0 [xfs]
+[<0>] xfs_btree_read_buf_block+0xc1/0xf0 [xfs]
+[<0>] xfs_btree_lookup_get_block+0xa8/0x190 [xfs]
+[<0>] xfs_btree_lookup+0x115/0x610 [xfs]
+[<0>] xfs_rmap_map_shared+0x15f/0x630 [xfs]
+[<0>] xfs_rmap_finish_one+0x152/0x2f0 [xfs]
+[<0>] xfs_rmap_update_finish_item+0x1a/0x50 [xfs]
+[<0>] xfs_defer_finish_one+0x100/0x280 [xfs]
+[<0>] xfs_defer_finish_noroll+0x138/0x440 [xfs]
+[<0>] xfs_trans_commit+0x52/0x90 [xfs]
+[<0>] xfs_reflink_remap_extent+0x325/0x5f0 [xfs]
+[<0>] xfs_reflink_remap_blocks+0x14d/0x350 [xfs]
+[<0>] xfs_file_remap_range+0x105/0x360 [xfs]
+[<0>] vfs_clone_file_range+0x110/0x360
+[<0>] ioctl_file_clone+0x52/0xc0
+[<0>] do_vfs_ioctl+0x699/0x920
+[<0>] __x64_sys_ioctl+0x7d/0xf0
+[<0>] x64_sys_call+0x12a3/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 1
+[<0>] futex_wait_queue+0x64/0xa0
+[<0>] __futex_wait+0x155/0x1d0
+[<0>] futex_wait+0x74/0x120
+[<0>] do_futex+0x105/0x260
+[<0>] __x64_sys_futex+0x12a/0x200
+[<0>] x64_sys_call+0x111/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 1
+[<0>] xfs_buf_iowait+0x1f/0xd0 [xfs]
+[<0>] __xfs_buf_submit+0x141/0x1f0 [xfs]
+[<0>] xfs_buf_read_map+0x155/0x340 [xfs]
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24194507 22202
+ig 1476605 214504 1 1262101 0 1261838 1971313
+log 733003 46912192 19436 766645 866144
+push_ail 24858283 0 435657 170623 0 57379 4815 1493460 0 5998
+=== catch 4 at 10:05:11.585798362 blocked=100
+--- probe thread stacks, grouped
+COUNT 47
+[<0>] xfs_ilock2_io_mmap+0x17b/0x390 [xfs]
+[<0>] xfs_reflink_remap_prep+0x55/0x2a0 [xfs]
+[<0>] xfs_file_remap_range+0x89/0x360 [xfs]
+[<0>] vfs_clone_file_range+0x110/0x360
+[<0>] ioctl_file_clone+0x52/0xc0
+[<0>] do_vfs_ioctl+0x699/0x920
+[<0>] __x64_sys_ioctl+0x7d/0xf0
+[<0>] x64_sys_call+0x12a3/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 18
+[<0>] open_last_lookups+0x137/0x400
+[<0>] path_openat+0x99/0x2d0
+[<0>] do_filp_open+0xaf/0x170
+[<0>] do_sys_openat2+0xb3/0xe0
+[<0>] __x64_sys_openat+0x55/0xa0
+[<0>] x64_sys_call+0x1eb1/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 2
+[<0>] xfs_buf_iowait+0x1f/0xd0 [xfs]
+[<0>] __xfs_buf_submit+0x141/0x1f0 [xfs]
+[<0>] xfs_buf_read_map+0x155/0x340 [xfs]
+[<0>] xfs_trans_read_buf_map+0x13b/0x2f0 [xfs]
+[<0>] xfs_btree_read_buf_block+0xc1/0xf0 [xfs]
+[<0>] xfs_btree_lookup_get_block+0xa8/0x190 [xfs]
+[<0>] xfs_btree_lookup+0x115/0x610 [xfs]
+[<0>] xfs_rmap_map_shared+0x15f/0x630 [xfs]
+[<0>] xfs_rmap_finish_one+0x152/0x2f0 [xfs]
+[<0>] xfs_rmap_update_finish_item+0x1a/0x50 [xfs]
+[<0>] xfs_defer_finish_one+0x100/0x280 [xfs]
+[<0>] xfs_defer_finish_noroll+0x138/0x440 [xfs]
+[<0>] xfs_trans_commit+0x52/0x90 [xfs]
+[<0>] xfs_reflink_remap_extent+0x325/0x5f0 [xfs]
+[<0>] xfs_reflink_remap_blocks+0x14d/0x350 [xfs]
+[<0>] xfs_file_remap_range+0x105/0x360 [xfs]
+[<0>] vfs_clone_file_range+0x110/0x360
+[<0>] ioctl_file_clone+0x52/0xc0
+[<0>] do_vfs_ioctl+0x699/0x920
+[<0>] __x64_sys_ioctl+0x7d/0xf0
+[<0>] x64_sys_call+0x12a3/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 2
+[<0>] xfs_buf_iowait+0x1f/0xd0 [xfs]
+[<0>] __xfs_buf_submit+0x141/0x1f0 [xfs]
+[<0>] xfs_buf_read_map+0x155/0x340 [xfs]
+[<0>] xfs_trans_read_buf_map+0x13b/0x2f0 [xfs]
+[<0>] xfs_btree_read_buf_block+0xc1/0xf0 [xfs]
+[<0>] xfs_btree_lookup_get_block+0xa8/0x190 [xfs]
+[<0>] xfs_btree_lookup+0x115/0x610 [xfs]
+[<0>] xfs_dialloc_ag_update_inobt+0x60/0x190 [xfs]
+[<0>] xfs_dialloc_ag+0x1e0/0x300 [xfs]
+[<0>] xfs_dialloc+0x275/0x440 [xfs]
+[<0>] xfs_create+0x259/0x570 [xfs]
+[<0>] xfs_generic_create+0x2f6/0x360 [xfs]
+[<0>] xfs_vn_create+0x17/0x30 [xfs]
+[<0>] lookup_open.isra.0+0x4ef/0x570
+[<0>] open_last_lookups+0x14f/0x400
+[<0>] path_openat+0x99/0x2d0
+[<0>] do_filp_open+0xaf/0x170
+[<0>] do_sys_openat2+0xb3/0xe0
+[<0>] __x64_sys_openat+0x55/0xa0
+[<0>] x64_sys_call+0x1eb1/0x25a0
+[<0>] do_syscall_64+0x87/0x180
+
+COUNT 1
+[<0>] xfs_buf_iowait+0x1f/0xd0 [xfs]
+[<0>] __xfs_buf_submit+0x141/0x1f0 [xfs]
+[<0>] xfs_buf_read_map+0x155/0x340 [xfs]
+[<0>] xfs_trans_read_buf_map+0x13b/0x2f0 [xfs]
+[<0>] xfs_read_agi+0xc0/0x180 [xfs]
+[<0>] xfs_ialloc_read_agi+0x4c/0x120 [xfs]
+[<0>] xfs_dialloc+0x1d6/0x440 [xfs]
+[<0>] xfs_create+0x259/0x570 [xfs]
+[<0>] xfs_generic_create+0x2f6/0x360 [xfs]
+[<0>] xfs_vn_create+0x17/0x30 [xfs]
+[<0>] lookup_open.isra.0+0x4ef/0x570
+[<0>] open_last_lookups+0x14f/0x400
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24199804 22202
+ig 1477063 214724 1 1262339 0 1262074 1971313
+log 733007 46912448 19436 766647 866148
+push_ail 24863583 0 435662 170740 0 57379 4893 1493816 0 5998
+=== catch 5 at 10:05:25.225128061 blocked=25
+--- probe thread stacks, grouped
+--- other tasks in uninterruptible sleep
+--- xfs stat
+trans 249 24216543 22202
+ig 1478537 215465 1 1263072 0 1262809 1971313
+log 733019 46913216 19436 766653 866160
+push_ail 24880335 0 435675 171087 0 57379 5023 1494804 0 5998

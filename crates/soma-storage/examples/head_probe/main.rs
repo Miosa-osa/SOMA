@@ -50,18 +50,18 @@ fn load() -> f64 {
         .unwrap_or(-1.0)
 }
 
-fn percentile(sorted: &[f64], point: f64) -> f64 {
+fn percentile(sorted: &[f64], point: usize) -> f64 {
     if sorted.is_empty() {
         return 0.0;
     }
-    let rank = ((point / 100.0) * sorted.len() as f64).ceil().max(1.0) as usize;
+    let rank = (point * sorted.len()).div_ceil(100).max(1);
     sorted[rank.min(sorted.len()) - 1]
 }
 
 fn pair(samples: &[Sample], pick: fn(&Sample) -> f64) -> (f64, f64) {
     let mut values: Vec<f64> = samples.iter().map(pick).collect();
     values.sort_by(f64::total_cmp);
-    (percentile(&values, 50.0), percentile(&values, 99.0))
+    (percentile(&values, 50), percentile(&values, 99))
 }
 
 fn main() {
@@ -135,8 +135,8 @@ fn main() {
              \"cohort_wall_us\":{cohort_us:.1},\"teardown_us\":{teardown_us:.1},\
              \"extents\":{}}}",
             plan.threads,
-            percentile(&totals, 50.0),
-            percentile(&totals, 99.0),
+            percentile(&totals, 50),
+            percentile(&totals, 99),
             samples[0].extents
         );
         if let Some(sink) = sink.as_mut() {
@@ -158,9 +158,9 @@ fn main() {
         "{{\"label\":\"{label}\",\"summary\":true,\"samples\":{},\"p50_us\":{:.1},\
          \"p95_us\":{:.1},\"p99_us\":{:.1},\"max_us\":{:.1}}}",
         all.len(),
-        percentile(&all, 50.0),
-        percentile(&all, 95.0),
-        percentile(&all, 99.0),
+        percentile(&all, 50),
+        percentile(&all, 95),
+        percentile(&all, 99),
         all.last().copied().unwrap_or_default()
     );
 }

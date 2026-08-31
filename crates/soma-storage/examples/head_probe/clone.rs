@@ -79,7 +79,7 @@ fn verify(fd: RawFd) -> u64 {
             length: u64::MAX,
             flags: FIEMAP_FLAG_SYNC,
             mapped: 0,
-            count: BATCH as u32,
+            count: u32::try_from(BATCH).expect("batch fits"),
             reserved: 0,
             extents: [Extent::default(); BATCH],
         };
@@ -87,12 +87,17 @@ fn verify(fd: RawFd) -> u64 {
         // the call; `fd` is live.
         let rc = unsafe { libc::ioctl(fd, FS_IOC_FIEMAP, &raw mut request) };
         assert!(rc == 0, "fiemap: {}", std::io::Error::last_os_error());
-        let mapped = (request.mapped as usize).min(BATCH);
+        let mapped = usize::try_from(request.mapped)
+            .expect("count fits")
+            .min(BATCH);
         if mapped == 0 {
             return seen;
         }
         for extent in &request.extents[..mapped] {
-            assert!(extent.flags & FIEMAP_EXTENT_SHARED != 0, "extent not shared");
+            assert!(
+                extent.flags & FIEMAP_EXTENT_SHARED != 0,
+                "extent not shared"
+            );
             seen += 1;
         }
         let last = request.extents[mapped - 1];
