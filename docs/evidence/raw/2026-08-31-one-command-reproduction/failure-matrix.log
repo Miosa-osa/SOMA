@@ -1,0 +1,73 @@
+
+================ 0. control: the store as prepared
+  launches     3 of 3 succeeded
+  time to first command  p50 29.15 ms, min 28.17 ms, max 31.23 ms
+  segment medians        admitted 0.03 ms, machine_launched 0.43 ms, ready 19.08 ms, command_finished 9.61 ms
+
+  the store is kept at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048 so a rerun measures instead of rebuilding.
+  remove it with: rm -rf /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
+exit=0
+
+================ 1. no capture: the snapshot directory is removed
+
+==> reusing the prepared store at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
+
+==> verifying the prepared store
+
+reproduce: /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25 has no captured snapshot, so every launch would cold boot and report a number about fifteen times slower with no error; capture it with target/release/examples/capture_snapshot /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048/ref-b1bfde16c842956f7bdb469eb109b89bbdccd284d6f8ff5a6a5af448f8e0bb25 512
+exit=1
+
+================ 2. wrong shape: a store captured at 512 MiB asked for 1024
+
+==> reusing the prepared store at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
+
+==> verifying the prepared store
+
+reproduce: /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048 was captured at memory_mib=512 but this run asks for 1024; a restore must match the capture shape exactly, so prepare a separate store for it
+exit=1
+
+================ 3. dangling kernel link
+
+==> preflight
+
+reproduce: kernel/out is a dangling symlink to /srv/soma/no-such-kernel; build it with kernel/build.sh or repoint the link
+exit=1
+
+================ 4a. stale store: prepared under an older wire contract, no stamp
+    Finished `release` profile [optimized] target(s) in 0.17s
+    Finished `release` profile [optimized] target(s) in 0.09s
+
+==> verifying the prepared store
+
+reproduce: /srv/soma/sweep/node-1024-10240 has no .soma-reproduce-stamp, so what it was built against is unknown; treat it as stale and delete it, then rerun
+exit=1
+
+================ 4b. stale store: a stamp naming a wire contract this checkout does not have
+
+==> reusing the prepared store at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
+
+==> verifying the prepared store
+
+reproduce: /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048 was built against wire contract 0000badc0ntract and this checkout is 368f81b2e540ab97; the store is stale and cannot launch, delete it and rerun
+exit=1
+
+================ 5. a command after -- with no --expect
+
+reproduce: a command after -- needs --expect naming text its output must contain
+exit=1
+
+================ 6. cargo missing from a non-interactive PATH, and ~/.cargo/env hidden
+
+==> preflight
+
+reproduce: cargo is not on PATH; scripts/setup-host.sh installs it
+exit=1
+
+================ 7. control again: nothing above left damage
+  launches     3 of 3 succeeded
+  time to first command  p50 30.0 ms, min 29.7 ms, max 37.42 ms
+  segment medians        admitted 0.03 ms, machine_launched 0.46 ms, ready 22.64 ms, command_finished 6.87 ms
+
+  the store is kept at /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048 so a rerun measures instead of rebuilding.
+  remove it with: rm -rf /srv/soma/audit2/scratch/store/busybox-stable-musl-1-512-2048
+exit=0
