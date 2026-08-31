@@ -28,8 +28,8 @@ No signed admission report, admission policy, or revocation state exists yet.
 | Capability | Status | Evidence |
 |---|---|---|
 | Bounded verified OCI layout import | Live-proved at `4d10493` | [Node 22 OCI import](evidence/2026-08-29-node22-oci-import.md) |
-| Deterministic normalized logical rootfs | Live-proved at `4d10493` | [Node 22 OCI import](evidence/2026-08-29-node22-oci-import.md); cross-host reproduction of one image revision is still open |
-| Pinned PVH kernel build | Live-proved at `c634c89` | [x86_64 PVH kernel build](evidence/2026-08-29-x86_64-pvh-kernel-build.md); cross-host reproducibility untested |
+| Deterministic normalized logical rootfs | Live-proved at `4d10493` | [Node 22 OCI import](evidence/2026-08-29-node22-oci-import.md); cross-host reproduction observed once for the `node:22` revision - the same EROFS root digest from a fresh import on an unrelated host and distribution, [second-host reproduction](evidence/2026-08-30-x86_64-second-host-reproduction.md) |
+| Pinned PVH kernel build | Live-proved at `c634c89` | [x86_64 PVH kernel build](evidence/2026-08-29-x86_64-pvh-kernel-build.md); cross-host reproducibility observed once - a byte-identical `vmlinux` from a fresh build on an unrelated host and distribution, [second-host reproduction](evidence/2026-08-30-x86_64-second-host-reproduction.md) |
 | Generation compiler and certification | Component-tested | `crates/soma-generation` tests; live phase 4 capture remains a Linux KVM operation |
 | Generation Candidate cold-booting on real KVM | Live-proved at `71161ea`, historical | [First sandbox command](evidence/2026-08-29-x86_64-first-sandbox-command.md); the run used initramfs layout v2, so its `GenerationId` values are no longer reproducible |
 | Generation snapshot certification and ready-manifest publication | Component-tested, fresh live proof pending | `install_snapshot`, `certify_candidate`, `promote_candidate`, and `verify_generation`; the ignored live KVM test binds the full hardware run |
