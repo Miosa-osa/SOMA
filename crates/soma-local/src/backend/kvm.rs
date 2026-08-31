@@ -4,6 +4,7 @@ mod io;
 mod lifecycle;
 mod prepared;
 mod resolve;
+mod secrets;
 mod session;
 mod timeline;
 mod worker;

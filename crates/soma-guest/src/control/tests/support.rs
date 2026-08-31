@@ -119,6 +119,20 @@ impl MemoryIo {
         }
     }
 
+    /// Whether the peer has sent nothing this side has not already consumed.
+    ///
+    /// The check is deliberately non-blocking: a test that wants to prove no further request was
+    /// made cannot wait for one that is never coming.
+    fn quiet(&mut self) -> bool {
+        while let Ok(packet) = self.incoming.try_recv() {
+            match packet {
+                Packet::Bytes(bytes) => self.buffered.extend(bytes),
+                Packet::Poisoned => return false,
+            }
+        }
+        self.buffered.is_empty()
+    }
+
     fn read_frame(&mut self, deadline: Instant) -> Result<Vec<u8>, ()> {
         let mut header = [0_u8; 2];
         self.read_exact(&mut header, deadline)?;
@@ -185,6 +199,11 @@ impl RawGuest {
             io,
             session: pending.finish().expect("guest transport"),
         }
+    }
+
+    /// Whether the host has sent nothing further.
+    pub(super) fn quiet(&mut self) -> bool {
+        self.io.quiet()
     }
 
     pub(super) fn receive(&mut self) -> HostMessage {

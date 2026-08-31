@@ -48,13 +48,13 @@ pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
     CommandContext, DirectoryEntry, EntryKind, EnvironmentPair, FileFailure, FileOutcome,
     FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_CHUNK_BYTES, MAX_ENTRIES,
-    MAX_PATH_BYTES, OperationId, OutputChunk, TerminalReport, TerminalStatus,
+    MAX_FILE_MODE, MAX_PATH_BYTES, OperationId, OutputChunk, TerminalReport, TerminalStatus,
 };
 pub use binding::SessionBinding;
 pub use control::{
     CONTROL_VSOCK_PORT, ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome,
-    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl, WholeFileRead,
-    WholeFileWrite,
+    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl, SecretPlacement,
+    SecretStage, WholeFileRead, WholeFileWrite,
 };
 pub use error::Error;
 pub(crate) use handshake::{
@@ -67,6 +67,9 @@ pub use launch_page::{
 pub(crate) use record::AuthenticatedSession;
 pub use record::MAX_RECORD_PAYLOAD;
 pub(crate) use secret::InstancePsk;
-pub use secret::{ResponderKeypair, ResponderPrivateKey, ResponderPublicKey};
+pub use secret::{
+    DEFAULT_SECRET_FILE_MODE, MAX_SECRET_BYTES, ResponderKeypair, ResponderPrivateKey,
+    ResponderPublicKey, SecretFile, SecretValue,
+};
 
 const NOISE_PATTERN: &str = "Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s";

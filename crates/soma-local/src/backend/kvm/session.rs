@@ -14,7 +14,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use soma_guest::{GuestCommand, LaunchNetwork, TerminalStatus};
+use soma_guest::{GuestCommand, LaunchNetwork, SecretFile, TerminalStatus};
 use soma_kvm::x86_64::{SandboxConfig, SandboxDisks, SandboxEvidence};
 
 use super::worker::serve;
@@ -69,6 +69,8 @@ pub(super) enum SessionError {
     Boot,
     /// Repair or the readiness probe failed.
     Ready,
+    /// A secret this Instance was launched with could not be placed inside it.
+    Secret,
     /// A command could not be run over the session.
     Execute,
     /// The sandbox thread ended without answering.
@@ -105,6 +107,13 @@ pub(super) struct Boot {
     /// and the identifier is derived from the Instance identity instead.
     pub(super) guest_cid: u32,
     pub(super) network: LaunchNetwork,
+    /// The secrets this one Instance is launched with.
+    ///
+    /// They belong to the Boot rather than to the Generation because the Generation, its
+    /// artifacts, and the snapshot every Instance of it restores from are shared. A value placed
+    /// here reaches one machine over one session and is never part of anything a second Instance
+    /// can read.
+    pub(super) secrets: Vec<SecretFile>,
 }
 
 /// Where a sandbox starts from.

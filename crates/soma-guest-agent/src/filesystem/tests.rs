@@ -6,6 +6,7 @@
 
 mod directory;
 mod failures;
+mod mode;
 mod presence;
 
 use std::fs;

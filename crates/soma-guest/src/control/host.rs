@@ -16,8 +16,10 @@ use super::{
 
 mod file;
 mod network;
+mod secret;
 mod whole_file;
 
+pub use secret::{SecretPlacement, SecretStage};
 pub use whole_file::{WholeFileRead, WholeFileWrite};
 
 /// Host owner of one authenticated pre-repair guest-control session.

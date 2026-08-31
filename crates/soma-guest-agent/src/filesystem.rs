@@ -16,6 +16,7 @@ mod contents;
 mod directory;
 mod entry;
 mod failure;
+mod mode;
 
 #[cfg(test)]
 mod tests;
@@ -44,6 +45,8 @@ pub fn perform(request: &FileRequest) -> FileOutcome {
         FileRequest::MakeDirectory { parents, .. } => directory::make(&path, *parents),
         FileRequest::ReadDirectory { offset, .. } => directory::list(&path, *offset),
         FileRequest::Exists { .. } => entry::status(&path),
+        FileRequest::Create { mode, .. } => mode::create(&path, *mode),
+        FileRequest::SetMode { mode, .. } => mode::set(&path, *mode),
         FileRequest::Remove { recursive, .. } => entry::remove(&path, *recursive),
     }
 }

@@ -38,6 +38,7 @@ const fn failure_kind(error: SessionError) -> BackendFailureKind {
         // The guest exists but never reached, or lost, its authenticated session.
         SessionError::Boot
         | SessionError::Ready
+        | SessionError::Secret
         | SessionError::Execute
         | SessionError::Gone
         | SessionError::Poisoned => BackendFailureKind::GuestFailure,
@@ -75,7 +76,13 @@ impl KvmBackend {
             .prepared()
             .downcast_ref::<super::prepared::PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
-        let boot = boot_for(prepared, shape.memory_mib(), request.instance_id())
+        // No secret reaches this Backend yet. The portable Launch request carries a Template's
+        // secret references, not their values, and the host side that resolves a reference into
+        // a value is the credential mediator of the second delivery mode, which does not exist.
+        // The placement itself is wired, so a launch given a secret it cannot place fails here
+        // rather than running without it.
+        let secrets = Vec::new();
+        let boot = boot_for(prepared, shape.memory_mib(), request.instance_id(), secrets)
             .map_err(|kind| self.fail(operation, kind))?;
         let launched = self.clocks.elapsed_ns(operation);
         let session = Session::launch(boot).map_err(|error| {
