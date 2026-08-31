@@ -1,9 +1,6 @@
 use std::path::PathBuf;
 
-use soma::{
-    BackendFailureKind, ManagedFailure, ManagedStateError, RunFailure, RunFailureKind,
-    TerminalStatus,
-};
+use soma::TerminalStatus;
 use soma_local::{
     BackendSelection, LocalFailureKind, LocalRuntime, LocalRuntimeConfig, probe_backend,
 };
@@ -79,6 +76,10 @@ impl ToolRuntime for LocalToolRuntime {
             .map_err(|_| RuntimeFailure::new(RuntimeFailureKind::Internal))?
     }
 }
+
+mod failure;
+
+use self::failure::{map_managed_failure, map_run_failure};
 
 fn invoke_runtime(
     runtime: &mut LocalRuntime,
@@ -180,7 +181,9 @@ fn machine_result(
     Ok(MachineResult::new(instance, state, receipt(evidence)?))
 }
 
-fn receipt(evidence: &soma::ExecutionReceipt) -> Result<ExecutionReceipt, RuntimeFailure> {
+pub(super) fn receipt(
+    evidence: &soma::ExecutionReceipt,
+) -> Result<ExecutionReceipt, RuntimeFailure> {
     serde_json::to_value(evidence)
         .map_err(|_| RuntimeFailure::new(RuntimeFailureKind::Internal))
         .and_then(|value| {
@@ -189,75 +192,7 @@ fn receipt(evidence: &soma::ExecutionReceipt) -> Result<ExecutionReceipt, Runtim
         })
 }
 
-fn map_run_failure(failure: &RunFailure) -> RuntimeFailure {
-    let kind = map_run_failure_kind(failure.kind());
-    let Ok(receipt) = receipt(failure.receipt()) else {
-        return RuntimeFailure::new(RuntimeFailureKind::Internal);
-    };
-    if let (Some(output), Some(status)) = (
-        failure.output(),
-        terminal_status(*failure.receipt().terminal_status()),
-    ) {
-        RuntimeFailure::with_command_evidence(
-            kind,
-            receipt,
-            status,
-            output.stdout().to_vec(),
-            output.stderr().to_vec(),
-        )
-    } else {
-        RuntimeFailure::with_receipt(kind, receipt)
-    }
-}
-
-fn map_managed_failure(failure: &ManagedFailure) -> RuntimeFailure {
-    match failure {
-        ManagedFailure::Operation(failure) => map_run_failure(failure),
-        ManagedFailure::State(state) => RuntimeFailure::new(match state {
-            ManagedStateError::MachineNotFound => RuntimeFailureKind::NotFound,
-            ManagedStateError::MachineAlreadyExists
-            | ManagedStateError::MachineStopped
-            | ManagedStateError::OperationConflict
-            | ManagedStateError::RecoveryRequired
-            | ManagedStateError::ReplayCapacityReached => RuntimeFailureKind::Conflict,
-        }),
-        ManagedFailure::StateStore(_) => RuntimeFailure::new(RuntimeFailureKind::Internal),
-        ManagedFailure::ReplayUnavailable(replay) => replay.receipt().map_or_else(
-            || RuntimeFailure::new(RuntimeFailureKind::Conflict),
-            |evidence| {
-                receipt(evidence).map_or_else(
-                    |_| RuntimeFailure::new(RuntimeFailureKind::Internal),
-                    |receipt| RuntimeFailure::with_receipt(RuntimeFailureKind::Conflict, receipt),
-                )
-            },
-        ),
-    }
-}
-
-const fn map_run_failure_kind(kind: RunFailureKind) -> RuntimeFailureKind {
-    match kind {
-        RunFailureKind::Backend { kind, .. } => match kind {
-            BackendFailureKind::Unsupported => RuntimeFailureKind::Unsupported,
-            BackendFailureKind::Unavailable => RuntimeFailureKind::Unavailable,
-            BackendFailureKind::ResourceConflict => RuntimeFailureKind::Conflict,
-            BackendFailureKind::WorkloadRejected => RuntimeFailureKind::Rejected,
-            BackendFailureKind::Timeout => RuntimeFailureKind::Timeout,
-            BackendFailureKind::OutputLimit => RuntimeFailureKind::OutputLimit,
-            BackendFailureKind::CleanupFailure => RuntimeFailureKind::CleanupIncomplete,
-            BackendFailureKind::IsolationFailure | BackendFailureKind::GuestFailure => {
-                RuntimeFailureKind::Internal
-            }
-        },
-        RunFailureKind::TimedOut => RuntimeFailureKind::Timeout,
-        RunFailureKind::OutputLimitExceeded => RuntimeFailureKind::OutputLimit,
-        RunFailureKind::CleanupIncomplete => RuntimeFailureKind::CleanupIncomplete,
-        RunFailureKind::Interrupted
-        | RunFailureKind::ObservationMismatch
-        | RunFailureKind::StateStore { .. } => RuntimeFailureKind::Internal,
-    }
-}
-
-const fn terminal_status(status: TerminalStatus) -> Option<CommandStatus> {
+pub(super) const fn terminal_status(status: TerminalStatus) -> Option<CommandStatus> {
     match status {
         TerminalStatus::Exited { code } => Some(CommandStatus::Exited { code }),
         TerminalStatus::Signaled { signal } => Some(CommandStatus::Signaled { signal }),
