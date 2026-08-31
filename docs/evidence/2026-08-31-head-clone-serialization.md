@@ -196,6 +196,6 @@ like: a 0.3 ms segment that did not move across forty cohorts.
 
 ## Raw
 
-`docs/evidence/raw/2026-08-31-head-clone-serialization/`, with `harness/` holding every script
+[`raw/2026-08-31-head-clone-serialization/`](raw/2026-08-31-head-clone-serialization/), with `harness/` holding every script
 used and `stacks/` holding the kernel stacks quoted above. The probe is
 `crates/soma-storage/examples/head_probe`.
