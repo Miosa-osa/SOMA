@@ -18,7 +18,7 @@ fn a_replay_of_an_operation_whose_transfer_failed_never_names_a_live_worker() {
         ..FaultPlan::default()
     });
     harness.pool.replenish_blocking().expect("replenish");
-    let failed = daemon::handle(&harness.pool, claim_request(1));
+    let failed = daemon::handle(&harness.runtime, claim_request(1));
     assert_eq!(
         failed,
         Reply::Failed(failure_code(FailureCode::Transfer)),
@@ -44,7 +44,7 @@ fn a_replay_of_an_operation_whose_transfer_failed_never_names_a_live_worker() {
     harness.pool.wait_replenishment();
     harness.pool.replenish_blocking().expect("replenish");
     assert_eq!(
-        daemon::handle(&harness.pool, claim_request(1)),
+        daemon::handle(&harness.runtime, claim_request(1)),
         Reply::Failed(failure_code(FailureCode::Terminated)),
         "the retry learns the Launch failed instead of being told it holds a dead worker"
     );
@@ -54,18 +54,18 @@ fn a_replay_of_an_operation_whose_transfer_failed_never_names_a_live_worker() {
 fn a_replay_of_a_live_operation_repeats_its_launch_page_and_a_released_one_is_terminal() {
     let harness = harness(limits(2, 6));
     harness.pool.replenish_blocking().expect("replenish");
-    let first = daemon::handle(&harness.pool, claim_request(2));
+    let first = daemon::handle(&harness.runtime, claim_request(2));
     let Reply::Claimed { worker, .. } = first else {
         panic!("the first claim transfers authority");
     };
     assert_eq!(
-        daemon::handle(&harness.pool, claim_request(2)),
+        daemon::handle(&harness.runtime, claim_request(2)),
         first,
         "a retry after a lost reply receives the identical launch page"
     );
     harness.pool.release(worker).expect("release");
     assert_eq!(
-        daemon::handle(&harness.pool, claim_request(2)),
+        daemon::handle(&harness.runtime, claim_request(2)),
         Reply::Failed(failure_code(FailureCode::Terminated))
     );
     assert_eq!(

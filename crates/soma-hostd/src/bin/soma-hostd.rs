@@ -14,8 +14,8 @@ mod linux {
 
     use soma_hostd::{
         Admission, CertifiedProfile, CpuClass, ExhaustedBehavior, GenerationId, Limits,
-        MemoryClass, MemoryShape, OverlayIdentity, Pool, PoolAdmission, PoolKey, SingleNode,
-        WorkloadClass, daemon,
+        MemoryClass, MemoryShape, OverlayIdentity, Pool, PoolAdmission, PoolKey, Runtime,
+        SingleNode, WorkloadClass, daemon,
         testing::{InProcessBroker, InProcessLauncher, ProcessTable},
     };
 
@@ -195,7 +195,8 @@ mod linux {
             .replenish_blocking()
             .map_err(|error| error.to_string())?;
         eprintln!("soma-hostd: prepared {built} workers with the in-process development launcher");
-        daemon::serve(&pool, &config.socket).map_err(|error| error.to_string())
+        let runtime = Arc::new(Runtime::new(pool));
+        daemon::serve(&runtime, &config.socket).map_err(|error| error.to_string())
     }
 
     fn hex32(text: &str, flag: &str) -> Result<[u8; 32], String> {
