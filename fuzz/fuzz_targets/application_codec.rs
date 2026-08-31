@@ -92,7 +92,7 @@ fn canonical_messages() -> &'static [Vec<u8>] {
 
 fn maximum_command(operation: OperationId) -> Vec<u8> {
     let mut arguments = vec![vec![b'x'; 4_096]; 15];
-    arguments.push(vec![b'y'; 3_991]);
+    arguments.push(vec![b'y'; 3_985]);
     let encoded = HostMessage::execute(
         operation,
         GuestCommand::new(b"/p".to_vec(), arguments, 1, 1).expect("maximum command"),

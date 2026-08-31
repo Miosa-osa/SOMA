@@ -139,13 +139,20 @@ It is not independently sufficient evidence for Ready.
 
 ### Command body
 
-A command body contains, in order, a nonzero unsigned 32-bit big-endian timeout in milliseconds, a nonzero unsigned 64-bit big-endian combined-output allowance, an unsigned 16-bit big-endian program length plus program bytes, an unsigned 16-bit big-endian argument count, and that many unsigned 16-bit length-prefixed argument byte strings.
+A command body contains, in order, a nonzero unsigned 32-bit big-endian timeout in milliseconds, a nonzero unsigned 64-bit big-endian combined-output allowance, an unsigned 16-bit big-endian program length plus program bytes, an unsigned 16-bit big-endian argument count, that many unsigned 16-bit length-prefixed argument byte strings, an unsigned 16-bit big-endian environment count, that many pairs of unsigned 16-bit length-prefixed name and value byte strings, one presence byte and its unsigned 16-bit length-prefixed working directory, one presence byte and its unsigned 16-bit length-prefixed user, and an unsigned 16-bit length-prefixed standard input.
 
 The program is nonempty, absolute, NUL-free, and at most 4096 bytes.
 Arguments are shell-free byte strings, may be empty, must be NUL-free, and are individually at most 4096 bytes.
 A command contains at most 64 arguments.
 The timeout is at most 3,600,000 milliseconds.
 The combined-output allowance is at most 16 MiB.
+
+A command contains at most 64 environment pairs.
+An environment name is nonempty, NUL-free, free of `=`, and at most 4096 bytes; a value may be empty, must be NUL-free, and is at most 4096 bytes.
+The working directory, when present, is nonempty, absolute, NUL-free, and at most 4096 bytes; the user, when present, is a nonempty NUL-free name of at most 256 bytes.
+Standard input is at most 32 KiB, which is below the capacity of a Linux pipe so the agent can deliver it in one write that cannot block.
+A presence byte is exactly 0 or 1, and a present field is nonempty, so an absent field and an empty one are not two spellings of the same message.
+
 The complete encoded command must fit one application body and therefore one Noise record.
 
 The current `soma-vmm` request surface admits up to 4096 arguments and 1 MiB of aggregate argument bytes.

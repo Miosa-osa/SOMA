@@ -6,7 +6,7 @@ use soma_guest::{
 #[test]
 fn largest_command_fits_one_record_and_one_more_byte_is_rejected() {
     let mut arguments = vec![vec![b'x'; 4096]; 15];
-    arguments.push(vec![b'y'; 3991]);
+    arguments.push(vec![b'y'; 3985]);
     let command =
         GuestCommand::new(b"/p".to_vec(), arguments.clone(), 1, 1).expect("exact record boundary");
     let message = HostMessage::execute(OperationId::new([1; 16]).expect("operation"), command);
