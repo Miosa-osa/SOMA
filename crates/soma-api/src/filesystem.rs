@@ -41,15 +41,17 @@ impl FilesystemBody {
     ///
     /// # Errors
     ///
-    /// Returns a 400 refusal when a field the named operation does not use was supplied, when a
-    /// write carried no content or content that is not base64, and a 413 when the content
-    /// exceeds the bytes one transfer will move.
+    /// Returns a 400 refusal when the path is one the guest protocol will not carry, when a field
+    /// the named operation does not use was supplied, or when a write carried no content or
+    /// content that is not base64, and a 413 when the content exceeds the bytes one transfer
+    /// will move.
     pub fn into_facade(
         self,
         instance_id: InstanceId,
         operation: FilesystemOperation,
     ) -> Result<FileMachineRequest, ApiError> {
         let path = self.path.into_bytes();
+        soma::check_guest_path(&path).map_err(|rejected| ApiError::invalid(rejected.message()))?;
         let operation = match operation {
             FilesystemOperation::Write => {
                 let encoded = self

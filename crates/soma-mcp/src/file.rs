@@ -14,9 +14,6 @@ use soma::{FileAnswer, FileKind, FileMachineRequest, FileOperation, FileRefusal}
 
 use crate::{BackendTarget, InstanceId, OperationId, input::BackendInput};
 
-/// Largest path the guest protocol will carry, restated so the tool schema can bound its input.
-const MAX_PATH_BYTES: usize = 4096;
-
 /// Which of the six operations a call asks for.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -39,7 +36,7 @@ pub(crate) struct FileInput {
     pub instance_id: String,
     pub operation: FileOperationInput,
     /// Absolute path inside the sandbox.
-    #[schemars(length(min = 1, max = MAX_PATH_BYTES))]
+    #[schemars(length(min = 1, max = soma::MAX_GUEST_PATH_BYTES))]
     pub path: String,
     /// Base64 contents, for a write and for nothing else.
     #[serde(default)]
@@ -56,6 +53,7 @@ pub(crate) struct FileInput {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FileInputError {
     Identity,
+    Path,
     MissingContent,
     UnexpectedContent,
     UnexpectedRecursive,
@@ -68,6 +66,7 @@ impl FileInputError {
     pub const fn message(self) -> &'static str {
         match self {
             Self::Identity => "operation_id and instance_id must be 32 lowercase hex characters",
+            Self::Path => "path must be absolute, non-empty, free of nul, and within 4096 bytes",
             Self::MissingContent => "a write must carry base64 content",
             Self::UnexpectedContent => "this operation does not take content",
             Self::UnexpectedRecursive => "this operation does not take a recursive flag",
@@ -114,6 +113,7 @@ impl TryFrom<FileInput> for FileRequest {
 
     fn try_from(input: FileInput) -> Result<Self, Self::Error> {
         let path = input.path.into_bytes();
+        soma::check_guest_path(&path).map_err(|_| FileInputError::Path)?;
         let operation = match input.operation {
             FileOperationInput::Write => {
                 refuse(

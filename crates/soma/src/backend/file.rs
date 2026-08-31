@@ -23,6 +23,76 @@ use serde::{Deserialize, Serialize};
 
 use crate::{InstanceId, OperationId};
 
+/// Largest guest path this protocol will carry.
+///
+/// The value belongs to the guest protocol, which checks it again on the way in and is the
+/// authority on it. It is restated here because this crate is below the protocol crate and a
+/// surface has to be able to refuse an inadmissible path before it reaches the wire. The two are
+/// held equal by a test in `soma-local`, which depends on both.
+pub const MAX_GUEST_PATH_BYTES: usize = 4096;
+
+/// Why a path cannot be carried to a guest at all.
+///
+/// This is not a filesystem outcome. A path of this shape is one the protocol will not encode, so
+/// it never becomes an operation the guest declines; it is refused where the request is built.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PathRejected {
+    /// The path is empty.
+    Empty,
+    /// The path is longer than [`MAX_GUEST_PATH_BYTES`].
+    TooLong,
+    /// The path does not begin at the guest's root.
+    Relative,
+    /// The path carries a nul byte, which no guest path may.
+    InteriorNul,
+}
+
+impl PathRejected {
+    /// A sentence naming what is wrong, for a surface to report.
+    #[must_use]
+    pub const fn message(self) -> &'static str {
+        match self {
+            Self::Empty => "the path is empty",
+            Self::TooLong => "the path is longer than the guest protocol carries",
+            Self::Relative => "the path must be absolute, beginning at the guest's root",
+            Self::InteriorNul => "the path carries a nul byte",
+        }
+    }
+}
+
+/// Refuses a path the guest protocol will not carry.
+///
+/// A request built with one of these would not reach the guest as a filesystem request at all:
+/// the guest rejects it while decoding, which is a protocol fault and ends the session. So a
+/// caller that named such a path would destroy its own sandbox instead of being told no. The
+/// guest still performs this check itself; this one exists so the answer is a refusal.
+///
+/// What is admissible beyond this shape is the guest's decision and is taken inside the guest.
+/// Nothing here resolves, normalises, or approves a path.
+///
+/// # Errors
+///
+/// Returns the shape rule the path breaks.
+pub const fn check_guest_path(path: &[u8]) -> Result<(), PathRejected> {
+    if path.is_empty() {
+        return Err(PathRejected::Empty);
+    }
+    if path.len() > MAX_GUEST_PATH_BYTES {
+        return Err(PathRejected::TooLong);
+    }
+    if path[0] != b'/' {
+        return Err(PathRejected::Relative);
+    }
+    let mut index = 0;
+    while index < path.len() {
+        if path[index] == 0 {
+            return Err(PathRejected::InteriorNul);
+        }
+        index += 1;
+    }
+    Ok(())
+}
+
 /// Largest number of bytes one read or write through this facade will move.
 ///
 /// A guest file can be any size the sandbox grew it to, so a call that named a file without

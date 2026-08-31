@@ -17,7 +17,7 @@ pub use backend::{
     CleanupTimes, CommandObservation, CommandTimes, ExecutionRequest, FileAnswer, FileEntry,
     FileKind, FileObservation, FileOperation, FileRefusal, FileRequest, InspectionObservation,
     InspectionRequest, LaunchObservation, LaunchRequest, LaunchTimes, MAX_FILE_BYTES,
-    ResolutionObservation, ResolutionRequest,
+    MAX_GUEST_PATH_BYTES, PathRejected, ResolutionObservation, ResolutionRequest, check_guest_path,
 };
 pub use engine::{
     DestroyMachineRequest, Engine, ExecuteMachineRequest, FailurePhase, FileMachineRequest,

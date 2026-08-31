@@ -46,6 +46,7 @@ pub(super) fn prepare(arguments: FileArgs) -> Result<PreparedOperation, RequestE
             (arguments.target, FileOperation::Write { path, bytes })
         }
     };
+    soma::check_guest_path(operation.path()).map_err(|_| RequestError::Path)?;
     let instance_id = InstanceId::new(target.instance_id).map_err(|_| RequestError::Identity)?;
     Ok(PreparedOperation::File {
         request: FileMachineRequest::new(

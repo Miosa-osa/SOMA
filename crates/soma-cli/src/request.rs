@@ -212,6 +212,7 @@ pub enum RequestError {
     Limits,
     Content,
     ContentTooLarge,
+    Path,
 }
 
 impl RequestError {
@@ -227,6 +228,7 @@ impl RequestError {
             Self::Limits => "invalid_execution_limits",
             Self::Content => "unreadable_content_file",
             Self::ContentTooLarge => "content_too_large",
+            Self::Path => "invalid_guest_path",
         }
     }
 }

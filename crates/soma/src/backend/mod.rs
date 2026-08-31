@@ -13,7 +13,7 @@ pub use execution::{CommandObservation, CommandTimes, ExecutionRequest};
 pub use failure::{BackendFailure, BackendFailureKind};
 pub use file::{
     FileAnswer, FileEntry, FileKind, FileObservation, FileOperation, FileRefusal, FileRequest,
-    MAX_FILE_BYTES,
+    MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, PathRejected, check_guest_path,
 };
 pub(crate) use inspection::InspectionObservationParts;
 pub use inspection::{InspectionObservation, InspectionRequest};

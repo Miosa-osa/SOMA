@@ -139,6 +139,26 @@ fn a_field_the_operation_does_not_use_is_refused_rather_than_ignored() {
     assert_eq!(body["error"]["code"], "invalid_input");
 }
 
+/// A path the protocol will not carry is refused here rather than sent.
+///
+/// The guest rejects such a path while decoding, which is a protocol fault that ends the session,
+/// so a caller that named one would destroy its own sandbox instead of being told no.
+#[test]
+fn a_path_the_protocol_will_not_carry_never_reaches_the_engine() {
+    for path in ["relative/escape", "", r"/holds\u0000a/nul"] {
+        let mut facade = FakeFacade::new(Mode::Succeed);
+
+        let (status, body) = post(&mut facade, "read", &format!(r#"{{"path":"{path}"}}"#));
+
+        assert_eq!(status, 400, "{path:?} must be refused");
+        assert!(
+            facade.calls.is_empty(),
+            "{path:?} must not reach the engine"
+        );
+        assert_eq!(body["error"]["code"], "invalid_input");
+    }
+}
+
 #[test]
 fn a_write_without_content_never_reaches_the_engine() {
     let mut facade = FakeFacade::new(Mode::Succeed);
