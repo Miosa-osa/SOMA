@@ -15,3 +15,5 @@ mod control;
 mod failure;
 #[path = "jail_live/harness.rs"]
 mod harness;
+#[path = "jail_live/worker.rs"]
+mod worker;

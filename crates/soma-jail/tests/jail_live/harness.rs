@@ -29,11 +29,13 @@ pub(crate) const NOFILE: u32 = 16;
 pub(crate) const ROLES: [DescriptorRole; 1] = [DescriptorRole::Control];
 pub(crate) const KVM_ROLES: [DescriptorRole; 2] = [DescriptorRole::Kvm, DescriptorRole::Control];
 
-/// Where the live run may create leaves and jail roots, and which probe to execute.
+/// Where the live run may create leaves and jail roots, and which children to execute.
 pub(crate) struct Live {
     pub cgroup_root: PathBuf,
     pub jail_root_parent: PathBuf,
     pub probe: PathBuf,
+    /// The real `soma-vmm` worker, which the jail exists to constrain.
+    pub vmm: PathBuf,
     pub kvm: bool,
 }
 
@@ -69,6 +71,12 @@ pub(crate) fn require() -> Live {
         Some(path) => missing.push(format!("SOMA_JAIL_PROBE file {}", path.display())),
         None => missing.push("SOMA_JAIL_PROBE (path to the static jail-probe)".into()),
     }
+    let vmm = env::var_os("SOMA_VMM_BINARY").map(PathBuf::from);
+    match &vmm {
+        Some(path) if path.is_file() => {}
+        Some(path) => missing.push(format!("SOMA_VMM_BINARY file {}", path.display())),
+        None => missing.push("SOMA_VMM_BINARY (path to the static soma-vmm worker)".into()),
+    }
     let jail_root_parent = env::var_os("SOMA_JAIL_ROOT_PARENT")
         .map_or_else(|| PathBuf::from("/tmp/soma-jail-live"), PathBuf::from);
     if let Err(error) = fs::create_dir_all(&jail_root_parent) {
@@ -88,6 +96,7 @@ pub(crate) fn require() -> Live {
         cgroup_root,
         jail_root_parent,
         probe: probe.expect("checked"),
+        vmm: vmm.expect("checked"),
         kvm,
     }
 }
@@ -109,15 +118,22 @@ impl Live {
 
     /// Opens the null stream, an unlinked log file, the probe, and every role in order.
     pub(crate) fn resources(&self, roles: &[DescriptorRole]) -> (Resources, Control) {
+        self.resources_for(&self.probe, roles)
+    }
+
+    /// The same resources with `executable` as the child the launcher execs.
+    pub(crate) fn resources_for(
+        &self,
+        executable: &Path,
+        roles: &[DescriptorRole],
+    ) -> (Resources, Control) {
         let null = fs::File::open("/dev/null").expect("/dev/null").into();
         let log_path = self
             .jail_root_parent
             .join(format!("log-{}", std::process::id()));
         let log = fs::File::create(&log_path).expect("log file").into();
         let _ = fs::remove_file(&log_path);
-        let executable = fs::File::open(&self.probe)
-            .expect("probe executable")
-            .into();
+        let executable = fs::File::open(executable).expect("child executable").into();
         let (parent, child) = seqpacket_pair();
         let mut child = Some(child);
         let descriptors = roles
@@ -155,7 +171,27 @@ impl Live {
         roles: &[DescriptorRole],
         limits: CgroupLimits,
     ) -> Jail {
-        let (resources, control) = self.resources(roles);
+        self.launch_child(&self.probe, name, roles, limits)
+    }
+
+    /// Launches the real `soma-vmm` worker in the same jail the probe runs in.
+    pub(crate) fn launch_vmm(
+        &self,
+        name: &str,
+        roles: &[DescriptorRole],
+        limits: CgroupLimits,
+    ) -> Jail {
+        self.launch_child(&self.vmm, name, roles, limits)
+    }
+
+    fn launch_child(
+        &self,
+        executable: &Path,
+        name: &str,
+        roles: &[DescriptorRole],
+        limits: CgroupLimits,
+    ) -> Jail {
+        let (resources, control) = self.resources_for(executable, roles);
         let spec = spec(name, roles, limits);
         match launch(&spec, &self.anchors(), resources) {
             Ok(handle) => Jail { handle, control },
@@ -174,10 +210,9 @@ impl Live {
         );
         if let Some(pid) = record.pid {
             let status = fs::read_to_string(format!("/proc/{pid}/status")).unwrap_or_default();
-            assert!(
-                !status.contains("jail-probe"),
-                "process {pid} survived:\n{status}"
-            );
+            for child in ["jail-probe", "soma-vmm"] {
+                assert!(!status.contains(child), "process {pid} survived:\n{status}");
+            }
         }
     }
 }

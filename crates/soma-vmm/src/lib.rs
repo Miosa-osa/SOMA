@@ -1,6 +1,8 @@
 #![deny(warnings)]
 #![deny(unsafe_code)]
 
+pub mod control;
+
 mod error;
 mod ids;
 mod machine;

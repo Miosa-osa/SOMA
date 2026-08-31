@@ -1205,6 +1205,7 @@ version = "1.0.0-alpha.1"
 dependencies = [
  "kvm-bindings",
  "libc",
+ "soma-vmm",
 ]
 
 [[package]]
@@ -1314,6 +1315,10 @@ dependencies = [
 [[package]]
 name = "soma-vmm"
 version = "1.0.0-alpha.1"
+dependencies = [
+ "libc",
+ "soma-jail",
+]
 
 [[package]]
 name = "strsim"
