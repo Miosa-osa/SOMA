@@ -5,6 +5,7 @@ mod guest;
 mod host;
 mod operation;
 mod output;
+mod pty;
 mod terminal;
 
 pub use command::{CommandContext, EnvironmentPair, GuestCommand};
@@ -16,6 +17,10 @@ pub use guest::GuestMessage;
 pub use host::HostMessage;
 pub use operation::OperationId;
 pub use output::OutputChunk;
+pub use pty::{
+    MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS, PtyFailure,
+    PtyOutcome, PtyRequest, PtySize,
+};
 pub use terminal::{TerminalReport, TerminalStatus};
 
 use crate::MAX_RECORD_PAYLOAD;

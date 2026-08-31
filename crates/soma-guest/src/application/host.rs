@@ -1,6 +1,6 @@
 use crate::Error;
 
-use super::{FileRequest, GuestCommand, OperationId, frame};
+use super::{FileRequest, GuestCommand, OperationId, PtyRequest, frame};
 
 /// A host-to-guest application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +23,13 @@ pub enum HostMessage {
         operation: OperationId,
         /// The bounded request.
         request: FileRequest,
+    },
+    /// Asks one interactive terminal operation of the guest after Repair.
+    Pty {
+        /// Identity of this exact operation.
+        operation: OperationId,
+        /// The bounded request.
+        request: PtyRequest,
     },
     /// Requests graceful termination of the guest agent.
     Shutdown {
@@ -50,6 +57,12 @@ impl HostMessage {
         Self::File { operation, request }
     }
 
+    /// Creates one interactive terminal message.
+    #[must_use]
+    pub const fn pty(operation: OperationId, request: PtyRequest) -> Self {
+        Self::Pty { operation, request }
+    }
+
     /// Creates a graceful Shutdown message.
     #[must_use]
     pub const fn shutdown(operation: OperationId) -> Self {
@@ -73,6 +86,9 @@ impl HostMessage {
             }
             Self::File { operation, request } => {
                 frame::encode(frame::Kind::File, *operation, &request.encode_body())
+            }
+            Self::Pty { operation, request } => {
+                frame::encode(frame::Kind::Pty, *operation, &request.encode_body())
             }
             Self::Shutdown { operation } => frame::encode(frame::Kind::Shutdown, *operation, &[]),
         }
@@ -101,6 +117,10 @@ impl HostMessage {
                 decoded.operation,
                 FileRequest::decode_body(decoded.body)?,
             )),
+            frame::Kind::Pty => Ok(Self::pty(
+                decoded.operation,
+                PtyRequest::decode_body(decoded.body)?,
+            )),
             frame::Kind::Shutdown if decoded.body.is_empty() => {
                 Ok(Self::shutdown(decoded.operation))
             }
@@ -110,7 +130,8 @@ impl HostMessage {
             | frame::Kind::Stdout
             | frame::Kind::Stderr
             | frame::Kind::Terminal
-            | frame::Kind::ShutdownAck => Err(Error::ApplicationMessageRejected),
+            | frame::Kind::ShutdownAck
+            | frame::Kind::PtyOutcome => Err(Error::ApplicationMessageRejected),
         }
     }
 }

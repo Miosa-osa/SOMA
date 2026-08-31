@@ -41,6 +41,8 @@ pub enum Error {
     ApplicationMessageRejected,
     /// A local output chunk violated the bounded streaming contract.
     InvalidOutputChunk,
+    /// Terminal dimensions were zero or beyond the bounded character-cell grid.
+    InvalidPtySize,
     /// A local terminal status violated the Linux process-result contract.
     InvalidTerminalStatus,
     /// A local terminal report violated the authenticated output-count contract.
@@ -79,6 +81,7 @@ impl fmt::Display for Error {
             Self::ApplicationMessageTooLarge => "application message exceeds one record",
             Self::ApplicationMessageRejected => "application message rejected",
             Self::InvalidOutputChunk => "invalid output chunk",
+            Self::InvalidPtySize => "invalid terminal size",
             Self::InvalidTerminalStatus => "invalid terminal status",
             Self::InvalidTerminalReport => "invalid terminal report",
             Self::InvalidActivationScope => "invalid network activation scope",

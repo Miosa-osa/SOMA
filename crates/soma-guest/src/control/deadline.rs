@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::GuestCommand;
+use crate::{GuestCommand, PtyRequest};
 
 const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);
 const REPAIR_BUDGET: Duration = Duration::from_secs(5);
@@ -10,6 +10,11 @@ const SHUTDOWN_BUDGET: Duration = Duration::from_secs(5);
 // touching its disk once rather than any amount of work the caller asked for.
 const FILE_BUDGET: Duration = Duration::from_secs(10);
 const EXECUTE_DELIVERY_GRACE: Duration = Duration::from_secs(1);
+// A terminal read is the one request that waits on purpose, so its deadline is the wait the
+// caller asked for plus the grace every delivery gets. Every other terminal request is an
+// `ioctl` or one bounded write, which is why they share the fixed budget below.
+const PTY_BUDGET: Duration = Duration::from_secs(10);
+const PTY_DELIVERY_GRACE: Duration = Duration::from_secs(1);
 
 pub(super) fn handshake() -> Instant {
     after(HANDSHAKE_BUDGET)
@@ -30,6 +35,16 @@ pub(super) fn execute(command: &GuestCommand) -> Instant {
 
 pub(super) fn file() -> Instant {
     after(FILE_BUDGET)
+}
+
+pub(super) fn pty(request: &PtyRequest) -> Instant {
+    let budget = match request {
+        PtyRequest::Read { wait_millis } => Duration::from_millis(u64::from(*wait_millis))
+            .checked_add(PTY_DELIVERY_GRACE)
+            .unwrap_or(Duration::MAX),
+        _ => PTY_BUDGET,
+    };
+    after(budget)
 }
 
 pub(super) fn shutdown() -> Instant {
@@ -63,6 +78,8 @@ mod tests {
         assert_eq!(FILE_BUDGET, Duration::from_secs(10));
         assert_eq!(PROBE_DELIVERY_GRACE, Duration::from_secs(1));
         assert_eq!(EXECUTE_DELIVERY_GRACE, Duration::from_secs(1));
+        assert_eq!(PTY_BUDGET, Duration::from_secs(10));
+        assert_eq!(PTY_DELIVERY_GRACE, Duration::from_secs(1));
         assert_eq!(
             command_budget(&GuestCommand::readiness_probe()),
             Duration::from_secs(2)

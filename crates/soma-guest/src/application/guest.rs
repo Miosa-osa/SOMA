@@ -1,6 +1,6 @@
 use crate::Error;
 
-use super::{FileOutcome, OperationId, OutputChunk, TerminalReport, frame};
+use super::{FileOutcome, OperationId, OutputChunk, PtyOutcome, TerminalReport, frame};
 
 /// A guest-to-host application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,6 +37,13 @@ pub enum GuestMessage {
         operation: OperationId,
         /// What the guest did, or why it did not.
         outcome: FileOutcome,
+    },
+    /// Answers one interactive terminal request.
+    PtyOutcome {
+        /// Identity of the terminal operation being answered.
+        operation: OperationId,
+        /// What the guest's terminal did, or why it did not.
+        outcome: PtyOutcome,
     },
     /// Acknowledges a graceful Shutdown request.
     ShutdownAck {
@@ -76,6 +83,12 @@ impl GuestMessage {
         Self::FileOutcome { operation, outcome }
     }
 
+    /// Creates one interactive terminal answer.
+    #[must_use]
+    pub const fn pty_outcome(operation: OperationId, outcome: PtyOutcome) -> Self {
+        Self::PtyOutcome { operation, outcome }
+    }
+
     /// Creates a graceful Shutdown acknowledgement.
     #[must_use]
     pub const fn shutdown_ack(operation: OperationId) -> Self {
@@ -103,6 +116,9 @@ impl GuestMessage {
             }
             Self::FileOutcome { operation, outcome } => {
                 frame::encode(frame::Kind::FileOutcome, *operation, &outcome.encode_body())
+            }
+            Self::PtyOutcome { operation, outcome } => {
+                frame::encode(frame::Kind::PtyOutcome, *operation, &outcome.encode_body())
             }
             Self::ShutdownAck { operation } => {
                 frame::encode(frame::Kind::ShutdownAck, *operation, &[])
@@ -137,10 +153,15 @@ impl GuestMessage {
                 decoded.operation,
                 FileOutcome::decode_body(decoded.body)?,
             )),
+            frame::Kind::PtyOutcome => Ok(Self::pty_outcome(
+                decoded.operation,
+                PtyOutcome::decode_body(decoded.body)?,
+            )),
             frame::Kind::ShutdownAck if decoded.body.is_empty() => {
                 Ok(Self::shutdown_ack(decoded.operation))
             }
             frame::Kind::File
+            | frame::Kind::Pty
             | frame::Kind::PrepareAndProbe
             | frame::Kind::Execute
             | frame::Kind::Shutdown
