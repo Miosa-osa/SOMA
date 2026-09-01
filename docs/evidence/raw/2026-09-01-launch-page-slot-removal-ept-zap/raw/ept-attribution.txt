@@ -1,0 +1,161 @@
+# EPT violations over RunStart to Ready, by guest physical page and by faulting guest code.
+# node:22, 1024 MiB, eval-1. off = launch page slot removed at the repair commit, as shipped.
+# on  = SOMA_KVM_DEFER_LAUNCH_PAGE_SLOT=1, the removal deferred to teardown.
+# Runs are under perf tracing, so the segment times here are inflated and are not results.
+
+[node-2] RunStart to Ready 32.78 ms
+  EPT violations              3217
+  distinct guest pages        1743  (6.8 MiB)
+  violations per page         1.85
+  write faults / read faults  1168 / 2049
+  other exits                 IO_INSTRUCTION 349, EPT_MISCONFIG 41, EXTERNAL_INTERRUPT 33, PENDING_INTERRUPT 8, HLT 8, CPUID 6, MSR_WRITE 1
+  pages faulted once/twice/3+ 755/645/343
+  by access:                  read only 1078, write only 340, read then write 325
+  guest physical, 64 MiB regions above one percent:
+        0-   64 MiB   2710   84.2%
+      960- 1024 MiB    475   14.8%
+  faulting guest function, top 12:
+      266    8.3%  guest user code
+      225    7.0%  clear_page_orig
+      110    3.4%  __d_rehash
+       78    2.4%  memset_orig
+       67    2.1%  _raw_spin_lock_irqsave
+       59    1.8%  _raw_spin_lock
+       53    1.6%  __d_lookup
+       52    1.6%  next_tgid
+       42    1.3%  virtqueue_add_split
+       26    0.8%  kmem_cache_alloc_noprof
+       23    0.7%  __rmqueue_pcplist
+       22    0.7%  __queue_work
+    distinct faulting instruction pointers: 1686
+
+[node-3] RunStart to Ready 33.08 ms
+  EPT violations              3219
+  distinct guest pages        1743  (6.8 MiB)
+  violations per page         1.85
+  write faults / read faults  1165 / 2054
+  other exits                 IO_INSTRUCTION 352, EPT_MISCONFIG 41, EXTERNAL_INTERRUPT 40, PENDING_INTERRUPT 10, CPUID 6, HLT 5, MSR_WRITE 1
+  pages faulted once/twice/3+ 751/649/343
+  by access:                  read only 1079, write only 337, read then write 327
+  guest physical, 64 MiB regions above one percent:
+        0-   64 MiB   2710   84.2%
+      960- 1024 MiB    475   14.8%
+  faulting guest function, top 12:
+      257    8.0%  guest user code
+      226    7.0%  clear_page_orig
+      110    3.4%  __d_rehash
+       76    2.4%  memset_orig
+       63    2.0%  _raw_spin_lock_irqsave
+       58    1.8%  _raw_spin_lock
+       53    1.6%  __d_lookup
+       52    1.6%  next_tgid
+       37    1.1%  virtqueue_add_split
+       25    0.8%  kmem_cache_alloc_noprof
+       23    0.7%  __rmqueue_pcplist
+       22    0.7%  __switch_to_asm
+    distinct faulting instruction pointers: 1705
+
+[off-1] RunStart to Ready 29.43 ms
+  EPT violations              3228
+  distinct guest pages        1746  (6.8 MiB)
+  violations per page         1.85
+  write faults / read faults  1176 / 2052
+  other exits                 IO_INSTRUCTION 341, EPT_MISCONFIG 41, EXTERNAL_INTERRUPT 28, PENDING_INTERRUPT 9, CPUID 6, HLT 4, MSR_WRITE 1
+  pages faulted once/twice/3+ 751/652/343
+  by access:                  read only 1080, write only 338, read then write 328
+  guest physical, 64 MiB regions above one percent:
+        0-   64 MiB   2719   84.2%
+      960- 1024 MiB    476   14.7%
+  faulting guest function, top 12:
+      258    8.0%  guest user code
+      225    7.0%  clear_page_orig
+      110    3.4%  __d_rehash
+       78    2.4%  memset_orig
+       67    2.1%  _raw_spin_lock_irqsave
+       57    1.8%  _raw_spin_lock
+       53    1.6%  __d_lookup
+       51    1.6%  next_tgid
+       41    1.3%  virtqueue_add_split
+       25    0.8%  kmem_cache_alloc_noprof
+       24    0.7%  __queue_work
+       24    0.7%  kmem_cache_free.part.0
+    distinct faulting instruction pointers: 1683
+
+[on-1] RunStart to Ready 27.30 ms
+  EPT violations              2484
+  distinct guest pages        1745  (6.8 MiB)
+  violations per page         1.42
+  write faults / read faults  1094 / 1390
+  other exits                 IO_INSTRUCTION 323, EPT_MISCONFIG 42, EXTERNAL_INTERRUPT 29, PENDING_INTERRUPT 13, CPUID 6, HLT 4, MSR_WRITE 1
+  pages faulted once/twice/3+ 1310/131/304
+  by access:                  read only 1080, write only 361, read then write 304
+  guest physical, 64 MiB regions above one percent:
+        0-   64 MiB   2059   82.9%
+      960- 1024 MiB    396   15.9%
+  faulting guest function, top 12:
+      226    9.1%  clear_page_orig
+      165    6.6%  guest user code
+      110    4.4%  __d_rehash
+       78    3.1%  memset_orig
+       59    2.4%  _raw_spin_lock_irqsave
+       54    2.2%  _raw_spin_lock
+       49    2.0%  next_tgid
+       46    1.9%  __d_lookup
+       37    1.5%  virtqueue_add_split
+       20    0.8%  __rmqueue_pcplist
+       20    0.8%  inode_insert5
+       19    0.8%  kmem_cache_alloc_noprof
+    distinct faulting instruction pointers: 1345
+
+[off-2] RunStart to Ready 26.33 ms
+  EPT violations              3216
+  distinct guest pages        1744  (6.8 MiB)
+  violations per page         1.84
+  write faults / read faults  1166 / 2050
+  other exits                 IO_INSTRUCTION 317, EPT_MISCONFIG 40, EXTERNAL_INTERRUPT 25, PENDING_INTERRUPT 13, CPUID 6, HLT 4, MSR_WRITE 1
+  pages faulted once/twice/3+ 758/643/343
+  by access:                  read only 1080, write only 339, read then write 325
+  guest physical, 64 MiB regions above one percent:
+        0-   64 MiB   2707   84.2%
+      960- 1024 MiB    476   14.8%
+  faulting guest function, top 12:
+      254    7.9%  guest user code
+      227    7.1%  clear_page_orig
+      110    3.4%  __d_rehash
+       78    2.4%  memset_orig
+       67    2.1%  _raw_spin_lock_irqsave
+       58    1.8%  _raw_spin_lock
+       53    1.6%  __d_lookup
+       52    1.6%  next_tgid
+       37    1.2%  virtqueue_add_split
+       23    0.7%  __rmqueue_pcplist
+       22    0.7%  kmem_cache_alloc_noprof
+       22    0.7%  __d_lookup_rcu
+    distinct faulting instruction pointers: 1670
+
+[on-2] RunStart to Ready 26.53 ms
+  EPT violations              2483
+  distinct guest pages        1745  (6.8 MiB)
+  violations per page         1.42
+  write faults / read faults  1094 / 1389
+  other exits                 IO_INSTRUCTION 321, EPT_MISCONFIG 40, EXTERNAL_INTERRUPT 28, PENDING_INTERRUPT 9, HLT 6, CPUID 6, MSR_WRITE 1
+  pages faulted once/twice/3+ 1311/130/304
+  by access:                  read only 1080, write only 361, read then write 304
+  guest physical, 64 MiB regions above one percent:
+        0-   64 MiB   2058   82.9%
+      960- 1024 MiB    396   15.9%
+  faulting guest function, top 12:
+      226    9.1%  clear_page_orig
+      165    6.6%  guest user code
+      110    4.4%  __d_rehash
+       78    3.1%  memset_orig
+       59    2.4%  _raw_spin_lock_irqsave
+       54    2.2%  _raw_spin_lock
+       49    2.0%  next_tgid
+       46    1.9%  __d_lookup
+       37    1.5%  virtqueue_add_split
+       20    0.8%  __rmqueue_pcplist
+       20    0.8%  inode_insert5
+       19    0.8%  kmem_cache_alloc_noprof
+    distinct faulting instruction pointers: 1345
+

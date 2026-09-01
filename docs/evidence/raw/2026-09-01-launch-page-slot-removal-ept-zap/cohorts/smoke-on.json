@@ -1,0 +1,13 @@
+{
+ "label": "smoke-on",
+ "concurrency": 1,
+ "launched": 1,
+ "succeeded": 1,
+ "host_busy_percent_during_cohort": 22.7,
+ "tti_ms": 65.85,
+ "ready_ms": 34.46,
+ "machine_launched_to_ready_ms": 33.63,
+ "tti_samples": [
+  65.85
+ ]
+}

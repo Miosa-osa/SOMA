@@ -1,0 +1,50 @@
+# The launch page memory slot is removed from a running VM, KVM invalidates the whole
+# extended page table, and the guest re-faults its live working set. node:22, eval-1.
+
+== as shipped, the removal at the repair commit
+milestones, ms from RunStart:
+   RunStart                 0.00
+   LaunchPageConsumed       7.89
+   VsockConnected          13.63
+   Handshake               24.65
+   LaunchPageRetired       26.22
+   Ready                   33.77
+
+kvm_mmu_zap_all_fast, ms from RunStart:
+      24.73  thread soma-kvm-sandbo
+
+EPT violations per millisecond of the resume:
+     0 ms    57   <- RunStart
+     1 ms    66
+     2 ms    55
+     3 ms    57
+     4 ms    51
+     5 ms    60
+     6 ms    65
+     7 ms    59   <- LaunchPageConsumed
+     8 ms    57
+     9 ms    66
+    10 ms    60
+    11 ms    52
+    12 ms    60
+    13 ms    41   <- VsockConnected
+    14 ms   103
+    15 ms   110
+    16 ms   150
+    17 ms   113
+    18 ms   128
+    19 ms   130
+    20 ms   127
+    21 ms   103
+    22 ms    89
+    23 ms    71
+    24 ms    13   <- Handshake
+    25 ms    36
+    26 ms   247   <- LaunchPageRetired
+    27 ms   208
+    28 ms   194
+    29 ms   178
+    30 ms   102
+    31 ms    70
+    32 ms   148
+    33 ms    89   <- Ready
