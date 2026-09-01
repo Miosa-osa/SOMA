@@ -1,0 +1,36 @@
+== baseline run 1 idle sample
+busy_fraction=0.2343 loadavg=64.88
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 2 idle sample
+busy_fraction=0.2250 loadavg=62.65
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 3 idle sample
+busy_fraction=0.2956 loadavg=64.58
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 4
+busy_fraction=0.2237 loadavg=43.79
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 5
+busy_fraction=0.2406 loadavg=57.25
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 6
+busy_fraction=0.1218 loadavg=60.91
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 7
+busy_fraction=0.0005 loadavg=6.39
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 8
+busy_fraction=0.1327 loadavg=65.78
+burst exit 0
+residue heads=0 hosts=0
+== baseline run 9
+busy_fraction=0.2425 loadavg=64.38
+burst exit 0
+residue heads=0 hosts=0

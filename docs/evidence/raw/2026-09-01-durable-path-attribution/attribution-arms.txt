@@ -1,0 +1,90 @@
+after/run-7.jsonl  successful=100
+  tti                                    p50   1231.73 ms
+  launch process                         p50    686.68 ms
+    launch: resolution                   p50      0.00 ms
+    launch: admission                    p50    246.48 ms
+    launch: machine creation             p50      0.00 ms
+    launch: readiness                    p50     31.01 ms
+    launch: process outside facade       p50    417.20 ms
+  exec process                           p50    558.69 ms
+    exec: dispatch                       p50      0.00 ms
+    exec: execution                      p50     12.79 ms
+    exec: process outside facade         p50    546.25 ms
+  gap between the two processes          p50      0.66 ms
+  destroy process                        p50   1651.02 ms
+    destroy: cleanup                     p50    932.50 ms
+after/run-8.jsonl  successful=100
+  tti                                    p50   1483.82 ms
+  launch process                         p50    832.54 ms
+    launch: resolution                   p50      0.00 ms
+    launch: admission                    p50    324.44 ms
+    launch: machine creation             p50      0.00 ms
+    launch: readiness                    p50     35.15 ms
+    launch: process outside facade       p50    480.31 ms
+  exec process                           p50    686.64 ms
+    exec: dispatch                       p50      0.00 ms
+    exec: execution                      p50     12.99 ms
+    exec: process outside facade         p50    670.37 ms
+  gap between the two processes          p50      0.72 ms
+  destroy process                        p50   1333.34 ms
+    destroy: cleanup                     p50    724.79 ms
+after/run-9.jsonl  successful=100
+  tti                                    p50   1458.94 ms
+  launch process                         p50    946.75 ms
+    launch: resolution                   p50      0.00 ms
+    launch: admission                    p50    530.56 ms
+    launch: machine creation             p50      0.00 ms
+    launch: readiness                    p50     27.82 ms
+    launch: process outside facade       p50    429.96 ms
+  exec process                           p50    578.58 ms
+    exec: dispatch                       p50      0.00 ms
+    exec: execution                      p50     13.51 ms
+    exec: process outside facade         p50    566.08 ms
+  gap between the two processes          p50      0.68 ms
+  destroy process                        p50   1465.16 ms
+    destroy: cleanup                     p50    824.16 ms
+baseline/run-7.jsonl  successful=100
+  tti                                    p50   1361.58 ms
+  launch process                         p50    776.35 ms
+    launch: resolution                   p50      0.00 ms
+    launch: admission                    p50    346.31 ms
+    launch: machine creation             p50      0.00 ms
+    launch: readiness                    p50     30.06 ms
+    launch: process outside facade       p50    417.84 ms
+  exec process                           p50    600.91 ms
+    exec: dispatch                       p50      0.00 ms
+    exec: execution                      p50     13.04 ms
+    exec: process outside facade         p50    586.99 ms
+  gap between the two processes          p50      0.69 ms
+  destroy process                        p50   1446.79 ms
+    destroy: cleanup                     p50    682.81 ms
+baseline/run-8.jsonl  successful=100
+  tti                                    p50   1328.58 ms
+  launch process                         p50    734.19 ms
+    launch: resolution                   p50      0.00 ms
+    launch: admission                    p50    286.92 ms
+    launch: machine creation             p50      0.00 ms
+    launch: readiness                    p50     33.79 ms
+    launch: process outside facade       p50    438.21 ms
+  exec process                           p50    605.92 ms
+    exec: dispatch                       p50      0.00 ms
+    exec: execution                      p50     12.40 ms
+    exec: process outside facade         p50    593.08 ms
+  gap between the two processes          p50      0.71 ms
+  destroy process                        p50   1679.19 ms
+    destroy: cleanup                     p50   1117.41 ms
+baseline/run-9.jsonl  successful=100
+  tti                                    p50   1416.51 ms
+  launch process                         p50    680.44 ms
+    launch: resolution                   p50      0.00 ms
+    launch: admission                    p50    298.30 ms
+    launch: machine creation             p50      0.00 ms
+    launch: readiness                    p50     32.56 ms
+    launch: process outside facade       p50    357.81 ms
+  exec process                           p50    745.74 ms
+    exec: dispatch                       p50      0.00 ms
+    exec: execution                      p50     13.92 ms
+    exec: process outside facade         p50    730.71 ms
+  gap between the two processes          p50      0.71 ms
+  destroy process                        p50   1871.09 ms
+    destroy: cleanup                     p50    909.97 ms

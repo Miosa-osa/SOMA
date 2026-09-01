@@ -1,0 +1,11 @@
+[package]
+name = "ssbench"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+soma = { path = "/srv/soma/durable-perf/SOMA/crates/soma" }
+soma-local = { path = "/srv/soma/durable-perf/SOMA/crates/soma-local" }
+
+[profile.release]
+debug = false

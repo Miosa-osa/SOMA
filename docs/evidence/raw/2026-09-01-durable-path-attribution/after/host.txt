@@ -1,0 +1,24 @@
+== after run 4
+busy_fraction=0.3812 loadavg=46.39
+burst exit 0
+residue heads=0 hosts=0
+== after run 5
+busy_fraction=0.3628 loadavg=63.24
+burst exit 0
+residue heads=0 hosts=0
+== after run 6
+busy_fraction=0.0350 loadavg=53.54
+burst exit 0
+residue heads=0 hosts=0
+== after run 7
+busy_fraction=0.0010 loadavg=14.84
+burst exit 0
+residue heads=0 hosts=0
+== after run 8
+busy_fraction=0.2790 loadavg=31.89
+burst exit 0
+residue heads=0 hosts=0
+== after run 9
+busy_fraction=0.2405 loadavg=54.76
+burst exit 0
+residue heads=0 hosts=0
