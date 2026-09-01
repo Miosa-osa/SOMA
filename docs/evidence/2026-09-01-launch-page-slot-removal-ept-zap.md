@@ -162,6 +162,14 @@ tenth of the workload. That is what a fixed cost being removed looks like.
 | 4 | 38.86 ms | 34.48 ms | 110.23 ms | 99.62 ms | 57% and 50% |
 | median of 2 to 4 | **35.20 ms** | **31.64 ms** | **110.23 ms** | **103.67 ms** | |
 
+> **Correction, 2026-09-01: do not quote the concurrency-100 column.** The author reported, after
+> this table was written, that another job ran four cohorts of one hundred concurrently with the
+> detached `c100.sh` run behind these figures. The concurrency-100 numbers are therefore
+> contaminated and were never re-run, because the session ended first. The sequential column was
+> not affected. Re-run the concurrency-100 arm on a verified-idle host before quoting it, and note
+> that the one-minute load average is useless as a gate here because a hundred-sandbox cohort
+> raises it by itself - sample `/proc/stat` while the run is idle instead.
+
 Round 1 is discarded and shown: it is the first cohort of the session, its arms ran at 76 and 58
 percent host busy against 47 to 57 for every other cohort, and its `at commit` arm is two and a
 half times every other reading of the same thing. It is retained here rather than deleted because
