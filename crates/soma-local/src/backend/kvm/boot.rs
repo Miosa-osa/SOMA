@@ -1,5 +1,6 @@
 //! Turning one prepared Generation into everything a machine needs to boot.
 
+use std::num::NonZeroUsize;
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::PathBuf;
 
@@ -150,6 +151,7 @@ fn clone_or_copy(
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
     let directory = head_directory()?;
+    let template = fanned(template);
     // A head name is lowercase, digits, and hyphen only, so the Instance identity is used as
     // it is rather than given a suffix the validator would reject.
     let name = soma_storage::HeadName::new(instance.as_str().to_ascii_lowercase())
@@ -181,17 +183,49 @@ fn clone_or_copy(
     }
 }
 
-/// The directory private heads are created in.
+/// The root private heads are created under.
 ///
 /// An operator names a reflink-capable directory to get the fast path; the default is the
 /// ordinary temporary directory, which usually cannot reflink and therefore copies.
-fn head_directory() -> Result<std::fs::File, BackendFailureKind> {
-    let path = std::env::var_os("SOMA_HEAD_DIR").map_or_else(
+fn head_root() -> PathBuf {
+    std::env::var_os("SOMA_HEAD_DIR").map_or_else(
         || std::env::temp_dir().join("soma-kvm-heads"),
         PathBuf::from,
+    )
+}
+
+/// A shard of the head root, because creating and unlinking a head takes the directory's inode
+/// lock and a cohort of a hundred launches otherwise queues on one directory.
+fn head_directory() -> Result<std::fs::File, BackendFailureKind> {
+    soma_storage::open_shard(
+        &head_root(),
+        count("SOMA_HEAD_SHARDS", soma_storage::DEFAULT_HEAD_SHARDS),
+    )
+    .map_err(|_| BackendFailureKind::Unavailable)
+}
+
+/// One independent physical copy of the template, when a warmed fan holds one.
+///
+/// Cloning from one template serializes every launch of a cohort on the refcount records of
+/// that template's extents. A fan is warmed off the launch path; where it is absent this hands
+/// back the template itself and the launch pays what it always paid.
+fn fanned(template: std::fs::File) -> std::fs::File {
+    let root = std::env::var_os("SOMA_TEMPLATE_FAN_DIR")
+        .map_or_else(|| head_root().join("fan"), PathBuf::from);
+    let copies = count(
+        "SOMA_TEMPLATE_COPIES",
+        soma_storage::DEFAULT_TEMPLATE_COPIES,
     );
-    std::fs::create_dir_all(&path).map_err(|_| BackendFailureKind::Unavailable)?;
-    std::fs::File::open(&path).map_err(|_| BackendFailureKind::Unavailable)
+    soma_storage::open_replica(&template, &root, copies).unwrap_or(template)
+}
+
+/// A positive count named by the environment, or the default this build ships.
+fn count(variable: &str, fallback: usize) -> NonZeroUsize {
+    std::env::var(variable)
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .and_then(NonZeroUsize::new)
+        .unwrap_or_else(|| NonZeroUsize::new(fallback).unwrap_or(NonZeroUsize::MIN))
 }
 
 /// The fallback head: the same private bytes, copied rather than shared.
