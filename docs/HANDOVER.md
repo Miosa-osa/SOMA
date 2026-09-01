@@ -46,10 +46,38 @@ Each row links the evidence that proves it. Nothing here is production-admitted.
 
 ## In flight
 
-Both were running when this was written. Check whether their branches merged before starting either.
+Seven parallel efforts were running when this was written, each in its own git worktree on this
+machine. **Check whether each branch merged into `main` before starting any of it again** - several
+may have landed after this was written.
 
-1. **Guest filesystem through the facade** - branch `feat/guest-filesystem`. See gap 2 below for
-   what it is closing. Still running when this was written.
+If a worktree is gone or you are on another machine, the branch is the record. If neither exists,
+the gap it was closing is described below and can be restarted from that description.
+
+| Gap | Branch | Worktree on this machine | State when written |
+| --- | --- | --- | --- |
+| 1, durable path performance | `perf/durable-path` | `~/projects/SOMA-wt/durable-perf` | running |
+| 4, head clone serialization fix | `perf/head-clone` | `~/projects/SOMA-wt/head-clone` | running |
+| 5, jail split | `feat/jail-split` | `~/projects/SOMA-wt/jail-split` | running |
+| 7, EPT violations on resume | `perf/ept-resume` | `~/projects/SOMA-wt/ept` | running, doing GPA attribution first |
+| 6 and 8, macOS host and loopback repair | `feat/macos-and-loopback` | `~/projects/SOMA-wt/macos-loopback` | running |
+| 2 and 3, PTY and `sandbox.list()` | `feat/pty-and-list` | `~/projects/SOMA-wt/pty-list` | running |
+| 9, crowded files | `refactor/crowded-files` | `~/projects/SOMA-wt/line-limit` | **finished, not yet merged** |
+
+`refactor/crowded-files` is complete with gates green: thirteen files at 299 or 300 lines split
+along seams each file already stated, `end-to-end-check.sh` exercised live before and after with
+byte-identical output, and every Rust split verified as a verbatim move by diffing sorted
+non-import lines. It touches `soma-generation`, `soma-jail`, `soma-kvm`, `soma-netd`,
+`soma-template`, `soma` and `scripts`, and deliberately nothing in `soma-local`, `soma-storage` or
+`soma-guest-agent`. Its three `soma-kvm` commits are self-contained and droppable if another branch
+lands conflicting work there.
+
+### What each was told, so it can be restarted
+
+Every brief carried the same constraints: base on `origin/main`, work in an isolated worktree,
+never `git add -A`, no authored file over 300 lines, no `Co-Authored-By` or `Claude-Session`
+trailers, and the full gate set before reporting. Each was told that a measured negative is a real
+result and to report one honestly rather than produce a partial implementation that hides it. Two
+have already done exactly that - see gap 5 and the note under gap 7.
 
 ---
 
@@ -74,18 +102,32 @@ used on this path.
 
 Proof: the contract benchmark at a p50 that is a small multiple of `soma run`, not fifty times it.
 
-### 2. Guest filesystem and PTY are implemented and unreachable
+### 2. PTY is implemented and unreachable
 
-`crates/soma-guest/src/application/filesystem/` implements six operations and
-`crates/soma-guest/src/application/pty/` implements a terminal. The portable facade's `Backend`
-trait (`crates/soma/src/backend/mod.rs:24`) carries only `kind`, `resolve`, `launch`, `execute`,
-`inspect` and `cleanup`, so no engine call reaches either. `crates/soma-api/src/route.rs` already
-routes `/v1/sandboxes/{instance}/filesystem/{operation}` and returns a capability refusal.
+**The guest filesystem half of this gap is closed** - six operations now reach HTTP, the CLI and
+MCP on both the resident and hosted paths
+([evidence](evidence/2026-08-31-guest-filesystem-surfaces.md)). Follow that pattern for PTY rather
+than inventing a second one: it added `Backend::file`, a portable `FileOperation`, a `FileAnswer`
+carrying the guest's closed failure set unchanged, and `Engine::file_machine`.
 
-Filesystem is in flight. **PTY is not started.** Both are wiring, not invention.
+`crates/soma-guest/src/application/pty/` implements a terminal at the protocol level, one session
+at a time, and nothing reaches it. A terminal is a stream rather than a request and answer, so it
+does not fit the filesystem shape exactly. One recorded hazard: devpts was at one point never
+mounted in the guest, which made PTY unreachable in a real guest even though the protocol worked -
+verify the guest has what a pty needs before assuming wiring is the only gap.
 
-Proof: through the HTTP API, because that is what a ComputeSDK client calls. Include a binary-safe
-round trip - non-UTF-8 bytes in, identical bytes out.
+Note `MAX_FILE_BYTES` is 4 MiB because the hosted relay carries an operation as one JSON line where
+a byte becomes up to four characters. A PTY stream hits that constraint harder than a file does.
+
+### 2b. Three defects found while closing the filesystem gap, all fixed
+
+Recorded because each was worse than the gap being closed, and because they suggest where to look
+for more of the same. An inadmissible path was rejected by the guest *while decoding*, which is a
+protocol fault that ends the session, so a caller sending a relative path destroyed its own sandbox
+instead of being told no. `soma-api` never asked for hosted machines, so every sandbox it created
+died with the connection and nothing over HTTP had ever worked end to end. And the runtime starts a
+host by re-entering `current_exe()` with `machine-host`, which only the command line answered, so
+`soma-api` spawned a copy of itself that exited on an unknown option.
 
 ### 3. `sandbox.list()` cannot be served
 
