@@ -861,3 +861,8 @@ The current `soma-local` request path still restores on demand and must not repo
 
 SOMA must enter MIOSA as an explicit experimental engine on separate hosts while the Firecracker path remains the control and rollback target.
 The MIOSA adapter stays outside this repository, and no customer deployment begins until certified admission, jailed one-process-per-VM ownership, fresh networking, prepared-worker transfer, restart reconciliation, density tests, the exact ComputeSDK campaign, and soak evidence all pass on one immutable release.
+
+## 2026-09-01 - The Linux gate owns its descriptor prerequisite
+
+The hostd latency test prepares 1,000 workers and intentionally retains three descriptors per worker, so an ordinary SSH soft limit of 1,024 makes the first socket-pair allocation report a disk resource failure even when disk space and inodes are healthy.
+The Linux check now raises its own soft open-file limit to 4,096 before running tests and fails with a direct prerequisite error when the host hard limit cannot support that value.

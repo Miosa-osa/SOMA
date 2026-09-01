@@ -90,6 +90,23 @@ check_benchmark_harness() {
     PYTHONDONTWRITEBYTECODE=1 python3 -m compileall -q -f benchmarks
 }
 
+prepare_linux_test_limits() {
+    local required_open_files=4096
+    local current_open_files
+
+    current_open_files="$(ulimit -Sn)"
+    if [[ "${current_open_files}" == "unlimited" ]] ||
+        (( current_open_files >= required_open_files )); then
+        return
+    fi
+
+    if ! ulimit -Sn "${required_open_files}"; then
+        printf 'linux profile requires a soft open-file limit of at least %d, found %s\n' \
+            "${required_open_files}" "${current_open_files}" >&2
+        return 1
+    fi
+}
+
 check_portable_rust() {
     check_workspace
     check_format
@@ -119,6 +136,7 @@ check_linux_rust() {
     fi
 
     check_workspace
+    prepare_linux_test_limits
     check_format
     check_benchmark_harness
 
