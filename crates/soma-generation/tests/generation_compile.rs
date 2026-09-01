@@ -1,19 +1,24 @@
+//! What the Generation compiler must produce: the same tree compiling to byte identical
+//! artifacts under the same identity, a changed input changing that identity, and a tampered
+//! artifact failing cross-artifact verification.
+//!
+//! What it must refuse lives in `generation_compile_refusals.rs`. Both need the pinned
+//! toolchains; these three cannot run without them, and skip when they are absent.
+
 mod support;
 
 use std::{fs, thread, time::Duration};
 
-use soma::{MachineShape, OciImage};
 use soma_generation::{
-    CompileErrorKind, CompilePhase, LifetimeLimits, SnapshotBinding, StartupBehavior,
-    TemplateImage, TemplateRevision, erofs::format_uuid, verify_candidate,
+    CompileErrorKind, CompilePhase, SnapshotBinding, erofs::format_uuid, verify_candidate,
 };
 #[cfg(unix)]
 use support::fixture_tree::extraction_oracle;
 
 use support::{
     fixture_tree::{AGENT, digests, fixture_layers},
-    generation::{compile, compile_with_template, test_profile, toolchains},
-    rootfs::{TarEntry, normalize_layers, normalize_layers_for, tar},
+    generation::{compile, test_profile, toolchains},
+    rootfs::{TarEntry, normalize_layers_for, tar},
 };
 
 #[test]
@@ -190,110 +195,4 @@ fn tampered_artifact_fails_cross_artifact_verification() {
         error.kind(),
         CompileErrorKind::Integrity | CompileErrorKind::StoreConflict
     ));
-}
-
-#[test]
-fn non_amd64_image_is_rejected_before_any_tool_runs() {
-    let (_fixture, normalized) = normalize_layers(&[tar(&[TarEntry::file(b"a", b"x")])]);
-    let workload = normalized.workload();
-    let error = TemplateRevision::new(
-        TemplateImage::new(
-            OciImage::parse("example.test/fixture:arm64").unwrap(),
-            workload.manifest_digest().clone(),
-            workload.platform().clone(),
-        ),
-        MachineShape::new(1, 256, 64).unwrap(),
-        StartupBehavior::readiness_only(),
-        LifetimeLimits::new(60).unwrap(),
-        1,
-    )
-    .unwrap_err();
-    assert_eq!(error.phase(), CompilePhase::ResolveInputs);
-    assert_eq!(error.kind(), CompileErrorKind::Unsupported);
-}
-
-#[test]
-fn template_that_disagrees_with_the_tree_or_profile_is_rejected() {
-    let (fixture, normalized) =
-        normalize_layers_for(&[tar(&[TarEntry::file(b"a", b"x")])], "amd64");
-    let scratch = tempfile::tempdir().unwrap();
-    let missing = (
-        scratch.path().join("no-erofs"),
-        scratch.path().join("no-e2fs"),
-    );
-    let workload = normalized.workload();
-    let image = |digest: &str| {
-        TemplateImage::new(
-            OciImage::parse("example.test/fixture:amd64").unwrap(),
-            soma::OciDigest::parse(digest).unwrap(),
-            workload.platform().clone(),
-        )
-    };
-    let other = image(&format!("sha256:{}", "ab".repeat(32)));
-    let mismatched = TemplateRevision::new(
-        other,
-        MachineShape::new(1, 256, 64).unwrap(),
-        StartupBehavior::readiness_only(),
-        LifetimeLimits::new(60).unwrap(),
-        1,
-    )
-    .unwrap();
-    let error = compile_with_template(
-        &mismatched,
-        &normalized,
-        &fixture.store,
-        scratch.path(),
-        &missing,
-        AGENT,
-    )
-    .unwrap_err();
-    assert_eq!(error.phase(), CompilePhase::ResolveInputs);
-    assert_eq!(error.kind(), CompileErrorKind::Integrity);
-
-    let unknown_class = TemplateRevision::new(
-        image(workload.manifest_digest().as_str()),
-        MachineShape::new(1, 256, 96).unwrap(),
-        StartupBehavior::readiness_only(),
-        LifetimeLimits::new(60).unwrap(),
-        1,
-    )
-    .unwrap();
-    let error = compile_with_template(
-        &unknown_class,
-        &normalized,
-        &fixture.store,
-        scratch.path(),
-        &missing,
-        AGENT,
-    )
-    .unwrap_err();
-    assert_eq!(error.phase(), CompilePhase::ResolveInputs);
-    assert_eq!(error.kind(), CompileErrorKind::Unsupported);
-    assert!(LifetimeLimits::new(0).is_err());
-    assert!(StartupBehavior::with_workload_probe(vec![0]).is_err());
-}
-
-#[test]
-fn missing_toolchain_fails_closed_after_input_verification() {
-    let (fixture, normalized) =
-        normalize_layers_for(&[tar(&[TarEntry::file(b"a", b"x")])], "amd64");
-    let scratch = tempfile::tempdir().unwrap();
-    let missing = (
-        scratch.path().join("no-erofs"),
-        scratch.path().join("no-e2fs"),
-    );
-    let error = compile(&normalized, &fixture.store, scratch.path(), &missing, AGENT).unwrap_err();
-    assert_eq!(error.phase(), CompilePhase::FormatRoot);
-    assert_eq!(error.kind(), CompileErrorKind::Toolchain);
-    assert!(
-        !fixture
-            .store
-            .join("v1/blobs/sha256")
-            .read_dir()
-            .unwrap()
-            .any(|entry| {
-                let path = entry.unwrap().path();
-                fs::read(path).unwrap().starts_with(b"SOMAGEN\0")
-            })
-    );
 }
