@@ -8,7 +8,12 @@ use std::sync::Arc;
 use crate::ToolRuntime;
 use rmcp::handler::server::router::tool::ToolRouter;
 
-const MAX_IN_FLIGHT_TOOLS: usize = 32;
+/// Protocol work admitted concurrently before the runtime's shape-aware capacity gate decides
+/// whether a sandbox itself fits.
+///
+/// This must cover the public 100-way burst without becoming the machine-capacity policy.
+/// The runtime still owns CPU, memory, storage, and process admission for every Launch.
+const MAX_IN_FLIGHT_TOOLS: usize = 128;
 
 /// Bounded Model Context Protocol access to one SOMA runtime adapter.
 pub struct SomaMcpServer<R> {

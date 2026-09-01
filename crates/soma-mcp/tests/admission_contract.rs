@@ -13,7 +13,7 @@ use soma_mcp::{
 };
 use tokio::sync::{Notify, Semaphore};
 
-const MAX_IN_FLIGHT_TOOLS: usize = 32;
+const MAX_IN_FLIGHT_TOOLS: usize = 128;
 
 #[derive(Clone)]
 struct BlockingRuntime {
