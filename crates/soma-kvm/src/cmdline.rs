@@ -30,6 +30,7 @@ pub(crate) const GENERATION_UPPER: &str = "soma.upper=/dev/vdb";
 /// The network interface, named only by a Generation that declared a network device.
 pub(crate) const GENERATION_NET: &str = "soma.net=eth0";
 /// The kernel argument that carries the challenge nonce to the guest.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) const NONCE_ARGUMENT: &str = "soma.nonce";
 /// The prefix of the challenge-bound sentinel the guest writes to its console.
 pub(crate) const SENTINEL_PREFIX: &str = "SOMA-BOOT-";
@@ -91,6 +92,7 @@ pub fn compose_generation(devices: DeviceSet) -> String {
 }
 
 /// Composes the complete command line for one diagnostic boot.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) fn compose(initramfs: bool, nonce: Option<&BootNonce>) -> String {
     let mut arguments: Vec<String> = FIXED_ARGUMENTS.iter().map(|s| (*s).to_owned()).collect();
     if initramfs {
@@ -144,6 +146,7 @@ mod tests {
         assert!(line.ends_with(" rdinit=/init soma.lower=/dev/vda"));
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn appends_init_and_nonce_in_a_fixed_order() {
         let nonce = BootNonce::new([0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33]);

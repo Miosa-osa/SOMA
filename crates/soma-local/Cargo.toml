@@ -28,5 +28,8 @@ soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.1" }
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 tempfile = "=3.27.0"
 
+[dev-dependencies]
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+
 [lints]
 workspace = true
