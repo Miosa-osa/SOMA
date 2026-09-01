@@ -61,7 +61,7 @@ impl KvmBackend {
             // it, so the artifacts are observed rather than enforced. Reporting LaunchEnforced
             // would claim a binding no gate produced.
             DigestBinding::ObservedOnly,
-            effective_shape(launched.memory_mib),
+            effective_shape(launched.memory_mib, launched.storage_mib),
             launched.network,
             // The launch stamp is taken on the clock of whichever process built the machine, so
             // a hosted launch reports it after this operation was admitted here and never after

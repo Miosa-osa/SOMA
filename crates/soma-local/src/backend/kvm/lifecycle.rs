@@ -77,6 +77,18 @@ impl KvmBackend {
         if shape.vcpu_count() != CONTRACT_VCPUS {
             return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
         }
+        let Some(storage_mib) = prepared
+            .manifest
+            .template
+            .writable_storage_bytes
+            .checked_div(1024 * 1024)
+            .filter(|_| prepared.manifest.template.writable_storage_bytes % (1024 * 1024) == 0)
+        else {
+            return Err(self.fail(operation, BackendFailureKind::Unavailable));
+        };
+        if shape.storage_mib() != storage_mib {
+            return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
+        }
         let identity =
             LaunchIdentity::derive(instance).map_err(|kind| self.fail(operation, kind))?;
         let policy = shape.capabilities().network_policy();
@@ -138,6 +150,7 @@ impl KvmBackend {
         Ok(Launched {
             preparation,
             memory_mib: shape.memory_mib(),
+            storage_mib,
             network: observed,
             at_ns: launched,
         })

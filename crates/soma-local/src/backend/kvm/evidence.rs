@@ -14,13 +14,15 @@ pub(super) const CONTRACT_VCPUS: u16 = 1;
 
 /// The shape a caller is told it received.
 ///
-/// The vCPU count is fixed by the machine contract and the memory is the amount the machine was
-/// built with, so both are observed. Storage is not measured by this Backend.
-pub(super) fn effective_shape(memory_mib: u64) -> EffectiveShape {
+/// The vCPU count is fixed by the machine contract.
+/// Memory is the amount the restore registered with KVM.
+/// Storage is the capacity of the private block backend whose agreement with the captured device
+/// state was checked before the guest could reach Ready.
+pub(super) fn effective_shape(memory_mib: u64, storage_mib: u64) -> EffectiveShape {
     EffectiveShape::new(
         Observation::Observed(CONTRACT_VCPUS),
         Observation::Observed(memory_mib),
-        Observation::Unavailable(ObservationUnavailable::NotVerified),
+        Observation::Observed(storage_mib),
     )
     .unwrap_or_else(|_| {
         EffectiveShape::new(
@@ -30,6 +32,21 @@ pub(super) fn effective_shape(memory_mib: u64) -> EffectiveShape {
         )
         .expect("an entirely unavailable shape is always valid")
     })
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use soma::Observation;
+
+    use super::effective_shape;
+
+    #[test]
+    fn a_restored_machine_reports_all_three_shape_dimensions() {
+        let effective = effective_shape(1024, 10_240);
+        assert_eq!(effective.vcpu_count(), &Observation::Observed(1));
+        assert_eq!(effective.memory_mib(), &Observation::Observed(1024));
+        assert_eq!(effective.storage_mib(), &Observation::Observed(10_240));
+    }
 }
 
 /// The network a caller is told it received.

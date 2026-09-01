@@ -35,6 +35,7 @@ pub(super) struct LaunchWire {
 pub(in crate::backend::kvm) struct Launched {
     pub(in crate::backend::kvm) preparation: PreparationClass,
     pub(in crate::backend::kvm) memory_mib: u64,
+    pub(in crate::backend::kvm) storage_mib: u64,
     pub(in crate::backend::kvm) network: EffectiveNetwork,
     /// When the machine existed, in nanoseconds after its launch was admitted.
     pub(in crate::backend::kvm) at_ns: u64,
