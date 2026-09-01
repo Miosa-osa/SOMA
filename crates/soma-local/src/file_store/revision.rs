@@ -101,7 +101,12 @@ pub(super) fn commit_revision(
             return Err(unavailable());
         }
     }
-    sync_directory(directory)?;
+    // The temp name is retired before the directory is made durable, so one commit publishes
+    // the link and removes the name. A crash before that commit leaves either nothing, or the
+    // link with its temp still present, and the temp sweep in `scan_revisions` recovers the
+    // second case on the next read: `publication_recovers_when_crash_leaves_the_committed_temp_link`
+    // proves it. A second directory commit would therefore buy no state that is not already
+    // recovered, and it is the most expensive syscall on this path.
     fs::remove_file(&temp).map_err(|_| unavailable())?;
     sync_directory(directory)?;
     require_single_link(&target)?;
@@ -121,7 +126,11 @@ fn create_temp(directory: &Path, record: &StateRecord) -> Result<PathBuf, StateS
                 file.write_all(record.as_bytes())
                     .map_err(|_| unavailable())?;
                 set_file_permissions(&file)?;
-                file.sync_all().map_err(|_| unavailable())?;
+                // The record's bytes and its length are what a later read needs; the inode was
+                // journalled with the exclusive create that made it, and its mode came from
+                // that same create. `sync_all` would additionally commit the timestamps, which
+                // nothing here reads.
+                file.sync_data().map_err(|_| unavailable())?;
                 return Ok(path);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}

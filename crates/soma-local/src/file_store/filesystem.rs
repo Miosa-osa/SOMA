@@ -75,10 +75,21 @@ pub(super) fn require_single_link_metadata(
     }
 }
 
+/// The permission bits of a mode, without the file type and the set-user bits.
+#[cfg(unix)]
+const PERMISSION_BITS: u32 = 0o7777;
+
 #[cfg(unix)]
 pub(super) fn set_directory_permissions(path: &Path) -> Result<(), StateStoreFailure> {
-    use std::os::unix::fs::PermissionsExt as _;
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
+    // Every state operation passes through here, on a directory that is almost always already
+    // owner-private. Rewriting a mode that already holds dirties the inode and puts it in the
+    // filesystem's next commit, which is the cost this read avoids paying on the common path.
+    let metadata = fs::metadata(path).map_err(|_| unavailable())?;
+    if metadata.mode() & PERMISSION_BITS == 0o700 {
+        return Ok(());
+    }
     File::open(path)
         .and_then(|directory| directory.set_permissions(fs::Permissions::from_mode(0o700)))
         .map_err(|_| unavailable())
@@ -91,8 +102,14 @@ pub(super) fn set_directory_permissions(path: &Path) -> Result<(), StateStoreFai
 
 #[cfg(unix)]
 pub(super) fn set_file_permissions(file: &File) -> Result<(), StateStoreFailure> {
-    use std::os::unix::fs::PermissionsExt as _;
+    use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
+    // The shard lock is opened and this is called on it once per state operation, by every
+    // process sharing the store. The mode it is being set to is the mode it was created with.
+    let metadata = file.metadata().map_err(|_| unavailable())?;
+    if metadata.mode() & PERMISSION_BITS == 0o600 {
+        return Ok(());
+    }
     file.set_permissions(fs::Permissions::from_mode(0o600))
         .map_err(|_| unavailable())
 }
