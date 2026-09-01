@@ -89,7 +89,7 @@ pub fn warm(template: &File, root: &Path, copies: NonZeroUsize) -> Result<FanRep
     let key = fan_key(digest);
     let directory = root.join(&key);
     std::fs::create_dir_all(&directory).map_err(FanError::Io)?;
-    let size = template.metadata().map_err(FanError::Io)?.size();
+    let size = template.metadata().map_err(FanError::Io)?.len();
     let mut written = 0;
     for index in 0..copies {
         let path = directory.join(replica_path(index));
@@ -122,14 +122,14 @@ pub fn open_replica(
     copies: NonZeroUsize,
 ) -> Option<File> {
     let copies = copies.get().min(MAX_TEMPLATE_COPIES);
-    let size = template.metadata().ok()?.size();
+    let size = template.metadata().ok()?.len();
     let directory = root.join(fan_key(certified_digest));
     let start = next_index(copies);
     for offset in 0..copies {
         let index = (start + offset) % copies;
         let replica = File::open(directory.join(replica_path(index))).ok();
         if let Some(replica) = replica
-            && replica.metadata().ok()?.size() == size
+            && replica.metadata().ok()?.len() == size
         {
             return Some(replica);
         }
@@ -212,7 +212,7 @@ fn proved(path: &Path, size: u64, digest: [u8; 32]) -> Result<bool, FanError> {
 }
 
 fn prove(replica: &File, size: u64, digest: [u8; 32]) -> Result<(), FanError> {
-    let actual = replica.metadata().map_err(FanError::Io)?.size();
+    let actual = replica.metadata().map_err(FanError::Io)?.len();
     if actual != size {
         return Err(FanError::SizeMismatch {
             expected: size,
