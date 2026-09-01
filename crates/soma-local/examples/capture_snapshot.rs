@@ -84,13 +84,45 @@ fn source_head(template: &mut File, path: &Path) -> Result<File, Box<dyn Error>>
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn publish_generation_id(entry: &Path, identity: &str) -> Result<(), Box<dyn Error>> {
     let path = entry.join("generation.id");
+    if path.exists() {
+        return existing_generation_id(&path, identity);
+    }
+    let temporary = entry.join(format!(
+        ".generation.id.{}.{}.tmp",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+    ));
     let mut options = OpenOptions::new();
     options.create_new(true).write(true).mode(0o600);
-    let mut file = options.open(path)?;
+    let mut file = options.open(&temporary)?;
     file.write_all(identity.as_bytes())?;
     file.sync_all()?;
+    match fs::hard_link(&temporary, &path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            fs::remove_file(&temporary)?;
+            return existing_generation_id(&path, identity);
+        }
+        Err(error) => {
+            let _ignored = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+    }
+    fs::remove_file(&temporary)?;
     File::open(entry)?.sync_all()?;
     Ok(())
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn existing_generation_id(path: &Path, identity: &str) -> Result<(), Box<dyn Error>> {
+    let existing = fs::read_to_string(path)?;
+    if existing == identity {
+        Ok(())
+    } else {
+        Err("generation.id already names another Generation".into())
+    }
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

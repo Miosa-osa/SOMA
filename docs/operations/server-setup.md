@@ -150,7 +150,6 @@ Start with the empty one, then the runtime:
 ```sh
 export SOMA_GENERATION_STORE=/srv/soma/prepared
 export SOMA_HEAD_DIR=/srv/soma/heads              # on the XFS reflink volume
-export SOMA_ALLOW_UNCERTIFIED_GENERATION=1        # see the note below
 
 # the empty sandbox: prove it boots and runs a command
 ./target/release/soma --backend kvm run busybox:stable-musl -- /bin/busybox uname -a
@@ -164,16 +163,14 @@ Because `node:22` is mutable, do not expect one exact patch version unless the i
 Successful output proves this development path reached guest command execution.
 It does not independently certify the host, Candidate, cleanup, jail, networking, or production readiness.
 
-The `SOMA_ALLOW_UNCERTIFIED_GENERATION` flag is required on purpose.
 The preparation command first publishes a non-launchable Candidate.
 On Linux x86_64, `capture_snapshot` installs the captured objects, runs certification, promotes the exact Candidate into a ready Generation, and publishes `generation.id` last.
 The public KVM resolver refuses Candidate-only entries and independently re-verifies the ready Generation and every bound artifact before machine creation.
-The backend refuses to launch one unless this flag is set, so that unverified images cannot boot by accident.
-Setting it is the explicit opt in for a development host.
+There is no environment-variable bypass for Candidate launch.
 
 ## What this gives you, and what it does not
 
-**What works today.** One hardware-isolated development sandbox at a time, cold booted and driven from the command line on a compatible KVM host.
+**What works today.** Hardware-isolated sandboxes restored from a certified snapshot and driven through the command line, MCP, or HTTP surfaces on a compatible KVM host.
 
 **What a production sandbox service still needs, and is not built yet:**
 
@@ -183,8 +180,7 @@ Setting it is the explicit opt in for a development host.
 - A jail around the virtual machine process.
   Today the VM runs inside the command line process rather than as a separately confined `soma-vmm` process.
   This is the most important gap before anything faces untrusted users.
-- Prepared restore, which reaches a ready sandbox in milliseconds instead of the current cold boot.
-- Certified Generations, so a template is verified before it can launch rather than opted into.
+- Retained verified artifact handles across admission and restore, so launch consumes the exact files that passed verification.
 
 The full path from this development setup to a production admitted service is tracked in [the public KVM Backend audit](../reviews/2026-08-30-public-kvm-backend-audit.md), the [MIOSA custom sandbox rollout plan](miosa-custom-sandbox-rollout.md), and the ticket map in [the VMM decision map](../research/vmm-decision-map.md).
 
