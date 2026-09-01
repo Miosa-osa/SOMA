@@ -14,6 +14,7 @@ fn count(directory: &Path) -> usize {
     std::fs::read_dir(directory)
         .expect("read fan")
         .filter_map(Result::ok)
+        .filter(|entry| entry.path().join("template").is_file())
         .count()
 }
 
@@ -43,7 +44,7 @@ fn every_replica_is_the_template_byte_for_byte() {
     let copies = NonZeroUsize::new(3).expect("nonzero");
     let report = warm(&template, &root, copies).expect("warm");
     for index in 0..report.copies {
-        let path = root.join(&report.key).join(replica_name(index));
+        let path = root.join(&report.key).join(replica_path(index));
         assert_eq!(std::fs::read(&path).expect("read replica"), bytes);
     }
 }
@@ -72,7 +73,7 @@ fn a_short_replica_is_refused_and_written_again() {
     let root = scratch.path().join("fan");
     let copies = NonZeroUsize::new(1).expect("nonzero");
     let report = warm(&template, &root, copies).expect("warm");
-    let path = root.join(&report.key).join(replica_name(0));
+    let path = root.join(&report.key).join(replica_path(0));
     std::fs::write(&path, [9_u8; 4096]).expect("shorten");
     assert!(open_replica(&template, &root, copies).is_none());
     assert_eq!(warm(&template, &root, copies).expect("rewarm").written, 1);
@@ -86,7 +87,7 @@ fn a_replica_holding_other_bytes_is_written_again() {
     let root = scratch.path().join("fan");
     let copies = NonZeroUsize::new(1).expect("nonzero");
     let report = warm(&template, &root, copies).expect("warm");
-    let path = root.join(&report.key).join(replica_name(0));
+    let path = root.join(&report.key).join(replica_path(0));
     std::fs::write(&path, [2_u8; 4096]).expect("overwrite");
     assert_eq!(warm(&template, &root, copies).expect("rewarm").written, 1);
     assert_eq!(std::fs::read(&path).expect("read"), vec![1_u8; 4096]);
@@ -113,4 +114,26 @@ fn the_copy_count_is_clamped() {
     let report = warm(&template, &root, copies).expect("warm");
     assert_eq!(report.copies, MAX_TEMPLATE_COPIES);
     assert_eq!(count(&root.join(report.key)), MAX_TEMPLATE_COPIES);
+}
+
+#[test]
+fn every_replica_has_a_directory_of_its_own() {
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let template = template(scratch.path(), &[4_u8; 4096]);
+    let root = scratch.path().join("fan");
+    let copies = NonZeroUsize::new(3).expect("nonzero");
+    let report = warm(&template, &root, copies).expect("warm");
+    let parents: std::collections::BTreeSet<PathBuf> = (0..report.copies)
+        .map(|index| {
+            root.join(&report.key)
+                .join(replica_path(index))
+                .parent()
+                .expect("parent")
+                .to_path_buf()
+        })
+        .collect();
+    assert_eq!(parents.len(), report.copies);
+    for parent in parents {
+        assert!(parent.is_dir());
+    }
 }
