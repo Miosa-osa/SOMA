@@ -12,19 +12,24 @@ use super::{
     artifacts::{self, SnapshotPaths, Staging},
     device,
     error::{Artifact, SnapshotError},
-    marker, platform, profile, quiesce, vcpu,
+    platform, profile, quiesce, vcpu,
 };
 use crate::snapshot::{
     Digest,
     capture::{CaptureStep, Quiesce, QuiescePrecondition},
     device_state::DeviceState,
     kvm_state::{MemorySlot, VmState},
-    manifest::{Architecture, CandidateId, Manifest, ManifestHeader, PageSize},
+    manifest::{Manifest, PageSize},
     memory::MemoryDescriptor,
-    section::{Section, SectionRole},
 };
 use crate::virtio::{GuestAddress, GuestMemory as _, Slot};
 use crate::x86_64::{layout, sandbox::SandboxMachine};
+
+// Assembling the manifest out of what was read is beside this file: it touches no KVM and needs
+// no ordering, so keeping it apart is what stops the read order below being read as part of it.
+use manifest::{Parts, build};
+
+mod manifest;
 
 /// Bytes copied out of guest RAM per pass.
 const CHUNK: usize = 1 << 20;
@@ -249,52 +254,4 @@ pub fn capture(
         repair_point_at,
         posted_buffers: posted,
     })
-}
-
-struct Parts<'a> {
-    cpu_template: Digest,
-    irqchip: &'a crate::snapshot::kvm_state::IrqchipState,
-    routing: &'a crate::snapshot::kvm_state::IrqRoutingState,
-    clock: &'a crate::snapshot::kvm_state::ClockState,
-    pit: &'a crate::snapshot::kvm_state::PitState,
-    devices: &'a [(Slot, DeviceState)],
-    device_set: crate::virtio::DeviceSet,
-    memory: MemoryDescriptor,
-}
-
-fn build(
-    request: &CaptureRequest<'_>,
-    vm_state: &VmState,
-    vcpu_state: &crate::snapshot::kvm_state::VcpuState,
-    parts: &Parts<'_>,
-) -> Result<Manifest, SnapshotError> {
-    let header = ManifestHeader {
-        architecture: Architecture::X86_64,
-        page_size: PageSize::FOUR_KIB,
-        candidate_id: CandidateId::new(request.candidate_id)?,
-        machine_contract: profile::machine_contract(parts.device_set),
-        device_contract: profile::device_contract(parts.device_set),
-        cpu_template: parts.cpu_template,
-        host: profile::requirements()?,
-        memory: parts.memory,
-        vcpu_count: profile::VCPU_COUNT,
-        guest_protocol_version: profile::GUEST_PROTOCOL_VERSION,
-    };
-    let mut sections = vec![
-        Section::new(SectionRole::VmState, vm_state.encode())?,
-        Section::new(SectionRole::Vcpu0, vcpu_state.encode())?,
-        Section::new(SectionRole::Irqchip, parts.irqchip.encode())?,
-        Section::new(SectionRole::IrqRouting, parts.routing.encode())?,
-        Section::new(SectionRole::KvmClock, parts.clock.encode())?,
-        Section::new(SectionRole::Pit, parts.pit.encode())?,
-    ];
-    for (slot, state) in parts.devices {
-        let role = device::role(*slot).ok_or(SnapshotError::DeviceStateNotCanonical(*slot))?;
-        sections.push(Section::new(role, state.encode())?);
-    }
-    sections.push(Section::new(
-        SectionRole::RepairPointMarker,
-        marker::encode(&request.repair_point_line),
-    )?);
-    Ok(Manifest::new(header, sections)?)
 }
