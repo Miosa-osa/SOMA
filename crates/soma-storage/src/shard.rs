@@ -11,7 +11,7 @@
 //! process so that a cohort launched from one process spreads as well.
 //!
 //! Sharding alone does not make a cohort faster. It removes one of the two objects a cohort
-//! serializes on; the other is the overlay template, which [`crate::fan`] removes.
+//! serializes on; the other is the overlay template, which the Linux-only `fan` module removes.
 
 use std::fs::File;
 use std::io;

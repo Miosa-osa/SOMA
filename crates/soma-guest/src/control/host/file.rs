@@ -13,7 +13,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     /// Issues one filesystem request and returns the guest's answer with the reusable owner.
     ///
     /// The operation identity is minted rather than taken from the caller, for the reason
-    /// [`super::operation`] gives.
+    /// the host-control operation policy gives.
     ///
     /// # Errors
     ///
