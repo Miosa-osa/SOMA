@@ -123,3 +123,22 @@ fn a_line_that_is_not_a_call_is_refused_rather_than_guessed_at() {
         "a peer that is gone says nothing rather than something"
     );
 }
+
+/// A directory one byte too deep to name a socket in cannot hold a host, and the whole point of
+/// asking is that `bind` reports that as an ordinary failure to start. This pins the boundary at
+/// the byte, because a check that is nearly right refuses launches that would have worked.
+#[test]
+fn a_directory_too_deep_to_name_a_socket_in_is_not_addressable() {
+    let name = InstanceId::LENGTH + ".sock".len() + 1 + 1;
+    let longest = std::path::PathBuf::from("/".repeat(108 - name));
+    let one_too_long = std::path::PathBuf::from("/".repeat(108 - name + 1));
+
+    assert!(channel::addressable(&longest));
+    assert!(!channel::addressable(&one_too_long));
+    assert!(
+        channel::socket_path(&longest, &instance(ONE))
+            .as_os_str()
+            .len()
+            < 108
+    );
+}

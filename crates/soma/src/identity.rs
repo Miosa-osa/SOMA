@@ -11,15 +11,21 @@ macro_rules! canonical_runtime_id {
         pub struct $name(String);
 
         impl $name {
+            /// How many characters one of these identifiers is, always.
+            ///
+            /// A caller that has to size something around an identity reads it here rather than
+            /// writing the number again beside its own reason for needing it.
+            pub const LENGTH: usize = 32;
+
             /// Parses one canonical portable runtime identifier.
             ///
             /// # Errors
             ///
-            /// Returns [`ValidationError::InvalidIdentity`] unless the value is exactly 32
-            /// nonzero lowercase hexadecimal characters.
+            /// Returns [`ValidationError::InvalidIdentity`] unless the value is exactly
+            /// [`Self::LENGTH`] nonzero lowercase hexadecimal characters.
             pub fn new(value: impl Into<String>) -> Result<Self, ValidationError> {
                 let value = value.into();
-                validate_fixed_hex(&value, 32, true)?;
+                validate_fixed_hex(&value, Self::LENGTH, true)?;
                 Ok(Self(value))
             }
 
