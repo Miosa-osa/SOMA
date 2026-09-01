@@ -9,7 +9,9 @@
 
 use core::fmt;
 
-use super::{Hasher, ReadinessReceipt, ReadinessRefusal, RestoredIdentity, SessionEvidence};
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
+use super::ReadinessRefusal;
+use super::{Hasher, ReadinessReceipt, RestoredIdentity, SessionEvidence};
 
 const DOMAIN: &[u8; 24] = b"SOMA-RESTORE-READINESS\0\0";
 const SCHEMA_VERSION: u16 = 1;
