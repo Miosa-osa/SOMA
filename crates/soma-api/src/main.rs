@@ -9,11 +9,32 @@ use soma_local::{BackendSelection, LocalRuntimeConfig};
 /// scheme, so a default that exposed it to a network would be a default that leaked sandboxes.
 const DEFAULT_LISTEN: &str = "127.0.0.1:8787";
 
+/// The argument the runtime re-enters this executable with to hold one machine.
+///
+/// It is the same word the command line uses, because the runtime names it and both binaries
+/// must answer to whatever the runtime names.
+const MACHINE_HOST: &str = "machine-host";
+
 fn main() {
     process::exit(run());
 }
 
 fn run() -> i32 {
+    // A machine host is not a request this service serves: it becomes the process that holds one
+    // sandbox. The runtime starts one by re-entering this executable, so every binary that opens
+    // a hosted runtime has to answer here, before any listener exists. Without it this service
+    // can create no sandbox at all: the host it spawns would be a copy of itself parsing
+    // `machine-host` as an option it does not have.
+    let mut arguments = env::args().skip(1);
+    if let Some(first) = arguments.next()
+        && first == MACHINE_HOST
+    {
+        let Some(socket) = arguments.next().filter(|_| arguments.next().is_none()) else {
+            eprintln!("soma-api: usage: soma-api {MACHINE_HOST} SOCKET");
+            return 64;
+        };
+        return soma_local::host_machine(std::path::Path::new(&socket));
+    }
     let Some(options) = Options::parse(env::args().skip(1)) else {
         eprintln!(
             "soma-api: usage: soma-api [--listen ADDR] [--backend auto|kvm|macos|docker] \
@@ -32,6 +53,11 @@ fn run() -> i32 {
             options.runtime.clone(),
             options.state_root.clone(),
         )
+        // Every route this service serves names an Instance a later request must be able to
+        // reach, so the machine has to be held by a host process rather than by whichever
+        // connection happened to create it. Without this the sandbox a create call returns is
+        // already gone by the time the caller addresses it.
+        .map(|config| config.with_hosted_machines(true))
         .and_then(LocalFacade::open)
         .map_err(|_| {
             ApiError::new(

@@ -29,8 +29,8 @@ use std::{
 };
 
 use soma::{
-    BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, InstanceId, MachineShape,
-    MachineState, OperationId,
+    BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, FileAnswer,
+    FileOperation, InstanceId, MachineShape, MachineState, OperationId,
 };
 
 pub(crate) use serve::host_machine;
@@ -159,6 +159,27 @@ pub(super) fn execute(
             stdout,
             stderr,
         }),
+        Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
+        _ => Err(HostFailure::Refused(BackendFailureKind::GuestFailure)),
+    }
+}
+
+/// Asks the host holding this Instance for one bounded filesystem operation.
+///
+/// A whole-file transfer is several guest records, so it is given the command ceiling rather
+/// than the control one: it can take about as long as a command and for the same reason, which
+/// is that the guest is doing real work for the whole of it.
+pub(super) fn file(
+    directory: &Path,
+    instance: &InstanceId,
+    operation: &FileOperation,
+) -> Result<FileAnswer, HostFailure> {
+    let call = Call::File {
+        instance_id: instance.clone(),
+        operation: operation.clone(),
+    };
+    match ask(directory, instance, &call, EXECUTE_CEILING)? {
+        Answer::FileAnswered { answer } => Ok(answer),
         Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
         _ => Err(HostFailure::Refused(BackendFailureKind::GuestFailure)),
     }

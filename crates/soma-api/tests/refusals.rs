@@ -38,31 +38,49 @@ fn listing_sandboxes_never_answers_with_an_empty_collection() {
     assert!(body["receipt"].is_null());
 }
 
+/// A backend that keeps no machine past its launching process still refuses, and names why.
+///
+/// The refusal is what a macOS host answers: the route and the engine call both exist now, so the
+/// only thing missing is a sandbox for the call to reach, and that is what the message must say.
 #[test]
-fn every_filesystem_operation_refuses_and_names_the_missing_guest_capability() {
-    for operation in ["read", "write", "list", "remove", "mkdir"] {
-        let mut facade = FakeFacade::new(Mode::Succeed);
+fn a_backend_holding_no_durable_machine_names_the_missing_capability() {
+    for operation in ["read", "write", "list", "exists", "remove", "mkdir"] {
+        let mut facade = FakeFacade::new(Mode::Unsupported);
         let request = identified(
             "POST",
             &format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}/filesystem/{operation}"),
-            r#"{"path":"/workspace/main.js"}"#,
+            &body_for(operation),
         );
 
         let (status, body) = call(&mut facade, &request);
 
         assert_eq!(status, 501, "{operation} must refuse");
-        assert!(
-            facade.calls.is_empty(),
-            "{operation} must not reach the engine"
-        );
         assert_eq!(body["operation"], "sandbox.filesystem");
         assert_eq!(body["error"]["code"], "capability_unavailable");
         assert!(
             body["error"]["message"]
                 .as_str()
                 .expect("the failure carries a message")
-                .contains("exposes no guest filesystem transfer")
+                .contains("no sandbox left to address")
         );
+    }
+}
+
+/// The message must no longer describe the facade as having no path to the guest at all.
+#[test]
+fn the_capability_message_no_longer_names_a_gap_that_is_closed() {
+    let message = soma_api::MissingCapability::GuestFilesystemTransfer.message();
+
+    assert!(!message.contains("exposes no guest filesystem transfer"));
+    assert!(!message.contains("no backend or engine method reaches it"));
+}
+
+/// The body a given operation needs, so every route is reached rather than refused for shape.
+fn body_for(operation: &str) -> String {
+    if operation == "write" {
+        r#"{"path":"/workspace/main.js","content":"aGk="}"#.to_owned()
+    } else {
+        r#"{"path":"/workspace/main.js"}"#.to_owned()
     }
 }
 

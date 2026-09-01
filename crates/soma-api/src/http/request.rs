@@ -8,8 +8,24 @@ pub const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
 pub const MAX_HEADER_LINE_BYTES: usize = 8 * 1024;
 /// Largest accepted header count.
 pub const MAX_HEADERS: usize = 64;
-/// Largest accepted body, sized to admit a maximal direct command plus its JSON framing.
-pub const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
+/// Largest accepted body.
+///
+/// It is derived rather than chosen, because the largest body this service must accept is a
+/// maximal file write, and a limit picked independently of that would refuse a write the rest of
+/// the stack is willing to perform. Base64 turns every three bytes into four, and the remaining
+/// allowance covers the path, the identities, and the JSON framing around them.
+pub const MAX_BODY_BYTES: usize = base64_length(soma::MAX_FILE_BYTES) + FRAMING_ALLOWANCE;
+
+/// What the rest of one filesystem body can take: a maximal path and the JSON around it.
+const FRAMING_ALLOWANCE: usize = 64 * 1024;
+
+/// The encoded length of `bytes` bytes of base64.
+const fn base64_length(bytes: usize) -> usize {
+    bytes.div_ceil(3) * 4
+}
+
+// A maximal direct command must still fit, which it did under the fixed limit this replaced.
+const _: () = assert!(MAX_BODY_BYTES >= 2 * 1024 * 1024);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Method {

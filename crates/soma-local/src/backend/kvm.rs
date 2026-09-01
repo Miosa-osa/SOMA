@@ -2,6 +2,7 @@ mod boot;
 mod claim;
 mod dispatch;
 mod evidence;
+mod file;
 mod host;
 mod identity;
 mod io;

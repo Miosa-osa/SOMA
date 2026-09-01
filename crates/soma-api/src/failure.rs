@@ -17,6 +17,9 @@ pub fn managed_error(failure: &ManagedFailure) -> ApiError {
         ManagedFailure::Operation(failure) => run_error(failure),
         ManagedFailure::State(state) => state_error(*state),
         ManagedFailure::StateStore(kind) => state_store_error(*kind),
+        // An operation that mints no receipt reports the backend kind directly; the mapping is
+        // the same one a receipt-carrying backend failure goes through.
+        ManagedFailure::Backend(kind) => backend_error(*kind),
         ManagedFailure::ReplayUnavailable(_) => ApiError::new(
             409,
             "replay_unavailable",

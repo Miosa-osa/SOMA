@@ -117,6 +117,19 @@ fn invoke_runtime(
                 })
                 .map_err(|failure| map_managed_failure(&failure))?
         }
+        RuntimeRequest::File(request) => {
+            let instance = request.instance_id().clone();
+            runtime
+                .file_machine(request.into_facade())
+                .map(|outcome| {
+                    Ok(RuntimeResponse::File(crate::FileResult::new(
+                        instance,
+                        outcome.operation().name(),
+                        outcome.answer().clone(),
+                    )))
+                })
+                .map_err(|failure| map_managed_failure(&failure))?
+        }
         RuntimeRequest::Inspect(request) => {
             let instance = request.instance_id().clone();
             let backend = request.backend();
@@ -215,6 +228,7 @@ const fn request_backend(request: &RuntimeRequest) -> BackendTarget {
         RuntimeRequest::Run(request) => request.backend(),
         RuntimeRequest::Launch(request) => request.backend(),
         RuntimeRequest::Exec(request) => request.backend(),
+        RuntimeRequest::File(request) => request.backend(),
         RuntimeRequest::Inspect(request) => request.backend(),
         RuntimeRequest::Stop(request) => request.backend(),
         RuntimeRequest::Destroy(request) => request.backend(),

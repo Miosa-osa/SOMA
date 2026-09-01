@@ -1,0 +1,1 @@
+{"schema":"soma.cli.v1","command":"machine","status":"error","result":null,"error":{"code":"invalid_input","message":"invalid_guest_path","retryable":false},"receipt":null}

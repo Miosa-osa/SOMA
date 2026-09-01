@@ -1,3 +1,7 @@
+mod hosting;
+
+pub use hosting::{MachineHosting, machine_hosting};
+
 mod clock;
 mod docker;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -9,8 +13,8 @@ use std::{any::Any, path::PathBuf};
 
 use soma::{
     Backend, BackendFailure, BackendKind, CleanupObservation, CleanupRequest, CommandObservation,
-    ExecutionRequest, InspectionObservation, InspectionRequest, LaunchObservation, LaunchRequest,
-    ResolutionObservation, ResolutionRequest,
+    ExecutionRequest, FileObservation, FileRequest, InspectionObservation, InspectionRequest,
+    LaunchObservation, LaunchRequest, ResolutionObservation, ResolutionRequest,
 };
 
 use crate::{LocalFailure, LocalFailureKind};
@@ -66,39 +70,6 @@ pub fn probe_backend(
         BackendSelection::Docker => docker::probe(),
         BackendSelection::Kvm => probe_kvm(),
         BackendSelection::Auto => unreachable!("auto selection is resolved before probing"),
-    }
-}
-
-/// Whether a Machine one backend launches is still addressable once the launching process is
-/// gone.
-///
-/// This is the difference between an instance identity a later command can use and one that
-/// names a Machine which died with the process that reported it. A surface that hands an
-/// identity back has to know which it is holding, because reporting a launch as ready without
-/// it is reporting a success no second process can act on.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MachineHosting {
-    /// The Machine and its guest session are resident in the launching process.
-    LaunchingProcess,
-    /// The Machine is hosted outside the launching process and outlives it.
-    OutlivesProcess,
-}
-
-/// How long a Machine launched on `backend` remains reachable.
-#[must_use]
-pub const fn machine_hosting(backend: BackendKind) -> MachineHosting {
-    match backend {
-        // macOS has no machine host yet: the machine and its guest session are held by the
-        // process that launched them, so nothing survives it for a second command to reach.
-        // This is the only backend left that hands back an identity no later command can use.
-        BackendKind::MacosVirtualization => MachineHosting::LaunchingProcess,
-        // The rest keep the machine somewhere the launching process is not, by two different
-        // routes: Docker registers the container with the host daemon under a name derived from
-        // the Instance, and a KVM managed Launch starts a host process answering on a socket
-        // named by the Instance. Either way a later command reaches the machine by identity.
-        BackendKind::DockerContainer | BackendKind::Remote | BackendKind::LinuxKvm => {
-            MachineHosting::OutlivesProcess
-        }
     }
 }
 
@@ -211,6 +182,18 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.execute(request),
+        }
+    }
+
+    fn file(&mut self, request: FileRequest<'_>) -> Result<FileObservation, BackendFailure> {
+        match self {
+            // Neither of these holds a machine a later process can address, so a filesystem call
+            // has nothing to reach and says so rather than answering about a machine that is gone.
+            Self::Docker(_) => Err(docker::DockerBackend::unsupported(request.operation_id())),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => Err(backend.unsupported(request.operation_id())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.file(request),
         }
     }
 

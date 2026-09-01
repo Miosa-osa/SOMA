@@ -3,6 +3,7 @@ use crate::MemoryStateStore;
 mod machine_state;
 mod managed;
 mod managed_execute;
+mod managed_file;
 mod managed_inspection;
 mod managed_launch;
 mod managed_receipt;
@@ -15,6 +16,7 @@ mod run_evidence;
 mod run_types;
 
 pub use managed::{ManagedFailure, ManagedStateError, ReplayEvidence};
+pub use managed_file::{FileMachineRequest, MachineFile};
 pub use managed_types::{
     DestroyMachineRequest, ExecuteMachineRequest, InspectMachineRequest, LaunchMachineRequest,
     MachineDestroy, MachineExecution, MachineInspection, MachineLaunch, MachineStop,

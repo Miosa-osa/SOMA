@@ -26,6 +26,8 @@ use super::io::HostIo;
 
 #[path = "worker/commands.rs"]
 mod commands;
+#[path = "worker/files.rs"]
+mod files;
 use super::network::PendingActivation;
 use super::session::{
     BOOT_DEADLINE, Boot, EXIT_GRACE, GUEST_MAC, Network, Request, Response, SessionError, Source,

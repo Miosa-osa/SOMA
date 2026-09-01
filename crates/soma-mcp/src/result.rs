@@ -6,6 +6,10 @@ use crate::{CommandResult, InspectResult, InstanceId, MachineResult, OperationId
 
 pub(crate) const MCP_SCHEMA: &str = "soma.mcp.v1";
 
+mod file;
+
+pub(crate) use file::file_result;
+
 #[derive(Serialize)]
 struct DoctorEnvelope<'a> {
     schema: &'static str,

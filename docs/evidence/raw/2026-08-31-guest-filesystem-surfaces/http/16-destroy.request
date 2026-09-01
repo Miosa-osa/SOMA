@@ -1,0 +1,5 @@
+DELETE http://127.0.0.1:18901/v1/sandboxes/50d2b493a9f54bdb94e9925b80e9c88d
+x-soma-tenant: acme
+content-type: application/json
+
+<no body>

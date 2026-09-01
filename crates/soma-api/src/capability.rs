@@ -10,9 +10,10 @@ pub enum MissingCapability {
     /// `StateStore` addresses records by exact Instance ID and exposes no enumeration, so the set
     /// of live sandboxes cannot be read back out of durable state by any process.
     SandboxEnumeration,
-    /// `soma-guest` does implement guest filesystem operations at the protocol level, but the
-    /// portable facade's `Backend` trait carries only resolve, launch, execute, inspect, and
-    /// cleanup, so no engine call reaches them and this service has nothing to drive.
+    /// The path from this service to the guest's filesystem exists and is served by the KVM
+    /// backend. What remains missing is a machine to address: a backend whose machines do not
+    /// outlive the process that launched them has nothing for a later filesystem call to reach,
+    /// and says so here rather than answering about a sandbox that is already gone.
     GuestFilesystemTransfer,
     /// The backend hosts a Machine inside the process that launched it, and this service opens
     /// one runtime per connection, so a created sandbox identity would name a Machine that is
@@ -38,8 +39,8 @@ impl MissingCapability {
                  it resolves records only by exact instance id"
             }
             Self::GuestFilesystemTransfer => {
-                "the SOMA portable facade exposes no guest filesystem transfer; \
-                 the guest protocol implements one, but no backend or engine method reaches it"
+                "this backend holds no machine that outlives the process which launched it, \
+                 so a guest filesystem operation has no sandbox left to address"
             }
             Self::DurableMachineHosting => {
                 "this backend hosts a machine inside the process that launched it, and this \

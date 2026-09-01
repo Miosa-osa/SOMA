@@ -1,0 +1,5 @@
+BINARY ROUND TRIP (json envelope): identical
+BINARY ROUND TRIP (human redirect): identical
+ddd1a4a8786aa89014b0d058cf6f4b9b2e7fa0c33f4677fbaa7ecac3e7ce66cf  /srv/soma/guestfs/out-cli/binary.bin
+ddd1a4a8786aa89014b0d058cf6f4b9b2e7fa0c33f4677fbaa7ecac3e7ce66cf  /srv/soma/guestfs/out-cli/binary-returned.bin
+ddd1a4a8786aa89014b0d058cf6f4b9b2e7fa0c33f4677fbaa7ecac3e7ce66cf  /srv/soma/guestfs/out-cli/binary-human.bin

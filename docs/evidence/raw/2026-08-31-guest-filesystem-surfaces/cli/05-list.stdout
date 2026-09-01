@@ -1,0 +1,1 @@
+{"schema":"soma.cli.v1","command":"machine.file","status":"ok","result":{"instance_id":"8ef411455c8c4cc49a849fcadab8f90d","operation":"list","entries":[{"name":{"encoding":"base64","byte_length":9,"data":"aGVsbG8udHh0"},"kind":"file"}],"more_entries":false},"error":null,"receipt":null}

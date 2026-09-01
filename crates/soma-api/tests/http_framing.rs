@@ -35,10 +35,18 @@ fn a_body_without_a_content_length_is_refused_rather_than_guessed() {
     );
 }
 
+/// The refused length is derived from the declared allowance rather than written out.
+///
+/// The allowance is itself derived from the largest file write this service admits, so a literal
+/// here would silently stop testing the boundary the first time that bound moved.
 #[test]
 fn a_content_length_beyond_the_declared_allowance_is_refused() {
+    let beyond = soma_api::http::request::MAX_BODY_BYTES + 1;
     assert_eq!(
-        parse("POST /v1/sandboxes HTTP/1.1\r\ncontent-length: 4194305\r\n\r\n").err(),
+        parse(&format!(
+            "POST /v1/sandboxes HTTP/1.1\r\ncontent-length: {beyond}\r\n\r\n"
+        ))
+        .err(),
         Some(413)
     );
 }

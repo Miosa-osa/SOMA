@@ -42,7 +42,7 @@ pub(super) struct Launching<'a> {
     pub(super) secrets: Vec<SecretFile>,
 }
 
-pub(super) const fn failure_kind(error: SessionError) -> BackendFailureKind {
+pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> BackendFailureKind {
     match error {
         // The machine could not be built from artifacts the host presented as prepared, which
         // is a property of the host rather than of the request.
@@ -54,6 +54,7 @@ pub(super) const fn failure_kind(error: SessionError) -> BackendFailureKind {
         | SessionError::Ready
         | SessionError::Secret
         | SessionError::Execute
+        | SessionError::File
         | SessionError::Gone
         | SessionError::Poisoned => BackendFailureKind::GuestFailure,
     }

@@ -5,8 +5,8 @@ use serde::Serialize;
 use crate::{
     cli::OutputFormat,
     model::{
-        CapabilityState, DoctorStatus, ENVELOPE_SCHEMA, FailureBody, MAX_OUTPUT_BYTES_USIZE,
-        Response, ResultBody,
+        CapabilityState, DoctorStatus, ENVELOPE_SCHEMA, FailureBody, FileReport,
+        MAX_OUTPUT_BYTES_USIZE, Response, ResultBody,
     },
 };
 
@@ -95,8 +95,54 @@ fn render_human(
             writeln!(stdout, "state: {:?}", report.state)?;
             writeln!(stdout, "backend: {:?}", report.backend)
         }
+        Some(ResultBody::File(report)) => render_file(response, report, stdout, stderr),
         None => render_failure(response, stderr),
     }
+}
+
+/// Prints one filesystem answer.
+///
+/// A read writes the file's bytes to standard output and nothing else, so redirecting the command
+/// to a file reproduces the guest's file exactly. Every other operation prints lines, because
+/// none of them has bytes that are the answer.
+fn render_file(
+    response: &Response,
+    report: &FileReport,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> io::Result<()> {
+    if report.refused() {
+        return render_failure(response, stderr);
+    }
+    if let Some(content) = &report.content {
+        return stdout.write_all(content.as_bytes());
+    }
+    if let Some(bytes) = report.byte_length {
+        return writeln!(stdout, "wrote: {bytes} bytes");
+    }
+    if let Some(entries) = &report.entries {
+        for entry in entries {
+            stdout.write_all(entry.name.as_bytes())?;
+            writeln!(stdout, "\t{}", entry.kind)?;
+        }
+        if report.more_entries == Some(true) {
+            writeln!(
+                stderr,
+                "soma: more entries remain than this listing carries"
+            )?;
+        }
+        return Ok(());
+    }
+    if let Some(exists) = report.exists {
+        return writeln!(
+            stdout,
+            "{}",
+            report
+                .kind
+                .unwrap_or(if exists { "present" } else { "absent" })
+        );
+    }
+    writeln!(stdout, "done")
 }
 
 fn render_failure(response: &Response, stderr: &mut impl Write) -> io::Result<()> {

@@ -155,7 +155,12 @@ pub fn path_instance_id(segment: &str) -> Result<InstanceId, ApiError> {
     })
 }
 
-fn operation_id(supplied: Option<OperationId>) -> Result<OperationId, ApiError> {
+/// Takes the caller's operation identity, or mints one.
+///
+/// # Errors
+///
+/// Returns a 500 refusal only if a generated identity is rejected by the facade.
+pub fn operation_id(supplied: Option<OperationId>) -> Result<OperationId, ApiError> {
     match supplied {
         Some(operation_id) => Ok(operation_id),
         None => OperationId::new(uuid::Uuid::new_v4().simple().to_string()).map_err(|_| {

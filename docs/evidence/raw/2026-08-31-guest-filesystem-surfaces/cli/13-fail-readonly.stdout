@@ -1,0 +1,1 @@
+{"schema":"soma.cli.v1","command":"machine.file","status":"error","result":{"instance_id":"8ef411455c8c4cc49a849fcadab8f90d","operation":"write","refusal":"failed"},"error":{"code":"filesystem_refused","message":"the guest declined the filesystem operation","retryable":false},"receipt":null}

@@ -1,7 +1,7 @@
 use soma::{
     DestroyMachineRequest, DirectCommand, ExecuteMachineRequest, ExecutionLimits,
-    InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineName, MachineShape, OciImage,
-    OperationId, RunRequest, StopMachineRequest,
+    FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineName,
+    MachineShape, OciImage, OperationId, RunRequest, StopMachineRequest,
 };
 use uuid::Uuid;
 
@@ -10,6 +10,7 @@ use crate::cli::{
     ShapeArgs,
 };
 
+mod file;
 mod network;
 
 pub enum PreparedOperation {
@@ -37,6 +38,10 @@ pub enum PreparedOperation {
         instance_id: InstanceId,
         request: DestroyMachineRequest,
     },
+    File {
+        instance_id: InstanceId,
+        request: FileMachineRequest,
+    },
 }
 
 impl PreparedOperation {
@@ -49,6 +54,7 @@ impl PreparedOperation {
             Self::Inspect { .. } => "machine.inspect",
             Self::Stop { .. } => "machine.stop",
             Self::Destroy { .. } => "machine.destroy",
+            Self::File { .. } => "machine.file",
         }
     }
 }
@@ -86,6 +92,7 @@ pub fn prepare_machine(arguments: MachineArgs) -> Result<PreparedOperation, Requ
         MachineCommand::Inspect(arguments) => prepare_control(arguments, ControlKind::Inspect),
         MachineCommand::Stop(arguments) => prepare_control(arguments, ControlKind::Stop),
         MachineCommand::Destroy(arguments) => prepare_control(arguments, ControlKind::Destroy),
+        MachineCommand::File(arguments) => file::prepare(arguments),
     }
 }
 
@@ -163,7 +170,7 @@ fn identities(arguments: IdentityArgs) -> Result<(OperationId, InstanceId), Requ
     ))
 }
 
-fn operation_id(value: Option<String>) -> Result<OperationId, RequestError> {
+pub(crate) fn operation_id(value: Option<String>) -> Result<OperationId, RequestError> {
     value.map_or_else(
         || OperationId::new(generated_id()).map_err(|_| RequestError::Identity),
         |value| OperationId::new(value).map_err(|_| RequestError::Identity),
@@ -203,6 +210,9 @@ pub enum RequestError {
     Network,
     Command,
     Limits,
+    Content,
+    ContentTooLarge,
+    Path,
 }
 
 impl RequestError {
@@ -216,6 +226,9 @@ impl RequestError {
             Self::Network => "invalid_network_policy",
             Self::Command => "invalid_direct_command",
             Self::Limits => "invalid_execution_limits",
+            Self::Content => "unreadable_content_file",
+            Self::ContentTooLarge => "content_too_large",
+            Self::Path => "invalid_guest_path",
         }
     }
 }

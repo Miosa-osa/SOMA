@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod control;
+mod file;
 mod identity;
 mod input;
 mod local;
@@ -13,6 +14,7 @@ mod server;
 mod stdio_transport;
 
 pub use control::{DestroyRequest, InspectRequest, StopRequest};
+pub use file::{FileInputError, FileOperationInput, FileRequest, FileResult};
 pub use identity::{InstanceId, OperationId};
 pub use local::LocalToolRuntime;
 pub use outcome::{

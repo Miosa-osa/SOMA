@@ -30,6 +30,7 @@ async fn tool_catalog_has_bounded_schemas_and_accurate_hints() {
             "soma_destroy",
             "soma_doctor",
             "soma_exec",
+            "soma_file",
             "soma_inspect",
             "soma_launch",
             "soma_run",
@@ -63,6 +64,7 @@ fn assert_annotations(tools: &BTreeMap<String, rmcp::model::Tool>) {
         "soma_run",
         "soma_launch",
         "soma_exec",
+        "soma_file",
         "soma_stop",
         "soma_destroy",
     ] {

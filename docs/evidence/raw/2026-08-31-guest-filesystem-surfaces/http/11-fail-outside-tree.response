@@ -1,0 +1,1 @@
+{"schema":"soma.api.v1","operation":"sandbox.filesystem","status":"error","result":null,"error":{"code":"invalid_input","message":"the path must be absolute, beginning at the guest's root","retryable":false},"receipt":null}

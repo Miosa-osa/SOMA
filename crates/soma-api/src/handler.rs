@@ -6,9 +6,10 @@ use crate::{
     envelope::{ApiError, Envelope, failure_body, render},
     facade::SandboxFacade,
     failure::managed_error,
+    filesystem::{FilesystemBody, FilesystemReport},
     http::{request::Request, response::Response},
     report::{CommandReport, InspectionReport, OutputBytes, SandboxReport, command_status},
-    route::{Route, resolve},
+    route::{FilesystemOperation, Route, resolve},
     tenant::{TENANT_HEADER, identify},
     wire::{ControlBody, CreateSandboxBody, RunCommandBody},
 };
@@ -39,11 +40,13 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     let operation = route.operation();
     match route {
         Route::CreateSandbox => create(facade, body),
-        // Enumeration and filesystem transfer are refused with the capability the engine lacks.
-        // Returning an empty list here would be indistinguishable from a tenant owning nothing,
-        // which is the one answer a caller must never be given by mistake.
+        // Enumeration is refused with the capability the engine lacks. Returning an empty list
+        // here would be indistinguishable from a tenant owning nothing, which is the one answer a
+        // caller must never be given by mistake.
         Route::ListSandboxes => Err(MissingCapability::SandboxEnumeration.error()),
-        Route::Filesystem(_, _) => Err(MissingCapability::GuestFilesystemTransfer.error()),
+        Route::Filesystem(instance_id, file_operation) => {
+            filesystem(facade, instance_id, file_operation, body)
+        }
         Route::GetSandbox(instance_id) => {
             let request = control_body(body)?.into_inspect(instance_id)?;
             let snapshot = facade.inspect(request).map_err(|f| managed_error(&f))?;
@@ -94,6 +97,32 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             ))
         }
     }
+}
+
+/// Serves one filesystem operation, or reports the backend that cannot hold a machine for it.
+///
+/// A backend answering `Unsupported` here is not failing: it has no machine a later call could
+/// address, so there is nothing for the operation to reach. That is exactly what the missing
+/// capability names, so it is reported as the capability rather than as a backend fault.
+fn filesystem<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance_id: soma::InstanceId,
+    file_operation: FilesystemOperation,
+    body: &[u8],
+) -> Result<Response, ApiError> {
+    let request = parse::<FilesystemBody>(body)?.into_facade(instance_id, file_operation)?;
+    let outcome = facade.file(request).map_err(|failure| {
+        if matches!(
+            failure,
+            soma::ManagedFailure::Backend(soma::BackendFailureKind::Unsupported)
+        ) {
+            MissingCapability::GuestFilesystemTransfer.error()
+        } else {
+            managed_error(&failure)
+        }
+    })?;
+    let report = FilesystemReport::new(outcome.instance_id, outcome.operation, &outcome.answer);
+    Ok(success(200, "sandbox.filesystem", &report, None))
 }
 
 fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Response, ApiError> {

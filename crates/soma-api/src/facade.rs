@@ -1,7 +1,7 @@
 use soma::{
-    BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt,
-    InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineState, ManagedFailure,
-    StopMachineRequest, TerminalStatus,
+    BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
+    FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineState,
+    ManagedFailure, StopMachineRequest, TerminalStatus,
 };
 
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
@@ -24,6 +24,17 @@ pub struct CommandOutcome {
     pub receipt: ExecutionReceipt,
 }
 
+/// One completed filesystem operation and what the guest answered.
+///
+/// There is no receipt here because the operation mints none: it runs no program and leaves
+/// nothing a later caller could replay, so a receipt would have to be invented to carry it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileOutcome {
+    pub instance_id: InstanceId,
+    pub operation: &'static str,
+    pub answer: FileAnswer,
+}
+
 /// The observed state of one managed sandbox.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SandboxSnapshot {
@@ -41,9 +52,9 @@ pub struct SandboxSnapshot {
 /// implementation forwards every call straight to `soma_local::LocalRuntime`, which is the same
 /// path the CLI takes.
 ///
-/// It is deliberately narrower than the provider contract. Enumeration and filesystem transfer
-/// are absent because the engine cannot perform them, and a method that cannot be implemented
-/// honestly is worse here than no method at all.
+/// It is deliberately narrower than the provider contract. Enumeration is absent because the
+/// engine cannot perform it, and a method that cannot be implemented honestly is worse here than
+/// no method at all.
 pub trait SandboxFacade {
     /// Whether a sandbox this facade creates can still be addressed by a later request.
     ///
@@ -77,6 +88,14 @@ pub trait SandboxFacade {
     /// Returns the facade's typed managed failure.
     fn execute(&mut self, request: ExecuteMachineRequest)
     -> Result<CommandOutcome, ManagedFailure>;
+
+    /// Performs one bounded filesystem operation inside a managed sandbox.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure. A cause the guest reported is not a failure:
+    /// it arrives in the outcome's answer, because the guest was reached and declined.
+    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure>;
 
     /// Gracefully stops one managed sandbox.
     ///

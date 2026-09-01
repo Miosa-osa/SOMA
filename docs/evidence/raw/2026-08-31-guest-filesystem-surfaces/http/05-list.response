@@ -1,0 +1,1 @@
+{"schema":"soma.api.v1","operation":"sandbox.filesystem","status":"ok","result":{"instance_id":"50d2b493a9f54bdb94e9925b80e9c88d","operation":"list","entries":[{"name":{"encoding":"base64","byte_length":9,"data":"aGVsbG8udHh0"},"kind":"file"}],"more_entries":false},"error":null,"receipt":null}
