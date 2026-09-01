@@ -81,6 +81,12 @@ pub(super) fn launch(
     reference: String,
     shape: &MachineShape,
 ) -> Result<Launched, BackendFailureKind> {
+    // Asked before anything is built, because a directory too deep to name a socket in cannot
+    // hold a host for any Instance, and finding that out from a failed `bind` inside the host
+    // reports a machine that would not start rather than a state root that cannot address one.
+    if !channel::addressable(directory) {
+        return Err(BackendFailureKind::Unsupported);
+    }
     channel::prepare_directory(directory).map_err(|()| BackendFailureKind::Unavailable)?;
     let socket = channel::socket_path(directory, instance_id);
     let executable = std::env::current_exe().map_err(|_| BackendFailureKind::Unavailable)?;
