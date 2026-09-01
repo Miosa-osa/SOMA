@@ -60,6 +60,13 @@ impl StateStore for MemoryStateStore {
         *current = StoredState::new(revision, replacement);
         Ok(revision)
     }
+
+    fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
+        self.records
+            .lock()
+            .map_err(|_| unavailable())
+            .map(|records| records.keys().cloned().collect())
+    }
 }
 
 const fn conflict() -> StateStoreFailure {

@@ -5,8 +5,12 @@ use serde::{Serialize, Serializer, ser::SerializeStruct as _};
 use soma::{BackendKind, CommandStatus, ExecutionReceipt, InstanceId, MachineState};
 
 mod file;
+mod list;
+mod pty;
 
 pub use file::FileReport;
+pub use list::SandboxListReport;
+pub use pty::PtyReport;
 
 pub const ENVELOPE_SCHEMA: &str = "soma.cli.v1";
 pub const MAX_OUTPUT_BYTES_USIZE: usize = 16 * 1024 * 1024;
@@ -165,6 +169,8 @@ pub enum ResultBody {
     Machine(MachineReport),
     Inspection(InspectionReport),
     File(FileReport),
+    Pty(PtyReport),
+    List(SandboxListReport),
 }
 
 pub struct Response {

@@ -28,6 +28,8 @@ use super::io::HostIo;
 mod commands;
 #[path = "worker/files.rs"]
 mod files;
+#[path = "worker/pty.rs"]
+mod pty;
 use super::network::PendingActivation;
 use super::session::{
     BOOT_DEADLINE, Boot, EXIT_GRACE, GUEST_MAC, Network, Request, Response, SessionError, Source,

@@ -2,6 +2,7 @@ mod backend;
 mod gate;
 mod network;
 mod request;
+mod terminal;
 
 pub use backend::TestBackend;
 pub use gate::CallGate;

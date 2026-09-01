@@ -30,7 +30,8 @@ use std::{
 
 use soma::{
     BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, FileAnswer,
-    FileOperation, InstanceId, MachineShape, MachineState, OperationId,
+    FileOperation, InstanceId, MachineShape, MachineState, OperationId, PtyAnswer, PtyOperation,
+    SandboxLiveness,
 };
 
 pub(crate) use serve::host_machine;
@@ -53,6 +54,11 @@ pub(super) enum Role {
 const EXECUTE_CEILING: Duration = Duration::from_secs(330);
 /// How long a caller waits for an inspection or a release.
 const CONTROL_CEILING: Duration = Duration::from_secs(120);
+/// How long a caller waits for one terminal operation.
+///
+/// A read states the longest it will wait for its first byte, so the ceiling is that bound with
+/// room for the exchange around it.
+const PTY_CEILING: Duration = Duration::from_millis(soma::MAX_PTY_WAIT_MILLIS as u64 + 60_000);
 
 /// One completed command as it crossed back from the host.
 pub(super) struct Executed {
@@ -182,6 +188,44 @@ pub(super) fn file(
         Answer::FileAnswered { answer } => Ok(answer),
         Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
         _ => Err(HostFailure::Refused(BackendFailureKind::GuestFailure)),
+    }
+}
+
+/// Asks the host holding this Instance for one bounded terminal operation.
+///
+/// The control ceiling is not enough here: a read may ask the guest to wait a minute for its
+/// first byte, and the caller has to outwait what it asked for or it would report a host as
+/// broken for doing exactly what the request said.
+pub(super) fn pty(
+    directory: &Path,
+    instance: &InstanceId,
+    operation: &PtyOperation,
+) -> Result<PtyAnswer, HostFailure> {
+    let call = Call::Pty {
+        instance_id: instance.clone(),
+        operation: operation.clone(),
+    };
+    match ask(directory, instance, &call, PTY_CEILING)? {
+        Answer::PtyAnswered { answer } => Ok(answer),
+        Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
+        _ => Err(HostFailure::Refused(BackendFailureKind::GuestFailure)),
+    }
+}
+
+/// Reports whether a host process is serving this Instance right now.
+///
+/// It connects and does nothing else. What that proves is exactly one thing and it is worth
+/// naming: a process has the Instance's socket bound and accepted a connection on it. It is not
+/// a claim that the guest inside is healthy, which is what an inspection by exact identity
+/// answers; it is the difference between a durable record whose host is running and one whose
+/// host is gone.
+///
+/// A socket nothing answers on is removed by the connect itself, so a host that died leaves no
+/// name behind for a second listing to report.
+pub(super) fn liveness(directory: &Path, instance: &InstanceId) -> SandboxLiveness {
+    match channel::connect(directory, instance) {
+        Ok(_) => SandboxLiveness::Live,
+        Err(()) => SandboxLiveness::Absent,
     }
 }
 

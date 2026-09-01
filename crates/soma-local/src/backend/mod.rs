@@ -14,7 +14,8 @@ use std::{any::Any, path::PathBuf};
 use soma::{
     Backend, BackendFailure, BackendKind, CleanupObservation, CleanupRequest, CommandObservation,
     ExecutionRequest, FileObservation, FileRequest, InspectionObservation, InspectionRequest,
-    LaunchObservation, LaunchRequest, ResolutionObservation, ResolutionRequest,
+    InstanceId, LaunchObservation, LaunchRequest, PtyObservation, PtyRequest,
+    ResolutionObservation, ResolutionRequest, SandboxLiveness,
 };
 
 use crate::{LocalFailure, LocalFailureKind};
@@ -194,6 +195,32 @@ impl Backend for LocalBackend {
             Self::Macos(backend) => Err(backend.unsupported(request.operation_id())),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.file(request),
+        }
+    }
+
+    fn pty(&mut self, request: PtyRequest<'_>) -> Result<PtyObservation, BackendFailure> {
+        match self {
+            // Neither of these reaches a guest session a later process can address, so a
+            // terminal call has nothing to open and says so rather than answering about a
+            // session that does not exist.
+            Self::Docker(_) => Err(docker::DockerBackend::unsupported(request.operation_id())),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => Err(backend.unsupported(request.operation_id())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.pty(request),
+        }
+    }
+
+    fn liveness(&mut self, instance_id: &InstanceId) -> SandboxLiveness {
+        match self {
+            // Docker registers the container with a daemon this process does not own, and this
+            // backend has no probe for it that is cheaper or more certain than an inspection, so
+            // it makes no claim here.
+            Self::Docker(_) => SandboxLiveness::Unknown,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(_) => SandboxLiveness::Unknown,
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.liveness(instance_id),
         }
     }
 

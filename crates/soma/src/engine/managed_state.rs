@@ -40,7 +40,7 @@ impl<B, S: StateStore> Engine<B, S> {
     }
 }
 
-fn store_failure(failure: crate::StateStoreFailure) -> ManagedFailure {
+pub(super) fn store_failure(failure: crate::StateStoreFailure) -> ManagedFailure {
     ManagedFailure::StateStore(failure.kind())
 }
 

@@ -1,11 +1,12 @@
 use soma::{
     DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileMachineRequest,
-    InspectMachineRequest, LaunchMachineRequest, ManagedFailure, StopMachineRequest,
+    InspectMachineRequest, LaunchMachineRequest, ManagedFailure, PtyMachineRequest, SandboxEntry,
+    StopMachineRequest,
 };
 use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
 use crate::facade::{
-    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot,
+    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
 };
 
 /// The production facade: a durable local runtime, driven exactly as the CLI drives it.
@@ -80,6 +81,19 @@ impl SandboxFacade for LocalFacade {
             operation: outcome.operation().name(),
             answer: outcome.answer().clone(),
         })
+    }
+
+    fn terminal(&mut self, request: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {
+        let outcome = self.runtime.pty_machine(request)?;
+        Ok(TerminalOutcome {
+            instance_id: outcome.instance_id().clone(),
+            operation: outcome.operation().name(),
+            answer: outcome.answer().clone(),
+        })
+    }
+
+    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
+        self.runtime.list_machines()
     }
 
     fn stop(&mut self, request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

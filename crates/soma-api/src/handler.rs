@@ -8,9 +8,13 @@ use crate::{
     failure::managed_error,
     filesystem::{FilesystemBody, FilesystemReport},
     http::{request::Request, response::Response},
-    report::{CommandReport, InspectionReport, OutputBytes, SandboxReport, command_status},
-    route::{FilesystemOperation, Route, resolve},
+    report::{
+        CommandReport, InspectionReport, OutputBytes, SandboxListReport, SandboxReport,
+        command_status,
+    },
+    route::{FilesystemOperation, Route, TerminalOperation, resolve},
     tenant::{TENANT_HEADER, identify},
+    terminal::{TerminalBody, TerminalReport},
     wire::{ControlBody, CreateSandboxBody, RunCommandBody},
 };
 
@@ -40,12 +44,20 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     let operation = route.operation();
     match route {
         Route::CreateSandbox => create(facade, body),
-        // Enumeration is refused with the capability the engine lacks. Returning an empty list
-        // here would be indistinguishable from a tenant owning nothing, which is the one answer a
-        // caller must never be given by mistake.
-        Route::ListSandboxes => Err(MissingCapability::SandboxEnumeration.error()),
+        Route::ListSandboxes => {
+            let entries = facade.list().map_err(|f| managed_error(&f))?;
+            Ok(success(
+                200,
+                operation,
+                &SandboxListReport::new(&entries),
+                None,
+            ))
+        }
         Route::Filesystem(instance_id, file_operation) => {
             filesystem(facade, instance_id, file_operation, body)
+        }
+        Route::Terminal(instance_id, terminal_operation) => {
+            terminal(facade, instance_id, terminal_operation, body)
         }
         Route::GetSandbox(instance_id) => {
             let request = control_body(body)?.into_inspect(instance_id)?;
@@ -125,6 +137,33 @@ fn filesystem<F: SandboxFacade + ?Sized>(
     Ok(success(200, "sandbox.filesystem", &report, None))
 }
 
+/// Serves one terminal operation, or reports the backend that cannot hold a session for it.
+///
+/// A backend answering `Unsupported` here is not failing: it has no machine a second request
+/// could address, so a session opened by the first one would not exist by the time the second
+/// arrived. That is exactly what the missing capability names.
+fn terminal<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance_id: soma::InstanceId,
+    terminal_operation: TerminalOperation,
+    body: &[u8],
+) -> Result<Response, ApiError> {
+    let request =
+        optional_body::<TerminalBody>(body)?.into_facade(instance_id, terminal_operation)?;
+    let outcome = facade.terminal(request).map_err(|failure| {
+        if matches!(
+            failure,
+            soma::ManagedFailure::Backend(soma::BackendFailureKind::Unsupported)
+        ) {
+            MissingCapability::GuestTerminalSession.error()
+        } else {
+            managed_error(&failure)
+        }
+    })?;
+    let report = TerminalReport::new(outcome.instance_id, outcome.operation, &outcome.answer);
+    Ok(success(200, "sandbox.terminal", &report, None))
+}
+
 fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Response, ApiError> {
     let (_, request) = parse::<CreateSandboxBody>(body)?.into_facade()?;
     // Refused before a machine is built rather than answered 201 with an identity that dies
@@ -196,8 +235,16 @@ fn parse<T: DeserializeOwned>(body: &[u8]) -> Result<T, ApiError> {
 /// Control routes need nothing from the caller beyond the path, so requiring `{}` would be
 /// ceremony; supplying an operation id stays available for a caller that wants to choose it.
 fn control_body(body: &[u8]) -> Result<ControlBody, ApiError> {
+    optional_body(body)
+}
+
+/// Parses a body whose every field has a default, treating an absent body as an empty one.
+///
+/// A terminal close and a terminal read with no wait need nothing from the caller beyond the
+/// path, so requiring `{}` would be ceremony.
+fn optional_body<T: DeserializeOwned + Default>(body: &[u8]) -> Result<T, ApiError> {
     if body.iter().all(u8::is_ascii_whitespace) {
-        return Ok(ControlBody::default());
+        return Ok(T::default());
     }
     parse(body)
 }

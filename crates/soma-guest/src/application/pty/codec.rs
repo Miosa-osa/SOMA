@@ -35,8 +35,13 @@ impl PtySize {
 
 impl PtyRequest {
     /// Encodes this request as one frame body.
+    ///
+    /// Public for the reason the filesystem request's is: the portable facade restates this
+    /// protocol's terminal bounds so a surface can refuse an inadmissible call before the wire,
+    /// and the only honest way to hold the two equal is to run a candidate through the encode and
+    /// decode a real call takes.
     #[must_use]
-    pub(in super::super) fn encode_body(&self) -> Vec<u8> {
+    pub fn encode_body(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(8);
         match self {
             Self::Open(size) => {
@@ -67,7 +72,7 @@ impl PtyRequest {
     /// Returns [`Error::ApplicationMessageRejected`] for every malformed body, including a
     /// trailing byte, an inadmissible terminal size, an oversized chunk, and a wait beyond
     /// [`MAX_PTY_WAIT_MILLIS`].
-    pub(in super::super) fn decode_body(body: &[u8]) -> Result<Self, Error> {
+    pub fn decode_body(body: &[u8]) -> Result<Self, Error> {
         let mut reader = Reader::new(body);
         let request = match reader.u8()? {
             OPEN => Self::Open(PtySize::read(&mut reader)?),

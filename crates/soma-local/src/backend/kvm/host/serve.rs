@@ -175,6 +175,13 @@ fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             Ok(answer) => Answer::FileAnswered { answer },
             Err(kind) => Answer::Refused(kind.into()),
         },
+        Call::Pty {
+            instance_id,
+            operation,
+        } => match backend.pty_resident(&instance_id, &operation) {
+            Ok(answer) => Answer::PtyAnswered { answer },
+            Err(kind) => Answer::Refused(kind.into()),
+        },
         Call::Inspect { instance_id } => match backend.inspect_resident(&instance_id) {
             Ok((state, network)) => Answer::Inspected { state, network },
             Err(kind) => Answer::Refused(kind.into()),

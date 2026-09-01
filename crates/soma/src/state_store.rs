@@ -163,4 +163,21 @@ pub trait StateStore: Send {
         expected: StateRevision,
         replacement: StateRecord,
     ) -> Result<StateRevision, StateStoreFailure>;
+
+    /// Reports every Instance ID this store currently holds a record for.
+    ///
+    /// The identities are returned rather than the documents, because a caller enumerating the
+    /// store still has to read each record under its own lock to see a consistent one, and
+    /// returning documents here would hand back a set assembled from many different moments.
+    ///
+    /// This is not a snapshot. A record created or released while the enumeration is running may
+    /// or may not appear, so a caller that must not report a released Instance reads each one
+    /// back before it does.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed failure when the store cannot safely enumerate its records. A store that
+    /// found a name it cannot account for reports `Corrupt` rather than omitting it, because an
+    /// omission would be indistinguishable from an Instance that does not exist.
+    fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure>;
 }

@@ -55,6 +55,7 @@ pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> Backen
         | SessionError::Secret
         | SessionError::Execute
         | SessionError::File
+        | SessionError::Pty
         | SessionError::Gone
         | SessionError::Poisoned => BackendFailureKind::GuestFailure,
     }

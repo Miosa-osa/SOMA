@@ -4,11 +4,17 @@ use std::io::Cursor;
 use soma::{
     BackendFailureKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
     FileEntry, FileKind, FileMachineRequest, FileOperation, FileRefusal, InspectMachineRequest,
-    LaunchMachineRequest, MachineState, ManagedFailure, ManagedStateError, StopMachineRequest,
+    LaunchMachineRequest, MachineState, ManagedFailure, ManagedStateError, PtyMachineRequest,
+    SandboxEntry, StopMachineRequest,
 };
 use soma_api::{
-    CommandOutcome, FileOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot, handle,
+    CommandOutcome, FileOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot,
+    TerminalOutcome, handle,
 };
+
+mod terminal;
+
+pub use terminal::Session;
 
 /// The instance id carried by the retained receipt these tests replay.
 pub const FIXTURE_INSTANCE_ID: &str = "89db112753324c3e890ef78b74381aa5";
@@ -41,6 +47,8 @@ pub enum Call {
     Inspect,
     Execute,
     File,
+    Terminal,
+    List,
     Stop,
     Destroy,
 }
@@ -55,6 +63,10 @@ pub struct FakeFacade {
     hosts_addressable_sandboxes: bool,
     /// A flat in-memory filesystem, so every filesystem route can be proved without KVM.
     files: BTreeMap<Vec<u8>, Vec<u8>>,
+    /// The one terminal session, for the same reason.
+    session: Option<Session>,
+    /// What an enumeration answers with.
+    sandboxes: Vec<SandboxEntry>,
 }
 
 impl FakeFacade {
@@ -65,7 +77,16 @@ impl FakeFacade {
             calls: Vec::new(),
             hosts_addressable_sandboxes: true,
             files: BTreeMap::new(),
+            session: None,
+            sandboxes: Vec::new(),
         }
+    }
+
+    /// A facade whose durable state holds exactly these sandboxes.
+    #[must_use]
+    pub fn holding(mut self, sandboxes: Vec<SandboxEntry>) -> Self {
+        self.sandboxes = sandboxes;
+        self
     }
 
     /// A facade whose backend keeps the machine in the process that created it.
@@ -146,6 +167,23 @@ impl SandboxFacade for FakeFacade {
             operation: operation.name(),
             answer,
         })
+    }
+
+    fn terminal(&mut self, request: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {
+        self.record(Call::Terminal)?;
+        let operation = request.operation().clone();
+        let answer = terminal::answer_for(&mut self.session, &operation);
+        Ok(TerminalOutcome {
+            instance_id: soma::InstanceId::new(FIXTURE_INSTANCE_ID)
+                .expect("the fixture instance id is canonical"),
+            operation: operation.name(),
+            answer,
+        })
+    }
+
+    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
+        self.record(Call::List)?;
+        Ok(self.sandboxes.clone())
     }
 
     fn stop(&mut self, _request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

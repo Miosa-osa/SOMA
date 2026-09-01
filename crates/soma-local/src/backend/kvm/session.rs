@@ -33,6 +33,14 @@ pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
 /// loop and not a single exchange; the guest protocol bounds each record inside it.
 pub(super) const FILE_CEILING: Duration = Duration::from_secs(120);
 
+/// How long one terminal operation has to answer.
+///
+/// It is the longest wait a read may ask for, plus room for the exchange around it. A terminal
+/// call is one record in each direction and the only one that ever waits is a read, which states
+/// its own bound; anything beyond that is a session that is not answering.
+pub(super) const PTY_CEILING: Duration =
+    Duration::from_millis(soma::MAX_PTY_WAIT_MILLIS as u64 + 30_000);
+
 /// What the lifecycle asks a live sandbox to do.
 pub(super) enum Request {
     /// Transfer fresh Instance authority into a parked sterile machine, exactly once.
@@ -46,6 +54,8 @@ pub(super) enum Request {
     Execute(GuestCommand),
     /// Perform one bounded filesystem operation over the authenticated session.
     File(soma::FileOperation),
+    /// Perform one bounded terminal operation over the authenticated session.
+    Pty(soma::PtyOperation),
     /// Ask the guest to shut down, then finish the machine and report its evidence.
     Shutdown,
 }
@@ -67,6 +77,8 @@ pub(super) enum Response {
     Executed(Box<Completed>),
     /// One filesystem operation was performed and the guest answered it.
     FileAnswered(Box<soma::FileAnswer>),
+    /// One terminal operation was performed and the guest answered it.
+    PtyAnswered(Box<soma::PtyAnswer>),
     /// The machine stopped and released everything it owned.
     Finished(Box<SandboxEvidence>),
     /// The session failed and the thread is ending.
@@ -102,6 +114,8 @@ pub(super) enum SessionError {
     Execute,
     /// A filesystem operation could not be performed over the session.
     File,
+    /// A terminal operation could not be performed over the session.
+    Pty,
     /// The sandbox thread ended without answering.
     Gone,
     /// An earlier operation ended without a certain answer, so this session was ended.

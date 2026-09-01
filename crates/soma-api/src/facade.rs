@@ -1,7 +1,7 @@
 use soma::{
     BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
     FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineState,
-    ManagedFailure, StopMachineRequest, TerminalStatus,
+    ManagedFailure, PtyAnswer, PtyMachineRequest, SandboxEntry, StopMachineRequest, TerminalStatus,
 };
 
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
@@ -35,6 +35,17 @@ pub struct FileOutcome {
     pub answer: FileAnswer,
 }
 
+/// One completed terminal operation and what the guest answered.
+///
+/// There is no receipt here for the reason a filesystem operation has none: the operation mints
+/// one, and inventing an empty one to fill the field would be evidence of nothing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TerminalOutcome {
+    pub instance_id: InstanceId,
+    pub operation: &'static str,
+    pub answer: PtyAnswer,
+}
+
 /// The observed state of one managed sandbox.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SandboxSnapshot {
@@ -52,9 +63,9 @@ pub struct SandboxSnapshot {
 /// implementation forwards every call straight to `soma_local::LocalRuntime`, which is the same
 /// path the CLI takes.
 ///
-/// It is deliberately narrower than the provider contract. Enumeration is absent because the
-/// engine cannot perform it, and a method that cannot be implemented honestly is worse here than
-/// no method at all.
+/// A method that cannot be implemented honestly is worse here than no method at all, so every
+/// method on it is one the engine can actually perform. What a given backend cannot serve is
+/// reported as the capability that is missing, not as an invented answer.
 pub trait SandboxFacade {
     /// Whether a sandbox this facade creates can still be addressed by a later request.
     ///
@@ -96,6 +107,21 @@ pub trait SandboxFacade {
     /// Returns the facade's typed managed failure. A cause the guest reported is not a failure:
     /// it arrives in the outcome's answer, because the guest was reached and declined.
     fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure>;
+
+    /// Performs one bounded terminal operation inside a managed sandbox.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure. A cause the guest reported is not a failure:
+    /// it arrives in the outcome's answer, because the guest was reached and declined.
+    fn terminal(&mut self, request: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure>;
+
+    /// Lists the sandboxes this service's durable state holds that have not been released.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure>;
 
     /// Gracefully stops one managed sandbox.
     ///
