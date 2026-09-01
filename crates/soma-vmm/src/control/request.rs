@@ -10,7 +10,7 @@ use decode::{decode_execute, decode_launch, decode_output, decode_stop};
 ///
 /// One `SOCK_SEQPACKET` datagram carries one request, so the bound is also the worker's
 /// receive buffer: a longer packet is refused rather than silently truncated.
-pub const MAX_REQUEST_BYTES: usize = 4096;
+pub const MAX_REQUEST_BYTES: usize = 16 * 1024;
 
 /// One request packet a supervisor sends to a jailed worker.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -29,6 +29,9 @@ pub enum Request {
     /// time. Nothing is recomputed: the windows come out of the receipt the Execute already
     /// returned, so a supervisor that reads it twice reads the same bytes.
     Output(OutputWindow),
+    /// Perform one bounded terminal exchange against the live guest session.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Pty(super::PtyRequest),
     Stop(Stop),
     /// Narrow the seccomp filter to its steady-state phase.
     Seal,
@@ -49,6 +52,14 @@ impl Request {
                 window.stream().token(),
                 window.offset(),
                 window.length(),
+            ),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Pty(request) => format!(
+                "pty {} {} {}",
+                hex(request.operation_id().as_bytes()),
+                hex(request.instance_id().as_bytes()),
+                hex(&serde_json::to_vec(request.operation())
+                    .expect("terminal operation serializes")),
             ),
             Self::Stop(stop) => format!(
                 "stop {} {}",
@@ -78,6 +89,8 @@ impl Request {
             "shutdown" => decode::decode_shutdown(&mut tokens),
             "launch" => decode_launch(&mut tokens),
             "output" => decode_output(&mut tokens),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "pty" => decode::decode_pty(&mut tokens),
             "execute" => decode_execute(&mut tokens),
             "stop" => decode_stop(&mut tokens),
             _ => Err(ControlError::UnknownRequest),

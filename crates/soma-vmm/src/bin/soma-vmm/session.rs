@@ -89,6 +89,11 @@ fn perform(
             let bytes = machine.output(&window).unwrap_or_default();
             control.send(&Reply::Output(bytes).encode());
         }
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::Pty(request) => match machine.pty(&request) {
+            Ok(answer) => control.send(&Reply::Pty(&answer).encode()),
+            Err(failure) => control.send(&Reply::Failure(&failure).encode()),
+        },
         Request::Seal => control.send(&seal().encode()),
         Request::Shutdown(status) => return Some(status),
     }

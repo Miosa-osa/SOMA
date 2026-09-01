@@ -87,6 +87,15 @@ pub(super) fn output(outcome: Outcome) -> Result<Vec<u8>, BackendFailureKind> {
     }
 }
 
+/// Admits only one terminal answer.
+pub(super) fn pty(outcome: Outcome) -> Result<soma::PtyAnswer, BackendFailureKind> {
+    match outcome {
+        Outcome::Pty(answer) => Ok(answer),
+        Outcome::Failure { kind, .. } => Err(refusal(kind)),
+        _ => Err(BackendFailureKind::Unavailable),
+    }
+}
+
 /// Admits only a stop that proved its cleanup, and reports whether the guest agreed to it.
 pub(super) fn stopped(outcome: &Outcome) -> Option<bool> {
     match outcome {

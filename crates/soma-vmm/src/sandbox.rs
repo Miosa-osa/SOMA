@@ -34,6 +34,8 @@ pub use identity::{
     FIRST_GUEST_CID, GUEST_MAC, fresh16, guest_cid_for, link_down_network, now_unix_nanos,
 };
 pub use pending::PendingActivation;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use session::PTY_CEILING;
 pub use session::{BOOT_DEADLINE, Completed, EXIT_GRACE, Session, SessionError};
 pub use source::{Boot, Network, Source};
 pub use sterile::{Assignment, SterileSpec};

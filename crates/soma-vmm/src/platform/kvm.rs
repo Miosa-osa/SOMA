@@ -172,6 +172,16 @@ impl Platform for KvmPlatform {
         ))
     }
 
+    fn pty(&mut self, operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure> {
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
+        session
+            .pty(operation.clone())
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
     fn stop(
         &mut self,
         _stop: &Stop,

@@ -16,6 +16,9 @@ pub enum Reply<'a> {
     Failure(&'a Failure),
     /// One bounded window of a completed command's output.
     Output(&'a [u8]),
+    /// One bounded terminal answer.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Pty(&'a soma::PtyAnswer),
     /// The seccomp filter now denies every startup-only syscall.
     Sealed,
     /// The request was not performed and Machine state did not change.
@@ -60,6 +63,11 @@ impl Reply<'_> {
                 milestones(failure.milestones()),
             ),
             Self::Output(bytes) => format!("output {}", hex(bytes)),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Pty(answer) => format!(
+                "pty {}",
+                hex(&serde_json::to_vec(answer).expect("terminal answer serializes"))
+            ),
             Self::Sealed => "sealed".to_owned(),
             Self::Rejected(reason) => format!("rejected {reason}"),
         }

@@ -33,6 +33,9 @@ pub enum Outcome {
     Failure { kind: FailureKind, detail: String },
     /// One bounded window of a completed command's output.
     Output(Vec<u8>),
+    /// One bounded terminal answer.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Pty(soma::PtyAnswer),
     /// The filter reached its steady-state phase.
     Sealed,
     /// The request was not performed and Machine state did not change.
@@ -52,6 +55,10 @@ impl Outcome {
             "sealed" => Ok(Self::Sealed),
             "rejected" => Ok(Self::Rejected(rest.to_owned())),
             "output" => field::bytes(Some(rest.trim()), "output").map(Self::Output),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "pty" => serde_json::from_slice(&field::bytes(Some(rest.trim()), "terminal answer")?)
+                .map(Self::Pty)
+                .map_err(|_| ControlError::InvalidValue("terminal answer")),
             "ready" => Ok(Self::Ready {
                 operation_id: operation(rest)?,
             }),

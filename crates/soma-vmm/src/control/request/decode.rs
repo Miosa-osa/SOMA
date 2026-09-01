@@ -9,6 +9,8 @@ use crate::{
     TimeoutMillis, VcpuCount,
 };
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::super::PtyRequest;
 use super::super::{
     ControlError,
     field::{bytes, identifier, number},
@@ -77,6 +79,24 @@ pub(super) fn decode_output<'a>(
     OutputWindow::new(operation, stream, offset, length)
         .map(Request::Output)
         .ok_or(ControlError::InvalidValue("length"))
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(super) fn decode_pty<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<Request, ControlError> {
+    let operation = OperationId::new(identifier(tokens.next(), "operation")?)
+        .map_err(|_| ControlError::InvalidValue("operation"))?;
+    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    let encoded = bytes(tokens.next(), "terminal operation")?;
+    end(tokens)?;
+    let terminal = serde_json::from_slice::<soma::PtyOperation>(&encoded)
+        .map_err(|_| ControlError::InvalidValue("terminal operation"))?;
+    terminal
+        .check()
+        .map_err(|_| ControlError::InvalidValue("terminal operation"))?;
+    Ok(Request::Pty(PtyRequest::new(operation, instance, terminal)))
 }
 
 pub(super) fn decode_execute<'a>(

@@ -68,8 +68,7 @@ impl Held {
     pub(super) fn pty(&mut self, operation: PtyOperation) -> Result<PtyAnswer, BackendFailureKind> {
         match self {
             Self::Resident(session) => session.pty(operation).map_err(failure_kind),
-            // The jailed control protocol does not carry portable terminal requests yet.
-            Self::Jailed(_) => Err(BackendFailureKind::Unsupported),
+            Self::Jailed(jailed) => jailed.pty(operation),
         }
     }
 

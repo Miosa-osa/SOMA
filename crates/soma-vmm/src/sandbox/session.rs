@@ -36,8 +36,7 @@ pub(super) const FILE_CEILING: Duration = Duration::from_secs(120);
 /// It is the longest wait a read may ask for, plus room for the exchange around it. A terminal
 /// call is one record in each direction and the only one that ever waits is a read, which states
 /// its own bound; anything beyond that is a session that is not answering.
-pub(super) const PTY_CEILING: Duration =
-    Duration::from_millis(soma::MAX_PTY_WAIT_MILLIS as u64 + 30_000);
+pub const PTY_CEILING: Duration = Duration::from_millis(soma::MAX_PTY_WAIT_MILLIS as u64 + 30_000);
 
 /// What the lifecycle asks a live sandbox to do.
 pub enum Request {

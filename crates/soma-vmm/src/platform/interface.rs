@@ -22,6 +22,9 @@ pub(crate) trait Platform: Send {
         guest: &mut ReadyAuthenticatedGuest,
     ) -> Result<PlatformExecution, PlatformFailure>;
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn pty(&mut self, operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure>;
+
     fn stop(
         &mut self,
         stop: &Stop,

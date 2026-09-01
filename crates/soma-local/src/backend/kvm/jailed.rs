@@ -13,6 +13,7 @@ mod build;
 mod command;
 mod control;
 mod outcome;
+mod pty;
 
 use std::time::{Duration, Instant};
 

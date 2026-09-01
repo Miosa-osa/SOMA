@@ -14,12 +14,16 @@
 mod error;
 mod field;
 mod outcome;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod pty;
 mod reply;
 mod request;
 mod window;
 
 pub use error::ControlError;
 pub use outcome::Outcome;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use pty::PtyRequest;
 pub use reply::Reply;
 pub use request::{MAX_REQUEST_BYTES, Request};
 pub use window::{MAX_OUTPUT_WINDOW_BYTES, MAX_REPLY_BYTES, OutputStream, OutputWindow};
