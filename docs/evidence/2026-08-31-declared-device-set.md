@@ -122,7 +122,9 @@ saving is the clone, not the boot.
   kernel hostname, which is what `gethostname` reads, is replaced exactly as before.
 - It installs no interface identity, address, netmask, route, resolver, or hosts file, because
   there is no interface, and raises loopback so that a workload talking to its own address still
-  works.
+  works. That second half was an assertion when this was written and is now measured: a sandbox
+  with only `lo` in `/sys/class/net` and no routes at all binds and connects to `127.0.0.1`, ten
+  of ten, in [a sandbox with no egress still reaches itself](2026-09-01-loopback-only-repair.md).
 
 ## A snapshot of the other machine is refused
 

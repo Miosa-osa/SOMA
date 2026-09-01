@@ -1,0 +1,7 @@
+==> measuring 10 launches at concurrency 1
+
+  image        busybox:stable-musl
+  shape        1 vCPU, 256 MiB, concurrency 1
+  launches     10 of 10 succeeded
+  time to first command  p50 29.14 ms, min 23.1 ms, max 32.13 ms
+  segment medians        admitted 0.04 ms, machine_launched 0.75 ms, ready 22.1 ms, command_finished 6.72 ms
