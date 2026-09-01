@@ -17,6 +17,7 @@ mod lapic;
 mod nested;
 mod regs;
 mod routing;
+mod sregs;
 #[cfg(test)]
 mod tests;
 mod vm;
@@ -32,8 +33,9 @@ pub use fpu::{Fpu, MAX_XCRS, MAX_XSAVE_BYTES, MIN_XSAVE_BYTES, XcrEntry, Xcrs, X
 pub use irqchip::{IOAPIC_PINS, IoapicState, IrqchipState, PicState};
 pub use lapic::{LAPIC_LEN, LapicState, MpState};
 pub use nested::{NESTED_BLOB_LEN, NestedState};
-pub use regs::{Dtable, Regs, Segment, Sregs};
+pub use regs::Regs;
 pub use routing::{IrqRoutingEntry, IrqRoutingState, MAX_IRQ_ROUTES, RouteTarget};
+pub use sregs::{Dtable, Segment, Sregs};
 pub use vm::{MAX_MEMORY_SLOTS, MemorySlot, VmState};
 
 use super::{
