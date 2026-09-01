@@ -207,9 +207,11 @@ stage_cleanup_proof() {
         [[ "$2" != leaked ]] || leaked=1
     }
     local heads after
-    heads="$(find "$HEAD_DIR" -mindepth 1 | wc -l)"
-    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no entry"
-    else verdict overlay_heads leaked "$heads entries left in $HEAD_DIR"; fi
+    # The head root holds one directory per shard, so a leak is a file left inside a shard
+    # rather than any entry under the root.
+    heads="$(find "$HEAD_DIR" -mindepth 1 -type f | wc -l)"
+    if (( heads == 0 )); then verdict overlay_heads clean "no head file is left under the head root"
+    else verdict overlay_heads leaked "$heads head files left under $HEAD_DIR"; fi
     differed processes "$WORK/procs.before" "$WORK/procs.after" "processes naming the state root"
     differed netns "$WORK/netns.before" "$WORK/netns.after" "network namespaces"
     if grep -qx unreadable "$WORK/nft.after"; then

@@ -169,6 +169,36 @@ Generation certification does not exist yet, so every template a host can build 
 The backend refuses to launch one unless this flag is set, so that unverified images cannot boot by accident.
 Setting it is the explicit opt in for a development host.
 
+## Step 7: prepare the head root for concurrent launches
+
+One sandbox at a time needs nothing further. A cohort of launches does: creating and unlinking a
+head takes the head directory's inode lock, and cloning takes the refcount records of the
+template's extents, so a hundred simultaneous launches against one directory and one template
+queue on both.
+
+```sh
+# shard directories are free; the fan writes one copy of the template per copy asked for
+./target/release/examples/fan_warm \
+    --head-root /srv/soma/heads \
+    --template <prepared entry>/snapshot/overlay.raw \
+    --copies 4 --shards 16
+```
+
+The fan lives under the head root by default, so it is on the same filesystem as the heads, which
+is what `FICLONE` requires. It costs one template's bytes per copy, 2 GiB each for a 2048 MiB
+overlay, and it must be warmed once per template rather than once per launch: the tool reads
+every copy back and refuses to publish one that is not the template byte for byte or that does
+not own its own extents.
+
+A launcher reads what this writes through `SOMA_HEAD_DIR`, `SOMA_HEAD_SHARDS` (16 by default) and
+`SOMA_TEMPLATE_COPIES` (4 by default), with `SOMA_TEMPLATE_FAN_DIR` overriding where the fan is
+looked for. A head root that was never warmed still launches: the clone falls back to the
+template itself.
+
+Sharding changes what the head root holds. A head is still created and unlinked inside one
+launch, so no head file survives it, but the root now holds one directory per shard, and an
+audit of heads against the ownership ledger reconciles each shard rather than the root.
+
 ## What this gives you, and what it does not
 
 **What works today.** One hardware-isolated development sandbox at a time, cold booted and driven from the command line on a compatible KVM host.
