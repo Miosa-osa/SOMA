@@ -15,8 +15,8 @@ use soma_guest::{HostControl, HostLaunchMaterial, RepairedHostControl, SecretFil
 use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::readiness::SessionEvidence;
 use soma_kvm::x86_64::{
-    DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
-    SandboxMachine, SnapshotPaths, restore,
+    DeviceIdentity, Hypervisor, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
+    SandboxMachine, SnapshotObjects, SnapshotPaths, restore,
 };
 
 mod activation;
@@ -88,8 +88,13 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
             devices,
             memory_bytes,
         } => {
+            let Ok(objects) = SnapshotObjects::open(&SnapshotPaths::new(snapshot)) else {
+                let _ignored = responses.send(Response::Failed(SessionError::Create));
+                return;
+            };
             let restored = restore(RestoreRequest {
-                paths: SnapshotPaths::new(snapshot),
+                objects,
+                hypervisor: Hypervisor::Device,
                 disks,
                 devices,
                 guest_cid,

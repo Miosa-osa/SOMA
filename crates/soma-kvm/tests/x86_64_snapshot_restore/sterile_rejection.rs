@@ -8,7 +8,9 @@ use super::{fixture, require_kvm};
 /// A machine that has restored everything except the two authorities an Instance owns.
 fn sterile(fixture: &fixture::Fixture) -> soma_kvm::x86_64::Sterile {
     restore_sterile(SterileRequest {
-        paths: fixture.paths.clone(),
+        objects: soma_kvm::x86_64::SnapshotObjects::open(&fixture.paths.clone())
+            .expect("snapshot objects"),
+        hypervisor: soma_kvm::x86_64::Hypervisor::Device,
         root: fixture.root(),
         overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
         devices: DeviceSet::FULL,

@@ -47,7 +47,9 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
         let (path, head) = fixture.private_head(&format!("on-demand-{iteration}"));
         let started = Instant::now();
         let restored = restore(RestoreRequest {
-            paths: fixture.paths.clone(),
+            objects: soma_kvm::x86_64::SnapshotObjects::open(&fixture.paths.clone())
+                .expect("snapshot objects"),
+            hypervisor: soma_kvm::x86_64::Hypervisor::Device,
             disks: SandboxDisks {
                 root: fixture.root(),
                 overlay: Some(head),
@@ -66,7 +68,9 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
         // Prepared: the same machine, built before the request. Only the transfer of this
         // Instance's head and context identifier remains on the request path.
         let sterile = restore_sterile(SterileRequest {
-            paths: fixture.paths.clone(),
+            objects: soma_kvm::x86_64::SnapshotObjects::open(&fixture.paths.clone())
+                .expect("snapshot objects"),
+            hypervisor: soma_kvm::x86_64::Hypervisor::Device,
             root: fixture.root(),
             overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
             memory_bytes: fixture.ram_bytes,
@@ -112,7 +116,9 @@ fn median(samples: &[u64]) -> u64 {
 fn sterile() -> Sterile {
     let fixture = fixture::shared();
     restore_sterile(SterileRequest {
-        paths: fixture.paths.clone(),
+        objects: soma_kvm::x86_64::SnapshotObjects::open(&fixture.paths.clone())
+            .expect("snapshot objects"),
+        hypervisor: soma_kvm::x86_64::Hypervisor::Device,
         root: fixture.root(),
         overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
         memory_bytes: fixture.ram_bytes,

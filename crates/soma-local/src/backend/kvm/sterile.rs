@@ -18,7 +18,9 @@ use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::{HostLaunchMaterial, SecretFile};
 use soma_kvm::DeviceSet;
-use soma_kvm::x86_64::{SnapshotPaths, Sterile, SterileRequest, restore_sterile};
+use soma_kvm::x86_64::{
+    Hypervisor, SnapshotObjects, SnapshotPaths, Sterile, SterileRequest, restore_sterile,
+};
 
 use super::session::{Network, Request, Response, SessionError};
 use super::worker::{LaunchInputs, drive_restored, report};
@@ -74,8 +76,13 @@ pub(super) fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: 
         memory_bytes,
         devices,
     } = spec;
+    let Ok(objects) = SnapshotObjects::open(&SnapshotPaths::new(snapshot)) else {
+        let _ignored = responses.send(Response::Failed(SessionError::Create));
+        return;
+    };
     let sterile = restore_sterile(SterileRequest {
-        paths: SnapshotPaths::new(snapshot),
+        objects,
+        hypervisor: Hypervisor::Device,
         root,
         overlay_capacity_bytes,
         memory_bytes,

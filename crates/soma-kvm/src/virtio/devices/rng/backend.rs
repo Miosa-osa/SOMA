@@ -35,15 +35,87 @@ pub trait EntropyBackend {
     fn fill(&mut self, buf: &mut [u8]) -> Result<(), EntropyError>;
 }
 
+/// The operating-system CSPRNG.
+///
+/// On Linux the bytes come from the `getrandom` syscall, so the source needs neither a path
+/// nor a descriptor. That matters because a machine restored inside the jail has an empty
+/// root with no `/dev/urandom` to open, and `getrandom` is admitted in both filter phases
+/// while `open` is not. Elsewhere the source is a handle on `/dev/urandom`, opened once per
+/// Instance. Bytes are never buffered, logged, or captured either way.
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+pub struct OsEntropy {
+    _private: (),
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+impl OsEntropy {
+    /// Names the host source; the syscall itself needs nothing opened.
+    ///
+    /// # Errors
+    /// Never fails, and returns a `Result` so that both platform sources present one shape.
+    pub const fn open() -> Result<Self, EntropyError> {
+        Ok(Self { _private: () })
+    }
+}
+
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+#[allow(unsafe_code)]
+impl EntropyBackend for OsEntropy {
+    fn fill(&mut self, buf: &mut [u8]) -> Result<(), EntropyError> {
+        let mut filled = 0;
+        while filled < buf.len() {
+            let remainder = &mut buf[filled..];
+            // SAFETY: the pointer and length describe valid writable storage.
+            let taken =
+                unsafe { libc::getrandom(remainder.as_mut_ptr().cast(), remainder.len(), 0) };
+            match usize::try_from(taken) {
+                // A short read is a signal interruption rather than exhaustion, so the loop
+                // asks again; the kernel never returns zero for a non-empty buffer.
+                Ok(0) => return Err(EntropyError::Short),
+                Ok(count) => filled += count,
+                Err(_) => {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(EntropyError::Unavailable(error.kind()));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// The operating-system CSPRNG read from `/dev/urandom`.
 ///
 /// Opened once per Instance; bytes are never buffered, logged, or captured.
-#[cfg(unix)]
+#[cfg(all(
+    unix,
+    not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))
+))]
 pub struct OsEntropy {
     source: std::fs::File,
 }
 
-#[cfg(unix)]
+#[cfg(all(
+    unix,
+    not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))
+))]
 impl OsEntropy {
     /// Opens the host source.
     ///
@@ -56,7 +128,13 @@ impl OsEntropy {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(
+    unix,
+    not(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))
+))]
 impl EntropyBackend for OsEntropy {
     fn fill(&mut self, buf: &mut [u8]) -> Result<(), EntropyError> {
         use std::io::Read;

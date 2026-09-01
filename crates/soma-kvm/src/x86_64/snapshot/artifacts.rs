@@ -218,19 +218,6 @@ pub(super) fn hash(artifact: Artifact, file: &mut File) -> Result<Digest, Snapsh
     }
 }
 
-/// Hashes a published artifact by opening it read-only.
-///
-/// This is an installation and audit operation; the warm restore path never runs it.
-///
-/// # Errors
-///
-/// Returns the open or read failure.
-pub fn digest_of(artifact: Artifact, path: &Path) -> Result<Digest, SnapshotError> {
-    let mut file = File::open(path)
-        .map_err(|error| SnapshotError::io(artifact, "open for verification", &error))?;
-    hash(artifact, &mut file)
-}
-
 /// Flushes the directory entries so a published name survives a crash.
 ///
 /// # Errors
@@ -242,13 +229,4 @@ pub(super) fn sync_directory(directory: &Path) -> Result<(), SnapshotError> {
     handle
         .sync_all()
         .map_err(|error| SnapshotError::io(Artifact::Directory, "sync", &error))
-}
-
-/// Reads the whole state manifest.
-///
-/// # Errors
-///
-/// Returns the open or read failure.
-pub(super) fn read_state(path: &Path) -> Result<Vec<u8>, SnapshotError> {
-    fs::read(path).map_err(|error| SnapshotError::io(Artifact::State, "read", &error))
 }
