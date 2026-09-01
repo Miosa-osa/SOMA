@@ -155,6 +155,10 @@ It is proportional to the number of distinct guest pages the resume touches and 
 not to the size of the image, not to the residency of the host mapping, and not to the host page
 size behind it.
 
+**That last sentence is wrong, and [the launch-page slot removal record](2026-09-01-launch-page-slot-removal-ept-zap.md)
+supersedes it.** A resume takes 1.85 violations per distinct page, not one, and 23 percent of them
+are removed by a change that leaves the pages the guest touches identical.
+
 Two levers follow from that and neither is in this record's scope. A guest that touches fewer
 distinct pages during its resume pays proportionally less. A mapping that could carry huge
 extended-page-table entries would collapse the count by orders of magnitude, and the only known
