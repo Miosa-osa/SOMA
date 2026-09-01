@@ -34,10 +34,10 @@ impl Reply<'_> {
                 milestones(ready.milestones()),
             ),
             Self::Executed(executed) => format!(
-                "executed operation={} instance={} status={:?} stdout={} stderr={}",
+                "executed operation={} instance={} status={} stdout={} stderr={}",
                 hex(executed.operation_id().as_bytes()),
                 hex(executed.instance_id().as_bytes()),
-                executed.status(),
+                executed.status().token(),
                 executed.stdout().len(),
                 executed.stderr().len(),
             ),
@@ -52,8 +52,8 @@ impl Reply<'_> {
                 milestones(stopped.milestones()),
             ),
             Self::Failure(failure) => format!(
-                "failure kind={:?} phase={:?} recovery={:?} cleanup={:?} milestones={}",
-                failure.kind(),
+                "failure kind={} phase={:?} recovery={:?} cleanup={:?} milestones={}",
+                failure.kind().name(),
                 failure.phase(),
                 failure.recovery(),
                 failure.cleanup(),

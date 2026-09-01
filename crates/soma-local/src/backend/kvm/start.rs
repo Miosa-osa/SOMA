@@ -10,8 +10,15 @@ use soma::{BackendFailure, BackendFailureKind, InstanceId, OperationId, Preparat
 use soma_guest::SecretFile;
 use soma_vmm::sandbox::{Network, Session, SessionError};
 
+use super::held::Held;
+use super::jailed::{Anchors, Jailed, Launching as JailedLaunching};
+
 use super::{
-    KvmBackend, boot::boot_for, claim, identity::LaunchIdentity, network::Egress,
+    KvmBackend,
+    boot::boot_for,
+    claim,
+    identity::{LaunchIdentity, candidate_bytes},
+    network::Egress,
     prepared::PreparedGeneration,
 };
 
@@ -19,8 +26,8 @@ use super::{
 pub(super) struct Started {
     /// Whether a prepared machine served this Launch or it built its own.
     pub(super) preparation: PreparationClass,
-    /// The authenticated session over the machine.
-    pub(super) session: Session,
+    /// Whichever process now holds the machine.
+    pub(super) held: Held,
     /// When this Launch finished producing a machine, in nanoseconds since it was accepted.
     pub(super) launched: u64,
 }
@@ -34,6 +41,7 @@ pub(super) struct Launching<'a> {
     pub(super) prepared: &'a PreparedGeneration,
     pub(super) identity: LaunchIdentity,
     pub(super) memory_mib: u64,
+    pub(super) storage_mib: u64,
     pub(super) network: Network,
     pub(super) secrets: Vec<SecretFile>,
 }
@@ -72,6 +80,7 @@ impl KvmBackend {
             prepared,
             identity,
             memory_mib: _,
+            storage_mib: _,
             network,
             secrets,
         } = launching;
@@ -87,10 +96,82 @@ impl KvmBackend {
         }) {
             Ok(session) => Ok(Started {
                 preparation: PreparationClass::PreparedWorker,
-                session,
+                held: Held::Resident(session),
                 launched,
             }),
             Err(error) => Err(self.withdraw(operation, instance, error)),
+        }
+    }
+
+    /// Serves this Launch by building the machine inside a jail this host holds nothing of.
+    ///
+    /// The Instance identity, the network claim, and the Host Runtime registration stay here,
+    /// because they are the broker's work and none of them is something a jailed process can
+    /// do. What crosses into the jail is a sealed descriptor table and nothing else.
+    pub(super) fn launch_in_a_jail(
+        &mut self,
+        operation: &OperationId,
+        launching: Launching<'_>,
+    ) -> Result<Started, BackendFailure> {
+        let Some(anchors) = self.jail.take() else {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        };
+        let outcome = self.build_in_a_jail(operation, launching, &anchors);
+        self.jail = Some(anchors);
+        outcome
+    }
+
+    fn build_in_a_jail(
+        &mut self,
+        operation: &OperationId,
+        launching: Launching<'_>,
+        anchors: &Anchors,
+    ) -> Result<Started, BackendFailure> {
+        let Launching {
+            instance,
+            prepared,
+            identity,
+            memory_mib,
+            storage_mib,
+            network,
+            secrets,
+        } = launching;
+        // A jailed machine is given no frame path and no secret, so a request that needs either
+        // is refused rather than served by a machine that silently has neither.
+        if network.attachment.is_some() || network.activation.is_some() || !secrets.is_empty() {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        }
+        // Only a Generation with a captured machine can be restored from descriptors; a cold
+        // boot would need the kernel and initramfs this descriptor table has no roles for.
+        let Some(snapshot) = claim::snapshot_dir(prepared) else {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        };
+        let generation_bytes =
+            candidate_bytes(&prepared.id).map_err(|kind| self.fail(operation, kind))?;
+        self.register(operation, instance, identity.guest_cid)?;
+        let launched = self.clocks.elapsed_ns(operation);
+        match Jailed::launch(
+            anchors,
+            &JailedLaunching {
+                prepared,
+                snapshot: &snapshot,
+                instance,
+                instance_bytes: identity.instance,
+                generation_bytes,
+                memory_mib,
+                disk_mib: storage_mib,
+            },
+        ) {
+            Ok(jailed) => Ok(Started {
+                preparation: PreparationClass::OnDemand,
+                held: Held::Jailed(Box::new(jailed)),
+                launched,
+            }),
+            Err(kind) => {
+                // A launch that never produced a machine leaves no Instance owned by this Host.
+                self.ownership.withdraw(instance);
+                Err(BackendFailure::new(kind, self.clocks.elapsed_ns(operation)))
+            }
         }
     }
 
@@ -106,6 +187,7 @@ impl KvmBackend {
             prepared,
             identity,
             memory_mib,
+            storage_mib: _,
             network,
             secrets,
         } = launching;
@@ -118,7 +200,7 @@ impl KvmBackend {
         }) {
             Ok(session) => Ok(Started {
                 preparation: PreparationClass::OnDemand,
-                session,
+                held: Held::Resident(session),
                 launched,
             }),
             Err(error) => Err(self.withdraw(operation, instance, error)),

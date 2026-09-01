@@ -13,11 +13,13 @@
 
 mod error;
 mod field;
+mod outcome;
 mod reply;
 mod request;
 mod window;
 
 pub use error::ControlError;
+pub use outcome::Outcome;
 pub use reply::Reply;
 pub use request::{MAX_REQUEST_BYTES, Request};
-pub use window::{MAX_OUTPUT_WINDOW_BYTES, OutputStream, OutputWindow};
+pub use window::{MAX_OUTPUT_WINDOW_BYTES, MAX_REPLY_BYTES, OutputStream, OutputWindow};

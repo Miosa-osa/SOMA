@@ -11,10 +11,21 @@ use crate::OperationId;
 
 /// The largest output window one reply packet carries.
 ///
-/// The bytes travel hexadecimal, so a window costs twice its length on the wire. This is sized
-/// so the whole maximum output of one command is fetched in a bounded number of exchanges over
-/// a local socket rather than in thousands.
-pub const MAX_OUTPUT_WINDOW_BYTES: u64 = 256 * 1024;
+/// The bytes travel hexadecimal, so a window costs twice its length on the wire, and one
+/// `SOCK_SEQPACKET` datagram on a local socket is bounded by the sender's send buffer, which
+/// the kernel caps well below a mebibyte by default. This is sized to stay inside that cap
+/// while fetching the whole maximum output of one command in hundreds of exchanges rather than
+/// hundreds of thousands.
+pub const MAX_OUTPUT_WINDOW_BYTES: u64 = MAX_OUTPUT_WINDOW.get() as u64;
+
+/// The same bound as a byte count, which is the form the buffers use.
+const MAX_OUTPUT_WINDOW: std::num::NonZeroUsize =
+    std::num::NonZeroUsize::new(64 * 1024).expect("the window bound is not zero");
+
+/// The largest reply packet a supervisor must be able to receive.
+///
+/// Every other reply is one short line; this is the bound the output windows impose.
+pub const MAX_REPLY_BYTES: usize = MAX_OUTPUT_WINDOW.get() * 2 + 64;
 
 /// Which of a command's two output streams a window reads.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
