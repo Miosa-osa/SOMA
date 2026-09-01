@@ -20,6 +20,8 @@ mod attest;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod cgroup;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod control;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod descriptors;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod namespaces;
@@ -46,6 +48,8 @@ pub use spec::{CgroupLimits, CpuMax, Identity, IoMax, JailSpec, LeafName, Rlimit
 pub use attest::attest;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use cgroup::{CgroupError, CgroupLeaf, CgroupReadback};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use control::{ControlError, ControlSocket};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use descriptors::{
     DescriptorError, KVM_DEVICE, TAP_DEVICE, VerificationDepth, launcher_sealed_len, report_slot,

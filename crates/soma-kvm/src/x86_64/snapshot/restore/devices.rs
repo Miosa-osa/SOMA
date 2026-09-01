@@ -6,12 +6,11 @@
 //! link down, a fresh vsock endpoint with no connection, and a fresh entropy source. Only the
 //! transport and queue state comes from the snapshot.
 
-use std::path::Path;
-
 use super::super::{
-    artifacts::{self, SnapshotPaths},
+    artifacts::hash,
     device,
     error::{Artifact, SnapshotError},
+    objects::SnapshotObjects,
 };
 use super::sections::Sections;
 use crate::snapshot::{device_state::DeviceSpecific, manifest::Manifest};
@@ -69,30 +68,37 @@ pub(super) fn recreate_devices(
     Ok(bus)
 }
 
+/// Re-hashes the two large objects through the handles the restore already holds.
+///
+/// This is the installation and audit boundary rather than the request path: it reads every
+/// byte of both objects. Reading them through the retained handles rather than by name is
+/// what lets a jailed machine perform the same check, and it also removes the window in which
+/// a name could be replaced between the verification and the mapping.
 pub(super) fn verify(
-    paths: &SnapshotPaths,
+    objects: &mut SnapshotObjects,
     manifest: &Manifest,
     state: &Sections,
 ) -> Result<(), SnapshotError> {
-    let memory = artifacts::digest_of(Artifact::Memory, &paths.memory())?;
-    manifest
-        .header()
-        .memory
-        .verify_generation(memory, file_len(Artifact::Memory, &paths.memory())?)?;
+    let size = file_len(Artifact::Memory, objects.memory_handle())?;
+    let memory = hash(Artifact::Memory, objects.memory_handle())?;
+    manifest.header().memory.verify_generation(memory, size)?;
     // A Generation with no writable storage published no overlay template, so there is no
     // sterile image to re-hash and nothing that could disagree with a record it never wrote.
     let Some(record) = state.slot(Slot::Overlay) else {
         return Ok(());
     };
-    let overlay = artifacts::digest_of(Artifact::Overlay, &paths.overlay())?;
+    let template = objects
+        .overlay_template()
+        .ok_or(SnapshotError::DeviceStateNotCanonical(Slot::Overlay))?;
+    let overlay = hash(Artifact::Overlay, template)?;
     match record.specific() {
         DeviceSpecific::Block(block) if block.image_digest == overlay => Ok(()),
         _ => Err(SnapshotError::DeviceStateNotCanonical(Slot::Overlay)),
     }
 }
 
-fn file_len(artifact: Artifact, path: &Path) -> Result<u64, SnapshotError> {
-    std::fs::metadata(path)
+fn file_len(artifact: Artifact, file: &std::fs::File) -> Result<u64, SnapshotError> {
+    file.metadata()
         .map(|metadata| metadata.len())
         .map_err(|error| SnapshotError::io(artifact, "stat", &error))
 }

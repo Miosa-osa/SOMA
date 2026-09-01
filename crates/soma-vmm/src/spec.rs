@@ -88,17 +88,57 @@ impl MachineSpec {
     }
 }
 
+/// The optional devices a Generation declared.
+///
+/// The machine a provider builds must be the machine the Generation was certified as, so the
+/// declaration travels with the Generation rather than being read back out of the artifacts.
+/// An artifact set can only agree with itself; the point of naming the set here is that the
+/// machine the caller asked for and the machine the artifacts describe are checked against
+/// each other.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DeclaredDevices {
+    writable_disk: bool,
+    network: bool,
+}
+
+impl DeclaredDevices {
+    #[must_use]
+    pub const fn new(writable_disk: bool, network: bool) -> Self {
+        Self {
+            writable_disk,
+            network,
+        }
+    }
+
+    /// Whether this Generation declared writable storage, and so has a private overlay.
+    #[must_use]
+    pub const fn writable_disk(self) -> bool {
+        self.writable_disk
+    }
+
+    /// Whether this Generation declared a network device.
+    #[must_use]
+    pub const fn network(self) -> bool {
+        self.network
+    }
+}
+
 /// Immutable reference to one certified artifact set and its exact effective Machine dimensions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Generation {
     id: GenerationId,
     machine: MachineSpec,
+    devices: DeclaredDevices,
 }
 
 impl Generation {
     #[must_use]
-    pub const fn new(id: GenerationId, machine: MachineSpec) -> Self {
-        Self { id, machine }
+    pub const fn new(id: GenerationId, machine: MachineSpec, devices: DeclaredDevices) -> Self {
+        Self {
+            id,
+            machine,
+            devices,
+        }
     }
 
     #[must_use]
@@ -109,6 +149,11 @@ impl Generation {
     #[must_use]
     pub const fn machine(&self) -> MachineSpec {
         self.machine
+    }
+
+    #[must_use]
+    pub const fn devices(&self) -> DeclaredDevices {
+        self.devices
     }
 }
 

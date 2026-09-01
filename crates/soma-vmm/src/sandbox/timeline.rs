@@ -63,7 +63,7 @@ fn directory() -> Option<PathBuf> {
 ///
 /// Every failure is ignored: a diagnostic that cannot be written must never turn a sandbox that
 /// ran correctly into one that reports a cleanup failure.
-pub(super) fn dump(instance: &str, evidence: &SandboxEvidence) {
+pub fn dump(instance: &str, evidence: &SandboxEvidence) {
     let Some(directory) = directory() else {
         return;
     };
@@ -132,8 +132,31 @@ fn render_failure(evidence: &SandboxEvidence, error: &str) -> String {
 }
 
 fn append_error(head: &str, error: &str) -> String {
-    let error = serde_json::to_string(error).unwrap_or_else(|_| "\"unavailable\"".to_owned());
-    format!("{head},\"error\":{error}}}\n")
+    format!("{head},\"error\":\"{}\"}}\n", escaped(error))
+}
+
+/// Escapes one string for a JSON document.
+///
+/// The error text comes from a failed sandbox, so it may hold quotes, backslashes, and control
+/// characters. A diagnostic that stopped being parseable at the moment it mattered most would
+/// be worse than none, so every byte JSON reserves is escaped rather than trusted.
+fn escaped(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            control if control < ' ' || control == '\u{7f}' => {
+                use std::fmt::Write as _;
+                let _ignored = write!(out, "\\u{:04x}", u32::from(control));
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

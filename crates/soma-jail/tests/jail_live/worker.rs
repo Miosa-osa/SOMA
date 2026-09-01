@@ -6,9 +6,9 @@
 
 use soma_jail::{ExitReason, ProbeReport, namespace_ids_of, own_namespace_ids};
 use soma_vmm::{
-    Argument, DiskBytes, Execute, ExecutionLimits, Generation, GenerationId, InstanceId, Launch,
-    MachineSpec, MemoryBytes, OperationId, OutputBytes, Program, Stop, TimeoutMillis, VcpuCount,
-    control::Request,
+    Argument, DeclaredDevices, DiskBytes, Execute, ExecutionLimits, Generation, GenerationId,
+    InstanceId, Launch, MachineSpec, MemoryBytes, OperationId, OutputBytes, Program, Stop,
+    TimeoutMillis, VcpuCount, control::Request,
 };
 
 use super::{
@@ -31,7 +31,11 @@ fn launch_request() -> Request {
     Request::Launch(Launch::new(
         OperationId::new([7; 16]).expect("operation"),
         InstanceId::new([8; 16]).expect("instance"),
-        Generation::new(GenerationId::new([9; 32]).expect("generation"), machine),
+        Generation::new(
+            GenerationId::new([9; 32]).expect("generation"),
+            machine,
+            DeclaredDevices::new(true, true),
+        ),
     ))
 }
 

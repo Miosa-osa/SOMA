@@ -14,19 +14,17 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use soma_guest::{ActivationReceipt, GuestCommand, LaunchNetwork, SecretFile, TerminalStatus};
-use soma_kvm::x86_64::{NetworkAttachment, SandboxEvidence};
+use soma_guest::{ActivationReceipt, GuestCommand, TerminalStatus};
+use soma_kvm::x86_64::SandboxEvidence;
 
-use super::network::PendingActivation;
+use super::source::Boot;
 use super::sterile::Assignment;
 use super::worker::serve;
 
-/// The locally administered MAC the guest sees on its one network device.
-pub(super) const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 /// How long a cold boot has to reach an authenticated Ready.
-pub(super) const BOOT_DEADLINE: Duration = Duration::from_secs(60);
+pub const BOOT_DEADLINE: Duration = Duration::from_secs(60);
 /// How long the guest has to leave `KVM_RUN` after it acknowledges shutdown.
-pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
+pub const EXIT_GRACE: Duration = Duration::from_secs(10);
 /// How long one whole filesystem operation has to answer.
 ///
 /// A whole-file transfer is several bounded records rather than one, so the ceiling covers the
@@ -34,7 +32,7 @@ pub(super) const EXIT_GRACE: Duration = Duration::from_secs(10);
 pub(super) const FILE_CEILING: Duration = Duration::from_secs(120);
 
 /// What the lifecycle asks a live sandbox to do.
-pub(super) enum Request {
+pub enum Request {
     /// Transfer fresh Instance authority into a parked sterile machine, exactly once.
     ///
     /// The assignment is boxed because it is far larger than the other requests and only one
@@ -51,7 +49,7 @@ pub(super) enum Request {
 }
 
 /// What a live sandbox reports back.
-pub(super) enum Response {
+pub enum Response {
     /// The machine is restored, holds no Instance authority, and is parked to be claimed.
     Prepared,
     /// The repaired session minted the capability the broker's activation requires.
@@ -74,10 +72,10 @@ pub(super) enum Response {
 }
 
 /// One completed command, as the portable lifecycle reports it.
-pub(super) struct Completed {
-    pub(super) status: TerminalStatus,
-    pub(super) stdout: Vec<u8>,
-    pub(super) stderr: Vec<u8>,
+pub struct Completed {
+    pub status: TerminalStatus,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
 }
 
 /// Why a session could not do what was asked.
@@ -85,7 +83,7 @@ pub(super) struct Completed {
 /// The variants name the stage rather than carrying the underlying message, because these cross
 /// a thread boundary into a failure a caller may render.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SessionError {
+pub enum SessionError {
     /// The machine could not be created from the prepared artifacts.
     Create,
     /// The launch page could not be delivered, or the guest never consumed it.
@@ -109,65 +107,16 @@ pub(super) enum SessionError {
 }
 
 /// A live sandbox, addressed over channels.
-pub(super) struct Session {
-    requests: Sender<Request>,
-    responses: Receiver<Response>,
-    thread: Option<JoinHandle<()>>,
+pub struct Session {
+    pub(super) requests: Sender<Request>,
+    pub(super) responses: Receiver<Response>,
+    pub(super) thread: Option<JoinHandle<()>>,
     /// Set once an operation ended without a certain answer.
     ///
     /// A timed-out command may still be running, and its reply would arrive on the same channel
     /// as the next command's. Attributing it to that next command would report one command's
     /// output as another's, so an uncertain outcome ends the session instead.
-    poisoned: bool,
-}
-
-#[path = "session/assign.rs"]
-mod assign;
-
-/// The two bounded operations a live session answers.
-#[path = "session/operations.rs"]
-mod operations;
-
-/// Everything one sandbox needs before it can boot.
-#[path = "session/source.rs"]
-mod source;
-pub(in crate::backend::kvm) use source::Source;
-
-pub(super) struct Boot {
-    /// How this sandbox comes into existence.
-    pub(super) source: Source,
-    pub(super) generation: [u8; 32],
-    pub(super) instance: [u8; 16],
-    /// The operation this launch belongs to, bound into the launch page.
-    pub(super) operation: [u8; 16],
-    /// The vsock context identifier this Instance is assigned.
-    ///
-    /// Context identifiers are host global, so every concurrent sandbox needs its own. One
-    /// command line invocation serves one sandbox, so there is no shared counter to draw from
-    /// and the identifier is derived from the Instance identity instead.
-    pub(super) guest_cid: u32,
-    /// The network this Instance was given.
-    pub(super) network: Network,
-    /// The secrets this one Instance is launched with.
-    ///
-    /// They belong to the Boot rather than to the Generation because the Generation, its
-    /// artifacts, and the snapshot every Instance of it restores from are shared. A value placed
-    /// here reaches one machine over one session and is never part of anything a second Instance
-    /// can read.
-    pub(super) secrets: Vec<SecretFile>,
-}
-
-/// The network one machine is built with.
-///
-/// The launch values are always present, because the guest repairs an interface either way; the
-/// frame path and the activation are present only for an Instance the broker leased a bundle to.
-pub(super) struct Network {
-    /// The values the launch page carries.
-    pub(super) launch: LaunchNetwork,
-    /// The assigned frame path, attached with the link still down.
-    pub(super) attachment: Option<NetworkAttachment>,
-    /// What the repaired session must mint before the broker will let traffic flow.
-    pub(super) activation: Option<PendingActivation>,
+    pub(super) poisoned: bool,
 }
 
 impl Session {
@@ -175,7 +124,11 @@ impl Session {
     ///
     /// A failure here leaves no thread behind: the sandbox thread reports it and ends, and the
     /// machine it owned is finished on the way out.
-    pub(super) fn launch(
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`SessionError`] that stopped the sandbox before it reached Ready.
+    pub fn launch(
         boot: Boot,
         activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
     ) -> Result<Self, SessionError> {
@@ -218,7 +171,8 @@ impl Session {
     }
 
     /// Whether this session may still be used.
-    pub(super) const fn is_usable(&self) -> bool {
+    #[must_use]
+    pub const fn is_usable(&self) -> bool {
         !self.poisoned
     }
 
@@ -226,7 +180,7 @@ impl Session {
     ///
     /// The sandbox thread is stopped here rather than left running, so a command still executing
     /// behind a host timeout cannot keep a guest alive after the Backend stopped tracking it.
-    fn poison(&mut self, error: SessionError) -> SessionError {
+    pub(super) fn poison(&mut self, error: SessionError) -> SessionError {
         self.poisoned = true;
         self.stop_thread();
         error
@@ -240,7 +194,12 @@ impl Session {
     }
 
     /// Shuts the guest down and returns the machine's evidence.
-    pub(super) fn shutdown(mut self) -> Result<SandboxEvidence, SessionError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Poisoned`] for a session already ended, or the failure that
+    /// stopped the shutdown exchange.
+    pub fn shutdown(mut self) -> Result<SandboxEvidence, SessionError> {
         if self.poisoned {
             // The thread is already stopped and the machine released; there is no evidence to
             // collect and no guest left to ask.
@@ -258,7 +217,7 @@ impl Session {
         evidence
     }
 
-    fn await_response(&mut self, within: Duration) -> Result<Response, SessionError> {
+    pub(super) fn await_response(&mut self, within: Duration) -> Result<Response, SessionError> {
         match self.responses.recv_timeout(within) {
             Ok(response) => Ok(response),
             // Both a timeout and a closed channel mean no answer is coming.

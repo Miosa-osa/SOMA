@@ -10,7 +10,7 @@
 //! completed, on a shutdown request, when the control socket reaches end of stream because the
 //! supervisor is gone, or when the request budget runs out.
 
-use soma_jail::{DescriptorManifest, Phase, attest, install_filter};
+use soma_jail::{DescriptorManifest, DescriptorRole, Phase, attest, install_filter};
 use soma_vmm::{
     MAX_OPERATION_RECEIPTS, Machine,
     control::{MAX_REQUEST_BYTES, Reply, Request},
@@ -26,7 +26,18 @@ const MAX_REQUESTS: usize = MAX_OPERATION_RECEIPTS;
 
 /// Serves requests until the lifecycle ends, and returns the worker's exit status.
 pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
-    let mut machine = Machine::new();
+    // A manifest that names a hypervisor is a machine this worker is expected to hold, so a
+    // table that names one and is then missing a piece of it refuses service rather than
+    // quietly serving the contract with nothing behind it. A manifest that names no hypervisor
+    // is the jail's own containment shape, which has no machine to hold and never asks for one.
+    let mut machine = if manifest.roles().contains(&DescriptorRole::Kvm) {
+        match Machine::on_jailed_kvm(manifest) {
+            Some(machine) => machine,
+            None => return exit::NO_MANIFEST,
+        }
+    } else {
+        Machine::new()
+    };
     let mut buffer = [0u8; MAX_REQUEST_BYTES];
     for _ in 0..MAX_REQUESTS {
         let Some(count) = control.receive(&mut buffer) else {
@@ -74,6 +85,10 @@ fn perform(
             }
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
+        Request::Output(window) => {
+            let bytes = machine.output(&window).unwrap_or_default();
+            control.send(&Reply::Output(bytes).encode());
+        }
         Request::Seal => control.send(&seal().encode()),
         Request::Shutdown(status) => return Some(status),
     }

@@ -14,21 +14,21 @@
 use std::time::Duration;
 
 use soma::{
-    BackendFailure, BackendFailureKind, CleanupDisposition, CleanupEvidence, CleanupMethod,
-    CommandStatus, EffectiveNetwork, InstanceId, MachineShape, MachineState, OperationId,
+    BackendFailure, BackendFailureKind, CleanupDisposition, CleanupEvidence, CommandStatus,
+    EffectiveNetwork, InstanceId, MachineShape, MachineState, OperationId,
 };
 use soma_guest::GuestCommand;
-use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
+use soma_vmm::sandbox::Network;
 
 use super::{
     KvmBackend, claim,
     evidence::{CONTRACT_VCPUS, command_status, effective_network},
+    held::Held,
     host::Launched,
     identity::LaunchIdentity,
     network::{Egress, Released},
     prepared::PreparedGeneration,
-    session::{Network, Session},
-    start::{Launching, Started, failure_kind},
+    start::{Launching, Started},
 };
 
 /// How long one bounded command may take before the session is considered gone.
@@ -49,7 +49,8 @@ pub(super) type Ran = (CommandStatus, Vec<u8>, Vec<u8>);
 /// The live sandbox this Backend is driving.
 pub(super) struct Live {
     pub(super) instance: InstanceId,
-    pub(super) session: Session,
+    /// Whichever process holds this Instance's machine.
+    pub(super) held: Held,
     /// The network this Instance holds, released when its sandbox is.
     pub(super) egress: Egress,
     /// What this Instance was told its network is, reported again by every later observation.
@@ -95,7 +96,13 @@ impl KvmBackend {
         // and the next one for the same Generation finds a machine that is already restored.
         // An empty pool is not a failure and is never reported as a prepared launch: the Launch
         // restores its own machine on the path below and says so.
-        let claimed = claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib());
+        // A machine prepared inside this process is exactly the unjailed thing the split
+        // removes, so a host that jails its machines never claims one.
+        let claimed = if self.jail.is_some() {
+            None
+        } else {
+            claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib())
+        };
         // No secret reaches this Backend yet. The portable Launch request carries a Template's
         // secret references, not their values, and the host side that resolves a reference into
         // a value is the credential mediator of the second delivery mode, which does not exist.
@@ -106,20 +113,25 @@ impl KvmBackend {
             prepared,
             identity,
             memory_mib: shape.memory_mib(),
+            storage_mib: shape.storage_mib(),
             network,
             secrets: Vec::new(),
         };
         let Started {
             preparation,
-            session,
+            held,
             launched,
-        } = match claimed {
-            Some(claimed) => self.assign_claimed(operation, launching, &mut egress, claimed)?,
-            None => self.restore_on_demand(operation, launching, &mut egress)?,
+        } = if self.jail.is_some() {
+            self.launch_in_a_jail(operation, launching)?
+        } else {
+            match claimed {
+                Some(claimed) => self.assign_claimed(operation, launching, &mut egress, claimed)?,
+                None => self.restore_on_demand(operation, launching, &mut egress)?,
+            }
         };
         self.live = Some(Live {
             instance: instance.clone(),
-            session,
+            held,
             egress,
             network: observed.clone(),
         });
@@ -140,10 +152,7 @@ impl KvmBackend {
         let Some(live) = self.live_for(instance) else {
             return Err(self.absent_kind(instance));
         };
-        let completed = live
-            .session
-            .execute(command, COMMAND_CEILING)
-            .map_err(failure_kind)?;
+        let completed = live.held.execute(command, COMMAND_CEILING)?;
         let status = command_status(completed.status).ok_or(BackendFailureKind::GuestFailure)?;
         Ok((status, completed.stdout, completed.stderr))
     }
@@ -179,26 +188,11 @@ impl KvmBackend {
             return self.release_unowned(instance);
         };
         let Live {
-            session,
-            mut egress,
-            ..
+            held, mut egress, ..
         } = live;
-        let method = match force {
-            // Dropping the session ends the sandbox thread, and the thread finishes the machine
-            // before it returns, so everything the Instance owned is released without the guest
-            // ever being asked.
-            Force::Immediately => {
-                drop(session);
-                Some(CleanupMethod::Forced)
-            }
-            Force::OnlyIfTheGuestWillNotLeave => match session.shutdown() {
-                Ok(evidence) => {
-                    super::timeline::dump(instance.as_str(), &evidence);
-                    Some(shutdown_method(&evidence))
-                }
-                Err(_) => None,
-            },
-        };
+        let method = held
+            .release(instance, matches!(force, Force::Immediately))
+            .ok();
         // The lease is released whether or not the guest shut down cleanly. A machine that is
         // gone has no use for a namespace, a TAP, an address lease, or a port mapping, and
         // leaving them behind is the failure that compounds fastest across many sandboxes.
@@ -240,20 +234,6 @@ impl KvmBackend {
     ) -> Result<CleanupEvidence, BackendFailureKind> {
         self.ownership.release(instance)?;
         Ok(lookup::not_owned_evidence())
-    }
-}
-
-/// How a guest that was asked to shut down actually left.
-///
-/// A guest that halted, shut down, reset, or reached its sentinel left on its own, which is a
-/// graceful release. Anything else means the host had to end a machine the guest was still in,
-/// and reporting that as graceful would describe a termination that did not happen.
-fn shutdown_method(evidence: &SandboxEvidence) -> CleanupMethod {
-    match evidence.exit {
-        Ok(GuestExit::Halt | GuestExit::Shutdown | GuestExit::Reset | GuestExit::Sentinel) => {
-            CleanupMethod::Graceful
-        }
-        Ok(GuestExit::Paused) | Err(_) => CleanupMethod::GracefulThenForced,
     }
 }
 

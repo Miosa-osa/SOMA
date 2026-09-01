@@ -30,8 +30,7 @@ use soma_hostd::{Claiming, Limits, LimitsError, Phase, Slot, Worker, WorkerId};
 
 pub(super) use key::{MachineKey, Recipe, RecipeInputs};
 
-use super::session::{Session, SessionError};
-use super::sterile::Assignment;
+use soma_vmm::sandbox::{Assignment, Session, SessionError};
 
 /// How long the replenisher sleeps when there is nothing to build or a build just failed.
 ///

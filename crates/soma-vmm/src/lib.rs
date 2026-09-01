@@ -2,6 +2,8 @@
 #![deny(unsafe_code)]
 
 pub mod control;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub mod sandbox;
 
 mod error;
 mod ids;
@@ -21,7 +23,9 @@ pub use request::{
     Argument, CommandError, Execute, ExecutionLimits, Launch, OutputBytes, Program, Stop,
     TimeoutMillis,
 };
-pub use spec::{DiskBytes, Generation, MachineSpec, MemoryBytes, SpecError, VcpuCount};
+pub use spec::{
+    DeclaredDevices, DiskBytes, Generation, MachineSpec, MemoryBytes, SpecError, VcpuCount,
+};
 
 #[cfg(test)]
 mod tests;

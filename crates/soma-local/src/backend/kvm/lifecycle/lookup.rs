@@ -43,7 +43,7 @@ impl KvmBackend {
     pub(in crate::backend::kvm) fn live_for(&mut self, instance: &InstanceId) -> Option<&mut Live> {
         self.live
             .as_mut()
-            .filter(|live| &live.instance == instance && live.session.is_usable())
+            .filter(|live| &live.instance == instance && live.held.is_usable())
     }
 
     pub(in crate::backend::kvm) fn take_live(&mut self, instance: &InstanceId) -> Option<Live> {

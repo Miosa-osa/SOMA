@@ -6,12 +6,12 @@ use std::path::PathBuf;
 
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::{LaunchNetwork, SecretFile};
-use soma_kvm::x86_64::SandboxDisks;
+use soma_kvm::x86_64::{Hypervisor, SandboxDisks, SnapshotObjects, SnapshotPaths};
 use soma_storage::CloneError;
 
 use super::identity::{LaunchIdentity, candidate_bytes, now_unix_nanos};
 use super::prepared::PreparedGeneration;
-use super::session::{Boot, Network, Source};
+use soma_vmm::sandbox::{Boot, ColdBootInputs, Network, Source, cold_boot_config};
 
 /// Opens the prepared artifacts and gives this Instance its own writable overlay head.
 ///
@@ -63,8 +63,11 @@ pub(super) fn boot_for(
                 .overlay()
                 .then(|| private_head_from(&snapshot.join("overlay.raw"), instance))
                 .transpose()?;
+            let objects = SnapshotObjects::open(&SnapshotPaths::new(snapshot))
+                .map_err(|_| BackendFailureKind::Unavailable)?;
             Source::Restore {
-                snapshot,
+                objects,
+                hypervisor: Hypervisor::Device,
                 disks: SandboxDisks { root, overlay },
                 devices,
                 memory_bytes: memory_mib * MIB,
@@ -75,7 +78,7 @@ pub(super) fn boot_for(
             let overlay = template
                 .map(|template| private_head(&prepared.store, &template.descriptor, instance))
                 .transpose()?;
-            Source::ColdBoot(super::worker::config(super::worker::ColdBootInputs {
+            Source::ColdBoot(cold_boot_config(ColdBootInputs {
                 kernel,
                 initramfs,
                 root,

@@ -22,6 +22,16 @@ pub(crate) struct PlatformExecution {
 }
 
 impl PlatformExecution {
+    /// One command that ran to a terminal status.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) const fn completed(status: ExitStatus, stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
+        Self {
+            status,
+            stdout,
+            stderr,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(status: ExitStatus, stdout: Vec<u8>, stderr: Vec<u8>) -> Self {
         Self {
@@ -42,6 +52,15 @@ pub(crate) struct PlatformStop {
 }
 
 impl PlatformStop {
+    /// One machine that released everything it owned.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) const fn released(guest_acknowledged: bool, forced: bool) -> Self {
+        Self {
+            guest_acknowledged,
+            forced,
+        }
+    }
+
     #[cfg(test)]
     pub(crate) const fn for_test(guest_acknowledged: bool, forced: bool) -> Self {
         Self {

@@ -18,7 +18,6 @@ pub use handle::Restored;
 
 use std::cell::Cell;
 
-use kvm_ioctls::Kvm;
 use vmm_sys_util::eventfd::EventFd;
 
 use self::{
@@ -26,9 +25,10 @@ use self::{
     sections::{Sections, net_mac, section, vsock_cid},
 };
 use super::{
-    artifacts::{self, SnapshotPaths},
     error::{Artifact, SnapshotError},
-    marker, platform, profile, vcpu,
+    marker,
+    objects::SnapshotObjects,
+    platform, profile, vcpu,
 };
 use crate::snapshot::{
     Digest, compatibility,
@@ -39,7 +39,7 @@ use crate::snapshot::{
 use crate::virtio::{DeviceSet, Slot};
 use crate::x86_64::sandbox::NetworkAttachment;
 use crate::x86_64::{
-    Machine,
+    Hypervisor, Machine,
     devices::SandboxDisks,
     error::{MachineError, Phase},
     events::{IrqLines, NotifyFds},
@@ -55,8 +55,10 @@ pub use sterile::{Sterile, SterileRequest};
 
 /// What a caller asks a restore to produce.
 pub struct RestoreRequest {
-    /// The published snapshot directory.
-    pub paths: SnapshotPaths,
+    /// The published snapshot, as the handles this machine reads it through.
+    pub objects: SnapshotObjects,
+    /// Where this machine's `/dev/kvm` handle comes from.
+    pub hypervisor: Hypervisor,
     /// The immutable root and, when the Generation declared writable storage, the
     /// Instance-private overlay head cloned from `overlay.raw`.
     pub disks: SandboxDisks,
@@ -100,7 +102,8 @@ pub struct RestoreFacts {
 /// ownership order as the partially built machine unwinds.
 pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     let RestoreRequest {
-        paths,
+        objects,
+        hypervisor,
         disks,
         devices,
         guest_cid,
@@ -119,7 +122,8 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         })
         .transpose()?;
     restore_sterile(SterileRequest {
-        paths,
+        objects,
+        hypervisor,
         root,
         overlay_capacity_bytes,
         devices,
@@ -138,7 +142,8 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
 #[allow(clippy::too_many_lines)]
 pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError> {
     let SterileRequest {
-        paths,
+        mut objects,
+        hypervisor,
         root,
         overlay_capacity_bytes,
         devices,
@@ -147,8 +152,10 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     } = request;
     let mut timeline = Timeline::new();
     let mut sequence = RestoreSequence::start();
-    let kvm = Kvm::new().map_err(|error| MachineError::os(Phase::Restore, error))?;
-    let state_bytes = artifacts::read_state(&paths.state())?;
+    let kvm = hypervisor
+        .handle()
+        .map_err(|error| MachineError::os(Phase::Restore, error))?;
+    let state_bytes = objects.state_bytes()?;
     let snapshot = Digest::of(&state_bytes);
     let manifest = Manifest::decode(&state_bytes)?;
     // The device set comes from the Generation being launched, never from the snapshot: a set
@@ -159,7 +166,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     let state = Sections::read(&manifest, devices)?;
     let repair_point_line = marker::decode(section(&manifest, SectionRole::RepairPointMarker)?)?;
     if verify_artifacts {
-        verify(&paths, &manifest, &state)?;
+        verify(&mut objects, &manifest, &state)?;
     }
     sequence.complete(RestoreStep::ValidateManifest)?;
     timeline.mark(Milestone::ValidateManifest);
@@ -170,7 +177,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::CreateVm)?;
     timeline.mark(Milestone::CreateVm);
 
-    let ram = guest_memory::map(&paths.memory(), &manifest, &mut timeline)?;
+    let ram = guest_memory::map(objects.memory(), &manifest, &mut timeline)?;
     sequence.complete(RestoreStep::MapMemoryPrivately)?;
     timeline.mark(Milestone::MapMemory);
 

@@ -19,6 +19,49 @@ pub enum FailureKind {
     StopFailed,
 }
 
+impl FailureKind {
+    /// The kind's name on the wire, which is the name it has in this source.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::OperationConflict => "OperationConflict",
+            Self::OperationCapacityExceeded => "OperationCapacityExceeded",
+            Self::InvalidLifecycle => "InvalidLifecycle",
+            Self::GenerationVerificationFailed => "GenerationVerificationFailed",
+            Self::RestoreFailed => "RestoreFailed",
+            Self::GuestAuthenticationFailed => "GuestAuthenticationFailed",
+            Self::GenerationAcknowledgementFailed => "GenerationAcknowledgementFailed",
+            Self::IdentityRepairFailed => "IdentityRepairFailed",
+            Self::NetworkRepairFailed => "NetworkRepairFailed",
+            Self::ReadinessProbeFailed => "ReadinessProbeFailed",
+            Self::InstanceMismatch => "InstanceMismatch",
+            Self::ExecuteFailed => "ExecuteFailed",
+            Self::StopFailed => "StopFailed",
+        }
+    }
+
+    /// The kind one wire name is, or `None` for a name this contract does not define.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        const ALL: [FailureKind; 13] = [
+            FailureKind::OperationConflict,
+            FailureKind::OperationCapacityExceeded,
+            FailureKind::InvalidLifecycle,
+            FailureKind::GenerationVerificationFailed,
+            FailureKind::RestoreFailed,
+            FailureKind::GuestAuthenticationFailed,
+            FailureKind::GenerationAcknowledgementFailed,
+            FailureKind::IdentityRepairFailed,
+            FailureKind::NetworkRepairFailed,
+            FailureKind::ReadinessProbeFailed,
+            FailureKind::InstanceMismatch,
+            FailureKind::ExecuteFailed,
+            FailureKind::StopFailed,
+        ];
+        ALL.into_iter().find(|kind| kind.name() == name)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FailurePhase {
     Idempotency,

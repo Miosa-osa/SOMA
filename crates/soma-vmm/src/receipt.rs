@@ -50,6 +50,39 @@ pub enum ExitStatus {
     OutputLimit,
 }
 
+impl ExitStatus {
+    /// The status on the wire.
+    ///
+    /// The form is explicit rather than a rendering of this enum, so a supervisor decoding a
+    /// reply reads a stated contract rather than the shape of a `Debug` implementation.
+    #[must_use]
+    pub fn token(self) -> String {
+        match self {
+            Self::Code(code) => format!("code:{code}"),
+            Self::Signal(signal) => format!("signal:{signal}"),
+            Self::TimedOut => "timed-out".to_owned(),
+            Self::OutputLimit => "output-limit".to_owned(),
+        }
+    }
+
+    /// The status one wire token is, or `None` when the token is not one of the four forms.
+    #[must_use]
+    pub fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "timed-out" => Some(Self::TimedOut),
+            "output-limit" => Some(Self::OutputLimit),
+            _ => {
+                let (form, value) = token.split_once(':')?;
+                match form {
+                    "code" => value.parse().ok().map(Self::Code),
+                    "signal" => value.parse().ok().map(Self::Signal),
+                    _ => None,
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq)]
 pub struct Executed {
     operation_id: OperationId,

@@ -21,6 +21,7 @@ mod events;
 mod exits;
 mod guest;
 mod halt;
+mod hypervisor;
 mod kernel;
 mod kick;
 mod launch_page;
@@ -51,6 +52,7 @@ pub use self::{
     exits::{ExitCounts, ExitReason},
     guest::EXPECTED_SERIAL,
     halt::{HaltGuestConfig, HaltGuestEvidence, InterruptController, run_halt_guest},
+    hypervisor::Hypervisor,
     kernel::{BootKernelConfig, KernelBootEvidence, KernelBootFailure, run_kernel_boot},
     launch_page::{LAUNCH_PAGE_GPA, LAUNCH_PAGE_SIZE, LAUNCH_PAGE_SLOT},
     memory::SharedRam,
@@ -63,8 +65,8 @@ pub use self::{
     serial::SerialCounters,
     snapshot::{
         Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CaptureRequest,
-        RestoreFacts, RestoreRequest, Restored, SnapshotError, SnapshotPaths, Sterile,
-        SterileRequest, VerifiedCapture, capture, inspect_capture_artifacts, restore,
+        RestoreFacts, RestoreRequest, Restored, SnapshotError, SnapshotObjects, SnapshotPaths,
+        Sterile, SterileRequest, VerifiedCapture, capture, inspect_capture_artifacts, restore,
         restore_sterile,
     },
     timing::PhaseTiming,

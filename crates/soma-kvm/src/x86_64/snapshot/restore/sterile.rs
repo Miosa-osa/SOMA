@@ -8,8 +8,8 @@
 use std::fs::File;
 
 use super::{
-    Cell, Digest, NetworkAttachment, RestoreFacts, RestoreSequence, Restored, SandboxMachine,
-    SnapshotError, SnapshotPaths, readiness,
+    Cell, Digest, Hypervisor, NetworkAttachment, RestoreFacts, RestoreSequence, Restored,
+    SandboxMachine, SnapshotError, SnapshotObjects, readiness,
 };
 
 /// What a prepared worker is restored from, before any Instance exists.
@@ -19,8 +19,10 @@ use super::{
 /// that the prepared worker protocol transfers when the worker is claimed, and a worker holding
 /// any of them before then would not be sterile.
 pub struct SterileRequest {
-    /// The published snapshot directory.
-    pub paths: SnapshotPaths,
+    /// The published snapshot, as the handles this machine reads it through.
+    pub objects: SnapshotObjects,
+    /// Where this machine's `/dev/kvm` handle comes from.
+    pub hypervisor: Hypervisor,
     /// The immutable root, which every Instance of this Generation shares.
     pub root: File,
     /// The capacity the private head will have when one is attached, or `None` for a Generation

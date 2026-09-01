@@ -13,7 +13,7 @@
 
 use std::fs::File;
 
-use super::{Artifact, GuestLayout, GuestRam, RamMapping, SnapshotError};
+use super::{GuestLayout, GuestRam, RamMapping, SnapshotError};
 use crate::snapshot::{
     manifest::Manifest,
     memory::{MappingError, PrivateMapping},
@@ -27,17 +27,15 @@ const PREFAULT_MEMORY: &str = "SOMA_KVM_PREFAULT_MEMORY";
 ///
 /// # Errors
 ///
-/// Returns the typed failure of opening, mapping, or laying out the memory object.
+/// Returns the typed failure of mapping or laying out the memory object.
 pub(super) fn map(
-    path: &std::path::Path,
+    memory: &File,
     manifest: &Manifest,
     timeline: &mut Timeline,
 ) -> Result<GuestRam, SnapshotError> {
     let size = manifest.header().memory.size();
     let layout = GuestLayout::new(size)?;
-    let memory =
-        File::open(path).map_err(|error| SnapshotError::io(Artifact::Memory, "open", &error))?;
-    let mapping = PrivateMapping::map(&memory, size)?;
+    let mapping = PrivateMapping::map(memory, size)?;
     if std::env::var_os(PREFAULT_MEMORY).is_some() {
         let _ignored = mapping.prefault();
         timeline.mark(Milestone::PrefaultMemory);
@@ -47,6 +45,5 @@ pub(super) fn map(
         std::ptr::NonNull::new(base).ok_or(SnapshotError::Mapping(MappingError::ZeroLength))?;
     // The machine now owns the range and unmaps it exactly once, after the VM is released.
     let ram = GuestRam::from_mapping(RamMapping::adopt(base, len), layout)?;
-    drop(memory);
     Ok(ram)
 }

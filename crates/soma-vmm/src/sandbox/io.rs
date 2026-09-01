@@ -10,15 +10,15 @@ use soma_guest::{ControlIo, HostControlIo};
 use soma_kvm::x86_64::{ChannelError, ControlChannel, SandboxMachine};
 
 /// The exact domain bytes at the start of every valid launch page.
-pub(super) const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
+pub(crate) const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
 
-pub(super) struct HostIo<'a> {
+pub(crate) struct HostIo<'a> {
     channel: ControlChannel,
     sandbox: &'a SandboxMachine,
 }
 
 impl<'a> HostIo<'a> {
-    pub(super) fn new(sandbox: &'a SandboxMachine) -> Self {
+    pub(crate) fn new(sandbox: &'a SandboxMachine) -> Self {
         Self {
             channel: sandbox.control(),
             sandbox,

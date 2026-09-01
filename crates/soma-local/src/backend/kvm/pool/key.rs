@@ -11,7 +11,8 @@ use sha2::{Digest as _, Sha256};
 use soma_hostd::PoolKeyDigest;
 use soma_kvm::DeviceSet;
 
-use crate::backend::kvm::sterile::SterileSpec;
+use soma_kvm::x86_64::{Hypervisor, SnapshotObjects, SnapshotPaths};
+use soma_vmm::sandbox::SterileSpec;
 
 /// Everything that must match before a prepared machine may serve a request.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -132,8 +133,10 @@ impl Recipe {
     /// the prepared store rather than a fault in any request.
     pub(super) fn spec(&self) -> Option<SterileSpec> {
         let root = soma_generation::open_artifact(&self.store, &self.root).ok()?;
+        let objects = SnapshotObjects::open(&SnapshotPaths::new(self.key.snapshot.clone())).ok()?;
         Some(SterileSpec {
-            snapshot: self.key.snapshot.clone(),
+            objects,
+            hypervisor: Hypervisor::Device,
             root,
             overlay_capacity_bytes: self
                 .key

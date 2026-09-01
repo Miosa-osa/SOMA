@@ -18,6 +18,7 @@ mod device;
 mod error;
 mod installation;
 mod marker;
+mod objects;
 #[allow(unsafe_code)]
 mod platform;
 mod profile;
@@ -31,6 +32,7 @@ pub use artifacts::SnapshotPaths;
 pub use capture::{CaptureOutcome, CaptureRequest, capture};
 pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;
+pub use objects::SnapshotObjects;
 pub use restore::{
     RestoreFacts, RestoreRequest, Restored, Sterile, SterileRequest, restore, restore_sterile,
 };

@@ -17,7 +17,7 @@ use super::{Completed, FILE_CEILING, Request, Response, Session, SessionError};
 
 impl Session {
     /// Runs one bounded command and returns its typed result.
-    pub(in crate::backend::kvm) fn execute(
+    pub fn execute(
         &mut self,
         command: GuestCommand,
         deadline: Duration,
@@ -41,7 +41,7 @@ impl Session {
     ///
     /// A filesystem operation is bounded by the session's own file deadline rather than the
     /// command ceiling: it runs no program, so the time a command may take says nothing about it.
-    pub(in crate::backend::kvm) fn file(
+    pub fn file(
         &mut self,
         operation: soma::FileOperation,
     ) -> Result<soma::FileAnswer, SessionError> {

@@ -15,8 +15,7 @@ use super::evidence::CONTRACT_VCPUS;
 use super::identity::{LaunchIdentity, candidate_bytes};
 use super::pool::{Claimed, MachinePool, Recipe, RecipeInputs};
 use super::prepared::PreparedGeneration;
-use super::session::Network;
-use super::sterile::Assignment;
+use soma_vmm::sandbox::{Assignment, Network};
 
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;

@@ -16,9 +16,10 @@ mod intent;
 mod lease;
 
 use soma::{BackendFailureKind, EgressPolicy, NetworkPolicy};
-use soma_guest::{ActivationChallenge, ActivationReceipt, LaunchNetwork};
+use soma_guest::{ActivationReceipt, LaunchNetwork};
 use soma_kvm::x86_64::NetworkAttachment;
 use soma_netd::ClientError;
+use soma_vmm::sandbox::PendingActivation;
 
 pub(super) use self::intent::BrokerConfiguration;
 pub(super) use self::lease::Lease;
@@ -122,16 +123,6 @@ pub(super) enum Released {
     Complete,
     /// The broker was asked but could not confirm; reconciliation owns what is left.
     Incomplete,
-}
-
-/// The single-use capability the repaired guest session must mint.
-pub(super) struct PendingActivation {
-    /// The broker's fresh secret for this assignment.
-    pub(super) challenge: ActivationChallenge,
-    /// The assignment generation the receipt is bound to.
-    pub(super) generation: u32,
-    /// The digest of the admitted intent the receipt is bound to.
-    pub(super) intent: [u8; 32],
 }
 
 /// The typed failure one broker refusal becomes.

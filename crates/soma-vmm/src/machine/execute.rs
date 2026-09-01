@@ -6,6 +6,7 @@ use super::{
 };
 use crate::{
     CleanupEvidence, Execute, Executed, ExitStatus, Failure, FailureKind, FailurePhase, Milestones,
+    control::{OutputStream, OutputWindow},
     platform::PlatformExecution,
 };
 
@@ -30,6 +31,23 @@ impl Machine {
         let outcome = self.perform_execute(&request);
         self.operations.record_execute(request, outcome.clone());
         outcome
+    }
+
+    /// One bounded window of a completed Execute's output, or `None` when that operation
+    /// produced no retained receipt.
+    ///
+    /// The bytes come out of the receipt the Execute already returned rather than from the
+    /// guest, so a supervisor that reads a window twice reads the same bytes and a window can
+    /// never observe a command that has since run again.
+    #[must_use]
+    pub fn output(&self, window: &OutputWindow) -> Option<&[u8]> {
+        let executed = self.operations.executed(window.operation_id())?;
+        let bytes = match window.stream() {
+            OutputStream::Stdout => executed.stdout(),
+            OutputStream::Stderr => executed.stderr(),
+        };
+        let (start, end) = window.range(bytes.len());
+        bytes.get(start..end)
     }
 
     fn perform_execute(&mut self, request: &Execute) -> Result<Executed, Failure> {

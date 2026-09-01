@@ -1,12 +1,10 @@
-use crate::{
-    Argument, DiskBytes, Execute, ExecutionLimits, Generation, GenerationId, InstanceId, Launch,
-    MachineSpec, MemoryBytes, OperationId, OutputBytes, Program, Stop, TimeoutMillis, VcpuCount,
-};
+use crate::{Execute, Launch, Stop};
 
-use super::{
-    ControlError,
-    field::{bytes, end, hex, identifier, number},
-};
+use super::{ControlError, field::hex, window::OutputWindow};
+
+mod decode;
+
+use decode::{decode_execute, decode_launch, decode_output, decode_stop};
 
 /// The largest control packet a worker accepts.
 ///
@@ -24,6 +22,13 @@ pub enum Request {
     Attest,
     Launch(Launch),
     Execute(Execute),
+    /// Read one bounded window of a completed command's output.
+    ///
+    /// A reply packet cannot carry sixteen mebibytes, so the output an Execute produced stays
+    /// in the worker's own operation receipt and the supervisor reads it back one window at a
+    /// time. Nothing is recomputed: the windows come out of the receipt the Execute already
+    /// returned, so a supervisor that reads it twice reads the same bytes.
+    Output(OutputWindow),
     Stop(Stop),
     /// Narrow the seccomp filter to its steady-state phase.
     Seal,
@@ -38,6 +43,13 @@ impl Request {
             Self::Attest => "attest".to_owned(),
             Self::Launch(launch) => encode_launch(launch),
             Self::Execute(execute) => encode_execute(execute),
+            Self::Output(window) => format!(
+                "output {} {} {} {}",
+                hex(window.operation_id().as_bytes()),
+                window.stream().token(),
+                window.offset(),
+                window.length(),
+            ),
             Self::Stop(stop) => format!(
                 "stop {} {}",
                 hex(stop.operation_id().as_bytes()),
@@ -61,13 +73,11 @@ impl Request {
         }
         let mut tokens = text.split_whitespace();
         match tokens.next().unwrap_or_default() {
-            "attest" => end(tokens).map(|()| Self::Attest),
-            "seal" => end(tokens).map(|()| Self::Seal),
-            "shutdown" => {
-                let status = number(tokens.next(), "exit status")?;
-                end(tokens).map(|()| Self::Shutdown(status))
-            }
+            "attest" => decode::end(tokens).map(|()| Self::Attest),
+            "seal" => decode::end(tokens).map(|()| Self::Seal),
+            "shutdown" => decode::decode_shutdown(&mut tokens),
             "launch" => decode_launch(&mut tokens),
+            "output" => decode_output(&mut tokens),
             "execute" => decode_execute(&mut tokens),
             "stop" => decode_stop(&mut tokens),
             _ => Err(ControlError::UnknownRequest),
@@ -77,14 +87,17 @@ impl Request {
 
 fn encode_launch(launch: &Launch) -> String {
     let machine = launch.generation().machine();
+    let devices = launch.generation().devices();
     format!(
-        "launch {} {} {} {} {} {}",
+        "launch {} {} {} {} {} {} {} {}",
         hex(launch.operation_id().as_bytes()),
         hex(launch.instance_id().as_bytes()),
         hex(launch.generation().id().as_bytes()),
         machine.vcpus().get(),
         machine.memory().get(),
         machine.writable_disk().get(),
+        u8::from(devices.writable_disk()),
+        u8::from(devices.network()),
     )
 }
 
@@ -105,63 +118,15 @@ fn encode_execute(execute: &Execute) -> String {
     text
 }
 
-fn decode_launch<'a>(tokens: &mut impl Iterator<Item = &'a str>) -> Result<Request, ControlError> {
-    let operation = OperationId::new(identifier(tokens.next(), "operation")?)
-        .map_err(|_| ControlError::InvalidValue("operation"))?;
-    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
-        .map_err(|_| ControlError::InvalidValue("instance"))?;
-    let generation = GenerationId::new(identifier(tokens.next(), "generation")?)
-        .map_err(|_| ControlError::InvalidValue("generation"))?;
-    let vcpus = VcpuCount::new(number(tokens.next(), "vcpus")?)
-        .map_err(|_| ControlError::InvalidValue("vcpus"))?;
-    let memory = MemoryBytes::new(number(tokens.next(), "memory")?)
-        .map_err(|_| ControlError::InvalidValue("memory"))?;
-    let disk = DiskBytes::new(number(tokens.next(), "disk")?)
-        .map_err(|_| ControlError::InvalidValue("disk"))?;
-    end(tokens)?;
-    let machine = MachineSpec::new(vcpus, memory, disk);
-    Ok(Request::Launch(Launch::new(
-        operation,
-        instance,
-        Generation::new(generation, machine),
-    )))
-}
-
-fn decode_execute<'a>(tokens: &mut impl Iterator<Item = &'a str>) -> Result<Request, ControlError> {
-    let operation = OperationId::new(identifier(tokens.next(), "operation")?)
-        .map_err(|_| ControlError::InvalidValue("operation"))?;
-    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
-        .map_err(|_| ControlError::InvalidValue("instance"))?;
-    let timeout = TimeoutMillis::new(number(tokens.next(), "timeout")?)
-        .map_err(|_| ControlError::InvalidValue("timeout"))?;
-    let output = OutputBytes::new(number(tokens.next(), "output")?)
-        .map_err(|_| ControlError::InvalidValue("output"))?;
-    let program = Program::new(bytes(tokens.next(), "program")?)
-        .map_err(|_| ControlError::InvalidValue("program"))?;
-    let mut arguments = Vec::new();
-    for token in tokens.by_ref() {
-        let argument = Argument::new(bytes(Some(token), "argument")?)
-            .map_err(|_| ControlError::InvalidValue("argument"))?;
-        arguments.push(argument);
-    }
-    let limits = ExecutionLimits::new(timeout, output);
-    Execute::new(operation, instance, program, arguments, limits)
-        .map(Request::Execute)
-        .map_err(|_| ControlError::InvalidValue("arguments"))
-}
-
-fn decode_stop<'a>(tokens: &mut impl Iterator<Item = &'a str>) -> Result<Request, ControlError> {
-    let operation = OperationId::new(identifier(tokens.next(), "operation")?)
-        .map_err(|_| ControlError::InvalidValue("operation"))?;
-    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
-        .map_err(|_| ControlError::InvalidValue("instance"))?;
-    end(tokens)?;
-    Ok(Request::Stop(Stop::new(operation, instance)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::DeclaredDevices;
+    use crate::control::OutputStream;
+    use crate::{
+        Argument, DiskBytes, ExecutionLimits, Generation, GenerationId, InstanceId, MachineSpec,
+        MemoryBytes, OperationId, OutputBytes, Program, TimeoutMillis, VcpuCount,
+    };
 
     fn operation() -> OperationId {
         OperationId::new([1; 16]).expect("operation")
@@ -177,7 +142,11 @@ mod tests {
             MemoryBytes::new(1 << 30).expect("memory"),
             DiskBytes::new(1 << 32).expect("disk"),
         );
-        let generation = Generation::new(GenerationId::new([3; 32]).expect("generation"), machine);
+        let generation = Generation::new(
+            GenerationId::new([3; 32]).expect("generation"),
+            machine,
+            DeclaredDevices::new(true, true),
+        );
         Launch::new(operation(), instance(), generation)
     }
 
@@ -205,6 +174,9 @@ mod tests {
             Request::Launch(launch()),
             Request::Execute(execute()),
             Request::Stop(Stop::new(operation(), instance())),
+            Request::Output(
+                OutputWindow::new(operation(), OutputStream::Stderr, 1024, 4096).expect("window"),
+            ),
         ];
         for request in requests {
             let encoded = request.encode();

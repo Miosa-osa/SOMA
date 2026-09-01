@@ -3,21 +3,17 @@ mod claim;
 mod dispatch;
 mod evidence;
 mod file;
+mod held;
 mod host;
 mod identity;
-mod io;
+mod jailed;
 mod lifecycle;
 mod network;
 mod pool;
 mod prepared;
 mod resolve;
 mod runtime;
-mod secrets;
-mod session;
 mod start;
-mod sterile;
-mod timeline;
-mod worker;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -61,6 +57,12 @@ pub(crate) struct KvmBackend {
     live: Option<lifecycle::Live>,
     /// Machines restored before a request asked for one.
     machines: MachinePool,
+    /// Where this host may build jails, when it was configured to jail its machines.
+    ///
+    /// It is resolved once rather than per request, because whether a host jails its machines
+    /// is a property of the host: a launch that jailed and a later one that did not would be
+    /// two different isolation guarantees behind one command.
+    jail: Option<jailed::Anchors>,
     /// The privileged network broker this host is configured to reach, if it has one.
     ///
     /// This is read once rather than per request: whether a host has a broker is a property of
@@ -108,9 +110,21 @@ impl KvmBackend {
     fn with_role(role: Role) -> Result<Self, LocalFailure> {
         let ownership = Ownership::resolve(Ownership::configured().as_deref())
             .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        let jail = if jailed::Anchors::is_configured() {
+            // A host told to jail its machines and unable to build one refuses to open at all.
+            // Falling back would hold a live machine in an unjailed process, which is the one
+            // outcome this configuration exists to prevent.
+            Some(
+                jailed::Anchors::configured()
+                    .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?,
+            )
+        } else {
+            None
+        };
         Ok(Self {
             clocks: OperationClocks::new(),
             role,
+            jail,
             ownership,
             live: None,
             machines: MachinePool::open(limits(configured_target()))
