@@ -185,7 +185,8 @@ The worker count is both the HTTP concurrency bound and the prepared-slot target
 Size it from admitted host capacity rather than copying the qualification value.
 
 For a durable host installation, install `deploy/systemd/soma-api.service`, copy `deploy/systemd/api.env.example` to `/etc/soma/api.env`, replace its paths with the certified host paths, install the exact release binary at `/opt/soma/bin/soma-api`, and link `/opt/soma/runtime` to the certified runtime directory that carries the kernel and runtime links.
-The unit keeps the listener on loopback, restarts a failed process, and preserves the same explicit prepared-worker configuration used by the foreground command.
+The unit keeps the listener on loopback, gives the service an explicit `/var/lib/soma/state` root instead of depending on a login shell's `HOME`, restarts a failed process, and preserves the same explicit prepared-worker configuration used by the foreground command.
+Copy and edit the unit when a host's admitted capacity requires a worker count other than the certified 64-worker profile; systemd does not perform shell expansion for command-line arguments, so the executable contract stays explicit.
 
 The Node command prints the version contained in the current `node:22` image.
 Because `node:22` is mutable, do not expect one exact patch version unless the image is pinned by digest.
