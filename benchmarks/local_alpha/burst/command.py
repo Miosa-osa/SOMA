@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 from collections.abc import Sequence
+from functools import partial
 from pathlib import Path
 
 from benchmarks.local_alpha.provenance import (
@@ -21,6 +22,8 @@ from benchmarks.local_alpha.runner.identities import IdentityGenerator
 
 from . import metadata as host_metadata
 from .attribution import breakdown_lines
+from benchmarks.local_alpha.mcp_stdio import McpStdioSession
+from .mcp_slot import execute_mcp_slot
 from .plan import BACKENDS, EXPERIMENT_CLASSES, BurstPlan
 from .report import generate
 from .run import run_burst
@@ -57,6 +60,7 @@ def _add_run(command: argparse.ArgumentParser) -> None:
     command.add_argument("--build-manifest", type=Path, required=True)
     command.add_argument("--soma-bin", type=Path, required=True)
     command.add_argument("--soma-mcp-bin", type=Path, required=True)
+    command.add_argument("--transport", choices=("cli", "mcp"), default="cli")
     command.add_argument("--results", type=Path, required=True)
     command.add_argument("workload", nargs=argparse.REMAINDER)
 
@@ -123,14 +127,34 @@ def _run(arguments: argparse.Namespace) -> int:
             environment=environment,
             engine=engine_setting_provenance(settings),
         )
-        summary = run_burst(
-            plan,
-            soma_binary=soma,
-            state_root=state_root,
-            environment=environment,
-            metadata=collected,
-            results_path=results,
-        )
+        collected["transport"] = arguments.transport
+        if arguments.transport == "mcp":
+            mcp_argv = (os.fspath(mcp), "--state-root", os.fspath(state_root))
+            with McpStdioSession(
+                mcp_argv,
+                display_argv=("$SOMA_MCP_BIN", "--state-root", "$STATE_ROOT"),
+                environment=environment,
+                response_timeout_seconds=300.0,
+            ) as client:
+                client.initialize("2025-06-18")
+                summary = run_burst(
+                    plan,
+                    soma_binary=soma,
+                    state_root=state_root,
+                    environment=environment,
+                    metadata=collected,
+                    results_path=results,
+                    slot=partial(execute_mcp_slot, client=client),
+                )
+        else:
+            summary = run_burst(
+                plan,
+                soma_binary=soma,
+                state_root=state_root,
+                environment=environment,
+                metadata=collected,
+                results_path=results,
+            )
     json.dump(summary, sys.stdout, sort_keys=True, separators=(",", ":"))
     sys.stdout.write("\n")
     for note in summary.get("shape_disagreements") or []:

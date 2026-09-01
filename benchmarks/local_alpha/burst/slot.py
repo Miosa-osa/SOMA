@@ -48,6 +48,7 @@ class BurstSample:
     observed: dict[str, object]
     command: dict[str, object] | None
     failures: tuple[dict[str, str], ...]
+    boundary: str = BOUNDARY
 
     @property
     def successful(self) -> bool:
@@ -70,7 +71,7 @@ class BurstSample:
             "repetition": repetition,
             "burst_index": burst_index,
             "slot_index": slot_index,
-            "boundary": BOUNDARY,
+            "boundary": self.boundary,
             "clock": "time.perf_counter_ns",
             "tti_ns": self.tti_ns,
             "successful": self.successful,

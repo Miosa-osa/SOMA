@@ -15,7 +15,7 @@ from .attribution import failure_breakdown, shape_disagreement
 from .invocation import OPERATIONS
 from .plan import BurstPlan
 from .results import ResultsWriter, statistics
-from .slot import BOUNDARY, BurstSample, execute_slot
+from .slot import BurstSample, execute_slot
 
 
 BARRIER_TIMEOUT_SECONDS = 300.0
@@ -128,7 +128,7 @@ def _summary(
         "attempted": len(samples),
         "wall_ns": wall_ns,
         "wall_includes": "every launch, command, and destruction of the whole run",
-        "boundary": BOUNDARY,
+        "boundary": _one_boundary(samples),
         "command_succeeded_count": sum(
             sample.command_succeeded for sample in samples
         ),
@@ -144,3 +144,10 @@ def _summary(
             failed_count=len(samples) - len(successful),
         ),
     }
+
+
+def _one_boundary(samples: list[BurstSample]) -> str:
+    boundaries = {sample.boundary for sample in samples}
+    if len(boundaries) != 1:
+        raise ValueError("one burst run cannot mix measurement boundaries")
+    return next(iter(boundaries))
