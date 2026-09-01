@@ -179,12 +179,22 @@ That port was not started because it is a real multi-session change: `soma-vmm`'
 operations across five crates becoming descriptor operations. Until it is done, the host holding a
 live KVM machine runs unconfined, and that is the largest security gap in the system.
 
-### 6. macOS hands back an identity that cannot be used
+### 6. macOS hands back an identity that cannot be used - CLOSED 2026-09-01, and it was not the gap it looked like
 
-`machine_hosting(BackendKind::MacosVirtualization)` is `LaunchingProcess`
-(`crates/soma-local/src/backend/mod.rs`). It is now the only backend that does. The CLI and the
-HTTP API both refuse a launch there rather than lying about it, which is correct but is a refusal,
-not a capability. Closing it means the same host-process work done for KVM.
+The premise was wrong. The macOS adapter holds no machine: it requires Apple's runtime service to
+be running, registers each machine as `soma-<instance_id>` with an ownership label carrying the
+same identity, and re-proves ownership from that service's own record before every operation. It
+is the Docker shape, down to the container name. Even one launch already survives two process
+deaths, because create, start, and inspect are three separate `container` processes.
+`machine_hosting` was corrected rather than a second machine host built, which would have held
+nothing and duplicated a service the probe already requires. See
+[macOS hands back a usable identity](evidence/2026-09-01-macos-hands-back-a-usable-identity.md).
+
+**Still open, and it needs a Mac.** The correction rests on reading code and on a component test
+that runs on Linux; no macOS host is reachable from this repository's test host, and the backend
+does not compile off macOS. The run that would settle it is the five-process lifecycle the KVM
+machine host records. Two smaller things a Mac would also settle are named at the end of that
+document.
 
 ### 7. EPT violations are the largest remaining cost in `ready`
 
@@ -194,14 +204,26 @@ huge pages are worse because a `MAP_PRIVATE` mapping cannot hold a huge EPT entr
 and measured. The only lever is touching fewer guest pages on resume, which is snapshot and
 kernel-state work that has not been attempted.
 
-### 8. Loopback-only network repair on a declined egress
+### 8. Loopback-only network repair on a declined egress - CLOSED 2026-09-01, mostly before this entry was written
 
-Worth **at most** 2.65 ms and probably less. `network_repair::repair` installs unroutable egress
-values on a sandbox that was given no network, but the same function also raises loopback, which a
-fresh guest leaves down - skipping it wholesale would break anything binding `127.0.0.1`. Blocked
-on a design decision: `LaunchNetwork` (`crates/soma-guest/src/launch_page/network.rs:48`) has no
-representation for "no egress", so this is a launch-page wire change. Low priority, recorded so
-nobody re-derives it.
+It was never a launch-page wire change. `ba0cde7` had already made a Generation declaring the
+isolated policy a machine with **no network device**, and the guest reads that from its own
+command line and calls `repair_loopback_only`. So the answer is carried by the absence of a
+device rather than by a value on the page, and `LaunchNetwork` is untouched. What was missing was
+the proof and the written decision, and both now exist:
+[a sandbox with no egress still reaches itself](evidence/2026-09-01-loopback-only-repair.md) is
+ten of ten sandboxes holding only `lo`, printing no routes at all, and binding and connecting to
+`127.0.0.1`; [ADR 0040](adr/0040-no-egress-is-the-absence-of-a-device.md) records the design,
+including the deliberate decision to stop writing `/etc/hosts` on this path.
+
+**One residual, unreachable today.** The device set tests the declared policy *class* while the
+launcher tests the request's `EgressPolicy`, and for `RuntimeDefault` they disagree: such a
+Generation is built with a network device it can never use and pays the full repair to install a
+gateway and resolver of `10.0.0.1` that route nowhere. No command can build one, because every
+tool that prepares a Generation compiles the isolated policy. The ADR says why the obvious patch
+was rejected and where the correct fix belongs. The cost of the repair step was also not
+re-measured: the guest's per-step timing needs the `timing-report` agent build and its console,
+which no command-line path surfaces.
 
 ### 9. Eight files sit at exactly 300 lines
 

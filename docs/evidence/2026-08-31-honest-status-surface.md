@@ -14,8 +14,17 @@ reviewable rather than a list of edits.
 
 `crates/soma-cli/src/app/operation.rs`, `crates/soma-local/src/backend/mod.rs`.
 
-The KVM and macOS backends hold the machine and its authenticated guest session in the process
-that launched them. The command line exits immediately after reporting
+The KVM backend holds the machine and its authenticated guest session in the process that
+launched it.
+
+**Corrected 2026-09-01.** As written, this sentence also named macOS, and that was wrong: the
+macOS adapter holds no machine, and was swept in with KVM by resemblance rather than by
+examination. Nothing in this document observes a macOS run. See
+[macOS was classified as hosting a machine it does not hold](2026-09-01-macos-hands-back-a-usable-identity.md);
+the refusal described below did fire on macOS as this document says, and it should not have.
+It was withdrawn on 2026-09-01; the KVM half stood until the machine host closed it.
+
+The command line exits immediately after reporting
 `{"state":"ready","instance_id":"..."}`, so the identity it hands back names a machine that is
 already gone. `machine exec` from a second process then refused, which is the failure the caller
 was told would not happen.
