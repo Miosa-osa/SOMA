@@ -6,10 +6,11 @@ use soma::{
     CleanupObservation, CleanupReason, CleanupTimes, CommandObservation, CommandStatus,
     CommandTimes, FileAnswer, FileEntry, FileKind, FileObservation, FileOperation, FileRefusal,
     GenerationId, InstanceId, IsolationClass, LaunchObservation, LaunchTimes, OciDigest,
-    OciPlatform, PreparationClass, ResolutionObservation, WorkloadIdentity,
+    OciPlatform, PreparationClass, PtyObservation, ResolutionObservation, SandboxLiveness,
+    WorkloadIdentity,
 };
 
-use super::{CallGate, Mode, observed_network};
+use super::{CallGate, Mode, observed_network, terminal};
 
 /// A flat guest filesystem shared with every clone of one backend.
 type SharedFiles = Arc<Mutex<BTreeMap<Vec<u8>, Vec<u8>>>>;
@@ -22,6 +23,8 @@ pub struct TestBackend {
     cleanup_gate: Option<CallGate>,
     /// A flat in-memory filesystem, so the engine's filesystem path can be exercised without KVM.
     files: SharedFiles,
+    /// The one terminal session, for the same reason the filesystem is here.
+    terminal: terminal::SharedTerminal,
 }
 
 #[allow(
@@ -38,6 +41,7 @@ impl TestBackend {
                 execute_gate: None,
                 cleanup_gate: None,
                 files: Arc::new(Mutex::new(BTreeMap::new())),
+                terminal: Arc::new(Mutex::new(None)),
             },
             calls,
         )
@@ -90,6 +94,22 @@ impl Backend for TestBackend {
             request.instance_id().clone(),
             answer,
         ))
+    }
+
+    fn pty(&mut self, request: soma::PtyRequest<'_>) -> Result<PtyObservation, BackendFailure> {
+        self.record("pty");
+        let mut session = self.terminal.lock().expect("terminal poisoned");
+        let answer = terminal::answer_for(&mut session, request.operation());
+        Ok(PtyObservation::new(
+            request.operation_id().clone(),
+            request.instance_id().clone(),
+            answer,
+        ))
+    }
+
+    fn liveness(&mut self, _instance_id: &InstanceId) -> SandboxLiveness {
+        self.record("liveness");
+        SandboxLiveness::Live
     }
 
     fn launch(

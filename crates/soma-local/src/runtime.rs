@@ -1,8 +1,8 @@
 use soma::{
     Backend as _, BackendKind, DestroyMachineRequest, Engine, ExecuteMachineRequest,
     FileMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
-    MachineInspection, MachineLaunch, MachineStop, ManagedFailure, RunFailure, RunOutcome,
-    RunRequest, StopMachineRequest,
+    MachineInspection, MachineLaunch, MachinePty, MachineStop, ManagedFailure, PtyMachineRequest,
+    RunFailure, RunOutcome, RunRequest, SandboxEntry, StopMachineRequest,
 };
 
 use crate::{
@@ -98,6 +98,27 @@ impl LocalRuntime {
         request: FileMachineRequest,
     ) -> Result<MachineFile, ManagedFailure> {
         self.engine.file_machine(request)
+    }
+
+    /// Performs one bounded terminal operation in a durably managed Machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    pub fn pty_machine(
+        &mut self,
+        request: PtyMachineRequest,
+    ) -> Result<MachinePty, ManagedFailure> {
+        self.engine.pty_machine(request)
+    }
+
+    /// Lists the sandboxes this runtime's durable state holds, with what the backend can reach.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    pub fn list_machines(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
+        self.engine.list_machines()
     }
 
     /// Inspects one durably managed Machine.

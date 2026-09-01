@@ -11,7 +11,7 @@ use soma::{
     BackendFailure, BackendFailureKind, CleanupObservation, CleanupReason, CleanupRequest,
     CleanupTimes, CommandObservation, CommandTimes, DigestBinding, ExecutionRequest,
     InspectionObservation, InspectionRequest, InstanceId, IsolationClass, LaunchObservation,
-    LaunchRequest, LaunchTimes,
+    LaunchRequest, LaunchTimes, SandboxLiveness,
 };
 use soma_guest::GuestCommand;
 
@@ -173,6 +173,21 @@ impl KvmBackend {
             evidence,
             CleanupTimes::new(started, finished),
         ))
+    }
+
+    /// Reports whether anything is still serving one exact Instance.
+    ///
+    /// On the hosted path this is a connect to the Instance's own socket, which is the only
+    /// process that can be holding its machine. On the resident path the answer is knowable only
+    /// for a machine this process itself is driving; a record written by some other process names
+    /// a machine that died with it, but nothing here observed that, so it is reported as unknown
+    /// rather than asserted.
+    pub(in crate::backend) fn liveness(&mut self, instance: &InstanceId) -> SandboxLiveness {
+        match self.hosted_directory() {
+            Some(directory) => host::liveness(&directory, instance),
+            None if self.live_for(instance).is_some() => SandboxLiveness::Live,
+            None => SandboxLiveness::Unknown,
+        }
     }
 
     /// Where hosted machines are addressed, or nothing when this process holds its own.

@@ -12,7 +12,7 @@ use soma_kvm::x86_64::{Milestone, SandboxMachine};
 use super::super::identity::fresh16;
 use super::super::io::HostIo;
 use super::super::session::{Completed, Request, Response, SessionError};
-use super::files;
+use super::{files, pty};
 
 /// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
 pub(super) fn serve_commands(
@@ -57,6 +57,13 @@ pub(super) fn serve_commands(
                 repaired = next;
                 responses
                     .send(Response::FileAnswered(Box::new(answer)))
+                    .map_err(|_| SessionError::Gone)?;
+            }
+            Request::Pty(operation) => {
+                let (next, answer) = pty::perform(repaired, &operation)?;
+                repaired = next;
+                responses
+                    .send(Response::PtyAnswered(Box::new(answer)))
                     .map_err(|_| SessionError::Gone)?;
             }
             // A machine that is already serving an Instance cannot be assigned another. The

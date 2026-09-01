@@ -22,6 +22,53 @@ pub struct InspectionReport {
     pub backend: BackendKind,
 }
 
+/// One sandbox in a listing.
+///
+/// `state` is what the durable record says the last completed transition left it in, and `host`
+/// is what the backend could still reach at the moment of the listing. They are separate members
+/// because they answer different questions and a client that needs a sandbox it can use has to
+/// read both: a record can say `active` while the process that held its machine is gone.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SandboxListEntry {
+    pub instance_id: InstanceId,
+    pub state: &'static str,
+    pub host: &'static str,
+    pub backend: BackendKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Every sandbox this service's durable state holds that has not been released.
+///
+/// The count is stated beside the list rather than left to the client to derive, so a client
+/// reading a partial response can tell that it did.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct SandboxListReport {
+    pub sandboxes: Vec<SandboxListEntry>,
+    pub count: usize,
+}
+
+impl SandboxListReport {
+    /// Builds the document from what the engine enumerated.
+    #[must_use]
+    pub fn new(entries: &[soma::SandboxEntry]) -> Self {
+        let sandboxes: Vec<SandboxListEntry> = entries
+            .iter()
+            .map(|entry| SandboxListEntry {
+                instance_id: entry.instance_id().clone(),
+                state: entry.phase().code(),
+                host: entry.liveness().code(),
+                backend: entry.backend(),
+                name: entry.name().map(|name| name.as_str().to_owned()),
+            })
+            .collect();
+        Self {
+            count: sandboxes.len(),
+            sandboxes,
+        }
+    }
+}
+
 /// A completed command and its captured output.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CommandReport {

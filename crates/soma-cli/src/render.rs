@@ -6,7 +6,7 @@ use crate::{
     cli::OutputFormat,
     model::{
         CapabilityState, DoctorStatus, ENVELOPE_SCHEMA, FailureBody, FileReport,
-        MAX_OUTPUT_BYTES_USIZE, Response, ResultBody,
+        MAX_OUTPUT_BYTES_USIZE, PtyReport, Response, ResultBody,
     },
 };
 
@@ -96,6 +96,19 @@ fn render_human(
             writeln!(stdout, "backend: {:?}", report.backend)
         }
         Some(ResultBody::File(report)) => render_file(response, report, stdout, stderr),
+        Some(ResultBody::Pty(report)) => render_pty(response, report, stdout, stderr),
+        Some(ResultBody::List(report)) => {
+            for entry in &report.sandboxes {
+                writeln!(
+                    stdout,
+                    "{}\tstate: {}\thost: {}",
+                    entry.instance_id.as_str(),
+                    entry.state,
+                    entry.host
+                )?;
+            }
+            Ok(())
+        }
         None => render_failure(response, stderr),
     }
 }
@@ -143,6 +156,36 @@ fn render_file(
         );
     }
     writeln!(stdout, "done")
+}
+
+/// Prints one terminal answer.
+///
+/// A read writes the terminal's bytes to standard output and nothing else, so a pipe carries what
+/// the terminal produced byte for byte, escape sequences included. Every other operation prints a
+/// line, because none of them has bytes that are the answer.
+fn render_pty(
+    response: &Response,
+    report: &PtyReport,
+    stdout: &mut impl Write,
+    stderr: &mut impl Write,
+) -> io::Result<()> {
+    if report.refused() {
+        return render_failure(response, stderr);
+    }
+    if let Some(output) = &report.output {
+        stdout.write_all(output.as_bytes())?;
+        if report.ended == Some(true) {
+            writeln!(stderr, "soma: the terminal session has ended")?;
+        }
+        return Ok(());
+    }
+    if let Some(written) = report.written {
+        return writeln!(stdout, "typed: {written} bytes");
+    }
+    if let (Some(columns), Some(rows)) = (report.columns, report.rows) {
+        return writeln!(stdout, "{columns}x{rows}");
+    }
+    writeln!(stdout, "closed")
 }
 
 fn render_failure(response: &Response, stderr: &mut impl Write) -> io::Result<()> {

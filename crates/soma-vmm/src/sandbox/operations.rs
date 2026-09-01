@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use soma_guest::GuestCommand;
 
-use super::{Completed, FILE_CEILING, Request, Response, Session, SessionError};
+use super::{Completed, FILE_CEILING, PTY_CEILING, Request, Response, Session, SessionError};
 
 impl Session {
     /// Runs one bounded command and returns its typed result.
@@ -57,6 +57,27 @@ impl Session {
             // is one a caller must not attribute to the request it made, so the session ends.
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
             Ok(_) => Err(self.poison(SessionError::File)),
+        }
+    }
+
+    /// Performs one bounded terminal operation and returns the guest's answer.
+    ///
+    /// The session state a terminal has lives entirely in the guest, so this method holds nothing
+    /// between calls; a second process asking for the next read reaches the same open terminal
+    /// because the guest still has it, not because anything here remembered.
+    pub fn pty(&mut self, operation: soma::PtyOperation) -> Result<soma::PtyAnswer, SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        self.requests
+            .send(Request::Pty(operation))
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        match self.await_response(PTY_CEILING) {
+            Ok(Response::PtyAnswered(answer)) => Ok(*answer),
+            // An uncertain terminal answer is one a caller must not attribute to the request it
+            // made: the next read would otherwise carry the previous one's output.
+            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
+            Ok(_) => Err(self.poison(SessionError::Pty)),
         }
     }
 }

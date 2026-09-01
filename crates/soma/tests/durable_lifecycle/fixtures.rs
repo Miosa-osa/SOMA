@@ -57,6 +57,10 @@ impl StateStore for FailingCasStore {
         self.inner
             .compare_exchange(instance_id, expected, replacement)
     }
+
+    fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
+        self.inner.list()
+    }
 }
 
 pub(super) struct StaticStore {
@@ -89,6 +93,10 @@ impl StateStore for StaticStore {
         _replacement: StateRecord,
     ) -> Result<StateRevision, StateStoreFailure> {
         Err(StateStoreFailure::new(StateStoreFailureKind::Conflict))
+    }
+
+    fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
+        Ok(Vec::new())
     }
 }
 

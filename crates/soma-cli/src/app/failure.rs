@@ -2,7 +2,6 @@ use soma::{
     BackendFailureKind, FailurePhase, ManagedFailure, ManagedStateError, RunFailure,
     RunFailureKind, StateStoreFailureKind,
 };
-use soma_local::LocalFailureKind;
 
 use crate::{
     exit::ProcessExit,
@@ -11,6 +10,10 @@ use crate::{
 };
 
 use super::{Execution, success::command_status};
+
+#[path = "failure/local.rs"]
+mod local;
+pub(super) use local::{local_failure, not_hosted};
 
 pub(super) fn run_failure(
     command: &'static str,
@@ -81,65 +84,38 @@ pub(super) fn managed_failure(
     }
 }
 
-pub(super) fn local_failure(command: &'static str, kind: LocalFailureKind) -> Execution {
-    let (body, exit) = match kind {
-        LocalFailureKind::InvalidConfiguration => (
-            FailureBody::new(
-                "invalid_configuration",
-                "local runtime configuration is invalid",
-                false,
-            ),
-            ProcessExit::InvalidInput,
-        ),
-        LocalFailureKind::UnsupportedTarget => (
-            FailureBody::new(
-                "unsupported_backend",
-                "local backend is unsupported on this host",
-                false,
-            ),
-            ProcessExit::UnsupportedBackend,
-        ),
-        LocalFailureKind::BackendUnavailable => (
-            FailureBody::new(
-                "backend_unavailable",
-                "local isolation backend is unavailable",
-                false,
-            ),
-            ProcessExit::CapabilityUnavailable,
-        ),
-        LocalFailureKind::StateStore(kind) => (
-            FailureBody::new(
-                "state_store_failure",
-                "durable state store could not be opened",
-                state_store_retryable(kind),
-            ),
-            ProcessExit::Software,
-        ),
-    };
-    Execution {
-        response: Response::failure(command, body),
-        exit,
-    }
-}
-
-/// What a launch reports on a backend that cannot host a Machine past this process.
+/// Reports a failure from an operation that names no Instance.
 ///
-/// `CapabilityUnavailable` rather than a backend failure: nothing failed, and nothing was
-/// started. The capability the `machine` surface is built on does not exist on this backend yet,
-/// and `soma run` is the one that does.
-pub(super) fn not_hosted(command: &'static str) -> Execution {
-    Execution {
-        response: Response::failure(
-            command,
-            FailureBody::new(
-                "machine_not_hosted",
-                "this backend hosts a machine only inside the launching process, so a launched \
-                 instance identity would not survive this command; use `soma run` for a \
-                 single-process sandbox",
-                false,
+/// An enumeration is the only one. It reads the store and asks the backend what it can reach, so
+/// the failures it can produce are the store's; an operation failure carries a receipt for one
+/// Instance, which an enumeration never asked about, and reaching this with one would mean the
+/// engine answered about a sandbox that was not part of the question.
+pub(super) fn listing_failure(command: &'static str, failure: &ManagedFailure) -> Execution {
+    match failure {
+        ManagedFailure::StateStore(kind) => Execution {
+            response: Response::failure(command, state_store_body(*kind)),
+            exit: ProcessExit::Software,
+        },
+        ManagedFailure::State(state) => {
+            let (body, exit) = managed_state_details(*state);
+            Execution {
+                response: Response::failure(command, body),
+                exit,
+            }
+        }
+        ManagedFailure::Backend(_)
+        | ManagedFailure::Operation(_)
+        | ManagedFailure::ReplayUnavailable(_) => Execution {
+            response: Response::failure(
+                command,
+                FailureBody::new(
+                    "internal_error",
+                    "the listing reported a failure that names one sandbox",
+                    false,
+                ),
             ),
-        ),
-        exit: ProcessExit::CapabilityUnavailable,
+            exit: ProcessExit::Software,
+        },
     }
 }
 
@@ -279,7 +255,7 @@ fn state_store_body(kind: StateStoreFailureKind) -> FailureBody {
 /// clear on their own. A record that is corrupt, malformed, written by a version this build does
 /// not understand, or already at capacity does not: retrying those is a loop that cannot end,
 /// which is exactly what `retryable` is read as promising will not happen.
-const fn state_store_retryable(kind: StateStoreFailureKind) -> bool {
+pub(super) const fn state_store_retryable(kind: StateStoreFailureKind) -> bool {
     matches!(
         kind,
         StateStoreFailureKind::Conflict | StateStoreFailureKind::Unavailable

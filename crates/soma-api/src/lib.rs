@@ -12,11 +12,14 @@ pub mod local;
 pub mod report;
 pub mod route;
 pub mod tenant;
+pub mod terminal;
 pub mod wire;
 
 pub use capability::MissingCapability;
 pub use envelope::{ApiError, ENVELOPE_SCHEMA, Envelope, FailureBody};
-pub use facade::{CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot};
+pub use facade::{
+    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
+};
 pub use filesystem::{FilesystemBody, FilesystemReport};
 pub use handler::handle;
 pub use http::{
@@ -25,5 +28,6 @@ pub use http::{
     server::serve,
 };
 pub use local::LocalFacade;
-pub use route::{FilesystemOperation, Route};
+pub use route::{FilesystemOperation, Route, TerminalOperation};
 pub use tenant::{TENANT_HEADER, TenantId};
+pub use terminal::{TerminalBody, TerminalReport};

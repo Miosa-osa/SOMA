@@ -37,6 +37,34 @@ impl FilesystemOperation {
     }
 }
 
+/// The terminal operations the provider contract expects a sandbox service to expose.
+///
+/// A terminal is a stream and these are calls, deliberately. The session lives in the sandbox for
+/// as long as the sandbox does, and a caller drives it with bounded requests: nothing here holds a
+/// connection open, so it works over the same HTTP the rest of this service is.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TerminalOperation {
+    Open,
+    Write,
+    Read,
+    Resize,
+    Close,
+}
+
+impl TerminalOperation {
+    /// The operation's own name, as the response envelope reports it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Write => "write",
+            Self::Read => "read",
+            Self::Resize => "resize",
+            Self::Close => "close",
+        }
+    }
+}
+
 /// One resolved route.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Route {
@@ -47,6 +75,7 @@ pub enum Route {
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
+    Terminal(InstanceId, TerminalOperation),
 }
 
 impl Route {
@@ -61,6 +90,7 @@ impl Route {
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
+            Self::Terminal(_, _) => "sandbox.terminal",
         }
     }
 }
@@ -103,6 +133,11 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             );
             post_only(request, route)
         }
+        ["v1", "sandboxes", instance, "terminal", operation] => {
+            let route =
+                Route::Terminal(path_instance_id(instance)?, terminal_operation(operation)?);
+            post_only(request, route)
+        }
         _ => Err(ApiError::not_found()),
     }
 }
@@ -123,6 +158,17 @@ fn filesystem_operation(operation: &str) -> Result<FilesystemOperation, ApiError
         "exists" => Ok(FilesystemOperation::Exists),
         "remove" => Ok(FilesystemOperation::Remove),
         "mkdir" => Ok(FilesystemOperation::MakeDirectory),
+        _ => Err(ApiError::not_found()),
+    }
+}
+
+fn terminal_operation(operation: &str) -> Result<TerminalOperation, ApiError> {
+    match operation {
+        "open" => Ok(TerminalOperation::Open),
+        "write" => Ok(TerminalOperation::Write),
+        "read" => Ok(TerminalOperation::Read),
+        "resize" => Ok(TerminalOperation::Resize),
+        "close" => Ok(TerminalOperation::Close),
         _ => Err(ApiError::not_found()),
     }
 }

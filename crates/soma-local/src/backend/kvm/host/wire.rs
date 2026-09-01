@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use soma::{
     BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, FileAnswer,
     FileOperation, InstanceId, MachineShape, MachineState, OperationId, PreparationClass,
+    PtyAnswer, PtyOperation,
 };
 
 /// The largest line either side will read, so neither can spend the other's memory.
@@ -68,6 +69,15 @@ pub(super) enum Call {
         instance_id: InstanceId,
         operation: FileOperation,
     },
+    /// Perform one bounded terminal operation inside the machine this host holds.
+    ///
+    /// The portable operation crosses as itself for the reason the filesystem one does: the host
+    /// rebuilds the guest request from it with exactly the mapping the resident path uses, so a
+    /// client cannot choose a request that mapping would not have produced.
+    Pty {
+        instance_id: InstanceId,
+        operation: PtyOperation,
+    },
     Inspect {
         instance_id: InstanceId,
     },
@@ -91,6 +101,9 @@ pub(super) enum Answer {
     },
     FileAnswered {
         answer: FileAnswer,
+    },
+    PtyAnswered {
+        answer: PtyAnswer,
     },
     Inspected {
         state: MachineState,

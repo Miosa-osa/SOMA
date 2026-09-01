@@ -33,7 +33,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: FileMachineRequest,
     ) -> Result<MachineFile, ManagedFailure> {
-        self.admit_file(&request.instance_id)?;
+        self.admit_operation(&request.instance_id)?;
         let observation = self
             .backend
             .file(crate::FileRequest::new(
@@ -51,8 +51,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         })
     }
 
-    /// Reads the machine and refuses one that cannot serve a filesystem operation.
-    fn admit_file(&mut self, instance_id: &InstanceId) -> Result<(), ManagedFailure> {
+    /// Reads the machine and refuses one that cannot serve a bounded in-sandbox operation.
+    ///
+    /// Both the filesystem and the terminal use this: neither transitions the machine, so the
+    /// admission both need is the same read.
+    pub(super) fn admit_operation(
+        &mut self,
+        instance_id: &InstanceId,
+    ) -> Result<(), ManagedFailure> {
         let stored = self
             .load_machine(instance_id)?
             .ok_or(ManagedFailure::State(ManagedStateError::MachineNotFound))?;

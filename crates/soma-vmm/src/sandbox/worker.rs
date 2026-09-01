@@ -26,6 +26,7 @@ use super::io::HostIo;
 
 mod commands;
 mod files;
+mod pty;
 use super::identity::GUEST_MAC;
 use super::pending::PendingActivation;
 use super::session::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, SessionError};

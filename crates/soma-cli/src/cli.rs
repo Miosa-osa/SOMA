@@ -4,9 +4,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 
 mod file;
 mod network;
+mod pty;
 
 pub use file::{FileArgs, FileCommand, FilePathArgs};
 pub use network::{DnsInput, EgressInput, NetworkArgs, ProtocolInput};
+pub use pty::{PtyArgs, PtyCommand, PtyTargetArgs};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum OutputFormat {
@@ -102,6 +104,10 @@ pub enum MachineCommand {
     Destroy(ControlArgs),
     /// Read and change files inside a running sandbox.
     File(FileArgs),
+    /// Drive the interactive terminal of a running sandbox.
+    Pty(PtyArgs),
+    /// List the sandboxes this state root holds.
+    List,
 }
 
 #[derive(Args)]

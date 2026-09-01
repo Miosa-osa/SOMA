@@ -1,4 +1,4 @@
-use crate::BackendKind;
+use crate::{BackendKind, InstanceId};
 
 mod cleanup;
 mod execution;
@@ -6,6 +6,8 @@ mod failure;
 mod file;
 mod inspection;
 mod launch;
+mod liveness;
+mod pty;
 mod resolution;
 
 pub use cleanup::{CleanupObservation, CleanupReason, CleanupRequest, CleanupTimes};
@@ -15,6 +17,12 @@ pub use file::{
     FileAnswer, FileEntry, FileKind, FileObservation, FileOperation, FileRefusal, FileRequest,
     MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, PathRejected, check_guest_path,
 };
+pub use liveness::SandboxLiveness;
+pub use pty::{
+    MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS, PtyAnswer,
+    PtyObservation, PtyOperation, PtyRefusal, PtyRejected, PtyRequest,
+};
+
 pub(crate) use inspection::InspectionObservationParts;
 pub use inspection::{InspectionObservation, InspectionRequest};
 pub(crate) use launch::LaunchObservationParts;
@@ -72,6 +80,26 @@ pub trait Backend: Send {
     /// filesystem cause the guest reported is not a failure: it is carried back as
     /// [`FileAnswer::Refused`], because the operation was performed and the guest declined it.
     fn file(&mut self, request: FileRequest<'_>) -> Result<FileObservation, BackendFailure>;
+
+    /// Performs one bounded terminal operation inside an exact Instance.
+    ///
+    /// A backend that holds no machine a later call could address cannot serve this, and says so
+    /// with [`BackendFailureKind::Unsupported`] rather than inventing an answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed backend failure when the operation cannot be performed or observed. A
+    /// cause the guest reported is not a failure: it is carried back as [`PtyAnswer::Refused`],
+    /// because the operation was performed and the guest declined it.
+    fn pty(&mut self, request: PtyRequest<'_>) -> Result<PtyObservation, BackendFailure>;
+
+    /// Reports whether anything is still serving one exact Instance.
+    ///
+    /// This is a probe rather than a lifecycle operation: it runs nothing in the guest, changes
+    /// nothing, and produces no evidence. A backend that cannot answer says
+    /// [`SandboxLiveness::Unknown`] rather than guessing, because a guess here would be reported
+    /// to a caller as the state of a sandbox it is deciding whether to use.
+    fn liveness(&mut self, instance_id: &InstanceId) -> SandboxLiveness;
 
     /// Inspects one exact Instance through the bounded portable state model.
     ///

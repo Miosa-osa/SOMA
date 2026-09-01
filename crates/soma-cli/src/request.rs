@@ -1,7 +1,7 @@
 use soma::{
     DestroyMachineRequest, DirectCommand, ExecuteMachineRequest, ExecutionLimits,
     FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineName,
-    MachineShape, OciImage, OperationId, RunRequest, StopMachineRequest,
+    MachineShape, OciImage, OperationId, PtyMachineRequest, RunRequest, StopMachineRequest,
 };
 use uuid::Uuid;
 
@@ -12,6 +12,7 @@ use crate::cli::{
 
 mod file;
 mod network;
+mod pty;
 
 pub enum PreparedOperation {
     Run {
@@ -42,6 +43,12 @@ pub enum PreparedOperation {
         instance_id: InstanceId,
         request: FileMachineRequest,
     },
+    Pty {
+        instance_id: InstanceId,
+        request: PtyMachineRequest,
+    },
+    /// Enumerate the sandboxes the durable state root holds. It names no Instance.
+    List,
 }
 
 impl PreparedOperation {
@@ -55,6 +62,8 @@ impl PreparedOperation {
             Self::Stop { .. } => "machine.stop",
             Self::Destroy { .. } => "machine.destroy",
             Self::File { .. } => "machine.file",
+            Self::Pty { .. } => "machine.pty",
+            Self::List => "machine.list",
         }
     }
 }
@@ -93,6 +102,8 @@ pub fn prepare_machine(arguments: MachineArgs) -> Result<PreparedOperation, Requ
         MachineCommand::Stop(arguments) => prepare_control(arguments, ControlKind::Stop),
         MachineCommand::Destroy(arguments) => prepare_control(arguments, ControlKind::Destroy),
         MachineCommand::File(arguments) => file::prepare(arguments),
+        MachineCommand::Pty(arguments) => pty::prepare(arguments),
+        MachineCommand::List => Ok(PreparedOperation::List),
     }
 }
 
@@ -213,6 +224,7 @@ pub enum RequestError {
     Content,
     ContentTooLarge,
     Path,
+    Terminal,
 }
 
 impl RequestError {
@@ -229,6 +241,7 @@ impl RequestError {
             Self::Content => "unreadable_content_file",
             Self::ContentTooLarge => "content_too_large",
             Self::Path => "invalid_guest_path",
+            Self::Terminal => "invalid_terminal_call",
         }
     }
 }

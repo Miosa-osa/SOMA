@@ -11,6 +11,7 @@ mod lifecycle;
 mod network;
 mod pool;
 mod prepared;
+mod pty;
 mod resolve;
 mod runtime;
 mod start;

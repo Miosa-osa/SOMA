@@ -4,37 +4,42 @@
 )]
 mod support;
 
-use support::{FIXTURE_INSTANCE_ID, FakeFacade, Mode, call, identified};
+use soma::{BackendKind, InstanceId, SandboxEntry, SandboxLiveness, SandboxPhase};
+use support::{Call, FIXTURE_INSTANCE_ID, FakeFacade, Mode, call, identified};
 
 #[test]
-fn listing_sandboxes_refuses_and_names_the_missing_store_capability() {
+fn listing_sandboxes_reports_durable_state_and_host_liveness_separately() {
+    let entry = SandboxEntry::new(
+        InstanceId::new(FIXTURE_INSTANCE_ID).expect("fixture identity is canonical"),
+        SandboxPhase::Active,
+        BackendKind::LinuxKvm,
+        None,
+        SandboxLiveness::Absent,
+    );
+    let mut facade = FakeFacade::new(Mode::Succeed).holding(vec![entry]);
+    let request = identified("GET", "/v1/sandboxes", "");
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 200);
+    assert_eq!(facade.calls, [Call::List]);
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["operation"], "sandbox.list");
+    assert_eq!(body["result"]["count"], 1);
+    assert_eq!(body["result"]["sandboxes"][0]["state"], "active");
+    assert_eq!(body["result"]["sandboxes"][0]["host"], "absent");
+}
+
+#[test]
+fn an_empty_listing_is_an_explicit_successful_collection() {
     let mut facade = FakeFacade::new(Mode::Succeed);
     let request = identified("GET", "/v1/sandboxes", "");
 
     let (status, body) = call(&mut facade, &request);
 
-    assert_eq!(status, 501);
-    assert!(facade.calls.is_empty());
-    assert_eq!(body["status"], "error");
-    assert_eq!(body["operation"], "sandbox.list");
-    assert_eq!(body["error"]["code"], "capability_unavailable");
-    assert_eq!(body["error"]["retryable"], false);
-    assert!(
-        body["error"]["message"]
-            .as_str()
-            .expect("the failure carries a message")
-            .contains("cannot enumerate sandboxes")
-    );
-}
-
-#[test]
-fn listing_sandboxes_never_answers_with_an_empty_collection() {
-    let mut facade = FakeFacade::new(Mode::Succeed);
-    let request = identified("GET", "/v1/sandboxes", "");
-
-    let (_, body) = call(&mut facade, &request);
-
-    assert!(body["result"].is_null());
+    assert_eq!(status, 200);
+    assert_eq!(body["result"]["count"], 0);
+    assert_eq!(body["result"]["sandboxes"], serde_json::json!([]));
     assert!(body["receipt"].is_null());
 }
 

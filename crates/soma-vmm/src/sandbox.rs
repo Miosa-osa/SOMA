@@ -22,6 +22,7 @@ mod identity;
 mod io;
 mod operations;
 mod pending;
+mod pty;
 mod secrets;
 mod session;
 mod source;

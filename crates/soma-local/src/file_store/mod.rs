@@ -1,3 +1,4 @@
+mod enumerate;
 mod failure;
 mod filesystem;
 mod layout;
@@ -12,6 +13,7 @@ use std::{
 use soma::{InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StoredState};
 
 use self::{
+    enumerate::instance_identities,
     failure::{capacity_exceeded, conflict, invalid_record, unavailable},
     filesystem::{ensure_directory, existing_directory},
     layout::{LOCK_DIRECTORY, shard_lock_path},
@@ -122,6 +124,10 @@ impl StateStore for FileStateStore {
             prune_superseded(&revisions, next);
             Ok(next)
         })
+    }
+
+    fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
+        instance_identities(&self.root)
     }
 }
 
