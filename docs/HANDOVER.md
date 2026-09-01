@@ -179,13 +179,27 @@ does not compile off macOS. The run that would settle it is the five-process lif
 machine host records. Two smaller things a Mac would also settle are named at the end of that
 document.
 
-### 7. EPT violations are the largest remaining cost in `ready`
+### 7. EPT violations - ANSWERED 2026-09-01, and the lever was not where anyone looked
 
-About 16.8 ms of in-kernel exit handling, proportional to the number of distinct guest pages the
-resume touches **and to nothing else**. Pre-faulting the whole image moves nothing and costs 57 ms;
-huge pages are worse because a `MAP_PRIVATE` mapping cannot hold a huge EPT entry. Both were built
-and measured. The only lever is touching fewer guest pages on resume, which is snapshot and
-kernel-state work that has not been attempted.
+[Evidence](evidence/2026-09-01-launch-page-slot-removal-ept-zap.md). The resume touches **1743
+distinct guest pages but takes 3218 EPT violations**, 1.85 per page, so reducing the page count was
+never available: 92 percent are taken from guest kernel code across a flat tail of 1705 distinct
+instruction pointers, which is a working set being re-established rather than waste.
+
+The repeats have a single cause. Deleting the launch page's memory slot from the running VM fires
+`kvm_mmu_zap_all_fast` at 24.73 ms, and **696 of the next 1190 violations are re-faults of pages
+that were already resident**. Separating launch-page erasure from slot removal takes violations to
+2484 while distinct pages stay put, and sequential TTI to 55.07 ms.
+
+**It is behind `SOMA_KVM_DEFER_LAUNCH_PAGE_SLOT` and off by default**, because taking it moves ADR
+0024's memory-slot retirement obligation to teardown. That is a deliberate decision for someone to
+make, not something to enable inside a performance change. Deciding it is the remaining work.
+
+Do not re-attempt pre-faulting or huge pages; both were built and measured and both failed, and the
+reasons are in the prior record. Also note `KVM_PRE_FAULT_MEMORY` does not exist on this kernel:
+eval-1 runs 6.8 and that capability landed upstream after it. Even with it, it is a vCPU ioctl
+taking `vcpu->mutex`, so on a one-vCPU machine it serialises rather than overlaps and recovers only
+the vmexit roundtrip.
 
 ### 8. Loopback-only network repair on a declined egress - CLOSED 2026-09-01, mostly before this entry was written
 
@@ -252,6 +266,72 @@ precondition below.
   idle instead.
 
 ---
+
+## What was believed and turned out false
+
+Every item here was asserted by someone competent, from reasonable evidence, and then contradicted
+by measurement. They are listed because the cheapest way to waste a day on this codebase is to
+re-derive one of them.
+
+**Mechanisms that were wrong:**
+
+1. Applying an `nft` ruleset is slow because of fork and parse. It is a kernel RCU grace period;
+   netlink would save about 1.5 ms of 15.9.
+2. Entering a network namespace is expensive. It is 0.06 ms.
+3. The private head clone lives in a different receipt segment than it does.
+4. Less guest memory is faster. At concurrency 100, 128 MiB is **worse** than 1024 MiB.
+5. The head clone cost is the clone. It was the `fsync` beside it.
+6. Host demand paging explains the restore resume. Pre-faulting the whole image moves nothing and
+   costs 57 ms.
+7. Huge pages would help it. Worse at concurrency 100; a `MAP_PRIVATE` mapping cannot hold a huge
+   EPT entry.
+8. Retiring the launch page earlier would help. Measured 1.2 ms **slower** - a memory-slot removal
+   disturbs a running guest more than an idle one.
+9. A shape mismatch explained the contract benchmark scoring zero. It was the durable-hosting gap.
+   Separately, a `--storage-mib` mismatch does not refuse at all; it silently reports
+   `not_verified`.
+10. The read-only device set is slower at concurrency 100. One cohort per arm said so; six per arm
+    reversed it.
+11. Reducing the number of pages the resume touches is the lever for EPT cost. The violations
+    outnumber the pages 1.85 to 1.
+
+**Records that were wrong, which is worse:**
+
+- The claim that macOS holds the machine in the launching process. True of KVM, false of macOS, and
+  the document proving it contained no macOS observation - it was swept in by resemblance. Check
+  whether a record's evidence actually covers every case it names.
+- The predicted blocker for jailing the host - needing `openat` throughout. The real blocker is that
+  `socket`, `bind`, `listen` and `accept4` are in `NEVER_ALLOWED`, so a jailed process cannot be a
+  server at all.
+- This handover's own gap 8 described loopback-only repair as unbuilt. It had already been
+  implemented, by a mechanism better than the one proposed, and only the proof was missing.
+
+**The pattern worth internalising:** three separate efforts found the premise of their own brief was
+false before starting. Check the premise against the code before building against it, and say so
+when it does not hold.
+
+## Sharp edges in the current code
+
+Things a reader would otherwise discover the hard way.
+
+- **`soma` restates `MAX_GUEST_PATH_BYTES`** because it sits below `soma-guest` and cannot call it.
+  `crates/soma-local/tests/guest_path_bound.rs` holds the two equal by running candidate paths
+  through the protocol's own encode and decode. That is the drift risk and its only guard.
+- **`MAX_FILE_BYTES` is 4 MiB** because the hosted relay carries an operation as one JSON line where
+  a byte becomes up to four characters. A caller needing more has no way to ask. A PTY stream hits
+  this harder than a file does.
+- **`ManagedFailure::Backend` exists** because a filesystem operation mints no receipt and
+  `RunFailure` requires one. The alternative was inventing a receipt, which is worse.
+- **`RuntimeDefault` still builds a network device it can never use** and pays the full repair to
+  install a gateway and resolver that route nowhere. The fix belongs at the launcher as a
+  compatibility check, not in the device set, because the device set would then derive a
+  Generation's permanent contract from launcher behaviour expected to change.
+- **Two tests flake under full-workspace parallel load**: `soma-local` `runtime_tests` (socket
+  binding) and one `soma-guest-agent` test. Both pass in isolation and on a clean `main`. They will
+  bite in CI.
+- **There is no read-only root in the current guest.** Every mount is `rw` and the root is an
+  overlay with a writable upper, so `EROFS` is unreachable and a test needing it must use something
+  else - `/sys/kernel/vmcoreinfo` yields `denied`.
 
 ## Working rules
 
