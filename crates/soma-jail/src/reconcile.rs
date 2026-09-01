@@ -1,7 +1,7 @@
 //! Idempotent cleanup of everything a launch created, plus recovery from a crashed launcher.
 
 use std::{
-    fmt, fs, io,
+    fs, io,
     os::fd::{AsFd, BorrowedFd, OwnedFd},
     path::{Path, PathBuf},
     thread,
@@ -13,61 +13,16 @@ use crate::{
     process::{send_signal, wait_exit},
 };
 
+pub use disposition::{Disposition, Residual, ResidualKind};
+
+// What a pass can leave behind, and how that reads, is beside this file. This one owns the
+// releasing; that one owns the vocabulary a caller is answered in, which is the part other
+// crates match on and print.
+mod disposition;
+
 const DRAIN_BACKOFF: Duration = Duration::from_millis(5);
 /// How long a dropped ledger may spend releasing what it still owns.
 const DROP_DEADLINE: Duration = Duration::from_secs(2);
-
-/// A resource that survived reconciliation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ResidualKind {
-    Process,
-    Cgroup,
-    JailRoot,
-}
-
-/// One residual with the errno that prevented its release.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Residual {
-    pub kind: ResidualKind,
-    pub errno: i32,
-}
-
-/// The outcome of one reconciliation pass.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Disposition {
-    Released,
-    Incomplete { residuals: Vec<Residual> },
-}
-
-impl Disposition {
-    #[must_use]
-    pub fn is_released(&self) -> bool {
-        matches!(self, Self::Released)
-    }
-
-    fn from_residuals(residuals: Vec<Residual>) -> Self {
-        if residuals.is_empty() {
-            Self::Released
-        } else {
-            Self::Incomplete { residuals }
-        }
-    }
-}
-
-impl fmt::Display for Disposition {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Released => write!(formatter, "released"),
-            Self::Incomplete { residuals } => {
-                write!(formatter, "incomplete:")?;
-                for residual in residuals {
-                    write!(formatter, " {:?}(errno {})", residual.kind, residual.errno)?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
 
 /// The durable form of a ledger, enough to recover after the launcher itself died.
 #[derive(Clone, Debug, Eq, PartialEq)]
