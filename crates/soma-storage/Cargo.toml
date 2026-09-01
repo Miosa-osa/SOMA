@@ -8,6 +8,14 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+linux-host-tools = []
+
+[[example]]
+name = "head_probe"
+path = "examples/head_probe/main.rs"
+required-features = ["linux-host-tools"]
+
 [[bin]]
 name = "soma-storage-bench"
 path = "src/bin/soma-storage-bench.rs"
