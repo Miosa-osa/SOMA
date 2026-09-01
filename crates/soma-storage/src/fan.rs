@@ -11,6 +11,13 @@
 //! therefore made by copying bytes, never by reflinking them, and every replica is checked to
 //! own its extents before it is published.
 //!
+//! It also means spread across allocation groups. The exclusive section a clone takes is the
+//! allocation group's refcount btree, reached through that group's AGF buffer, so four copies
+//! inside one group queue on one lock however many extents they own. XFS chooses a group by the
+//! parent directory, so every replica is given a directory of its own: four copies written into
+//! one directory landed in group 22 on eval-1, and four written into four directories landed in
+//! groups 6, 7, 8, and 9.
+//!
 //! Warming a fan is a prepare-time operation: it writes one template's bytes per copy and reads
 //! them back to prove them. The launch path only opens a replica that is already there, and
 //! falls back to the template itself when the fan is absent, incomplete, or stale.
@@ -94,9 +101,12 @@ pub fn warm(template: &File, root: &Path, copies: NonZeroUsize) -> Result<FanRep
     let size = template.metadata().map_err(FanError::Io)?.size();
     let mut written = 0;
     for index in 0..copies {
-        let path = directory.join(replica_name(index));
+        let path = directory.join(replica_path(index));
         if proved(&path, size, digest).unwrap_or(false) {
             continue;
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(FanError::Io)?;
         }
         write_replica(template, &path, size, digest)?;
         written += 1;
@@ -121,7 +131,7 @@ pub fn open_replica(template: &File, root: &Path, copies: NonZeroUsize) -> Optio
     let start = next_index(copies);
     for offset in 0..copies {
         let index = (start + offset) % copies;
-        let replica = File::open(directory.join(replica_name(index))).ok();
+        let replica = File::open(directory.join(replica_path(index))).ok();
         if let Some(replica) = replica
             && replica.metadata().ok()?.size() == size
         {
@@ -131,10 +141,13 @@ pub fn open_replica(template: &File, root: &Path, copies: NonZeroUsize) -> Optio
     None
 }
 
-/// The file name of one copy inside a fan directory.
+/// The path of one copy relative to its fan directory.
+///
+/// Each copy has a directory of its own, because XFS picks an allocation group per directory and
+/// copies that share a group also share the lock a clone takes.
 #[must_use]
-pub fn replica_name(index: usize) -> String {
-    format!("copy-{index:02}")
+pub fn replica_path(index: usize) -> PathBuf {
+    PathBuf::from(format!("copy-{index:02}")).join("template")
 }
 
 /// The next replica index for this process, spread the way head shards are.
