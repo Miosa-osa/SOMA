@@ -541,6 +541,8 @@ With `SOMA_GUEST_AGENT` unset the test looks for `target/x86_64-unknown-linux-mu
 With `SOMA_X86_64_VMLINUX` unset the test scans `kernel/out` under the workspace root and polls for a stable `vmlinux-<ver>-soma-v1` for up to 45 minutes before it fails.
 Both variables may name absolute paths to override those defaults.
 `SOMA_OCI_BUSYBOX_LAYOUT` and `SOMA_OCI_NODE_LAYOUT` may name pre-exported OCI layouts.
+On a host where the `docker` CLI is rootless Podman, the tests' own `docker save` export does not produce the layout they expect; export the layouts once with `podman save --format oci-dir -o <dir> <image>` and pass them through those two variables.
+The same host class needs no accommodation for `kernel/build.sh`, which detects the Podman CLI and keeps the caller's uid inside the builder on its own.
 The test fails explicitly when a prerequisite is missing, including when the `node:22` image cannot be exported: these tests are `#[ignore]`d, so a run that reaches them asked for them by name, and a missing prerequisite is a failed run rather than a test that reports `ok` having executed nothing.
 
 ### Scratch space
