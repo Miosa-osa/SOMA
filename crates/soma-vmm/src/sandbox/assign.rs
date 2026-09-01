@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use soma_guest::ActivationReceipt;
 
-use super::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, Session, SessionError};
-use crate::backend::kvm::sterile::{self, Assignment, SterileSpec};
+use super::session::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, Session, SessionError};
+use super::sterile::{self, Assignment, SterileSpec};
 
 /// How long restoring one sterile machine has before the worker is considered lost.
 ///
@@ -24,7 +24,12 @@ impl Session {
     /// The returned session owns a machine that has paid for everything a restore costs except
     /// the authority one Instance owns. Dropping it destroys the machine, which is what a
     /// single-use worker must do rather than return to a pool.
-    pub(in crate::backend::kvm) fn prepare(spec: SterileSpec) -> Result<Self, SessionError> {
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`SessionError`] the sandbox thread reported, or [`SessionError::Gone`]
+    /// when no machine exists behind the session it would have returned.
+    pub fn prepare(spec: SterileSpec) -> Result<Self, SessionError> {
         let (request_tx, request_rx) = channel();
         let (response_tx, response_rx) = channel();
         let thread = std::thread::Builder::new()
@@ -53,7 +58,12 @@ impl Session {
     /// session by exactly the path a restored one does. A failure poisons the session, which
     /// stops its thread and releases the machine, because a transfer that did not certainly
     /// complete leaves authority nobody can describe.
-    pub(in crate::backend::kvm) fn assign(
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`SessionError`] that ended the transfer; the session is poisoned and its
+    /// machine released before the failure is returned.
+    pub fn assign(
         &mut self,
         assignment: Assignment,
         activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,

@@ -9,7 +9,8 @@ use soma_netd::{
 };
 
 use super::super::identity::LaunchIdentity;
-use super::{PendingActivation, Released, kind_for};
+use super::{Released, kind_for};
+use soma_vmm::sandbox::PendingActivation;
 
 /// One assignment held for the life of one Instance.
 pub(in crate::backend::kvm) struct Lease {

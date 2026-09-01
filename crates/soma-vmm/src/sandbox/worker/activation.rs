@@ -6,7 +6,7 @@ use soma_guest::RepairedHostControl;
 use soma_kvm::x86_64::SandboxMachine;
 
 use super::super::io::HostIo;
-use super::super::network::PendingActivation;
+use super::super::pending::PendingActivation;
 use super::super::session::{Request, Response, SessionError};
 
 /// Mints the activation capability, waits for the owner to spend it, and raises the link.

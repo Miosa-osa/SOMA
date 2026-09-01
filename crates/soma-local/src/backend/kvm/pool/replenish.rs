@@ -15,8 +15,7 @@ use std::sync::{Arc, MutexGuard};
 use soma_hostd::{Constructing, Slot, Worker};
 
 use super::{Entry, IDLE_WAIT, MachineKey, Recipe, Shared, State};
-use crate::backend::kvm::session::Session;
-use crate::backend::kvm::sterile::SterileSpec;
+use soma_vmm::sandbox::{Session, SterileSpec};
 
 /// What the loop decided to do next while it held the lock.
 enum Next {

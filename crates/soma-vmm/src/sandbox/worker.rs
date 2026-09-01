@@ -15,8 +15,8 @@ use soma_guest::{HostControl, HostLaunchMaterial, RepairedHostControl, SecretFil
 use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::readiness::SessionEvidence;
 use soma_kvm::x86_64::{
-    DeviceIdentity, Hypervisor, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
-    SandboxMachine, SnapshotObjects, SnapshotPaths, restore,
+    DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
+    SandboxMachine, restore,
 };
 
 mod activation;
@@ -24,25 +24,23 @@ mod activation;
 use self::activation::open_network;
 use super::io::HostIo;
 
-#[path = "worker/commands.rs"]
 mod commands;
-use super::network::PendingActivation;
-use super::session::{
-    BOOT_DEADLINE, Boot, EXIT_GRACE, GUEST_MAC, Network, Request, Response, SessionError, Source,
-};
+use super::pending::PendingActivation;
+use super::session::{BOOT_DEADLINE, EXIT_GRACE, GUEST_MAC, Request, Response, SessionError};
+use super::source::{Boot, Network, Source};
 use commands::serve_commands;
 
 /// What one Instance's launch carries into the machine that will serve it.
 ///
 /// The two travel together because they are consumed together and in one order: the material
 /// authenticates the session, and the secrets are the first thing placed over it.
-pub(super) struct LaunchInputs<'a> {
-    pub(super) material: HostLaunchMaterial,
-    pub(super) secrets: &'a [SecretFile],
+pub struct LaunchInputs<'a> {
+    pub material: HostLaunchMaterial,
+    pub secrets: &'a [SecretFile],
 }
 
 /// Owns one machine for its whole life and answers requests about it.
-pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
+pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
     let Boot {
         source,
         generation,
@@ -83,18 +81,15 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
             report(sandbox, outcome, responses, instance);
         }
         Source::Restore {
-            snapshot,
+            objects,
+            hypervisor,
             disks,
             devices,
             memory_bytes,
         } => {
-            let Ok(objects) = SnapshotObjects::open(&SnapshotPaths::new(snapshot)) else {
-                let _ignored = responses.send(Response::Failed(SessionError::Create));
-                return;
-            };
             let restored = restore(RestoreRequest {
                 objects,
-                hypervisor: Hypervisor::Device,
+                hypervisor,
                 disks,
                 devices,
                 guest_cid,
@@ -128,7 +123,7 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
 }
 
 /// Finishes the machine and reports its evidence, or the failure that ended it.
-pub(super) fn report(
+pub fn report(
     sandbox: SandboxMachine,
     outcome: Result<(), SessionError>,
     responses: &Sender<Response>,
@@ -185,7 +180,7 @@ fn drive_cold(
 /// `resume` rather than written before `start`, and Ready must be claimed with a receipt binding
 /// this Instance and operation to the live session transcript, so readiness cannot be asserted by
 /// a caller that did not complete the session.
-pub(super) fn drive_restored(
+pub fn drive_restored(
     restored: &mut Restored,
     inputs: LaunchInputs<'_>,
     identity: ([u8; 16], [u8; 16], Option<PendingActivation>),
@@ -235,19 +230,20 @@ fn reach_session(
 }
 
 /// The opened artifacts and declared shape one cold boot starts from.
-pub(super) struct ColdBootInputs {
-    pub(super) kernel: std::fs::File,
-    pub(super) initramfs: std::fs::File,
-    pub(super) root: std::fs::File,
+pub struct ColdBootInputs {
+    pub kernel: std::fs::File,
+    pub initramfs: std::fs::File,
+    pub root: std::fs::File,
     /// The Instance-private head, or `None` for a Generation with no writable storage.
-    pub(super) overlay: Option<std::fs::File>,
-    pub(super) ram_bytes: u64,
-    pub(super) guest_cid: u32,
-    pub(super) devices: DeviceSet,
+    pub overlay: Option<std::fs::File>,
+    pub ram_bytes: u64,
+    pub guest_cid: u32,
+    pub devices: DeviceSet,
 }
 
 /// The device identity and shape one sandbox is given.
-pub(super) fn config(inputs: ColdBootInputs) -> SandboxConfig {
+#[must_use]
+pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
     let ColdBootInputs {
         kernel,
         initramfs,

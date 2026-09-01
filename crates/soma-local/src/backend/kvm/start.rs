@@ -8,15 +8,11 @@
 
 use soma::{BackendFailure, BackendFailureKind, InstanceId, OperationId, PreparationClass};
 use soma_guest::SecretFile;
+use soma_vmm::sandbox::{Network, Session, SessionError};
 
 use super::{
-    KvmBackend,
-    boot::boot_for,
-    claim,
-    identity::LaunchIdentity,
-    network::Egress,
+    KvmBackend, boot::boot_for, claim, identity::LaunchIdentity, network::Egress,
     prepared::PreparedGeneration,
-    session::{Network, Session, SessionError},
 };
 
 /// One sandbox that reached Ready, and how it came to exist.

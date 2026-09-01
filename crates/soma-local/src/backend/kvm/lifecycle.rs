@@ -19,6 +19,7 @@ use soma::{
 };
 use soma_guest::GuestCommand;
 use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
+use soma_vmm::sandbox::{Network, Session, dump_timeline};
 
 use super::{
     KvmBackend, claim,
@@ -27,7 +28,6 @@ use super::{
     identity::LaunchIdentity,
     network::{Egress, Released},
     prepared::PreparedGeneration,
-    session::{Network, Session},
     start::{Launching, Started, failure_kind},
 };
 
@@ -193,7 +193,7 @@ impl KvmBackend {
             }
             Force::OnlyIfTheGuestWillNotLeave => match session.shutdown() {
                 Ok(evidence) => {
-                    super::timeline::dump(instance.as_str(), &evidence);
+                    dump_timeline(instance.as_str(), &evidence);
                     Some(shutdown_method(&evidence))
                 }
                 Err(_) => None,

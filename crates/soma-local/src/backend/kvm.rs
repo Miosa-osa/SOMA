@@ -4,19 +4,13 @@ mod dispatch;
 mod evidence;
 mod host;
 mod identity;
-mod io;
 mod lifecycle;
 mod network;
 mod pool;
 mod prepared;
 mod resolve;
 mod runtime;
-mod secrets;
-mod session;
 mod start;
-mod sterile;
-mod timeline;
-mod worker;
 
 use std::{path::PathBuf, time::Duration};
 

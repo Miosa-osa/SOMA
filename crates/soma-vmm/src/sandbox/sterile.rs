@@ -13,16 +13,14 @@
 //! That is also the shape a worker process eventually takes, so nothing moves when it does.
 
 use std::fs::File;
-use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::{HostLaunchMaterial, SecretFile};
 use soma_kvm::DeviceSet;
-use soma_kvm::x86_64::{
-    Hypervisor, SnapshotObjects, SnapshotPaths, Sterile, SterileRequest, restore_sterile,
-};
+use soma_kvm::x86_64::{Hypervisor, SnapshotObjects, Sterile, SterileRequest, restore_sterile};
 
-use super::session::{Network, Request, Response, SessionError};
+use super::session::{Request, Response, SessionError};
+use super::source::Network;
 use super::worker::{LaunchInputs, drive_restored, report};
 
 /// What one prepared worker restores, and deliberately nothing more.
@@ -30,37 +28,39 @@ use super::worker::{LaunchInputs, drive_restored, report};
 /// It names the immutable artifacts and the size the private head will have. It does not name a
 /// head, an Instance, an operation, a context identifier, a frame path, a secret, or any launch
 /// material, because a worker holding any of those before it is claimed would not be sterile.
-pub(super) struct SterileSpec {
-    /// The published snapshot directory.
-    pub(super) snapshot: PathBuf,
+pub struct SterileSpec {
+    /// The published snapshot, as the handles this machine reads it through.
+    pub objects: SnapshotObjects,
+    /// Where this machine's `/dev/kvm` handle comes from.
+    pub hypervisor: Hypervisor,
     /// The immutable root every Instance of this Generation shares.
-    pub(super) root: File,
+    pub root: File,
     /// The capacity the private head will have once one is attached, absent on a machine that
     /// declared no writable storage and therefore has no overlay device to attach one to.
-    pub(super) overlay_capacity_bytes: Option<u64>,
+    pub overlay_capacity_bytes: Option<u64>,
     /// Guest RAM in bytes.
-    pub(super) memory_bytes: u64,
+    pub memory_bytes: u64,
     /// The optional devices this machine is built with.
-    pub(super) devices: DeviceSet,
+    pub devices: DeviceSet,
 }
 
 /// The fresh per-Instance authority a claim transfers into one prepared worker, exactly once.
-pub(super) struct Assignment {
+pub struct Assignment {
     /// This Instance's private writable head, absent on a machine built with no overlay device.
-    pub(super) overlay: Option<File>,
+    pub overlay: Option<File>,
     /// The Generation the launch material is bound to.
-    pub(super) generation: [u8; 32],
+    pub generation: [u8; 32],
     /// The Instance identity.
-    pub(super) instance: [u8; 16],
+    pub instance: [u8; 16],
     /// The Launch operation.
-    pub(super) operation: [u8; 16],
+    pub operation: [u8; 16],
     /// The vsock context identifier this Instance is assigned.
-    pub(super) guest_cid: u32,
+    pub guest_cid: u32,
     /// The network this Instance was given: the launch values, the leased frame path the machine
     /// attaches, and what the repaired session must mint before traffic may flow.
-    pub(super) network: Network,
+    pub network: Network,
     /// The secrets this one Instance is launched with.
-    pub(super) secrets: Vec<SecretFile>,
+    pub secrets: Vec<SecretFile>,
 }
 
 /// Restores one sterile machine, parks until it is assigned, then serves it to its end.
@@ -68,21 +68,18 @@ pub(super) struct Assignment {
 /// Every path that does not reach an assignment drops the machine, which releases the VM, the
 /// mapping, and every descriptor it owns. A sterile worker is single use: it is never returned
 /// to the pool once this function has taken an assignment from the channel.
-pub(super) fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender<Response>) {
+pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender<Response>) {
     let SterileSpec {
-        snapshot,
+        objects,
+        hypervisor,
         root,
         overlay_capacity_bytes,
         memory_bytes,
         devices,
     } = spec;
-    let Ok(objects) = SnapshotObjects::open(&SnapshotPaths::new(snapshot)) else {
-        let _ignored = responses.send(Response::Failed(SessionError::Create));
-        return;
-    };
     let sterile = restore_sterile(SterileRequest {
         objects,
-        hypervisor: Hypervisor::Device,
+        hypervisor,
         root,
         overlay_capacity_bytes,
         memory_bytes,
