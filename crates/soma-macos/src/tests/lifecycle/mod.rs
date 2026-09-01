@@ -1,6 +1,7 @@
 mod cleanup;
 mod create;
 mod execution;
+mod hosting;
 mod inspect;
 mod ownership;
 
