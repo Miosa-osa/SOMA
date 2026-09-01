@@ -14,7 +14,7 @@ use soma::{
     InstanceId,
 };
 
-use super::{KvmBackend, host, start::failure_kind};
+use super::{KvmBackend, host};
 
 impl KvmBackend {
     pub(in crate::backend) fn file(
@@ -43,6 +43,6 @@ impl KvmBackend {
         let Some(live) = self.live_for(instance) else {
             return Err(self.absent_kind(instance));
         };
-        live.session.file(operation.clone()).map_err(failure_kind)
+        live.held.file(operation.clone())
     }
 }

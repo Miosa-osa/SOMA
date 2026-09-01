@@ -12,7 +12,10 @@
 
 use std::time::Duration;
 
-use soma::{BackendFailureKind, CleanupMethod, InstanceId};
+use soma::{
+    BackendFailureKind, CleanupMethod, FileAnswer, FileOperation, InstanceId, PtyAnswer,
+    PtyOperation,
+};
 use soma_guest::GuestCommand;
 use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
 use soma_vmm::sandbox::{Completed, Session, dump_timeline};
@@ -46,6 +49,27 @@ impl Held {
         match self {
             Self::Resident(session) => session.execute(command, deadline).map_err(failure_kind),
             Self::Jailed(jailed) => jailed.execute(&command),
+        }
+    }
+
+    /// Performs one filesystem operation on the machine, wherever it is.
+    pub(super) fn file(
+        &mut self,
+        operation: FileOperation,
+    ) -> Result<FileAnswer, BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.file(operation).map_err(failure_kind),
+            // The jailed control protocol does not carry portable filesystem requests yet.
+            Self::Jailed(_) => Err(BackendFailureKind::Unsupported),
+        }
+    }
+
+    /// Performs one terminal operation on the machine, wherever it is.
+    pub(super) fn pty(&mut self, operation: PtyOperation) -> Result<PtyAnswer, BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.pty(operation).map_err(failure_kind),
+            // The jailed control protocol does not carry portable terminal requests yet.
+            Self::Jailed(_) => Err(BackendFailureKind::Unsupported),
         }
     }
 
