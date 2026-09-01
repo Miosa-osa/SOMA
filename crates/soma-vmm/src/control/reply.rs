@@ -26,6 +26,13 @@ pub enum Reply<'a> {
 }
 
 impl Reply<'_> {
+    /// Encodes one worker reply into its bounded textual packet.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the typed terminal answer cannot be serialized by `serde_json`.
+    /// Every field in that closed contract is serializable, so this indicates a programming
+    /// error introduced alongside a future contract change rather than hostile input.
     #[must_use]
     pub fn encode(&self) -> String {
         match self {

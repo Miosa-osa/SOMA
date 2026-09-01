@@ -18,6 +18,11 @@ use super::{Completed, Session, SessionError};
 
 impl Session {
     /// Runs one bounded command and returns its typed result.
+    ///
+    /// # Errors
+    ///
+    /// Returns the terminal session failure when the guest is gone, the exchange times out, the
+    /// reply is invalid, or an earlier uncertain operation already poisoned this session.
     pub fn execute(
         &mut self,
         command: GuestCommand,
@@ -42,6 +47,11 @@ impl Session {
     ///
     /// A filesystem operation is bounded by the session's own file deadline rather than the
     /// command ceiling: it runs no program, so the time a command may take says nothing about it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the terminal session failure when the guest is gone, the exchange times out, the
+    /// reply is invalid, or an earlier uncertain operation already poisoned this session.
     pub fn file(
         &mut self,
         operation: soma::FileOperation,
@@ -66,6 +76,11 @@ impl Session {
     /// The session state a terminal has lives entirely in the guest, so this method holds nothing
     /// between calls; a second process asking for the next read reaches the same open terminal
     /// because the guest still has it, not because anything here remembered.
+    ///
+    /// # Errors
+    ///
+    /// Returns the terminal session failure when the guest is gone, the exchange times out, the
+    /// reply is invalid, or an earlier uncertain operation already poisoned this session.
     pub fn pty(&mut self, operation: soma::PtyOperation) -> Result<soma::PtyAnswer, SessionError> {
         if self.poisoned {
             return Err(SessionError::Poisoned);

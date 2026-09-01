@@ -40,6 +40,13 @@ pub enum Request {
 }
 
 impl Request {
+    /// Encodes one supervisor request into its bounded textual packet.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the typed terminal operation cannot be serialized by `serde_json`.
+    /// Every field in that closed contract is serializable, so this indicates a programming
+    /// error introduced alongside a future contract change rather than hostile input.
     #[must_use]
     pub fn encode(&self) -> String {
         match self {
