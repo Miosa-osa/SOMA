@@ -29,9 +29,11 @@ pub(super) const fn execute_recovery(error: SessionError) -> Recovery {
     match error {
         // Every one of these ends the session, and the sandbox thread releases the machine on
         // its way out, so the Instance is finished and no retry of the command can change that.
-        SessionError::Poisoned | SessionError::Gone | SessionError::Execute => {
-            Recovery::ReplaceMachine
-        }
+        SessionError::Poisoned
+        | SessionError::Gone
+        | SessionError::Execute
+        | SessionError::File
+        | SessionError::Pty => Recovery::ReplaceMachine,
         _ => Recovery::RepairHost,
     }
 }
@@ -58,6 +60,8 @@ pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
         ),
         SessionError::Ready
         | SessionError::Execute
+        | SessionError::File
+        | SessionError::Pty
         | SessionError::Gone
         | SessionError::Poisoned => ReadinessFailure::for_platform(
             ReadinessProgress::from_steps([

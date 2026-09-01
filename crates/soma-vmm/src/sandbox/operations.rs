@@ -13,7 +13,8 @@ use std::time::Duration;
 
 use soma_guest::GuestCommand;
 
-use super::{Completed, FILE_CEILING, PTY_CEILING, Request, Response, Session, SessionError};
+use super::session::{FILE_CEILING, PTY_CEILING, Request, Response};
+use super::{Completed, Session, SessionError};
 
 impl Session {
     /// Runs one bounded command and returns its typed result.

@@ -1334,6 +1334,7 @@ version = "1.0.0-alpha.1"
 dependencies = [
  "libc",
  "serde_json",
+ "soma",
  "soma-guest",
  "soma-jail",
  "soma-kvm",
