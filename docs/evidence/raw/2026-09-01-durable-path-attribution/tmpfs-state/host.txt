@@ -1,0 +1,4 @@
+== tmpfs run 3
+busy_fraction=0.2382 loadavg=66.74
+burst exit 0
+residue heads=0 hosts=0

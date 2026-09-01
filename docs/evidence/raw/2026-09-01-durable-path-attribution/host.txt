@@ -1,0 +1,39 @@
+eval-1, the host every figure in this record was measured on.
+
+Linux 6.8.0-138-generic #138-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 31 22:41:49 UTC 2026 x86_64 GNU/Linux
+
+cpus: 80
+model name	: Intel(R) Xeon(R) Gold 6138 CPU @ 2.00GHz
+
+the durable state root and the overlay heads both live on /srv:
+/dev/mapper/vg0-srv /srv   xfs    rw,relatime,attr2,inode64,logbufs=8,logbsize=32k,sunit=1024,swidth=2048,noquota
+
+and /srv is rotational, which is the finding this record turns on:
+NAME           ROTA TYPE     SIZE
+loop0             1 loop    66.8M
+loop1             1 loop   114.6M
+loop2             1 loop   115.9M
+loop3             1 loop    50.1M
+sda               1 disk   838.4G
+├─sda1            1 part       1G
+├─sda2            1 part       2G
+│ └─md0           1 raid1      2G
+└─sda3            1 part   835.4G
+  └─md1           1 raid10   1.6T
+    ├─vg0-root    1 lvm      100G
+...
+  └─md1           1 raid10   1.6T
+    ├─vg0-root    1 lvm      100G
+    └─vg0-srv     1 lvm      1.5T
+  └─md1           1 raid10   1.6T
+    ├─vg0-root    1 lvm      100G
+    └─vg0-srv     1 lvm      1.5T
+  └─md1           1 raid10   1.6T
+    ├─vg0-root    1 lvm      100G
+    └─vg0-srv     1 lvm      1.5T
+  └─md1           1 raid10   1.6T
+    ├─vg0-root    1 lvm      100G
+    └─vg0-srv     1 lvm      1.5T
+
+the attribution arm put the state root here instead:
+tmpfs  /dev/shm tmpfs

@@ -1,0 +1,19 @@
+soma run, the one-shot path, must not regress. 25 sequential launches per arm, two
+alternating rounds, on the same prepared store the cohorts used.
+
+SOMA round1 ==> measuring 25 launches at concurrency 1
+SOMA round1   launches     25 of 25 succeeded
+SOMA round1   time to first command  p50 30.52 ms, min 28.05 ms, max 35.95 ms
+SOMA round1   segment medians        admitted 0.04 ms, machine_launched 0.74 ms, ready 22.99 ms, command_finished 6.74 ms
+SOMA-after round1 ==> measuring 25 launches at concurrency 1
+SOMA-after round1   launches     25 of 25 succeeded
+SOMA-after round1   time to first command  p50 30.32 ms, min 24.97 ms, max 36.79 ms
+SOMA-after round1   segment medians        admitted 0.04 ms, machine_launched 0.74 ms, ready 22.92 ms, command_finished 6.62 ms
+SOMA round2 ==> measuring 25 launches at concurrency 1
+SOMA round2   launches     25 of 25 succeeded
+SOMA round2   time to first command  p50 30.43 ms, min 19.99 ms, max 34.59 ms
+SOMA round2   segment medians        admitted 0.04 ms, machine_launched 0.74 ms, ready 22.65 ms, command_finished 7.0 ms
+SOMA-after round2 ==> measuring 25 launches at concurrency 1
+SOMA-after round2   launches     25 of 25 succeeded
+SOMA-after round2   time to first command  p50 30.27 ms, min 18.51 ms, max 35.35 ms
+SOMA-after round2   segment medians        admitted 0.04 ms, machine_launched 0.74 ms, ready 22.99 ms, command_finished 6.5 ms
