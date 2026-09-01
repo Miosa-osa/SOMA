@@ -1,4 +1,5 @@
 mod hosting;
+mod selection;
 
 pub use hosting::{MachineHosting, machine_hosting};
 
@@ -19,6 +20,7 @@ use soma::{
 };
 
 use crate::{LocalFailure, LocalFailureKind};
+use selection::resolve_selection;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::host_machine;
@@ -251,25 +253,6 @@ impl Backend for LocalBackend {
             Self::Kvm(backend) => backend.cleanup(request),
         }
     }
-}
-
-fn resolve_selection(selection: BackendSelection) -> Result<BackendSelection, LocalFailure> {
-    if selection != BackendSelection::Auto {
-        return Ok(selection);
-    }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        if docker::is_available() {
-            return Ok(BackendSelection::Docker);
-        }
-        return Ok(BackendSelection::Macos);
-    }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        return Ok(BackendSelection::Kvm);
-    }
-    #[allow(unreachable_code)]
-    Err(LocalFailure::new(LocalFailureKind::UnsupportedTarget))
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

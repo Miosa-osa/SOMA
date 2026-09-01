@@ -20,6 +20,9 @@ use soma_kvm::x86_64::{
 
 use crate::x86_64_sandbox_boot_control::HostIo;
 
+mod reporting;
+pub use reporting::report;
+
 pub const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
 pub const GUEST_CID: u32 = 3;
 pub const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
@@ -213,53 +216,6 @@ pub fn config(
         ram_bytes,
         devices,
     }
-}
-
-/// Prints the timeline, phases, counters, and the console tail; retains the console log.
-pub fn report(label: &str, evidence: &SandboxEvidence, log: &Path) {
-    fs::write(log, &evidence.serial).unwrap();
-    let text = String::from_utf8_lossy(&evidence.serial);
-    let lines: Vec<&str> = text.lines().collect();
-    eprintln!(
-        "[{label}] serial log ({} bytes, {} lines) retained at {}",
-        evidence.serial.len(),
-        lines.len(),
-        log.display()
-    );
-    for line in lines.iter().rev().take(16).rev() {
-        eprintln!("  | {line}");
-    }
-    eprintln!("[{label}] COLD timeline (ns since sandbox creation began; delta from previous):");
-    let mut previous = 0;
-    for mark in &evidence.timeline {
-        eprintln!(
-            "  {:<20} {:>14} {:>+14}",
-            format!("{:?}", mark.milestone),
-            mark.elapsed_ns,
-            i128::from(mark.elapsed_ns) - i128::from(previous)
-        );
-        previous = mark.elapsed_ns;
-    }
-    for timing in &evidence.phases {
-        eprintln!(
-            "  phase={:?} elapsed_ns={}",
-            timing.phase(),
-            timing.elapsed_ns()
-        );
-    }
-    eprintln!(
-        "[{label}] cmdline={:?} entry={:#x} initramfs={:?} exit={:?} launch_page_retired={}",
-        evidence.cmdline,
-        evidence.entry,
-        evidence.initramfs,
-        evidence.exit,
-        evidence.launch_page_retired
-    );
-    eprintln!(
-        "[{label}] bus={:?} uart={:?} mmio={:?}",
-        evidence.bus, evidence.uart, evidence.mmio
-    );
-    eprintln!("[{label}] devices={:?}", evidence.devices);
 }
 
 /// The assertions every successful sandbox run must satisfy.

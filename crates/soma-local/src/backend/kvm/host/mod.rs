@@ -15,14 +15,13 @@
 
 pub(super) mod channel;
 mod serve;
+mod transport;
 mod wire;
 
 #[cfg(test)]
 mod tests;
 
 use std::{
-    io::BufReader,
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Duration,
@@ -35,6 +34,7 @@ use soma::{
 };
 
 pub(crate) use serve::host_machine;
+use transport::{ask, await_close, exchange, open};
 pub(in crate::backend::kvm) use wire::Launched;
 use wire::{Answer, Call, LaunchWire, Ready};
 
@@ -273,51 +273,4 @@ pub(super) fn cleanup(
     await_close(&mut stream)?;
     let _ignored = std::fs::remove_file(channel::socket_path(directory, instance));
     Ok(evidence)
-}
-
-fn ask(
-    directory: &Path,
-    instance: &InstanceId,
-    call: &Call,
-    within: Duration,
-) -> Result<Answer, HostFailure> {
-    let mut stream = open(directory, instance, within)?;
-    exchange(&mut stream, call)
-}
-
-fn open(
-    directory: &Path,
-    instance: &InstanceId,
-    within: Duration,
-) -> Result<UnixStream, HostFailure> {
-    let stream = channel::connect(directory, instance).map_err(|()| HostFailure::Absent)?;
-    // A caller that waited without a bound would hold the command line open for as long as a
-    // stalled host chose to, which is the one outcome a bounded operation may not have.
-    stream
-        .set_read_timeout(Some(within))
-        .and_then(|()| stream.set_write_timeout(Some(within)))
-        .map_err(|_| HostFailure::Refused(BackendFailureKind::Unavailable))?;
-    Ok(stream)
-}
-
-fn exchange(stream: &mut UnixStream, call: &Call) -> Result<Answer, HostFailure> {
-    channel::write_line(stream, call)
-        .map_err(|()| HostFailure::Refused(BackendFailureKind::Unavailable))?;
-    let cloned = stream
-        .try_clone()
-        .map_err(|_| HostFailure::Refused(BackendFailureKind::Unavailable))?;
-    let mut reader = BufReader::new(cloned);
-    channel::read_line::<Answer>(&mut reader)
-        .ok_or(HostFailure::Refused(BackendFailureKind::Unavailable))
-}
-
-/// Waits for the host to close the connection, which it does only on its way out.
-fn await_close(stream: &mut UnixStream) -> Result<(), HostFailure> {
-    use std::io::Read as _;
-
-    let mut remainder = [0u8; 1];
-    match stream.read(&mut remainder) {
-        Ok(0) => Ok(()),
-        _ => Err(HostFailure::Refused(BackendFailureKind::CleanupFailure)),
-    }
 }

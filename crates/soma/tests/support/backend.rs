@@ -4,13 +4,15 @@ use std::sync::{Arc, Mutex};
 use soma::{
     Backend, BackendFailure, BackendFailureKind, BackendKind, CleanupEvidence, CleanupMethod,
     CleanupObservation, CleanupReason, CleanupTimes, CommandObservation, CommandStatus,
-    CommandTimes, FileAnswer, FileEntry, FileKind, FileObservation, FileOperation, FileRefusal,
-    GenerationId, InstanceId, IsolationClass, LaunchObservation, LaunchTimes, OciDigest,
-    OciPlatform, PreparationClass, PtyObservation, ResolutionObservation, SandboxLiveness,
-    WorkloadIdentity,
+    CommandTimes, FileObservation, GenerationId, InstanceId, IsolationClass, LaunchObservation,
+    LaunchTimes, OciDigest, OciPlatform, PreparationClass, PtyObservation, ResolutionObservation,
+    SandboxLiveness, WorkloadIdentity,
 };
 
 use super::{CallGate, Mode, observed_network, terminal};
+
+mod filesystem;
+use filesystem::answer_for;
 
 /// A flat guest filesystem shared with every clone of one backend.
 type SharedFiles = Arc<Mutex<BTreeMap<Vec<u8>, Vec<u8>>>>;
@@ -259,58 +261,4 @@ fn workload() -> WorkloadIdentity {
         OciPlatform::linux_arm64(),
         Some(GenerationId::new(format!("sha256:{}", "3".repeat(64))).expect("valid generation")),
     )
-}
-
-/// The in-memory answer to one operation.
-///
-/// It is deliberately flat: directories exist only as the prefixes of the paths stored under
-/// them, which is enough to exercise every branch the engine and the surfaces take.
-fn answer_for(files: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: &FileOperation) -> FileAnswer {
-    match operation {
-        FileOperation::Read { path } => {
-            files
-                .get(path)
-                .map_or(FileAnswer::Refused(FileRefusal::NotFound), |bytes| {
-                    FileAnswer::Read {
-                        bytes: bytes.clone(),
-                    }
-                })
-        }
-        FileOperation::Write { path, bytes } => {
-            files.insert(path.clone(), bytes.clone());
-            FileAnswer::Written {
-                bytes: bytes.len() as u64,
-            }
-        }
-        FileOperation::MakeDirectory { .. } => FileAnswer::Done,
-        FileOperation::ReadDirectory { path } => {
-            let mut prefix = path.clone();
-            if prefix.last() != Some(&b'/') {
-                prefix.push(b'/');
-            }
-            let entries = files
-                .keys()
-                .filter_map(|stored| stored.strip_prefix(prefix.as_slice()))
-                .filter(|name| !name.is_empty() && !name.contains(&b'/'))
-                .map(|name| FileEntry {
-                    name: name.to_vec(),
-                    kind: FileKind::File,
-                })
-                .collect();
-            FileAnswer::Listed {
-                entries,
-                more: false,
-            }
-        }
-        FileOperation::Exists { path } => FileAnswer::Status {
-            kind: files.contains_key(path).then_some(FileKind::File),
-        },
-        FileOperation::Remove { path, .. } => {
-            if files.remove(path).is_some() {
-                FileAnswer::Done
-            } else {
-                FileAnswer::Refused(FileRefusal::NotFound)
-            }
-        }
-    }
 }
