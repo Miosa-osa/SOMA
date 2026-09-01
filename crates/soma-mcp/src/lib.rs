@@ -5,6 +5,7 @@ mod control;
 mod file;
 mod identity;
 mod input;
+mod listing;
 mod local;
 mod outcome;
 mod request;
@@ -12,10 +13,12 @@ mod result;
 mod runtime;
 mod server;
 mod stdio_transport;
+mod terminal;
 
 pub use control::{DestroyRequest, InspectRequest, StopRequest};
 pub use file::{FileInputError, FileOperationInput, FileRequest, FileResult};
 pub use identity::{InstanceId, OperationId};
+pub use listing::ListResult;
 pub use local::LocalToolRuntime;
 pub use outcome::{
     CommandResult, CommandStatus, DoctorReport, DoctorStatus, ExecutionReceipt, InspectResult,
@@ -31,3 +34,4 @@ pub use runtime::{
 };
 pub use server::SomaMcpServer;
 pub use stdio_transport::{BoundedStdioTransport, MAX_INBOUND_MESSAGE_BYTES, bounded_stdio};
+pub use terminal::{TerminalInputError, TerminalOperationInput, TerminalRequest, TerminalResult};

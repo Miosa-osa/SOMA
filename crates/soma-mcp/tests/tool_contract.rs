@@ -33,8 +33,10 @@ async fn tool_catalog_has_bounded_schemas_and_accurate_hints() {
             "soma_file",
             "soma_inspect",
             "soma_launch",
+            "soma_list",
             "soma_run",
             "soma_stop",
+            "soma_terminal",
         ]
     );
 
@@ -54,7 +56,7 @@ fn assert_annotations(tools: &BTreeMap<String, rmcp::model::Tool>) {
         assert!(description.contains("macOS is development-only"));
         assert!(description.contains("fail closed"));
     }
-    for name in ["soma_doctor", "soma_inspect"] {
+    for name in ["soma_doctor", "soma_inspect", "soma_list"] {
         let annotations = tools[name].annotations.as_ref().expect("annotations");
         assert_eq!(annotations.read_only_hint, Some(true));
         assert_eq!(annotations.destructive_hint, Some(false));
@@ -65,6 +67,7 @@ fn assert_annotations(tools: &BTreeMap<String, rmcp::model::Tool>) {
         "soma_launch",
         "soma_exec",
         "soma_file",
+        "soma_terminal",
         "soma_stop",
         "soma_destroy",
     ] {

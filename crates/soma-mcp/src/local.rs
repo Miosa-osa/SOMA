@@ -130,6 +130,23 @@ fn invoke_runtime(
                 })
                 .map_err(|failure| map_managed_failure(&failure))?
         }
+        RuntimeRequest::Terminal(request) => {
+            let instance = request.instance_id().clone();
+            runtime
+                .pty_machine(request.into_facade())
+                .map(|outcome| {
+                    Ok(RuntimeResponse::Terminal(crate::TerminalResult::new(
+                        instance,
+                        outcome.operation().name(),
+                        outcome.answer().clone(),
+                    )))
+                })
+                .map_err(|failure| map_managed_failure(&failure))?
+        }
+        RuntimeRequest::List { .. } => runtime
+            .list_machines()
+            .map(|entries| Ok(RuntimeResponse::List(crate::ListResult::new(entries))))
+            .map_err(|failure| map_managed_failure(&failure))?,
         RuntimeRequest::Inspect(request) => {
             let instance = request.instance_id().clone();
             let backend = request.backend();
@@ -224,11 +241,12 @@ const fn machine_state(state: soma::MachineState) -> MachineState {
 
 const fn request_backend(request: &RuntimeRequest) -> BackendTarget {
     match request {
-        RuntimeRequest::Doctor { backend } => *backend,
+        RuntimeRequest::Doctor { backend } | RuntimeRequest::List { backend } => *backend,
         RuntimeRequest::Run(request) => request.backend(),
         RuntimeRequest::Launch(request) => request.backend(),
         RuntimeRequest::Exec(request) => request.backend(),
         RuntimeRequest::File(request) => request.backend(),
+        RuntimeRequest::Terminal(request) => request.backend(),
         RuntimeRequest::Inspect(request) => request.backend(),
         RuntimeRequest::Stop(request) => request.backend(),
         RuntimeRequest::Destroy(request) => request.backend(),

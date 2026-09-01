@@ -7,8 +7,12 @@ use crate::{CommandResult, InspectResult, InstanceId, MachineResult, OperationId
 pub(crate) const MCP_SCHEMA: &str = "soma.mcp.v1";
 
 mod file;
+mod listing;
+mod terminal;
 
 pub(crate) use file::file_result;
+pub(crate) use listing::list_result;
+pub(crate) use terminal::terminal_result;
 
 #[derive(Serialize)]
 struct DoctorEnvelope<'a> {

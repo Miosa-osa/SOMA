@@ -12,6 +12,8 @@ pub enum RuntimeRequest {
     Launch(LaunchRequest),
     Exec(ExecRequest),
     File(crate::FileRequest),
+    Terminal(crate::TerminalRequest),
+    List { backend: BackendTarget },
     Inspect(InspectRequest),
     Stop(StopRequest),
     Destroy(DestroyRequest),
@@ -24,6 +26,8 @@ pub enum RuntimeResponse {
     Launch(MachineResult),
     Exec(CommandResult),
     File(crate::FileResult),
+    Terminal(crate::TerminalResult),
+    List(crate::ListResult),
     Inspect(InspectResult),
     Stop(MachineResult),
     Destroy(MachineResult),
@@ -150,6 +154,8 @@ impl ToolRuntime for UnavailableRuntime {
             | RuntimeRequest::Launch(_)
             | RuntimeRequest::Exec(_)
             | RuntimeRequest::File(_)
+            | RuntimeRequest::Terminal(_)
+            | RuntimeRequest::List { .. }
             | RuntimeRequest::Inspect(_)
             | RuntimeRequest::Stop(_)
             | RuntimeRequest::Destroy(_) => {
