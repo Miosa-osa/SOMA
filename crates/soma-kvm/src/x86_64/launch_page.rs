@@ -2,6 +2,12 @@
 //! written once with the host launch material, verified erased after the guest consumed it,
 //! and retired with a zero-length `KVM_SET_USER_MEMORY_REGION` so no snapshot can ever
 //! contain it.
+//!
+//! Retirement is two acts, and only the first of them is what makes repair irreversible: the
+//! host copy is erased, and then the slot is removed. Removing a memory slot from a running
+//! VM invalidates that VM's whole extended page table, so the guest re-faults every page it
+//! still has live, which is measurable in the resume. The erasure may therefore be separated
+//! from the removal, and a diagnostic exists to measure what separating them is worth.
 
 use kvm_bindings::kvm_userspace_memory_region;
 use kvm_ioctls::VmFd;
@@ -20,10 +26,35 @@ pub const LAUNCH_PAGE_SLOT: u32 = 1;
 /// Exact size of the launch page.
 pub const LAUNCH_PAGE_SIZE: usize = 4096;
 
+/// Names the diagnostic that separates the erasure from the removal, so the cost of removing a
+/// memory slot from a running guest can be measured. Never set on a host serving requests.
+const DEFER_REMOVAL: &str = "SOMA_KVM_DEFER_LAUNCH_PAGE_SLOT";
+
+/// What one call to [`LaunchPageSlot::retire_step`] did.
+pub(crate) struct RetireStep {
+    /// Whether this call erased the material, which is what commits the repair.
+    pub(crate) committed: bool,
+    /// Whether the slot is now removed from the VM and the page may be dropped.
+    pub(crate) removed: bool,
+    /// `LaunchPageNotErased` when material remained, or the removal's own failure.
+    pub(crate) outcome: Result<(), MachineError>,
+}
+
+/// How far retirement has got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Erasure {
+    /// The material is still in the mapping.
+    Pending,
+    /// The host copy is zeroed; the flag is whether the guest had zeroed it first.
+    Done(bool),
+}
+
 /// One mapped and registered launch page.
 pub(crate) struct LaunchPageSlot {
     mapping: RamMapping,
     registered: bool,
+    erasure: Erasure,
+    defer_removal: bool,
 }
 
 impl LaunchPageSlot {
@@ -34,6 +65,8 @@ impl LaunchPageSlot {
         Ok(Self {
             mapping,
             registered: true,
+            erasure: Erasure::Pending,
+            defer_removal: std::env::var_os(DEFER_REMOVAL).is_some(),
         })
     }
 
@@ -61,17 +94,42 @@ impl LaunchPageSlot {
         self.mapping.read_volatile(0, &mut head) && head == prefix
     }
 
-    /// Removes the slot from the VM, then unmaps the page.
+    /// Erases the material, then removes the slot, and reports whether the slot is now gone.
     ///
-    /// The slot is removed and the host copy zeroed even when the guest failed to erase the
-    /// page, so the material never outlives this call; the verification result is returned
-    /// afterwards.
-    pub(crate) fn retire(mut self, vm: &VmFd) -> Result<(), MachineError> {
-        let erased = self.is_erased();
+    /// The host copy is zeroed on the first call even when the guest failed to erase the page,
+    /// so the material never outlives that call; the verification result is returned
+    /// afterwards. The removal follows in the same call unless an operator deferred it, in
+    /// which case a later call performs it and the caller holds the slot until then.
+    pub(crate) fn retire_step(&mut self, vm: &VmFd) -> RetireStep {
+        let committed = self.erasure == Erasure::Pending;
+        if self.erase_once() {
+            return RetireStep {
+                committed,
+                removed: false,
+                outcome: self.verdict(),
+            };
+        }
         let removal = self.unregister(vm);
+        RetireStep {
+            committed,
+            removed: true,
+            outcome: removal.and(self.verdict()),
+        }
+    }
+
+    /// Erases the host copy on the first call, and reports whether removal is being deferred.
+    fn erase_once(&mut self) -> bool {
+        if self.erasure != Erasure::Pending {
+            return false;
+        }
+        self.erasure = Erasure::Done(self.is_erased());
         self.mapping.zero(0, LAUNCH_PAGE_SIZE);
-        removal?;
-        if erased {
+        self.defer_removal
+    }
+
+    /// Whether the guest had erased the page before the host did.
+    fn verdict(&self) -> Result<(), MachineError> {
+        if self.erasure == Erasure::Done(true) {
             Ok(())
         } else {
             Err(MachineError::new(
@@ -128,6 +186,8 @@ mod tests {
         let mut slot = LaunchPageSlot {
             mapping: RamMapping::anonymous(LAUNCH_PAGE_SIZE, Phase::LaunchPage).unwrap(),
             registered: false,
+            erasure: Erasure::Pending,
+            defer_removal: false,
         };
         assert!(slot.is_erased());
         let mut page = [0_u8; LAUNCH_PAGE_SIZE];
@@ -139,5 +199,40 @@ mod tests {
         assert!(!slot.starts_with(b"XOMA"));
         slot.mapping.zero(0, LAUNCH_PAGE_SIZE);
         assert!(slot.is_erased());
+    }
+
+    #[test]
+    fn a_deferred_removal_erases_first_and_removes_on_the_next_call() {
+        let mut slot = LaunchPageSlot {
+            mapping: RamMapping::anonymous(LAUNCH_PAGE_SIZE, Phase::LaunchPage).unwrap(),
+            registered: false,
+            erasure: Erasure::Pending,
+            defer_removal: true,
+        };
+        let mut page = [0_u8; LAUNCH_PAGE_SIZE];
+        page[..4].copy_from_slice(b"SOMA");
+        slot.write(&page).unwrap();
+
+        // The first call erases the material and holds the slot back.
+        assert!(slot.erase_once());
+        assert!(slot.is_erased());
+        assert_eq!(slot.erasure, Erasure::Done(false));
+        assert!(slot.verdict().is_err(), "the guest had not erased the page");
+
+        // The second call erases nothing more and lets the slot go.
+        assert!(!slot.erase_once());
+    }
+
+    #[test]
+    fn an_undeferred_removal_erases_and_releases_in_one_call() {
+        let mut slot = LaunchPageSlot {
+            mapping: RamMapping::anonymous(LAUNCH_PAGE_SIZE, Phase::LaunchPage).unwrap(),
+            registered: false,
+            erasure: Erasure::Pending,
+            defer_removal: false,
+        };
+        assert!(!slot.erase_once());
+        assert_eq!(slot.erasure, Erasure::Done(true));
+        assert!(slot.verdict().is_ok(), "the page was already zero");
     }
 }

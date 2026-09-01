@@ -76,23 +76,33 @@ impl SandboxMachine {
         }
     }
 
-    /// Verifies the guest erased the page, removes the slot, and unmaps it.
+    /// Verifies the guest erased the page, erases the host copy, and removes the slot.
+    ///
+    /// The slot is normally gone when this returns. An operator measuring what removing a
+    /// memory slot from a running guest costs can defer the removal, and then the page is
+    /// erased here and the slot is removed by the teardown call instead.
     ///
     /// # Errors
     ///
-    /// Returns `LaunchPageNotErased` when material remained; the slot is removed regardless.
+    /// Returns `LaunchPageNotErased` when material remained; the page is erased regardless.
     pub fn retire_launch_page(&self) -> Result<(), MachineError> {
-        let slot = self
+        let mut held = self
             .launch_page
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
-            .ok_or_else(|| {
-                MachineError::invalid(Phase::LaunchPage, "launch page already retired")
-            })?;
-        slot.retire(&self.machine.vm)?;
-        self.mark(Milestone::LaunchPageRetired);
-        Ok(())
+            .unwrap_or_else(PoisonError::into_inner);
+        let slot = held.as_mut().ok_or_else(|| {
+            MachineError::invalid(Phase::LaunchPage, "launch page already retired")
+        })?;
+        let step = slot.retire_step(&self.machine.vm);
+        if step.removed {
+            *held = None;
+        }
+        drop(held);
+        if step.committed {
+            // The milestone is the repair commit, so it stays on the call that erased.
+            self.mark(Milestone::LaunchPageRetired);
+        }
+        step.outcome
     }
 
     /// Whether the launch page slot has already been retired.
