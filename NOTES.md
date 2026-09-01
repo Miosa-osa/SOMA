@@ -866,3 +866,11 @@ The MIOSA adapter stays outside this repository, and no customer deployment begi
 
 The hostd latency test prepares 1,000 workers and intentionally retains three descriptors per worker, so an ordinary SSH soft limit of 1,024 makes the first socket-pair allocation report a disk resource failure even when disk space and inodes are healthy.
 The Linux check now raises its own soft open-file limit to 4,096 before running tests and fails with a direct prerequisite error when the host hard limit cannot support that value.
+
+## 2026-09-01 - Persistent MCP KVM burst evidence on every east host
+
+The burst harness originally placed its managed state root beside the results, which made `state_root/machines/<instance>.sock` exceed Linux's 108-byte Unix socket address limit and caused a typed `unsupported` refusal before VM creation.
+KVM benchmark state now uses a securely generated short directory under `/tmp`, validates the final socket path budget, and retains typed MCP refusal codes instead of collapsing them to `tool_error`.
+At clean revision `4688224`, the 34/33/33 distributed cohort completed 100 of 100 Node 22 commands and cleanups at p50 62.27 ms and p99 78.80 ms through one persistent MCP session per host.
+Separate 100-concurrent cohorts also completed 100 of 100 on each host at p50 164.69 ms on host 03, 154.77 ms on host 04, and 139.77 ms on host 10.
+These are warm-cache on-demand snapshot restores, not prepared-worker results and not evidence for the 10 ms objective.

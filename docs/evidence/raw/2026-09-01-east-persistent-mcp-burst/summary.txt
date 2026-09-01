@@ -1,0 +1,33 @@
+revision 4688224bd6fe8ffa74ce8eb42320f7286c0b3d20
+shape 1 vCPU, 1024 MiB RAM, 10240 MiB writable disk
+image node:22
+command /usr/local/bin/node --version
+transport one initialized persistent soma-mcp process per host cohort
+boundary immediately before the persistent MCP soma_launch request through immediately after the correlated soma_exec structured response was parsed
+excluded MCP process start, MCP initialization, preparation, destruction, release build, host collection, and report generation
+
+distributed 100, miosa-host-03, 34 samples: p50 51848319 ns, p95 62371070 ns, p99 66814845 ns, max 66814845 ns, 34 command successes, 34 complete cleanups
+distributed 100, miosa-host-04, 33 samples: p50 64149821 ns, p95 76073001 ns, p99 89814189 ns, max 89814189 ns, 33 command successes, 33 complete cleanups
+distributed 100, miosa-host-10, 33 samples: p50 64354352 ns, p95 73303701 ns, p99 78798393 ns, max 78798393 ns, 33 command successes, 33 complete cleanups
+distributed 100, aggregated nearest rank: min 31929562 ns, p50 62268076 ns, p95 71802508 ns, p99 78798393 ns, max 89814189 ns, 100 command successes, 100 complete cleanups
+
+single host 100, miosa-host-03: p50 164686194 ns, p95 216381709 ns, p99 227532500 ns, max 228318877 ns, 100 command successes, 100 complete cleanups
+single host 100, miosa-host-04: p50 154768213 ns, p95 191438360 ns, p99 202010272 ns, max 203880056 ns, 100 command successes, 100 complete cleanups
+single host 100, miosa-host-10: p50 139774097 ns, p95 163101139 ns, p99 165594728 ns, max 171319131 ns, 100 command successes, 100 complete cleanups
+
+distributed 100 receipt milestones, aggregated nearest rank:
+machine_launched p50 6106472 ns, p95 16642138 ns, p99 20278131 ns
+ready p50 28694802 ns, p95 36873076 ns, p99 38765586 ns
+command_finished p50 14345631 ns, p95 21982998 ns, p99 24050025 ns
+MCP launch call p50 34070318 ns, p95 46327163 ns, p99 49221234 ns
+MCP exec call p50 25564251 ns, p95 33553512 ns, p99 36581382 ns
+
+post-run on every host: zero writable head files, zero soma machine-host processes, and zero soma-burst temporary state roots
+
+retained host artifact SHA-256:
+2263e6284b80a648ff6735d1029db744646bc71486702f31322c84ee53c51fde  distributed-100-east03-34.ndjson
+005705807e96497ffd310d93d2a9bd3acd2be9d4e73308a0fbec9bf28154d3b6  distributed-100-east04-33.ndjson
+9cf475ccb13ae70a2d98ad3bea763fc71118eec8b8e8cac48e013c02681d351f  distributed-100-east10-33.ndjson
+89a8360d1ea8a3e59b21b514cc81e8a70e2c559c74682c713a1af014a72c3527  single-host-100-east03.ndjson
+b14e3b41c5a082baa5cff03005d30a306629c36307114f9e649feb2c787b5a1f  single-host-100-east04.ndjson
+dff26f88f4cce71945164f9fd1cda0783fad720c90af49c36b1ebecf4f9d01d3  single-host-100-east10.ndjson
