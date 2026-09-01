@@ -1,6 +1,7 @@
 //! Fan behaviour that does not need a reflink filesystem.
 
 use std::num::NonZeroUsize;
+use std::os::unix::fs::MetadataExt as _;
 
 use super::*;
 
