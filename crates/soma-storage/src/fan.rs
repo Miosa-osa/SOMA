@@ -26,7 +26,6 @@ use std::fs::File;
 use std::io::{self, Read as _, Seek as _, SeekFrom, Write as _};
 use std::num::NonZeroUsize;
 use std::os::fd::AsFd as _;
-use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -62,24 +61,16 @@ pub struct FanReport {
     pub written: usize,
 }
 
-/// The directory name one template's copies live under.
-///
-/// The name is the template's identity on the host filesystem rather than its content digest,
-/// so a snapshot's overlay and a store artifact are keyed the same way and a replaced template
-/// keys somewhere else instead of being silently reused.
-///
-/// # Errors
-///
-/// Returns the failure to read the template's metadata.
-pub fn fan_key(template: &File) -> io::Result<String> {
-    let metadata = template.metadata()?;
-    Ok(format!(
-        "{:x}-{:x}-{:x}-{:x}",
-        metadata.dev(),
-        metadata.ino(),
-        metadata.size(),
-        metadata.mtime_nsec().max(0),
-    ))
+/// The directory name for replicas of one certified artifact digest.
+#[must_use]
+pub fn fan_key(digest: [u8; 32]) -> String {
+    digest
+        .iter()
+        .fold(String::with_capacity(64), |mut key, byte| {
+            use std::fmt::Write as _;
+            let _ignored = write!(key, "{byte:02x}");
+            key
+        })
 }
 
 /// Materializes `copies` independent physical copies of `template` under `root`.
@@ -94,10 +85,10 @@ pub fn fan_key(template: &File) -> io::Result<String> {
 /// Returns the first copy that could not be written or proved.
 pub fn warm(template: &File, root: &Path, copies: NonZeroUsize) -> Result<FanReport, FanError> {
     let copies = copies.get().min(MAX_TEMPLATE_COPIES);
-    let key = fan_key(template).map_err(FanError::Io)?;
+    let digest = digest_of(template)?;
+    let key = fan_key(digest);
     let directory = root.join(&key);
     std::fs::create_dir_all(&directory).map_err(FanError::Io)?;
-    let digest = digest_of(template)?;
     let size = template.metadata().map_err(FanError::Io)?.size();
     let mut written = 0;
     for index in 0..copies {
@@ -124,10 +115,15 @@ pub fn warm(template: &File, root: &Path, copies: NonZeroUsize) -> Result<FanRep
 /// incomplete fan means the caller clones the template itself and pays the serialized cost it
 /// would have paid anyway.
 #[must_use]
-pub fn open_replica(template: &File, root: &Path, copies: NonZeroUsize) -> Option<File> {
+pub fn open_replica(
+    template: &File,
+    certified_digest: [u8; 32],
+    root: &Path,
+    copies: NonZeroUsize,
+) -> Option<File> {
     let copies = copies.get().min(MAX_TEMPLATE_COPIES);
     let size = template.metadata().ok()?.size();
-    let directory = root.join(fan_key(template).ok()?);
+    let directory = root.join(fan_key(certified_digest));
     let start = next_index(copies);
     for offset in 0..copies {
         let index = (start + offset) % copies;

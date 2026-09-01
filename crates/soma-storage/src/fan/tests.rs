@@ -18,6 +18,10 @@ fn count(directory: &Path) -> usize {
         .count()
 }
 
+fn digest(template: &File) -> [u8; 32] {
+    digest_of(template).expect("digest template")
+}
+
 #[test]
 fn warms_the_requested_copies_and_reuses_them() {
     let scratch = tempfile::tempdir().expect("tempdir");
@@ -55,15 +59,16 @@ fn a_replica_is_opened_only_when_the_fan_is_there() {
     let template = template(scratch.path(), &[3_u8; 4096]);
     let root = scratch.path().join("fan");
     let copies = NonZeroUsize::new(2).expect("nonzero");
-    assert!(open_replica(&template, &root, copies).is_none());
+    let identity = digest(&template);
+    assert!(open_replica(&template, identity, &root, copies).is_none());
     let report = warm(&template, &root, copies).expect("warm");
-    let replica = open_replica(&template, &root, copies).expect("replica");
+    let replica = open_replica(&template, identity, &root, copies).expect("replica");
     assert_eq!(replica.metadata().expect("metadata").size(), 4096);
     assert_ne!(
         replica.metadata().expect("metadata").ino(),
         template.metadata().expect("metadata").ino()
     );
-    assert_eq!(report.key, fan_key(&template).expect("key"));
+    assert_eq!(report.key, fan_key(identity));
 }
 
 #[test]
@@ -75,9 +80,10 @@ fn a_short_replica_is_refused_and_written_again() {
     let report = warm(&template, &root, copies).expect("warm");
     let path = root.join(&report.key).join(replica_path(0));
     std::fs::write(&path, [9_u8; 4096]).expect("shorten");
-    assert!(open_replica(&template, &root, copies).is_none());
+    let identity = digest(&template);
+    assert!(open_replica(&template, identity, &root, copies).is_none());
     assert_eq!(warm(&template, &root, copies).expect("rewarm").written, 1);
-    assert!(open_replica(&template, &root, copies).is_some());
+    assert!(open_replica(&template, identity, &root, copies).is_some());
 }
 
 #[test]
@@ -103,6 +109,23 @@ fn a_changed_template_keys_somewhere_else() {
     let second = template(scratch.path(), &[1_u8; 8192]);
     let after = warm(&second, &root, copies).expect("warm");
     assert_ne!(before.key, after.key);
+}
+
+#[test]
+fn a_same_sized_artifact_with_another_digest_cannot_reuse_the_fan() {
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let first = template(scratch.path(), &[1_u8; 4096]);
+    let root = scratch.path().join("fan");
+    let copies = NonZeroUsize::new(1).expect("nonzero");
+    let report = warm(&first, &root, copies).expect("warm");
+
+    std::fs::write(scratch.path().join("template.ext4"), [2_u8; 4096])
+        .expect("replace template bytes");
+    let second = File::open(scratch.path().join("template.ext4")).expect("reopen template");
+    let second_digest = digest(&second);
+
+    assert_ne!(report.key, fan_key(second_digest));
+    assert!(open_replica(&second, second_digest, &root, copies).is_none());
 }
 
 #[test]

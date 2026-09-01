@@ -121,7 +121,7 @@ pub(super) fn private_head_from(
 ) -> Result<std::fs::File, BackendFailureKind> {
     let template =
         std::fs::File::open(template_path).map_err(|_| BackendFailureKind::Unavailable)?;
-    clone_or_copy(template, instance)
+    clone_or_copy(template, None, instance)
 }
 
 /// Gives this Instance a private writable head over the sterile overlay template.
@@ -137,7 +137,7 @@ fn private_head(
 ) -> Result<std::fs::File, BackendFailureKind> {
     let template = soma_generation::open_artifact(store, descriptor)
         .map_err(|_| BackendFailureKind::Unavailable)?;
-    clone_or_copy(template, instance)
+    clone_or_copy(template, Some(*descriptor.digest.as_bytes()), instance)
 }
 
 /// Clones one open template into a private head for `instance`, reflinking where it can.
@@ -148,10 +148,14 @@ fn private_head(
 /// absent, and both paths produce the same head.
 fn clone_or_copy(
     template: std::fs::File,
+    certified_digest: Option<[u8; 32]>,
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
     let directory = head_directory()?;
-    let template = fanned(template);
+    let template = match certified_digest {
+        Some(digest) => fanned(template, digest),
+        None => template,
+    };
     // A head name is lowercase, digits, and hyphen only, so the Instance identity is used as
     // it is rather than given a suffix the validator would reject.
     let name = soma_storage::HeadName::new(instance.as_str().to_ascii_lowercase())
@@ -209,14 +213,14 @@ fn head_directory() -> Result<std::fs::File, BackendFailureKind> {
 /// Cloning from one template serializes every launch of a cohort on the refcount records of
 /// that template's extents. A fan is warmed off the launch path; where it is absent this hands
 /// back the template itself and the launch pays what it always paid.
-fn fanned(template: std::fs::File) -> std::fs::File {
+fn fanned(template: std::fs::File, certified_digest: [u8; 32]) -> std::fs::File {
     let root = std::env::var_os("SOMA_TEMPLATE_FAN_DIR")
         .map_or_else(|| head_root().join("fan"), PathBuf::from);
     let copies = count(
         "SOMA_TEMPLATE_COPIES",
         soma_storage::DEFAULT_TEMPLATE_COPIES,
     );
-    soma_storage::open_replica(&template, &root, copies).unwrap_or(template)
+    soma_storage::open_replica(&template, certified_digest, &root, copies).unwrap_or(template)
 }
 
 /// A positive count named by the environment, or the default this build ships.
