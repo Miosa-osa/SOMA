@@ -26,14 +26,28 @@ impl Response {
     ///
     /// Returns the underlying write failure.
     pub fn write_to(&self, writer: &mut impl Write) -> io::Result<()> {
+        self.write_with_connection(writer, false)
+    }
+
+    /// Writes one response while leaving the connection available for another framed request.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying write failure.
+    pub fn write_keep_alive_to(&self, writer: &mut impl Write) -> io::Result<()> {
+        self.write_with_connection(writer, true)
+    }
+
+    fn write_with_connection(&self, writer: &mut impl Write, keep_alive: bool) -> io::Result<()> {
         let mut response = Vec::with_capacity(160 + self.body.len());
+        let connection = if keep_alive { "keep-alive" } else { "close" };
         write!(
             response,
             "HTTP/1.1 {} {}\r\n\
              content-type: application/json\r\n\
              content-length: {}\r\n\
              cache-control: no-store\r\n\
-             connection: close\r\n\r\n",
+             connection: {connection}\r\n\r\n",
             self.status,
             reason(self.status),
             self.body.len(),

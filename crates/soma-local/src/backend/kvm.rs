@@ -26,10 +26,11 @@ use crate::{LocalFailure, LocalFailureKind};
 use super::clock::OperationClocks;
 use host::Role;
 use network::BrokerConfiguration;
-use pool::MachinePool;
+use pool::{MachineKey, MachinePool};
 use runtime::Ownership;
+use soma_vmm::sandbox::Session;
 
-pub(crate) use host::{host_machine, prewarm_machine_hosts};
+pub(crate) use host::host_machine;
 
 /// Names how many sterile machines this host keeps prepared per Generation.
 ///
@@ -37,6 +38,10 @@ pub(crate) use host::{host_machine, prewarm_machine_hosts};
 /// the runtime lives, which is a policy an operator must be able to size or switch off. A value
 /// of zero prepares nothing, so every Launch takes the on-demand path and reports it as such.
 const PREPARED_MACHINES: &str = "SOMA_PREPARED_MACHINES";
+/// OCI reference whose identity-free machines are restored before hosted traffic begins.
+const PREWARM_REFERENCE: &str = "SOMA_PREWARM_REFERENCE";
+/// Guest memory shape of the hosted machines restored before traffic begins.
+const PREWARM_MEMORY_MIB: &str = "SOMA_PREWARM_MEMORY_MIB";
 
 /// How many machines a resident runtime prepares when the operator names no number.
 ///
@@ -50,6 +55,25 @@ const DEFAULT_TARGET: usize = 1;
 const CLAIM_DEADLINE: Duration = Duration::from_secs(30);
 const CONSTRUCTION_DEADLINE: Duration = Duration::from_secs(60);
 
+/// Prepares hosted processes and, when configured, one identity-free VM inside each process.
+pub(crate) fn prewarm_machine_hosts(target: usize) -> Result<(), soma::BackendFailureKind> {
+    let plan = match std::env::var(PREWARM_REFERENCE) {
+        Ok(reference) if !reference.trim().is_empty() => {
+            let memory_mib = std::env::var(PREWARM_MEMORY_MIB)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|value| *value > 0)
+                .unwrap_or(1024);
+            let root = prepared::store_root().ok_or(soma::BackendFailureKind::Unavailable)?;
+            let prepared = prepared::find(Some(&root), reference.trim())
+                .map_err(|_| soma::BackendFailureKind::Unavailable)?;
+            Some(host::PrewarmPlan::new(prepared, memory_mib))
+        }
+        _ => None,
+    };
+    host::prewarm_machine_hosts(target, plan.as_ref())
+}
+
 pub(crate) struct KvmBackend {
     clocks: OperationClocks,
     /// Which process holds the machines this Backend launches.
@@ -60,6 +84,8 @@ pub(crate) struct KvmBackend {
     live: Option<lifecycle::Live>,
     /// Machines restored before a request asked for one.
     machines: MachinePool,
+    /// The one identity-free restored machine a per-Instance host prepared before its request.
+    primed: Option<(MachineKey, Session, Option<std::fs::File>)>,
     /// Where this host may build jails, when it was configured to jail its machines.
     ///
     /// It is resolved once rather than per request, because whether a host jails its machines
@@ -112,6 +138,29 @@ impl KvmBackend {
         Self::with_role(Role::MachineHost)
     }
 
+    /// Opens one machine host and restores its identity-free machine before accepting a request.
+    pub(in crate::backend::kvm) fn primed_machine_host(
+        prepared: &prepared::PreparedGeneration,
+        memory_mib: u64,
+    ) -> Result<Self, LocalFailure> {
+        let mut backend = Self::with_role(Role::MachineHost)?;
+        if backend.jail.is_some() {
+            return Err(LocalFailure::new(LocalFailureKind::BackendUnavailable));
+        }
+        let recipe = claim::recipe_for(prepared, memory_mib, evidence::CONTRACT_VCPUS)
+            .ok_or_else(|| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        let key = recipe.key().clone();
+        let spec = recipe
+            .spec()
+            .ok_or_else(|| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        let session = Session::prepare(spec)
+            .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        let overlay = claim::prepared_overlay(prepared)
+            .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        backend.primed = Some((key, session, overlay));
+        Ok(backend)
+    }
+
     fn with_role(role: Role) -> Result<Self, LocalFailure> {
         let prepared_target = target_for(&role);
         let ownership = Ownership::resolve(Ownership::configured().as_deref())
@@ -133,6 +182,7 @@ impl KvmBackend {
             jail,
             ownership,
             live: None,
+            primed: None,
             machines: MachinePool::open(limits(prepared_target))
                 .or_else(|_| MachinePool::open(limits(0)))
                 .expect("a pool that prepares nothing always has valid limits"),

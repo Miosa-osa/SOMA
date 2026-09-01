@@ -5,14 +5,14 @@
 //! request made under another: the guest has already been told how much memory it has and how
 //! large its writable head will be, and those facts are baked into the captured state.
 
-use std::path::{Path, PathBuf};
-
 use sha2::{Digest as _, Sha256};
 use soma_hostd::PoolKeyDigest;
 use soma_kvm::DeviceSet;
 
 use soma_kvm::x86_64::{Hypervisor, SnapshotObjects};
 use soma_vmm::sandbox::SterileSpec;
+
+use crate::backend::kvm::prepared::PreparedGeneration;
 
 /// Everything that must match before a prepared machine may serve a request.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -65,7 +65,7 @@ impl MachineKey {
 /// because each machine owns and closes the descriptors it was built from.
 pub(in crate::backend::kvm) struct Recipe {
     key: MachineKey,
-    store: PathBuf,
+    prepared: PreparedGeneration,
     root: soma_generation::ArtifactDescriptor,
     memory: soma_generation::ArtifactDescriptor,
     overlay: soma_generation::ArtifactDescriptor,
@@ -74,8 +74,8 @@ pub(in crate::backend::kvm) struct Recipe {
 
 /// Everything [`Recipe::new`] needs to describe one pool and open its artifacts.
 pub(in crate::backend::kvm) struct RecipeInputs<'a> {
-    /// The Candidate's store, which the immutable root is opened from.
-    pub(in crate::backend::kvm) store: &'a Path,
+    /// The admitted Generation whose retained handles supply every restore artifact.
+    pub(in crate::backend::kvm) prepared: &'a PreparedGeneration,
     /// The immutable root every Instance of this Generation shares.
     pub(in crate::backend::kvm) root: soma_generation::ArtifactDescriptor,
     pub(in crate::backend::kvm) memory: soma_generation::ArtifactDescriptor,
@@ -98,7 +98,7 @@ impl Recipe {
     /// capacity is read from that template and a machine cannot be prepared without it.
     pub(in crate::backend::kvm) fn new(inputs: &RecipeInputs) -> Self {
         let RecipeInputs {
-            store,
+            prepared,
             root,
             memory,
             overlay,
@@ -125,7 +125,7 @@ impl Recipe {
                 vcpus,
                 devices,
             },
-            store: store.to_path_buf(),
+            prepared: prepared.clone(),
             root,
             memory,
             overlay,
@@ -142,15 +142,15 @@ impl Recipe {
     ///
     /// Returns `None` when the immutable root cannot be opened, which is an operator fault on
     /// the prepared store rather than a fault in any request.
-    pub(super) fn spec(&self) -> Option<SterileSpec> {
-        let root = soma_generation::open_artifact(&self.store, &self.root).ok()?;
-        let state = soma_generation::open_artifact(&self.store, &self.state).ok()?;
-        let memory = soma_generation::open_artifact(&self.store, &self.memory).ok()?;
+    pub(in crate::backend::kvm) fn spec(&self) -> Option<SterileSpec> {
+        let root = self.prepared.open_artifact(&self.root).ok()?;
+        let state = self.prepared.open_artifact(&self.state).ok()?;
+        let memory = self.prepared.open_artifact(&self.memory).ok()?;
         let overlay = self
             .key
             .devices
             .overlay()
-            .then(|| soma_generation::open_artifact(&self.store, &self.overlay))
+            .then(|| self.prepared.open_artifact(&self.overlay))
             .transpose()
             .ok()?;
         let objects = SnapshotObjects::adopt(state, memory, overlay);

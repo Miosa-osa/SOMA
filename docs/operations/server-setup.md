@@ -8,10 +8,10 @@ The current result is one cold-booted sandbox at a time, not a production servic
 
 SOMA is three layers, and this document exposes only the development form of the first layer:
 
-1. **The machine engine**, currently linked into the CLI for this development path.
-   The production design moves that engine into one jailed `soma-vmm` process per sandbox.
-2. **`soma-hostd`**, per-host pools of prepared workers that let one host serve many sandboxes quickly instead of cold booting each.
-   It is built and component-tested, but not yet wired to the live command-line path.
+1. **The machine engine**, linked into the command line and hosted API paths.
+   The hosted API uses one dedicated machine-host process per sandbox.
+2. **The prepared host pool**, which can restore one stopped identity-free VM and create one private disk per API slot before accepting traffic.
+   Matching launches assign fresh authority and resume those machines, while nonmatching requests fall back honestly to on-demand restore.
 3. **The fleet control plane**, which places and admits sandboxes across many hosts. Designed.
 
 This runbook stands up the development floor.
@@ -172,6 +172,18 @@ export SOMA_HEAD_DIR=/srv/soma/heads              # on the XFS reflink volume
 ./target/release/soma --backend kvm run node:22 -- /usr/local/bin/node --version
 ```
 
+To serve the prepared hosted path, select the exact Generation and memory class before starting the API:
+
+```sh
+export SOMA_PREWARM_REFERENCE=node:22
+export SOMA_PREWARM_MEMORY_MIB=1024
+./target/release/soma-api --listen 127.0.0.1:18787 --workers 64
+```
+
+The listener opens only after all 64 child processes have restored a stopped identity-free VM and created a unique unlinked private disk.
+The worker count is both the HTTP concurrency bound and the prepared-slot target.
+Size it from admitted host capacity rather than copying the qualification value.
+
 The Node command prints the version contained in the current `node:22` image.
 Because `node:22` is mutable, do not expect one exact patch version unless the image is pinned by digest.
 Successful output proves this development path reached guest command execution.
@@ -184,17 +196,14 @@ There is no environment-variable bypass for Candidate launch.
 
 ## What this gives you, and what it does not
 
-**What works today.** Hardware-isolated sandboxes restored from a certified snapshot and driven through the command line, MCP, or HTTP surfaces on a compatible KVM host.
+**What works today.** Hardware-isolated sandboxes restored from a certified snapshot and driven through the command line, MCP, or HTTP surfaces on a compatible KVM host, including a bounded prepared-machine HTTP path.
 
 **What a production sandbox service still needs, and is not built yet:**
 
-- A daemon or API to call, rather than a one shot command.
-  The backend currently tracks a single live sandbox.
 - Many concurrent sandboxes with capacity admission, so one host can serve a fleet safely.
 - A jail around the virtual machine process.
   Today the VM runs inside the command line process rather than as a separately confined `soma-vmm` process.
   This is the most important gap before anything faces untrusted users.
-- Retained verified artifact handles across admission and restore, so launch consumes the exact files that passed verification.
 
 The full path from this development setup to a production admitted service is tracked in [the public KVM Backend audit](../reviews/2026-08-30-public-kvm-backend-audit.md), the [MIOSA custom sandbox rollout plan](miosa-custom-sandbox-rollout.md), and the ticket map in [the VMM decision map](../research/vmm-decision-map.md).
 

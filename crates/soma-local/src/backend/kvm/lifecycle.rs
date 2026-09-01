@@ -119,7 +119,19 @@ impl KvmBackend {
         let claimed = if self.jail.is_some() {
             None
         } else {
-            claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib())
+            let key = claim::recipe_for(prepared, shape.memory_mib(), CONTRACT_VCPUS)
+                .map(|recipe| recipe.key().clone());
+            let primed_matches = self
+                .primed
+                .as_ref()
+                .is_some_and(|(prepared_key, _, _)| Some(prepared_key) == key.as_ref());
+            if primed_matches {
+                self.primed
+                    .take()
+                    .map(|(_, session, overlay)| claim::ClaimedMachine::Primed { session, overlay })
+            } else {
+                claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib())
+            }
         };
         // No secret reaches this Backend yet. The portable Launch request carries a Template's
         // secret references, not their values, and the host side that resolves a reference into

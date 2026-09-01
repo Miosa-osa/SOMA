@@ -13,7 +13,9 @@
 //! sterile assignment, and the Noise session are established exactly once, by the process that
 //! holds them.
 
+mod bootstrap;
 pub(super) mod channel;
+mod client_launch;
 mod reaper;
 mod serve;
 mod sterile;
@@ -24,26 +26,21 @@ mod wire;
 mod tests;
 
 use std::{
-    io::BufReader,
-    os::fd::AsFd as _,
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
-    process::Child,
     time::Duration,
 };
 
 use soma::{
     BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, FileAnswer,
-    FileOperation, InstanceId, MachineShape, MachineState, OperationId, PtyAnswer, PtyOperation,
-    SandboxLiveness,
+    FileOperation, InstanceId, MachineState, PtyAnswer, PtyOperation, SandboxLiveness,
 };
 
-use super::prepared::PreparedGeneration;
-pub(crate) use serve::host_machine;
-pub(crate) use sterile::prewarm as prewarm_machine_hosts;
+pub(crate) use bootstrap::host_machine;
+pub(super) use client_launch::launch;
+pub(crate) use sterile::{PrewarmPlan, prewarm as prewarm_machine_hosts};
 use transport::{ask, await_close, exchange, open};
 pub(in crate::backend::kvm) use wire::Launched;
-use wire::{Answer, Call, LaunchWire, Ready};
+use wire::{Answer, Call};
 
 /// Who holds the machines this Backend launches.
 pub(super) enum Role {
@@ -76,12 +73,6 @@ pub(super) struct Executed {
     pub(super) stderr: Vec<u8>,
 }
 
-struct LaunchContext<'a> {
-    operation_id: &'a OperationId,
-    instance_id: &'a InstanceId,
-    socket: PathBuf,
-}
-
 /// Why an operation against a hosted Instance produced no answer.
 #[derive(Clone, Copy)]
 pub(super) enum HostFailure {
@@ -95,81 +86,6 @@ pub(super) enum HostFailure {
 ///
 /// The host process exists before the machine, so a live machine never belongs to a process that
 /// is about to exit.
-pub(super) fn launch(
-    directory: &Path,
-    operation_id: &OperationId,
-    instance_id: &InstanceId,
-    prepared: &PreparedGeneration,
-    shape: &MachineShape,
-) -> Result<Launched, BackendFailureKind> {
-    // Asked before anything is built, because a directory too deep to name a socket in cannot
-    // hold a host for any Instance, and finding that out from a failed `bind` inside the host
-    // reports a machine that would not start rather than a state root that cannot address one.
-    if !channel::addressable(directory) {
-        return Err(BackendFailureKind::Unsupported);
-    }
-    channel::prepare_directory(directory).map_err(|()| BackendFailureKind::Unavailable)?;
-    let socket = channel::socket_path(directory, instance_id);
-    let sterile::SterileHost { mut child, handoff } = sterile::claim()?;
-    let context = LaunchContext {
-        operation_id,
-        instance_id,
-        socket,
-    };
-    match handshake(&mut child, handoff, context, prepared, shape) {
-        Ok(launched) => {
-            reaper::adopt(child).map_err(|_| BackendFailureKind::Unavailable)?;
-            Ok(launched)
-        }
-        Err(kind) => {
-            // Nothing was established, so no process may be left holding this Instance identity.
-            let _ignored = child.kill();
-            let _ignored = child.wait();
-            Err(kind)
-        }
-    }
-}
-
-/// Hands the host its launch and reads the single line it answers with.
-fn handshake(
-    child: &mut Child,
-    mut handoff: UnixStream,
-    context: LaunchContext<'_>,
-    prepared: &PreparedGeneration,
-    shape: &MachineShape,
-) -> Result<Launched, BackendFailureKind> {
-    let (manifest, artifacts) = prepared
-        .handoff()
-        .map_err(|_| BackendFailureKind::Unavailable)?;
-    let request = LaunchWire {
-        socket: context.socket,
-        operation_id: context.operation_id.clone(),
-        instance_id: context.instance_id.clone(),
-        reference: prepared.reference.clone(),
-        generation_id: prepared.id.clone(),
-        manifest,
-        shape: shape.clone(),
-    };
-    let borrowed = artifacts
-        .iter()
-        .map(std::fs::File::as_fd)
-        .collect::<Vec<_>>();
-    soma_supervise::send_descriptors(handoff.as_fd(), &borrowed)
-        .map_err(|_| BackendFailureKind::Unavailable)?;
-    channel::write_line(&mut handoff, &request).map_err(|()| BackendFailureKind::Unavailable)?;
-    // Closing the input is what tells the host that its launch has been stated in full.
-    drop(handoff);
-    let output = child.stdout.take().ok_or(BackendFailureKind::Unavailable)?;
-    let mut reader = BufReader::new(output);
-    // The reply is read here and the host writes nothing afterwards, so this pipe closes when
-    // this reader is dropped rather than at the end of the machine's life.
-    match channel::read_line::<Ready>(&mut reader) {
-        Some(Ready::Launched(launched)) => Ok(launched),
-        Some(Ready::Refused(refusal)) => Err(refusal.into()),
-        None => Err(BackendFailureKind::Unavailable),
-    }
-}
-
 pub(super) fn execute(
     directory: &Path,
     instance: &InstanceId,

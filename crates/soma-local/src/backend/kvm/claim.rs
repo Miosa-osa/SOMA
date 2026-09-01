@@ -11,7 +11,7 @@ use soma_guest::SecretFile;
 
 use super::boot::private_head_from;
 use super::evidence::CONTRACT_VCPUS;
-use super::identity::{LaunchIdentity, generation_bytes};
+use super::identity::{LaunchIdentity, fresh16, generation_bytes};
 use super::pool::{Claimed, MachinePool, Recipe, RecipeInputs};
 use super::prepared::PreparedGeneration;
 use soma_vmm::sandbox::{Assignment, Network};
@@ -46,13 +46,17 @@ pub(super) fn snapshot(
 ///
 /// Returns `None` when the entry carries no snapshot or no immutable root, because neither a
 /// prepared machine nor an on-demand restore exists for it and there is nothing to pool.
-fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64, vcpus: u16) -> Option<Recipe> {
+pub(super) fn recipe_for(
+    prepared: &PreparedGeneration,
+    memory_mib: u64,
+    vcpus: u16,
+) -> Option<Recipe> {
     let (memory, overlay, state) = snapshot(prepared)?;
     let devices = prepared.manifest.device_set();
     let root = prepared.manifest.root.descriptor;
     let candidate = generation_bytes(&prepared.id).ok()?;
     Some(Recipe::new(&RecipeInputs {
-        store: &prepared.store,
+        prepared,
         root,
         memory,
         overlay,
@@ -75,23 +79,29 @@ pub(super) fn assignment_for(
     identity: LaunchIdentity,
     network: Network,
     secrets: Vec<SecretFile>,
+    prepared_overlay: Option<std::fs::File>,
 ) -> Result<Assignment, BackendFailureKind> {
     let instance = InstanceId::new(hex(identity.instance))
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
     // A machine built with no overlay device has no slot to attach a head to, so cloning one
     // here would produce a private disk nothing could mount.
-    let overlay = prepared
-        .manifest
-        .device_set()
-        .overlay()
-        .then(|| {
+    let has_overlay = prepared.manifest.device_set().overlay();
+    if !has_overlay && prepared_overlay.is_some() {
+        return Err(BackendFailureKind::Unavailable);
+    }
+    let overlay = if has_overlay {
+        Some(if let Some(overlay) = prepared_overlay {
+            overlay
+        } else {
             let (_, overlay, _) = snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
             let file = prepared
                 .open_artifact(&overlay)
                 .map_err(|_| BackendFailureKind::Unavailable)?;
-            private_head_from(file, &instance)
+            private_head_from(file, &instance)?
         })
-        .transpose()?;
+    } else {
+        None
+    };
     Ok(Assignment {
         overlay,
         generation: generation_bytes(&prepared.id)?,
@@ -101,6 +111,21 @@ pub(super) fn assignment_for(
         network,
         secrets,
     })
+}
+
+/// Clones one identity-free private disk before request traffic reaches a machine host.
+pub(super) fn prepared_overlay(
+    prepared: &PreparedGeneration,
+) -> Result<Option<std::fs::File>, BackendFailureKind> {
+    if !prepared.manifest.device_set().overlay() {
+        return Ok(None);
+    }
+    let (_, overlay, _) = snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
+    let template = prepared
+        .open_artifact(&overlay)
+        .map_err(|_| BackendFailureKind::Unavailable)?;
+    let anonymous = InstanceId::new(hex(fresh16())).map_err(|_| BackendFailureKind::Unavailable)?;
+    private_head_from(template, &anonymous).map(Some)
 }
 
 /// The Instance identity as the lowercase hexadecimal its portable form is written in.
@@ -115,9 +140,45 @@ fn hex(instance: [u8; 16]) -> String {
 }
 
 /// One machine claimed from the pool, with the snapshot its private head must be cloned from.
-pub(super) struct ClaimedMachine {
-    /// The claimed machine, which must be assigned or destroyed.
-    pub(super) machine: Claimed,
+pub(super) enum ClaimedMachine {
+    /// A machine claimed through the reusable resident pool.
+    Pooled(Claimed),
+    /// The one identity-free machine this per-Instance host prepared before claim.
+    Primed {
+        session: soma_vmm::sandbox::Session,
+        overlay: Option<std::fs::File>,
+    },
+}
+
+impl ClaimedMachine {
+    /// Assigns one fresh Instance to either source without exposing their ownership difference.
+    pub(super) fn assign(
+        self,
+        prepared: &PreparedGeneration,
+        identity: LaunchIdentity,
+        network: Network,
+        secrets: Vec<SecretFile>,
+        activate: &mut dyn FnMut(
+            &soma_guest::ActivationReceipt,
+        ) -> Result<(), soma_vmm::sandbox::SessionError>,
+    ) -> Result<soma_vmm::sandbox::Session, soma_vmm::sandbox::SessionError> {
+        match self {
+            Self::Pooled(machine) => {
+                let assignment = assignment_for(prepared, identity, network, secrets, None)
+                    .map_err(|_| soma_vmm::sandbox::SessionError::Create)?;
+                machine.assign(assignment, activate)
+            }
+            Self::Primed {
+                mut session,
+                overlay,
+            } => {
+                let assignment = assignment_for(prepared, identity, network, secrets, overlay)
+                    .map_err(|_| soma_vmm::sandbox::SessionError::Create)?;
+                session.assign(assignment, activate)?;
+                Ok(session)
+            }
+        }
+    }
 }
 
 /// Registers this Generation with the pool, then claims a machine prepared for it.
@@ -138,5 +199,5 @@ pub(super) fn prepare_and_claim(
     let recipe = recipe_for(prepared, memory_mib, CONTRACT_VCPUS)?;
     let key = recipe.key().clone();
     pool.serve(recipe);
-    pool.claim(&key).map(|machine| ClaimedMachine { machine })
+    pool.claim(&key).map(ClaimedMachine::Pooled)
 }

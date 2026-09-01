@@ -922,3 +922,12 @@ Normalizing all CPUs to the `performance` governor reduced the repeated 40/24/36
 Placement probes found host-specific contention knees rather than one interchangeable slot count: host10 degraded at 48 concurrent launches and host04 degraded at 32.
 The 34/32/34 split produced the best validated median at 66.43 ms but overloaded host04, while 40/20/40 produced the best validated tail at 76.14 ms p95 and 79.21 ms p99 with a 69.23 ms median.
 The remaining stable median gap is split nearly evenly between on-demand machine restore and the first real Node command, so further progress requires a prepared-machine assignment seam or measured guest-command work rather than more placement guessing.
+
+## 2026-09-01 - Hosted preparation now includes the stopped VM and private disk
+
+Each configured HTTP worker now starts one dedicated machine-host child, transfers independently opened verified Generation descriptors, restores one stopped identity-free KVM VM, and creates one unique unlinked private overlay head before the listener accepts traffic.
+Launch assigns Instance identity, guest CID, readiness authority, networking, secrets, and the already-private disk, then resumes and authenticates the guest.
+ADR 0045 records the authority boundary and the honest on-demand fallback for depletion or a nonmatching shape.
+The HTTP server now supports at most sixteen correctly framed requests per HTTP/1.1 connection, and the exact harness reuses that connection across create, `node -v`, and excluded cleanup.
+Final binary SHA-256 `fbeb7229640c56876799196752daf2ed787e2ca545b38c4fa9aa5105324bff90` produced two consecutive clean 100-way cohorts at 60.01/69.27/69.85 ms and 63.78/70.75/71.04 ms for median/p95/p99 with 200 of 200 commands and cleanups.
+A third cohort kept 100 percent success but host10 was simultaneously contended by encrypted-disk and control-plane work, producing an approximately 1.17 second tail that is retained as resilience evidence and excluded from clean comparison.

@@ -18,6 +18,8 @@ use crate::{
 /// A client that opens a socket and then stalls must not hold a thread and, more importantly,
 /// must not hold an open runtime against the durable state store.
 pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
+/// One connection cannot monopolize a worker forever, even when every request is valid.
+const MAX_REQUESTS_PER_CONNECTION: usize = 16;
 
 /// Accepts connections until the listener fails, serving each on its own thread.
 ///
@@ -47,7 +49,7 @@ where
     Ok(())
 }
 
-/// Serves exactly one request on one connection.
+/// Serves a bounded sequence of framed requests on one connection.
 ///
 /// The facade is opened only after the request parses. Opening it first would mean a malformed
 /// request could still cost a state-store handle.
@@ -63,15 +65,27 @@ where
         return;
     }
     let mut reader = BufReader::new(stream);
-    let response = match Request::read_from(&mut reader) {
-        Ok(request) => match open_facade() {
+    for request_index in 0..MAX_REQUESTS_PER_CONNECTION {
+        let request = match Request::read_from(&mut reader) {
+            Ok(request) => request,
+            Err(error) => {
+                let response = Response::new(error.status(), failure_body("request", error));
+                let _ignored = response.write_to(&mut &*stream);
+                return;
+            }
+        };
+        let keep_alive = request.keep_alive() && request_index + 1 < MAX_REQUESTS_PER_CONNECTION;
+        let response = match open_facade() {
             Ok(mut facade) => handle(&mut facade, &request),
             Err(error) => Response::new(error.status(), failure_body("request", error)),
-        },
-        Err(error) => Response::new(error.status(), failure_body("request", error)),
-    };
-    let mut writer = stream;
-    // A write failure means the peer is gone. There is nobody left to tell, so the connection is
-    // simply dropped rather than logged as a service fault.
-    let _ignored = response.write_to(&mut writer);
+        };
+        let written = if keep_alive {
+            response.write_keep_alive_to(&mut &*stream)
+        } else {
+            response.write_to(&mut &*stream)
+        };
+        if written.is_err() || !keep_alive {
+            return;
+        }
+    }
 }

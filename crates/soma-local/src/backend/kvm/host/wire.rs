@@ -16,6 +16,34 @@ use std::path::PathBuf;
 /// The largest line either side will read, so neither can spend the other's memory.
 pub(super) const MAX_LINE_BYTES: u64 = 64 << 20;
 
+/// Generation and shape facts an identity-free host consumes before request traffic begins.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PrewarmWire {
+    pub(super) reference: String,
+    pub(super) generation_id: GenerationId,
+    pub(super) manifest: Vec<u8>,
+    pub(super) memory_mib: u64,
+}
+
+/// The first message after the verified descriptor handoff.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum InitialWire {
+    /// Restore one identity-free machine, then wait for its later launch assignment.
+    Prewarm(PrewarmWire),
+    /// Launch immediately through the on-demand path.
+    Launch(Box<LaunchWire>),
+}
+
+/// Proof that a child completed identity-free restore before it entered the available pool.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum PrewarmReady {
+    Prepared,
+    Refused,
+}
+
 /// Everything the host needs to build the one machine it will ever hold.
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

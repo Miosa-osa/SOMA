@@ -24,15 +24,19 @@ class ApiClient:
         self._port = parsed.port
         self._tenant = tenant
         self._timeout = timeout_seconds
+        self._session: http.client.HTTPConnection | None = None
 
     def request(
         self, method: str, path: str, body: Mapping[str, object] | None = None
     ) -> tuple[int, Mapping[str, object]]:
         """Send one request and require one bounded JSON object in response."""
 
-        connection = self._connection()
+        connection = self._session
         try:
-            connection.connect()
+            if connection is None:
+                connection = self._connection()
+                connection.connect()
+                self._session = connection
             if connection.sock is None:
                 raise OSError("HTTP connection opened without a socket")
             connection.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -51,8 +55,10 @@ class ApiClient:
             response = connection.getresponse()
             status = response.status
             payload = response.read(8 * 1024 * 1024 + 1)
-        finally:
+        except Exception:
             connection.close()
+            self._session = None
+            raise
         if len(payload) > 8 * 1024 * 1024:
             raise ValueError("API response exceeds the benchmark capture bound")
         decoded = json.loads(payload)

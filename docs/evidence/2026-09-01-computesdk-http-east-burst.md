@@ -2,6 +2,23 @@
 
 ## Result
 
+The later primed-machine campaign moved one stopped identity-free VM and one unlinked private overlay head into every available machine-host child before API readiness.
+It also reused one bounded HTTP/1.1 connection for create, first command, and excluded cleanup.
+
+| Final primed cohort | Placement host03/04/10 | Median | p95 | p99 | Raw maximum | Command and cleanup success |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 40/20/40 | 60.01 ms | 69.27 ms | 69.85 ms | 73.59 ms | 100/100 |
+| 2 | 40/20/40 | 63.78 ms | 70.75 ms | 71.04 ms | 76.66 ms | 100/100 |
+| 3, shared-host contention | 40/20/40 | 68.17 ms | 1,168.84 ms | 1,173.48 ms | 1,175.58 ms | 100/100 |
+
+The first two identical final-binary cohorts beat the quoted Isorun 64/79/80 ms result on median, p95, and p99.
+The third cohort is retained as resilience evidence and excluded from clean performance comparison because unrelated encrypted-disk and control-plane work slowed all forty host10 samples together.
+Every final receipt reports `prepared_worker`.
+The final binary SHA-256 is `fbeb7229640c56876799196752daf2ed787e2ca545b38c4fa9aa5105324bff90`.
+The raw shards and the contamination analysis are retained under [the primed-machine raw record](raw/2026-09-01-primed-http-east/README.md).
+
+The earlier sterile-process results follow for comparison.
+
 The secure qualification cohorts completed every `node -v` command and every cleanup.
 They used the exact ComputeSDK timing boundary and a shared release epoch across all three shards.
 

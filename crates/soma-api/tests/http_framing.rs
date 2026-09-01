@@ -65,6 +65,15 @@ fn an_unknown_protocol_version_is_refused() {
 }
 
 #[test]
+fn http11_is_persistent_unless_the_client_closes_it() {
+    let persistent = parse("GET /v1/sandboxes HTTP/1.1\r\n\r\n").expect("parses");
+    let closing = parse("GET /v1/sandboxes HTTP/1.1\r\nconnection: close\r\n\r\n").expect("parses");
+
+    assert!(persistent.keep_alive());
+    assert!(!closing.keep_alive());
+}
+
+#[test]
 fn a_request_target_that_is_not_a_path_is_refused() {
     assert_eq!(
         parse("GET http://elsewhere/v1/sandboxes HTTP/1.1\r\n\r\n").err(),
@@ -136,4 +145,19 @@ fn a_response_is_emitted_in_one_write() {
 
     assert_eq!(writer.writes, 1);
     assert!(writer.bytes.ends_with(b"\r\n\r\n{}"));
+}
+
+#[test]
+fn a_persistent_response_declares_keep_alive() {
+    let mut written = Vec::new();
+
+    Response::new(200, b"{}".to_vec())
+        .write_keep_alive_to(&mut written)
+        .expect("writing succeeds");
+
+    assert!(
+        written
+            .windows(24)
+            .any(|part| part == b"connection: keep-alive\r\n")
+    );
 }

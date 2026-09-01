@@ -46,17 +46,19 @@ def execute_slot(
     started_ns = create_finished_ns = tti_finished_ns = None
     cleanup_finished_ns = None
     preparation = None
+    launch_milestones = None
+    command_milestones = None
     try:
         barrier.wait(timeout=300)
         _await_release(release_at_epoch_ns)
         started_ns = clock()
         status, launch = client.request("POST", "/v1/sandboxes", CREATE)
         create_finished_ns = clock()
-        instance, preparation = _launch(status, launch)
+        instance, preparation, launch_milestones = _launch(status, launch)
         status, command = client.request(
             "POST", f"/v1/sandboxes/{instance}/commands", COMMAND
         )
-        _command(status, command, instance)
+        command_milestones = _command(status, command, instance)
         tti_finished_ns = clock()
     except Exception as error:
         failure = f"{type(error).__name__}: {error}"
@@ -80,6 +82,8 @@ def execute_slot(
         "create_ns": _delta(started_ns, create_finished_ns),
         "tti_ns": _delta(started_ns, tti_finished_ns),
         "preparation": preparation,
+        "launch_milestones": launch_milestones,
+        "command_milestones": command_milestones,
         "command_succeeded": command_succeeded,
         "cleanup_complete": cleanup_complete,
         "successful": command_succeeded and cleanup_complete,
@@ -87,7 +91,9 @@ def execute_slot(
     }
 
 
-def _launch(status: int, envelope: Mapping[str, object]) -> tuple[str, object]:
+def _launch(
+    status: int, envelope: Mapping[str, object]
+) -> tuple[str, object, object]:
     result = envelope.get("result")
     if status != 201 or not _okay(envelope) or not isinstance(result, Mapping):
         error = envelope.get("error")
@@ -98,10 +104,10 @@ def _launch(status: int, envelope: Mapping[str, object]) -> tuple[str, object]:
         raise ValueError("create did not return one ready Instance")
     receipt = envelope.get("receipt")
     preparation = receipt.get("preparation") if isinstance(receipt, Mapping) else None
-    return instance, preparation
+    return instance, preparation, _milestones(receipt)
 
 
-def _command(status: int, envelope: Mapping[str, object], instance: str) -> None:
+def _command(status: int, envelope: Mapping[str, object], instance: str) -> object:
     result = envelope.get("result")
     if status != 200 or not _okay(envelope) or not isinstance(result, Mapping):
         raise ValueError(f"command refused with HTTP {status}")
@@ -116,6 +122,14 @@ def _command(status: int, envelope: Mapping[str, object], instance: str) -> None
     output = base64.b64decode(str(stdout.get("data", "")), validate=True)
     if not output.startswith(b"v"):
         raise ValueError("node -v returned no version")
+    return _milestones(envelope.get("receipt"))
+
+
+def _milestones(receipt: object) -> object:
+    if not isinstance(receipt, Mapping):
+        return None
+    milestones = receipt.get("milestones")
+    return milestones if isinstance(milestones, list) else None
 
 
 def _cleanup(status: int, envelope: Mapping[str, object], instance: str) -> bool:

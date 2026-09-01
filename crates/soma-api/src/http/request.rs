@@ -42,6 +42,7 @@ pub struct Request {
     pub path: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    http11: bool,
 }
 
 impl Request {
@@ -63,6 +64,17 @@ impl Request {
             .collect()
     }
 
+    /// Whether another request may follow this one on the same connection.
+    #[must_use]
+    pub fn keep_alive(&self) -> bool {
+        let connection = self.header("connection");
+        if self.http11 {
+            !connection.is_some_and(|value| value.eq_ignore_ascii_case("close"))
+        } else {
+            connection.is_some_and(|value| value.eq_ignore_ascii_case("keep-alive"))
+        }
+    }
+
     /// Reads one request from a buffered stream.
     ///
     /// Every bound is enforced while reading rather than after, so a hostile or broken client
@@ -74,7 +86,7 @@ impl Request {
     /// a length, and a 413 refusal when any declared bound is exceeded.
     pub fn read_from(reader: &mut impl BufRead) -> Result<Self, ApiError> {
         let line = read_line(reader, MAX_REQUEST_LINE_BYTES)?;
-        let (method, path) = request_line(&line)?;
+        let (method, path, http11) = request_line(&line)?;
         let headers = read_headers(reader)?;
         let body = read_body(reader, &headers)?;
         Ok(Self {
@@ -82,17 +94,18 @@ impl Request {
             path,
             headers,
             body,
+            http11,
         })
     }
 }
 
-fn request_line(line: &str) -> Result<(Method, String), ApiError> {
+fn request_line(line: &str) -> Result<(Method, String, bool), ApiError> {
     let mut parts = line.split(' ');
     let (Some(method), Some(target), Some(version)) = (parts.next(), parts.next(), parts.next())
     else {
         return Err(ApiError::invalid("the request line is malformed"));
     };
-    if parts.next().is_some() || !version.starts_with("HTTP/1.") {
+    if parts.next().is_some() || !matches!(version, "HTTP/1.0" | "HTTP/1.1") {
         return Err(ApiError::invalid("the request line is malformed"));
     }
     // The query string is split off and discarded: no route on this service reads one, and
@@ -109,6 +122,7 @@ fn request_line(line: &str) -> Result<(Method, String), ApiError> {
             _ => Method::Other,
         },
         path.to_owned(),
+        version == "HTTP/1.1",
     ))
 }
 

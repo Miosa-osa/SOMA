@@ -40,8 +40,8 @@ class ComputeSdkExactTests(unittest.TestCase):
             }, "guest_authority": "complete",
         }
         client = FakeClient([
-            (201, {"schema": "soma.api.v1", "status": "ok", "result": {"instance_id": instance, "state": "ready"}, "receipt": {"preparation": {"value": "on_demand"}}}),
-            (200, {"schema": "soma.api.v1", "status": "ok", "result": {"instance_id": instance, "execution": {"exited": {"code": 0}}, "stdout": {"encoding": "base64", "byte_length": 9, "data": base64.b64encode(b"v22.0.0\n").decode()}, "stderr": {"encoding": "base64", "byte_length": 0, "data": ""}}}),
+            (201, {"schema": "soma.api.v1", "status": "ok", "result": {"instance_id": instance, "state": "ready"}, "receipt": {"preparation": {"value": "on_demand"}, "milestones": [{"kind": "ready", "elapsed_ns": 300}]}}),
+            (200, {"schema": "soma.api.v1", "status": "ok", "result": {"instance_id": instance, "execution": {"exited": {"code": 0}}, "stdout": {"encoding": "base64", "byte_length": 9, "data": base64.b64encode(b"v22.0.0\n").decode()}, "stderr": {"encoding": "base64", "byte_length": 0, "data": ""}}, "receipt": {"milestones": [{"kind": "command_finished", "elapsed_ns": 900}]}}),
             (200, {"schema": "soma.api.v1", "status": "ok", "result": {"instance_id": instance, "state": "destroyed"}, "receipt": {"cleanup": cleanup}}),
         ])
         ticks = iter((1_000, 1_400, 2_000, 9_000))
@@ -51,6 +51,8 @@ class ComputeSdkExactTests(unittest.TestCase):
         self.assertEqual(sample["create_ns"], 400)
         self.assertEqual(sample["tti_ns"], 1_000)
         self.assertEqual(sample["cleanup_finished_ns"], 9_000)
+        self.assertEqual(sample["launch_milestones"], [{"kind": "ready", "elapsed_ns": 300}])
+        self.assertEqual(sample["command_milestones"], [{"kind": "command_finished", "elapsed_ns": 900}])
         self.assertEqual([call[0] for call in client.calls], ["POST", "POST", "DELETE"])
 
     def test_combining_shards_recomputes_one_trimmed_cohort(self) -> None:

@@ -79,6 +79,9 @@ fn binding_refuses_a_socket_something_already_answers_on() {
         channel::bind(&socket).is_err(),
         "a second host must not take over an Instance another is serving"
     );
+    let _probe = held
+        .accept()
+        .expect("the first host drains the liveness probe");
     drop(held);
 
     // Once the first host is gone the name is free again, which is what makes a killed host

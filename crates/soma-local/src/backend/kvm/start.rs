@@ -86,13 +86,11 @@ impl KvmBackend {
             network,
             secrets,
         } = launching;
-        let assignment = claim::assignment_for(prepared, identity, network, secrets)
-            .map_err(|kind| self.fail(operation, kind))?;
         self.register(operation, instance, identity.guest_cid)?;
         // The machine already exists, so this stamp separates the fresh authority this Launch
         // transferred from the session it then drives, exactly as the on-demand arm does.
         let launched = self.clocks.elapsed_ns(operation);
-        match claimed.machine.assign(assignment, &mut |receipt| {
+        match claimed.assign(prepared, identity, network, secrets, &mut |receipt| {
             egress.activate(receipt).map_err(|()| SessionError::Network)
         }) {
             Ok(session) => Ok(Started {

@@ -11,7 +11,6 @@
 
 use std::{
     io::{self, BufReader},
-    os::fd::AsFd as _,
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
     sync::{
@@ -46,51 +45,15 @@ const REQUEST_CEILING: Duration = Duration::from_secs(30);
 const RELEASED: i32 = 0;
 const REFUSED: i32 = 1;
 
-/// Waits for one launch capability, serves its machine until release, and returns process status.
-pub(crate) fn host_machine(expected_socket: Option<&Path>) -> i32 {
-    serve(expected_socket)
-}
-
-fn serve(expected_socket: Option<&Path>) -> i32 {
-    let input = io::stdin();
-    let Ok(descriptors) = soma_supervise::receive_descriptors(input.as_fd()) else {
-        return REFUSED;
-    };
-    let mut input = BufReader::new(input);
-    let Some(request) = channel::read_line::<LaunchWire>(&mut input) else {
-        return REFUSED;
-    };
-    if expected_socket.is_some_and(|expected| expected != request.socket) {
-        return REFUSED;
-    }
-    let socket = request.socket.clone();
-    let Ok(listener) = channel::bind(&socket) else {
-        return REFUSED;
-    };
-    let status = serve_machine(&listener, &socket, &request, descriptors);
-    let _ignored = std::fs::remove_file(socket);
-    status
-}
-
-fn serve_machine(
+pub(super) fn serve_machine(
     listener: &UnixListener,
     socket: &Path,
     request: &LaunchWire,
-    descriptors: Vec<std::os::fd::OwnedFd>,
+    prepared: &prepared::PreparedGeneration,
+    mut backend: KvmBackend,
 ) -> i32 {
-    let Ok(mut backend) = KvmBackend::machine_host() else {
-        return refuse(BackendFailureKind::Unavailable);
-    };
     let instance = request.instance_id.clone();
-    let Ok(prepared) = prepared::from_handoff(
-        request.reference.clone(),
-        &request.generation_id,
-        &request.manifest,
-        descriptors,
-    ) else {
-        return refuse(BackendFailureKind::Unavailable);
-    };
-    let launched = match launch(&mut backend, request, &prepared) {
+    let launched = match launch(&mut backend, request, prepared) {
         Ok(launched) => launched,
         Err(kind) => return refuse(kind),
     };
@@ -260,7 +223,7 @@ fn watch_for_idleness(socket: PathBuf, activity: Arc<AtomicU64>, started: Instan
 }
 
 /// Reports a launch that never produced a machine, on the one stream the client is reading.
-fn refuse(kind: BackendFailureKind) -> i32 {
+pub(super) fn refuse(kind: BackendFailureKind) -> i32 {
     let _ignored = channel::write_line(&mut io::stdout(), &Ready::Refused(kind.into()));
     REFUSED
 }
