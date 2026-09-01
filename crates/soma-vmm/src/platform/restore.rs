@@ -56,6 +56,15 @@ impl RestoreFailure {
         Self::at(restore_point(assessment.matched), Recovery::RepairHost)
     }
 
+    /// The failure of a restore that verified nothing, because nothing was re-hashed.
+    ///
+    /// A platform that reads its artifacts through handles a broker already opened and checked
+    /// does not run the installation-time verification, so a failure of its restore is a
+    /// restore failure and must not be reported as a verification that did not happen.
+    pub(crate) const fn at_restore(recovery: Recovery) -> Self {
+        Self::at(RestoreFailurePoint::Restore, recovery)
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(progress: RestoreProgress, recovery: Recovery) -> Self {
         Self::from_progress(progress, recovery)

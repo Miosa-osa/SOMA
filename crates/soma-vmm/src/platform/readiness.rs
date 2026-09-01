@@ -44,6 +44,14 @@ impl ReadyAuthenticatedGuest {
     ) -> Result<Self, ReadinessFailure> {
         Self::from_observation(progress, readiness_status)
     }
+
+    /// The authority a platform holds once its guest answered its readiness probe.
+    ///
+    /// A platform that drove the whole sequence itself already knows every step succeeded,
+    /// because the sandbox returns Ready only after the receipt it minted was accepted.
+    pub(crate) const fn authenticated() -> Self {
+        Self { _private: () }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -68,6 +76,11 @@ impl ReadinessFailure {
 
     fn contract_violation(assessment: ProgressAssessment) -> Self {
         Self::at(readiness_point(assessment.matched), Recovery::RepairHost)
+    }
+
+    /// The failure a platform reports for the point its own sequence stopped at.
+    pub(crate) fn for_platform(progress: ReadinessProgress, recovery: Recovery) -> Self {
+        Self::from_progress(progress, recovery)
     }
 
     #[cfg(test)]

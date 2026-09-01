@@ -25,8 +25,9 @@ use self::activation::open_network;
 use super::io::HostIo;
 
 mod commands;
+use super::identity::GUEST_MAC;
 use super::pending::PendingActivation;
-use super::session::{BOOT_DEADLINE, EXIT_GRACE, GUEST_MAC, Request, Response, SessionError};
+use super::session::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, SessionError};
 use super::source::{Boot, Network, Source};
 use commands::serve_commands;
 

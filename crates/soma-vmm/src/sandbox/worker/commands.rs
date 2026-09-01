@@ -9,6 +9,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use soma_guest::{OperationId, RepairedHostControl};
 use soma_kvm::x86_64::{Milestone, SandboxMachine};
 
+use super::super::identity::fresh16;
 use super::super::io::HostIo;
 use super::super::session::{Completed, Request, Response, SessionError};
 
@@ -63,14 +64,4 @@ pub(super) fn serve_commands(
         .map_err(|_| SessionError::Gone)?;
     machine.mark(Milestone::Shutdown);
     Ok(())
-}
-
-/// Sixteen fresh bytes for one operation identity.
-fn fresh16() -> [u8; 16] {
-    use std::io::Read as _;
-    let mut bytes = [0_u8; 16];
-    if let Ok(mut file) = std::fs::File::open("/dev/urandom") {
-        let _ignored = file.read_exact(&mut bytes);
-    }
-    bytes
 }

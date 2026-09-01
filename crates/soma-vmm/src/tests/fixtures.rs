@@ -10,6 +10,7 @@ pub(super) fn launch() -> Launch {
         Generation::new(
             GenerationId::new([3; 32]).expect("generation ID"),
             machine_spec(),
+            crate::DeclaredDevices::new(true, true),
         ),
     )
 }

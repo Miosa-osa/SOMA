@@ -15,7 +15,9 @@ mod error;
 mod field;
 mod reply;
 mod request;
+mod window;
 
 pub use error::ControlError;
 pub use reply::Reply;
 pub use request::{MAX_REQUEST_BYTES, Request};
+pub use window::{MAX_OUTPUT_WINDOW_BYTES, OutputStream, OutputWindow};

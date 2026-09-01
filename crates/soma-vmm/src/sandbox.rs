@@ -17,6 +17,7 @@
 //! once it narrows.
 
 mod assign;
+mod identity;
 mod io;
 mod pending;
 mod secrets;
@@ -26,8 +27,11 @@ mod sterile;
 mod timeline;
 mod worker;
 
+pub use identity::{
+    FIRST_GUEST_CID, GUEST_MAC, fresh16, guest_cid_for, link_down_network, now_unix_nanos,
+};
 pub use pending::PendingActivation;
-pub use session::{BOOT_DEADLINE, Completed, EXIT_GRACE, GUEST_MAC, Session, SessionError};
+pub use session::{BOOT_DEADLINE, Completed, EXIT_GRACE, Session, SessionError};
 pub use source::{Boot, Network, Source};
 pub use sterile::{Assignment, SterileSpec};
 pub use timeline::dump as dump_timeline;

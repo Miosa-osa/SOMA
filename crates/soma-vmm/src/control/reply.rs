@@ -14,6 +14,8 @@ pub enum Reply<'a> {
     Executed(&'a Executed),
     Stopped(&'a Stopped),
     Failure(&'a Failure),
+    /// One bounded window of a completed command's output.
+    Output(&'a [u8]),
     /// The seccomp filter now denies every startup-only syscall.
     Sealed,
     /// The request was not performed and Machine state did not change.
@@ -57,6 +59,7 @@ impl Reply<'_> {
                 failure.cleanup(),
                 milestones(failure.milestones()),
             ),
+            Self::Output(bytes) => format!("output {}", hex(bytes)),
             Self::Sealed => "sealed".to_owned(),
             Self::Rejected(reason) => format!("rejected {reason}"),
         }
@@ -79,8 +82,8 @@ fn milestones(reached: &[Milestone]) -> String {
 mod tests {
     use super::*;
     use crate::{
-        DiskBytes, Generation, GenerationId, InstanceId, Launch, Machine, MachineSpec, MemoryBytes,
-        OperationId, VcpuCount,
+        DeclaredDevices, DiskBytes, Generation, GenerationId, InstanceId, Launch, Machine,
+        MachineSpec, MemoryBytes, OperationId, VcpuCount,
     };
 
     fn launch() -> Launch {
@@ -92,7 +95,11 @@ mod tests {
         Launch::new(
             OperationId::new([1; 16]).expect("operation"),
             InstanceId::new([2; 16]).expect("instance"),
-            Generation::new(GenerationId::new([3; 32]).expect("generation"), machine),
+            Generation::new(
+                GenerationId::new([3; 32]).expect("generation"),
+                machine,
+                DeclaredDevices::new(true, true),
+            ),
         )
     }
 
@@ -105,6 +112,15 @@ mod tests {
              recovery=RepairHost cleanup=Complete \
              milestones=RequestAccepted,RollbackStarted,CleanupCompleted"
         );
+    }
+
+    #[test]
+    fn output_windows_cross_as_hexadecimal_bytes() {
+        assert_eq!(
+            Reply::Output(b"soma-ok\n").encode(),
+            "output 736f6d612d6f6b0a"
+        );
+        assert_eq!(Reply::Output(b"").encode(), "output ");
     }
 
     #[test]

@@ -21,8 +21,6 @@ use super::source::Boot;
 use super::sterile::Assignment;
 use super::worker::serve;
 
-/// The locally administered MAC the guest sees on its one network device.
-pub const GUEST_MAC: [u8; 6] = [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01];
 /// How long a cold boot has to reach an authenticated Ready.
 pub const BOOT_DEADLINE: Duration = Duration::from_secs(60);
 /// How long the guest has to leave `KVM_RUN` after it acknowledges shutdown.

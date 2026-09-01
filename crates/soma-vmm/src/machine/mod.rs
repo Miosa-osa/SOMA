@@ -9,6 +9,9 @@ use crate::{
     platform::{Platform, ReadyAuthenticatedGuest, UnavailablePlatform},
 };
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::platform::KvmPlatform;
+
 pub struct Machine {
     platform: Box<dyn Platform>,
     state: State,
@@ -29,7 +32,17 @@ impl Machine {
         }
     }
 
-    #[cfg(test)]
+    /// One Machine backed by the KVM provider, built from the sealed descriptor table.
+    ///
+    /// Returns `None` when the manifest does not name a whole machine, which is a launcher
+    /// fault rather than a request fault: a worker that served the contract with a partial
+    /// table would report a Machine that cannot exist.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[must_use]
+    pub fn on_jailed_kvm(manifest: &soma_jail::DescriptorManifest) -> Option<Self> {
+        Some(Self::with_platform(KvmPlatform::adopt(manifest)?))
+    }
+
     pub(crate) fn with_platform(platform: impl Platform + 'static) -> Self {
         Self {
             platform: Box::new(platform),

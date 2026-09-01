@@ -85,6 +85,11 @@ impl OperationLedger {
         }
     }
 
+    /// The completed receipt of one Execute operation, for reading its output back.
+    pub(super) fn executed(&self, operation: OperationId) -> Option<&Executed> {
+        self.executes.get(&operation)?.outcome.as_ref().ok()
+    }
+
     pub(super) fn record_execute(&mut self, request: Execute, outcome: Result<Executed, Failure>) {
         let retained_bytes = execute_receipt_bytes(&request, &outcome);
         self.retained_execute_bytes = self.retained_execute_bytes.saturating_add(retained_bytes);

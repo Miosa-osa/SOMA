@@ -23,7 +23,9 @@ pub use request::{
     Argument, CommandError, Execute, ExecutionLimits, Launch, OutputBytes, Program, Stop,
     TimeoutMillis,
 };
-pub use spec::{DiskBytes, Generation, MachineSpec, MemoryBytes, SpecError, VcpuCount};
+pub use spec::{
+    DeclaredDevices, DiskBytes, Generation, MachineSpec, MemoryBytes, SpecError, VcpuCount,
+};
 
 #[cfg(test)]
 mod tests;
