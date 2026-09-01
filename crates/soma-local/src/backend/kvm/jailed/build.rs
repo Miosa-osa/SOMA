@@ -8,7 +8,6 @@
 
 use std::fs::{File, OpenOptions};
 use std::os::fd::OwnedFd;
-use std::path::Path;
 
 use soma::{BackendFailureKind, InstanceId};
 use soma_jail::{
@@ -18,6 +17,7 @@ use soma_jail::{
 
 use super::anchors::Anchors;
 use crate::backend::kvm::boot::private_head_from;
+use crate::backend::kvm::{claim, prepared::PreparedGeneration};
 
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;
@@ -75,9 +75,7 @@ pub(super) struct Opened {
 /// Opens every resource one jailed machine is built from.
 pub(super) fn open(
     anchors: &Anchors,
-    store: &Path,
-    root: &soma_generation::ArtifactDescriptor,
-    snapshot: &Path,
+    prepared: &PreparedGeneration,
     instance: &InstanceId,
     overlay: bool,
 ) -> Result<Opened, BackendFailureKind> {
@@ -89,14 +87,23 @@ pub(super) fn open(
         .write(true)
         .open("/dev/kvm")
         .map_err(unavailable)?;
-    let root = soma_generation::open_artifact(store, root).map_err(unavailable)?;
-    let memory = File::open(snapshot.join("memory.raw")).map_err(unavailable)?;
-    let state = File::open(snapshot.join("state.somasnap")).map_err(unavailable)?;
+    let root = soma_generation::open_artifact(&prepared.store, &prepared.manifest.root.descriptor)
+        .map_err(unavailable)?;
+    let (memory_descriptor, overlay_descriptor, state_descriptor) =
+        claim::snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
+    let memory =
+        soma_generation::open_artifact(&prepared.store, &memory_descriptor).map_err(unavailable)?;
+    let state =
+        soma_generation::open_artifact(&prepared.store, &state_descriptor).map_err(unavailable)?;
     // The head is this Instance's private disk, cloned from the snapshot's own quiesced
     // template and unlinked before it is handed over, so nothing on the filesystem outlives
     // the machine that owns it and no name for it ever reaches the jail.
     let head = overlay
-        .then(|| private_head_from(&snapshot.join("overlay.raw"), instance))
+        .then(|| {
+            let template = soma_generation::open_artifact(&prepared.store, &overlay_descriptor)
+                .map_err(unavailable)?;
+            private_head_from(template, instance)
+        })
         .transpose()?;
     // The worker's end is created here rather than by the worker, which is the whole point
     // of the split: a jailed process may not create, bind, or accept a socket, and this one

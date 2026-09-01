@@ -86,9 +86,8 @@ impl KvmBackend {
             network,
             secrets,
         } = launching;
-        let assignment =
-            claim::assignment_for(&claimed.snapshot, prepared, identity, network, secrets)
-                .map_err(|kind| self.fail(operation, kind))?;
+        let assignment = claim::assignment_for(prepared, identity, network, secrets)
+            .map_err(|kind| self.fail(operation, kind))?;
         self.register(operation, instance, identity.guest_cid)?;
         // The machine already exists, so this stamp separates the fresh authority this Launch
         // transferred from the session it then drives, exactly as the on-demand arm does.
@@ -145,9 +144,9 @@ impl KvmBackend {
         }
         // Only a Generation with a captured machine can be restored from descriptors; a cold
         // boot would need the kernel and initramfs this descriptor table has no roles for.
-        let Some(snapshot) = claim::snapshot_dir(prepared) else {
+        if claim::snapshot(prepared).is_none() {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
-        };
+        }
         let generation_bytes =
             generation_bytes(&prepared.id).map_err(|kind| self.fail(operation, kind))?;
         self.register(operation, instance, identity.guest_cid)?;
@@ -156,7 +155,6 @@ impl KvmBackend {
             anchors,
             &JailedLaunching {
                 prepared,
-                snapshot: &snapshot,
                 instance,
                 instance_bytes: identity.instance,
                 generation_bytes,

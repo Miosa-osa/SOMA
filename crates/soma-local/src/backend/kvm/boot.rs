@@ -5,8 +5,9 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::path::PathBuf;
 
 use soma::{BackendFailureKind, InstanceId};
+use soma_generation::generation_manifest::SnapshotBinding;
 use soma_guest::{LaunchNetwork, SecretFile};
-use soma_kvm::x86_64::{Hypervisor, SandboxDisks, SnapshotObjects, SnapshotPaths};
+use soma_kvm::x86_64::{Hypervisor, SandboxDisks, SnapshotObjects};
 use soma_storage::CloneError;
 
 use super::identity::{LaunchIdentity, generation_bytes, now_unix_nanos};
@@ -53,18 +54,22 @@ pub(super) fn boot_for(
     // A prepared entry may carry a snapshot taken once for the whole Generation. When it does,
     // this launch resumes that machine instead of booting a kernel, which is the difference
     // between hundreds of milliseconds and tens on the request path.
-    let snapshot = super::claim::snapshot_dir(prepared);
     let guest_cid = identity.guest_cid;
-    let source = if let Some(snapshot) = snapshot {
+    let source = if let SnapshotBinding::Captured {
+        memory,
+        overlay: snapshot_overlay,
+        state,
+        ..
+    } = manifest.snapshot
+    {
         {
             // The restore clones its own head from the snapshot's sterile overlay template, not
             // from the Candidate's, because the captured machine has already written to it.
             let overlay = devices
                 .overlay()
-                .then(|| private_head_from(&snapshot.join("overlay.raw"), instance))
+                .then(|| open(&snapshot_overlay).and_then(|file| private_head_from(file, instance)))
                 .transpose()?;
-            let objects = SnapshotObjects::open(&SnapshotPaths::new(snapshot))
-                .map_err(|_| BackendFailureKind::Unavailable)?;
+            let objects = SnapshotObjects::adopt(open(&state)?, open(&memory)?, None);
             Source::Restore {
                 objects,
                 hypervisor: Hypervisor::Device,
@@ -119,11 +124,9 @@ const MIB: u64 = 1024 * 1024;
 /// The snapshot carries its own sterile overlay template, quiesced at the capture point, so a
 /// restored Instance must clone that rather than the Candidate's untouched one.
 pub(super) fn private_head_from(
-    template_path: &std::path::Path,
+    template: std::fs::File,
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
-    let template =
-        std::fs::File::open(template_path).map_err(|_| BackendFailureKind::Unavailable)?;
     clone_or_copy(template, None, instance)
 }
 

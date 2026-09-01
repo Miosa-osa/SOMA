@@ -882,3 +882,8 @@ After snapshot capture it installs the memory, overlay, and state objects into t
 The public KVM resolver no longer has an environment-variable escape hatch for Candidate launch.
 It parses the ready `GenerationId`, independently runs `verify_generation` over the manifest and every artifact, reports that identity in workload evidence, and binds the same certified identity into the guest launch page.
 Linux x86_64 tests for Candidate refusal run inside an amd64 Docker environment on the Apple Silicon development host; live capture and KVM launch still require the production Linux host.
+## 2026-09-01 - Certified artifacts remain verified at use
+
+The Linux KVM launch path now opens every Generation and captured-snapshot object through its content descriptor and consumes the same handle whose digest and size were verified.
+Direct restore, prepared-pool refill, private overlay cloning, and jailed-worker construction no longer treat the sibling `snapshot/` directory as a launch capability.
+ADR 0041 records the trust-boundary decision.

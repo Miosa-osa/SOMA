@@ -57,7 +57,6 @@ pub(super) struct Jailed {
 /// Everything one jailed launch is built from.
 pub(super) struct Launching<'a> {
     pub(super) prepared: &'a PreparedGeneration,
-    pub(super) snapshot: &'a std::path::Path,
     pub(super) instance: &'a InstanceId,
     pub(super) instance_bytes: [u8; 16],
     pub(super) generation_bytes: [u8; 32],
@@ -88,9 +87,7 @@ impl Jailed {
         )?;
         let opened = build::open(
             anchors,
-            &launching.prepared.store,
-            &launching.prepared.manifest.root.descriptor,
-            launching.snapshot,
+            launching.prepared,
             launching.instance,
             devices.overlay(),
         )?;

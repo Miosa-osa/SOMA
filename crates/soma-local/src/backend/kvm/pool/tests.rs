@@ -17,7 +17,7 @@ use soma_kvm::DeviceSet;
 fn key() -> MachineKey {
     MachineKey {
         candidate: [3; 32],
-        snapshot: "/srv/generations/one/snapshot".into(),
+        snapshot: [[1; 32], [2; 32], [3; 32]],
         memory_bytes: 1 << 30,
         overlay_capacity_bytes: 256 << 20,
         vcpus: 1,

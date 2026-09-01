@@ -88,12 +88,13 @@ fn link_last(
     })
 }
 
-/// Opens one published Generation artifact read-only by its manifest descriptor.
+/// Opens and digest-verifies one published Generation artifact by its manifest descriptor.
 ///
-/// The store rejects a symlink, and the open file's length must equal the descriptor size.
-/// Callers that need digest proof read the file through their own hasher; this accessor
-/// exists so a launcher can hand the immutable root, overlay template, kernel, and initramfs
-/// to a machine without ever composing a host path from artifact identity.
+/// The returned handle is the same handle whose bytes passed digest and size verification.
+/// This matters at the launch boundary: verifying one path and reopening it later would allow
+/// a mutable host directory to substitute different bytes between those two operations.
+/// Callers can hand this handle directly to a machine without composing a host path or trusting
+/// a second lookup.
 ///
 /// # Errors
 ///
@@ -103,18 +104,12 @@ pub fn open_artifact(store: &Path, descriptor: &ArtifactDescriptor) -> Result<Fi
     let store = Store::open(store)
         .map_err(|error| CompileError::from_import(CompilePhase::VerifyGeneration, error))?;
     let file = store
-        .open_blob(&descriptor.to_store_descriptor(), ImportPhase::Publish)
+        .open_verified_blob(
+            &descriptor.to_store_descriptor(),
+            descriptor.size,
+            ImportPhase::Publish,
+        )
         .map_err(|error| CompileError::from_import(CompilePhase::VerifyGeneration, error))?;
-    let length = file
-        .metadata()
-        .map_err(|_| CompileError::new(CompilePhase::VerifyGeneration, CompileErrorKind::Io))?
-        .len();
-    if length != descriptor.size {
-        return Err(CompileError::new(
-            CompilePhase::VerifyGeneration,
-            CompileErrorKind::Integrity,
-        ));
-    }
     Ok(file.into_std())
 }
 

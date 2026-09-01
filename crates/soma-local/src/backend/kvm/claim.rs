@@ -5,9 +5,8 @@
 //! any Instance exists. The assignment is everything that belongs to exactly one Instance, and
 //! it is built on the request path because none of it can be prepared in advance.
 
-use std::path::{Path, PathBuf};
-
 use soma::{BackendFailureKind, InstanceId};
+use soma_generation::generation_manifest::SnapshotBinding;
 use soma_guest::SecretFile;
 
 use super::boot::private_head_from;
@@ -25,12 +24,22 @@ const MIB: u64 = 1024 * 1024;
 /// A prepared entry holds the Candidate's store beside a snapshot taken once for the whole
 /// Generation. Only an entry that carries a captured machine can be restored at all, so an
 /// entry without one has no pool and no prepared machine.
-pub(super) fn snapshot_dir(prepared: &PreparedGeneration) -> Option<PathBuf> {
-    let snapshot = prepared.store.parent()?.join("snapshot");
-    snapshot
-        .join("state.somasnap")
-        .is_file()
-        .then_some(snapshot)
+pub(super) fn snapshot(
+    prepared: &PreparedGeneration,
+) -> Option<(
+    soma_generation::ArtifactDescriptor,
+    soma_generation::ArtifactDescriptor,
+    soma_generation::ArtifactDescriptor,
+)> {
+    match prepared.manifest.snapshot {
+        SnapshotBinding::Captured {
+            memory,
+            overlay,
+            state,
+            ..
+        } => Some((memory, overlay, state)),
+        SnapshotBinding::Absent => None,
+    }
 }
 
 /// The pool a request for this Generation and shape belongs to, and how to fill it.
@@ -38,19 +47,21 @@ pub(super) fn snapshot_dir(prepared: &PreparedGeneration) -> Option<PathBuf> {
 /// Returns `None` when the entry carries no snapshot or no immutable root, because neither a
 /// prepared machine nor an on-demand restore exists for it and there is nothing to pool.
 fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64, vcpus: u16) -> Option<Recipe> {
-    let snapshot = snapshot_dir(prepared)?;
+    let (memory, overlay, state) = snapshot(prepared)?;
     let devices = prepared.manifest.device_set();
     let root = prepared.manifest.root.descriptor;
     let candidate = generation_bytes(&prepared.id).ok()?;
-    Recipe::new(RecipeInputs {
+    Some(Recipe::new(&RecipeInputs {
         store: &prepared.store,
         root,
-        snapshot,
+        memory,
+        overlay,
+        state,
         memory_bytes: memory_mib * MIB,
         vcpus,
         candidate,
         devices,
-    })
+    }))
 }
 
 /// The fresh authority one claimed machine receives, exactly once.
@@ -60,7 +71,6 @@ fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64, vcpus: u16) -> Opt
 /// snapshot's own quiesced overlay template rather than the Candidate's untouched one, because
 /// the captured machine has already written to it.
 pub(super) fn assignment_for(
-    snapshot: &Path,
     prepared: &PreparedGeneration,
     identity: LaunchIdentity,
     network: Network,
@@ -74,7 +84,12 @@ pub(super) fn assignment_for(
         .manifest
         .device_set()
         .overlay()
-        .then(|| private_head_from(&snapshot.join("overlay.raw"), &instance))
+        .then(|| {
+            let (_, overlay, _) = snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
+            let file = soma_generation::open_artifact(&prepared.store, &overlay)
+                .map_err(|_| BackendFailureKind::Unavailable)?;
+            private_head_from(file, &instance)
+        })
         .transpose()?;
     Ok(Assignment {
         overlay,
@@ -100,8 +115,6 @@ fn hex(instance: [u8; 16]) -> String {
 
 /// One machine claimed from the pool, with the snapshot its private head must be cloned from.
 pub(super) struct ClaimedMachine {
-    /// The published snapshot directory the claimed machine was restored from.
-    pub(super) snapshot: PathBuf,
     /// The claimed machine, which must be assigned or destroyed.
     pub(super) machine: Claimed,
 }
@@ -123,8 +136,6 @@ pub(super) fn prepare_and_claim(
 ) -> Option<ClaimedMachine> {
     let recipe = recipe_for(prepared, memory_mib, CONTRACT_VCPUS)?;
     let key = recipe.key().clone();
-    let snapshot = snapshot_dir(prepared)?;
     pool.serve(recipe);
-    pool.claim(&key)
-        .map(|machine| ClaimedMachine { snapshot, machine })
+    pool.claim(&key).map(|machine| ClaimedMachine { machine })
 }
