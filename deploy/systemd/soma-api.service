@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/soma/api.env
+WorkingDirectory=/opt/soma/runtime
 ExecStart=/opt/soma/bin/soma-api --listen ${SOMA_LISTEN} --workers ${SOMA_WORKERS}
 Restart=on-failure
 RestartSec=1s

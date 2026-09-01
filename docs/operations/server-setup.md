@@ -184,7 +184,7 @@ The listener opens only after all 64 child processes have restored a stopped ide
 The worker count is both the HTTP concurrency bound and the prepared-slot target.
 Size it from admitted host capacity rather than copying the qualification value.
 
-For a durable host installation, install `deploy/systemd/soma-api.service`, copy `deploy/systemd/api.env.example` to `/etc/soma/api.env`, replace its paths with the certified host paths, and install the exact release binary at `/opt/soma/bin/soma-api`.
+For a durable host installation, install `deploy/systemd/soma-api.service`, copy `deploy/systemd/api.env.example` to `/etc/soma/api.env`, replace its paths with the certified host paths, install the exact release binary at `/opt/soma/bin/soma-api`, and link `/opt/soma/runtime` to the certified runtime directory that carries the kernel and runtime links.
 The unit keeps the listener on loopback, restarts a failed process, and preserves the same explicit prepared-worker configuration used by the foreground command.
 
 The Node command prints the version contained in the current `node:22` image.
