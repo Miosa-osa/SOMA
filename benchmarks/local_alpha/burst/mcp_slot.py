@@ -56,8 +56,11 @@ def execute_mcp_slot(
             details[operation] = "missing_result"
             return False, None
         envelope = result.get("structuredContent")
-        if not isinstance(envelope, Mapping) or result.get("isError") is True:
-            details[operation] = "tool_error"
+        if not isinstance(envelope, Mapping):
+            details[operation] = "missing_structured_content"
+            return False, None
+        if result.get("isError") is True:
+            details[operation] = _tool_error_detail(envelope)
             return False, envelope if isinstance(envelope, Mapping) else None
         _record_receipt(stages, observed, operation, envelope)
         return True, envelope
@@ -127,6 +130,16 @@ def execute_mcp_slot(
         failures=tuple(failures),
         boundary=MCP_BOUNDARY,
     )
+
+
+def _tool_error_detail(envelope: Mapping[str, object]) -> str:
+    error = envelope.get("error")
+    if not isinstance(error, Mapping):
+        return "tool_error_without_code"
+    code = error.get("code")
+    if not isinstance(code, str) or not code or len(code) > 128:
+        return "tool_error_without_code"
+    return code
 
 
 def _mcp_machine_state(

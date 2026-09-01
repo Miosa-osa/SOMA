@@ -64,6 +64,28 @@ class FakeSession:
         return McpFrameCapture({}, response, 7)
 
 
+class RefusingSession:
+    def call_tool(self, name, arguments):
+        operation = name.removeprefix("soma_")
+        return McpFrameCapture(
+            {},
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "isError": True,
+                    "structuredContent": {
+                        "schema": "soma.mcp.v1",
+                        "operation": operation,
+                        "operation_id": arguments["operation_id"],
+                        "error": {"code": "backend_unavailable"},
+                    },
+                },
+            },
+            7,
+        )
+
+
 class BurstMcpSlotTests(unittest.TestCase):
     def test_persistent_session_measures_launch_through_exec_and_cleans_up(self) -> None:
         ticks = iter(range(100, 180, 10))
@@ -82,6 +104,22 @@ class BurstMcpSlotTests(unittest.TestCase):
         self.assertEqual(sample.command["status"], "exited")
         self.assertEqual(sample.command["exit_code"], 0)
         self.assertEqual(sorted(sample.processes), ["destroy", "exec", "launch"])
+
+    def test_tool_refusals_retain_their_typed_code(self) -> None:
+        sample = execute_mcp_slot(
+            plan(backend="kvm"),
+            client=RefusingSession(),
+            instance_id=INSTANCE_ID,
+            operation_ids=OPERATION_IDS,
+        )
+
+        self.assertEqual(
+            [(failure["operation"], failure["detail"]) for failure in sample.failures],
+            [
+                ("launch", "backend_unavailable"),
+                ("destroy", "backend_unavailable"),
+            ],
+        )
 
 
 if __name__ == "__main__":
