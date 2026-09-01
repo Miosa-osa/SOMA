@@ -1251,10 +1251,12 @@ dependencies = [
  "soma-generation",
  "soma-guest",
  "soma-hostd",
+ "soma-jail",
  "soma-kvm",
  "soma-macos",
  "soma-netd",
  "soma-storage",
+ "soma-vmm",
  "tempfile",
 ]
 
@@ -1331,7 +1333,10 @@ name = "soma-vmm"
 version = "1.0.0-alpha.1"
 dependencies = [
  "libc",
+ "serde_json",
+ "soma-guest",
  "soma-jail",
+ "soma-kvm",
 ]
 
 [[package]]
