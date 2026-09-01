@@ -3,7 +3,8 @@ mod support;
 use soma::{
     CleanupMethod, DestroyMachineRequest, DirectCommand, Engine, ExecuteMachineRequest,
     ExecutionLimits, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineShape,
-    MachineState, ManagedFailure, ManagedStateError, OciImage, OperationId, StopMachineRequest,
+    MachineState, ManagedFailure, ManagedStateError, OciImage, OperationId, PtyAnswer,
+    PtyMachineRequest, PtyOperation, SandboxLiveness, SandboxPhase, StopMachineRequest,
     TerminalStatus,
 };
 use support::{Mode, TestBackend};
@@ -74,6 +75,64 @@ fn inspect_returns_bounded_typed_state_with_a_receipt() {
     assert_eq!(
         *calls.lock().expect("call log poisoned"),
         ["resolve", "launch", "inspect"]
+    );
+}
+
+#[test]
+fn terminal_session_survives_across_bounded_managed_calls() {
+    let (backend, calls) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::new(backend);
+    let instance = launch(&mut engine);
+
+    let opened = engine
+        .pty_machine(PtyMachineRequest::new(
+            operation('4'),
+            instance.clone(),
+            PtyOperation::Open {
+                columns: 100,
+                rows: 30,
+            },
+        ))
+        .expect("terminal opens");
+    let written = engine
+        .pty_machine(PtyMachineRequest::new(
+            operation('5'),
+            instance,
+            PtyOperation::Write {
+                bytes: b"echo soma\n".to_vec(),
+            },
+        ))
+        .expect("terminal remains reachable");
+
+    assert_eq!(
+        opened.answer(),
+        &PtyAnswer::Opened {
+            columns: 100,
+            rows: 30,
+        }
+    );
+    assert_eq!(written.answer(), &PtyAnswer::Wrote { bytes: 10 });
+    assert_eq!(
+        *calls.lock().expect("call log poisoned"),
+        ["resolve", "launch", "pty", "pty"]
+    );
+}
+
+#[test]
+fn listing_reports_phase_and_liveness_as_separate_facts() {
+    let (backend, calls) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::new(backend);
+    let instance = launch(&mut engine);
+
+    let entries = engine.list_machines().expect("listing succeeds");
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].instance_id(), &instance);
+    assert_eq!(entries[0].phase(), SandboxPhase::Active);
+    assert_eq!(entries[0].liveness(), SandboxLiveness::Live);
+    assert_eq!(
+        *calls.lock().expect("call log poisoned"),
+        ["resolve", "launch", "liveness"]
     );
 }
 
