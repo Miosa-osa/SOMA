@@ -4,9 +4,7 @@ use super::{
     Machine, State,
     fault::{instance_mismatch, lifecycle_failure},
 };
-use crate::{
-    CleanupEvidence, Failure, FailureKind, FailurePhase, Milestones, Recovery, control::PtyRequest,
-};
+use crate::{CleanupEvidence, Failure, FailureKind, FailurePhase, Milestones, control::PtyRequest};
 
 impl Machine {
     /// Performs one terminal exchange without changing lifecycle state.

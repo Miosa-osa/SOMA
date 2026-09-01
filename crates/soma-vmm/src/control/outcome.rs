@@ -209,6 +209,20 @@ mod tests {
             Outcome::decode(&Reply::Output(b"\x00\xff").encode()),
             Ok(Outcome::Output(vec![0, 255]))
         );
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        assert_eq!(
+            Outcome::decode(
+                &Reply::Pty(&soma::PtyAnswer::Output {
+                    bytes: vec![0, 255],
+                    end: false,
+                })
+                .encode()
+            ),
+            Ok(Outcome::Pty(soma::PtyAnswer::Output {
+                bytes: vec![0, 255],
+                end: false,
+            }))
+        );
         assert_eq!(
             Outcome::decode(&Reply::Rejected("unknown request").encode()),
             Ok(Outcome::Rejected("unknown request".to_owned()))

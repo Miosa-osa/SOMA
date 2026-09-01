@@ -23,7 +23,9 @@ pub(crate) trait Platform: Send {
     ) -> Result<PlatformExecution, PlatformFailure>;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    fn pty(&mut self, operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure>;
+    fn pty(&mut self, _operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure> {
+        Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
+    }
 
     fn stop(
         &mut self,

@@ -235,4 +235,19 @@ mod tests {
             Err(ControlError::InvalidValue("program"))
         );
     }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn terminal_requests_round_trip_binary_input_without_logging_it() {
+        let request = Request::Pty(super::super::PtyRequest::new(
+            operation(),
+            instance(),
+            soma::PtyOperation::Write {
+                bytes: vec![0, 255, b'\n'],
+            },
+        ));
+        let encoded = request.encode();
+        assert!(encoded.is_ascii() && !encoded.contains('\n'));
+        assert_eq!(Request::decode(&encoded), Ok(request));
+    }
 }
