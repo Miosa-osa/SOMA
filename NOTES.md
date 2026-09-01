@@ -911,6 +911,7 @@ The best observed secure exact cohort was 62.32 ms median, 75.43 ms p95, and 75.
 The child revalidates manifest identity, compiler profile, descriptor order, file kind, and size and never reopens artifact paths.
 The first handoff receiver mistakenly read a 13-byte buffer for a 12-byte header and could consume the first JSON byte under concurrency; the exact-size receive frame fixed that race.
 The final secure 1/1/98 east-host cohort completed 100 of 100 commands and cleanups at median 109.65 ms, p95 149.33 ms, and p99 157.23 ms.
+The exact x86_64 `soma-api` release built from pushed commit `0aff1c5` has SHA-256 `e565e3f24905f1b498ad9ff6a42e5e7a280bf228681f40fc38fd3f8f106708a5` and completed the synchronized 40/20/40 east-host cohort with 100 of 100 commands and cleanups, 61.09 ms median, 70.61 ms p95, and 71.45 ms p99.
 The earlier 41-45 ms cohorts used the removed size-only shortcut and remain legacy investigation evidence only.
 
 ## 2026-09-01 - CPU policy and placement are measured benchmark inputs

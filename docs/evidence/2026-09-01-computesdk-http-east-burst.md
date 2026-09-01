@@ -10,11 +10,14 @@ It also reused one bounded HTTP/1.1 connection for create, first command, and ex
 | 1 | 40/20/40 | 60.01 ms | 69.27 ms | 69.85 ms | 73.59 ms | 100/100 |
 | 2 | 40/20/40 | 63.78 ms | 70.75 ms | 71.04 ms | 76.66 ms | 100/100 |
 | 3, shared-host contention | 40/20/40 | 68.17 ms | 1,168.84 ms | 1,173.48 ms | 1,175.58 ms | 100/100 |
+| Release `0aff1c5` | 40/20/40 | 61.09 ms | 70.61 ms | 71.45 ms | 79.63 ms | 100/100 |
 
-The first two identical final-binary cohorts beat the quoted Isorun 64/79/80 ms result on median, p95, and p99.
+The first two identical final-binary cohorts and the source-bound release cohort beat the quoted Isorun 64/79/80 ms result on median, p95, and p99.
 The third cohort is retained as resilience evidence and excluded from clean performance comparison because unrelated encrypted-disk and control-plane work slowed all forty host10 samples together.
 Every final receipt reports `prepared_worker`.
-The final binary SHA-256 is `fbeb7229640c56876799196752daf2ed787e2ca545b38c4fa9aa5105324bff90`.
+The initial qualification binary SHA-256 is `fbeb7229640c56876799196752daf2ed787e2ca545b38c4fa9aa5105324bff90`.
+The final x86_64 release built from pushed commit `0aff1c5` has SHA-256 `e565e3f24905f1b498ad9ff6a42e5e7a280bf228681f40fc38fd3f8f106708a5`.
+That release returned every host to 64 prepared children with zero zombies after the cohort.
 The raw shards and the contamination analysis are retained under [the primed-machine raw record](raw/2026-09-01-primed-http-east/README.md).
 
 The earlier sterile-process results follow for comparison.
