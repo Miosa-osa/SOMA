@@ -1,3 +1,9 @@
+//! Conformance of the OCI layout reader with the image specification: which media types are
+//! accepted, and which platform requirements are refused rather than quietly ignored.
+//!
+//! The bounds the same reader enforces on a hostile layout live in `import_bounds.rs`; these are
+//! about agreeing with the specification, those are about surviving a layout that lies about size.
+
 mod support;
 
 use std::fs;
@@ -8,7 +14,7 @@ use soma_generation::{
     ImportError, ImportErrorKind, ImportLimits, ImportOciLayout, ImportPhase, OciSelection,
     import_oci_layout,
 };
-use support::{CONFIG, Fixture, GZIP, INDEX, Image, MANIFEST, PLAIN, descriptor, digest};
+use support::{CONFIG, Fixture, INDEX, Image, MANIFEST, PLAIN, descriptor, digest};
 
 #[test]
 fn top_index_rejects_wrong_declared_media_type() {
@@ -152,67 +158,6 @@ fn empty_os_features_do_not_create_an_unsupported_requirement() {
     fixture.write_index(&[nested]);
 
     assert!(run(&fixture, ImportLimits::default()).is_ok());
-}
-
-#[test]
-fn request_blob_limit_applies_to_layout_marker() {
-    let fixture = Fixture::new();
-    let limits = ImportLimits {
-        max_blob_bytes: 1,
-        ..ImportLimits::default()
-    };
-
-    let error = run(&fixture, limits).unwrap_err();
-
-    assert_eq!(error.phase(), ImportPhase::OpenLayout);
-    assert_eq!(error.kind(), ImportErrorKind::LimitExceeded);
-}
-
-#[test]
-fn request_blob_limit_applies_to_top_index() {
-    let fixture = Fixture::new();
-    fixture.write_index(&[]);
-    let marker_size = fs::metadata(fixture.layout.join("oci-layout"))
-        .unwrap()
-        .len();
-    let limits = ImportLimits {
-        max_blob_bytes: marker_size,
-        ..ImportLimits::default()
-    };
-
-    let error = run(&fixture, limits).unwrap_err();
-
-    assert_eq!(error.phase(), ImportPhase::SelectManifest);
-    assert_eq!(error.kind(), ImportErrorKind::LimitExceeded);
-}
-
-#[test]
-fn compressed_layer_obeys_the_per_blob_limit() {
-    let fixture = Fixture::new();
-    let compressed = vec![0_u8; 1_024];
-    let image = fixture.add_image(&compressed, b"expanded", GZIP);
-    fixture.write_direct_index(&image, true);
-    let limits = ImportLimits {
-        max_blob_bytes: 512,
-        ..ImportLimits::default()
-    };
-
-    let error = run(&fixture, limits).unwrap_err();
-
-    assert_eq!(error.phase(), ImportPhase::VerifyLayer);
-    assert_eq!(error.kind(), ImportErrorKind::LimitExceeded);
-}
-
-#[test]
-fn malformed_gzip_layer_fails_closed() {
-    let fixture = Fixture::new();
-    let image = fixture.add_image(b"not a gzip stream", b"expanded", GZIP);
-    fixture.write_direct_index(&image, true);
-
-    let error = run(&fixture, ImportLimits::default()).unwrap_err();
-
-    assert_eq!(error.phase(), ImportPhase::VerifyLayer);
-    assert_eq!(error.kind(), ImportErrorKind::Io);
 }
 
 fn run(
