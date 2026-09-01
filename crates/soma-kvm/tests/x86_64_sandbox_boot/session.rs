@@ -2,9 +2,8 @@
 //! the evidence table.
 
 use std::{
-    fs::{self, File},
+    fs::File,
     io::Read as _,
-    path::Path,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -21,7 +20,11 @@ use soma_kvm::x86_64::{
 use crate::x86_64_sandbox_boot_control::HostIo;
 
 mod reporting;
-pub use reporting::report;
+
+/// Print and retain the human-readable evidence from one live proof.
+pub fn report(label: &str, evidence: &SandboxEvidence, log: &std::path::Path) {
+    reporting::report(label, evidence, log);
+}
 
 pub const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
 pub const GUEST_CID: u32 = 3;

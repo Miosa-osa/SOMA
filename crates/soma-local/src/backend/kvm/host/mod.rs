@@ -22,6 +22,7 @@ mod wire;
 mod tests;
 
 use std::{
+    io::BufReader,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Duration,

@@ -71,7 +71,7 @@ pub struct Fixture {
 impl Fixture {
     /// The device set the Generation declares - the one the snapshot was
     /// captured with. Every restore must name this same set: the machine
-    /// contract digest binds it, so a test pinning its own DeviceSet is a
+    /// contract digest binds it, so a test pinning its own `DeviceSet` is a
     /// different machine and an Incompatible(MachineContract) refusal.
     pub fn devices(&self) -> soma_kvm::DeviceSet {
         self.compiled.manifest().device_set()
