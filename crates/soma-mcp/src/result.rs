@@ -6,6 +6,10 @@ use crate::{CommandResult, InspectResult, InstanceId, MachineResult, OperationId
 
 pub(crate) const MCP_SCHEMA: &str = "soma.mcp.v1";
 
+mod file;
+
+pub(crate) use file::file_result;
+
 #[derive(Serialize)]
 struct DoctorEnvelope<'a> {
     schema: &'static str,
@@ -258,42 +262,6 @@ pub(crate) fn inspect_result(
     })
     .map(CallToolResult::structured)
     .map_err(|_| ResultContractError)
-}
-
-/// One filesystem answer as a bounded tool result.
-///
-/// A refusal the guest reported is returned as a tool error rather than as a success, because an
-/// agent that read "the operation happened" from a declined write would go on to depend on a
-/// file that is not there. The typed cause travels in the result either way.
-pub(crate) fn file_result(
-    operation_id: &OperationId,
-    expected_instance_id: &InstanceId,
-    result: &crate::FileResult,
-) -> Result<CallToolResult, ResultContractError> {
-    if result.instance_id() != expected_instance_id {
-        return Err(ResultContractError);
-    }
-    let refused = result.refused();
-    let value = serde_json::to_value(FileEnvelope {
-        schema: MCP_SCHEMA,
-        operation: "file",
-        operation_id: operation_id.as_str(),
-        result: result.body(),
-    })
-    .map_err(|_| ResultContractError)?;
-    Ok(if refused {
-        CallToolResult::structured_error(value)
-    } else {
-        CallToolResult::structured(value)
-    })
-}
-
-#[derive(Serialize)]
-struct FileEnvelope<'a> {
-    schema: &'static str,
-    operation: &'static str,
-    operation_id: &'a str,
-    result: crate::file::FileBody<'a>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
