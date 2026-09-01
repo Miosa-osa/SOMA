@@ -1,0 +1,3 @@
+BINARY ROUND TRIP: identical
+ddd1a4a8786aa89014b0d058cf6f4b9b2e7fa0c33f4677fbaa7ecac3e7ce66cf  /srv/soma/guestfs/out-http/binary.bin
+ddd1a4a8786aa89014b0d058cf6f4b9b2e7fa0c33f4677fbaa7ecac3e7ce66cf  /srv/soma/guestfs/out-http/binary-returned.bin

@@ -1,0 +1,43 @@
+
+==> preflight
+  host ok, kernel kernel/out/vmlinux-6.12.107-soma-v1
+
+==> building the workspace, the guest agent, and the two tools
+    Finished `release` profile [optimized] target(s) in 0.11s
+    Finished `release` profile [optimized] target(s) in 0.07s
+    Finished `release` profile [optimized] target(s) in 0.07s
+
+==> compiling node:22 into a Generation at /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240
+
+==> exporting node:22 to an OCI layout with skopeo
+
+==> compiling the Generation into /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240/ref-8a02eda372743655dfbe5f03e83a19ea8b6c35a44be41aea679db02fa4c72a35
+prepared node:22 at /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240/ref-8a02eda372743655dfbe5f03e83a19ea8b6c35a44be41aea679db02fa4c72a35
+  candidate id: sha256:ef6bd5e303127b641a95b327344eaa3b65c34d8768b7c9aa07585e9fb82eda67
+  entries: 33512
+
+==> done
+  entry:  /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240/ref-8a02eda372743655dfbe5f03e83a19ea8b6c35a44be41aea679db02fa4c72a35
+  launch: SOMA_GENERATION_STORE=/srv/soma/guestfs/reproduce/store/node-22-1-1024-10240 SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+          soma --backend kvm run node:22 -- <command>
+
+==> capturing the snapshot at 1024 MiB
+captured /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240/ref-8a02eda372743655dfbe5f03e83a19ea8b6c35a44be41aea679db02fa4c72a35/snapshot
+  memory 1073741824 bytes
+  overlay 10737418240 bytes
+  state 9086 bytes
+
+==> verifying the prepared store
+  entry /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240/ref-8a02eda372743655dfbe5f03e83a19ea8b6c35a44be41aea679db02fa4c72a35
+  shape 1 vCPU, 1024 MiB memory, 10240 MiB storage, contract 368f81b2e540ab97
+
+==> measuring 1 launches at concurrency 1
+
+  image        node:22
+  shape        1 vCPU, 1024 MiB, concurrency 1
+  launches     1 of 1 succeeded
+  time to first command  p50 42.79 ms, min 42.79 ms, max 42.79 ms
+  segment medians        admitted 0.04 ms, machine_launched 0.82 ms, ready 23.15 ms, command_finished 18.77 ms
+
+  the store is kept at /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240 so a rerun measures instead of rebuilding.
+  remove it with: rm -rf /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240

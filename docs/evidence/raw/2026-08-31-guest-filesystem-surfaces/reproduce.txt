@@ -1,0 +1,24 @@
+How this run was made, on eval-1, from a clean checkout of the branch:
+
+  rsync the worktree to /srv/soma/guestfs/repo
+  ln -sfn /srv/soma/SOMA/kernel/out kernel/out          # kernel/out is deliberately untracked
+  SOMA_REPRODUCE_ROOT=/srv/soma/guestfs/reproduce \
+      ./scripts/reproduce.sh --samples 1 node:22
+
+reproduce.sh built the workspace, compiled node:22 into a Generation at one vCPU, 1024 MiB of
+memory and 10240 MiB of storage, captured its snapshot, and measured one launch, which reported:
+
+  launches     1 of 1 succeeded
+  time to first command  p50 42.79 ms, min 42.79 ms, max 42.79 ms
+  segment medians        admitted 0.04 ms, machine_launched 0.82 ms, ready 23.15 ms,
+                         command_finished 18.77 ms
+  contract fingerprint   368f81b2e540ab97
+
+That figure is quoted only to show the store restores rather than cold boots; a store with no
+captured snapshot boots about fifteen times slower and reports no error. It is not a latency
+result and nothing in this record depends on it.
+
+Then, against that store:
+
+  ./proof-http.sh /srv/soma/guestfs/out-http \
+      /srv/soma/guestfs/reproduce/store/node-22-1-1024-10240 18901

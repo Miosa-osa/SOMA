@@ -1,0 +1,7 @@
+devtmpfs /dev devtmpfs rw,nosuid,noexec,relatime,size=505704k,nr_inodes=126426,mode=755 0 0
+devpts /dev/pts devpts rw,nosuid,noexec,relatime,mode=620,ptmxmode=666 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+overlay / overlay rw,nosuid,nodev,relatime,lowerdir=/mnt/lower,upperdir=/mnt/upper/upper,workdir=/mnt/upper/work,uuid=on 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,relatime,size=16384k,mode=755 0 0
+tmpfs /tmp tmpfs rw,nosuid,nodev,relatime,size=65536k 0 0
