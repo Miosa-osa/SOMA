@@ -44,42 +44,25 @@ Each row links the evidence that proves it. Nothing here is production-admitted.
 
 ---
 
-## In flight
+## In flight, stopped mid-session
 
-Seven parallel efforts were running when this was written, each in its own git worktree on this
-machine. **Check whether each branch merged into `main` before starting any of it again** - several
-may have landed after this was written.
+Work stopped when the session's budget ran out. **Every branch below is pushed to `origin`**, so
+none of it depends on the machine it was written on. Each was told to commit whatever it had, even
+non-building, rather than lose it - so assume these branches do not compile until you check.
 
-If a worktree is gone or you are on another machine, the branch is the record. If neither exists,
-the gap it was closing is described below and can be restarted from that description.
+| Gap | Branch on `origin` | State when stopped |
+| --- | --- | --- |
+| 1, durable path performance | `perf/durable-path` | 3 commits. Its diagnosis of the 447 ms state write and 966 ms release is the valuable part |
+| 2 and 3, PTY and `sandbox.list()` | `feat/pty-and-list` | 2 commits, committed from 55 uncommitted files. Read its own notes first |
+| 4, head clone serialization fix | `perf/head-clone` | 3 commits |
+| 5, jail split | `feat/jail-split` | 5 commits, committed from 17 uncommitted files |
 
-| Gap | Branch | Worktree on this machine | State when written |
-| --- | --- | --- | --- |
-| 1, durable path performance | `perf/durable-path` | `~/projects/SOMA-wt/durable-perf` | running |
-| 4, head clone serialization fix | `perf/head-clone` | `~/projects/SOMA-wt/head-clone` | running |
-| 5, jail split | `feat/jail-split` | `~/projects/SOMA-wt/jail-split` | running |
-| 7, EPT violations on resume | `perf/ept-resume` | `~/projects/SOMA-wt/ept` | running, doing GPA attribution first |
-| 6 and 8, macOS host and loopback repair | `feat/macos-and-loopback` | `~/projects/SOMA-wt/macos-loopback` | running |
-| 2 and 3, PTY and `sandbox.list()` | `feat/pty-and-list` | `~/projects/SOMA-wt/pty-list` | running |
-| 9, crowded files | `refactor/crowded-files` | `~/projects/SOMA-wt/line-limit` | **finished, not yet merged** |
+Two efforts finished and are already merged into `main`: the crowded-file splits, and the EPT
+attribution described under gap 7.
 
-`refactor/crowded-files` is complete with gates green: thirteen files at 299 or 300 lines split
-along seams each file already stated, `end-to-end-check.sh` exercised live before and after with
-byte-identical output, and every Rust split verified as a verbatim move by diffing sorted
-non-import lines. It touches `soma-generation`, `soma-jail`, `soma-kvm`, `soma-netd`,
-`soma-template`, `soma` and `scripts`, and deliberately nothing in `soma-local`, `soma-storage` or
-`soma-guest-agent`. Its three `soma-kvm` commits are self-contained and droppable if another branch
-lands conflicting work there.
-
-### What each was told, so it can be restarted
-
-Every brief carried the same constraints: base on `origin/main`, work in an isolated worktree,
-never `git add -A`, no authored file over 300 lines, no `Co-Authored-By` or `Claude-Session`
-trailers, and the full gate set before reporting. Each was told that a measured negative is a real
-result and to report one honestly rather than produce a partial implementation that hides it. Two
-have already done exactly that - see gap 5 and the note under gap 7.
-
----
+**Before resuming any of them**, read the branch's own evidence file. Each was asked to write down
+what it had working, what it had not started, and what it learned that the diff does not show.
+That note is worth more than the code.
 
 ## What is left
 
