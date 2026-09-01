@@ -38,10 +38,12 @@ pub(crate) use host::host_machine;
 /// of zero prepares nothing, so every Launch takes the on-demand path and reports it as such.
 const PREPARED_MACHINES: &str = "SOMA_PREPARED_MACHINES";
 
-/// How many machines are prepared when the operator names no number.
+/// How many machines a resident runtime prepares when the operator names no number.
 ///
-/// One is enough to take machine construction off the next Launch, which is the whole claim
-/// being made, and it is the smallest pool that can make it.
+/// A resident runtime can serve another Launch after its current machine is released, so one
+/// prepared machine can benefit that later request.
+/// A per-Instance machine-host cannot share its pool with any other Launch and is forced to zero
+/// separately in [`target_for`].
 const DEFAULT_TARGET: usize = 1;
 
 /// How long a claimed machine may stay unassigned, and how long one restore may take.
@@ -109,6 +111,7 @@ impl KvmBackend {
     }
 
     fn with_role(role: Role) -> Result<Self, LocalFailure> {
+        let prepared_target = target_for(&role);
         let ownership = Ownership::resolve(Ownership::configured().as_deref())
             .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
         let jail = if jailed::Anchors::is_configured() {
@@ -128,7 +131,7 @@ impl KvmBackend {
             jail,
             ownership,
             live: None,
-            machines: MachinePool::open(limits(configured_target()))
+            machines: MachinePool::open(limits(prepared_target))
                 .or_else(|_| MachinePool::open(limits(0)))
                 .expect("a pool that prepares nothing always has valid limits"),
             broker: BrokerConfiguration::from_environment().map(Box::new),
@@ -137,6 +140,19 @@ impl KvmBackend {
 
     pub(super) const fn kind() -> BackendKind {
         BackendKind::LinuxKvm
+    }
+}
+
+/// The pool target this process can actually make useful.
+///
+/// One hosted process owns exactly one Instance and exits when that Instance is released.
+/// Preparing another full machine there cannot serve a future caller, so doing it only doubles
+/// memory pressure during a burst.
+/// A resident runtime may outlive one Instance and therefore honors the operator's target.
+fn target_for(role: &Role) -> usize {
+    match role {
+        Role::Resident => configured_target(),
+        Role::Hosted(_) => 0,
     }
 }
 
@@ -168,5 +184,15 @@ const fn limits(target: usize) -> Limits {
         construction_deadline: CONSTRUCTION_DEADLINE,
         exhausted: ExhaustedBehavior::Reject,
         binding_limit: if target == 0 { 1 } else { target },
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::{Role, target_for};
+
+    #[test]
+    fn a_per_instance_host_never_builds_an_unclaimable_spare_machine() {
+        assert_eq!(target_for(&Role::Hosted("/run/soma".into())), 0);
     }
 }
