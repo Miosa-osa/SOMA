@@ -34,21 +34,6 @@ pub(super) fn effective_shape(memory_mib: u64, storage_mib: u64) -> EffectiveSha
     })
 }
 
-#[cfg(test)]
-mod shape_tests {
-    use soma::Observation;
-
-    use super::effective_shape;
-
-    #[test]
-    fn a_restored_machine_reports_all_three_shape_dimensions() {
-        let effective = effective_shape(1024, 10_240);
-        assert_eq!(effective.vcpu_count(), &Observation::Observed(1));
-        assert_eq!(effective.memory_mib(), &Observation::Observed(1024));
-        assert_eq!(effective.storage_mib(), &Observation::Observed(10_240));
-    }
-}
-
 /// The network a caller is told it received.
 ///
 /// Every dimension is observed rather than unverified, because each is a fact this process
@@ -141,4 +126,19 @@ pub(super) fn observation(
         output,
         times,
     )
+}
+
+#[cfg(test)]
+mod shape_tests {
+    use soma::Observation;
+
+    use super::effective_shape;
+
+    #[test]
+    fn a_restored_machine_reports_all_three_shape_dimensions() {
+        let effective = effective_shape(1024, 10_240);
+        assert_eq!(effective.vcpu_count(), &Observation::Observed(1));
+        assert_eq!(effective.memory_mib(), &Observation::Observed(1024));
+        assert_eq!(effective.storage_mib(), &Observation::Observed(10_240));
+    }
 }

@@ -82,7 +82,13 @@ impl KvmBackend {
             .template
             .writable_storage_bytes
             .checked_div(1024 * 1024)
-            .filter(|_| prepared.manifest.template.writable_storage_bytes % (1024 * 1024) == 0)
+            .filter(|_| {
+                prepared
+                    .manifest
+                    .template
+                    .writable_storage_bytes
+                    .is_multiple_of(1024 * 1024)
+            })
         else {
             return Err(self.fail(operation, BackendFailureKind::Unavailable));
         };
