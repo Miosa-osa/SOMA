@@ -30,6 +30,9 @@ from .run import run_burst
 
 
 ROOT = Path(__file__).resolve().parents[3]
+KVM_STATE_PARENT = Path("/tmp")
+LINUX_UNIX_SOCKET_PATH_BYTES = 108
+MACHINE_SOCKET_NAME_BYTES = len("/machines/") + 32 + len(".sock") + 1
 
 
 def parser() -> argparse.ArgumentParser:
@@ -114,10 +117,11 @@ def _run(arguments: argparse.Namespace) -> int:
     validate_release_build(ROOT, manifest, soma, mcp)
     settings = engine_settings(os.environ) if plan.backend == "kvm" else {}
     environment = build_child_environment(os.environ, settings)
-    with tempfile.TemporaryDirectory(
-        prefix="soma-burst-state-", dir=results.parent
-    ) as temporary:
+    state_parent = KVM_STATE_PARENT if plan.backend == "kvm" else results.parent
+    with tempfile.TemporaryDirectory(prefix="soma-burst-", dir=state_parent) as temporary:
         state_root = Path(temporary)
+        if plan.backend == "kvm":
+            _require_addressable_kvm_state(state_root)
         collected = host_metadata.collect(
             plan,
             run_id=IdentityGenerator().new(),
@@ -229,3 +233,11 @@ def _release_binary(path: Path, expected_name: str) -> Path:
     if path.name != expected_name or path.parent.name != "release":
         raise ValueError(f"{expected_name} must be an explicit target/release binary")
     return path
+
+
+def _require_addressable_kvm_state(state_root: Path) -> None:
+    encoded = len(os.fsencode(state_root)) + MACHINE_SOCKET_NAME_BYTES
+    if encoded > LINUX_UNIX_SOCKET_PATH_BYTES:
+        raise ValueError(
+            "temporary KVM state root cannot address managed machine sockets"
+        )

@@ -1,8 +1,13 @@
 import contextlib
 import io
+from pathlib import Path
 import unittest
 
-from benchmarks.local_alpha.burst.command import main, parser
+from benchmarks.local_alpha.burst.command import (
+    _require_addressable_kvm_state,
+    main,
+    parser,
+)
 
 
 CONTRACT_PROFILE = [
@@ -90,6 +95,12 @@ class BurstCommandTests(unittest.TestCase):
 
         self.assertEqual([str(path) for path in arguments.results], ["/a.jsonl", "/b.jsonl"])
         self.assertEqual(arguments.title, "Proof")
+
+    def test_kvm_state_must_leave_room_for_the_managed_machine_socket(self) -> None:
+        _require_addressable_kvm_state(Path("/tmp/soma-burst-12345678"))
+
+        with self.assertRaisesRegex(ValueError, "cannot address managed machine sockets"):
+            _require_addressable_kvm_state(Path("/" + "x" * 70))
 
 
 if __name__ == "__main__":
