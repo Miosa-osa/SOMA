@@ -1,5 +1,5 @@
 use std::{
-    io::{BufReader, Write},
+    io::BufReader,
     net::{TcpListener, TcpStream},
     sync::Arc,
     thread,
@@ -58,6 +58,7 @@ where
 {
     if stream.set_read_timeout(Some(CONNECTION_TIMEOUT)).is_err()
         || stream.set_write_timeout(Some(CONNECTION_TIMEOUT)).is_err()
+        || stream.set_nodelay(true).is_err()
     {
         return;
     }
@@ -72,7 +73,5 @@ where
     let mut writer = stream;
     // A write failure means the peer is gone. There is nobody left to tell, so the connection is
     // simply dropped rather than logged as a service fault.
-    if response.write_to(&mut writer).is_ok() {
-        let _ = writer.flush();
-    }
+    let _ignored = response.write_to(&mut writer);
 }

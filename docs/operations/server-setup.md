@@ -40,6 +40,16 @@ A passing strict doctor result proves the current KVM API probe only.
 It does not prove cgroup containment, a VMM jail, private networking, storage cleanup, capacity admission, or production readiness.
 
 **Recommended: an XFS filesystem with reflink** (`xfs_info <mountpoint> | grep reflink=1`).
+
+Prepared artifacts and private heads for the fast profile must be on the same reflink-enabled XFS device.
+Prove that invariant before starting the API:
+
+```sh
+scripts/check-fast-storage.sh /srv/soma/prepared /srv/soma/heads
+```
+
+The check creates and removes only a private 1 MiB sparse probe and its reflink clone.
+It fails when the directories are on different devices, the filesystem is not XFS, or `FICLONE` is unavailable.
 Writable sandbox disks are then near free to create, which is what makes running many sandboxes cheap.
 Without it each sandbox copies its disk instead, which still works but costs time and space.
 
@@ -78,6 +88,10 @@ This installs host dependencies, enables Docker, adds the operator to the `kvm` 
 It also provisions `/srv/soma/fs-tools`, `/srv/soma/prepared`, and `/srv/soma/heads` for the operator.
 Required readiness failures make the script exit nonzero.
 Open a new login shell afterward so group changes take effect, then return to the repository.
+
+For latency qualification, every host in one cohort must use the same CPU frequency policy.
+The east-host campaign found that mixing AMD P-state `powersave` and `performance` governors materially increased burst tail variance even when every host already selected the `performance` energy preference.
+Record both `scaling_governor` and `energy_performance_preference` for every host, and normalize them before accepting benchmark evidence.
 
 ## Step 3: build SOMA
 

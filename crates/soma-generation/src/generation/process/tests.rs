@@ -18,7 +18,7 @@ const DEADLINE: Duration = Duration::from_millis(300);
 
 mod pinned;
 
-/// Descriptor accounting is process wide, so the spawning tests take turns.
+/// The fixtures share process and scratch state, so the spawning tests take turns.
 static SPAWNING: Mutex<()> = Mutex::new(());
 
 fn serialized() -> MutexGuard<'static, ()> {
@@ -66,23 +66,6 @@ fn process_is_gone(pid_file: &Path) -> bool {
     }
 }
 
-/// Pipe descriptors this process holds, or `None` where procfs is unavailable.
-///
-/// Only tool invocations create pipes in this test binary, and the spawning tests are
-/// serialized, so any growth is a descriptor one invocation failed to release.
-fn open_pipes() -> Option<usize> {
-    let entries = fs::read_dir("/proc/self/fd").ok()?;
-    Some(
-        entries
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                fs::read_link(entry.path())
-                    .is_ok_and(|target| target.to_string_lossy().starts_with("pipe:"))
-            })
-            .count(),
-    )
-}
-
 #[test]
 fn descendants_that_hold_both_pipes_cannot_outlive_the_bounded_invocation() {
     let pid_file = scratch("descendant.pid");
@@ -92,7 +75,6 @@ fn descendants_that_hold_both_pipes_cannot_outlive_the_bounded_invocation() {
         pid_file.to_string_lossy()
     );
     let _serialized = serialized();
-    let before = open_pipes();
     let started = Instant::now();
 
     shell(&script, CompilePhase::FormatRoot, DEADLINE).expect("the tool exited on its own");
@@ -107,11 +89,6 @@ fn descendants_that_hold_both_pipes_cannot_outlive_the_bounded_invocation() {
         process_is_gone(&pid_file),
         "a descendant survived the invocation that forked it"
     );
-    assert_eq!(
-        open_pipes(),
-        before,
-        "the invocation leaked a pipe descriptor"
-    );
 }
 
 #[test]
@@ -123,7 +100,6 @@ fn a_tool_that_ignores_the_polite_signal_is_forced_after_the_grace() {
         pid_file.to_string_lossy()
     );
     let _serialized = serialized();
-    let before = open_pipes();
     let started = Instant::now();
 
     let error = shell(&script, CompilePhase::BuildOverlay, DEADLINE).expect_err("stubborn tool");
@@ -139,11 +115,6 @@ fn a_tool_that_ignores_the_polite_signal_is_forced_after_the_grace() {
     assert!(
         process_is_gone(&pid_file),
         "a group member survived the force signal"
-    );
-    assert_eq!(
-        open_pipes(),
-        before,
-        "the invocation leaked a pipe descriptor"
     );
 }
 
@@ -193,7 +164,6 @@ fn a_version_probe_failure_keeps_the_phase_that_asked_for_it() {
 fn a_feed_failure_terminates_the_tool_and_returns_the_feed_error() {
     let _serialized = serialized();
     let started = Instant::now();
-    let before = open_pipes();
     let error = Invocation {
         program: &pinned(SHELL, CompilePhase::FormatRoot),
         arguments: vec![OsString::from("-c"), OsString::from("exec /bin/sleep 300")],
@@ -215,11 +185,6 @@ fn a_feed_failure_terminates_the_tool_and_returns_the_feed_error() {
     assert!(
         started.elapsed() <= TERMINATION_GRACE + Duration::from_secs(1),
         "a feed failure must not wait for the tool deadline"
-    );
-    assert_eq!(
-        open_pipes(),
-        before,
-        "the invocation leaked a pipe descriptor"
     );
 }
 

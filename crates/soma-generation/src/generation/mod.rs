@@ -60,5 +60,6 @@ pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevis
 pub use toolchain::{BoundTool, BuilderEnvironment};
 pub use tree_decoder::TreeBounds;
 pub use verify::{
-    Incompatibility, VerifiedCandidate, VerifiedGeneration, verify_candidate, verify_generation,
+    Incompatibility, InstalledGeneration, VerifiedCandidate, VerifiedGeneration,
+    admit_installed_generation, admit_verified_handoff, verify_candidate, verify_generation,
 };

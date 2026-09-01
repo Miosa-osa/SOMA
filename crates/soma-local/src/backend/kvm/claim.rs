@@ -86,7 +86,8 @@ pub(super) fn assignment_for(
         .overlay()
         .then(|| {
             let (_, overlay, _) = snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
-            let file = soma_generation::open_artifact(&prepared.store, &overlay)
+            let file = prepared
+                .open_artifact(&overlay)
                 .map_err(|_| BackendFailureKind::Unavailable)?;
             private_head_from(file, &instance)
         })

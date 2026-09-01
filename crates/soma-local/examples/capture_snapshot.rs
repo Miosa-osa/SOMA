@@ -34,7 +34,8 @@ use soma_generation::{
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use soma_kvm::x86_64::{
-    CaptureRequest, DeviceIdentity, SandboxConfig, SandboxDisks, SandboxMachine, capture,
+    CaptureOutcome, CaptureRequest, DeviceIdentity, SandboxConfig, SandboxDisks, SandboxMachine,
+    capture,
 };
 
 /// The console line the pinned agent prints when it parks awaiting launch material.
@@ -136,6 +137,57 @@ fn descriptor(
         digest: Sha256Digest::from_bytes(*digest.as_bytes()),
         size,
     }
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn install_and_publish(
+    entry: &Path,
+    store: &Path,
+    candidate: &PublishedCandidate,
+    outcome: &CaptureOutcome,
+) -> Result<(), Box<dyn Error>> {
+    let mut memory = File::open(outcome.paths.memory())?;
+    let mut overlay = File::open(outcome.paths.overlay())?;
+    let mut state = File::open(outcome.paths.state())?;
+    let binding = install_snapshot(
+        store,
+        SnapshotSource::new(
+            &mut memory,
+            descriptor(
+                ArtifactRole::MemorySnapshot,
+                outcome.memory_digest,
+                outcome.memory_bytes,
+            ),
+        ),
+        SnapshotSource::new(
+            &mut overlay,
+            descriptor(
+                ArtifactRole::OverlaySnapshot,
+                outcome.overlay_digest,
+                outcome.overlay_bytes,
+            ),
+        ),
+        SnapshotSource::new(
+            &mut state,
+            descriptor(
+                ArtifactRole::StateManifest,
+                outcome.state_digest,
+                outcome.state_bytes,
+            ),
+        ),
+    )?;
+    let certification = certify_candidate(store, candidate, &CompilerProfile::v1(), binding)?;
+    let generation = promote_candidate(store, candidate, &certification)?;
+    publish_generation_id(entry, generation.id.as_str())?;
+    println!(
+        "captured {}\n  generation {}\n  memory {} bytes\n  overlay {} bytes\n  state {} bytes",
+        outcome.paths.memory().parent().unwrap_or(entry).display(),
+        generation.id.as_str(),
+        outcome.memory_bytes,
+        outcome.overlay_bytes,
+        outcome.state_bytes,
+    );
+    Ok(())
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -249,49 +301,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let mut memory = File::open(outcome.paths.memory())?;
-    let mut overlay = File::open(outcome.paths.overlay())?;
-    let mut state = File::open(outcome.paths.state())?;
-    let binding = install_snapshot(
-        &store,
-        SnapshotSource::new(
-            &mut memory,
-            descriptor(
-                ArtifactRole::MemorySnapshot,
-                outcome.memory_digest,
-                outcome.memory_bytes,
-            ),
-        ),
-        SnapshotSource::new(
-            &mut overlay,
-            descriptor(
-                ArtifactRole::OverlaySnapshot,
-                outcome.overlay_digest,
-                outcome.overlay_bytes,
-            ),
-        ),
-        SnapshotSource::new(
-            &mut state,
-            descriptor(
-                ArtifactRole::StateManifest,
-                outcome.state_digest,
-                outcome.state_bytes,
-            ),
-        ),
-    )?;
-    let certification = certify_candidate(&store, &candidate, &CompilerProfile::v1(), binding)?;
-    let generation = promote_candidate(&store, &candidate, &certification)?;
-    publish_generation_id(entry, generation.id.as_str())?;
-
-    println!(
-        "captured {}\n  generation {}\n  memory {} bytes\n  overlay {} bytes\n  state {} bytes",
-        snapshot.display(),
-        generation.id.as_str(),
-        outcome.memory_bytes,
-        outcome.overlay_bytes,
-        outcome.state_bytes,
-    );
-    Ok(())
+    install_and_publish(entry, &store, &candidate, &outcome)
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

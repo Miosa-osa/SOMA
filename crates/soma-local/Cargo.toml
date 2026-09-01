@@ -26,6 +26,7 @@ soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.1" }
 libc = "=0.2.189"
 soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.1" }
 soma-vmm = { path = "../soma-vmm", version = "=1.0.0-alpha.1" }
+soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.1" }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 tempfile = "=3.27.0"

@@ -24,6 +24,8 @@ use selection::resolve_selection;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::host_machine;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::prewarm_machine_hosts;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BackendSelection {

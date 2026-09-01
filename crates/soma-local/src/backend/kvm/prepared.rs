@@ -9,10 +9,18 @@
 //! Identity is recomputed from the bytes on every read rather than recorded beside them, so a
 //! tampered or truncated entry cannot present itself as a Generation it is not.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    os::fd::OwnedFd,
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use soma::GenerationId;
-use soma_generation::{CompilerProfile, GenerationManifest, verify_generation};
+use soma_generation::{
+    ArtifactDescriptor, CompilerProfile, GenerationManifest, admit_installed_generation,
+    admit_verified_handoff, generation_manifest,
+};
 
 /// Names the root holding Generations prepared for this host.
 pub(super) const STORE: &str = "SOMA_GENERATION_STORE";
@@ -30,6 +38,10 @@ const STORE_DIRECTORY: &str = "store";
 const MAX_REFERENCE_BYTES: u64 = 4096;
 /// Exact upper bound for `sha256:` plus 64 lowercase hexadecimal digits.
 const GENERATION_ID_BYTES: u64 = 72;
+
+type VerifiedArtifact = (ArtifactDescriptor, Arc<std::fs::File>);
+type CacheKey = (PathBuf, String);
+type GenerationCache = Mutex<HashMap<CacheKey, PreparedGeneration>>;
 
 /// Why a request cannot be served from the prepared root.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -74,6 +86,86 @@ pub(super) struct PreparedGeneration {
     pub(super) id: GenerationId,
     /// The decoded ready Generation manifest.
     pub(super) manifest: GenerationManifest,
+    /// Open handles to the exact artifact bytes verified while this entry was admitted.
+    ///
+    /// Launch opens independent descriptions of these handles rather than looking digest names
+    /// up again.
+    /// This makes verification an admission cost and prevents a path replacement after
+    /// verification from changing the bytes a later machine consumes.
+    artifacts: Vec<VerifiedArtifact>,
+}
+
+impl PreparedGeneration {
+    /// Opens an independent description of an already verified artifact for one launch.
+    pub(super) fn open_artifact(
+        &self,
+        descriptor: &ArtifactDescriptor,
+    ) -> Result<std::fs::File, PreparedError> {
+        let file = self
+            .artifacts
+            .iter()
+            .find(|(candidate, _)| candidate == descriptor)
+            .map(|(_, file)| file)
+            .ok_or(PreparedError::Damaged)?;
+        independent_description(file).map_err(|_| PreparedError::Damaged)
+    }
+
+    /// Encodes the admitted manifest and opens independent verified handles for one child.
+    pub(super) fn handoff(&self) -> Result<(Vec<u8>, Vec<std::fs::File>), PreparedError> {
+        let manifest = generation_manifest::encode_manifest(&self.manifest)
+            .map_err(|_| PreparedError::Damaged)?;
+        let artifacts = self
+            .artifacts
+            .iter()
+            .map(|(_, file)| independent_description(file).map_err(|_| PreparedError::Damaged))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((manifest, artifacts))
+    }
+}
+
+/// Opens the inode retained by `file` as a new open file description.
+///
+/// `File::try_clone` and `SCM_RIGHTS` both duplicate one open file description, including its
+/// mutable offset. Kernel, initramfs, and snapshot readers use sequential reads, so sharing that
+/// offset across concurrent launches lets one child move another child's cursor or leave it at
+/// EOF. Opening this process's retained descriptor through procfs names the already open inode,
+/// not the replaceable installed path, while giving every launch an independent cursor.
+#[cfg(target_os = "linux")]
+fn independent_description(file: &std::fs::File) -> std::io::Result<std::fs::File> {
+    use std::os::fd::AsRawFd as _;
+
+    std::fs::File::open(format!("/proc/self/fd/{}", file.as_raw_fd()))
+}
+
+/// Non-Linux clients cannot launch the KVM backend, but the portable crate still compiles there.
+#[cfg(not(target_os = "linux"))]
+fn independent_description(file: &std::fs::File) -> std::io::Result<std::fs::File> {
+    file.try_clone()
+}
+
+/// Rebuilds a prepared Generation from verified handles transferred by its launching parent.
+pub(super) fn from_handoff(
+    reference: String,
+    id: &GenerationId,
+    manifest: &[u8],
+    descriptors: Vec<OwnedFd>,
+) -> Result<PreparedGeneration, PreparedError> {
+    let files = descriptors.into_iter().map(std::fs::File::from).collect();
+    let admitted = admit_verified_handoff(id, manifest, files, &CompilerProfile::v1())
+        .map_err(|_| PreparedError::Damaged)?;
+    let admitted_id = admitted.id.clone();
+    let (manifest, artifacts) = admitted.into_parts();
+    let artifacts = artifacts
+        .into_iter()
+        .map(|(descriptor, file)| (descriptor, Arc::new(file)))
+        .collect();
+    Ok(PreparedGeneration {
+        store: PathBuf::new(),
+        reference,
+        id: admitted_id,
+        manifest,
+        artifacts,
+    })
 }
 
 /// Whether `path` is a symbolic link, treating an unreadable path as one.
@@ -188,16 +280,20 @@ fn read_entry(
     let bytes = read_bounded(&generation_id, GENERATION_ID_BYTES).ok_or(PreparedError::Damaged)?;
     let text = std::str::from_utf8(&bytes).map_err(|_| PreparedError::Damaged)?;
     let id = GenerationId::new(text.trim().to_owned()).map_err(|_| PreparedError::Damaged)?;
-    let verified = verify_generation(&store, &id, &CompilerProfile::v1())
+    let admitted = admit_installed_generation(&store, &id, &CompilerProfile::v1())
         .map_err(|_| PreparedError::Damaged)?;
-    if !verified.launchable {
-        return Err(PreparedError::Uncertified);
-    }
+    let admitted_id = admitted.id.clone();
+    let (manifest, artifacts) = admitted.into_parts();
+    let artifacts = artifacts
+        .into_iter()
+        .map(|(descriptor, file)| (descriptor, Arc::new(file)))
+        .collect();
     Ok(PreparedGeneration {
         store,
         reference: reference.to_owned(),
-        id: verified.id,
-        manifest: verified.manifest,
+        id: admitted_id,
+        manifest,
+        artifacts,
     })
 }
 
@@ -216,6 +312,15 @@ pub(super) fn find(
     reference: &str,
 ) -> Result<PreparedGeneration, PreparedError> {
     let root = root.ok_or(PreparedError::StoreUnset)?;
+    let key = (root.to_path_buf(), reference.to_owned());
+    if let Some(found) = cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&key)
+        .cloned()
+    {
+        return Ok(found);
+    }
     // A root that is simply absent is a different operator problem from one that is a link, and
     // reporting the wrong one sends the operator to the wrong place. Anything else that cannot
     // be described still counts as a link, because it cannot be shown not to be one.
@@ -244,11 +349,47 @@ pub(super) fn find(
             Claim::Unreadable => return Err(PreparedError::Damaged),
         }
     }
-    match claimants.as_slice() {
+    let found = match claimants.as_slice() {
         [] => Err(PreparedError::NotPrepared),
         [only] => read_entry(root, only, reference),
         _ => Err(PreparedError::Ambiguous),
+    }?;
+    cache()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(key, found.clone());
+    Ok(found)
+}
+
+/// Verifies and retains every named Generation before a hosted service accepts traffic.
+pub(super) fn preload() -> Result<(), PreparedError> {
+    let root = store_root().ok_or(PreparedError::StoreUnset)?;
+    let entries = std::fs::read_dir(&root).map_err(|_| PreparedError::StoreUnreadable)?;
+    for entry in entries {
+        let path = entry.map_err(|_| PreparedError::StoreUnreadable)?.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let reference_path = path.join(REFERENCE);
+        if !reference_path.exists() {
+            continue;
+        }
+        let bytes =
+            read_bounded(&reference_path, MAX_REFERENCE_BYTES).ok_or(PreparedError::Damaged)?;
+        let reference = std::str::from_utf8(&bytes)
+            .map_err(|_| PreparedError::Damaged)?
+            .trim();
+        if reference.is_empty() {
+            return Err(PreparedError::Damaged);
+        }
+        find(Some(&root), reference)?;
     }
+    Ok(())
+}
+
+fn cache() -> &'static GenerationCache {
+    static CACHE: OnceLock<GenerationCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// The prepared root this host names, if any.

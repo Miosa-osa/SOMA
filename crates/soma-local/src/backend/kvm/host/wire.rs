@@ -8,9 +8,10 @@
 use serde::{Deserialize, Serialize};
 use soma::{
     BackendFailureKind, CleanupEvidence, CommandStatus, EffectiveNetwork, FileAnswer,
-    FileOperation, InstanceId, MachineShape, MachineState, OperationId, PreparationClass,
-    PtyAnswer, PtyOperation,
+    FileOperation, GenerationId, InstanceId, MachineShape, MachineState, OperationId,
+    PreparationClass, PtyAnswer, PtyOperation,
 };
+use std::path::PathBuf;
 
 /// The largest line either side will read, so neither can spend the other's memory.
 pub(super) const MAX_LINE_BYTES: u64 = 64 << 20;
@@ -19,6 +20,8 @@ pub(super) const MAX_LINE_BYTES: u64 = 64 << 20;
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct LaunchWire {
+    /// Address the child binds only after it receives the complete launch capability.
+    pub(super) socket: PathBuf,
     pub(super) operation_id: OperationId,
     pub(super) instance_id: InstanceId,
     /// The image reference the client resolved.
@@ -26,6 +29,10 @@ pub(super) struct LaunchWire {
     /// The host finds its own prepared entry from this rather than being handed a store path, so
     /// what it launches is what a prepared entry claims rather than bytes the client named.
     pub(super) reference: String,
+    /// Identity of the manifest whose verified files cross on the launch channel.
+    pub(super) generation_id: GenerationId,
+    /// Canonical ready manifest bytes already admitted by the parent.
+    pub(super) manifest: Vec<u8>,
     pub(super) shape: MachineShape,
 }
 

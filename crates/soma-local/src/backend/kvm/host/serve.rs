@@ -1,8 +1,9 @@
 //! The process that holds one machine.
 //!
-//! It binds its socket before anything exists, so the Instance is addressable from the moment it
-//! could be launched; it launches exactly one machine and reports what that established on its
-//! standard output; and it then answers one request at a time until the machine is released.
+//! A sterile process waits without an Instance or machine, receives one complete launch
+//! capability, binds that Instance's socket, launches exactly one machine, and reports what that
+//! established on standard output.
+//! It then answers one request at a time until the machine is released.
 //!
 //! It ends by releasing. Every path out of the serve loop passes through cleanup, so a client
 //! that vanished, a host that was told to shut down, and a listener that failed all leave the
@@ -10,6 +11,7 @@
 
 use std::{
     io::{self, BufReader},
+    os::fd::AsFd as _,
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
     sync::{
@@ -44,26 +46,51 @@ const REQUEST_CEILING: Duration = Duration::from_secs(30);
 const RELEASED: i32 = 0;
 const REFUSED: i32 = 1;
 
-/// Serves one machine at `socket` until it is released, and returns the process status.
-pub(crate) fn host_machine(socket: &Path) -> i32 {
-    let Ok(listener) = channel::bind(socket) else {
+/// Waits for one launch capability, serves its machine until release, and returns process status.
+pub(crate) fn host_machine(expected_socket: Option<&Path>) -> i32 {
+    serve(expected_socket)
+}
+
+fn serve(expected_socket: Option<&Path>) -> i32 {
+    let input = io::stdin();
+    let Ok(descriptors) = soma_supervise::receive_descriptors(input.as_fd()) else {
         return REFUSED;
     };
-    let status = serve(&listener, socket);
+    let mut input = BufReader::new(input);
+    let Some(request) = channel::read_line::<LaunchWire>(&mut input) else {
+        return REFUSED;
+    };
+    if expected_socket.is_some_and(|expected| expected != request.socket) {
+        return REFUSED;
+    }
+    let socket = request.socket.clone();
+    let Ok(listener) = channel::bind(&socket) else {
+        return REFUSED;
+    };
+    let status = serve_machine(&listener, &socket, &request, descriptors);
     let _ignored = std::fs::remove_file(socket);
     status
 }
 
-fn serve(listener: &UnixListener, socket: &Path) -> i32 {
-    let mut input = BufReader::new(io::stdin());
-    let Some(request) = channel::read_line::<LaunchWire>(&mut input) else {
-        return REFUSED;
-    };
-    let Ok(mut backend) = KvmBackend::resident() else {
+fn serve_machine(
+    listener: &UnixListener,
+    socket: &Path,
+    request: &LaunchWire,
+    descriptors: Vec<std::os::fd::OwnedFd>,
+) -> i32 {
+    let Ok(mut backend) = KvmBackend::machine_host() else {
         return refuse(BackendFailureKind::Unavailable);
     };
     let instance = request.instance_id.clone();
-    let launched = match launch(&mut backend, &request) {
+    let Ok(prepared) = prepared::from_handoff(
+        request.reference.clone(),
+        &request.generation_id,
+        &request.manifest,
+        descriptors,
+    ) else {
+        return refuse(BackendFailureKind::Unavailable);
+    };
+    let launched = match launch(&mut backend, request, &prepared) {
         Ok(launched) => launched,
         Err(kind) => return refuse(kind),
     };
@@ -81,14 +108,16 @@ fn serve(listener: &UnixListener, socket: &Path) -> i32 {
 /// The prepared entry is found here rather than handed over, so what launches is what an entry
 /// in this host's own store claims for the reference, read by exactly the check the one-shot
 /// path performs.
-fn launch(backend: &mut KvmBackend, request: &LaunchWire) -> Result<Launched, BackendFailureKind> {
-    let found = prepared::find(prepared::store_root().as_deref(), &request.reference)
-        .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+fn launch(
+    backend: &mut KvmBackend,
+    request: &LaunchWire,
+    found: &prepared::PreparedGeneration,
+) -> Result<Launched, BackendFailureKind> {
     backend
         .launch_resident(
             &request.operation_id,
             &request.instance_id,
-            &found,
+            found,
             &request.shape,
         )
         .map_err(|failure| failure.kind())

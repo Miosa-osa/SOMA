@@ -31,7 +31,9 @@ async fn main() {
     let mut invocation = std::env::args_os().skip(1);
     if invocation.next().as_deref() == Some(std::ffi::OsStr::new(MACHINE_HOST)) {
         let socket = invocation.next().unwrap_or_default();
-        std::process::exit(soma_local::host_machine(std::path::Path::new(&socket)));
+        std::process::exit(soma_local::host_machine(Some(std::path::Path::new(
+            &socket,
+        ))));
     }
     let arguments = Arguments::parse();
     let runtime = soma_mcp::LocalToolRuntime::new(arguments.runtime, arguments.state_root);

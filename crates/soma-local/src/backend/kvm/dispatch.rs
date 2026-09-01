@@ -42,7 +42,7 @@ impl KvmBackend {
                 &directory,
                 operation,
                 request.instance_id(),
-                prepared.reference.clone(),
+                prepared,
                 request.shape(),
             )
             .map_err(|kind| self.fail(operation, kind))?,
@@ -190,7 +190,7 @@ impl KvmBackend {
     /// Where hosted machines are addressed, or nothing when this process holds its own.
     pub(super) fn hosted_directory(&self) -> Option<PathBuf> {
         match &self.role {
-            Role::Resident => None,
+            Role::Resident | Role::MachineHost => None,
             Role::Hosted(directory) => Some(directory.clone()),
         }
     }

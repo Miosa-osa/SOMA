@@ -50,6 +50,12 @@ The comparison profile is:
 - Destruction is excluded from TTI but must still succeed and be reported.
 - Median, p95, p99, success rate, wall time, and raw samples are retained.
 
+`python3 -m benchmarks.computesdk_exact` is the retained qualification harness for the exact public HTTP boundary.
+It deliberately uses one fresh HTTP connection for create, command, and destroy because the upstream ComputeSDK provider boundary includes those request round trips.
+`python3 -m benchmarks.computesdk_exact.combine` recomputes one cohort from synchronized host shards without treating host-local monotonic clocks as globally comparable.
+The implementation mirrors ComputeSDK revision `46dea652fcc372e5acea0c9f372613d86b4b6bab` and its five-percent two-sided trim, arithmetic median, and nearest-rank tail percentiles.
+The retained east-host qualification is documented in [the exact HTTP Burst TTI evidence](evidence/2026-09-01-computesdk-http-east-burst.md).
+
 ## Internal stage measurements
 
 Production benchmark instrumentation must record monotonic timestamps for every lifecycle milestone.

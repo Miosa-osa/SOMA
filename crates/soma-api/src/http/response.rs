@@ -26,8 +26,9 @@ impl Response {
     ///
     /// Returns the underlying write failure.
     pub fn write_to(&self, writer: &mut impl Write) -> io::Result<()> {
+        let mut response = Vec::with_capacity(160 + self.body.len());
         write!(
-            writer,
+            response,
             "HTTP/1.1 {} {}\r\n\
              content-type: application/json\r\n\
              content-length: {}\r\n\
@@ -37,8 +38,8 @@ impl Response {
             reason(self.status),
             self.body.len(),
         )?;
-        writer.write_all(&self.body)?;
-        writer.flush()
+        response.extend_from_slice(&self.body);
+        writer.write_all(&response)
     }
 }
 

@@ -30,7 +30,8 @@ pub(super) fn boot_for(
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
     let manifest = &prepared.manifest;
     let open = |descriptor| {
-        soma_generation::open_artifact(&prepared.store, descriptor)
+        prepared
+            .open_artifact(descriptor)
             .map_err(|_| BackendFailureKind::Unavailable)
     };
     let kernel = open(&manifest.kernel.descriptor)?;
@@ -81,7 +82,9 @@ pub(super) fn boot_for(
     } else {
         {
             let overlay = template
-                .map(|template| private_head(&prepared.store, &template.descriptor, instance))
+                .map(|template| {
+                    open(&template.descriptor).and_then(|file| private_head_from(file, instance))
+                })
                 .transpose()?;
             Source::ColdBoot(cold_boot_config(ColdBootInputs {
                 kernel,
@@ -136,16 +139,6 @@ pub(super) fn private_head_from(
 /// until they are written and so costs neither the time nor the space of a copy. Where the
 /// filesystem cannot reflink, the bytes are copied instead: the head must still be private, so
 /// the fallback is slower rather than absent, and the two paths produce the same head.
-fn private_head(
-    store: &std::path::Path,
-    descriptor: &soma_generation::ArtifactDescriptor,
-    instance: &InstanceId,
-) -> Result<std::fs::File, BackendFailureKind> {
-    let template = soma_generation::open_artifact(store, descriptor)
-        .map_err(|_| BackendFailureKind::Unavailable)?;
-    clone_or_copy(template, Some(*descriptor.digest.as_bytes()), instance)
-}
-
 /// Clones one open template into a private head for `instance`, reflinking where it can.
 ///
 /// On a reflink filesystem the head shares the template's extents until it is written, so it

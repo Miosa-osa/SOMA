@@ -6,6 +6,40 @@
 
 use super::*;
 
+#[cfg(target_os = "linux")]
+#[test]
+fn launch_artifact_descriptions_have_independent_offsets() {
+    use std::io::{Read as _, Seek as _};
+
+    let root = scratch("independent-descriptions");
+    let path = root.join("artifact");
+    let expected = (0_u8..=255).cycle().take(64 * 1024).collect::<Vec<_>>();
+    std::fs::write(&path, &expected).expect("write artifact");
+    let retained = std::fs::File::open(&path).expect("retain artifact");
+    let launches = (0..32)
+        .map(|_| independent_description(&retained).expect("independent description"))
+        .collect::<Vec<_>>();
+    let readers = launches
+        .into_iter()
+        .map(|mut launch| {
+            let expected = expected.clone();
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                launch
+                    .read_to_end(&mut bytes)
+                    .expect("read launch artifact");
+                assert_eq!(bytes, expected);
+            })
+        })
+        .collect::<Vec<_>>();
+    for reader in readers {
+        reader.join().expect("reader");
+    }
+    let mut retained = retained;
+    assert_eq!(retained.stream_position().expect("retained offset"), 0);
+    std::fs::remove_dir_all(root).ok();
+}
+
 /// One entry claiming `reference`, with bytes that are present but not a real Candidate.
 ///
 /// The bytes decode to nothing, so any test that reaches the decode reports `Damaged`. A test

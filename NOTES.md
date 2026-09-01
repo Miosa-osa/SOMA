@@ -887,3 +887,38 @@ Linux x86_64 tests for Candidate refusal run inside an amd64 Docker environment 
 The Linux KVM launch path now opens every Generation and captured-snapshot object through its content descriptor and consumes the same handle whose digest and size were verified.
 Direct restore, prepared-pool refill, private overlay cloning, and jailed-worker construction no longer treat the sibling `snapshot/` directory as a launch capability.
 ADR 0041 records the trust-boundary decision.
+
+## 2026-09-01 - Exact HTTP burst qualification exposes the real fast-storage invariant
+
+The retained exact ComputeSDK-boundary harness starts before public create, executes a real `node -v` in the guest, stops after command success, and destroys outside the timing boundary.
+Three consecutive 40/24/36 east-host cohorts completed 300 of 300 commands and cleanups with medians from 41.56 ms to 44.86 ms and p99 values from 53.30 ms to 56.66 ms through host-local HTTP.
+These numbers are qualification evidence and exclude MIOSA edge, authentication, placement, load balancing, and GitHub-runner network latency.
+Host10 exposed that the generic disk-copy fallback can add approximately one second even when KVM reaches Ready in approximately 5.45 ms.
+The fast host profile therefore requires prepared artifacts and private heads on the same reflink-enabled XFS device.
+The operator proof is implemented by `scripts/check-fast-storage.sh`, while production HostProfile admission still needs a durable machine-readable proof instead of relying on the generic clone path's correctness-first copy fallback.
+Repeated qualification also exposed successful machine-host children without a wait owner, so the KVM host path now transfers those children to one process reaper after the authenticated handshake.
+The generation process test no longer counts every pipe owned by the parallel Rust test harness as if it belonged to one invocation; bounded return plus descendant exit remain the scoped containment assertions.
+
+## 2026-09-01 - Verified descriptors cross the machine-host boundary
+
+Full artifact hashing inside every machine-host made an exact create plus `node -v` smoke sample take approximately 8.72 seconds.
+The hosted API now cryptographically admits installed Generations before listening, retains the admitted open files, opens an independent description of every retained inode per launch, and transfers those descriptions to each child with a bounded `SCM_RIGHTS` handoff.
+Semantic artifact certification remains the installer's publication responsibility because installed admission is intentionally narrower than `verify_generation`.
+Using `File::try_clone` here was incorrect because both it and `SCM_RIGHTS` preserved a shared open-file-description offset across concurrent children.
+The exact east-host campaign proved that defect caused the intermittent `backend_unavailable` refusals: independent descriptions produced repeated 100/100 create, command, and cleanup cohorts at the original 40/24/36 placement.
+ADR 0044 moves only empty machine-host process creation before API readiness; it does not prepare a VM, memory, identity, or Generation assignment.
+The best observed secure exact cohort was 62.32 ms median, 75.43 ms p95, and 75.94 ms p99, while the following three medians were 69.34, 67.42, and 68.32 ms, so the best run is demonstrated capability and not yet a stable public claim.
+The child revalidates manifest identity, compiler profile, descriptor order, file kind, and size and never reopens artifact paths.
+The first handoff receiver mistakenly read a 13-byte buffer for a 12-byte header and could consume the first JSON byte under concurrency; the exact-size receive frame fixed that race.
+The final secure 1/1/98 east-host cohort completed 100 of 100 commands and cleanups at median 109.65 ms, p95 149.33 ms, and p99 157.23 ms.
+The earlier 41-45 ms cohorts used the removed size-only shortcut and remain legacy investigation evidence only.
+
+## 2026-09-01 - CPU policy and placement are measured benchmark inputs
+
+The fully validated sterile-host binary SHA-256 is `ebeaadfaee2902547399969b7e0d27cd38a8c3849f59524157bae18dc4b98850`.
+Its first 40/24/36 exact cohort completed 100 commands and cleanups at 70.96 ms median, 83.76 ms p95, and 84.43 ms p99.
+Host03 and host10 were using the AMD P-state `powersave` governor while host04 used `performance`, despite all three already selecting the `performance` energy preference.
+Normalizing all CPUs to the `performance` governor reduced the repeated 40/24/36 tail to 77.50 ms p95 and 79.56 ms p99.
+Placement probes found host-specific contention knees rather than one interchangeable slot count: host10 degraded at 48 concurrent launches and host04 degraded at 32.
+The 34/32/34 split produced the best validated median at 66.43 ms but overloaded host04, while 40/20/40 produced the best validated tail at 76.14 ms p95 and 79.21 ms p99 with a 69.23 ms median.
+The remaining stable median gap is split nearly evenly between on-demand machine restore and the first real Node command, so further progress requires a prepared-machine assignment seam or measured guest-command work rather than more placement guessing.

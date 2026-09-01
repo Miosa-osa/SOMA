@@ -1256,6 +1256,7 @@ dependencies = [
  "soma-macos",
  "soma-netd",
  "soma-storage",
+ "soma-supervise",
  "soma-vmm",
  "tempfile",
 ]

@@ -45,7 +45,7 @@ fn run() -> i32 {
     // A machine host is not a command that produces an envelope: it becomes the process that
     // holds one sandbox, so it takes the binary over before any response exists.
     if let RootCommand::MachineHost(arguments) = &cli.command {
-        return soma_local::host_machine(&arguments.socket);
+        return soma_local::host_machine(Some(&arguments.socket));
     }
     let format = cli.format;
     let execution = execute(cli);

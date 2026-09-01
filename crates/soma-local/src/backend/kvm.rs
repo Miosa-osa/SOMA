@@ -29,7 +29,7 @@ use network::BrokerConfiguration;
 use pool::MachinePool;
 use runtime::Ownership;
 
-pub(crate) use host::host_machine;
+pub(crate) use host::{host_machine, prewarm_machine_hosts};
 
 /// Names how many sterile machines this host keeps prepared per Generation.
 ///
@@ -97,17 +97,19 @@ impl KvmBackend {
     /// Returns [`LocalFailureKind::BackendUnavailable`] when a Host Runtime is configured and
     /// nothing serves it.
     pub(super) fn open(host_directory: Option<PathBuf>) -> Result<Self, LocalFailure> {
+        if host_directory.is_some() {
+            prepared::preload()
+                .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        }
         Self::with_role(host_directory.map_or(Role::Resident, Role::Hosted))
     }
 
-    /// Opens the Backend for the process that will hold the machine itself.
+    /// Opens the Backend for one process that can only ever hold one requested Instance.
     ///
-    /// # Errors
-    ///
-    /// Returns [`LocalFailureKind::BackendUnavailable`] when a Host Runtime is configured and
-    /// nothing serves it.
-    pub(super) fn resident() -> Result<Self, LocalFailure> {
-        Self::with_role(Role::Resident)
+    /// Unlike a reusable resident runtime, this process exits when that Instance is released.
+    /// Preparing a spare machine here would consume a second VM that no future request can claim.
+    pub(super) fn machine_host() -> Result<Self, LocalFailure> {
+        Self::with_role(Role::MachineHost)
     }
 
     fn with_role(role: Role) -> Result<Self, LocalFailure> {
@@ -152,7 +154,7 @@ impl KvmBackend {
 fn target_for(role: &Role) -> usize {
     match role {
         Role::Resident => configured_target(),
-        Role::Hosted(_) => 0,
+        Role::MachineHost | Role::Hosted(_) => 0,
     }
 }
 
@@ -194,5 +196,6 @@ mod target_tests {
     #[test]
     fn a_per_instance_host_never_builds_an_unclaimable_spare_machine() {
         assert_eq!(target_for(&Role::Hosted("/run/soma".into())), 0);
+        assert_eq!(target_for(&Role::MachineHost), 0);
     }
 }

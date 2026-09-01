@@ -1,6 +1,6 @@
-use std::{env, net::TcpListener, path::PathBuf, process};
+use std::{env, net::TcpListener, path::PathBuf, process, time::Duration};
 
-use soma_api::{ApiError, LocalFacade, serve};
+use soma_api::{ApiError, FacadePool, LocalFacade, serve};
 use soma_local::{BackendSelection, LocalRuntimeConfig};
 
 /// The address the service binds when none is given.
@@ -8,6 +8,13 @@ use soma_local::{BackendSelection, LocalRuntimeConfig};
 /// It binds loopback rather than every interface. This service has no finished authentication
 /// scheme, so a default that exposed it to a network would be a default that leaked sandboxes.
 const DEFAULT_LISTEN: &str = "127.0.0.1:8787";
+
+/// Enough preopened runtimes for a public 100-way burst plus overlapping command requests.
+const DEFAULT_WORKERS: usize = 128;
+
+/// Prevents an accidental configuration from consuming unbounded host descriptors and threads.
+const MAXIMUM_WORKERS: usize = 1024;
+const POOL_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The argument the runtime re-enters this executable with to hold one machine.
 ///
@@ -29,16 +36,16 @@ fn run() -> i32 {
     if let Some(first) = arguments.next()
         && first == MACHINE_HOST
     {
-        let Some(socket) = arguments.next().filter(|_| arguments.next().is_none()) else {
-            eprintln!("soma-api: usage: soma-api {MACHINE_HOST} SOCKET");
+        if arguments.next().is_some() {
+            eprintln!("soma-api: usage: soma-api {MACHINE_HOST}");
             return 64;
-        };
-        return soma_local::host_machine(std::path::Path::new(&socket));
+        }
+        return soma_local::host_machine(None);
     }
     let Some(options) = Options::parse(env::args().skip(1)) else {
         eprintln!(
             "soma-api: usage: soma-api [--listen ADDR] [--backend auto|kvm|macos|docker] \
-             [--runtime PATH] [--state-root PATH]"
+             [--runtime PATH] [--state-root PATH] [--workers COUNT]"
         );
         return 64;
     };
@@ -46,24 +53,34 @@ fn run() -> i32 {
         eprintln!("soma-api: could not bind {}", options.listen);
         return 74;
     };
+    let Ok(config) = LocalRuntimeConfig::discover(
+        options.backend,
+        options.runtime.clone(),
+        options.state_root.clone(),
+    ) else {
+        eprintln!("soma-api: the local sandbox runtime configuration is invalid");
+        return 78;
+    };
+    let config = config.with_hosted_machines(true);
+    if matches!(
+        options.backend,
+        BackendSelection::Auto | BackendSelection::Kvm
+    ) && soma_local::prewarm_machine_hosts(options.workers).is_err()
+    {
+        eprintln!("soma-api: sterile machine hosts could not be prepared");
+        return 69;
+    }
+    let Ok(pool) = FacadePool::open(options.workers, || LocalFacade::open(config.clone())) else {
+        eprintln!("soma-api: the local sandbox runtime could not be opened");
+        return 69;
+    };
     eprintln!("soma-api: listening on {}", options.listen);
     let open_facade = move || {
-        LocalRuntimeConfig::discover(
-            options.backend,
-            options.runtime.clone(),
-            options.state_root.clone(),
-        )
-        // Every route this service serves names an Instance a later request must be able to
-        // reach, so the machine has to be held by a host process rather than by whichever
-        // connection happened to create it. Without this the sandbox a create call returns is
-        // already gone by the time the caller addresses it.
-        .map(|config| config.with_hosted_machines(true))
-        .and_then(LocalFacade::open)
-        .map_err(|_| {
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT).ok_or_else(|| {
             ApiError::new(
                 503,
-                "backend_unavailable",
-                "the local sandbox runtime could not be opened",
+                "runtime_busy",
+                "the local sandbox runtime is at its bounded request capacity",
                 true,
             )
         })
@@ -81,6 +98,7 @@ struct Options {
     backend: BackendSelection,
     runtime: Option<PathBuf>,
     state_root: Option<PathBuf>,
+    workers: usize,
 }
 
 impl Options {
@@ -95,6 +113,7 @@ impl Options {
             backend: BackendSelection::Auto,
             runtime: None,
             state_root: None,
+            workers: DEFAULT_WORKERS,
         };
         let mut arguments = arguments;
         while let Some(argument) = arguments.next() {
@@ -104,6 +123,12 @@ impl Options {
                 "--backend" => options.backend = backend(&value)?,
                 "--runtime" => options.runtime = Some(PathBuf::from(value)),
                 "--state-root" => options.state_root = Some(PathBuf::from(value)),
+                "--workers" => {
+                    options.workers = value.parse().ok()?;
+                    if !(1..=MAXIMUM_WORKERS).contains(&options.workers) {
+                        return None;
+                    }
+                }
                 _ => return None,
             }
         }
@@ -135,5 +160,23 @@ mod tests {
         let options = Options::parse(std::iter::empty()).expect("empty arguments parse");
 
         assert_eq!(options.listen, "127.0.0.1:8787");
+        assert_eq!(options.workers, 128);
+    }
+
+    #[test]
+    fn accepts_a_bounded_worker_count() {
+        let options = Options::parse(["--workers".to_owned(), "100".to_owned()].into_iter())
+            .expect("bounded worker count parses");
+
+        assert_eq!(options.workers, 100);
+    }
+
+    #[test]
+    fn rejects_zero_or_unbounded_worker_counts() {
+        for count in ["0", "1025", "not-a-number"] {
+            assert!(
+                Options::parse(["--workers".to_owned(), count.to_owned()].into_iter()).is_none()
+            );
+        }
     }
 }

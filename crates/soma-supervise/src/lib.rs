@@ -14,7 +14,11 @@
 mod capture;
 mod contained;
 mod group;
+#[cfg(target_os = "linux")]
+mod handoff;
 mod supervise;
 
 pub use capture::CAPTURE_LIMIT;
 pub use contained::{Contained, Output, TERMINATION_GRACE, Uncontained};
+#[cfg(target_os = "linux")]
+pub use handoff::{DescriptorHandoffError, receive_descriptors, send_descriptors};

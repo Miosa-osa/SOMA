@@ -1,4 +1,4 @@
-use std::{io::Read as _, path::Path};
+use std::{fs::File, io::Read as _, path::Path};
 
 use soma::GenerationId;
 
@@ -10,6 +10,7 @@ use super::{
     erofs_reader::ErofsImage,
     erofs_verify::{RootExpectation, verify_root_image},
     error::{CompileError, CompileErrorKind, CompilePhase},
+    identity::derive_generation_id,
     initramfs::verify_initramfs,
     kernel::verify_kernel,
     manifest::{GenerationManifest, SnapshotBinding, decode_candidate, decode_manifest},
@@ -53,6 +54,294 @@ pub struct VerifiedCandidate {
     pub manifest: GenerationManifest,
     /// The number of artifact objects whose size and digest were re-checked.
     pub artifacts_verified: u32,
+}
+
+/// One launchable Generation admitted from a store that installation already verified.
+///
+/// Installation owns expensive content verification.
+/// Admission rechecks the small content-addressed manifest and compiler contract, then retains
+/// open handles to every exact artifact so no later path lookup can substitute launch bytes.
+#[derive(Debug)]
+pub struct InstalledGeneration {
+    /// The admitted identity.
+    pub id: GenerationId,
+    /// The decoded ready manifest.
+    pub manifest: GenerationManifest,
+    artifacts: Vec<(ArtifactDescriptor, File)>,
+}
+
+impl InstalledGeneration {
+    /// Consumes the admission result into its manifest and verified-use artifact handles.
+    #[must_use]
+    pub fn into_parts(self) -> (GenerationManifest, Vec<(ArtifactDescriptor, File)>) {
+        (self.manifest, self.artifacts)
+    }
+}
+
+/// Admits a Generation from a private, installation-verified store without re-reading large
+/// artifacts.
+///
+/// The ready manifest is digest-checked against `id`, decoded as hostile input, and checked
+/// against the compiler profile.
+/// Every launch artifact is opened without following a final symlink and must have the exact
+/// declared size.
+/// The returned handles are the handles launch must consume.
+///
+/// This is not a substitute for [`verify_generation`].
+/// Operators must run full verification before publishing `generation.id`, and only the
+/// installer may hold write authority over the store.
+///
+/// # Errors
+///
+/// Returns the first identity, profile, launchability, or artifact-open failure.
+pub fn admit_installed_generation(
+    store: &Path,
+    id: &GenerationId,
+    profile: &CompilerProfile,
+) -> Result<InstalledGeneration, CompileError> {
+    profile.validate()?;
+    let store = Store::open(store).map_err(from_import)?;
+    let bytes = read_manifest_bytes(&store, id)?;
+    let manifest = decode_manifest(&bytes)?;
+    require_profile(&manifest, profile)?;
+    if manifest.snapshot == SnapshotBinding::Absent {
+        return Err(integrity());
+    }
+    let artifacts = launch_descriptors(&manifest)
+        .into_iter()
+        .map(|descriptor| {
+            let file = store
+                .open_verified_blob(
+                    &descriptor.to_store_descriptor(),
+                    descriptor.size,
+                    ImportPhase::Publish,
+                )
+                .map_err(from_import)?
+                .into_std();
+            Ok((descriptor, file))
+        })
+        .collect::<Result<Vec<_>, CompileError>>()?;
+    Ok(InstalledGeneration {
+        id: id.clone(),
+        manifest,
+        artifacts,
+    })
+}
+
+/// Reconstructs one admitted Generation from canonical manifest bytes and files transferred by
+/// a process that already completed [`admit_installed_generation`].
+///
+/// The process boundary must transfer the open file descriptions themselves, not paths.
+/// This function revalidates the manifest identity, hostile decoder, compiler profile, artifact
+/// order, file kind, and size without re-hashing bytes held by those already verified handles.
+///
+/// # Errors
+///
+/// Returns an integrity failure when the handoff is incomplete or inconsistent.
+pub fn admit_verified_handoff(
+    id: &GenerationId,
+    manifest_bytes: &[u8],
+    files: Vec<File>,
+    profile: &CompilerProfile,
+) -> Result<InstalledGeneration, CompileError> {
+    profile.validate()?;
+    if &derive_generation_id(manifest_bytes) != id {
+        return Err(integrity());
+    }
+    let manifest = decode_manifest(manifest_bytes)?;
+    require_profile(&manifest, profile)?;
+    if manifest.snapshot == SnapshotBinding::Absent {
+        return Err(integrity());
+    }
+    let descriptors = launch_descriptors(&manifest);
+    if descriptors.len() != files.len() {
+        return Err(integrity());
+    }
+    let artifacts = descriptors
+        .into_iter()
+        .zip(files)
+        .map(|(descriptor, file)| {
+            let metadata = file.metadata().map_err(|_| integrity())?;
+            if !metadata.file_type().is_file() || metadata.len() != descriptor.size {
+                return Err(integrity());
+            }
+            Ok((descriptor, file))
+        })
+        .collect::<Result<Vec<_>, CompileError>>()?;
+    Ok(InstalledGeneration {
+        id: id.clone(),
+        manifest,
+        artifacts,
+    })
+}
+
+#[cfg(test)]
+mod installed_admission_tests {
+    use std::{fs, io::Cursor};
+
+    use super::*;
+    use crate::{
+        digest,
+        generation::{
+            artifacts::Sha256Digest,
+            identity::derive_generation_id,
+            manifest::{encode_manifest, fixture},
+        },
+    };
+
+    const BLOCK: u64 = 4096;
+    const OVERLAY: u64 = 64 * 1024 * 1024;
+
+    fn resize(descriptor: &mut ArtifactDescriptor, size: u64) {
+        let fill = descriptor.role.code();
+        let bytes = vec![fill; usize::try_from(size).unwrap()];
+        descriptor.size = size;
+        descriptor.digest = Sha256Digest::from_oci(&digest::bytes(&bytes));
+    }
+
+    fn installed() -> (
+        tempfile::TempDir,
+        GenerationId,
+        CompilerProfile,
+        Vec<ArtifactDescriptor>,
+    ) {
+        let root = tempfile::tempdir().expect("store root");
+        let store = Store::open(root.path()).expect("open store");
+        let mut manifest = fixture::profile_v1();
+        manifest.overlay.templates.truncate(1);
+        manifest.overlay.templates[0].capacity = OVERLAY;
+        manifest.overlay.minimum_capacity = OVERLAY;
+        manifest.overlay.maximum_capacity = OVERLAY;
+        manifest.template.writable_storage_bytes = OVERLAY;
+        manifest.snapshot = fixture::captured_snapshot();
+        resize(&mut manifest.kernel.descriptor, BLOCK);
+        resize(&mut manifest.initramfs.descriptor, BLOCK);
+        resize(&mut manifest.root.descriptor, BLOCK);
+        resize(&mut manifest.overlay.templates[0].descriptor, OVERLAY);
+        if let SnapshotBinding::Captured {
+            memory,
+            overlay,
+            state,
+            ..
+        } = &mut manifest.snapshot
+        {
+            resize(memory, BLOCK);
+            resize(overlay, BLOCK);
+            resize(state, BLOCK);
+        }
+        let descriptors = launch_descriptors(&manifest);
+        for descriptor in &descriptors {
+            let bytes = vec![descriptor.role.code(); usize::try_from(descriptor.size).unwrap()];
+            store
+                .put_descriptor(
+                    &mut Cursor::new(bytes),
+                    &descriptor.to_store_descriptor(),
+                    descriptor.size,
+                    ImportPhase::Publish,
+                )
+                .expect("publish artifact");
+        }
+        let bytes = encode_manifest(&manifest).expect("encode ready manifest");
+        store
+            .put_bytes(
+                &bytes,
+                ArtifactRole::GenerationManifest.media_type(),
+                ImportPhase::Publish,
+            )
+            .expect("publish ready manifest");
+        let mut profile = CompilerProfile::v1();
+        profile.overlay_capacities = vec![OVERLAY];
+        (root, derive_generation_id(&bytes), profile, descriptors)
+    }
+
+    #[test]
+    fn admission_retains_every_digest_verified_launch_handle() {
+        let (root, id, profile, descriptors) = installed();
+        let admitted = admit_installed_generation(root.path(), &id, &profile).expect("admit");
+
+        assert_eq!(admitted.artifacts.len(), descriptors.len());
+    }
+
+    #[test]
+    fn same_size_corruption_is_refused() {
+        let (root, id, profile, descriptors) = installed();
+        let target = &descriptors[0];
+        let path = root
+            .path()
+            .join("v1/blobs/sha256")
+            .join(crate::digest::hex(&target.digest.to_oci()));
+        fs::remove_file(&path).expect("remove verified artifact");
+        fs::write(&path, vec![0xff; usize::try_from(target.size).unwrap()])
+            .expect("replace with same-size corruption");
+
+        assert!(admit_installed_generation(root.path(), &id, &profile).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_artifact_is_refused() {
+        let (root, id, profile, descriptors) = installed();
+        let target = &descriptors[0];
+        let path = root
+            .path()
+            .join("v1/blobs/sha256")
+            .join(crate::digest::hex(&target.digest.to_oci()));
+        let substitute = root.path().join("same-size-substitute");
+        fs::write(
+            &substitute,
+            vec![0_u8; usize::try_from(target.size).unwrap()],
+        )
+        .expect("write substitute");
+        fs::remove_file(&path).expect("remove artifact");
+        std::os::unix::fs::symlink(&substitute, &path).expect("replace with symlink");
+
+        assert!(admit_installed_generation(root.path(), &id, &profile).is_err());
+    }
+
+    #[test]
+    fn a_manifest_without_a_snapshot_is_never_admitted() {
+        let root = tempfile::tempdir().expect("store root");
+        let store = Store::open(root.path()).expect("open store");
+        let manifest = fixture::profile_v1();
+        let bytes = encode_manifest(&manifest).expect("encode manifest");
+        store
+            .put_bytes(
+                &bytes,
+                ArtifactRole::GenerationManifest.media_type(),
+                ImportPhase::Publish,
+            )
+            .expect("publish manifest");
+
+        let id = derive_generation_id(&bytes);
+        assert!(admit_installed_generation(root.path(), &id, &CompilerProfile::v1()).is_err());
+    }
+}
+
+fn launch_descriptors(manifest: &GenerationManifest) -> Vec<ArtifactDescriptor> {
+    let mut descriptors = vec![
+        manifest.kernel.descriptor,
+        manifest.initramfs.descriptor,
+        manifest.root.descriptor,
+    ];
+    descriptors.extend(
+        manifest
+            .overlay
+            .templates
+            .iter()
+            .map(|template| template.descriptor),
+    );
+    if let SnapshotBinding::Captured {
+        memory,
+        overlay,
+        state,
+        ..
+    } = manifest.snapshot
+    {
+        descriptors.extend([memory, overlay, state]);
+    }
+    descriptors.sort_by_key(|descriptor| *descriptor.digest.as_bytes());
+    descriptors.dedup();
+    descriptors
 }
 
 /// Re-verifies a published Generation across all of its artifacts.

@@ -87,20 +87,24 @@ pub(super) fn open(
         .write(true)
         .open("/dev/kvm")
         .map_err(unavailable)?;
-    let root = soma_generation::open_artifact(&prepared.store, &prepared.manifest.root.descriptor)
+    let root = prepared
+        .open_artifact(&prepared.manifest.root.descriptor)
         .map_err(unavailable)?;
     let (memory_descriptor, overlay_descriptor, state_descriptor) =
         claim::snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
-    let memory =
-        soma_generation::open_artifact(&prepared.store, &memory_descriptor).map_err(unavailable)?;
-    let state =
-        soma_generation::open_artifact(&prepared.store, &state_descriptor).map_err(unavailable)?;
+    let memory = prepared
+        .open_artifact(&memory_descriptor)
+        .map_err(unavailable)?;
+    let state = prepared
+        .open_artifact(&state_descriptor)
+        .map_err(unavailable)?;
     // The head is this Instance's private disk, cloned from the snapshot's own quiesced
     // template and unlinked before it is handed over, so nothing on the filesystem outlives
     // the machine that owns it and no name for it ever reaches the jail.
     let head = overlay
         .then(|| {
-            let template = soma_generation::open_artifact(&prepared.store, &overlay_descriptor)
+            let template = prepared
+                .open_artifact(&overlay_descriptor)
                 .map_err(unavailable)?;
             private_head_from(template, instance)
         })

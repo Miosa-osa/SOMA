@@ -1,4 +1,4 @@
-use std::io::Cursor;
+use std::io::{self, Cursor, Write};
 
 use soma_api::{Method, Request, Response};
 
@@ -107,4 +107,33 @@ fn a_response_is_written_as_a_closing_json_exchange() {
     assert!(text.contains("content-length: 15\r\n"));
     assert!(text.contains("connection: close\r\n"));
     assert!(text.ends_with("\r\n\r\n{\"status\":\"ok\"}"));
+}
+
+#[test]
+fn a_response_is_emitted_in_one_write() {
+    #[derive(Default)]
+    struct CountingWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+    }
+
+    impl Write for CountingWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = CountingWriter::default();
+    Response::new(200, b"{}".to_vec())
+        .write_to(&mut writer)
+        .expect("writing succeeds");
+
+    assert_eq!(writer.writes, 1);
+    assert!(writer.bytes.ends_with(b"\r\n\r\n{}"));
 }

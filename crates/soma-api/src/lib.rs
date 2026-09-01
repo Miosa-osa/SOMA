@@ -9,6 +9,7 @@ pub mod filesystem;
 pub mod handler;
 pub mod http;
 pub mod local;
+pub mod pool;
 pub mod report;
 pub mod route;
 pub mod tenant;
@@ -28,6 +29,7 @@ pub use http::{
     server::serve,
 };
 pub use local::LocalFacade;
+pub use pool::{FacadeLease, FacadePool};
 pub use route::{FilesystemOperation, Route, TerminalOperation};
 pub use tenant::{TENANT_HEADER, TenantId};
 pub use terminal::{TerminalBody, TerminalReport};

@@ -13,7 +13,7 @@
 
 #[cfg(any(test, feature = "timing-report"))]
 use std::fmt::Write as _;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 /// One measured step, in the order the agent reaches it.
@@ -84,6 +84,16 @@ static READ_NANOS: AtomicU64 = AtomicU64::new(0);
 static WRITE_NANOS: AtomicU64 = AtomicU64::new(0);
 /// Whether the transport totals are still wanted; [`around`] clears it once it has read them.
 static ARMED: AtomicBool = AtomicBool::new(true);
+/// Transport measurements that crossed the armed gate and may still publish a duration.
+static ACTIVE: AtomicUsize = AtomicUsize::new(0);
+
+struct ActiveMeasurement;
+
+impl Drop for ActiveMeasurement {
+    fn drop(&mut self) {
+        ACTIVE.fetch_sub(1, Ordering::Release);
+    }
+}
 
 /// Records how long one step took, replacing any earlier value for it.
 pub fn record(step: Step, elapsed: Duration) {
@@ -106,6 +116,12 @@ pub fn around<T>(wait: Step, send: Step, rest: Step, work: impl FnOnce() -> T) -
     let (read_before, write_before) = transport();
     let started = Instant::now();
     let value = work();
+    // Close the gate before reading the totals and wait for measurements that entered while it
+    // was open. This gives the consumed totals a stable cut even if transports run concurrently.
+    ARMED.store(false, Ordering::Release);
+    while ACTIVE.load(Ordering::Acquire) != 0 {
+        std::hint::spin_loop();
+    }
     let (read_after, write_after) = transport();
     let waited = read_after.saturating_sub(read_before);
     let written = write_after.saturating_sub(write_before);
@@ -115,8 +131,6 @@ pub fn around<T>(wait: Step, send: Step, rest: Step, work: impl FnOnce() -> T) -
         nanos(started.elapsed()).saturating_sub(waited.saturating_add(written)),
         Ordering::Relaxed,
     );
-    // The totals have been consumed; every later transport call runs without a clock read.
-    ARMED.store(false, Ordering::Relaxed);
     value
 }
 
@@ -136,12 +150,19 @@ pub fn transport_write<T>(work: impl FnOnce() -> T) -> T {
 /// command, so after it every output chunk would pay two clock reads for a number nothing
 /// consumes.
 fn timed<T>(total: &AtomicU64, work: impl FnOnce() -> T) -> T {
-    if !ARMED.load(Ordering::Relaxed) {
+    if !ARMED.load(Ordering::Acquire) {
+        return work();
+    }
+    ACTIVE.fetch_add(1, Ordering::AcqRel);
+    let active = ActiveMeasurement;
+    if !ARMED.load(Ordering::Acquire) {
+        drop(active);
         return work();
     }
     let started = Instant::now();
     let value = work();
     total.fetch_add(nanos(started.elapsed()), Ordering::Relaxed);
+    drop(active);
     value
 }
 
