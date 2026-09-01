@@ -21,6 +21,11 @@ readonly REPO_ROOT
 readonly MUSL_TARGET="x86_64-unknown-linux-musl"
 cd "$REPO_ROOT" || exit 2
 
+# The record lives beside this script; it owns the stages, the sibling owns what is written down
+# about them: how a stage is timed and classified, and how the run is reported at the end.
+# shellcheck source=scripts/end-to-end-record.sh
+source "$REPO_ROOT/scripts/end-to-end-record.sh"
+
 IMAGE="node:22"
 WORK=""
 FS_TOOLS="$REPO_ROOT/fs-tools"
@@ -63,32 +68,6 @@ parse_args() {
         # shellcheck disable=SC1091
         source "${CARGO_HOME:-$HOME/.cargo}/env"
     fi
-}
-
-bound() {
-    tr -d '\000-\010\013\014\016-\037' | tr '\n\t' '  ' \
-        | sed 's/\\/\\\\/g; s/"/\\"/g' | cut -c1-200
-}
-
-record() {
-    NAMES+=("$1"); STATUSES+=("$2"); DETAILS+=("$3"); DURATIONS+=("$4")
-    printf '  %-8s %-18s %s\n' "$2" "$1" "$3"
-}
-
-run_stage() {
-    local name="$1" fn="$2" started ended status
-    DETAIL=""
-    if [[ -n "$FIRST_FAILURE" ]]; then
-        record "$name" skipped "not attempted after $FIRST_FAILURE failed" 0
-        return
-    fi
-    log "$name"
-    started="$(date +%s%3N)"
-    if "$fn" >"$LOG_DIR/$name.log" 2>&1; then status=passed; else status=failed; fi
-    ended="$(date +%s%3N)"
-    [[ -n "$DETAIL" ]] || DETAIL="$(tail -n 1 "$LOG_DIR/$name.log" 2>/dev/null)"
-    [[ "$status" == passed ]] || FIRST_FAILURE="$name"
-    record "$name" "$status" "$(printf '%s' "$DETAIL" | bound)" "$(( ended - started ))"
 }
 
 # Stage 1. The host carries what setup-host.sh and build-fs-tools.sh are supposed to leave behind.
@@ -232,50 +211,6 @@ differed() {
     added="$(comm -13 "$2" "$3" | bound)"
     if [[ -z "$added" ]]; then verdict "$name" clean "no $what appeared"
     else verdict "$name" leaked "$what appeared: $added"; fi
-}
-
-write_results() {
-    local results="$WORK/results.json" index=0 separator="" failure=null
-    [[ -z "$FIRST_FAILURE" ]] || failure="\"$FIRST_FAILURE\""
-    {
-        printf '{"schema":"soma.e2e.v1","image":"%s","host":"%s","commit":"%s",' \
-            "$IMAGE" "$(uname -srm | bound)" \
-            "${SOMA_E2E_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
-        printf '"work":"%s","first_failure":%s,"stages":[' "$WORK" "$failure"
-        while (( index < ${#NAMES[@]} )); do
-            printf '%s{"stage":"%s","status":"%s","detail":"%s","duration_ms":%s,"log":"%s"}' \
-                "$separator" "${NAMES[index]}" "${STATUSES[index]}" "${DETAILS[index]}" \
-                "${DURATIONS[index]}" "logs/${NAMES[index]}.log"
-            separator=","
-            index=$(( index + 1 ))
-        done
-        printf ']}\n'
-    } >"$results"
-    printf '%s\n' "$results"
-}
-
-summarize() {
-    log "summary"
-    # `read` assigns into the caller's scope unless the name is local, so every name it fills is
-    # declared. An undeclared `status` here once silently overwrote main's own exit status.
-    local index=0 check outcome detail
-    while (( index < ${#NAMES[@]} )); do
-        printf '  %-8s %-18s %6s ms  %s\n' "${STATUSES[index]}" "${NAMES[index]}" \
-            "${DURATIONS[index]}" "${DETAILS[index]}"
-        index=$(( index + 1 ))
-    done
-    if [[ -f "$WORK/cleanup-checks.tsv" ]]; then
-        printf '\n  cleanup checks:\n'
-        while IFS=$'\t' read -r check outcome detail; do
-            printf '    %-14s %-11s %s\n' "$check" "$outcome" "$detail"
-        done <"$WORK/cleanup-checks.tsv"
-    fi
-    printf '\n  results: %s\n  logs:    %s\n' "$(write_results)" "$LOG_DIR"
-    if [[ -n "$FIRST_FAILURE" ]]; then
-        printf '\nFAILED at stage %s. Read %s.\n' "$FIRST_FAILURE" "$LOG_DIR/$FIRST_FAILURE.log"
-        return 1
-    fi
-    printf '\nEvery stage passed and the sandbox left nothing behind.\n'
 }
 
 main() {
