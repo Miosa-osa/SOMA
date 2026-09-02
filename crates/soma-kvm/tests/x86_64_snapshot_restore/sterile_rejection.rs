@@ -1,6 +1,5 @@
 //! What a prepared worker must refuse, proved against real KVM.
 
-use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{SterileRequest, restore_sterile};
 
 use super::{fixture, require_kvm};
@@ -11,7 +10,7 @@ fn sterile(fixture: &fixture::Fixture) -> soma_kvm::x86_64::Sterile {
         paths: fixture.paths.clone(),
         root: fixture.root(),
         overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
-        devices: DeviceSet::FULL,
+        devices: fixture.devices(),
         memory_bytes: fixture.ram_bytes,
         verify_artifacts: false,
     })

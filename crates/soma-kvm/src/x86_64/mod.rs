@@ -8,9 +8,9 @@
 //! test-only sandbox machine that boots a compiled Generation for an authenticated guest
 //! agent. It makes no readiness, snapshot, isolation, or latency claim on its own.
 
-mod boot_info;
+pub(crate) mod boot_info;
 mod channel;
-mod cmdline;
+use crate::cmdline;
 mod console_tap;
 mod cpuid;
 mod devices;
@@ -40,9 +40,10 @@ mod watchdog;
 use kvm_bindings::{KVM_PIT_SPEAKER_DUMMY, kvm_pit_config};
 use kvm_ioctls::{Kvm, VcpuFd, VmFd};
 
+pub use crate::cmdline::{BootNonce, compose_generation as generation_command_line};
+
 pub use self::{
     channel::{ChannelError, ControlChannel},
-    cmdline::{BootNonce, compose_generation as generation_command_line},
     devices::{BLOCK_SIZE, DeviceIdentity, SandboxDisks},
     elf::ElfError,
     error::{MachineError, MachineErrorKind, Phase},
