@@ -30,6 +30,10 @@ pub(crate) const GENERATION_UPPER: &str = "soma.upper=/dev/vdb";
 /// The network interface, named only by a Generation that declared a network device.
 pub(crate) const GENERATION_NET: &str = "soma.net=eth0";
 /// The kernel argument that carries the challenge nonce to the guest.
+///
+/// Gated with the machine tree that composes diagnostic boots: on client
+/// targets no diagnostic boot exists, only Generation-line composition.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) const NONCE_ARGUMENT: &str = "soma.nonce";
 /// The prefix of the challenge-bound sentinel the guest writes to its console.
 pub(crate) const SENTINEL_PREFIX: &str = "SOMA-BOOT-";
@@ -91,6 +95,7 @@ pub fn compose_generation(devices: DeviceSet) -> String {
 }
 
 /// Composes the complete command line for one diagnostic boot.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) fn compose(initramfs: bool, nonce: Option<&BootNonce>) -> String {
     let mut arguments: Vec<String> = FIXED_ARGUMENTS.iter().map(|s| (*s).to_owned()).collect();
     if initramfs {
@@ -105,13 +110,19 @@ pub(crate) fn compose(initramfs: bool, nonce: Option<&BootNonce>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // The contract constant lives inside the x86_64 machine tree; the
+    // composition itself is portable, so only the comparisons against that
+    // constant are gated, not this module.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     use crate::x86_64::boot_info::DIAGNOSTIC_CMDLINE;
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn fixed_set_matches_the_contract_line() {
         assert_eq!(compose(false, None), DIAGNOSTIC_CMDLINE);
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn generation_line_is_contract_devices_init_and_disks() {
         let line = compose_generation(DeviceSet::FULL);
@@ -138,6 +149,7 @@ mod tests {
         assert!(line.ends_with(" rdinit=/init soma.lower=/dev/vda"));
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     #[test]
     fn appends_init_and_nonce_in_a_fixed_order() {
         let nonce = BootNonce::new([0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33]);
