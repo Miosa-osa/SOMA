@@ -45,6 +45,26 @@ fn symlinked_root_instance_and_revision_paths_are_rejected() {
 
 #[cfg(unix)]
 #[test]
+fn symlinked_reserved_runtime_directory_is_rejected_during_enumeration() {
+    use std::os::unix::fs::symlink;
+
+    let base = TempRoot::new("reserved-directory-symlink");
+    fs::create_dir_all(base.path()).expect("create test base");
+    let external = base.path().join("external-machines");
+    fs::create_dir(&external).expect("create external machine directory");
+
+    let state_root = base.path().join("state");
+    let mut store = FileStateStore::open(&state_root).expect("open state store");
+    symlink(&external, state_root.join("machines")).expect("link reserved machine directory");
+
+    let error = store
+        .list()
+        .expect_err("linked reserved runtime directory is unsafe");
+    assert_eq!(error.kind(), StateStoreFailureKind::Corrupt);
+}
+
+#[cfg(unix)]
+#[test]
 fn multiply_linked_revision_documents_fail_closed() {
     let root = TempRoot::new("hardlinked-revision");
     let mut store = FileStateStore::open(root.path()).expect("open state store");

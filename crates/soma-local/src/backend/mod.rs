@@ -84,7 +84,7 @@ pub fn probe_backend(
 /// whose durable record says it is active and whose host is somewhere else would be two truths a
 /// caller had to reconcile.
 pub(crate) fn machine_host_directory(state_root: &std::path::Path) -> PathBuf {
-    state_root.join("machines")
+    state_root.join(crate::MACHINE_HOST_DIRECTORY)
 }
 
 pub(crate) enum LocalBackend {

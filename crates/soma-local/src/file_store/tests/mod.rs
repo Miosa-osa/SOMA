@@ -1,5 +1,6 @@
 mod concurrency;
 mod durability;
+mod enumeration;
 mod recovery;
 #[cfg(unix)]
 mod security;

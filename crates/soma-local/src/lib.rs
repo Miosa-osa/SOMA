@@ -7,6 +7,8 @@ mod error;
 mod file_store;
 mod runtime;
 
+const MACHINE_HOST_DIRECTORY: &str = "machines";
+
 #[cfg(test)]
 mod test_support;
 

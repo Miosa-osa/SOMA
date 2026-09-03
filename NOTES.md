@@ -933,3 +933,9 @@ The HTTP server now supports at most sixteen correctly framed requests per HTTP/
 Final binary SHA-256 `fbeb7229640c56876799196752daf2ed787e2ca545b38c4fa9aa5105324bff90` produced two consecutive clean 100-way cohorts at 60.01/69.27/69.85 ms and 63.78/70.75/71.04 ms for median/p95/p99 with 200 of 200 commands and cleanups.
 A third cohort kept 100 percent success but host10 was simultaneously contended by encrypted-disk and control-plane work, producing an approximately 1.17 second tail that is retained as resilience evidence and excluded from clean comparison.
 The production prepared API unit is versioned at `deploy/systemd/soma-api.service`; host-specific certified Generation and head paths live in `/etc/soma/api.env`, while the exact release binary lives at `/opt/soma/bin/soma-api`.
+
+## 2026-09-03 - Hosted machine state-root namespace
+
+`LocalRuntime` places durable instance records and the hosted machine-process directory under the same operator-owned state root.
+`FileStateStore` enumeration must skip the exact reserved `machines` directory after proving that it is a real directory and not a symlink.
+Every other non-instance entry remains corruption so enumeration never silently hides unknown state.
