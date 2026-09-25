@@ -301,6 +301,12 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // The transcript up to the repair point is the evidence of what ran before the capture,
+    // such as a declared capture warm plan, so it is kept rather than discarded on success.
+    fs::write(
+        entry.join("capture-console.log"),
+        String::from_utf8_lossy(&evidence.serial).as_bytes(),
+    )?;
     install_and_publish(entry, &store, &candidate, &outcome)
 }
 
