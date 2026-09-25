@@ -36,6 +36,7 @@
 mod activation;
 mod application;
 mod binding;
+mod capture_warm;
 mod control;
 mod error;
 mod handshake;
@@ -53,6 +54,10 @@ pub use application::{
     TerminalReport, TerminalStatus,
 };
 pub use binding::SessionBinding;
+pub use capture_warm::{
+    CaptureWarmError, CaptureWarmPlan, MAX_WARM_ARGUMENTS, MAX_WARM_COMMANDS, MAX_WARM_LINE_BYTES,
+    MAX_WARM_PLAN_BYTES, WarmCommand,
+};
 pub use control::{
     CONTROL_VSOCK_PORT, ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome,
     GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl, SecretPlacement,
