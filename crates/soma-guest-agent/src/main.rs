@@ -20,6 +20,8 @@ mod repair;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod boot;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod capture_warm;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod console;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod control;
@@ -74,8 +76,8 @@ mod agent {
     use crate::repair::{Controller, Fault, Poisoned, State, Step};
     use crate::timings::{self, Step as Measured};
     use crate::{
-        boot, console, control, entropy, identity, launch_page, lifecycle, network_repair, pid1,
-        warm,
+        boot, capture_warm, console, control, entropy, identity, launch_page, lifecycle,
+        network_repair, pid1, warm,
     };
 
     /// Console line the agent prints once it is parked at the disconnected repair point.
@@ -102,6 +104,13 @@ mod agent {
             pid1::poweroff();
         }
         let controller = Controller::captured();
+        // The capture warm plan lives in the initramfs, so it is read while the initramfs is
+        // still the root; early init leaves it behind. A present plan that cannot be decoded
+        // means the verified initramfs is not the one that booted.
+        let Ok(warm_plan) = capture_warm::declared() else {
+            console::report("capture warm plan unreadable");
+            destroy(&controller.poison(Fault::Boot));
+        };
         let declared = match boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
             Ok(declared) => declared,
             Err(failure) => {
@@ -122,6 +131,18 @@ mod agent {
         let warmed = warm::runtime();
         if warmed > 0 {
             console::report(&format!("warmed {warmed} runtime files"));
+        }
+        // The Generation's declared warm commands run here too, for the same reason and at the
+        // same point: before launch material exists, confined so that page cache is all they
+        // leave, and with every process they started killed before the capture.
+        if let Some(plan) = &warm_plan {
+            let outcome = capture_warm::execute(plan);
+            console::report(&format!(
+                "capture warm ran {} of {} commands, swept {}",
+                outcome.succeeded,
+                outcome.succeeded + outcome.failed,
+                outcome.swept
+            ));
         }
         pid1::sync();
         console::report(REPAIR_POINT_LINE);
