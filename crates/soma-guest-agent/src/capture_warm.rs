@@ -48,6 +48,13 @@ pub const COMMAND_BUDGET: Duration = Duration::from_secs(10);
 /// The unprivileged account warm commands run as.
 pub const NOBODY: libc::uid_t = 65_534;
 
+/// Quiet time after the plan and before the capture.
+///
+/// Exiting commands and their torn-down namespaces leave deferred kernel work behind. Captured
+/// unfinished, it runs in every restored Instance on the ready path: measured on `node:22`, the
+/// first restore of a Generation captured without this wait reached ready in about 47 ms instead
+/// of 22 ms. Waiting here costs only capture time.
+const SETTLE: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(1);
 const PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 /// Mounts made read-only inside each command's private mount namespace, parents first.
@@ -111,6 +118,7 @@ pub fn execute(plan: &CaptureWarmPlan) -> Outcome {
         }
     }
     outcome.swept = descendants::sweep_strays();
+    thread::sleep(SETTLE);
     outcome
 }
 

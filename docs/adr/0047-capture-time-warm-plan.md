@@ -37,6 +37,9 @@ Each command is confined so that page cache is the only state it can leave:
 - an empty environment apart from a fixed `PATH`, `/` as its directory, and null standard streams;
 - a ten second wall-clock budget.
 
+After the plan the agent waits two seconds before it flushes and announces the repair point.
+Exiting commands and torn-down namespaces leave deferred kernel work, and a Generation captured without the wait paid it on the ready path of restored Instances.
+
 A command that is missing, fails, or overruns is reported on the console and does not fail the boot.
 
 ## Security invariants
@@ -46,6 +49,20 @@ A command that is missing, fails, or overruns is reported on the console and doe
 - No process started by the plan survives into the snapshot.
 - The plan cannot write the root, device, proc, or sys filesystems, create System V IPC objects, or change the hostname.
 - The plan is part of the Generation identity; changing it produces a different initramfs digest and a different Generation.
+
+## Measured
+
+Host-11 (Intel, KVM), `node:22` from the same OCI manifest and kernel as the production Generation, 1 vCPU, 1024 MiB, 4096 MiB storage.
+Both Generations were prepared, captured, and certified with the same build of this change, stored on tmpfs, and served by one private `soma-api` with eight prepared workers.
+Each arm ran one first request after start, then twenty sequential create, `node -v`, `node -v`, destroy cycles three seconds apart.
+
+| Generation | server ready p50 / p90 | server first `node -v` p50 / p90 | client create + first exec p50 |
+|---|---|---|---|
+| no plan | 21.2 / 22.1 ms | 31.9 / 32.2 ms | 23.0 + 34.1 ms |
+| plan `/usr/local/bin/node -v` | 23.7 / 24.2 ms | 15.6 / 16.4 ms | 25.6 + 18.1 ms |
+
+A second exec was about 7 ms in both arms.
+Hostname, machine identifier, kernel UUID, `/dev/urandom` output, and wall-clock time were distinct and current in each of three restored Instances of the warm Generation.
 
 ## Consequences
 
