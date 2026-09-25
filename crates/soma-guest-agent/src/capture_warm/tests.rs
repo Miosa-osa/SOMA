@@ -54,9 +54,25 @@ fn a_warm_command_cannot_write_the_root_proc_or_dev() {
     }
     assert!(!std::path::Path::new("/capture-warm-probe").exists());
     assert!(!std::path::Path::new("/dev/capture-warm-probe").exists());
-    // The remounts stayed inside the command's namespace: the caller's root is still writable
-    // wherever it was before.
-    assert!(shell("true", COMMAND_BUDGET));
+    // Refusal by account alone would pass the checks above, so the mounts themselves must be
+    // read-only in the command's namespace, and only there.
+    for mount in ["/", "/dev", "/proc", "/sys"] {
+        let script = format!(
+            "awk '$5 == \"{mount}\" {{ split($6, o, \",\"); if (o[1] != \"ro\") bad = 1; seen = 1 }} \
+             END {{ exit !(seen && !bad) }}' /proc/self/mountinfo"
+        );
+        assert!(shell(&script, COMMAND_BUDGET), "{mount} was not read-only");
+    }
+    let mounts = fs::read_to_string("/proc/self/mountinfo").unwrap();
+    let own_root = mounts
+        .lines()
+        .find(|line| line.split(' ').nth(4) == Some("/"))
+        .unwrap();
+    let before = own_root.split(' ').nth(5).unwrap();
+    assert!(
+        before.starts_with("rw"),
+        "the caller's root options changed: {before}"
+    );
 }
 
 #[test]

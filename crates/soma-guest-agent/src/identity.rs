@@ -179,6 +179,12 @@ mod tests {
 
     #[test]
     fn setting_the_clock_without_privilege_fails_closed() {
+        // As root the call would succeed and step the host's real-time clock, so the test only
+        // runs where it is what it claims to be: unprivileged.
+        // SAFETY: `geteuid` has no preconditions.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
         assert!(matches!(
             set_clock(1_700_000_000_000_000_000),
             Err(IdentityError::Clock(libc::EPERM))
