@@ -18,7 +18,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn archive() -> Vec<u8> {
-    build_initramfs(INIT, AGENT, 1 << 20).unwrap()
+    build_initramfs(INIT, AGENT, None, 1 << 20).unwrap()
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn initramfs_round_trips_with_allowlisted_digests() {
 #[test]
 fn initramfs_build_honors_its_byte_bound() {
     assert_eq!(
-        build_initramfs(INIT, AGENT, 100).unwrap_err().kind(),
+        build_initramfs(INIT, AGENT, None, 100).unwrap_err().kind(),
         CompileErrorKind::LimitExceeded
     );
 }

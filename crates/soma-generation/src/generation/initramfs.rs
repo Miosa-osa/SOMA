@@ -1,3 +1,5 @@
+use soma_guest::CaptureWarmPlan;
+
 use super::{
     artifacts::Sha256Digest,
     error::{CompileError, CompileErrorKind, CompilePhase},
@@ -11,6 +13,14 @@ use super::{
 /// now fresh for every Instance and reaches the guest only through the non-snapshot launch
 /// page, so a reusable Generation artifact carries public identity only.
 pub const INITRAMFS_LAYOUT_VERSION: u16 = 3;
+/// The layout version of an archive that also carries a capture warm plan.
+///
+/// Version 4 is version 3 plus one read-only [`CAPTURE_WARM_PATH`] entry holding the canonical
+/// plan bytes. A Generation that declares no plan keeps version 3 byte for byte, so its
+/// initramfs digest, and every digest that binds it, is unchanged.
+pub const INITRAMFS_WARM_LAYOUT_VERSION: u16 = 4;
+/// The capture warm plan path inside a layout v4 archive.
+pub const CAPTURE_WARM_PATH: &str = "warm";
 /// The fixed modification time of every initramfs entry.
 pub const INITRAMFS_MTIME: u32 = 0;
 /// The early-init executable path inside the archive.
@@ -44,15 +54,37 @@ const LAYOUT_V3: &[Layout] = &[
     ("sys", S_IFDIR | 0o755, (0, 0)),
 ];
 
+/// The entry a layout v4 archive adds after every v3 entry; `warm` sorts after `sys`.
+const WARM_ENTRY: Layout = (CAPTURE_WARM_PATH, S_IFREG | 0o444, (0, 0));
+
 /// The verified contents of one deterministic initramfs.
 ///
-/// The archive holds exactly two byte bodies, both executables; no entry carries a secret.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The archive holds two executables and, in layout v4, one canonical capture warm plan; no
+/// entry carries a secret.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InitramfsContents {
     /// The digest of the early-init executable bytes.
     pub early_init_digest: Sha256Digest,
     /// The digest of the guest-agent executable bytes.
     pub guest_agent_digest: Sha256Digest,
+    /// The layout version the archive was verified against.
+    pub layout_version: u16,
+    /// The capture warm plan a layout v4 archive carries.
+    pub capture_warm: Option<CaptureWarmPlan>,
+}
+
+/// The layout version an archive with or without a capture warm plan has.
+#[must_use]
+pub const fn layout_version(capture_warm: bool) -> u16 {
+    if capture_warm {
+        INITRAMFS_WARM_LAYOUT_VERSION
+    } else {
+        INITRAMFS_LAYOUT_VERSION
+    }
+}
+
+fn layout(capture_warm: bool) -> impl Iterator<Item = &'static Layout> {
+    LAYOUT_V3.iter().chain(capture_warm.then_some(&WARM_ENTRY))
 }
 
 /// The thirteen fixed-width `newc` header fields in archive order.
@@ -78,7 +110,8 @@ fn fields(inode: u32, mode: u32, rdev: (u32, u32), size: u32, name_len: usize) -
     ]
 }
 
-/// Builds the deterministic `newc` archive for layout v3.
+/// Builds the deterministic `newc` archive: layout v3, or layout v4 when a capture warm plan
+/// is declared.
 ///
 /// Entries are emitted in raw path-byte order with root ownership, fixed modes, zero mtime,
 /// sequential inode numbers, zero device numbers except the two character nodes, zero
@@ -90,13 +123,16 @@ fn fields(inode: u32, mode: u32, rdev: (u32, u32), size: u32, name_len: usize) -
 pub fn build_initramfs(
     early_init: &[u8],
     guest_agent: &[u8],
+    capture_warm: Option<&CaptureWarmPlan>,
     max_bytes: u64,
 ) -> Result<Vec<u8>, CompileError> {
+    let warm = capture_warm.map(CaptureWarmPlan::encode);
     let mut archive = Vec::new();
-    for (index, (path, mode, rdev)) in LAYOUT_V3.iter().enumerate() {
+    for (index, (path, mode, rdev)) in layout(warm.is_some()).enumerate() {
         let body: &[u8] = match *path {
             EARLY_INIT_PATH => early_init,
             GUEST_AGENT_PATH => guest_agent,
+            CAPTURE_WARM_PATH => warm.as_deref().unwrap_or_default(),
             _ => &[],
         };
         let inode = u32::try_from(index + 1).map_err(|_| build_limit())?;
@@ -137,25 +173,33 @@ fn pad(archive: &mut Vec<u8>, alignment: usize) {
     }
 }
 
-/// Decodes and verifies a layout v3 archive, rejecting any deviation from the allowlist.
+/// Decodes and verifies a layout v3 or v4 archive, rejecting any deviation from the allowlist.
 ///
 /// A layout v2 archive is rejected because its `etc/soma/responder.key` entry is not in the
 /// v3 allowlist, so a Generation carrying an immutable guest secret cannot be verified here.
+/// A layout v4 archive is accepted only when its warm entry is the last one and holds a
+/// canonical capture warm plan.
 ///
 /// # Errors
 ///
 /// Returns [`CompileErrorKind::InvalidInput`] for malformed headers, ordering, padding,
-/// metadata, unknown paths, or trailing bytes.
+/// metadata, unknown paths, a non-canonical plan, or trailing bytes.
 pub fn verify_initramfs(archive: &[u8]) -> Result<InitramfsContents, CompileError> {
     let mut cursor = 0_usize;
-    let mut expected = LAYOUT_V3.iter().enumerate();
+    let mut expected = layout(true).enumerate();
     let mut early_init = None;
     let mut guest_agent = None;
+    let mut capture_warm = None;
     for _ in 0..=MAX_ENTRIES {
         let entry = read_entry(archive, cursor)?;
         cursor = entry.next;
         if entry.name == TRAILER.as_bytes() {
-            if expected.next().is_some() || entry.fields != TRAILER_FIELDS {
+            // Only the optional warm entry may remain unconsumed, and only when it is absent.
+            let remaining = expected.next();
+            if remaining.is_some_and(|(_, entry)| entry.0 != CAPTURE_WARM_PATH)
+                || (remaining.is_some() && capture_warm.is_some())
+                || entry.fields != TRAILER_FIELDS
+            {
                 return Err(invalid());
             }
             let trailing = archive.get(cursor..).ok_or_else(invalid)?;
@@ -165,6 +209,8 @@ pub fn verify_initramfs(archive: &[u8]) -> Result<InitramfsContents, CompileErro
             return Ok(InitramfsContents {
                 early_init_digest: early_init.ok_or_else(invalid)?,
                 guest_agent_digest: guest_agent.ok_or_else(invalid)?,
+                layout_version: layout_version(capture_warm.is_some()),
+                capture_warm,
             });
         }
         let (index, (path, mode, rdev)) = expected.next().ok_or_else(invalid)?;
@@ -178,6 +224,9 @@ pub fn verify_initramfs(archive: &[u8]) -> Result<InitramfsContents, CompileErro
         match *path {
             EARLY_INIT_PATH => early_init = Some(Sha256Digest::of(entry.body)),
             GUEST_AGENT_PATH => guest_agent = Some(Sha256Digest::of(entry.body)),
+            CAPTURE_WARM_PATH => {
+                capture_warm = Some(CaptureWarmPlan::decode(entry.body).map_err(|_| invalid())?);
+            }
             _ if !entry.body.is_empty() => return Err(invalid()),
             _ => {}
         }

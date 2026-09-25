@@ -445,6 +445,7 @@ fn verify_decoded(
     let contents = verify_initramfs(&initramfs)?;
     if contents.early_init_digest != manifest.initramfs.early_init_digest
         || contents.guest_agent_digest != manifest.guest_agent.descriptor.digest
+        || contents.layout_version != manifest.initramfs.layout_version
     {
         return Err(integrity());
     }

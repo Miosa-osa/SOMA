@@ -7,7 +7,6 @@ use super::{
     contracts,
     erofs::{self, ErofsEvidence, derive_root_uuid},
     error::{CompileError, CompileErrorKind, CompilePhase},
-    initramfs::INITRAMFS_LAYOUT_VERSION,
     kernel::{ELF_PVH_CONTRACT_VERSION, VerifiedKernel},
     manifest::{
         GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding,
@@ -139,6 +138,7 @@ pub fn compile_generation(
         guest_agent: store_bytes(&store, &machine.guest_agent, ArtifactRole::GuestAgent)?,
         config_digest: machine.config.digest,
         early_init_digest: machine.contents.early_init_digest,
+        initramfs_layout_version: machine.contents.layout_version,
     };
     let manifest = parts.build()?;
     let candidate = publish_candidate(&store, &manifest)?;
@@ -163,6 +163,7 @@ struct ManifestParts<'a> {
     guest_agent: ArtifactDescriptor,
     config_digest: Sha256Digest,
     early_init_digest: Sha256Digest,
+    initramfs_layout_version: u16,
 }
 
 impl ManifestParts<'_> {
@@ -192,7 +193,7 @@ impl ManifestParts<'_> {
             },
             initramfs: InitramfsBinding {
                 descriptor: self.initramfs,
-                layout_version: INITRAMFS_LAYOUT_VERSION,
+                layout_version: self.initramfs_layout_version,
                 early_init_digest: self.early_init_digest,
             },
             guest_agent: GuestAgentBinding {

@@ -48,9 +48,17 @@ impl MachineArtifacts {
             profile.max_executable_bytes,
             CompilePhase::BuildInitramfs,
         )?;
-        let initramfs = build_initramfs(&early_init, &guest_agent, profile.max_initramfs_bytes)?;
+        let capture_warm = request.template.startup().capture_warm();
+        let initramfs = build_initramfs(
+            &early_init,
+            &guest_agent,
+            capture_warm,
+            profile.max_initramfs_bytes,
+        )?;
         let contents = verify_initramfs(&initramfs)?;
-        if contents.guest_agent_digest != Sha256Digest::of(&guest_agent) {
+        if contents.guest_agent_digest != Sha256Digest::of(&guest_agent)
+            || contents.capture_warm.as_ref() != capture_warm
+        {
             return Err(CompileError::new(
                 CompilePhase::VerifyInitramfs,
                 CompileErrorKind::Integrity,

@@ -8,7 +8,7 @@ use crate::generation::{
     artifacts::{ArtifactDescriptor, Sha256Digest},
     erofs::{self, derive_root_uuid},
     error::CompileError,
-    initramfs::INITRAMFS_LAYOUT_VERSION,
+    initramfs::{INITRAMFS_LAYOUT_VERSION, INITRAMFS_WARM_LAYOUT_VERSION},
     kernel::ELF_PVH_CONTRACT_VERSION,
     manifest::GenerationManifest,
     overlay::{OVERLAY_UUID_DERIVATION_VERSION, overlay_feature_profile},
@@ -136,7 +136,10 @@ fn require_machine_artifacts(
         Incompatibility::KernelSize,
     )?;
     require(
-        manifest.initramfs.layout_version == INITRAMFS_LAYOUT_VERSION,
+        matches!(
+            manifest.initramfs.layout_version,
+            INITRAMFS_LAYOUT_VERSION | INITRAMFS_WARM_LAYOUT_VERSION
+        ),
         Incompatibility::InitramfsLayout,
     )?;
     nonzero(&manifest.initramfs.early_init_digest)?;

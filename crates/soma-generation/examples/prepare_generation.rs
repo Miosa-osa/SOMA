@@ -18,6 +18,11 @@
 //! prepare_generation <reference> <oci-layout> <kernel> <kernel-config> \
 //!     <guest-agent> <erofs-tools> <e2fsprogs> <out-entry> [memory_mib] [storage_mib]
 //! ```
+//!
+//! `SOMA_CAPTURE_WARM`, when set and non-empty, declares the Generation's capture warm plan:
+//! commands separated by `;`, each an absolute executable followed by space-separated
+//! arguments, for example `/usr/local/bin/node -v`. The plan is carried in the initramfs and
+//! is therefore part of the Generation's identity. Unset, the Generation declares none.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -26,6 +31,7 @@ use soma::{MachineShape, OciImage};
 use soma_generation::{
     LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision as CompilerRevision,
 };
+use soma_guest::{CaptureWarmPlan, WarmCommand};
 
 #[path = "prepare_generation/build.rs"]
 mod build;
@@ -80,7 +86,21 @@ fn parse_args() -> Result<Args, String> {
     })
 }
 
+/// The startup behavior, with the capture warm plan `SOMA_CAPTURE_WARM` declares, if any.
+fn startup() -> Result<StartupBehavior, Box<dyn Error>> {
+    let declared = std::env::var("SOMA_CAPTURE_WARM").unwrap_or_default();
+    if declared.is_empty() {
+        return Ok(StartupBehavior::readiness_only());
+    }
+    let commands = declared
+        .split(';')
+        .map(|command| WarmCommand::parse(command.trim()))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(StartupBehavior::readiness_only().with_capture_warm(CaptureWarmPlan::new(commands)?))
+}
+
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
+    let startup = startup()?;
     let prepared = build::prepare(&args.inputs, |normalized, _store| {
         let workload = normalized.workload();
         Ok(CompilerRevision::new(
@@ -90,7 +110,7 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
                 workload.platform().clone(),
             ),
             MachineShape::new(1, args.memory_mib, args.storage_mib)?,
-            StartupBehavior::readiness_only(),
+            startup.clone(),
             LifetimeLimits::new(DEFAULT_TTL_SECONDS)?,
             1,
         )?)

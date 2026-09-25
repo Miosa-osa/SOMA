@@ -1,4 +1,5 @@
 use soma::{MachineShape, NetworkPolicy, OciDigest, OciImage, OciPlatform};
+use soma_guest::CaptureWarmPlan;
 use soma_kvm::DeviceSet;
 
 use super::{
@@ -70,6 +71,7 @@ impl TemplateImage {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StartupBehavior {
     workload_probe: Option<Vec<u8>>,
+    capture_warm: Option<CaptureWarmPlan>,
 }
 
 impl StartupBehavior {
@@ -78,6 +80,7 @@ impl StartupBehavior {
     pub const fn readiness_only() -> Self {
         Self {
             workload_probe: None,
+            capture_warm: None,
         }
     }
 
@@ -92,7 +95,19 @@ impl StartupBehavior {
         }
         Ok(Self {
             workload_probe: Some(probe),
+            capture_warm: None,
         })
+    }
+
+    /// Declares commands the guest agent executes once before the snapshot capture point.
+    ///
+    /// The plan becomes part of the Generation: it is carried in the initramfs, whose digest
+    /// the manifest binds, and it runs before any launch material exists, so it can shape what
+    /// every Instance finds resident but can never observe an Instance.
+    #[must_use]
+    pub fn with_capture_warm(mut self, plan: CaptureWarmPlan) -> Self {
+        self.capture_warm = Some(plan);
+        self
     }
 
     /// Returns the digest of the fixed readiness command.
@@ -105,6 +120,12 @@ impl StartupBehavior {
     #[must_use]
     pub fn workload_probe(&self) -> Option<&[u8]> {
         self.workload_probe.as_deref()
+    }
+
+    /// Returns the capture warm plan, if any.
+    #[must_use]
+    pub const fn capture_warm(&self) -> Option<&CaptureWarmPlan> {
+        self.capture_warm.as_ref()
     }
 }
 
