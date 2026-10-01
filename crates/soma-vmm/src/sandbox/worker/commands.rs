@@ -12,15 +12,20 @@ use soma_kvm::x86_64::{Milestone, SandboxMachine};
 use super::super::identity::fresh16;
 use super::super::io::HostIo;
 use super::super::session::{Completed, Request, Response, SessionError};
+use super::Ending;
 use super::{files, pty};
 
 /// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
+///
+/// It reports how the loop ended, because the two endings finish the machine differently: a
+/// guest that acknowledged shutdown is left the grace to leave `KVM_RUN` on its own, and an
+/// aborted one is not given any.
 pub(super) fn serve_commands(
     machine: &SandboxMachine,
     mut repaired: RepairedHostControl<HostIo<'_>>,
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
-) -> Result<(), SessionError> {
+) -> Result<Ending, SessionError> {
     responses
         .send(Response::Ready)
         .map_err(|_| SessionError::Gone)?;
@@ -71,6 +76,9 @@ pub(super) fn serve_commands(
             // the session is being addressed by something that does not own it.
             Request::Assign(_) => return Err(SessionError::Execute),
             Request::Shutdown => break,
+            // The guest is not told. The session is abandoned with the machine, which the
+            // caller finishes without waiting for a guest that was never asked to leave.
+            Request::Abort => return Ok(Ending::Aborted),
         }
     }
     let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
@@ -78,5 +86,5 @@ pub(super) fn serve_commands(
         .shutdown(operation)
         .map_err(|_| SessionError::Gone)?;
     machine.mark(Milestone::Shutdown);
-    Ok(())
+    Ok(Ending::ShutDown)
 }

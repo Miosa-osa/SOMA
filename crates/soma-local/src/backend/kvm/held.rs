@@ -10,6 +10,7 @@
 //! filter that kills every syscall a server needs. The first remains because a host that cannot
 //! build a jail must be able to say so rather than silently serve one lifecycle as the other.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use soma::{
@@ -89,13 +90,42 @@ impl Held {
     }
 }
 
+/// The switch that makes a forced release end the machine without asking the guest.
+///
+/// Off by default. Without it, dropping the session closes its request channel and the sandbox
+/// thread treats that as an ordinary end: it asks the guest to shut down and waits for the guest
+/// kernel's whole poweroff path, so a "forced" destroy costs a graceful one.
+const IMMEDIATE_FORCED_RELEASE: &str = "SOMA_IMMEDIATE_FORCED_DESTROY";
+
+/// Whether a forced release aborts the machine rather than shutting the guest down.
+///
+/// Read once per process. A machine host inherits the environment of the service that spawned
+/// it, so the service's setting is the one every machine it holds follows.
+pub(super) fn immediate_forced_release() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| enabled(std::env::var(IMMEDIATE_FORCED_RELEASE).ok().as_deref()))
+}
+
+/// Only an explicit `1` or `true` turns a switch on; anything else leaves the default.
+pub(super) fn enabled(value: Option<&str>) -> bool {
+    matches!(value, Some("1" | "true"))
+}
+
 /// Releases a machine this process holds.
 ///
-/// Dropping the session ends the sandbox thread, and the thread finishes the machine before it
-/// returns, so a forced release needs nothing else.
+/// A forced release ends the sandbox thread, and the thread finishes the machine before it
+/// returns, so it needs nothing else. With [`IMMEDIATE_FORCED_RELEASE`] on, the thread is told
+/// to abort, which kicks the vCPU out of `KVM_RUN` without asking the guest; otherwise dropping
+/// the session asks the guest to shut down first.
 fn release_resident(session: Session, instance: &InstanceId, forced: bool) -> CleanupMethod {
     if forced {
-        drop(session);
+        if immediate_forced_release() {
+            // Either answer means the same thing here: the thread has ended and finished the
+            // machine on its way out, so nothing of it is left running.
+            let _ignored = session.abort();
+        } else {
+            drop(session);
+        }
         return CleanupMethod::Forced;
     }
     match session.shutdown() {
@@ -120,5 +150,20 @@ fn shutdown_method(evidence: &SandboxEvidence) -> CleanupMethod {
             CleanupMethod::Graceful
         }
         Ok(GuestExit::Paused) | Err(_) => CleanupMethod::GracefulThenForced,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::enabled;
+
+    #[test]
+    fn the_immediate_release_switch_is_off_unless_explicitly_on() {
+        assert!(!enabled(None));
+        for off in ["", "0", "false", "yes", "TRUE", " 1"] {
+            assert!(!enabled(Some(off)), "{off:?} must leave the default");
+        }
+        assert!(enabled(Some("1")));
+        assert!(enabled(Some("true")));
     }
 }

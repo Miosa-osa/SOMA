@@ -55,6 +55,12 @@ pub enum Request {
     Pty(soma::PtyOperation),
     /// Ask the guest to shut down, then finish the machine and report its evidence.
     Shutdown,
+    /// End the machine without asking the guest, then report its evidence.
+    ///
+    /// The vCPU is kicked out of `KVM_RUN` and never re-entered, so nothing the guest does after
+    /// this request is received can run. It is what a forced destroy promises, and it costs no
+    /// guest poweroff: a guest asked to shut down runs its whole kernel shutdown path first.
+    Abort,
 }
 
 /// What a live sandbox reports back.
@@ -222,6 +228,32 @@ impl Session {
             .send(Request::Shutdown)
             .map_err(|_| SessionError::Gone)?;
         let evidence = match self.await_response(BOOT_DEADLINE + EXIT_GRACE) {
+            Ok(Response::Finished(evidence)) => Ok(*evidence),
+            Ok(Response::Failed(error)) | Err(error) => Err(error),
+            Ok(_) => Err(SessionError::Gone),
+        };
+        self.join();
+        evidence
+    }
+
+    /// Ends the machine without asking the guest, and returns its evidence.
+    ///
+    /// The guest is given no chance to run again: the sandbox thread leaves its command loop,
+    /// kicks the vCPU out of `KVM_RUN` without waiting for it to leave on its own, and finishes
+    /// the machine before it answers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Poisoned`] for a session already ended, whose machine is already
+    /// released, or the failure that ended the thread before it answered.
+    pub fn abort(mut self) -> Result<SandboxEvidence, SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        self.requests
+            .send(Request::Abort)
+            .map_err(|_| SessionError::Gone)?;
+        let evidence = match self.await_response(EXIT_GRACE) {
             Ok(Response::Finished(evidence)) => Ok(*evidence),
             Ok(Response::Failed(error)) | Err(error) => Err(error),
             Ok(_) => Err(SessionError::Gone),

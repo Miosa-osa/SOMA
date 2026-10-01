@@ -9,7 +9,7 @@
 //! loop is written once and both paths enter it.
 
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use soma_guest::{HostControl, HostLaunchMaterial, RepairedHostControl, SecretFile};
 use soma_kvm::DeviceSet;
@@ -32,6 +32,15 @@ use super::pending::PendingActivation;
 use super::session::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, SessionError};
 use super::source::{Boot, Network, Source};
 use commands::serve_commands;
+
+/// How a sandbox that reached Ready stopped serving its owner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Ending {
+    /// The guest acknowledged a shutdown and is leaving `KVM_RUN` on its own.
+    ShutDown,
+    /// The owner abandoned the guest without asking it, so nothing waits for it to leave.
+    Aborted,
+}
 
 /// What one Instance's launch carries into the machine that will serve it.
 ///
@@ -126,15 +135,18 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
 }
 
 /// Finishes the machine and reports its evidence, or the failure that ended it.
+///
+/// An aborted guest is given no exit grace: finishing with a zero deadline kicks the vCPU out of
+/// `KVM_RUN` at once, where a guest that acknowledged shutdown is waited on to leave by itself.
 pub fn report(
     sandbox: SandboxMachine,
-    outcome: Result<(), SessionError>,
+    outcome: Result<Ending, SessionError>,
     responses: &Sender<Response>,
     instance: [u8; 16],
 ) {
-    let evidence = sandbox.finish(EXIT_GRACE);
+    let evidence = sandbox.finish(exit_grace(outcome));
     match outcome {
-        Ok(()) => {
+        Ok(_) => {
             let _ignored = responses.send(Response::Finished(Box::new(evidence)));
         }
         Err(error) => {
@@ -143,6 +155,17 @@ pub fn report(
             super::timeline::dump_failure(&hex(instance), &evidence, &format!("{error:?}"));
             let _ignored = responses.send(Response::Failed(error));
         }
+    }
+}
+
+/// How long a finishing machine waits for its vCPU to leave `KVM_RUN` on its own.
+///
+/// Only a guest that was asked to leave is waited on. An aborted one was never asked, so waiting
+/// would spend the whole grace on a guest idling in its command loop before the kick ended it.
+const fn exit_grace(outcome: Result<Ending, SessionError>) -> Duration {
+    match outcome {
+        Ok(Ending::Aborted) => Duration::ZERO,
+        Ok(Ending::ShutDown) | Err(_) => EXIT_GRACE,
     }
 }
 
@@ -164,7 +187,7 @@ fn drive_cold(
     activation: Option<PendingActivation>,
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
-) -> Result<(), SessionError> {
+) -> Result<Ending, SessionError> {
     let delivered = inputs
         .material
         .deliver_with(|page| sandbox.write_launch_page(page))
@@ -189,7 +212,7 @@ pub fn drive_restored(
     identity: ([u8; 16], [u8; 16], Option<PendingActivation>),
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
-) -> Result<(), SessionError> {
+) -> Result<Ending, SessionError> {
     let (instance, operation, activation) = identity;
     let delivered = inputs
         .material
@@ -266,5 +289,23 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         },
         ram_bytes,
         devices,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::{EXIT_GRACE, Ending, SessionError, exit_grace};
+
+    #[test]
+    fn an_aborted_machine_is_kicked_at_once() {
+        assert_eq!(exit_grace(Ok(Ending::Aborted)), Duration::ZERO);
+    }
+
+    #[test]
+    fn a_guest_asked_to_leave_and_a_failed_session_keep_the_exit_grace() {
+        assert_eq!(exit_grace(Ok(Ending::ShutDown)), EXIT_GRACE);
+        assert_eq!(exit_grace(Err(SessionError::Execute)), EXIT_GRACE);
     }
 }
