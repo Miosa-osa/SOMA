@@ -84,6 +84,8 @@ pub enum Response {
     PtyAnswered(Box<soma::PtyAnswer>),
     /// The machine stopped and released everything it owned.
     Finished(Box<SandboxEvidence>),
+    /// An aborted machine's vCPU will never run again; its release is still under way.
+    Halted,
     /// The session failed and the thread is ending.
     Failed(SessionError),
 }
@@ -236,30 +238,39 @@ impl Session {
         evidence
     }
 
-    /// Ends the machine without asking the guest, and returns its evidence.
+    /// Stops the machine without asking the guest, and hands back the rest of its teardown.
     ///
-    /// The guest is given no chance to run again: the sandbox thread leaves its command loop,
-    /// kicks the vCPU out of `KVM_RUN` without waiting for it to leave on its own, and finishes
-    /// the machine before it answers.
+    /// The sandbox thread leaves its command loop and kicks the vCPU out of `KVM_RUN` without
+    /// waiting for the guest to leave on its own. It answers as soon as the guest can no longer
+    /// run, and only then releases the VM, its memory, and its descriptors, which is the slow
+    /// half of a teardown. The returned [`Teardown`] is that half; waiting on it is how a caller
+    /// learns that nothing of the machine is left.
     ///
     /// # Errors
     ///
     /// Returns [`SessionError::Poisoned`] for a session already ended, whose machine is already
-    /// released, or the failure that ended the thread before it answered.
-    pub fn abort(mut self) -> Result<SandboxEvidence, SessionError> {
+    /// released, or the failure that ended the thread before it answered. On an error the thread
+    /// has been joined, so nothing is left to wait for.
+    pub fn abort(mut self) -> Result<Teardown, SessionError> {
         if self.poisoned {
             return Err(SessionError::Poisoned);
         }
         self.requests
             .send(Request::Abort)
             .map_err(|_| SessionError::Gone)?;
-        let evidence = match self.await_response(EXIT_GRACE) {
-            Ok(Response::Finished(evidence)) => Ok(*evidence),
-            Ok(Response::Failed(error)) | Err(error) => Err(error),
-            Ok(_) => Err(SessionError::Gone),
-        };
-        self.join();
-        evidence
+        match self.await_response(EXIT_GRACE) {
+            Ok(Response::Halted) => Ok(Teardown {
+                thread: self.thread.take(),
+            }),
+            Ok(Response::Failed(error)) | Err(error) => {
+                self.join();
+                Err(error)
+            }
+            Ok(_) => {
+                self.join();
+                Err(SessionError::Gone)
+            }
+        }
     }
 
     pub(super) fn await_response(&mut self, within: Duration) -> Result<Response, SessionError> {
@@ -273,6 +284,26 @@ impl Session {
     }
 
     fn join(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            let _ignored = thread.join();
+        }
+    }
+}
+
+/// The release of an aborted machine, still running on the thread that owned it.
+///
+/// Dropping it detaches that thread, which still finishes the release on its own; [`wait`]
+/// blocks until it has.
+///
+/// [`wait`]: Teardown::wait
+#[must_use = "an aborted machine is still being released; wait for it or let it finish detached"]
+pub struct Teardown {
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Teardown {
+    /// Blocks until the VM, its memory, and its descriptors are released.
+    pub fn wait(mut self) {
         if let Some(thread) = self.thread.take() {
             let _ignored = thread.join();
         }

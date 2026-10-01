@@ -136,14 +136,23 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
 
 /// Finishes the machine and reports its evidence, or the failure that ended it.
 ///
-/// An aborted guest is given no exit grace: finishing with a zero deadline kicks the vCPU out of
+/// An aborted machine is halted and its owner answered before it is finished, so the owner
+/// does not wait for the release. An aborted guest is given no exit grace: finishing with a zero deadline kicks the vCPU out of
 /// `KVM_RUN` at once, where a guest that acknowledged shutdown is waited on to leave by itself.
 pub fn report(
-    sandbox: SandboxMachine,
+    mut sandbox: SandboxMachine,
     outcome: Result<Ending, SessionError>,
     responses: &Sender<Response>,
     instance: [u8; 16],
 ) {
+    if outcome == Ok(Ending::Aborted) {
+        // The owner is answered once the guest can no longer run, and the release it would
+        // otherwise wait on, which is closing the VM and returning its memory, happens after.
+        sandbox.halt();
+        let _ignored = responses.send(Response::Halted);
+        drop(sandbox.finish(exit_grace(outcome)));
+        return;
+    }
     let evidence = sandbox.finish(exit_grace(outcome));
     match outcome {
         Ok(_) => {

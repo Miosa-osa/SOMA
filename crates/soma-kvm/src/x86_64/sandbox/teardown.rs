@@ -10,13 +10,30 @@ use crate::x86_64::{
     mmio::MmioCounters,
     ports::BusCounters,
     serial::SerialCounters,
-    watchdog::RunReport,
+    watchdog::{CANCELLATION_GRACE, RunReport},
 };
 
 const KERNEL_INIT_LINE: &[u8] = b"Run /init as init process";
 const AGENT_READY_LINE: &[u8] = b"soma-guest-agent: ready";
 
 impl SandboxMachine {
+    /// Stops the guest for good while it still owns everything.
+    ///
+    /// The device thread is joined and vCPU 0 is kicked out of `KVM_RUN` and never re-entered,
+    /// so once this returns the guest cannot execute another instruction, whatever stage the
+    /// machine was in. The VM, its memory, and its descriptors are still held and are released by
+    /// [`SandboxMachine::finish`], which is the expensive half: closing the VM waits on KVM tearing
+    /// down every guest mapping. A caller that must answer promptly halts, answers, and finishes
+    /// afterwards.
+    ///
+    /// A vCPU that does not leave `KVM_RUN` within the cancellation grace aborts the process
+    /// rather than leaving a live vCPU behind, exactly as a cancelled run does.
+    pub fn halt(&mut self) {
+        // A machine that is not running has no vCPU in `KVM_RUN`, which is the whole guarantee,
+        // so the refusal that stage produces says nothing a caller needs.
+        let _ignored = self.pause(CANCELLATION_GRACE);
+    }
+
     /// Reclaims the vCPU within `exit_deadline`, stops the device thread, deregisters every
     /// route, releases every mapping and descriptor, and returns the evidence.
     pub fn finish(mut self, exit_deadline: Duration) -> SandboxEvidence {

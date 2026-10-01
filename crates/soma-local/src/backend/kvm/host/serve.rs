@@ -24,7 +24,7 @@ use std::{
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::GuestCommand;
 
-use crate::backend::kvm::{KvmBackend, lifecycle::Force, prepared};
+use crate::backend::kvm::{KvmBackend, held, lifecycle::Force, prepared};
 
 use super::{
     Launched, channel,
@@ -117,6 +117,10 @@ fn answer_until_released(
             let released = matches!(answer, Answer::Cleaned { .. });
             let _ignored = channel::write_line(&mut stream, &answer);
             if released {
+                // The caller waits for this connection to close. It closes here, once the guest
+                // can no longer run, rather than when the VM's memory has been returned.
+                drop(stream);
+                held::finish_released();
                 return RELEASED;
             }
             continue;
@@ -128,6 +132,7 @@ fn answer_until_released(
     // Nothing more is coming, so this host releases what it still holds rather than keeping a
     // machine alive that no process can reach.
     let _ignored = backend.cleanup_resident(instance, Force::Immediately);
+    held::finish_released();
     RELEASED
 }
 

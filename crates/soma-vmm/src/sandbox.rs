@@ -36,7 +36,7 @@ pub use identity::{
 pub use pending::PendingActivation;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use session::PTY_CEILING;
-pub use session::{BOOT_DEADLINE, Completed, EXIT_GRACE, Session, SessionError};
+pub use session::{BOOT_DEADLINE, Completed, EXIT_GRACE, Session, SessionError, Teardown};
 pub use source::{Boot, Network, Source};
 pub use sterile::{Assignment, SterileSpec};
 pub use timeline::dump as dump_timeline;

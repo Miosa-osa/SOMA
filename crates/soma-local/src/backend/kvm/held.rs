@@ -10,7 +10,7 @@
 //! filter that kills every syscall a server needs. The first remains because a host that cannot
 //! build a jail must be able to say so rather than silently serve one lifecycle as the other.
 
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use soma::{
@@ -19,7 +19,7 @@ use soma::{
 };
 use soma_guest::GuestCommand;
 use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
-use soma_vmm::sandbox::{Completed, Session, dump_timeline};
+use soma_vmm::sandbox::{Completed, Session, Teardown, dump_timeline};
 
 use super::jailed::Jailed;
 use super::start::failure_kind;
@@ -111,18 +111,39 @@ pub(super) fn enabled(value: Option<&str>) -> bool {
     matches!(value, Some("1" | "true"))
 }
 
+/// Releases of aborted machines that are still under way in this process.
+fn pending() -> std::sync::MutexGuard<'static, Vec<Teardown>> {
+    static PENDING: Mutex<Vec<Teardown>> = Mutex::new(Vec::new());
+    PENDING.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Waits until every aborted machine this process held is fully released.
+///
+/// A machine host calls it after it has answered the destroy and closed the caller's
+/// connection, so the caller is not held for the release, and before it exits, so the process
+/// never outlives a machine it reported released by more than that release takes.
+pub(super) fn finish_released() {
+    let teardowns = std::mem::take(&mut *pending());
+    for teardown in teardowns {
+        teardown.wait();
+    }
+}
+
 /// Releases a machine this process holds.
 ///
 /// A forced release ends the sandbox thread, and the thread finishes the machine before it
 /// returns, so it needs nothing else. With [`IMMEDIATE_FORCED_RELEASE`] on, the thread is told
-/// to abort, which kicks the vCPU out of `KVM_RUN` without asking the guest; otherwise dropping
+/// to abort, which kicks the vCPU out of `KVM_RUN` without asking the guest and returns as soon
+/// as the guest cannot run, leaving the VM's release to [`finish_released`]; otherwise dropping
 /// the session asks the guest to shut down first.
 fn release_resident(session: Session, instance: &InstanceId, forced: bool) -> CleanupMethod {
     if forced {
         if immediate_forced_release() {
-            // Either answer means the same thing here: the thread has ended and finished the
-            // machine on its way out, so nothing of it is left running.
-            let _ignored = session.abort();
+            // Once abort answers, the guest cannot run again. An error means the thread already
+            // ended and finished the machine on its way out, so there is nothing left to wait on.
+            if let Ok(teardown) = session.abort() {
+                pending().push(teardown);
+            }
         } else {
             drop(session);
         }
