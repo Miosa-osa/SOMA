@@ -20,6 +20,7 @@ mod reaper;
 mod serve;
 mod sterile;
 mod transport;
+mod warm;
 mod wire;
 
 #[cfg(test)]

@@ -63,6 +63,9 @@ pub(super) fn serve_machine(
         let _ignored = backend.cleanup_resident(&instance, Force::Immediately);
         return REFUSED;
     }
+    // After the launch has answered, so the create pays nothing for it, and before the first
+    // request is accepted, so no request is ever interleaved with it.
+    super::warm::warm(&mut backend, &instance);
     answer_until_released(listener, socket, &mut backend, &instance)
 }
 
