@@ -45,7 +45,7 @@ fn parses_every_contract_event() {
     );
     assert_eq!(
         FeedEvent::parse(
-            r#"{"seq":5,"kind":"tenant_policy","tenant_id":"t","soma":true,"suspended":false,"max_concurrent":8}"#
+            r#"{"seq":5,"kind":"tenant_policy","tenant_id":"t","soma":true,"suspended":false,"max_concurrent_share":8,"default_timeout_s":600}"#
         )
         .expect("parses"),
         FeedEvent::TenantPolicy {
@@ -53,7 +53,8 @@ fn parses_every_contract_event() {
             tenant_id: "t".to_owned(),
             soma: true,
             suspended: false,
-            max_concurrent: Some(8),
+            max_concurrent_share: Some(8),
+            default_timeout_s: Some(600),
         }
     );
     assert_eq!(
@@ -94,7 +95,7 @@ fn lines_split_across_chunks_are_reassembled() {
             hash_of(TOKEN)
         ),
         format_args!(
-            r#"{{"seq":3,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent":null}}"#
+            r#"{{"seq":3,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":null}}"#
         ),
         r#"{"seq":4,"kind":"snapshot_end"}"#,
     );

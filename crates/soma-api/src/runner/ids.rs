@@ -79,6 +79,29 @@ impl std::fmt::Display for SandboxId {
     }
 }
 
+/// Decodes the lowercase hex SHA-256 the control plane publishes as `key_hash`.
+#[must_use]
+pub fn decode_sha256_hex(hex: &str) -> Option<[u8; 32]> {
+    let bytes = hex.as_bytes();
+    if bytes.len() != 64 {
+        return None;
+    }
+    let mut hash = [0_u8; 32];
+    let (pairs, _) = bytes.as_chunks::<2>();
+    for (slot, pair) in hash.iter_mut().zip(pairs) {
+        *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    }
+    Some(hash)
+}
+
+const fn nibble(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::SandboxId;

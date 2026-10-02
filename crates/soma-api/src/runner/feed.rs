@@ -26,7 +26,8 @@ pub enum FeedEvent {
         tenant_id: String,
         soma: bool,
         suspended: bool,
-        max_concurrent: Option<u32>,
+        max_concurrent_share: Option<u32>,
+        default_timeout_s: Option<u64>,
     },
     SnapshotEnd {
         seq: u64,
@@ -90,7 +91,11 @@ enum Known {
         tenant_id: String,
         soma: bool,
         suspended: bool,
-        max_concurrent: Option<u32>,
+        max_concurrent_share: Option<u32>,
+        // Required by contract C3; a control plane that leaves it out gets the runner's own
+        // default rather than a refused policy.
+        #[serde(default)]
+        default_timeout_s: Option<u64>,
     },
     SnapshotEnd {
         seq: u64,
@@ -177,13 +182,15 @@ impl From<Known> for FeedEvent {
                 tenant_id,
                 soma,
                 suspended,
-                max_concurrent,
+                max_concurrent_share,
+                default_timeout_s,
             } => Self::TenantPolicy {
                 seq,
                 tenant_id,
                 soma,
                 suspended,
-                max_concurrent,
+                max_concurrent_share,
+                default_timeout_s,
             },
             Known::SnapshotEnd { seq } => Self::SnapshotEnd { seq },
             Known::Heartbeat { seq } => Self::Heartbeat { seq },

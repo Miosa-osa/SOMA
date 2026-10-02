@@ -132,7 +132,7 @@ pub(crate) fn snapshot(state: &ControlPlaneState, first_seq: u64) {
         hash_of(TOKEN)
     ));
     state.send(&format!(
-        r#"{{"seq":{},"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent":null}}"#,
+        r#"{{"seq":{},"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":null,"default_timeout_s":3600}}"#,
         first_seq + 2
     ));
     state.send(&format!(

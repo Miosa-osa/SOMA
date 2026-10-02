@@ -16,14 +16,16 @@ use hyper_util::{
 
 use crate::runner::{
     journal::{Entry, Journal},
+    limits::{
+        Activity, BODY_READ_TIMEOUT, HEADER_READ_TIMEOUT, IDLE_CHECK, IDLE_TIMEOUT, IdleIo,
+        MAX_HEADER_BYTES, MAX_HTTP1_BUFFER_BYTES, MAX_STREAMS_PER_CONNECTION, PerIp,
+        TLS_HANDSHAKE_TIMEOUT,
+    },
     public_wire,
     service::{MAX_BODY_BYTES, Runner, RunnerRequest, RunnerResponse},
     tls::CertificateStore,
 };
 
-const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
-pub(crate) const MAX_STREAMS_PER_CONNECTION: u32 = 256;
 const CONTENT_TYPE: &str = "application/json; charset=utf-8";
 
 /// A response body that journals its request once the body is gone.
@@ -70,6 +72,7 @@ pub async fn serve_tcp(
     certificates: Arc<CertificateStore>,
     runner: Arc<Runner>,
     max_connections: usize,
+    per_ip: Arc<PerIp>,
 ) {
     let tls = match certificates.server_config(&[b"h2", b"http/1.1"], false) {
         Ok(config) => tokio_rustls::TlsAcceptor::from(Arc::new(config)),
@@ -80,7 +83,7 @@ pub async fn serve_tcp(
     };
     let connections = Arc::new(tokio::sync::Semaphore::new(max_connections));
     loop {
-        let (stream, _peer) = match listener.accept().await {
+        let (stream, peer) = match listener.accept().await {
             Ok(accepted) => accepted,
             Err(error) => {
                 // Running out of descriptors is transient; anything else is logged the same way
@@ -93,9 +96,12 @@ pub async fn serve_tcp(
         let Ok(permit) = Arc::clone(&connections).try_acquire_owned() else {
             continue;
         };
+        let Some(slot) = per_ip.admit(peer.ip()) else {
+            continue;
+        };
         let (tls, runner) = (tls.clone(), Arc::clone(&runner));
         tokio::spawn(async move {
-            let _permit = permit;
+            let _held = (permit, slot);
             if stream.set_nodelay(true).is_err() {
                 return;
             }
@@ -104,13 +110,22 @@ pub async fn serve_tcp(
             else {
                 return;
             };
-            serve_http(TokioIo::new(stream), runner).await;
+            let activity = Activity::new();
+            serve_http(
+                TokioIo::new(IdleIo::new(stream, &activity)),
+                &activity,
+                runner,
+            )
+            .await;
         });
     }
 }
 
-/// Serves HTTP/1.1 or HTTP/2 on one established connection.
-pub async fn serve_http<I>(io: I, runner: Arc<Runner>)
+/// Serves HTTP/1.1 or HTTP/2 on one established connection until it closes or goes idle.
+///
+/// An idle connection is shut down gracefully: requests in flight (a long command, say) still
+/// finish, and no new one is accepted.
+pub async fn serve_http<I>(io: I, activity: &Activity, runner: Arc<Runner>)
 where
     I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
 {
@@ -122,12 +137,28 @@ where
     builder
         .http1()
         .timer(TokioTimer::new())
-        .header_read_timeout(HEADER_READ_TIMEOUT);
+        .header_read_timeout(HEADER_READ_TIMEOUT)
+        .max_buf_size(MAX_HTTP1_BUFFER_BYTES);
     builder
         .http2()
         .timer(TokioTimer::new())
-        .max_concurrent_streams(MAX_STREAMS_PER_CONNECTION);
-    let _closed = builder.serve_connection(io, service).await;
+        .max_concurrent_streams(MAX_STREAMS_PER_CONNECTION)
+        .max_header_list_size(MAX_HEADER_BYTES);
+    let connection = builder.serve_connection(io, service);
+    tokio::pin!(connection);
+    let mut check = tokio::time::interval(IDLE_CHECK);
+    loop {
+        tokio::select! {
+            _closed = connection.as_mut() => return,
+            _tick = check.tick() => {
+                if activity.idle_for() >= IDLE_TIMEOUT {
+                    connection.as_mut().graceful_shutdown();
+                    let _closed = connection.as_mut().await;
+                    return;
+                }
+            }
+        }
+    }
 }
 
 async fn respond(
@@ -136,8 +167,15 @@ async fn respond(
 ) -> http::Response<JournaledBody> {
     let received = Instant::now();
     let (parts, body) = request.into_parts();
-    let Ok(collected) = Limited::new(body, MAX_BODY_BYTES).collect().await else {
-        return encode_hyper(payload_too_large(), None);
+    let collected = match tokio::time::timeout(
+        BODY_READ_TIMEOUT,
+        Limited::new(body, MAX_BODY_BYTES).collect(),
+    )
+    .await
+    {
+        Ok(Ok(collected)) => collected,
+        Ok(Err(_)) => return encode_hyper(payload_too_large(), None),
+        Err(_) => return encode_hyper(request_timeout(), None),
     };
     let response = runner
         .handle(RunnerRequest {
@@ -192,6 +230,13 @@ pub(crate) fn authorization(headers: &http::HeaderMap) -> Option<String> {
         .get(http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
+}
+
+pub(crate) fn request_timeout() -> RunnerResponse {
+    let mut response = payload_too_large();
+    response.status = 408;
+    response.body = public_wire::refusal("request_timeout");
+    response
 }
 
 pub(crate) fn payload_too_large() -> RunnerResponse {

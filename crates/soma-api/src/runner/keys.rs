@@ -1,13 +1,15 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, atomic::AtomicI64},
     time::{Duration, Instant},
 };
 
 use sha2::{Digest, Sha256};
 
-use crate::runner::feed::FeedEvent;
-pub use crate::runner::principal::{KeyRecord, Principal, Projects, Refusal, TenantPolicy};
+pub use crate::runner::principal::{
+    Joined, KeyRecord, Principal, Projects, Refusal, Tenant, TenantPolicy,
+};
+use crate::runner::{feed::FeedEvent, ids::decode_sha256_hex};
 
 /// The in-memory key and policy table the control-plane feed fills.
 ///
@@ -29,12 +31,41 @@ struct State {
     last_event: Option<Instant>,
     /// Set when a feed connection opens and cleared by its first event.
     connection_opened: bool,
+    /// Live sandbox counts per tenant. Kept outside the entries so that neither a snapshot nor
+    /// a policy change forgets sandboxes that are running.
+    counters: HashMap<String, Arc<AtomicI64>>,
 }
 
+/// One record per key hash, already joined with its tenant (contract C3).
 #[derive(Debug, Default)]
 struct Entries {
-    keys: HashMap<[u8; 32], Arc<KeyRecord>>,
-    tenants: HashMap<String, TenantPolicy>,
+    keys: HashMap<[u8; 32], Arc<Joined>>,
+    tenants: HashMap<String, Arc<Tenant>>,
+}
+
+impl Entries {
+    fn upsert_key(&mut self, hash: [u8; 32], key: KeyRecord) {
+        let tenant = self.tenants.get(&key.tenant_id).cloned();
+        let key = Arc::new(key);
+        self.keys.insert(hash, Arc::new(Joined { key, tenant }));
+    }
+
+    /// Installs a tenant policy and re-joins that tenant's keys to it.
+    ///
+    /// This walks the keys, which is the price of a single lookup on every request: a policy
+    /// change is rare, an admission is not.
+    fn upsert_tenant(&mut self, tenant_id: &str, tenant: &Arc<Tenant>) {
+        self.tenants
+            .insert(tenant_id.to_owned(), Arc::clone(tenant));
+        for joined in self.keys.values_mut() {
+            if joined.key.tenant_id == tenant_id {
+                *joined = Arc::new(Joined {
+                    key: Arc::clone(&joined.key),
+                    tenant: Some(Arc::clone(tenant)),
+                });
+            }
+        }
+    }
 }
 
 /// A feed event the table could not accept, which ends the feed connection.
@@ -129,18 +160,18 @@ impl KeyTable {
                 rate_per_s,
                 ..
             } => {
-                let hash = decode_hash(key_hash).ok_or(FeedViolation::MalformedKeyHash)?;
-                let record = Arc::new(KeyRecord {
+                let hash = decode_sha256_hex(key_hash).ok_or(FeedViolation::MalformedKeyHash)?;
+                let record = KeyRecord {
                     key_id: key_id.clone(),
                     tenant_id: tenant_id.clone(),
                     user_id: user_id.clone(),
                     projects: projects.to_projects(),
                     rate_per_second: *rate_per_s,
-                });
-                state.target().keys.insert(hash, record);
+                };
+                state.target().upsert_key(hash, record);
             }
             FeedEvent::KeyRevoke { key_hash, .. } => {
-                let hash = decode_hash(key_hash).ok_or(FeedViolation::MalformedKeyHash)?;
+                let hash = decode_sha256_hex(key_hash).ok_or(FeedViolation::MalformedKeyHash)?;
                 // A revoke reaches the live table even mid-snapshot. The snapshot that is
                 // being built may have listed the key before the revoke, and the live table
                 // must not keep serving it until that snapshot ends.
@@ -153,15 +184,19 @@ impl KeyTable {
                 tenant_id,
                 soma,
                 suspended,
-                max_concurrent,
+                max_concurrent_share,
+                default_timeout_s,
                 ..
             } => {
                 let policy = TenantPolicy {
                     soma: *soma,
                     suspended: *suspended,
-                    max_concurrent: *max_concurrent,
+                    max_concurrent_share: *max_concurrent_share,
+                    default_timeout_seconds: *default_timeout_s,
                 };
-                state.target().tenants.insert(tenant_id.clone(), policy);
+                let counter = state.counter(tenant_id);
+                let tenant = Arc::new(Tenant::new(policy, counter));
+                state.target().upsert_tenant(tenant_id, &tenant);
             }
             FeedEvent::Heartbeat { .. } | FeedEvent::Unknown { .. } => {}
         }
@@ -182,8 +217,8 @@ impl KeyTable {
             .filter(|token| token.starts_with("msk_"))
             .ok_or(Refusal::Unauthorized)?;
         let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let state = self.read();
-        let key = state
+        let joined = self
+            .read()
             .live
             .keys
             .get(&hash)
@@ -191,16 +226,33 @@ impl KeyTable {
             .ok_or(Refusal::Unauthorized)?;
         // A tenant the feed has published no policy for is refused, not assumed enabled: the
         // runner only ever serves tenants the control plane has positively turned on.
-        let policy = state
-            .live
-            .tenants
-            .get(&key.tenant_id)
-            .copied()
-            .ok_or(Refusal::Forbidden)?;
-        if !policy.soma || policy.suspended {
+        let tenant = joined.tenant.clone().ok_or(Refusal::Forbidden)?;
+        if !tenant.policy.soma || tenant.policy.suspended {
             return Err(Refusal::Forbidden);
         }
-        Ok(Principal { key, policy })
+        Ok(Principal {
+            key: Arc::clone(&joined.key),
+            tenant,
+        })
+    }
+
+    /// The live sandbox counter of `tenant_id`, created if the feed has not named it yet.
+    #[must_use]
+    pub fn counter(&self, tenant_id: &str) -> Arc<AtomicI64> {
+        self.write().counter(tenant_id)
+    }
+
+    /// Whether the feed says `tenant_id` may no longer hold sandboxes on this runner.
+    ///
+    /// Only a published policy that is suspended or SOMA-disabled says so; a tenant the table
+    /// has not heard of keeps its sandboxes, so a feed outage never empties a host.
+    #[must_use]
+    pub fn must_reap(&self, tenant_id: &str) -> bool {
+        self.read()
+            .live
+            .tenants
+            .get(tenant_id)
+            .is_some_and(|tenant| tenant.policy.suspended || !tenant.policy.soma)
     }
 
     /// The number of keys the live table holds.
@@ -223,31 +275,13 @@ impl KeyTable {
 }
 
 impl State {
+    fn counter(&mut self, tenant_id: &str) -> Arc<AtomicI64> {
+        Arc::clone(self.counters.entry(tenant_id.to_owned()).or_default())
+    }
+
     /// Where a data event lands: the snapshot being built, or the live table between snapshots.
     fn target(&mut self) -> &mut Entries {
         self.staging.as_mut().unwrap_or(&mut self.live)
-    }
-}
-
-/// Decodes the lowercase hex SHA-256 the control plane publishes as `key_hash`.
-fn decode_hash(hex: &str) -> Option<[u8; 32]> {
-    let bytes = hex.as_bytes();
-    if bytes.len() != 64 {
-        return None;
-    }
-    let mut hash = [0_u8; 32];
-    let (pairs, _) = bytes.as_chunks::<2>();
-    for (slot, pair) in hash.iter_mut().zip(pairs) {
-        *slot = (nibble(pair[0])? << 4) | nibble(pair[1])?;
-    }
-    Some(hash)
-}
-
-const fn nibble(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        _ => None,
     }
 }
 

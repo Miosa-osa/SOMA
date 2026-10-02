@@ -8,15 +8,15 @@ use crate::{
         ids::SandboxId,
         journal::{Entry, EntryKind},
         keys::Principal,
-        public_wire::PlatformError,
+        public_wire::{self, PlatformError},
         sandboxes::{Owner, Unavailable},
     },
     wire::operation_id,
 };
 
 use super::{
-    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, destroyed_body, entry, failure_code,
-    millis, refused_sandbox, with_journal,
+    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, millis,
+    refused_sandbox, with_journal,
 };
 
 impl Runner {
@@ -129,14 +129,20 @@ impl Runner {
         }
     }
 
-    /// Destroys every sandbox whose lifetime has run out, and forgets old destroyed ones.
+    /// One sweep of contract C7: destroys every sandbox whose lifetime has run out or whose
+    /// tenant is suspended, and forgets old destroyed ones.
     ///
     /// The fast lane's sandboxes expired on the control plane's schedule; a runner sandbox has
     /// no one else to end it, so the runner does, and journals it as a destroy like any other.
+    /// The control plane's own reaper stays as a backstop.
     pub async fn reap(&self) {
         let now = Instant::now();
         self.sandboxes.sweep(now);
-        for (id, owner) in self.sandboxes.claim_expired(now) {
+        let keys = &self.keys;
+        let claimed = self
+            .sandboxes
+            .claim_expired(now, |tenant| keys.must_reap(tenant));
+        for (id, owner) in claimed {
             let result = self.release(&id).await;
             if matches!(result.outcome, Released::Gone) {
                 self.journal.record(Entry {
@@ -191,6 +197,7 @@ impl Runner {
                 key_id: None,
                 project_id: None,
                 created: Instant::now(),
+                slot: self.keys.counter(tenant),
             };
             self.sandboxes.recover(id, owner, lifetime);
             recovered += 1;
@@ -208,4 +215,13 @@ enum Released {
     Gone,
     Failed(&'static str),
     Busy,
+}
+
+fn destroyed_body(id: &SandboxId) -> Vec<u8> {
+    public_wire::encode(&public_wire::Destroyed {
+        id: id.as_str(),
+        operation_id: None,
+        state: "destroyed",
+        total_runtime_sec: None,
+    })
 }

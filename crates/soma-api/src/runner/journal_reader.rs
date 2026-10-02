@@ -6,6 +6,31 @@ use std::{
 
 use crate::runner::journal::{OffsetOnly, corrupt};
 
+/// The journal files of `runner` in `directory`, oldest boot epoch first.
+///
+/// # Errors
+///
+/// Returns the failure to list the directory.
+pub fn epoch_files(directory: &Path, runner: &str) -> io::Result<Vec<(String, PathBuf)>> {
+    let prefix = format!("{runner}.");
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if let Some(epoch) = name
+            .strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_suffix(".ndjson"))
+            .filter(|epoch| !epoch.is_empty() && !epoch.contains('.'))
+        {
+            files.push((epoch.to_owned(), path.clone()));
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
 /// One shipped line: its offset, where it starts in the file, and its bytes with the newline.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShippedLine {
@@ -115,6 +140,11 @@ impl AckFile {
         Self {
             path: journal.with_extension("acked"),
         }
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// The stored acknowledgement, or 0 when nothing was ever acknowledged.

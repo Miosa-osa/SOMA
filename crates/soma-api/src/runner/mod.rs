@@ -19,6 +19,7 @@ pub mod ids;
 pub mod journal;
 pub mod journal_reader;
 pub mod keys;
+pub mod limits;
 pub mod principal;
 pub mod public_wire;
 pub mod quic;
@@ -128,13 +129,15 @@ impl Started {
             }
         });
         tokio::spawn(tls::watch(Arc::clone(&self.tls)));
+        let per_ip = limits::PerIp::new(self.config.max_connections_per_ip);
         let tcp = transport::serve_tcp(
             self.tcp,
             Arc::clone(&self.tls),
             Arc::clone(&self.runner),
             self.config.max_connections,
+            Arc::clone(&per_ip),
         );
-        let quic = quic::serve_quic(self.quic, Arc::clone(&self.runner));
+        let quic = quic::serve_quic(self.quic, Arc::clone(&self.runner), per_ip);
         tokio::join!(tcp, quic);
     }
 }

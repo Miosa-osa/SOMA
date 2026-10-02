@@ -38,6 +38,7 @@ async fn serve_the_lifecycle(
     let health = h2(address, "GET", "/healthz", None, "").await;
     assert_eq!(health.status, 200);
     assert_eq!(health.body["ok"], true);
+    assert_eq!(health.body["tag"], "3");
     assert!(health.body["feed_age_ms"].is_u64());
 
     // The first feed connection resumes from nothing.
@@ -61,6 +62,11 @@ async fn serve_the_lifecycle(
     assert_eq!(created.body["cpu_count"], 1);
     assert_eq!(created.body["memory_mb"], 512);
     assert_eq!(created.body["timeout_sec"], 3_600);
+    assert_eq!(created.body["runner_url"], "https://3.run-us.miosa.ai");
+    assert_eq!(
+        created.headers["soma-runner-url"],
+        "https://3.run-us.miosa.ai"
+    );
     let timing = created.headers["server-timing"].to_str().expect("header");
     assert!(
         timing.starts_with("auth;dur=")
@@ -100,7 +106,7 @@ async fn serve_the_lifecycle(
     assert_eq!(misdirected.status, 421);
     assert_eq!(
         misdirected.body,
-        serde_json::json!({"error": "misdirected", "host": "a.run-us.miosa.ai"})
+        serde_json::json!({"error": "misdirected", "runner_url": "https://a.run-us.miosa.ai"})
     );
 
     // An unknown key is refused from memory alone.
@@ -210,11 +216,15 @@ async fn ship_the_paperwork(state: &ControlPlaneState, journal: &Path, id: &str)
         "batches of two lines"
     );
     // The acknowledgement is stored once the control plane's answer is back.
-    let acks = journal.join("miosa-host-03.acked");
     eventually("the acknowledgement to be stored", || {
-        std::fs::read_to_string(&acks).is_ok_and(|acked| acked.trim() == "5")
+        acked_epochs(journal) == vec!["5".to_owned()]
     })
     .await;
+    let epochs: std::collections::BTreeSet<&str> = shipped
+        .values()
+        .map(|line| line["boot_epoch"].as_str().expect("boot_epoch"))
+        .collect();
+    assert_eq!(epochs.len(), 1, "one process start is one boot epoch");
 }
 
 /// A revoke reaches the runner at once, and a dropped feed resumes where it stopped.
@@ -239,4 +249,24 @@ async fn revoke_and_reconnect(address: SocketAddr, state: &ControlPlaneState) {
     state.drop_feed();
     eventually("the feed to reconnect", || state.connections().len() == 2).await;
     assert_eq!(state.connections(), vec![0, 5]);
+}
+
+/// The stored acknowledgement of every boot epoch's journal.
+fn acked_epochs(journal: &Path) -> Vec<String> {
+    let mut acked: Vec<String> = std::fs::read_dir(journal)
+        .expect("journal directory")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let name = path.file_name()?.to_str()?;
+            (name.starts_with("miosa-host-03.")
+                && path
+                    .extension()
+                    .is_some_and(|extension| extension == "acked"))
+            .then(|| std::fs::read_to_string(&path).ok())
+            .flatten()
+        })
+        .map(|contents| contents.trim().to_owned())
+        .collect();
+    acked.sort();
+    acked
 }

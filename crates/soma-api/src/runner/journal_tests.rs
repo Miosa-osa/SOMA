@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::{Entry, EntryKind, Journal};
-use crate::runner::journal_reader::{AckFile, Reader};
+use crate::runner::journal_reader::{AckFile, Reader, epoch_files};
 
 pub(crate) fn scratch(name: &str) -> PathBuf {
     let directory = std::env::temp_dir().join(format!(
@@ -33,7 +33,7 @@ pub(crate) fn entry(status: u16) -> Entry {
 
 pub(crate) fn wait_for(journal: &Journal, offset: u64) {
     let deadline = Instant::now() + Duration::from_secs(5);
-    while journal.durable_offset() < offset {
+    while journal.written_offset() < offset {
         assert!(Instant::now() < deadline, "journal reached {offset}");
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -50,7 +50,10 @@ fn lines_carry_contract_fields_in_order_and_increasing_offsets() {
     let text = std::fs::read_to_string(journal.path()).expect("readable");
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(lines.len(), 2);
-    assert!(lines[0].starts_with(r#"{"runner":"miosa-host-03","offset":1,"ts":""#));
+    assert!(lines[0].starts_with(&format!(
+        r#"{{"runner":"miosa-host-03","boot_epoch":"{}","offset":1,"ts":""#,
+        journal.epoch()
+    )));
     assert!(lines[0].ends_with(
         r#""kind":"create","tenant_id":"t-1","key_id":"k-1","project_id":null,"sandbox_id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","status":201,"ms":4,"exit_code":null,"cpu_ms":null,"lifetime_ms":null}"#
     ));
@@ -60,37 +63,53 @@ fn lines_carry_contract_fields_in_order_and_increasing_offsets() {
 }
 
 #[test]
-fn offsets_continue_across_a_restart_and_a_torn_line_is_cut() {
+fn every_start_is_a_new_epoch_whose_offsets_start_at_one() {
     let directory = scratch("restart");
-    {
+    let first_epoch = {
         let journal = Journal::open(&directory, "r").expect("opens");
         journal.record(entry(201));
         journal.record(entry(200));
         wait_for(&journal, 2);
-    }
-    let path = directory.join("r.ndjson");
+        journal.epoch().to_owned()
+    };
+    // A crash mid-line in the old epoch leaves a torn tail; the reader never ships it.
     std::fs::OpenOptions::new()
         .append(true)
-        .open(&path)
+        .open(directory.join(format!("r.{first_epoch}.ndjson")))
         .expect("append")
-        .write_all(br#"{"runner":"r","offset":3,"ts":"#)
+        .write_all(br#"{"runner":"r","boot_epoch":"x","offset":3,"ts":"#)
         .expect("torn write");
 
     let journal = Journal::open(&directory, "r").expect("reopens");
-    assert_eq!(journal.durable_offset(), 2);
+    assert_ne!(journal.epoch(), first_epoch);
     journal.record(entry(200));
-    wait_for(&journal, 3);
+    wait_for(&journal, 1);
 
-    let text = std::fs::read_to_string(&path).expect("readable");
-    let offsets: Vec<u64> = text
-        .lines()
-        .map(|line| {
-            serde_json::from_str::<serde_json::Value>(line).expect("every line is whole")["offset"]
-                .as_u64()
-                .expect("offset")
-        })
-        .collect();
-    assert_eq!(offsets, vec![1, 2, 3]);
+    let files = epoch_files(&directory, "r").expect("listed");
+    assert_eq!(
+        files
+            .iter()
+            .map(|(epoch, _)| epoch.as_str())
+            .collect::<Vec<_>>(),
+        vec![first_epoch.as_str(), journal.epoch()],
+        "oldest epoch first"
+    );
+    let old = Reader::after(&files[0].1, 0)
+        .expect("reader")
+        .batch(10, u64::MAX)
+        .expect("batch");
+    assert_eq!(
+        old.iter().map(|line| line.offset).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    let new = Reader::after(&files[1].1, 0)
+        .expect("reader")
+        .batch(10, journal.written_offset())
+        .expect("batch");
+    assert_eq!(
+        new.iter().map(|line| line.offset).collect::<Vec<_>>(),
+        vec![1]
+    );
 }
 
 #[test]

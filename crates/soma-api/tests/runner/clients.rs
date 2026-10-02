@@ -34,6 +34,18 @@ pub(crate) async fn tcp_request(
     token: Option<&str>,
     body: &str,
 ) -> Answer {
+    with_headers(address, alpn, (method, path), token, &[], body).await
+}
+
+/// One request carrying extra headers, as a hostile or confused client would send them.
+pub(crate) async fn with_headers(
+    address: SocketAddr,
+    alpn: &'static [u8],
+    (method, path): (&str, &str),
+    token: Option<&str>,
+    extra: &[(&str, &str)],
+    body: &str,
+) -> Answer {
     let connector = tokio_rustls::TlsConnector::from(Arc::new(client_tls(&[alpn])));
     let tcp = tokio::net::TcpStream::connect(address)
         .await
@@ -50,6 +62,9 @@ pub(crate) async fn tcp_request(
         .header(http::header::CONTENT_TYPE, "application/json");
     if let Some(token) = token {
         request = request.header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    for (name, value) in extra {
+        request = request.header(*name, *value);
     }
     let request = request
         .body(Full::new(Bytes::from(body.to_owned())))

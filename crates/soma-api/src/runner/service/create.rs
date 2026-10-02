@@ -45,23 +45,23 @@ impl Runner {
                 journal(503, None, project),
             );
         };
+        // The tenant's share on this runner is one atomic counter (contract C3).
+        if !principal.tenant.admit() {
+            return with_journal(
+                RunnerResponse::refusal(429, "rate_limited"),
+                journal(429, None, project),
+            );
+        }
         let id = SandboxId::mint(self.config.host_tag);
         let owner = Owner {
             tenant_id: principal.key.tenant_id.clone(),
             key_id: Some(principal.key.key_id.clone()),
             project_id: project.clone(),
             created: Instant::now(),
+            slot: principal.tenant.counter(),
         };
         let lifetime = Duration::from_secs(params.timeout_seconds);
-        if !self
-            .sandboxes
-            .reserve(id.clone(), owner, lifetime, principal.policy.max_concurrent)
-        {
-            return with_journal(
-                RunnerResponse::refusal(429, "rate_limited"),
-                journal(429, None, project),
-            );
-        }
+        self.sandboxes.reserve(id.clone(), owner, lifetime);
         let Some(launch) = self.launch_request(&id, &principal.key.tenant_id) else {
             self.sandboxes.abandon(&id);
             return with_journal(create_unavailable(), journal(503, Some(&id), project));
@@ -83,8 +83,13 @@ impl Runner {
             Ok((Ok(()), call)) => {
                 timing.call = call;
                 self.sandboxes.confirm(&id);
+                let runner_url = self.runner_url(self.config.host_tag);
                 with_journal(
-                    RunnerResponse::new(201, self.created_body(&id, params.timeout_seconds)),
+                    RunnerResponse::new(
+                        201,
+                        self.created_body(&id, &runner_url, params.timeout_seconds),
+                    )
+                    .header("soma-runner-url", runner_url),
                     journal(201, Some(&id), project),
                 )
             }
@@ -115,19 +120,21 @@ impl Runner {
         {
             return Err(Box::new(RunnerResponse::retry_elsewhere("feed_stale")));
         }
-        let params = CreateParams::parse(
-            body,
-            self.config.launch.default_timeout_seconds,
-            &self.config.launch.shape,
-        )
-        .map_err(|error| Box::new(RunnerResponse::platform(&error)))?;
+        // C7: the request's timeout, else the tenant's default, else this runner's.
+        let default_timeout = principal
+            .tenant
+            .policy
+            .default_timeout_seconds
+            .unwrap_or(self.config.launch.default_timeout_seconds);
+        let params = CreateParams::parse(body, default_timeout, &self.config.launch.shape)
+            .map_err(|error| Box::new(RunnerResponse::platform(&error)))?;
         if !principal.key.projects.allows(params.project_id.as_deref()) {
             return Err(Box::new(RunnerResponse::refusal(403, "forbidden")));
         }
         Ok(params)
     }
 
-    fn created_body(&self, id: &SandboxId, timeout_seconds: u64) -> Vec<u8> {
+    fn created_body(&self, id: &SandboxId, runner_url: &str, timeout_seconds: u64) -> Vec<u8> {
         let created_at = iso8601_micros(SystemTime::now());
         public_wire::encode(&public_wire::Created {
             cpu_count: self.config.launch.shape.vcpu_count(),
@@ -136,6 +143,7 @@ impl Runner {
             id: id.as_str(),
             memory_mb: self.config.launch.shape.memory_mib(),
             name: None,
+            runner_url,
             slug: &id.as_str()[..8],
             state: "running",
             template_id: &self.config.launch.template_id,

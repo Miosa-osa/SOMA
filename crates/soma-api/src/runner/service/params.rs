@@ -93,7 +93,11 @@ impl CreateParams {
                 ));
             }
         };
-        let timeout_seconds = match params.get("timeout_sec") {
+        let requested = params
+            .get("timeout_sec")
+            .filter(|value| !value.is_null())
+            .or_else(|| params.get("timeout"));
+        let timeout_seconds = match requested {
             None | Some(Value::Null) => default_timeout,
             Some(value) => value
                 .as_u64()

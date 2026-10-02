@@ -18,6 +18,9 @@ pub struct Created<'a> {
     pub id: &'a str,
     pub memory_mb: u64,
     pub name: Option<&'a str>,
+    /// Where every later call for this sandbox goes (contract C2). An extra key, which the
+    /// compact body's JSON clients ignore; it sorts where Jason would put it.
+    pub runner_url: &'a str,
     pub slug: &'a str,
     pub state: &'a str,
     pub template_id: &'a str,
@@ -254,29 +257,31 @@ pub fn refusal(code: &str) -> Vec<u8> {
 
 /// The `421` body naming the runner that owns the sandbox.
 #[must_use]
-pub fn misdirected(host: &str) -> Vec<u8> {
+pub fn misdirected(runner_url: &str) -> Vec<u8> {
     #[derive(Serialize)]
     struct Misdirected<'a> {
         error: &'a str,
-        host: &'a str,
+        runner_url: &'a str,
     }
     encode(&Misdirected {
         error: "misdirected",
-        host,
+        runner_url,
     })
 }
 
 /// The `/healthz` body, in the field order contract C2 writes it.
 #[must_use]
-pub fn health(feed_age_ms: u64, pool_ready: Option<u64>) -> Vec<u8> {
+pub fn health(tag: char, feed_age_ms: u64, pool_ready: Option<u64>) -> Vec<u8> {
     #[derive(Serialize)]
     struct Health {
         ok: bool,
+        tag: char,
         feed_age_ms: u64,
         pool_ready: Option<u64>,
     }
     encode(&Health {
         ok: true,
+        tag,
         feed_age_ms,
         pool_ready,
     })

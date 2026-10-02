@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{self, Read, Seek, SeekFrom, Write},
+    io::{self, BufWriter, Write},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -8,18 +8,20 @@ use std::{
         mpsc,
     },
     thread,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
 
 use crate::runner::clock::rfc3339_millis;
 
-/// How far back from the end of the file recovery looks for the last complete line.
-const RECOVERY_WINDOW: u64 = 64 * 1024;
-/// How many queued entries one write and one `fsync` cover at most.
+/// How many queued entries one buffered write covers at most.
 const MAX_WRITE_BATCH: usize = 4_096;
+/// How often the writer syncs what it has written. The sync is the writer's own business and
+/// never sits between a request and its response (contract C4).
+const SYNC_INTERVAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY: Duration = Duration::from_secs(1);
+const WRITE_BUFFER_BYTES: usize = 256 * 1024;
 
 /// What one journal line records (contract C4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,6 +51,7 @@ pub struct Entry {
 #[derive(Serialize)]
 struct Line<'a> {
     runner: &'a str,
+    boot_epoch: &'a str,
     offset: u64,
     ts: String,
     #[serde(flatten)]
@@ -60,12 +63,16 @@ pub(crate) struct OffsetOnly {
     pub(crate) offset: u64,
 }
 
-/// The append-only paperwork journal of one runner.
+/// The append-only paperwork journal of one runner process.
 ///
-/// Entries are queued without blocking and written by one thread, which assigns each the next
-/// offset, appends the batch, and syncs it before publishing the new durable offset. Offsets
-/// continue from the last line on disk across restarts, so an offset is never reused; a line
-/// torn by a crash is cut off at startup rather than glued to the next one.
+/// Every process start is a new boot epoch with its own file,
+/// `<runner>.<boot_epoch>.ndjson`, whose offsets start at 1. The idempotency key is
+/// `(runner, boot_epoch, offset)`, so a restart can never collide with lines already acked,
+/// and nothing has to be recovered from the previous file before serving. Earlier epochs stay
+/// on disk until the shipper has delivered them.
+///
+/// Entries are queued without blocking and written by one thread into a buffer that is
+/// flushed per batch and synced on an interval.
 #[derive(Clone)]
 pub struct Journal {
     sender: mpsc::Sender<Entry>,
@@ -73,39 +80,44 @@ pub struct Journal {
 }
 
 struct Shared {
+    directory: PathBuf,
     path: PathBuf,
     runner: String,
-    /// The highest offset that is written and synced.
-    durable: AtomicU64,
+    epoch: String,
+    /// The highest offset handed to the operating system.
+    written: AtomicU64,
     appended: tokio::sync::Notify,
 }
 
 impl Journal {
-    /// Opens `<directory>/<runner>.ndjson`, recovering its last offset, and starts the writer.
+    /// Starts a new boot epoch file in `directory` and its writer thread.
     ///
     /// # Errors
     ///
-    /// Returns the failure to create the directory, open the file, or recover its last line.
+    /// Returns the failure to create the directory or the file, or a refusal when the
+    /// directory is on a memory-backed filesystem that would lose the journal on reboot.
     pub fn open(directory: &Path, runner: &str) -> io::Result<Self> {
         std::fs::create_dir_all(directory)?;
-        let path = directory.join(format!("{runner}.ndjson"));
-        let mut file = OpenOptions::new()
-            .create(true)
-            .read(true)
+        refuse_volatile(directory)?;
+        let epoch = boot_epoch();
+        let path = directory.join(format!("{runner}.{epoch}.ndjson"));
+        let file = OpenOptions::new()
+            .create_new(true)
             .append(true)
             .open(&path)?;
-        let last = recover(&mut file)?;
         let shared = Arc::new(Shared {
+            directory: directory.to_owned(),
             path,
             runner: runner.to_owned(),
-            durable: AtomicU64::new(last),
+            epoch,
+            written: AtomicU64::new(0),
             appended: tokio::sync::Notify::new(),
         });
         let (sender, receiver) = mpsc::channel();
         let writer = Arc::clone(&shared);
         thread::Builder::new()
             .name("soma-runner-journal".to_owned())
-            .spawn(move || write_loop(&writer, file, last, &receiver))?;
+            .spawn(move || write_loop(&writer, file, &receiver))?;
         Ok(Self { sender, shared })
     }
 
@@ -116,119 +128,144 @@ impl Journal {
         let _queued = self.sender.send(entry);
     }
 
-    /// The highest offset that is on disk and synced.
+    /// The highest offset of this epoch that the operating system has.
     #[must_use]
-    pub fn durable_offset(&self) -> u64 {
-        self.shared.durable.load(Ordering::Acquire)
+    pub fn written_offset(&self) -> u64 {
+        self.shared.written.load(Ordering::Acquire)
     }
 
-    /// Waits until the writer publishes a new durable offset.
+    /// Waits until the writer publishes a new written offset.
     pub async fn appended(&self) {
         self.shared.appended.notified().await;
     }
 
+    /// This epoch's file.
     #[must_use]
     pub fn path(&self) -> &Path {
         &self.shared.path
     }
 
     #[must_use]
+    pub fn directory(&self) -> &Path {
+        &self.shared.directory
+    }
+
+    #[must_use]
     pub fn runner(&self) -> &str {
         &self.shared.runner
     }
+
+    #[must_use]
+    pub fn epoch(&self) -> &str {
+        &self.shared.epoch
+    }
 }
 
-/// Cuts a torn last line, if any, and returns the offset of the last complete line.
-fn recover(file: &mut File) -> io::Result<u64> {
-    let length = file.metadata()?.len();
-    if length == 0 {
-        return Ok(0);
-    }
-    let window = length.min(RECOVERY_WINDOW);
-    let start = length - window;
-    file.seek(SeekFrom::Start(start))?;
-    let mut tail = Vec::new();
-    file.take(window).read_to_end(&mut tail)?;
-    let Some(last_newline) = tail.iter().rposition(|byte| *byte == b'\n') else {
-        if start == 0 {
-            // A file holding only a torn first line: nothing in it was ever complete.
-            file.set_len(0)?;
-            return Ok(0);
-        }
-        return Err(corrupt("no complete line in the journal tail"));
-    };
-    let complete = start + last_newline as u64 + 1;
-    if complete < length {
-        file.set_len(complete)?;
-    }
-    let line_start = tail[..last_newline]
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map_or(0, |position| position + 1);
-    if line_start == 0 && start != 0 {
-        return Err(corrupt("the last journal line exceeds the recovery window"));
-    }
-    let last: OffsetOnly = serde_json::from_slice(&tail[line_start..last_newline])
-        .map_err(|_| corrupt("the last journal line carries no offset"))?;
-    Ok(last.offset)
+/// A new boot epoch: milliseconds since 1970, zero padded so epochs sort by start time, plus
+/// random bits so two starts in one millisecond still differ.
+fn boot_epoch() -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let random = uuid::Uuid::new_v4().simple().to_string();
+    format!("{millis:013}-{}", &random[..8])
 }
 
-fn write_loop(shared: &Shared, mut file: File, mut last: u64, receiver: &mpsc::Receiver<Entry>) {
-    while let Ok(first) = receiver.recv() {
-        let mut batch = vec![first];
-        while batch.len() < MAX_WRITE_BATCH {
+fn write_loop(shared: &Shared, file: File, receiver: &mpsc::Receiver<Entry>) {
+    let mut out = BufWriter::with_capacity(WRITE_BUFFER_BYTES, file);
+    let mut offset = 0_u64;
+    let mut last_sync = Instant::now();
+    let mut unsynced = false;
+    loop {
+        let first = match receiver.recv_timeout(SYNC_INTERVAL) {
+            Ok(entry) => Some(entry),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        let mut batch: Vec<Entry> = first.into_iter().collect();
+        while !batch.is_empty() && batch.len() < MAX_WRITE_BATCH {
             match receiver.try_recv() {
                 Ok(entry) => batch.push(entry),
                 Err(_) => break,
             }
         }
-        let mut bytes = Vec::with_capacity(batch.len() * 256);
-        let mut offset = last;
-        for entry in &batch {
-            offset += 1;
-            let line = Line {
-                runner: &shared.runner,
-                offset,
-                ts: rfc3339_millis(SystemTime::now()),
-                entry,
-            };
-            if serde_json::to_writer(&mut bytes, &line).is_err() {
-                // Every field is a plain string, number, or null; this cannot fail, and if it
-                // ever did the offset is simply not consumed.
-                offset -= 1;
-                continue;
+        if !batch.is_empty() {
+            let bytes = encode(shared, &batch, offset);
+            // A journal that cannot be written is retried rather than dropped: these lines are
+            // what usage and billing are built from, and the disk coming back is the common case.
+            while let Err(error) = out.write_all(&bytes).and_then(|()| out.flush()) {
+                eprintln!("soma-api: runner journal write failed, retrying: {error}");
+                thread::sleep(WRITE_RETRY);
             }
-            bytes.push(b'\n');
+            offset += batch.len() as u64;
+            unsynced = true;
+            shared.written.store(offset, Ordering::Release);
+            shared.appended.notify_one();
         }
-        // A journal that cannot be written is retried rather than dropped: these lines are
-        // what usage and billing are built from, and the disk coming back is the common case.
-        loop {
-            match append(&mut file, &bytes) {
-                Ok(()) => break,
-                Err(error) => {
-                    eprintln!("soma-api: runner journal write failed, retrying: {error}");
-                    thread::sleep(WRITE_RETRY);
-                }
+        if unsynced && last_sync.elapsed() >= SYNC_INTERVAL {
+            if let Err(error) = out.get_ref().sync_data() {
+                eprintln!("soma-api: runner journal sync failed: {error}");
             }
+            last_sync = Instant::now();
+            unsynced = false;
         }
-        last = offset;
-        shared.durable.store(last, Ordering::Release);
-        shared.appended.notify_one();
     }
+    let _flushed = out.flush().and_then(|()| out.get_ref().sync_data());
 }
 
-/// Appends and syncs, cutting back any partial write so a retry never leaves a torn line.
-fn append(file: &mut File, bytes: &[u8]) -> io::Result<()> {
-    let before = file.metadata()?.len();
-    let result = file.write_all(bytes).and_then(|()| file.sync_data());
-    if result.is_err() {
-        let _restored = file.set_len(before);
+fn encode(shared: &Shared, batch: &[Entry], after: u64) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(batch.len() * 320);
+    for (index, entry) in (1_u64..).zip(batch) {
+        let line = Line {
+            runner: &shared.runner,
+            boot_epoch: &shared.epoch,
+            offset: after + index,
+            ts: rfc3339_millis(SystemTime::now()),
+            entry,
+        };
+        // Every field is a plain string, number, or null, which always encodes.
+        let _encoded = serde_json::to_writer(&mut bytes, &line);
+        bytes.push(b'\n');
     }
-    result
+    bytes
 }
 
 pub(crate) fn corrupt(message: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, format!("journal: {message}"))
+}
+
+/// Refuses a journal directory on tmpfs or ramfs, where a reboot would lose unshipped usage.
+#[cfg(target_os = "linux")]
+fn refuse_volatile(directory: &Path) -> io::Result<()> {
+    let directory = std::fs::canonicalize(directory)?;
+    let mounts = std::fs::read_to_string("/proc/self/mounts")?;
+    let filesystem = mounts
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let _device = fields.next()?;
+            Some((PathBuf::from(fields.next()?), fields.next()?.to_owned()))
+        })
+        .filter(|(mount, _)| directory.starts_with(mount))
+        .max_by_key(|(mount, _)| mount.components().count())
+        .map(|(_, filesystem)| filesystem);
+    match filesystem.as_deref() {
+        Some("tmpfs" | "ramfs") => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the runner journal must be on persistent disk, not tmpfs",
+        )),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches the Linux check, which can refuse"
+)]
+const fn refuse_volatile(_directory: &Path) -> io::Result<()> {
+    Ok(())
 }
 
 #[cfg(test)]

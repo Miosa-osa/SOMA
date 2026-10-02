@@ -3,8 +3,9 @@ use std::time::Duration;
 use super::{
     Timing,
     params::{CreateParams, ExecParams},
-    routing::{Route, route},
+    routing::{Forward, Route, route},
 };
+use crate::http::request::Method;
 use crate::runner::backend::CallTiming;
 
 fn shape() -> soma::MachineShape {
@@ -27,18 +28,35 @@ fn routes_only_the_contract_paths() {
         Route::Destroy(id)
     );
     assert_eq!(route(&http::Method::GET, "/healthz"), Route::Health);
+    assert_eq!(route(&http::Method::GET, "/api/v1/sandboxes"), Route::List);
+    for (method, suffix, internal) in [
+        (http::Method::GET, "", Method::Get),
+        (http::Method::POST, "/stop", Method::Post),
+        (http::Method::POST, "/filesystem/read", Method::Post),
+        (http::Method::POST, "/terminal/open", Method::Post),
+    ] {
+        assert_eq!(
+            route(&method, &format!("/api/v1/sandboxes/{id}{suffix}")),
+            Route::Forward(Forward {
+                id,
+                method: internal,
+                suffix
+            }),
+            "{method} {suffix}"
+        );
+    }
     for (method, path) in [
-        (http::Method::GET, "/api/v1/sandboxes"),
         (http::Method::POST, "/api/v1/sandboxes/"),
         (http::Method::POST, "/api/v1/sandboxesx"),
         (
-            http::Method::GET,
-            &format!("/api/v1/sandboxes/{id}") as &str,
+            http::Method::POST,
+            &format!("/api/v1/sandboxes/{id}/commands") as &str,
         ),
         (
             http::Method::POST,
-            &format!("/api/v1/sandboxes/{id}/commands"),
+            &format!("/api/v1/sandboxes/{id}/filesystem/"),
         ),
+        (http::Method::GET, &format!("/api/v1/sandboxes/{id}/stop")),
         (http::Method::POST, "/healthz"),
         (http::Method::GET, "/"),
     ] {

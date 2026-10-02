@@ -4,9 +4,12 @@ mod command;
 mod create;
 #[cfg(test)]
 mod flow_tests;
+mod forward;
 mod lifetime;
 mod params;
 mod routing;
+#[cfg(test)]
+mod scope_tests;
 #[cfg(test)]
 mod tests;
 
@@ -35,8 +38,9 @@ use crate::{
 
 use routing::{Route, route};
 
-/// The largest request body the runner reads, the same bound as the fast-lane listener.
-pub const MAX_BODY_BYTES: usize = 1_000_000;
+/// The largest request body the runner reads: the loopback service's own bound, which a
+/// maximal file write needs.
+pub const MAX_BODY_BYTES: usize = crate::http::request::MAX_BODY_BYTES;
 /// The tenant label a sandbox carries in the state store, so ownership survives a restart.
 const TENANT_LABEL_PREFIX: &str = "t-";
 
@@ -180,7 +184,11 @@ impl Runner {
         match route {
             Route::Health => return self.health(),
             Route::NotFound => return RunnerResponse::refusal(404, "not_found"),
-            Route::Create | Route::Exec(_) | Route::Destroy(_) => {}
+            Route::Create
+            | Route::Exec(_)
+            | Route::Destroy(_)
+            | Route::List
+            | Route::Forward(_) => {}
         }
         let started = Instant::now();
         let principal = match self.keys.admit(request.authorization.as_deref()) {
@@ -200,6 +208,11 @@ impl Runner {
             Route::Create => self.create(&principal, &request.body, timing).await,
             Route::Exec(id) => self.exec(&principal, id, &request.body, timing).await,
             Route::Destroy(id) => self.destroy(&principal, id, timing).await,
+            Route::List => self.list(&principal, timing).await,
+            Route::Forward(forward) => {
+                self.forward(&principal, forward, &request.body, timing)
+                    .await
+            }
             Route::Health | Route::NotFound => RunnerResponse::refusal(404, "not_found"),
         }
     }
@@ -208,7 +221,7 @@ impl Runner {
         let age = millis(self.keys.feed_age(Instant::now()));
         // The prepared pool's depth is not observable through the facade; it is reported as
         // unknown rather than as a number that would mean something else.
-        RunnerResponse::new(200, public_wire::health(age, None))
+        RunnerResponse::new(200, public_wire::health(self.config.host_tag, age, None))
     }
 
     /// Parses a path id and checks that this runner owns its tag.
@@ -216,13 +229,18 @@ impl Runner {
         let id = SandboxId::parse(raw_id)
             .ok_or_else(|| Box::new(RunnerResponse::platform(&PlatformError::invalid_id())))?;
         if id.tag() != self.config.host_tag {
-            let host = format!("{}.{}", id.tag(), self.config.public_domain);
+            let runner_url = self.runner_url(id.tag());
             return Err(Box::new(RunnerResponse::new(
                 421,
-                public_wire::misdirected(&host),
+                public_wire::misdirected(&runner_url),
             )));
         }
         Ok(id)
+    }
+
+    /// `https://<tag>.<domain>`: where every call for a sandbox with this tag goes (C1).
+    fn runner_url(&self, tag: char) -> String {
+        format!("https://{tag}.{}", self.config.public_domain)
     }
 }
 
@@ -264,15 +282,6 @@ fn refused_sandbox(
 fn with_journal(mut response: RunnerResponse, entry: Option<Entry>) -> RunnerResponse {
     response.journal = entry;
     response
-}
-
-fn destroyed_body(id: &SandboxId) -> Vec<u8> {
-    public_wire::encode(&public_wire::Destroyed {
-        id: id.as_str(),
-        operation_id: None,
-        state: "destroyed",
-        total_runtime_sec: None,
-    })
 }
 
 fn failure_code(failure: &ManagedFailure) -> &'static str {

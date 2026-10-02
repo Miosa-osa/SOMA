@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::Mutex,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -10,13 +13,32 @@ use crate::runner::ids::SandboxId;
 pub const TOMBSTONE_RETENTION: Duration = Duration::from_mins(10);
 
 /// Who a sandbox belongs to, as the runner recorded it at create.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Owner {
     pub tenant_id: String,
     /// The creating key; absent for a sandbox recovered from the state store after a restart.
     pub key_id: Option<String>,
     pub project_id: Option<String>,
     pub created: Instant,
+    /// The tenant's live sandbox counter; the sandbox gives its slot back when it ends.
+    pub slot: Arc<AtomicI64>,
+}
+
+impl PartialEq for Owner {
+    fn eq(&self, other: &Self) -> bool {
+        self.tenant_id == other.tenant_id
+            && self.key_id == other.key_id
+            && self.project_id == other.project_id
+            && self.created == other.created
+    }
+}
+
+impl Eq for Owner {}
+
+impl Owner {
+    fn give_back_slot(&self) {
+        self.slot.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,32 +86,10 @@ impl Sandboxes {
         Self::default()
     }
 
-    /// Reserves a new id for `owner`, unless the tenant already holds `max_concurrent` live
-    /// sandboxes on this host.
-    ///
-    /// Returns `false` when the tenant is at its cap.
-    pub fn reserve(
-        &self,
-        id: SandboxId,
-        owner: Owner,
-        lifetime: Duration,
-        max_concurrent: Option<u32>,
-    ) -> bool {
-        let mut records = self.lock();
-        if let Some(cap) = max_concurrent {
-            let live = records
-                .values()
-                .filter(|record| {
-                    record.owner.tenant_id == owner.tenant_id
-                        && !matches!(record.phase, Phase::Destroyed { .. })
-                })
-                .count();
-            if live >= usize::try_from(cap).unwrap_or(usize::MAX) {
-                return false;
-            }
-        }
+    /// Records a new sandbox for `owner`, whose tenant slot the caller has already taken.
+    pub fn reserve(&self, id: SandboxId, owner: Owner, lifetime: Duration) {
         let expires = owner.created + lifetime;
-        records.insert(
+        self.lock().insert(
             id,
             Record {
                 owner,
@@ -97,7 +97,6 @@ impl Sandboxes {
                 phase: Phase::Creating,
             },
         );
-        true
     }
 
     /// Marks a reserved sandbox as created and ready for commands.
@@ -107,9 +106,43 @@ impl Sandboxes {
         }
     }
 
-    /// Forgets a reservation whose create failed.
+    /// Forgets a reservation whose create failed, giving its tenant slot back.
     pub fn abandon(&self, id: &SandboxId) {
-        self.lock().remove(id);
+        if let Some(record) = self.lock().remove(id) {
+            record.owner.give_back_slot();
+        }
+    }
+
+    /// The owner of a sandbox `tenant_id` may address, for calls that do not take the
+    /// sandbox's lifecycle slot (inspect, files, terminal).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the sandbox cannot be addressed.
+    pub fn owner_of(&self, id: &SandboxId, tenant_id: &str) -> Result<Owner, Unavailable> {
+        let records = self.lock();
+        let record = records
+            .get(id)
+            .filter(|record| record.owner.tenant_id == tenant_id)
+            .ok_or(Unavailable::NotFound)?;
+        match record.phase {
+            Phase::Ready | Phase::Busy => Ok(record.owner.clone()),
+            Phase::Creating => Err(Unavailable::NotFound),
+            Phase::Destroyed { .. } => Err(Unavailable::Destroyed(record.owner.clone())),
+        }
+    }
+
+    /// The ids of the live sandboxes `tenant_id` owns, for a tenant-scoped listing.
+    #[must_use]
+    pub fn owned_by(&self, tenant_id: &str) -> Vec<SandboxId> {
+        self.lock()
+            .iter()
+            .filter(|(_, record)| {
+                record.owner.tenant_id == tenant_id
+                    && matches!(record.phase, Phase::Ready | Phase::Busy)
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 
     /// Starts one command on a sandbox `tenant_id` owns.
@@ -157,19 +190,29 @@ impl Sandboxes {
         }
     }
 
-    /// Records that a sandbox is gone.
+    /// Records that a sandbox is gone, giving its tenant slot back exactly once.
     pub fn destroyed(&self, id: &SandboxId, at: Instant) {
-        if let Some(record) = self.lock().get_mut(id) {
+        if let Some(record) = self.lock().get_mut(id)
+            && !matches!(record.phase, Phase::Destroyed { .. })
+        {
             record.phase = Phase::Destroyed { at };
+            record.owner.give_back_slot();
         }
     }
 
-    /// Claims every ready sandbox whose lifetime has run out, for the reaper to destroy.
-    pub fn claim_expired(&self, now: Instant) -> Vec<(SandboxId, Owner)> {
+    /// Claims every ready sandbox whose lifetime has run out, or whose tenant `must_reap`
+    /// names, for the reaper to destroy (contract C7).
+    pub fn claim_expired(
+        &self,
+        now: Instant,
+        must_reap: impl Fn(&str) -> bool,
+    ) -> Vec<(SandboxId, Owner)> {
         let mut records = self.lock();
         let mut expired = Vec::new();
         for (id, record) in records.iter_mut() {
-            if record.phase == Phase::Ready && record.expires <= now {
+            if record.phase == Phase::Ready
+                && (record.expires <= now || must_reap(&record.owner.tenant_id))
+            {
                 record.phase = Phase::Busy;
                 expired.push((id.clone(), record.owner.clone()));
             }
@@ -185,14 +228,18 @@ impl Sandboxes {
         });
     }
 
-    /// Re-adopts a sandbox the state store still holds after a restart.
+    /// Re-adopts a sandbox the state store still holds after a restart, counting it against
+    /// its tenant.
     pub fn recover(&self, id: SandboxId, owner: Owner, lifetime: Duration) {
         let expires = owner.created + lifetime;
-        self.lock().entry(id).or_insert(Record {
-            owner,
-            expires,
-            phase: Phase::Ready,
-        });
+        if let std::collections::hash_map::Entry::Vacant(vacant) = self.lock().entry(id) {
+            owner.slot.fetch_add(1, Ordering::AcqRel);
+            vacant.insert(Record {
+                owner,
+                expires,
+                phase: Phase::Ready,
+            });
+        }
     }
 
     /// The number of sandboxes this host holds that are not destroyed.

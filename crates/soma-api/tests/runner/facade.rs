@@ -22,6 +22,7 @@ pub(crate) struct Engine {
     pub(crate) launches: AtomicUsize,
     pub(crate) executes: AtomicUsize,
     pub(crate) destroys: AtomicUsize,
+    pub(crate) inspects: AtomicUsize,
 }
 
 pub(crate) struct FakeFacade(Arc<Engine>);
@@ -41,7 +42,14 @@ impl SandboxFacade for FakeFacade {
     }
 
     fn inspect(&mut self, _: InspectMachineRequest) -> Result<SandboxSnapshot, ManagedFailure> {
-        unreachable!("the runner never inspects")
+        self.0.inspects.fetch_add(1, Ordering::SeqCst);
+        let receipt = receipt();
+        Ok(SandboxSnapshot {
+            instance_id: receipt.instance_id().clone(),
+            state: soma::MachineState::Ready,
+            backend: receipt.backend(),
+            receipt,
+        })
     }
 
     fn execute(&mut self, _: ExecuteMachineRequest) -> Result<CommandOutcome, ManagedFailure> {

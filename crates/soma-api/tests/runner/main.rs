@@ -11,3 +11,4 @@ mod facade;
 mod lifecycle;
 mod stale;
 mod support;
+mod tenancy;

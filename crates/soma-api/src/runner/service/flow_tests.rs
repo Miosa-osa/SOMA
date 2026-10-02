@@ -34,9 +34,9 @@ use crate::{
 const RECEIPT: &str = include_str!("../../../tests/fixtures/receipt.json");
 
 #[derive(Default)]
-struct Engine {
-    destroys: AtomicUsize,
-    listed: Mutex<Vec<SandboxEntry>>,
+pub(super) struct Engine {
+    pub(super) destroys: AtomicUsize,
+    pub(super) listed: Mutex<Vec<SandboxEntry>>,
 }
 
 struct Fake(Arc<Engine>);
@@ -96,7 +96,7 @@ impl SandboxFacade for Fake {
 }
 
 /// A runner whose table holds `TOKEN` for `TENANT` with the given scope and cap.
-fn runner(engine: &Arc<Engine>, projects: &str, max_concurrent: &str) -> Runner {
+pub(super) fn runner(engine: &Arc<Engine>, projects: &str, max_concurrent: &str) -> Runner {
     let config =
         RunnerConfig::parse(&serde_json::to_vec(&document()).expect("encode")).expect("config");
     let opener_engine = Arc::clone(engine);
@@ -112,7 +112,7 @@ fn runner(engine: &Arc<Engine>, projects: &str, max_concurrent: &str) -> Runner 
             hash_of(TOKEN)
         ),
         format!(
-            r#"{{"seq":2,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent":{max_concurrent}}}"#
+            r#"{{"seq":2,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":{max_concurrent}}}"#
         ),
     ] {
         runner.keys().apply(&event(&line), now).expect("applies");
@@ -120,7 +120,12 @@ fn runner(engine: &Arc<Engine>, projects: &str, max_concurrent: &str) -> Runner 
     runner
 }
 
-async fn call(runner: &Runner, method: http::Method, path: &str, body: &str) -> RunnerResponse {
+pub(super) async fn call(
+    runner: &Runner,
+    method: http::Method,
+    path: &str,
+    body: &str,
+) -> RunnerResponse {
     runner
         .handle(RunnerRequest {
             method,

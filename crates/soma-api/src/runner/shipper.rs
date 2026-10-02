@@ -1,4 +1,4 @@
-use std::{io, sync::Arc, time::Duration};
+use std::{io, path::PathBuf, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::runner::{
     control_plane::Client,
     journal::Journal,
-    journal_reader::{AckFile, Reader, ShippedLine},
+    journal_reader::{AckFile, Reader, ShippedLine, epoch_files},
 };
 
 const JOURNAL_PATH: &str = "/internal/soma-runner/journal";
@@ -54,20 +54,19 @@ pub fn resume(batch: &[ShippedLine], acked: u64) -> Resume {
 
 /// Ships the journal to the control plane for the life of the process.
 ///
-/// Each batch is posted as NDJSON; the control plane answers with the highest contiguous offset
-/// it has stored, which is persisted beside the journal so a restarted shipper resumes from
-/// `acked + 1` (contract C4). Ingest is idempotent on `(runner, offset)`, so a resend after a
-/// lost answer costs nothing but the bytes.
+/// Boot epochs ship oldest first. Each batch holds lines of one epoch and is posted as NDJSON;
+/// the control plane answers with the highest contiguous offset it stored for that epoch, which
+/// is persisted beside the epoch's file so a restarted shipper resumes from `acked + 1`
+/// (contract C4). An earlier epoch that is fully delivered is deleted. Ingest is idempotent on
+/// `(runner, boot_epoch, offset)`, so a resend after a lost answer costs nothing but the bytes.
 pub fn spawn(client: Arc<Client>, journal: Journal, batch_lines: usize) {
     tokio::spawn(async move {
         let mut shipper = Shipper {
-            acks: AckFile::beside(journal.path()),
             client,
             journal,
             batch_lines,
-            reader: None,
+            target: None,
             sender: None,
-            acked: 0,
         };
         shipper.run().await;
     });
@@ -76,35 +75,84 @@ pub fn spawn(client: Arc<Client>, journal: Journal, batch_lines: usize) {
 struct Shipper {
     client: Arc<Client>,
     journal: Journal,
-    acks: AckFile,
     batch_lines: usize,
-    reader: Option<Reader>,
+    target: Option<Target>,
     sender: Option<SendRequest<Full<Bytes>>>,
+}
+
+/// The epoch file being shipped, with its reader and acknowledgement.
+struct Target {
+    epoch: String,
+    path: PathBuf,
+    acks: AckFile,
     acked: u64,
+    reader: Reader,
+}
+
+impl Target {
+    fn open(epoch: String, path: PathBuf) -> io::Result<Self> {
+        let acks = AckFile::beside(&path);
+        let acked = acks.load()?;
+        let reader = Reader::after(&path, acked)?;
+        Ok(Self {
+            epoch,
+            path,
+            acks,
+            acked,
+            reader,
+        })
+    }
+}
+
+/// Where the shipper reads: the epoch, its file, and how far its lines are written.
+struct Source {
+    directory: PathBuf,
+    runner: String,
+    current_epoch: String,
+    written: u64,
+    batch_lines: usize,
+}
+
+/// Finds the next batch to ship, oldest epoch first, deleting earlier epochs once delivered.
+fn next_batch(
+    mut target: Option<Target>,
+    source: &Source,
+) -> io::Result<(Option<Target>, Vec<ShippedLine>)> {
+    loop {
+        let mut current = match target.take() {
+            Some(current) => current,
+            None => match epoch_files(&source.directory, &source.runner)?
+                .into_iter()
+                .next()
+            {
+                Some((epoch, path)) => Target::open(epoch, path)?,
+                None => return Ok((None, Vec::new())),
+            },
+        };
+        let live = current.epoch == source.current_epoch;
+        let written = if live { source.written } else { u64::MAX };
+        let batch = current.reader.batch(source.batch_lines, written)?;
+        if !batch.is_empty() || live {
+            return Ok((Some(current), batch));
+        }
+        // An earlier epoch with nothing left past its acknowledgement is delivered.
+        std::fs::remove_file(&current.path)?;
+        match std::fs::remove_file(current.acks.path()) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    }
 }
 
 impl Shipper {
     async fn run(&mut self) {
         let mut backoff = MIN_BACKOFF;
         loop {
-            match self.acks.load() {
-                Ok(acked) => {
-                    self.acked = acked;
-                    break;
-                }
-                Err(error) => {
-                    eprintln!("soma-api: runner shipper: {error}");
-                    tokio::time::sleep(MAX_BACKOFF).await;
-                }
-            }
-        }
-        loop {
-            if self.journal.durable_offset() <= self.acked {
-                let _woken = tokio::time::timeout(IDLE_POLL, self.journal.appended()).await;
-                continue;
-            }
             match self.ship_batch().await {
-                Ok(()) => backoff = MIN_BACKOFF,
+                Ok(true) => backoff = MIN_BACKOFF,
+                Ok(false) => {
+                    let _woken = tokio::time::timeout(IDLE_POLL, self.journal.appended()).await;
+                }
                 Err(error) => {
                     eprintln!("soma-api: runner shipper: {error}");
                     self.sender = None;
@@ -115,49 +163,44 @@ impl Shipper {
         }
     }
 
-    async fn ship_batch(&mut self) -> io::Result<()> {
-        let path = self.journal.path().to_owned();
-        let acked = self.acked;
-        let mut reader = match self.reader.take() {
-            Some(reader) => reader,
-            None => blocking(move || Reader::after(&path, acked)).await?,
+    /// Ships one batch; returns whether there was anything to ship.
+    async fn ship_batch(&mut self) -> io::Result<bool> {
+        let source = Source {
+            directory: self.journal.directory().to_owned(),
+            runner: self.journal.runner().to_owned(),
+            current_epoch: self.journal.epoch().to_owned(),
+            written: self.journal.written_offset(),
+            batch_lines: self.batch_lines,
         };
-        let (batch_lines, durable) = (self.batch_lines, self.journal.durable_offset());
-        let (reader, batch) = blocking(move || {
-            let batch = reader.batch(batch_lines, durable)?;
-            Ok((reader, batch))
-        })
-        .await?;
+        let target = self.target.take();
+        let (target, batch) = blocking(move || next_batch(target, &source)).await?;
+        self.target = target;
         if batch.is_empty() {
-            // Durable is ahead of the acknowledgement but nothing was readable from here; the
-            // position is stale, so the next round finds `acked + 1` from the start.
-            return Ok(());
+            return Ok(false);
         }
-        self.reader = Some(reader);
         let stored = match self.post(&batch).await {
             Ok(stored) => stored,
             Err(error) => {
                 // Resend this same batch next time without rescanning the journal.
-                if let (Some(reader), Some(first)) = (self.reader.as_mut(), batch.first()) {
-                    reader.seek_to(first.position);
+                if let (Some(target), Some(first)) = (self.target.as_mut(), batch.first()) {
+                    target.reader.seek_to(first.position);
                 }
                 return Err(error);
             }
         };
+        let Some(target) = self.target.as_mut() else {
+            return Ok(true);
+        };
         match resume(&batch, stored) {
             Resume::Continue => {}
-            Resume::SeekTo(position) => {
-                if let Some(reader) = self.reader.as_mut() {
-                    reader.seek_to(position);
-                }
-            }
-            Resume::Rescan => self.reader = None,
+            Resume::SeekTo(position) => target.reader.seek_to(position),
+            Resume::Rescan => target.reader.seek_after(stored)?,
         }
-        if stored != self.acked {
-            self.acks.store(stored)?;
-            self.acked = stored;
+        if stored != target.acked {
+            target.acks.store(stored)?;
+            target.acked = stored;
         }
-        Ok(())
+        Ok(true)
     }
 
     async fn post(&mut self, batch: &[ShippedLine]) -> io::Result<u64> {
@@ -205,35 +248,5 @@ async fn blocking<T: Send + 'static>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Resume, resume};
-    use crate::runner::journal_reader::ShippedLine;
-
-    fn batch(offsets: std::ops::RangeInclusive<u64>) -> Vec<ShippedLine> {
-        offsets
-            .map(|offset| ShippedLine {
-                offset,
-                position: offset * 100,
-                bytes: Vec::new(),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn a_whole_acknowledgement_continues() {
-        assert_eq!(resume(&batch(5..=9), 9), Resume::Continue);
-    }
-
-    #[test]
-    fn a_partial_acknowledgement_resends_from_the_next_offset() {
-        assert_eq!(resume(&batch(5..=9), 6), Resume::SeekTo(700));
-        assert_eq!(resume(&batch(5..=9), 4), Resume::SeekTo(500));
-    }
-
-    #[test]
-    fn an_acknowledgement_outside_the_batch_rescans() {
-        assert_eq!(resume(&batch(5..=9), 2), Resume::Rescan);
-        assert_eq!(resume(&batch(5..=9), 12), Resume::Rescan);
-        assert_eq!(resume(&[], 3), Resume::Rescan);
-    }
-}
+#[path = "shipper_tests.rs"]
+mod tests;

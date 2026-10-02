@@ -33,7 +33,7 @@ pub(crate) fn enabled_table() -> KeyTable {
             hash_of(TOKEN)
         ),
         format!(
-            r#"{{"seq":3,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent":null}}"#
+            r#"{{"seq":3,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":null}}"#
         ),
         r#"{"seq":4,"kind":"snapshot_end"}"#.to_owned(),
     ] {
@@ -73,8 +73,8 @@ fn keys_inside_an_unfinished_snapshot_are_not_served() {
         .expect("applies");
 
     assert_eq!(
-        table.admit(Some(&format!("Bearer {TOKEN}"))),
-        Err(Refusal::Unauthorized)
+        table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
+        Some(Refusal::Unauthorized)
     );
 }
 
@@ -91,8 +91,8 @@ fn a_new_snapshot_drops_keys_it_no_longer_lists() {
 
     assert_eq!(table.key_count(), 0);
     assert_eq!(
-        table.admit(Some(&format!("Bearer {TOKEN}"))),
-        Err(Refusal::Unauthorized)
+        table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
+        Some(Refusal::Unauthorized)
     );
 }
 
@@ -114,8 +114,8 @@ fn a_revoke_applies_at_once_even_mid_snapshot() {
         .expect("applies");
 
     assert_eq!(
-        table.admit(Some(&format!("Bearer {TOKEN}"))),
-        Err(Refusal::Unauthorized)
+        table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
+        Some(Refusal::Unauthorized)
     );
 }
 
@@ -129,7 +129,7 @@ fn refuses_tokens_that_are_not_bearer_msk_keys() {
         Some("Bearer eyJhbGciOi"),
         Some("Bearer msk_us_other"),
     ] {
-        assert_eq!(table.admit(header), Err(Refusal::Unauthorized));
+        assert_eq!(table.admit(header).err(), Some(Refusal::Unauthorized));
     }
 }
 
@@ -143,14 +143,14 @@ fn a_disabled_suspended_or_unknown_tenant_is_forbidden() {
         table
             .apply(
                 &event(&format!(
-                    r#"{{"seq":20,"kind":"tenant_policy","tenant_id":"{TENANT}",{policy},"max_concurrent":null}}"#
+                    r#"{{"seq":20,"kind":"tenant_policy","tenant_id":"{TENANT}",{policy},"max_concurrent_share":null}}"#
                 )),
                 Instant::now(),
             )
             .expect("applies");
         assert_eq!(
-            table.admit(Some(&format!("Bearer {TOKEN}"))),
-            Err(Refusal::Forbidden)
+            table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
+            Some(Refusal::Forbidden)
         );
     }
 
@@ -165,8 +165,8 @@ fn a_disabled_suspended_or_unknown_tenant_is_forbidden() {
         )
         .expect("applies");
     assert_eq!(
-        table.admit(Some(&format!("Bearer {TOKEN}"))),
-        Err(Refusal::Forbidden)
+        table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
+        Some(Refusal::Forbidden)
     );
 }
 
@@ -185,7 +185,7 @@ fn project_scope_is_enforced_only_for_a_named_project() {
     table
         .apply(
             &event(&format!(
-                r#"{{"seq":2,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent":3}}"#
+                r#"{{"seq":2,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":3}}"#
             )),
             Instant::now(),
         )
@@ -198,7 +198,7 @@ fn project_scope_is_enforced_only_for_a_named_project() {
     assert!(!principal.key.projects.allows(Some("p-2")));
     assert!(principal.key.projects.allows(None));
     assert_eq!(principal.key.rate_per_second, Some(5));
-    assert_eq!(principal.policy.max_concurrent, Some(3));
+    assert_eq!(principal.tenant.policy.max_concurrent_share, Some(3));
 }
 
 #[test]
