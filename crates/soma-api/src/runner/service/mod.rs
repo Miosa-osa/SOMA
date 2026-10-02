@@ -1,0 +1,284 @@
+//! The public runner's request handling, independent of the HTTP version that carried it.
+
+mod command;
+mod create;
+#[cfg(test)]
+mod flow_tests;
+mod lifetime;
+mod params;
+mod routing;
+#[cfg(test)]
+mod tests;
+
+use std::{
+    fmt::Write as _,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use bytes::Bytes;
+use soma::{ManagedFailure, OciImage};
+
+use crate::{
+    failure::managed_error,
+    runner::{
+        backend::{Backend, CallTiming},
+        config::RunnerConfig,
+        ids::SandboxId,
+        journal::{Entry, EntryKind, Journal},
+        keys::{KeyTable, Principal, Refusal},
+        public_wire::{self, PlatformError},
+        rate_limit::RateLimiter,
+        sandboxes::Sandboxes,
+    },
+};
+
+use routing::{Route, route};
+
+/// The largest request body the runner reads, the same bound as the fast-lane listener.
+pub const MAX_BODY_BYTES: usize = 1_000_000;
+/// The tenant label a sandbox carries in the state store, so ownership survives a restart.
+const TENANT_LABEL_PREFIX: &str = "t-";
+
+/// One request, after the transport has read it, independent of HTTP version.
+#[derive(Clone, Debug)]
+pub struct RunnerRequest {
+    pub method: http::Method,
+    pub path: String,
+    pub authorization: Option<String>,
+    pub body: Bytes,
+    pub received: Instant,
+}
+
+/// One answer, plus the journal entry to write once it has been sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunnerResponse {
+    pub status: u16,
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Vec<u8>,
+    pub journal: Option<Entry>,
+}
+
+impl RunnerResponse {
+    fn new(status: u16, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            headers: Vec::new(),
+            body,
+            journal: None,
+        }
+    }
+
+    fn platform(error: &PlatformError) -> Self {
+        Self::new(error.status, error.body())
+    }
+
+    fn refusal(status: u16, code: &str) -> Self {
+        Self::new(status, public_wire::refusal(code))
+    }
+
+    /// The `503` that tells the SDK to retry on the next runner at once.
+    fn retry_elsewhere(code: &str) -> Self {
+        Self::refusal(503, code).header("retry-after", "0".to_owned())
+    }
+
+    fn header(mut self, name: &'static str, value: String) -> Self {
+        self.headers.push((name, value));
+        self
+    }
+}
+
+/// Where each request's time went, as `Server-Timing` reports it in milliseconds.
+#[derive(Clone, Copy, Debug, Default)]
+struct Timing {
+    auth: Duration,
+    call: CallTiming,
+}
+
+impl Timing {
+    fn header(self) -> String {
+        let mut value = String::with_capacity(48);
+        for (index, (name, duration)) in [
+            ("auth", self.auth),
+            ("pool", self.call.pool),
+            ("exec", self.call.exec),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if index > 0 {
+                value.push(',');
+            }
+            let micros = duration.as_micros();
+            let _written = write!(value, "{name};dur={}.{:03}", micros / 1_000, micros % 1_000);
+        }
+        value
+    }
+}
+
+/// The public runner: routing, admission, and the facade calls behind each route.
+pub struct Runner {
+    config: Arc<RunnerConfig>,
+    keys: Arc<KeyTable>,
+    sandboxes: Sandboxes,
+    limiter: RateLimiter,
+    backend: Backend,
+    journal: Journal,
+    admission: tokio::sync::Semaphore,
+    image: OciImage,
+}
+
+impl Runner {
+    /// # Panics
+    ///
+    /// Panics if the configured image does not parse; [`RunnerConfig::parse`] has already
+    /// refused such a configuration.
+    #[must_use]
+    pub fn new(config: Arc<RunnerConfig>, backend: Backend, journal: Journal) -> Self {
+        let image = OciImage::parse(config.launch.image.clone())
+            .expect("the configuration validated the launch image");
+        Self {
+            admission: tokio::sync::Semaphore::new(config.admission()),
+            keys: Arc::new(KeyTable::new()),
+            sandboxes: Sandboxes::new(),
+            limiter: RateLimiter::new(),
+            config,
+            backend,
+            journal,
+            image,
+        }
+    }
+
+    #[must_use]
+    pub const fn keys(&self) -> &Arc<KeyTable> {
+        &self.keys
+    }
+
+    #[must_use]
+    pub const fn journal(&self) -> &Journal {
+        &self.journal
+    }
+
+    #[must_use]
+    pub const fn sandboxes(&self) -> &Sandboxes {
+        &self.sandboxes
+    }
+
+    /// Serves one request.
+    pub async fn handle(&self, request: RunnerRequest) -> RunnerResponse {
+        let mut timing = Timing::default();
+        let mut response = self.dispatch(&request, &mut timing).await;
+        if let Some(entry) = response.journal.as_mut() {
+            entry.ms = millis(request.received.elapsed());
+        }
+        response.headers.push(("server-timing", timing.header()));
+        response
+    }
+
+    async fn dispatch(&self, request: &RunnerRequest, timing: &mut Timing) -> RunnerResponse {
+        let route = route(&request.method, &request.path);
+        match route {
+            Route::Health => return self.health(),
+            Route::NotFound => return RunnerResponse::refusal(404, "not_found"),
+            Route::Create | Route::Exec(_) | Route::Destroy(_) => {}
+        }
+        let started = Instant::now();
+        let principal = match self.keys.admit(request.authorization.as_deref()) {
+            Ok(principal) => principal,
+            Err(Refusal::Unauthorized) => return RunnerResponse::refusal(401, "unauthorized"),
+            Err(Refusal::Forbidden) => return RunnerResponse::refusal(403, "forbidden"),
+        };
+        let limit = principal
+            .key
+            .rate_per_second
+            .unwrap_or(self.config.rate_per_second);
+        if !self.limiter.allow(&principal.key.key_id, limit, started) {
+            return RunnerResponse::refusal(429, "rate_limited").header("retry-after", "1".into());
+        }
+        timing.auth = started.elapsed();
+        match route {
+            Route::Create => self.create(&principal, &request.body, timing).await,
+            Route::Exec(id) => self.exec(&principal, id, &request.body, timing).await,
+            Route::Destroy(id) => self.destroy(&principal, id, timing).await,
+            Route::Health | Route::NotFound => RunnerResponse::refusal(404, "not_found"),
+        }
+    }
+
+    fn health(&self) -> RunnerResponse {
+        let age = millis(self.keys.feed_age(Instant::now()));
+        // The prepared pool's depth is not observable through the facade; it is reported as
+        // unknown rather than as a number that would mean something else.
+        RunnerResponse::new(200, public_wire::health(age, None))
+    }
+
+    /// Parses a path id and checks that this runner owns its tag.
+    fn addressed(&self, raw_id: &str) -> Result<SandboxId, Box<RunnerResponse>> {
+        let id = SandboxId::parse(raw_id)
+            .ok_or_else(|| Box::new(RunnerResponse::platform(&PlatformError::invalid_id())))?;
+        if id.tag() != self.config.host_tag {
+            let host = format!("{}.{}", id.tag(), self.config.public_domain);
+            return Err(Box::new(RunnerResponse::new(
+                421,
+                public_wire::misdirected(&host),
+            )));
+        }
+        Ok(id)
+    }
+}
+
+fn entry(
+    kind: EntryKind,
+    principal: &Principal,
+    project_id: Option<String>,
+    sandbox: Option<&SandboxId>,
+    status: u16,
+) -> Entry {
+    Entry {
+        kind,
+        tenant_id: principal.key.tenant_id.clone(),
+        key_id: Some(principal.key.key_id.clone()),
+        project_id,
+        sandbox_id: sandbox.map(ToString::to_string),
+        status,
+        ms: 0,
+        exit_code: None,
+        cpu_ms: None,
+        lifetime_ms: None,
+    }
+}
+
+/// Journals an id the caller could not address here: malformed ids are paperwork, a `421` is
+/// not, because the runner that owns the sandbox journals the request it actually serves.
+fn refused_sandbox(
+    response: RunnerResponse,
+    kind: EntryKind,
+    principal: &Principal,
+) -> RunnerResponse {
+    if response.status == 421 {
+        return response;
+    }
+    let status = response.status;
+    with_journal(response, Some(entry(kind, principal, None, None, status)))
+}
+
+fn with_journal(mut response: RunnerResponse, entry: Option<Entry>) -> RunnerResponse {
+    response.journal = entry;
+    response
+}
+
+fn destroyed_body(id: &SandboxId) -> Vec<u8> {
+    public_wire::encode(&public_wire::Destroyed {
+        id: id.as_str(),
+        operation_id: None,
+        state: "destroyed",
+        total_runtime_sec: None,
+    })
+}
+
+fn failure_code(failure: &ManagedFailure) -> &'static str {
+    managed_error(failure).body().code
+}
+
+fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
