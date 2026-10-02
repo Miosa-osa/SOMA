@@ -16,6 +16,11 @@
 //! anyone made, so it has no receipt, and its only effect a caller can observe is that the
 //! pages are resident. The guest agent reaps every process after every command, so nothing it
 //! started outlives it.
+//!
+//! It cannot move to pool preparation. A sterile machine's vCPU has never run: the first resume
+//! publishes a launch page generated from this Instance's identity and operation, and the only
+//! command channel is the session that page binds. Running anything earlier would mean resuming
+//! the machine under some other identity, after which it is no longer sterile.
 
 use soma::InstanceId;
 use soma_guest::GuestCommand;
