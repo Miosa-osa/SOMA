@@ -35,6 +35,15 @@ const WARM_TIMEOUT_MS: u32 = 2_000;
 /// The output is discarded, so only enough is admitted for the command to finish normally.
 const WARM_OUTPUT_BYTES: u64 = 64 * 1024;
 
+/// Whether the service names a warm command at all.
+pub(super) fn configured() -> bool {
+    std::env::var(WARM_COMMAND)
+        .ok()
+        .as_deref()
+        .and_then(command)
+        .is_some()
+}
+
 /// Runs the configured warm command once on the machine this host holds, if one is configured.
 pub(super) fn warm(backend: &mut KvmBackend, instance: &InstanceId) {
     let Some(command) = std::env::var(WARM_COMMAND)
