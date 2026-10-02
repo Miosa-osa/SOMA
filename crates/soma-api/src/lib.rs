@@ -12,6 +12,7 @@ pub mod local;
 pub mod pool;
 pub mod report;
 pub mod route;
+pub mod runner;
 pub mod tenant;
 pub mod terminal;
 pub mod wire;

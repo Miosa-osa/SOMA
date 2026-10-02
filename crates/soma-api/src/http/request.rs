@@ -46,6 +46,26 @@ pub struct Request {
 }
 
 impl Request {
+    /// Builds an HTTP/1.1 request from parts another front end has already parsed.
+    ///
+    /// The public runner uses it to hand a sandbox route to [`crate::handle`] with headers it
+    /// wrote itself, so nothing a client sent reaches the handler except the body.
+    #[must_use]
+    pub const fn from_parts(
+        method: Method,
+        path: String,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    ) -> Self {
+        Self {
+            method,
+            path,
+            headers,
+            body,
+            http11: true,
+        }
+    }
+
     /// Looks up a header by name, case insensitively as HTTP requires.
     #[must_use]
     pub fn header(&self, name: &str) -> Option<&str> {
