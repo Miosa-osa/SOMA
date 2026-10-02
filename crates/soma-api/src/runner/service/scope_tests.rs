@@ -13,6 +13,7 @@ use super::{
 };
 use crate::runner::{
     ids::SandboxId,
+    journal::tests::wait_for,
     keys::tests::{TENANT, event},
 };
 
@@ -89,5 +90,11 @@ async fn the_tenant_default_timeout_applies_and_suspension_reaps() {
         1,
         "C7: a suspended tenant's sandboxes are destroyed by the next sweep"
     );
+    wait_for(runner.journal(), 1);
+    let journal = std::fs::read_to_string(runner.journal().path()).expect("journal");
+    let line: serde_json::Value =
+        serde_json::from_str(journal.lines().next().expect("a line")).expect("JSON");
+    assert_eq!(line["kind"], "expire");
+    assert_eq!(line["reason"], "suspended");
     assert_eq!(runner.sandboxes().live(), 0);
 }

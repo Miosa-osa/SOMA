@@ -141,8 +141,8 @@ impl Runner {
         let keys = &self.keys;
         let claimed = self
             .sandboxes
-            .claim_expired(now, |tenant| keys.must_reap(tenant));
-        for (id, owner) in claimed {
+            .claim_expired(now, |tenant| keys.reap_reason(tenant));
+        for (id, owner, reason) in claimed {
             let result = self.release(&id).await;
             if matches!(result.outcome, Released::Gone) {
                 self.journal.record(Entry {
@@ -158,6 +158,7 @@ impl Runner {
                     exit_code: None,
                     cpu_ms: None,
                     lifetime_ms: Some(millis(owner.created.elapsed())),
+                    reason: Some(reason),
                 });
             }
         }

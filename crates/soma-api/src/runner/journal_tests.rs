@@ -28,6 +28,7 @@ pub(crate) fn entry(status: u16) -> Entry {
         exit_code: None,
         cpu_ms: None,
         lifetime_ms: None,
+        reason: None,
     }
 }
 

@@ -205,6 +205,7 @@ async fn an_expired_sandbox_is_destroyed_by_the_reaper() {
     let line: serde_json::Value =
         serde_json::from_str(journal.lines().next().expect("a line")).expect("JSON");
     assert_eq!(line["kind"], "expire");
+    assert_eq!(line["reason"], "timeout");
     assert_eq!(line["key_id"], "k-1");
     let gone = call(
         &runner,

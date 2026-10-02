@@ -30,8 +30,17 @@ pub enum EntryKind {
     Create,
     Exec,
     Destroy,
-    /// A sandbox the runner's own sweep ended: past its timeout, or its tenant suspended.
+    /// A sandbox the runner's own sweep ended; `reason` says why.
     Expire,
+}
+
+/// Why the runner's sweep ended a sandbox (contract C7), carried as `reason` on `expire` lines.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExpireReason {
+    Timeout,
+    Suspended,
+    SomaDisabled,
 }
 
 /// One served request, as the runner knows it when the response leaves.
@@ -47,6 +56,9 @@ pub struct Entry {
     pub exit_code: Option<i32>,
     pub cpu_ms: Option<u64>,
     pub lifetime_ms: Option<u64>,
+    /// Present on `expire` lines only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ExpireReason>,
 }
 
 /// One journal line in contract field order.

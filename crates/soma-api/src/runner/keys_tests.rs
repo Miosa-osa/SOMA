@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 
 use super::{FeedViolation, KeyTable, Projects, Refusal};
 use crate::runner::feed::FeedEvent;
+use crate::runner::journal::ExpireReason;
 
 pub(crate) const TOKEN: &str = "msk_us_live_token";
 pub(crate) const TENANT: &str = "0b0c3a52-6a7e-4d39-9f1e-3c4d5e6f7a8b";
@@ -266,4 +267,33 @@ fn feed_age_counts_from_the_last_event_of_any_kind() {
         Duration::from_secs(7)
     );
     assert!(table.has_received());
+}
+
+#[test]
+fn the_reap_reason_follows_the_published_policy_only() {
+    let table = enabled_table();
+    assert_eq!(table.reap_reason(TENANT), None);
+    assert_eq!(table.reap_reason("never-published"), None);
+    for (seq, policy, reason) in [
+        (
+            5,
+            r#""soma":false,"suspended":false"#,
+            ExpireReason::SomaDisabled,
+        ),
+        (
+            6,
+            r#""soma":true,"suspended":true"#,
+            ExpireReason::Suspended,
+        ),
+    ] {
+        table
+            .apply(
+                &event(&format!(
+                    r#"{{"seq":{seq},"kind":"tenant_policy","tenant_id":"{TENANT}",{policy},"max_concurrent_share":null}}"#
+                )),
+                Instant::now(),
+            )
+            .expect("applies");
+        assert_eq!(table.reap_reason(TENANT), Some(reason));
+    }
 }

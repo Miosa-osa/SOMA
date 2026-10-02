@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::runner::ids::SandboxId;
+use crate::runner::{ids::SandboxId, journal::ExpireReason};
 
 /// How long a destroyed sandbox is remembered, so a repeated destroy answers as the first did.
 pub const TOMBSTONE_RETENTION: Duration = Duration::from_mins(10);
@@ -200,21 +200,24 @@ impl Sandboxes {
         }
     }
 
-    /// Claims every ready sandbox whose lifetime has run out, or whose tenant `must_reap`
-    /// names, for the reaper to destroy (contract C7).
+    /// Claims every ready sandbox whose tenant `reap_reason` names, or whose lifetime has run
+    /// out, for the reaper to destroy (contract C7), with the reason it is ending.
     pub fn claim_expired(
         &self,
         now: Instant,
-        must_reap: impl Fn(&str) -> bool,
-    ) -> Vec<(SandboxId, Owner)> {
+        reap_reason: impl Fn(&str) -> Option<ExpireReason>,
+    ) -> Vec<(SandboxId, Owner, ExpireReason)> {
         let mut records = self.lock();
         let mut expired = Vec::new();
         for (id, record) in records.iter_mut() {
-            if record.phase == Phase::Ready
-                && (record.expires <= now || must_reap(&record.owner.tenant_id))
-            {
+            if record.phase != Phase::Ready {
+                continue;
+            }
+            let reason = reap_reason(&record.owner.tenant_id)
+                .or_else(|| (record.expires <= now).then_some(ExpireReason::Timeout));
+            if let Some(reason) = reason {
                 record.phase = Phase::Busy;
-                expired.push((id.clone(), record.owner.clone()));
+                expired.push((id.clone(), record.owner.clone(), reason));
             }
         }
         expired

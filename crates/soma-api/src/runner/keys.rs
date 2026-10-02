@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 pub use crate::runner::principal::{
     Joined, KeyRecord, Principal, Projects, Refusal, Tenant, TenantPolicy,
 };
-use crate::runner::{feed::FeedEvent, ids::decode_sha256_hex};
+use crate::runner::{feed::FeedEvent, ids::decode_sha256_hex, journal::ExpireReason};
 
 /// The in-memory key and policy table the control-plane feed fills.
 ///
@@ -242,17 +242,22 @@ impl KeyTable {
         self.write().counter(tenant_id)
     }
 
-    /// Whether the feed says `tenant_id` may no longer hold sandboxes on this runner.
+    /// Why the feed says `tenant_id` may no longer hold sandboxes on this runner, if it does:
+    /// `suspended` or `soma_disabled`, the journal's expire reasons (contract C4).
     ///
-    /// Only a published policy that is suspended or SOMA-disabled says so; a tenant the table
-    /// has not heard of keeps its sandboxes, so a feed outage never empties a host.
+    /// Only a published policy says so; a tenant the table has not heard of keeps its
+    /// sandboxes, so a feed outage never empties a host.
     #[must_use]
-    pub fn must_reap(&self, tenant_id: &str) -> bool {
-        self.read()
-            .live
-            .tenants
-            .get(tenant_id)
-            .is_some_and(|tenant| tenant.policy.suspended || !tenant.policy.soma)
+    pub fn reap_reason(&self, tenant_id: &str) -> Option<ExpireReason> {
+        let state = self.read();
+        let policy = state.live.tenants.get(tenant_id)?.policy;
+        if policy.suspended {
+            Some(ExpireReason::Suspended)
+        } else if !policy.soma {
+            Some(ExpireReason::SomaDisabled)
+        } else {
+            None
+        }
     }
 
     /// The number of keys the live table holds.

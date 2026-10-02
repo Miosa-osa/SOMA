@@ -6,6 +6,7 @@ use std::{
 use super::{Owner, Sandboxes, TOMBSTONE_RETENTION, Unavailable};
 use crate::runner::{
     ids::SandboxId,
+    journal::ExpireReason,
     principal::{Tenant, TenantPolicy},
 };
 
@@ -141,16 +142,22 @@ fn expired_or_suspended_ready_sandboxes_are_claimed_once() {
     let id = ready(&sandboxes, "t-1", now);
     let suspended = ready(&sandboxes, "t-2", now);
 
-    assert!(sandboxes.claim_expired(now, |_| false).is_empty());
-    let reaped = sandboxes.claim_expired(now, |tenant| tenant == "t-2");
+    assert!(sandboxes.claim_expired(now, |_| None).is_empty());
+    let reaped = sandboxes.claim_expired(now, |tenant| {
+        (tenant == "t-2").then_some(ExpireReason::Suspended)
+    });
     assert_eq!(reaped.len(), 1);
     assert_eq!(reaped[0].0, suspended);
-    let expired = sandboxes.claim_expired(now + Duration::from_secs(60), |_| false);
+    assert_eq!(reaped[0].2, ExpireReason::Suspended);
+    let expired = sandboxes.claim_expired(now + Duration::from_secs(60), |_| None);
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].0, id);
+    assert_eq!(expired[0].2, ExpireReason::Timeout);
     assert!(
         sandboxes
-            .claim_expired(now + Duration::from_secs(61), |_| true)
+            .claim_expired(now + Duration::from_secs(61), |_| {
+                Some(ExpireReason::SomaDisabled)
+            })
             .is_empty()
     );
 }
