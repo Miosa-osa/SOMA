@@ -136,6 +136,7 @@ pub(super) async fn call(
             authorization: Some(format!("Bearer {TOKEN}")),
             body: Bytes::from(body.to_owned()),
             received: Instant::now(),
+            forwarded: false,
         })
         .await
 }

@@ -2,13 +2,16 @@ use std::{io, sync::Arc};
 
 use bytes::Bytes;
 use http_body_util::Full;
-use hyper::client::conn::http1::SendRequest;
-use hyper_util::rt::TokioIo;
+use hyper::client::conn::{http1::SendRequest, http2};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use rustls::RootCertStore;
 use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName, pem::PemObject};
 use tokio_rustls::TlsConnector;
 
 use crate::runner::config::{ControlPlaneConfig, control_plane_authority};
+
+/// How often an idle runner-to-runner link proves it is alive, and how long it may take.
+const PEER_KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// The runner's mTLS client to the control plane's private endpoints.
 ///
@@ -30,6 +33,15 @@ impl Client {
     ///
     /// Returns an invalid-data error for an unreadable or unusable certificate, key, or URL.
     pub fn new(config: &ControlPlaneConfig) -> io::Result<Self> {
+        Self::with_alpn(config, b"http/1.1")
+    }
+
+    /// The same client offering one application protocol, `h2` for runner-to-runner links.
+    ///
+    /// # Errors
+    ///
+    /// Returns an invalid-data error for an unreadable or unusable certificate, key, or URL.
+    pub fn with_alpn(config: &ControlPlaneConfig, alpn: &[u8]) -> io::Result<Self> {
         let (host, port) = control_plane_authority(&config.url)?;
         let mut roots = RootCertStore::empty();
         for certificate in
@@ -53,7 +65,7 @@ impl Client {
         .with_root_certificates(roots)
         .with_client_auth_cert(chain, key)
         .map_err(|error| tls_error(&error))?;
-        tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+        tls.alpn_protocols = vec![alpn.to_vec()];
         let name = config.server_name.clone().unwrap_or_else(|| host.clone());
         let server_name = ServerName::try_from(name)
             .map_err(|_| invalid("control_plane.server_name is not a valid TLS name"))?;
@@ -89,6 +101,31 @@ impl Client {
         tokio::spawn(async move {
             // The connection ends when either side closes it; the request handle then reports
             // the failure to whichever task was using it, and that task reconnects.
+            let _ended = connection.await;
+        });
+        Ok(sender)
+    }
+
+    /// Opens one mTLS HTTP/2 connection, multiplexed by every request that clones its handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns the connect, TLS, or HTTP/2 handshake failure.
+    pub async fn connect_h2(&self) -> io::Result<http2::SendRequest<Full<Bytes>>> {
+        let tcp = tokio::net::TcpStream::connect((self.host.as_str(), self.port)).await?;
+        tcp.set_nodelay(true)?;
+        let tls = self
+            .connector
+            .connect(self.server_name.clone(), tcp)
+            .await?;
+        let (sender, connection) = http2::Builder::new(TokioExecutor::new())
+            .timer(TokioTimer::new())
+            .keep_alive_interval(Some(PEER_KEEPALIVE))
+            .keep_alive_timeout(PEER_KEEPALIVE)
+            .handshake(TokioIo::new(tls))
+            .await
+            .map_err(io::Error::other)?;
+        tokio::spawn(async move {
             let _ended = connection.await;
         });
         Ok(sender)

@@ -31,3 +31,8 @@ impl Timing {
         value
     }
 }
+
+/// Whole milliseconds, as the journal and the usage fields carry them.
+pub(super) fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}

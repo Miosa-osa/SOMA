@@ -7,6 +7,8 @@ pub(super) enum Route<'a> {
     Health,
     Create,
     Exec(&'a str),
+    /// The same command, answered as server-sent events.
+    ExecStream(&'a str),
     Destroy(&'a str),
     /// `PATCH {"timeout": N}`: reset or extend the idle timer.
     Extend(&'a str),
@@ -23,6 +25,19 @@ pub(super) struct Forward<'a> {
     pub(super) id: &'a str,
     pub(super) method: Method,
     pub(super) suffix: &'a str,
+}
+
+impl<'a> Route<'a> {
+    /// The sandbox id a route names, if it names one.
+    pub(super) const fn sandbox_id(self) -> Option<&'a str> {
+        match self {
+            Self::Exec(id) | Self::ExecStream(id) | Self::Destroy(id) | Self::Extend(id) => {
+                Some(id)
+            }
+            Self::Forward(forward) => Some(forward.id),
+            Self::Health | Self::Create | Self::List | Self::NotFound => None,
+        }
+    }
 }
 
 pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
@@ -48,6 +63,9 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
         (&http::Method::POST, [""]) => Route::Create,
         (&http::Method::GET, [""]) => Route::List,
         (&http::Method::POST, ["", id, "exec"]) if !id.is_empty() => Route::Exec(id),
+        (&http::Method::POST, ["", id, "exec", "stream"]) if !id.is_empty() => {
+            Route::ExecStream(id)
+        }
         (&http::Method::DELETE, ["", id]) if !id.is_empty() => Route::Destroy(id),
         (&http::Method::PATCH, ["", id]) if !id.is_empty() => Route::Extend(id),
         (&http::Method::GET, ["", id]) if !id.is_empty() => forward(id, Method::Get),

@@ -7,7 +7,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full, Limited};
+use http_body_util::{BodyExt, Limited};
 use hyper::body::{Body, Frame, Incoming, SizeHint};
 use hyper_util::{
     rt::{TokioExecutor, TokioIo, TokioTimer},
@@ -33,8 +33,12 @@ const CONTENT_TYPE: &str = "application/json; charset=utf-8";
 /// Hyper drops the body after its last frame is written, or when the connection fails first, so
 /// the journal entry is written strictly after the response left this process: the paperwork is
 /// never on the request path (contract C4).
+///
+/// A streamed answer (server-sent events, a forwarded response) sends its first bytes, then
+/// every chunk its producer sends, and ends when the producer drops its sender.
 pub struct JournaledBody {
-    inner: Full<Bytes>,
+    head: Option<Bytes>,
+    stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
     after: Option<(Journal, Entry)>,
 }
 
@@ -46,15 +50,26 @@ impl Body for JournaledBody {
         mut self: Pin<&mut Self>,
         context: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        Pin::new(&mut self.inner).poll_frame(context)
+        if let Some(head) = self.head.take().filter(|head| !head.is_empty()) {
+            return Poll::Ready(Some(Ok(Frame::data(head))));
+        }
+        match self.stream.as_mut() {
+            Some(stream) => stream
+                .poll_recv(context)
+                .map(|chunk| chunk.map(|bytes| Ok(Frame::data(bytes)))),
+            None => Poll::Ready(None),
+        }
     }
 
     fn is_end_stream(&self) -> bool {
-        self.inner.is_end_stream()
+        self.stream.is_none() && self.head.as_ref().is_none_or(Bytes::is_empty)
     }
 
     fn size_hint(&self) -> SizeHint {
-        self.inner.size_hint()
+        match (&self.stream, &self.head) {
+            (None, head) => SizeHint::with_exact(head.as_ref().map_or(0, |head| head.len() as u64)),
+            (Some(_), _) => SizeHint::default(),
+        }
     }
 }
 
@@ -115,6 +130,7 @@ pub async fn serve_tcp(
                 TokioIo::new(IdleIo::new(stream, &activity)),
                 &activity,
                 runner,
+                false,
             )
             .await;
         });
@@ -125,13 +141,16 @@ pub async fn serve_tcp(
 ///
 /// An idle connection is shut down gracefully: requests in flight (a long command, say) still
 /// finish, and no new one is accepted.
-pub async fn serve_http<I>(io: I, activity: &Activity, runner: Arc<Runner>)
+///
+/// `forwarded` marks the private listener: its requests come from other runners and are never
+/// forwarded again.
+pub async fn serve_http<I>(io: I, activity: &Activity, runner: Arc<Runner>, forwarded: bool)
 where
     I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
 {
     let service = hyper::service::service_fn(move |request: http::Request<Incoming>| {
         let runner = Arc::clone(&runner);
-        async move { Ok::<_, Infallible>(respond(&runner, request).await) }
+        async move { Ok::<_, Infallible>(respond(&runner, request, forwarded).await) }
     });
     let mut builder = auto::Builder::new(TokioExecutor::new());
     builder
@@ -164,6 +183,7 @@ where
 async fn respond(
     runner: &Runner,
     request: http::Request<Incoming>,
+    forwarded: bool,
 ) -> http::Response<JournaledBody> {
     let received = Instant::now();
     let (parts, body) = request.into_parts();
@@ -184,6 +204,7 @@ async fn respond(
             authorization: authorization(&parts.headers),
             body: collected.to_bytes(),
             received,
+            forwarded,
         })
         .await;
     encode_hyper(response, Some(runner.journal()))
@@ -200,7 +221,8 @@ fn encode_hyper(
             .map(|entry| (journal.clone(), entry))
     });
     let mut built = http::Response::new(JournaledBody {
-        inner: Full::new(Bytes::from(std::mem::take(&mut response.body))),
+        head: Some(Bytes::from(std::mem::take(&mut response.body))),
+        stream: response.stream.take(),
         after,
     });
     *built.status_mut() = http::StatusCode::from_u16(response.status)
@@ -248,6 +270,7 @@ pub(crate) fn payload_too_large() -> RunnerResponse {
             "auth;dur=0.000,pool;dur=0.000,exec;dur=0.000".to_owned(),
         )],
         body: public_wire::refusal("payload_too_large"),
+        stream: None,
         journal: None,
     }
 }

@@ -47,6 +47,9 @@ pub struct RunnerConfig {
     pub feed_stale_after_seconds: u64,
     #[serde(default = "default_max_connections")]
     pub max_connections: usize,
+    /// The other runners in the region, for forwarding a request about their sandboxes.
+    #[serde(default)]
+    pub peers: Option<PeersConfig>,
     /// Connections one client IP may hold, TCP and QUIC together.
     #[serde(default = "default_connections_per_ip")]
     pub max_connections_per_ip: usize,
@@ -71,6 +74,32 @@ pub struct ControlPlaneConfig {
     pub ca: PathBuf,
     pub certificate: PathBuf,
     pub private_key: PathBuf,
+}
+
+/// Runner-to-runner forwarding over the private network (contract C2).
+///
+/// Each runner listens on its private address with mutual TLS: the certificate serves both
+/// ends, and the CA admits only fleet hosts. Nothing here is ever bound on a public address.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeersConfig {
+    /// This runner's private (`WireGuard`) address for forwarded requests.
+    pub listen: SocketAddr,
+    pub ca: PathBuf,
+    pub certificate: PathBuf,
+    pub private_key: PathBuf,
+    /// The other runners, by host tag.
+    pub runners: std::collections::BTreeMap<char, PeerConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PeerConfig {
+    /// `host:port` of the peer's private listener.
+    pub address: String,
+    /// The name its certificate is issued to, when it is not the address host.
+    #[serde(default)]
+    pub server_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -142,6 +171,14 @@ impl RunnerConfig {
         soma::OciImage::parse(self.launch.image.clone())
             .map_err(|_| invalid(&"launch.image is not a valid OCI reference"))?;
         control_plane_authority(&self.control_plane.url)?;
+        if let Some(peers) = &self.peers {
+            for (tag, peer) in &peers.runners {
+                if !tag.is_ascii_hexdigit() || tag.is_ascii_uppercase() || *tag == self.host_tag {
+                    return Err(invalid(&"peers.runners keys must be other hosts' tags"));
+                }
+                control_plane_authority(&format!("https://{}", peer.address))?;
+            }
+        }
         Ok(())
     }
 

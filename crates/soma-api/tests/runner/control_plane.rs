@@ -39,7 +39,8 @@ impl Body for ChannelBody {
 
 #[derive(Default)]
 pub(crate) struct ControlPlaneState {
-    pub(crate) feed: Mutex<Option<mpsc::UnboundedSender<Bytes>>>,
+    /// Every open feed response; each runner holds one.
+    pub(crate) feed: Mutex<Vec<mpsc::UnboundedSender<Bytes>>>,
     pub(crate) afters: Mutex<Vec<u64>>,
     pub(crate) journal: Mutex<BTreeMap<u64, serde_json::Value>>,
     pub(crate) posts: AtomicUsize,
@@ -47,16 +48,14 @@ pub(crate) struct ControlPlaneState {
 
 impl ControlPlaneState {
     pub(crate) fn send(&self, line: &str) {
-        let feed = self.feed.lock().expect("feed lock");
-        feed.as_ref()
-            .expect("a runner is connected to the feed")
-            .send(Bytes::from(format!("{line}\n")))
-            .expect("the feed connection is open");
+        let mut feed = self.feed.lock().expect("feed lock");
+        assert!(!feed.is_empty(), "a runner is connected to the feed");
+        feed.retain(|sender| sender.send(Bytes::from(format!("{line}\n"))).is_ok());
     }
 
     /// Ends the current feed response, as a control-plane restart would.
     pub(crate) fn drop_feed(&self) {
-        self.feed.lock().expect("feed lock").take();
+        self.feed.lock().expect("feed lock").clear();
     }
 
     pub(crate) fn connections(&self) -> Vec<u64> {
@@ -84,7 +83,7 @@ pub(crate) async fn control_plane_answer(
             .expect("the runner always sends after=");
         state.afters.lock().expect("afters lock").push(after);
         let (sender, receiver) = mpsc::unbounded_channel();
-        *state.feed.lock().expect("feed lock") = Some(sender);
+        state.feed.lock().expect("feed lock").push(sender);
         return http::Response::new(http_body_util::Either::Left(ChannelBody(receiver)));
     }
     assert_eq!(path, "/internal/soma-runner/journal");

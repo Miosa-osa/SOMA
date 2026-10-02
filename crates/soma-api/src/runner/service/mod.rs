@@ -10,37 +10,37 @@ mod forward;
 mod idle_tests;
 mod lifetime;
 mod params;
+mod relay;
 mod routing;
 #[cfg(test)]
 mod scope_tests;
+mod stream;
+#[cfg(test)]
+mod stream_tests;
 #[cfg(test)]
 mod tests;
 mod timing;
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use bytes::Bytes;
-use soma::{ManagedFailure, OciImage};
+use soma::OciImage;
 
-use crate::{
-    failure::managed_error,
-    runner::{
-        backend::Backend,
-        config::RunnerConfig,
-        ids::SandboxId,
-        journal::{Entry, EntryKind, Journal},
-        keys::{KeyTable, Principal, Refusal},
-        public_wire::{self, PlatformError},
-        rate_limit::RateLimiter,
-        sandboxes::Sandboxes,
-    },
+use crate::runner::{
+    backend::Backend,
+    config::RunnerConfig,
+    ids::SandboxId,
+    journal::{Entry, EntryKind, Journal},
+    keys::{KeyTable, Principal, Refusal},
+    peers::Peers,
+    public_wire::{self, PlatformError},
+    rate_limit::RateLimiter,
+    sandboxes::Sandboxes,
 };
 
+use command::failure_code;
 use routing::{Route, route};
-use timing::Timing;
+use timing::{Timing, millis};
 
 /// The largest request body the runner reads: the loopback service's own bound, which a
 /// maximal file write needs.
@@ -56,14 +56,19 @@ pub struct RunnerRequest {
     pub authorization: Option<String>,
     pub body: Bytes,
     pub received: Instant,
+    /// Arrived from another runner over the private listener: never forwarded again.
+    pub forwarded: bool,
 }
 
 /// One answer, plus the journal entry to write once it has been sent.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct RunnerResponse {
     pub status: u16,
     pub headers: Vec<(&'static str, String)>,
     pub body: Vec<u8>,
+    /// A body that is still being produced (server-sent events, a forwarded answer); sent
+    /// after `body`, chunk by chunk, until the sender is dropped.
+    pub stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
     pub journal: Option<Entry>,
 }
 
@@ -73,6 +78,7 @@ impl RunnerResponse {
             status,
             headers: Vec::new(),
             body,
+            stream: None,
             journal: None,
         }
     }
@@ -106,12 +112,13 @@ impl RunnerResponse {
 pub struct Runner {
     config: Arc<RunnerConfig>,
     keys: Arc<KeyTable>,
-    sandboxes: Sandboxes,
+    sandboxes: Arc<Sandboxes>,
     limiter: RateLimiter,
     backend: Backend,
     journal: Journal,
     admission: tokio::sync::Semaphore,
     image: OciImage,
+    peers: Option<Peers>,
 }
 
 impl Runner {
@@ -126,12 +133,13 @@ impl Runner {
         Self {
             admission: tokio::sync::Semaphore::new(config.admission()),
             keys: Arc::new(KeyTable::new()),
-            sandboxes: Sandboxes::new(),
+            sandboxes: Arc::new(Sandboxes::new()),
             limiter: RateLimiter::new(),
             config,
             backend,
             journal,
             image,
+            peers: None,
         }
     }
 
@@ -146,7 +154,7 @@ impl Runner {
     }
 
     #[must_use]
-    pub const fn sandboxes(&self) -> &Sandboxes {
+    pub fn sandboxes(&self) -> &Sandboxes {
         &self.sandboxes
     }
 
@@ -157,7 +165,14 @@ impl Runner {
         if let Some(entry) = response.journal.as_mut() {
             entry.ms = millis(request.received.elapsed());
         }
-        response.headers.push(("server-timing", timing.header()));
+        // A forwarded or streamed answer already carries the timing of the runner that ran it.
+        if !response
+            .headers
+            .iter()
+            .any(|(name, _)| *name == "server-timing")
+        {
+            response.headers.push(("server-timing", timing.header()));
+        }
         response
     }
 
@@ -168,6 +183,7 @@ impl Runner {
             Route::NotFound => return RunnerResponse::refusal(404, "not_found"),
             Route::Create
             | Route::Exec(_)
+            | Route::ExecStream(_)
             | Route::Destroy(_)
             | Route::Extend(_)
             | Route::List
@@ -187,9 +203,15 @@ impl Runner {
             return RunnerResponse::refusal(429, "rate_limited").header("retry-after", "1".into());
         }
         timing.auth = started.elapsed();
+        if let Some(forwarded) = self.forward_to_owner(route, request).await {
+            return forwarded;
+        }
         match route {
             Route::Create => self.create(&principal, &request.body, timing).await,
             Route::Exec(id) => self.exec(&principal, id, &request.body, timing).await,
+            Route::ExecStream(id) => {
+                self.exec_stream(&principal, id, &request.body, request.received, timing)
+            }
             Route::Destroy(id) => self.destroy(&principal, id, timing).await,
             Route::Extend(id) => self.extend(&principal, id, &request.body),
             Route::List => self.list(&principal, timing).await,
@@ -267,12 +289,4 @@ fn refused_sandbox(
 fn with_journal(mut response: RunnerResponse, entry: Option<Entry>) -> RunnerResponse {
     response.journal = entry;
     response
-}
-
-fn failure_code(failure: &ManagedFailure) -> &'static str {
-    managed_error(failure).body().code
-}
-
-fn millis(duration: Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }

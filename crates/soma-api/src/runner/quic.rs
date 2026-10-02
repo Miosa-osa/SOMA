@@ -82,6 +82,7 @@ async fn serve_h3_request(
                     authorization: authorization(&parts.headers),
                     body,
                     received,
+                    forwarded: false,
                 })
                 .await
         }
@@ -94,9 +95,17 @@ async fn serve_h3_request(
     apply_headers(head.headers_mut(), &response.headers);
     let entry = response.journal.take();
     let body = Bytes::from(std::mem::take(&mut response.body));
+    let mut rest = response.stream.take();
     let sent = async {
         stream.send_response(head).await?;
-        stream.send_data(body).await?;
+        if !body.is_empty() || rest.is_none() {
+            stream.send_data(body).await?;
+        }
+        if let Some(rest) = rest.as_mut() {
+            while let Some(chunk) = rest.recv().await {
+                stream.send_data(chunk).await?;
+            }
+        }
         stream.finish().await
     }
     .await;

@@ -7,10 +7,11 @@ use soma::{
 
 use crate::{
     facade::CommandOutcome,
+    failure::managed_error,
     runner::{
         backend::{Busy, CallTiming},
         ids::SandboxId,
-        journal::EntryKind,
+        journal::{Entry, EntryKind},
         keys::Principal,
         public_wire::{self, PlatformError},
         sandboxes::{Owner, Unavailable},
@@ -22,6 +23,13 @@ use super::{
     Runner, RunnerResponse, Timing, entry, params::ExecParams, refused_sandbox, with_journal,
 };
 
+/// A command that passed every check and now holds its sandbox's lifecycle slot.
+pub(super) struct Prepared {
+    pub(super) id: SandboxId,
+    pub(super) owner: Owner,
+    pub(super) request: ExecuteMachineRequest,
+}
+
 impl Runner {
     pub(super) async fn exec(
         &self,
@@ -30,50 +38,9 @@ impl Runner {
         body: &[u8],
         timing: &mut Timing,
     ) -> RunnerResponse {
-        let id = match self.addressed(raw_id) {
-            Ok(id) => id,
-            Err(response) => {
-                return refused_sandbox(*response, EntryKind::Exec, principal);
-            }
-        };
-        let journal = |status: u16, owner: Option<&Owner>, exit_code: Option<i32>| {
-            let mut entry = entry(
-                EntryKind::Exec,
-                principal,
-                owner.and_then(|owner| owner.project_id.clone()),
-                Some(&id),
-                status,
-            );
-            entry.exit_code = exit_code;
-            Some(entry)
-        };
-        let params = match ExecParams::parse(body) {
-            Ok(params) => params,
-            Err(error) => {
-                return with_journal(
-                    RunnerResponse::platform(&error),
-                    journal(error.status, None, None),
-                );
-            }
-        };
-        let owner = match self.sandboxes.begin_command(&id, &principal.key.tenant_id) {
-            Ok(owner) => owner,
-            Err(unavailable) => {
-                let error = command_refusal(&unavailable);
-                return with_journal(
-                    RunnerResponse::platform(&error),
-                    journal(error.status, None, None),
-                );
-            }
-        };
-        let Some(request) = execute_request(&id, &params) else {
-            self.sandboxes.release(&id);
-            let error =
-                PlatformError::invalid_param("command", "the command exceeds the runner's bounds");
-            return with_journal(
-                RunnerResponse::platform(&error),
-                journal(400, Some(&owner), None),
-            );
+        let Prepared { id, owner, request } = match self.prepare_command(principal, raw_id, body) {
+            Ok(prepared) => prepared,
+            Err(response) => return *response,
         };
         let started = Instant::now();
         let outcome = self
@@ -86,8 +53,67 @@ impl Runner {
         }
         let (response, exit_code) = executed_answer(outcome, started);
         let status = response.status;
-        with_journal(response, journal(status, Some(&owner), exit_code))
+        with_journal(
+            response,
+            Some(command_entry(
+                principal,
+                &id,
+                Some(&owner),
+                status,
+                exit_code,
+            )),
+        )
     }
+
+    /// The checks every command passes, shared by exec and exec/stream. A refusal comes back
+    /// as the finished, journaled answer.
+    pub(super) fn prepare_command(
+        &self,
+        principal: &Principal,
+        raw_id: &str,
+        body: &[u8],
+    ) -> Result<Prepared, Box<RunnerResponse>> {
+        let id = self
+            .addressed(raw_id)
+            .map_err(|response| Box::new(refused_sandbox(*response, EntryKind::Exec, principal)))?;
+        let refuse = |error: &PlatformError, owner: Option<&Owner>| {
+            Box::new(with_journal(
+                RunnerResponse::platform(error),
+                Some(command_entry(principal, &id, owner, error.status, None)),
+            ))
+        };
+        let params = ExecParams::parse(body).map_err(|error| refuse(&error, None))?;
+        let owner = self
+            .sandboxes
+            .begin_command(&id, &principal.key.tenant_id)
+            .map_err(|unavailable| refuse(&command_refusal(&unavailable), None))?;
+        let Some(request) = execute_request(&id, &params) else {
+            self.sandboxes.release(&id);
+            let error =
+                PlatformError::invalid_param("command", "the command exceeds the runner's bounds");
+            return Err(refuse(&error, Some(&owner)));
+        };
+        Ok(Prepared { id, owner, request })
+    }
+}
+
+/// The journal entry of one command (contract C4 kind `exec`).
+pub(super) fn command_entry(
+    principal: &Principal,
+    id: &SandboxId,
+    owner: Option<&Owner>,
+    status: u16,
+    exit_code: Option<i32>,
+) -> Entry {
+    let mut entry = entry(
+        EntryKind::Exec,
+        principal,
+        owner.and_then(|owner| owner.project_id.clone()),
+        Some(id),
+        status,
+    );
+    entry.exit_code = exit_code;
+    entry
 }
 
 /// The answer to one finished command, and its exit code when it exited.
@@ -123,7 +149,13 @@ fn executed_answer(
         Ok((Err(failure), _)) => failure,
         Err(Busy) => return (RunnerResponse::runtime_busy(), None),
     };
-    let error = match failure {
+    let error = failure_error(&failure);
+    (RunnerResponse::platform(&error), None)
+}
+
+/// The platform error one failed command answers with.
+pub(super) fn failure_error(failure: &ManagedFailure) -> PlatformError {
+    match failure {
         ManagedFailure::State(ManagedStateError::MachineNotFound) => {
             PlatformError::sandbox_not_found()
         }
@@ -131,11 +163,10 @@ fn executed_answer(
             PlatformError::sandbox_not_running()
         }
         _ => PlatformError::agent_unavailable(),
-    };
-    (RunnerResponse::platform(&error), None)
+    }
 }
 
-fn command_refusal(unavailable: &Unavailable) -> PlatformError {
+pub(super) fn command_refusal(unavailable: &Unavailable) -> PlatformError {
     match unavailable {
         Unavailable::NotFound => PlatformError::sandbox_not_found(),
         Unavailable::Busy => PlatformError::exec_busy(),
@@ -154,4 +185,9 @@ fn execute_request(id: &SandboxId, params: &ExecParams) -> Option<ExecuteMachine
         command,
         limits,
     ))
+}
+
+/// The stable code of a facade failure, for logs and the destroy answer's details.
+pub(super) fn failure_code(failure: &ManagedFailure) -> &'static str {
+    managed_error(failure).body().code
 }

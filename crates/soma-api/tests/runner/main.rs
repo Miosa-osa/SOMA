@@ -8,6 +8,7 @@
 mod clients;
 mod control_plane;
 mod facade;
+mod forwarding;
 mod lifecycle;
 mod stale;
 mod support;

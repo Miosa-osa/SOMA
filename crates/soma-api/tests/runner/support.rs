@@ -75,8 +75,20 @@ pub(crate) fn config(
     journal: &Path,
     stale_seconds: u64,
 ) -> RunnerConfig {
+    RunnerConfig::parse(
+        &serde_json::to_vec(&document(control_plane, journal, stale_seconds)).expect("encode"),
+    )
+    .expect("valid config")
+}
+
+/// The configuration document `config` parses, for tests that change a field first.
+pub(crate) fn document(
+    control_plane: SocketAddr,
+    journal: &Path,
+    stale_seconds: u64,
+) -> serde_json::Value {
     let fixtures = fixtures();
-    let document = serde_json::json!({
+    serde_json::json!({
         "runner": "miosa-host-03",
         "host_tag": "3",
         "listen": "127.0.0.1:0",
@@ -100,8 +112,7 @@ pub(crate) fn config(
         },
         "admission": 8,
         "feed_stale_after_seconds": stale_seconds
-    });
-    RunnerConfig::parse(&serde_json::to_vec(&document).expect("encode")).expect("valid config")
+    })
 }
 
 /// Starts the runner the way the service does, from a plain thread: it builds its own runtime.

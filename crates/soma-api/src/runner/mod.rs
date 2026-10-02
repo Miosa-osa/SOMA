@@ -22,6 +22,7 @@ pub mod journal_reader;
 pub mod keys;
 pub mod limits;
 pub mod owner;
+pub mod peers;
 pub mod principal;
 pub mod public_wire;
 pub mod quic;
@@ -83,6 +84,8 @@ pub fn spawn(config: RunnerConfig, opener: FacadeOpener) -> io::Result<RunnerHan
 /// The bound, ready-to-serve runner and everything it runs beside its listeners.
 struct Started {
     runner: Arc<Runner>,
+    /// The private listener other runners forward to, when peers are configured.
+    private: Option<(tokio::net::TcpListener, tokio_rustls::TlsAcceptor)>,
     address: SocketAddr,
     tcp: tokio::net::TcpListener,
     quic: quinn::Endpoint,
@@ -98,7 +101,15 @@ async fn start(config: Arc<RunnerConfig>, opener: FacadeOpener) -> io::Result<St
     let control_plane = Arc::new(control_plane::Client::new(&config.control_plane)?);
     let journal = Journal::open(&config.journal.directory, &config.runner)?;
     let backend = Backend::new(opener);
-    let runner = Arc::new(Runner::new(Arc::clone(&config), backend, journal));
+    let mut runner = Runner::new(Arc::clone(&config), backend, journal);
+    let private = match &config.peers {
+        Some(peers) => {
+            runner.set_peers(peers::Peers::new(peers)?);
+            Some(peers::bind_private(peers).await?)
+        }
+        None => None,
+    };
+    let runner = Arc::new(runner);
     runner.recover_sandboxes().await;
     let tcp = tokio::net::TcpListener::bind(config.listen).await?;
     // HTTP/3 binds the port TCP got, so an ephemeral port in tests is one port for both.
@@ -113,6 +124,7 @@ async fn start(config: Arc<RunnerConfig>, opener: FacadeOpener) -> io::Result<St
     eprintln!("soma-api: runner {} listening on {address}", config.runner);
     Ok(Started {
         runner,
+        private,
         address,
         tcp,
         quic,
@@ -132,6 +144,13 @@ impl Started {
             }
         });
         tokio::spawn(tls::watch(Arc::clone(&self.tls)));
+        if let Some((listener, acceptor)) = self.private {
+            tokio::spawn(peers::serve_private(
+                listener,
+                acceptor,
+                Arc::clone(&self.runner),
+            ));
+        }
         let per_ip = limits::PerIp::new(self.config.max_connections_per_ip);
         let tcp = transport::serve_tcp(
             self.tcp,

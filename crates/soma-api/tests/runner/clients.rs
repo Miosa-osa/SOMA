@@ -12,7 +12,9 @@ use crate::support::{TOKEN, provider, roots};
 pub(crate) struct Answer {
     pub(crate) status: u16,
     pub(crate) headers: http::HeaderMap,
+    /// The body as JSON, or `Null` for an answer that is not JSON (server-sent events).
     pub(crate) body: serde_json::Value,
+    pub(crate) text: String,
 }
 
 pub(crate) fn client_tls(alpn: &[&[u8]]) -> rustls::ClientConfig {
@@ -94,7 +96,8 @@ pub(crate) async fn with_headers(
     Answer {
         status,
         headers,
-        body: serde_json::from_slice(&bytes).expect("every runner answer is JSON"),
+        body: serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        text: String::from_utf8_lossy(&bytes).into_owned(),
     }
 }
 
@@ -155,7 +158,8 @@ pub(crate) async fn h3_request(
     Answer {
         status: response.status().as_u16(),
         headers: response.headers().clone(),
-        body: serde_json::from_slice(&bytes).expect("JSON"),
+        body: serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+        text: String::from_utf8_lossy(&bytes).into_owned(),
     }
 }
 
