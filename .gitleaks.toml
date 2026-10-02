@@ -1,0 +1,7 @@
+# Secret scanning uses the default gitleaks rules, with one exception.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Throwaway TLS keys for the runner integration tests, issued by a test CA whose key was discarded"
+paths = ['''^crates/soma-api/tests/fixtures/runner/[a-z-]+-key\.pem$''']
