@@ -145,3 +145,58 @@ async fn a_command_longer_than_the_idle_timeout_holds_its_sandbox() {
     runner.reap().await;
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn a_terminal_read_longer_than_the_idle_timeout_holds_its_sandbox_without_blocking_exec() {
+    let engine = Arc::new(Engine::default());
+    *engine.terminal_delay.lock().expect("delay") = Duration::from_secs(3);
+    let runner = Arc::new(runner(&engine, r#""*""#, "null"));
+    let created = call(
+        &runner,
+        http::Method::POST,
+        "/api/v1/sandboxes",
+        r#"{"timeout":1}"#,
+    )
+    .await;
+    let id = id_of(&created);
+
+    let reading = {
+        let (runner, path) = (
+            Arc::clone(&runner),
+            format!("/api/v1/sandboxes/{id}/terminal/read"),
+        );
+        tokio::spawn(async move {
+            call(&runner, http::Method::POST, &path, r#"{"wait_ms":3000}"#).await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    // A command overlaps the read: the hold is a counter, not the command's exclusive slot.
+    let exec = call(
+        &runner,
+        http::Method::POST,
+        &format!("/api/v1/sandboxes/{id}/exec"),
+        r#"{"command":"true"}"#,
+    )
+    .await;
+    assert_eq!(exec.status, 200, "an exec runs while the read is held");
+    for _ in 0..6 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        runner.reap().await;
+        assert_eq!(
+            engine.destroys.load(Ordering::SeqCst),
+            0,
+            "a held sandbox is never idle"
+        );
+    }
+    let read = reading.await.expect("read task");
+    assert_eq!(read.status, 200);
+    let body: serde_json::Value = serde_json::from_slice(&read.body).expect("JSON");
+    assert_eq!(body["operation"], "sandbox.terminal");
+
+    // The read's end restarted the timer.
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
+}

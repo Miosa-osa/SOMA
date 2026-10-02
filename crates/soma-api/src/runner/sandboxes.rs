@@ -11,6 +11,22 @@ use crate::runner::{
     journal::ExpireReason,
 };
 
+/// One call holding a sandbox (see [`Sandboxes::hold`]); dropping it lets the sweep back in.
+pub struct Held<'a> {
+    sandboxes: &'a Sandboxes,
+    id: SandboxId,
+    pub owner: Owner,
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        if let Some(record) = self.sandboxes.lock().get_mut(&self.id) {
+            record.in_flight = record.in_flight.saturating_sub(1);
+            record.clock.touch(Instant::now());
+        }
+    }
+}
+
 /// How long a destroyed sandbox is remembered, so a repeated destroy answers as the first did.
 pub const TOMBSTONE_RETENTION: Duration = Duration::from_mins(10);
 
@@ -31,6 +47,9 @@ struct Record {
     owner: Owner,
     clock: Clock,
     phase: Phase,
+    /// Calls that hold the sandbox without its lifecycle slot (inspect, files, terminal).
+    /// They overlap freely with each other and with a command; the sweep waits for all.
+    in_flight: u32,
 }
 
 /// The runner's own record of which tenant owns each sandbox on this host.
@@ -58,6 +77,7 @@ impl Sandboxes {
                 owner,
                 clock,
                 phase: Phase::Creating,
+                in_flight: 0,
             },
         );
     }
@@ -76,13 +96,17 @@ impl Sandboxes {
         }
     }
 
-    /// The owner of a sandbox `tenant_id` may address, for calls that do not take the
-    /// sandbox's lifecycle slot (inspect, files, terminal).
+    /// Holds a sandbox `tenant_id` owns for one call that does not take its lifecycle slot
+    /// (inspect, files, terminal), until the returned guard drops.
+    ///
+    /// The hold is a counter, not the exclusive Busy phase, so these calls overlap with each
+    /// other and with a running command exactly as before; it only keeps the sweep away, and
+    /// its end restarts the idle timer like the end of a command.
     ///
     /// # Errors
     ///
     /// Returns why the sandbox cannot be addressed.
-    pub fn owner_of(&self, id: &SandboxId, tenant_id: &str) -> Result<Owner, Unavailable> {
+    pub fn hold(&self, id: &SandboxId, tenant_id: &str) -> Result<Held<'_>, Unavailable> {
         let mut records = self.lock();
         let record = records
             .get_mut(id)
@@ -91,7 +115,12 @@ impl Sandboxes {
         match record.phase {
             Phase::Ready | Phase::Busy => {
                 record.clock.touch(Instant::now());
-                Ok(record.owner.clone())
+                record.in_flight += 1;
+                Ok(Held {
+                    sandboxes: self,
+                    id: id.clone(),
+                    owner: record.owner.clone(),
+                })
             }
             Phase::Creating => Err(Unavailable::NotFound),
             Phase::Destroyed { at } => Err(Unavailable::Destroyed(
@@ -217,7 +246,7 @@ impl Sandboxes {
         let mut records = self.lock();
         let mut expired = Vec::new();
         for (id, record) in records.iter_mut() {
-            if record.phase != Phase::Ready {
+            if record.phase != Phase::Ready || record.in_flight > 0 {
                 continue;
             }
             let reason = reap_reason(&record.owner.tenant_id)
@@ -248,6 +277,7 @@ impl Sandboxes {
                 owner,
                 clock,
                 phase: Phase::Ready,
+                in_flight: 0,
             });
         }
     }

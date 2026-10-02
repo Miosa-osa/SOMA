@@ -50,8 +50,11 @@ fn only_the_owning_tenant_reaches_a_sandbox() {
         sandboxes.begin_command(&id, "t-2"),
         Err(Unavailable::NotFound)
     );
-    assert_eq!(sandboxes.owner_of(&id, "t-2"), Err(Unavailable::NotFound));
-    assert!(sandboxes.owner_of(&id, "t-1").is_ok());
+    assert_eq!(
+        sandboxes.hold(&id, "t-2").map(|held| held.owner.clone()),
+        Err(Unavailable::NotFound)
+    );
+    assert!(sandboxes.hold(&id, "t-1").is_ok());
     assert_eq!(sandboxes.owned_by("t-1"), vec![id.clone()]);
     assert!(sandboxes.owned_by("t-2").is_empty());
     assert!(sandboxes.begin_command(&id, "t-1").is_ok());
@@ -66,7 +69,7 @@ fn one_lifecycle_call_runs_at_a_time() {
     assert_eq!(sandboxes.begin_command(&id, "t-1"), Err(Unavailable::Busy));
     assert_eq!(sandboxes.begin_destroy(&id, "t-1"), Err(Unavailable::Busy));
     assert!(
-        sandboxes.owner_of(&id, "t-1").is_ok(),
+        sandboxes.hold(&id, "t-1").is_ok(),
         "file and terminal calls do not wait"
     );
     sandboxes.release(&id);

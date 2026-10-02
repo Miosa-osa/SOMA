@@ -42,6 +42,8 @@ pub(super) struct Engine {
     pub(super) listed: Mutex<Vec<SandboxEntry>>,
     /// How long each command takes, for tests of commands that outlast the idle timeout.
     pub(super) exec_delay: Mutex<Duration>,
+    /// How long each terminal call takes, as a long `read` with `wait_ms` would.
+    pub(super) terminal_delay: Mutex<Duration>,
 }
 
 struct Fake(Arc<Engine>);
@@ -84,7 +86,15 @@ impl SandboxFacade for Fake {
     }
 
     fn terminal(&mut self, _: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {
-        unreachable!("not a runner route")
+        std::thread::sleep(*self.0.terminal_delay.lock().expect("delay"));
+        Ok(TerminalOutcome {
+            instance_id: lifecycle().instance_id,
+            operation: "read",
+            answer: soma::PtyAnswer::Output {
+                bytes: b"$ ".to_vec(),
+                end: false,
+            },
+        })
     }
 
     fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {

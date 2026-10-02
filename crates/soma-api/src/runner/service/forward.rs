@@ -41,15 +41,16 @@ impl Runner {
             Ok(id) => id,
             Err(response) => return *response,
         };
-        match self.sandboxes.owner_of(&id, &principal.key.tenant_id) {
-            Ok(_) => {}
+        // Held for the whole call, so a long terminal read never sees its sandbox reaped.
+        let _held = match self.sandboxes.hold(&id, &principal.key.tenant_id) {
+            Ok(held) => held,
             Err(Unavailable::Busy) => {
                 return RunnerResponse::platform(&PlatformError::exec_busy());
             }
             Err(Unavailable::NotFound | Unavailable::Destroyed(..)) => {
                 return RunnerResponse::platform(&PlatformError::sandbox_not_found());
             }
-        }
+        };
         let Some(instance_id) = id.instance_id() else {
             return RunnerResponse::platform(&PlatformError::sandbox_not_found());
         };
