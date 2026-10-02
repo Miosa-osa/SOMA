@@ -98,3 +98,50 @@ async fn patch_replaces_the_idle_timeout_and_zero_means_none() {
         assert_eq!(refused.status, 400, "{bad}");
     }
 }
+
+#[tokio::test]
+async fn a_command_longer_than_the_idle_timeout_holds_its_sandbox() {
+    let engine = Arc::new(Engine::default());
+    *engine.exec_delay.lock().expect("delay") = Duration::from_secs(3);
+    let runner = Arc::new(runner(&engine, r#""*""#, "null"));
+    let created = call(
+        &runner,
+        http::Method::POST,
+        "/api/v1/sandboxes",
+        r#"{"timeout":1}"#,
+    )
+    .await;
+    let id = id_of(&created);
+
+    let running = {
+        let (runner, path) = (Arc::clone(&runner), format!("/api/v1/sandboxes/{id}/exec"));
+        tokio::spawn(async move {
+            call(
+                &runner,
+                http::Method::POST,
+                &path,
+                r#"{"command":"sleep 3"}"#,
+            )
+            .await
+        })
+    };
+    // Three times the idle timeout passes with the command in flight; every sweep skips it.
+    for _ in 0..6 {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        runner.reap().await;
+        assert_eq!(
+            engine.destroys.load(Ordering::SeqCst),
+            0,
+            "busy is never idle"
+        );
+    }
+    let finished = running.await.expect("exec task");
+    assert_eq!(finished.status, 200);
+
+    // The timer restarted when the command ended: still alive just after, gone once idle.
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
+}

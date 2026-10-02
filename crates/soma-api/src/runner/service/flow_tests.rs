@@ -40,6 +40,8 @@ const RECEIPT: &str = include_str!("../../../tests/fixtures/receipt.json");
 pub(super) struct Engine {
     pub(super) destroys: AtomicUsize,
     pub(super) listed: Mutex<Vec<SandboxEntry>>,
+    /// How long each command takes, for tests of commands that outlast the idle timeout.
+    pub(super) exec_delay: Mutex<Duration>,
 }
 
 struct Fake(Arc<Engine>);
@@ -66,6 +68,7 @@ impl SandboxFacade for Fake {
     }
 
     fn execute(&mut self, _: ExecuteMachineRequest) -> Result<CommandOutcome, ManagedFailure> {
+        std::thread::sleep(*self.0.exec_delay.lock().expect("delay"));
         let outcome = lifecycle();
         Ok(CommandOutcome {
             instance_id: outcome.instance_id,
