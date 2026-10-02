@@ -29,6 +29,10 @@ fn routes_only_the_contract_paths() {
     );
     assert_eq!(route(&http::Method::GET, "/healthz"), Route::Health);
     assert_eq!(route(&http::Method::GET, "/api/v1/sandboxes"), Route::List);
+    assert_eq!(
+        route(&http::Method::PATCH, &format!("/api/v1/sandboxes/{id}")),
+        Route::Extend(id)
+    );
     for (method, suffix, internal) in [
         (http::Method::GET, "", Method::Get),
         (http::Method::POST, "/stop", Method::Post),
@@ -92,6 +96,12 @@ fn a_bare_create_is_accepted_with_defaults() {
     assert_eq!(parsed.project_id.as_deref(), Some("p-1"));
     assert_eq!(parsed.timeout_seconds, 3_600);
     assert_eq!(
+        CreateParams::parse(br#"{"timeout":0}"#, 3_600, &shape())
+            .expect("0 is no idle timeout")
+            .timeout_seconds,
+        0
+    );
+    assert_eq!(
         CreateParams::parse(b"", 3_600, &shape())
             .expect("empty body")
             .timeout_seconds,
@@ -121,7 +131,8 @@ fn a_create_the_fast_lane_would_not_serve_is_refused() {
         r#"{"runtime_profile":"firecracker"}"#,
         r#"{"env":{"A":"1"}}"#,
         r#"{"cpu_count":4}"#,
-        r#"{"timeout_sec":0}"#,
+        r#"{"timeout_sec":86401}"#,
+        r#"{"timeout":-1}"#,
         r#"{"timeout_sec":"60"}"#,
         r#"{"project_id":7}"#,
         "[1]",

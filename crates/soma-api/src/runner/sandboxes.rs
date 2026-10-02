@@ -1,45 +1,18 @@
 use std::{
     collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicI64, Ordering},
-    },
+    sync::{Mutex, atomic::Ordering},
     time::{Duration, Instant},
 };
 
-use crate::runner::{ids::SandboxId, journal::ExpireReason};
+pub use crate::runner::owner::{Owner, Unavailable};
+use crate::runner::{
+    idle::{Clock, Lifetime},
+    ids::SandboxId,
+    journal::ExpireReason,
+};
 
 /// How long a destroyed sandbox is remembered, so a repeated destroy answers as the first did.
 pub const TOMBSTONE_RETENTION: Duration = Duration::from_mins(10);
-
-/// Who a sandbox belongs to, as the runner recorded it at create.
-#[derive(Clone, Debug)]
-pub struct Owner {
-    pub tenant_id: String,
-    /// The creating key; absent for a sandbox recovered from the state store after a restart.
-    pub key_id: Option<String>,
-    pub project_id: Option<String>,
-    pub created: Instant,
-    /// The tenant's live sandbox counter; the sandbox gives its slot back when it ends.
-    pub slot: Arc<AtomicI64>,
-}
-
-impl PartialEq for Owner {
-    fn eq(&self, other: &Self) -> bool {
-        self.tenant_id == other.tenant_id
-            && self.key_id == other.key_id
-            && self.project_id == other.project_id
-            && self.created == other.created
-    }
-}
-
-impl Eq for Owner {}
-
-impl Owner {
-    fn give_back_slot(&self) {
-        self.slot.fetch_sub(1, Ordering::AcqRel);
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Phase {
@@ -56,18 +29,8 @@ enum Phase {
 #[derive(Clone, Debug)]
 struct Record {
     owner: Owner,
-    expires: Instant,
+    clock: Clock,
     phase: Phase,
-}
-
-/// Why a lifecycle call on an existing sandbox cannot start.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Unavailable {
-    /// Not here, not this tenant's, or still being created: all answer 404 alike, so a caller
-    /// learns nothing about sandboxes it does not own.
-    NotFound,
-    Busy,
-    Destroyed(Owner),
 }
 
 /// The runner's own record of which tenant owns each sandbox on this host.
@@ -87,13 +50,13 @@ impl Sandboxes {
     }
 
     /// Records a new sandbox for `owner`, whose tenant slot the caller has already taken.
-    pub fn reserve(&self, id: SandboxId, owner: Owner, lifetime: Duration) {
-        let expires = owner.created + lifetime;
+    pub fn reserve(&self, id: SandboxId, owner: Owner, lifetime: Lifetime) {
+        let clock = Clock::start(lifetime, owner.created);
         self.lock().insert(
             id,
             Record {
                 owner,
-                expires,
+                clock,
                 phase: Phase::Creating,
             },
         );
@@ -120,15 +83,21 @@ impl Sandboxes {
     ///
     /// Returns why the sandbox cannot be addressed.
     pub fn owner_of(&self, id: &SandboxId, tenant_id: &str) -> Result<Owner, Unavailable> {
-        let records = self.lock();
+        let mut records = self.lock();
         let record = records
-            .get(id)
+            .get_mut(id)
             .filter(|record| record.owner.tenant_id == tenant_id)
             .ok_or(Unavailable::NotFound)?;
         match record.phase {
-            Phase::Ready | Phase::Busy => Ok(record.owner.clone()),
+            Phase::Ready | Phase::Busy => {
+                record.clock.touch(Instant::now());
+                Ok(record.owner.clone())
+            }
             Phase::Creating => Err(Unavailable::NotFound),
-            Phase::Destroyed { .. } => Err(Unavailable::Destroyed(record.owner.clone())),
+            Phase::Destroyed { at } => Err(Unavailable::Destroyed(
+                record.owner.clone(),
+                at.saturating_duration_since(record.owner.created),
+            )),
         }
     }
 
@@ -173,11 +142,15 @@ impl Sandboxes {
         match record.phase {
             Phase::Ready => {
                 record.phase = Phase::Busy;
+                record.clock.touch(Instant::now());
                 Ok(record.owner.clone())
             }
             Phase::Busy => Err(Unavailable::Busy),
             Phase::Creating => Err(Unavailable::NotFound),
-            Phase::Destroyed { .. } => Err(Unavailable::Destroyed(record.owner.clone())),
+            Phase::Destroyed { at } => Err(Unavailable::Destroyed(
+                record.owner.clone(),
+                at.saturating_duration_since(record.owner.created),
+            )),
         }
     }
 
@@ -187,6 +160,40 @@ impl Sandboxes {
             && record.phase == Phase::Busy
         {
             record.phase = Phase::Ready;
+            // A command's end is activity too: a long command must not leave its sandbox
+            // already idle when it returns.
+            record.clock.touch(Instant::now());
+        }
+    }
+
+    /// Replaces the idle timeout of a sandbox `tenant_id` owns and resets its timer.
+    ///
+    /// Returns when it now ends, or `None` if nothing will end it.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the sandbox cannot be addressed.
+    pub fn extend(
+        &self,
+        id: &SandboxId,
+        tenant_id: &str,
+        idle: Option<Duration>,
+    ) -> Result<Option<Instant>, Unavailable> {
+        let mut records = self.lock();
+        let record = records
+            .get_mut(id)
+            .filter(|record| record.owner.tenant_id == tenant_id)
+            .ok_or(Unavailable::NotFound)?;
+        match record.phase {
+            Phase::Ready | Phase::Busy => {
+                record.clock.extend(idle, Instant::now());
+                Ok(record.clock.deadline())
+            }
+            Phase::Creating => Err(Unavailable::NotFound),
+            Phase::Destroyed { at } => Err(Unavailable::Destroyed(
+                record.owner.clone(),
+                at.saturating_duration_since(record.owner.created),
+            )),
         }
     }
 
@@ -214,7 +221,7 @@ impl Sandboxes {
                 continue;
             }
             let reason = reap_reason(&record.owner.tenant_id)
-                .or_else(|| (record.expires <= now).then_some(ExpireReason::Timeout));
+                .or_else(|| record.clock.expired(now).then_some(ExpireReason::Timeout));
             if let Some(reason) = reason {
                 record.phase = Phase::Busy;
                 expired.push((id.clone(), record.owner.clone(), reason));
@@ -233,13 +240,13 @@ impl Sandboxes {
 
     /// Re-adopts a sandbox the state store still holds after a restart, counting it against
     /// its tenant.
-    pub fn recover(&self, id: SandboxId, owner: Owner, lifetime: Duration) {
-        let expires = owner.created + lifetime;
+    pub fn recover(&self, id: SandboxId, owner: Owner, lifetime: Lifetime) {
+        let clock = Clock::start(lifetime, owner.created);
         if let std::collections::hash_map::Entry::Vacant(vacant) = self.lock().entry(id) {
             owner.slot.fetch_add(1, Ordering::AcqRel);
             vacant.insert(Record {
                 owner,
-                expires,
+                clock,
                 phase: Phase::Ready,
             });
         }

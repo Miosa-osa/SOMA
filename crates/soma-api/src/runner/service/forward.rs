@@ -46,7 +46,7 @@ impl Runner {
             Err(Unavailable::Busy) => {
                 return RunnerResponse::platform(&PlatformError::exec_busy());
             }
-            Err(Unavailable::NotFound | Unavailable::Destroyed(_)) => {
+            Err(Unavailable::NotFound | Unavailable::Destroyed(..)) => {
                 return RunnerResponse::platform(&PlatformError::sandbox_not_found());
             }
         }
@@ -71,7 +71,7 @@ impl Runner {
                 timing.call = call;
                 RunnerResponse::new(response.status, response.body)
             }
-            Err(_busy) => RunnerResponse::retry_elsewhere("runtime_busy"),
+            Err(_busy) => RunnerResponse::runtime_busy(),
         }
     }
 
@@ -103,7 +103,7 @@ impl Runner {
                 timing.call = call;
                 RunnerResponse::platform(&PlatformError::agent_unavailable())
             }
-            Err(_busy) => RunnerResponse::retry_elsewhere("runtime_busy"),
+            Err(_busy) => RunnerResponse::runtime_busy(),
         }
     }
 }

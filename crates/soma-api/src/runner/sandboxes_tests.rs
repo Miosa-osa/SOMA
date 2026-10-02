@@ -5,6 +5,7 @@ use std::{
 
 use super::{Owner, Sandboxes, TOMBSTONE_RETENTION, Unavailable};
 use crate::runner::{
+    idle::Lifetime,
     ids::SandboxId,
     journal::ExpireReason,
     principal::{Tenant, TenantPolicy},
@@ -34,7 +35,7 @@ fn ready_counted(
     sandboxes.reserve(
         id.clone(),
         owner(tenant, now, slot),
-        Duration::from_secs(60),
+        Lifetime::from_seconds(60, None),
     );
     sandboxes.confirm(&id);
     id
@@ -80,7 +81,7 @@ fn a_creating_sandbox_is_not_yet_addressable() {
     sandboxes.reserve(
         id.clone(),
         owner("t-1", Instant::now(), &slot),
-        Duration::from_secs(60),
+        Lifetime::from_seconds(60, None),
     );
 
     assert_eq!(
@@ -102,7 +103,7 @@ fn a_destroyed_sandbox_is_remembered_then_forgotten() {
 
     assert!(matches!(
         sandboxes.begin_destroy(&id, "t-1"),
-        Err(Unavailable::Destroyed(_))
+        Err(Unavailable::Destroyed(..))
     ));
     assert_eq!(sandboxes.live(), 0);
     sandboxes.sweep(now + TOMBSTONE_RETENTION);
@@ -121,6 +122,7 @@ fn the_tenant_share_is_a_counter_given_back_once_per_sandbox() {
         suspended: false,
         max_concurrent_share: Some(1),
         default_timeout_seconds: None,
+        max_lifetime_seconds: None,
     };
     let tenant = Tenant::new(policy, Arc::new(AtomicI64::new(0)));
 

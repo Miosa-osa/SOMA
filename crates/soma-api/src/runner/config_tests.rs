@@ -34,7 +34,7 @@ fn a_complete_document_parses_with_defaults() {
     assert_eq!(config.host_tag, '3');
     assert_eq!(config.rate_per_second, 300);
     assert_eq!(config.feed_stale_after().as_secs(), 900);
-    assert_eq!(config.launch.default_timeout_seconds, 3_600);
+    assert_eq!(config.launch.default_timeout_seconds, 300);
     assert_eq!(config.journal.batch_lines, 500);
 }
 

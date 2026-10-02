@@ -28,6 +28,7 @@ pub enum FeedEvent {
         suspended: bool,
         max_concurrent_share: Option<u32>,
         default_timeout_s: Option<u64>,
+        max_lifetime_s: Option<u64>,
     },
     SnapshotEnd {
         seq: u64,
@@ -96,6 +97,9 @@ enum Known {
         // default rather than a refused policy.
         #[serde(default)]
         default_timeout_s: Option<u64>,
+        /// C7: the tenant's cap on a sandbox's life; absent or null is no cap.
+        #[serde(default)]
+        max_lifetime_s: Option<u64>,
     },
     SnapshotEnd {
         seq: u64,
@@ -184,6 +188,7 @@ impl From<Known> for FeedEvent {
                 suspended,
                 max_concurrent_share,
                 default_timeout_s,
+                max_lifetime_s,
             } => Self::TenantPolicy {
                 seq,
                 tenant_id,
@@ -191,6 +196,7 @@ impl From<Known> for FeedEvent {
                 suspended,
                 max_concurrent_share,
                 default_timeout_s,
+                max_lifetime_s,
             },
             Known::SnapshotEnd { seq } => Self::SnapshotEnd { seq },
             Known::Heartbeat { seq } => Self::Heartbeat { seq },

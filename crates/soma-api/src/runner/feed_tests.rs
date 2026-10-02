@@ -55,6 +55,7 @@ fn parses_every_contract_event() {
             suspended: false,
             max_concurrent_share: Some(8),
             default_timeout_s: Some(600),
+            max_lifetime_s: None,
         }
     );
     assert_eq!(

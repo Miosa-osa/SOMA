@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::runner::public_wire::PlatformError;
+use crate::runner::{idle::MAX_IDLE_TIMEOUT_SECONDS, public_wire::PlatformError};
 
 /// The exec timeout when a request names none, as the fast lane applies it.
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 30_000;
@@ -101,11 +101,11 @@ impl CreateParams {
             None | Some(Value::Null) => default_timeout,
             Some(value) => value
                 .as_u64()
-                .filter(|seconds| (1..=MAX_EXEC_TIMEOUT_SECONDS).contains(seconds))
+                .filter(|seconds| *seconds <= MAX_IDLE_TIMEOUT_SECONDS)
                 .ok_or_else(|| {
                     PlatformError::invalid_param(
-                        "timeout_sec",
-                        "timeout_sec must be an integer between 1 and 86400",
+                        "timeout",
+                        "timeout must be an integer between 0 and 86400 seconds; 0 is no idle timeout",
                     )
                 })?,
         };

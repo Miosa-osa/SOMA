@@ -8,6 +8,8 @@ pub(super) enum Route<'a> {
     Create,
     Exec(&'a str),
     Destroy(&'a str),
+    /// `PATCH {"timeout": N}`: reset or extend the idle timer.
+    Extend(&'a str),
     /// The caller's own sandboxes on this runner.
     List,
     Forward(Forward<'a>),
@@ -47,6 +49,7 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
         (&http::Method::GET, [""]) => Route::List,
         (&http::Method::POST, ["", id, "exec"]) if !id.is_empty() => Route::Exec(id),
         (&http::Method::DELETE, ["", id]) if !id.is_empty() => Route::Destroy(id),
+        (&http::Method::PATCH, ["", id]) if !id.is_empty() => Route::Extend(id),
         (&http::Method::GET, ["", id]) if !id.is_empty() => forward(id, Method::Get),
         (&http::Method::POST, ["", id, "stop"]) if !id.is_empty() => forward(id, Method::Post),
         (&http::Method::POST, ["", id, "filesystem" | "terminal", operation])

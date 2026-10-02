@@ -13,7 +13,7 @@ pub const DEFAULT_RATE_PER_SECOND: u32 = 300;
 /// runner stops creating sandboxes for anyone. Existing sandboxes keep being served.
 pub const DEFAULT_FEED_STALE_AFTER: Duration = Duration::from_mins(15);
 
-const DEFAULT_TIMEOUT_SECONDS: u64 = 3_600;
+const DEFAULT_TIMEOUT_SECONDS: u64 = crate::runner::idle::DEFAULT_IDLE_TIMEOUT_SECONDS;
 const DEFAULT_MAX_CONNECTIONS: usize = 16_384;
 const DEFAULT_BATCH_LINES: usize = 500;
 
@@ -136,8 +136,8 @@ impl RunnerConfig {
                 &"admission, max_connections and batch_lines must be positive",
             ));
         }
-        if !(1..=86_400).contains(&self.launch.default_timeout_seconds) {
-            return Err(invalid(&"default_timeout_seconds must be 1 to 86400"));
+        if self.launch.default_timeout_seconds > crate::runner::idle::MAX_IDLE_TIMEOUT_SECONDS {
+            return Err(invalid(&"default_timeout_seconds must be 0 to 86400"));
         }
         soma::OciImage::parse(self.launch.image.clone())
             .map_err(|_| invalid(&"launch.image is not a valid OCI reference"))?;

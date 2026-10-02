@@ -44,8 +44,10 @@ pub struct TenantPolicy {
     pub suspended: bool,
     /// This runner's share of the tenant's concurrent sandboxes; `None` is unlimited.
     pub max_concurrent_share: Option<u32>,
-    /// The sandbox lifetime when a create names none.
+    /// The idle timeout when a create names none; 0 is no idle timeout.
     pub default_timeout_seconds: Option<u64>,
+    /// The hard cap on a sandbox's life, idle or not; `None` is no cap.
+    pub max_lifetime_seconds: Option<u64>,
 }
 
 /// A tenant's policy joined with its live sandbox count on this runner.

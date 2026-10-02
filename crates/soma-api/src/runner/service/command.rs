@@ -121,7 +121,7 @@ fn executed_answer(
             return (response, Some(code));
         }
         Ok((Err(failure), _)) => failure,
-        Err(Busy) => return (RunnerResponse::retry_elsewhere("runtime_busy"), None),
+        Err(Busy) => return (RunnerResponse::runtime_busy(), None),
     };
     let error = match failure {
         ManagedFailure::State(ManagedStateError::MachineNotFound) => {
@@ -139,7 +139,7 @@ fn command_refusal(unavailable: &Unavailable) -> PlatformError {
     match unavailable {
         Unavailable::NotFound => PlatformError::sandbox_not_found(),
         Unavailable::Busy => PlatformError::exec_busy(),
-        Unavailable::Destroyed(_) => PlatformError::sandbox_not_running(),
+        Unavailable::Destroyed(..) => PlatformError::sandbox_not_running(),
     }
 }
 

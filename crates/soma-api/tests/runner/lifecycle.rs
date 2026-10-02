@@ -134,8 +134,9 @@ async fn serve_the_lifecycle(
 /// Destroy, then destroy again: the second answers the same without a facade call, and the
 /// destroyed sandbox no longer runs commands.
 async fn destroy_twice(address: SocketAddr, engine: &Engine, id: &str) {
+    let mut lifetimes = Vec::new();
     for _ in 0..2 {
-        let destroyed = h2(
+        let mut destroyed = h2(
             address,
             "DELETE",
             &format!("/api/v1/sandboxes/{id}"),
@@ -144,11 +145,18 @@ async fn destroy_twice(address: SocketAddr, engine: &Engine, id: &str) {
         )
         .await;
         assert_eq!(destroyed.status, 200);
+        let lifetime = destroyed.body["lifetime_ms"].take();
+        assert!(lifetime.is_u64(), "C7 usage: lifetime_ms");
+        lifetimes.push(lifetime);
         assert_eq!(
             destroyed.body,
-            serde_json::json!({"id": id, "operation_id": null, "state": "destroyed", "total_runtime_sec": null})
+            serde_json::json!({"cpu_ms": null, "id": id, "lifetime_ms": null, "operation_id": null, "state": "destroyed", "total_runtime_sec": null})
         );
     }
+    assert_eq!(
+        lifetimes[0], lifetimes[1],
+        "a repeated destroy answers the same"
+    );
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
     let gone = h2(
         address,

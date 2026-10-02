@@ -1,0 +1,100 @@
+//! C7 idle timeouts through the runner: activity resets the timer, PATCH replaces it.
+
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
+
+use super::flow_tests::{Engine, call, runner};
+
+fn id_of(response: &super::RunnerResponse) -> String {
+    let body: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
+    body["id"].as_str().expect("id").to_owned()
+}
+
+#[tokio::test]
+async fn every_authenticated_call_resets_the_idle_timer() {
+    let engine = Arc::new(Engine::default());
+    let runner = runner(&engine, r#""*""#, "null");
+    let created = call(
+        &runner,
+        http::Method::POST,
+        "/api/v1/sandboxes",
+        r#"{"timeout":1}"#,
+    )
+    .await;
+    let id = id_of(&created);
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    let exec = call(
+        &runner,
+        http::Method::POST,
+        &format!("/api/v1/sandboxes/{id}/exec"),
+        r#"{"command":"true"}"#,
+    )
+    .await;
+    assert_eq!(exec.status, 200);
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    runner.reap().await;
+    assert_eq!(
+        engine.destroys.load(Ordering::SeqCst),
+        0,
+        "the exec reset the timer"
+    );
+
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn patch_replaces_the_idle_timeout_and_zero_means_none() {
+    let engine = Arc::new(Engine::default());
+    let runner = runner(&engine, r#""*""#, "null");
+    let created = call(
+        &runner,
+        http::Method::POST,
+        "/api/v1/sandboxes",
+        r#"{"timeout":1}"#,
+    )
+    .await;
+    let id = id_of(&created);
+
+    let patched = call(
+        &runner,
+        http::Method::PATCH,
+        &format!("/api/v1/sandboxes/{id}"),
+        r#"{"timeout":0}"#,
+    )
+    .await;
+    assert_eq!(patched.status, 200);
+    let body: serde_json::Value = serde_json::from_slice(&patched.body).expect("JSON");
+    assert_eq!(
+        body,
+        serde_json::json!({"expires_at": null, "id": id, "timeout_sec": 0})
+    );
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
+
+    let extended = call(
+        &runner,
+        http::Method::PATCH,
+        &format!("/api/v1/sandboxes/{id}"),
+        r#"{"timeout":600}"#,
+    )
+    .await;
+    let body: serde_json::Value = serde_json::from_slice(&extended.body).expect("JSON");
+    assert_eq!(body["timeout_sec"], 600);
+    assert!(body["expires_at"].is_string());
+    for bad in [r#"{"timeout":-1}"#, r#"{"timeout":86401}"#, "{}"] {
+        let refused = call(
+            &runner,
+            http::Method::PATCH,
+            &format!("/api/v1/sandboxes/{id}"),
+            bad,
+        )
+        .await;
+        assert_eq!(refused.status, 400, "{bad}");
+    }
+}

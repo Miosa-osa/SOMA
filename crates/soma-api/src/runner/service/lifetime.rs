@@ -5,6 +5,7 @@ use soma::{DestroyMachineRequest, ManagedFailure, ManagedStateError, SandboxPhas
 use crate::{
     runner::{
         backend::CallTiming,
+        idle::Lifetime,
         ids::SandboxId,
         journal::{Entry, EntryKind},
         keys::Principal,
@@ -43,9 +44,9 @@ impl Runner {
         };
         let owner = match self.sandboxes.begin_destroy(&id, &principal.key.tenant_id) {
             Ok(owner) => owner,
-            Err(Unavailable::Destroyed(_)) => {
+            Err(Unavailable::Destroyed(_, lifetime)) => {
                 // A repeated destroy answers as the first one did, and is not paperwork again.
-                return RunnerResponse::new(200, destroyed_body(&id));
+                return RunnerResponse::new(200, destroyed_body(&id, lifetime));
             }
             Err(Unavailable::NotFound) => {
                 let error = PlatformError::sandbox_not_found();
@@ -61,10 +62,10 @@ impl Runner {
             timing.call = call;
         }
         match result.outcome {
-            Released::Gone => {
-                let lifetime = owner.created.elapsed();
+            Released::Gone(at) => {
+                let lifetime = at.saturating_duration_since(owner.created);
                 with_journal(
-                    RunnerResponse::new(200, destroyed_body(&id)),
+                    RunnerResponse::new(200, destroyed_body(&id, lifetime)),
                     journal(200, Some(&owner), Some(lifetime)),
                 )
             }
@@ -76,8 +77,8 @@ impl Runner {
                 )
             }
             Released::Busy => with_journal(
-                RunnerResponse::retry_elsewhere("runtime_busy"),
-                journal(503, Some(&owner), None),
+                RunnerResponse::runtime_busy(),
+                journal(429, Some(&owner), None),
             ),
         }
     }
@@ -106,9 +107,10 @@ impl Runner {
         {
             // A sandbox the state store does not know is already gone, which is what was asked.
             Ok((Ok(_) | Err(ManagedFailure::State(ManagedStateError::MachineNotFound)), call)) => {
-                self.sandboxes.destroyed(id, Instant::now());
+                let at = Instant::now();
+                self.sandboxes.destroyed(id, at);
                 Release {
-                    outcome: Released::Gone,
+                    outcome: Released::Gone(at),
                     timing: Some(call),
                 }
             }
@@ -144,7 +146,7 @@ impl Runner {
             .claim_expired(now, |tenant| keys.reap_reason(tenant));
         for (id, owner, reason) in claimed {
             let result = self.release(&id).await;
-            if matches!(result.outcome, Released::Gone) {
+            if let Released::Gone(at) = result.outcome {
                 self.journal.record(Entry {
                     kind: EntryKind::Expire,
                     tenant_id: owner.tenant_id.clone(),
@@ -157,7 +159,7 @@ impl Runner {
                         .map_or(0, |call| millis(call.pool + call.exec)),
                     exit_code: None,
                     cpu_ms: None,
-                    lifetime_ms: Some(millis(owner.created.elapsed())),
+                    lifetime_ms: Some(millis(at.saturating_duration_since(owner.created))),
                     reason: Some(reason),
                 });
             }
@@ -176,7 +178,9 @@ impl Runner {
             eprintln!("soma-api: runner could not list sandboxes to recover their owners");
             return;
         };
-        let lifetime = Duration::from_secs(self.config.launch.default_timeout_seconds);
+        // The tenant's own default and cap are not known before the feed arrives, so a
+        // recovered sandbox gets this runner's default idle timeout.
+        let lifetime = Lifetime::from_seconds(self.config.launch.default_timeout_seconds, None);
         let mut recovered = 0_usize;
         for entry in entries {
             if !matches!(
@@ -213,14 +217,17 @@ struct Release {
 }
 
 enum Released {
-    Gone,
+    /// Destroyed at this instant.
+    Gone(Instant),
     Failed(&'static str),
     Busy,
 }
 
-fn destroyed_body(id: &SandboxId) -> Vec<u8> {
+fn destroyed_body(id: &SandboxId, lifetime: Duration) -> Vec<u8> {
     public_wire::encode(&public_wire::Destroyed {
+        cpu_ms: None,
         id: id.as_str(),
+        lifetime_ms: millis(lifetime),
         operation_id: None,
         state: "destroyed",
         total_runtime_sec: None,

@@ -186,6 +186,7 @@ impl KeyTable {
                 suspended,
                 max_concurrent_share,
                 default_timeout_s,
+                max_lifetime_s,
                 ..
             } => {
                 let policy = TenantPolicy {
@@ -193,6 +194,7 @@ impl KeyTable {
                     suspended: *suspended,
                     max_concurrent_share: *max_concurrent_share,
                     default_timeout_seconds: *default_timeout_s,
+                    max_lifetime_seconds: *max_lifetime_s,
                 };
                 let counter = state.counter(tenant_id);
                 let tenant = Arc::new(Tenant::new(policy, counter));

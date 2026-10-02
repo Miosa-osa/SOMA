@@ -2,9 +2,12 @@
 
 mod command;
 mod create;
+mod extend;
 #[cfg(test)]
 mod flow_tests;
 mod forward;
+#[cfg(test)]
+mod idle_tests;
 mod lifetime;
 mod params;
 mod routing;
@@ -12,9 +15,9 @@ mod routing;
 mod scope_tests;
 #[cfg(test)]
 mod tests;
+mod timing;
 
 use std::{
-    fmt::Write as _,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -25,7 +28,7 @@ use soma::{ManagedFailure, OciImage};
 use crate::{
     failure::managed_error,
     runner::{
-        backend::{Backend, CallTiming},
+        backend::Backend,
         config::RunnerConfig,
         ids::SandboxId,
         journal::{Entry, EntryKind, Journal},
@@ -37,6 +40,7 @@ use crate::{
 };
 
 use routing::{Route, route};
+use timing::Timing;
 
 /// The largest request body the runner reads: the loopback service's own bound, which a
 /// maximal file write needs.
@@ -82,41 +86,19 @@ impl RunnerResponse {
     }
 
     /// The `503` that tells the SDK to retry on the next runner at once.
-    fn retry_elsewhere(code: &str) -> Self {
-        Self::refusal(503, code).header("retry-after", "0".to_owned())
+    /// `429 runtime_busy`: this runner is at its admission cap; the SDK retries the next IP.
+    fn runtime_busy() -> Self {
+        Self::refusal(429, "runtime_busy").header("retry-after", "0".to_owned())
+    }
+
+    /// `503 feed_stale`: this runner's key table is too old to admit a create.
+    fn feed_stale() -> Self {
+        Self::refusal(503, "feed_stale").header("retry-after", "0".to_owned())
     }
 
     fn header(mut self, name: &'static str, value: String) -> Self {
         self.headers.push((name, value));
         self
-    }
-}
-
-/// Where each request's time went, as `Server-Timing` reports it in milliseconds.
-#[derive(Clone, Copy, Debug, Default)]
-struct Timing {
-    auth: Duration,
-    call: CallTiming,
-}
-
-impl Timing {
-    fn header(self) -> String {
-        let mut value = String::with_capacity(48);
-        for (index, (name, duration)) in [
-            ("auth", self.auth),
-            ("pool", self.call.pool),
-            ("exec", self.call.exec),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            if index > 0 {
-                value.push(',');
-            }
-            let micros = duration.as_micros();
-            let _written = write!(value, "{name};dur={}.{:03}", micros / 1_000, micros % 1_000);
-        }
-        value
     }
 }
 
@@ -187,6 +169,7 @@ impl Runner {
             Route::Create
             | Route::Exec(_)
             | Route::Destroy(_)
+            | Route::Extend(_)
             | Route::List
             | Route::Forward(_) => {}
         }
@@ -208,6 +191,7 @@ impl Runner {
             Route::Create => self.create(&principal, &request.body, timing).await,
             Route::Exec(id) => self.exec(&principal, id, &request.body, timing).await,
             Route::Destroy(id) => self.destroy(&principal, id, timing).await,
+            Route::Extend(id) => self.extend(&principal, id, &request.body),
             Route::List => self.list(&principal, timing).await,
             Route::Forward(forward) => {
                 self.forward(&principal, forward, &request.body, timing)

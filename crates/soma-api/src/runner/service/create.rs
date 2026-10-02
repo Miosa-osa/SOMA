@@ -1,11 +1,11 @@
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use soma::{LaunchMachineRequest, MachineName};
 
 use crate::{
     runner::{
-        clock::iso8601_micros, ids::SandboxId, journal::EntryKind, keys::Principal, public_wire,
-        sandboxes::Owner,
+        clock::iso8601_micros, idle::Lifetime, ids::SandboxId, journal::EntryKind, keys::Principal,
+        public_wire, sandboxes::Owner,
     },
     wire::operation_id,
 };
@@ -40,10 +40,7 @@ impl Runner {
         };
         let project = params.project_id.clone();
         let Ok(_permit) = self.admission.try_acquire() else {
-            return with_journal(
-                RunnerResponse::retry_elsewhere("runtime_busy"),
-                journal(503, None, project),
-            );
+            return with_journal(RunnerResponse::runtime_busy(), journal(429, None, project));
         };
         // The tenant's share on this runner is one atomic counter (contract C3).
         if !principal.tenant.admit() {
@@ -60,7 +57,10 @@ impl Runner {
             created: Instant::now(),
             slot: principal.tenant.counter(),
         };
-        let lifetime = Duration::from_secs(params.timeout_seconds);
+        let lifetime = Lifetime::from_seconds(
+            params.timeout_seconds,
+            principal.tenant.policy.max_lifetime_seconds,
+        );
         self.sandboxes.reserve(id.clone(), owner, lifetime);
         let Some(launch) = self.launch_request(&id, &principal.key.tenant_id) else {
             self.sandboxes.abandon(&id);
@@ -102,8 +102,8 @@ impl Runner {
             Err(_busy) => {
                 self.sandboxes.abandon(&id);
                 with_journal(
-                    RunnerResponse::retry_elsewhere("runtime_busy"),
-                    journal(503, Some(&id), project),
+                    RunnerResponse::runtime_busy(),
+                    journal(429, Some(&id), project),
                 )
             }
         }
@@ -118,7 +118,7 @@ impl Runner {
         if !self.keys.has_received()
             || self.keys.feed_age(Instant::now()) > self.config.feed_stale_after()
         {
-            return Err(Box::new(RunnerResponse::retry_elsewhere("feed_stale")));
+            return Err(Box::new(RunnerResponse::feed_stale()));
         }
         // C7: the request's timeout, else the tenant's default, else this runner's.
         let default_timeout = principal
