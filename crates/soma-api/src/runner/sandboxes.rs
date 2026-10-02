@@ -96,12 +96,9 @@ impl Sandboxes {
         }
     }
 
-    /// Holds a sandbox `tenant_id` owns for one call that does not take its lifecycle slot
-    /// (inspect, files, terminal), until the returned guard drops.
-    ///
-    /// The hold is a counter, not the exclusive Busy phase, so these calls overlap with each
-    /// other and with a running command exactly as before; it only keeps the sweep away, and
-    /// its end restarts the idle timer like the end of a command.
+    /// Holds a sandbox `tenant_id` owns for one inspect, file or terminal call until the
+    /// guard drops: a counter, not the exclusive Busy phase, so such calls still overlap with
+    /// each other and with a command. It keeps the sweep away; its end restarts the timer.
     ///
     /// # Errors
     ///
