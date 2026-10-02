@@ -1,6 +1,6 @@
 use std::{env, net::TcpListener, path::PathBuf, process, time::Duration};
 
-use soma_api::{ApiError, FacadePool, LocalFacade, serve};
+use soma_api::{ApiError, CREATE_ADMISSION_ENV, CreateAdmission, FacadePool, LocalFacade, serve};
 use soma_local::{BackendSelection, LocalRuntimeConfig};
 
 /// The address the service binds when none is given.
@@ -49,6 +49,12 @@ fn run() -> i32 {
         );
         return 64;
     };
+    let Some(admission) =
+        CreateAdmission::from_setting(env::var(CREATE_ADMISSION_ENV).ok().as_deref())
+    else {
+        eprintln!("soma-api: {CREATE_ADMISSION_ENV} must be a positive integer");
+        return 78;
+    };
     let Ok(listener) = TcpListener::bind(&options.listen) else {
         eprintln!("soma-api: could not bind {}", options.listen);
         return 74;
@@ -74,7 +80,11 @@ fn run() -> i32 {
         eprintln!("soma-api: the local sandbox runtime could not be opened");
         return 69;
     };
-    eprintln!("soma-api: listening on {}", options.listen);
+    eprintln!(
+        "soma-api: listening on {} (at most {} concurrent creates)",
+        options.listen,
+        admission.limit()
+    );
     let open_facade = move || {
         pool.acquire_timeout(POOL_WAIT_TIMEOUT).ok_or_else(|| {
             ApiError::new(
@@ -85,7 +95,7 @@ fn run() -> i32 {
             )
         })
     };
-    if serve(&listener, open_facade).is_err() {
+    if serve(&listener, open_facade, &admission).is_err() {
         eprintln!("soma-api: the listener stopped accepting connections");
         return 74;
     }
