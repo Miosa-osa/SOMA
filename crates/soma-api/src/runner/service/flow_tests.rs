@@ -26,7 +26,10 @@ use crate::{
         backend::Backend,
         config::{RunnerConfig, tests::document},
         ids::SandboxId,
-        journal::{Journal, tests::scratch},
+        journal::{
+            Journal,
+            tests::{scratch, wait_for},
+        },
         keys::tests::{TENANT, TOKEN, event, hash_of},
     },
 };
@@ -196,6 +199,13 @@ async fn an_expired_sandbox_is_destroyed_by_the_reaper() {
 
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
     assert_eq!(runner.sandboxes().live(), 0);
+    // The create's own paperwork is the transport's job; the sweep journals its expiry.
+    wait_for(runner.journal(), 1);
+    let journal = std::fs::read_to_string(runner.journal().path()).expect("journal");
+    let line: serde_json::Value =
+        serde_json::from_str(journal.lines().next().expect("a line")).expect("JSON");
+    assert_eq!(line["kind"], "expire");
+    assert_eq!(line["key_id"], "k-1");
     let gone = call(
         &runner,
         http::Method::DELETE,

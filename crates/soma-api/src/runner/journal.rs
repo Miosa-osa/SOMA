@@ -30,6 +30,8 @@ pub enum EntryKind {
     Create,
     Exec,
     Destroy,
+    /// A sandbox the runner's own sweep ended: past its timeout, or its tenant suspended.
+    Expire,
 }
 
 /// One served request, as the runner knows it when the response leaves.

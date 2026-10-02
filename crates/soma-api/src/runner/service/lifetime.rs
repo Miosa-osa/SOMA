@@ -133,7 +133,7 @@ impl Runner {
     /// tenant is suspended, and forgets old destroyed ones.
     ///
     /// The fast lane's sandboxes expired on the control plane's schedule; a runner sandbox has
-    /// no one else to end it, so the runner does, and journals it as a destroy like any other.
+    /// no one else to end it, so the runner does, and journals it as `expire`.
     /// The control plane's own reaper stays as a backstop.
     pub async fn reap(&self) {
         let now = Instant::now();
@@ -146,7 +146,7 @@ impl Runner {
             let result = self.release(&id).await;
             if matches!(result.outcome, Released::Gone) {
                 self.journal.record(Entry {
-                    kind: EntryKind::Destroy,
+                    kind: EntryKind::Expire,
                     tenant_id: owner.tenant_id.clone(),
                     key_id: owner.key_id.clone(),
                     project_id: owner.project_id.clone(),
