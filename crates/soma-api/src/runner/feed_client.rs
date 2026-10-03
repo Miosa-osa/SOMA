@@ -7,7 +7,11 @@ use std::{
 use bytes::Bytes;
 use http_body_util::BodyExt;
 
-use crate::runner::{control_plane::Client, feed::FeedEvent, keys::KeyTable};
+use crate::runner::{
+    control_plane::Client,
+    feed::{FeedEvent, seq_of},
+    keys::{FeedViolation, KeyTable},
+};
 
 /// The control plane sends a heartbeat every 5 s; three missed ones end the connection.
 const IDLE_LIMIT: Duration = Duration::from_secs(15);
@@ -33,8 +37,9 @@ impl LineReader {
     ///
     /// # Errors
     ///
-    /// Returns an invalid-data error for an unparseable line, an event the table refuses, or a
-    /// line longer than any real event. The caller reconnects from the last applied sequence.
+    /// Returns an invalid-data error for a sequence that went backwards outside a snapshot, a
+    /// line that is not UTF-8, or a line longer than any real event. The caller reconnects from
+    /// the last applied sequence. A malformed or refused event is skipped and logged instead.
     pub fn push(&mut self, chunk: &[u8], table: &KeyTable, now: Instant) -> io::Result<usize> {
         self.buffer.extend_from_slice(chunk);
         let mut applied = 0;
@@ -46,11 +51,28 @@ impl LineReader {
             if line.is_empty() {
                 continue;
             }
-            let event = FeedEvent::parse(line).map_err(|error| invalid(&error.to_string()))?;
-            table
-                .apply(&event, now)
-                .map_err(|violation| invalid(&format!("{violation:?}")))?;
-            applied += 1;
+            // One malformed event is skipped and logged, never allowed to stop the whole feed:
+            // a stream that ends on it would leave the table empty or stale for every key.
+            let event = match FeedEvent::parse(line) {
+                Ok(event) => event,
+                Err(error) => {
+                    eprintln!("soma-api: runner feed: skipped a malformed event: {error}: {line}");
+                    table.skip(seq_of(line), now);
+                    continue;
+                }
+            };
+            match table.apply(&event, now) {
+                Ok(()) => applied += 1,
+                Err(regressed @ FeedViolation::SequenceRegressed { .. }) => {
+                    return Err(invalid(&format!("{regressed:?}")));
+                }
+                Err(violation) => {
+                    eprintln!(
+                        "soma-api: runner feed: skipped an event the table refused: {violation:?}: {line}"
+                    );
+                    table.skip(Some(event.seq()), now);
+                }
+            }
         }
         if self.buffer.len() > MAX_LINE_BYTES {
             return Err(invalid("a feed line exceeded the line limit"));

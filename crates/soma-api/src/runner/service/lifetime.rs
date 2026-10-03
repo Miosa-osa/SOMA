@@ -173,10 +173,19 @@ impl Runner {
     /// was not created here and stays unreachable through the runner. The original creation time
     /// is not in the listing, so a recovered sandbox gets a fresh default lifetime.
     pub async fn recover_sandboxes(&self) {
-        let listed = self.backend.call(|facade| facade.list()).await;
-        let Ok((Ok(entries), _)) = listed else {
-            eprintln!("soma-api: runner could not list sandboxes to recover their owners");
-            return;
+        let entries = match self.backend.call(|facade| facade.list()).await {
+            Ok((Ok(entries), _)) => entries,
+            Ok((Err(failure), _)) => {
+                eprintln!(
+                    "soma-api: runner could not list sandboxes to recover their owners: {}",
+                    failure_code(&failure)
+                );
+                return;
+            }
+            Err(_busy) => {
+                eprintln!("soma-api: runner could not lease a facade to recover sandbox owners");
+                return;
+            }
         };
         // The tenant's own default and cap are not known before the feed arrives, so a
         // recovered sandbox gets this runner's default idle timeout.

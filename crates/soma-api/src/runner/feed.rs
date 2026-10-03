@@ -81,6 +81,7 @@ enum Known {
         tenant_id: String,
         user_id: Option<String>,
         projects: ProjectScope,
+        #[serde(default, deserialize_with = "lenient_rate")]
         rate_per_s: Option<u32>,
     },
     KeyRevoke {
@@ -107,6 +108,37 @@ enum Known {
     Heartbeat {
         seq: u64,
     },
+}
+
+/// `rate_per_s` as any JSON number: a control plane that sends `10.0` means 10. A fraction
+/// rounds up and anything below 1 is 1, so a key is never throttled to nothing by a rounding.
+fn lenient_rate<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u32>, D::Error> {
+    let Some(rate) = Option::<f64>::deserialize(deserializer)? else {
+        return Ok(None);
+    };
+    let rounded = rate.ceil().clamp(1.0, f64::from(u32::MAX));
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "clamped to 1..=u32::MAX and whole just above"
+    )]
+    Ok(Some(rounded as u32))
+}
+
+/// Just the sequence number, for a line that is otherwise unusable.
+#[derive(Deserialize)]
+struct SeqOnly {
+    seq: u64,
+}
+
+/// The sequence number of a line that may not parse as any event.
+#[must_use]
+pub fn seq_of(line: &str) -> Option<u64> {
+    serde_json::from_str::<SeqOnly>(line)
+        .ok()
+        .map(|only| only.seq)
 }
 
 #[derive(Deserialize)]

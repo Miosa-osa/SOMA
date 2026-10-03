@@ -114,15 +114,81 @@ fn lines_split_across_chunks_are_reassembled() {
 }
 
 #[test]
-fn a_bad_line_or_an_endless_line_ends_the_connection() {
+fn an_endless_line_or_a_regressed_sequence_ends_the_connection() {
     let table = KeyTable::new();
-    let mut reader = LineReader::default();
-    assert!(reader.push(b"{oops}\n", &table, Instant::now()).is_err());
-
     let mut reader = LineReader::default();
     assert!(
         reader
             .push(&vec![b'x'; 65 * 1024], &table, Instant::now())
             .is_err()
     );
+
+    let mut reader = LineReader::default();
+    reader
+        .push(
+            b"{\"seq\":5,\"kind\":\"heartbeat\"}\n",
+            &table,
+            Instant::now(),
+        )
+        .expect("applies");
+    assert!(
+        reader
+            .push(
+                b"{\"seq\":3,\"kind\":\"heartbeat\"}\n",
+                &table,
+                Instant::now()
+            )
+            .is_err()
+    );
+}
+
+/// The live finding of 10-03: one `rate_per_s: 10.0` made the whole feed unusable.
+#[test]
+fn a_float_rate_is_accepted_and_a_malformed_event_is_skipped_not_fatal() {
+    let table = KeyTable::new();
+    let stream = [
+        r#"{"seq":1,"kind":"snapshot_begin"}"#.to_owned(),
+        format!(
+            r#"{{"seq":2,"kind":"key_upsert","key_hash":"{}","key_id":"k-1","tenant_id":"{TENANT}","user_id":null,"projects":"*","rate_per_s":10.0}}"#,
+            hash_of(TOKEN)
+        ),
+        "{oops}".to_owned(),
+        r#"{"seq":3,"kind":"key_upsert","key_hash":"ab"}"#.to_owned(),
+        r#"{"seq":4,"kind":"key_revoke","key_hash":"NOT-HEX"}"#.to_owned(),
+        format!(
+            r#"{{"seq":5,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":null,"default_timeout_s":300}}"#
+        ),
+        r#"{"seq":6,"kind":"snapshot_end"}"#.to_owned(),
+    ]
+    .join("\n")
+        + "\n";
+    let mut reader = LineReader::default();
+    let applied = reader
+        .push(stream.as_bytes(), &table, Instant::now())
+        .expect("a malformed event does not end the feed");
+
+    assert_eq!(applied, 4, "begin, upsert, policy, end");
+    assert_eq!(
+        table.last_seq(),
+        6,
+        "skipped lines still count for the sequence"
+    );
+    let principal = table
+        .admit(Some(&format!("Bearer {TOKEN}")))
+        .expect("the key from the float-rate event is served");
+    assert_eq!(principal.key.rate_per_second, Some(10));
+}
+
+#[test]
+fn fractional_and_tiny_rates_round_up_to_at_least_one() {
+    for (rate, expected) in [("2.2", 3), ("0.1", 1), ("0", 1), ("-4", 1), ("7", 7)] {
+        let event = FeedEvent::parse(&format!(
+            r#"{{"seq":1,"kind":"key_upsert","key_hash":"ab","key_id":"k","tenant_id":"t","user_id":null,"projects":"*","rate_per_s":{rate}}}"#
+        ))
+        .expect("parses");
+        let FeedEvent::KeyUpsert { rate_per_s, .. } = event else {
+            panic!("a key_upsert");
+        };
+        assert_eq!(rate_per_s, Some(expected), "rate {rate}");
+    }
 }

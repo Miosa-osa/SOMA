@@ -12,6 +12,7 @@ use std::{
 
 use soma::{InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StoredState};
 
+pub(crate) use self::layout::MACHINE_HOST_DIRECTORY;
 use self::{
     enumerate::instance_identities,
     failure::{capacity_exceeded, conflict, invalid_record, unavailable},

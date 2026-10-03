@@ -29,8 +29,6 @@ struct State {
     staging: Option<Entries>,
     last_seq: u64,
     last_event: Option<Instant>,
-    /// Set when a feed connection opens and cleared by its first event.
-    connection_opened: bool,
     /// Live sandbox counts per tenant. Kept outside the entries so that neither a snapshot nor
     /// a policy change forgets sandboxes that are running.
     counters: HashMap<String, Arc<AtomicI64>>,
@@ -100,16 +98,18 @@ impl KeyTable {
         self.read().last_seq
     }
 
-    /// Marks the start of a feed connection.
-    ///
-    /// Any half-built snapshot of the previous connection is forgotten; the live table stays as
-    /// it was. A snapshot that opens the new connection may restart the sequence below the last
-    /// applied number, which is how a control plane that lost its own sequence (a restart) brings
-    /// a runner back without the runner refusing it forever.
+    /// Marks a new feed connection: the last one's half-built snapshot is forgotten.
     pub fn begin_connection(&self) {
+        self.write().staging = None;
+    }
+
+    /// Counts a skipped malformed line for sequence and age, so a reconnect skips it too.
+    pub fn skip(&self, seq: Option<u64>, now: Instant) {
         let mut state = self.write();
-        state.staging = None;
-        state.connection_opened = true;
+        if let Some(seq) = seq.filter(|seq| *seq > state.last_seq) {
+            state.last_seq = seq;
+        }
+        state.last_event = Some(now);
     }
 
     /// Time since the feed last delivered any event, or since startup if it never has.
@@ -134,8 +134,8 @@ impl KeyTable {
     pub fn apply(&self, event: &FeedEvent, now: Instant) -> Result<(), FeedViolation> {
         let mut state = self.write();
         let seq = event.seq();
-        let resync = state.connection_opened && matches!(event, FeedEvent::SnapshotBegin { .. });
-        state.connection_opened = false;
+        // A snapshot is a reset point and may be numbered below the last applied event.
+        let resync = matches!(event, FeedEvent::SnapshotBegin { .. });
         if seq <= state.last_seq && !resync {
             return Err(FeedViolation::SequenceRegressed {
                 last: state.last_seq,
@@ -292,6 +292,9 @@ impl State {
     }
 }
 
+#[cfg(test)]
+#[path = "keys_sequence_tests.rs"]
+mod sequence_tests;
 #[cfg(test)]
 #[path = "keys_tests.rs"]
 pub(crate) mod tests;

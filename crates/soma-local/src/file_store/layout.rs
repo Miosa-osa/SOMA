@@ -5,6 +5,9 @@ use soma::{InstanceId, StateRevision, StateStoreFailure};
 use super::failure::corrupt;
 
 pub(super) const LOCK_DIRECTORY: &str = ".locks";
+/// Where hosted machines are addressed, under the same root as the records
+/// (`backend::machine_host_directory`). It holds sockets, not records, so enumeration skips it.
+pub(crate) const MACHINE_HOST_DIRECTORY: &str = "machines";
 const REVISION_DIGITS: usize = 20;
 const REVISION_SUFFIX: &str = ".state";
 const TEMP_PID_DIGITS: usize = 10;

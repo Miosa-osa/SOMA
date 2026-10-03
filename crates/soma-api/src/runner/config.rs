@@ -1,4 +1,4 @@
-use std::{io, net::SocketAddr, path::PathBuf, thread, time::Duration};
+use std::{io, net::SocketAddr, path::PathBuf, time::Duration};
 
 use serde::Deserialize;
 use soma::MachineShape;
@@ -12,6 +12,13 @@ pub const DEFAULT_RATE_PER_SECOND: u32 = 300;
 /// Past this the table may still hold a key that was revoked while the feed was down, so the
 /// runner stops creating sandboxes for anyone. Existing sandboxes keep being served.
 pub const DEFAULT_FEED_STALE_AFTER: Duration = Duration::from_mins(15);
+
+/// Creates in flight on one runner before it answers `429 runtime_busy`.
+///
+/// The same 1024 the loopback service takes as `SOMA_API_MAX_CONCURRENT_CREATES`. A cap of one per
+/// hardware thread (the earlier default, 32 on host-03) refused 68 of 100 creates of one burst in
+/// the 10-03 live run, while the host served all 100 once it was lifted.
+pub const DEFAULT_ADMISSION: usize = 1_024;
 
 const DEFAULT_TIMEOUT_SECONDS: u64 = crate::runner::idle::DEFAULT_IDLE_TIMEOUT_SECONDS;
 const DEFAULT_MAX_CONNECTIONS: usize = 16_384;
@@ -182,12 +189,10 @@ impl RunnerConfig {
         Ok(())
     }
 
-    /// The create admission cap: the configured one, or one per hardware thread.
+    /// The create admission cap: the configured one, or [`DEFAULT_ADMISSION`].
     #[must_use]
     pub fn admission(&self) -> usize {
-        self.admission.unwrap_or_else(|| {
-            thread::available_parallelism().map_or(32, std::num::NonZeroUsize::get)
-        })
+        self.admission.unwrap_or(DEFAULT_ADMISSION)
     }
 
     #[must_use]
