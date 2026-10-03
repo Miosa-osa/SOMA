@@ -36,6 +36,11 @@ fn a_complete_document_parses_with_defaults() {
     assert_eq!(config.feed_stale_after().as_secs(), 900);
     assert_eq!(config.launch.default_timeout_seconds, 300);
     assert_eq!(config.journal.batch_lines, 500);
+    assert_eq!(
+        config.admission(),
+        1_024,
+        "no per-thread cap unless configured"
+    );
 }
 
 #[test]
@@ -67,4 +72,12 @@ fn splits_the_control_plane_authority() {
     );
     assert!(control_plane_authority("http://10.20.0.1").is_err());
     assert!(control_plane_authority("https://10.20.0.1/feed").is_err());
+}
+
+#[test]
+fn a_configured_admission_cap_wins() {
+    let mut document = document();
+    document["admission"] = serde_json::json!(64);
+
+    assert_eq!(parse(&document).expect("parses").admission(), 64);
 }

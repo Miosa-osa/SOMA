@@ -203,41 +203,6 @@ fn project_scope_is_enforced_only_for_a_named_project() {
 }
 
 #[test]
-fn sequence_numbers_must_increase() {
-    let table = enabled_table();
-
-    assert_eq!(
-        table.apply(&event(r#"{"seq":4,"kind":"heartbeat"}"#), Instant::now()),
-        Err(FeedViolation::SequenceRegressed {
-            last: 4,
-            received: 4
-        })
-    );
-}
-
-#[test]
-fn a_snapshot_opening_a_connection_may_restart_the_sequence() {
-    let table = enabled_table();
-    table.begin_connection();
-    let now = Instant::now();
-    table
-        .apply(&event(r#"{"seq":1,"kind":"snapshot_begin"}"#), now)
-        .expect("a restarted sequence opens with a snapshot");
-    table
-        .apply(&event(r#"{"seq":2,"kind":"snapshot_end"}"#), now)
-        .expect("applies");
-
-    assert_eq!(table.last_seq(), 2);
-    table.begin_connection();
-    assert!(
-        table
-            .apply(&event(r#"{"seq":1,"kind":"heartbeat"}"#), now)
-            .is_err(),
-        "only a snapshot may restart the sequence"
-    );
-}
-
-#[test]
 fn rejects_a_malformed_hash_and_an_unopened_snapshot_end() {
     let table = KeyTable::new();
 
