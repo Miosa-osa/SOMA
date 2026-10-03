@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 pub use crate::runner::principal::{
     Joined, KeyRecord, Principal, Projects, Refusal, Tenant, TenantPolicy,
 };
+use entries::Entries;
+
 use crate::runner::{feed::FeedEvent, ids::decode_sha256_hex, journal::ExpireReason};
 
 /// The in-memory key and policy table the control-plane feed fills.
@@ -29,41 +31,12 @@ struct State {
     staging: Option<Entries>,
     last_seq: u64,
     last_event: Option<Instant>,
+    /// A revoke could not be applied: the table may still admit a revoked key, so creates are
+    /// refused until a full snapshot has been applied again.
+    resync_required: bool,
     /// Live sandbox counts per tenant. Kept outside the entries so that neither a snapshot nor
     /// a policy change forgets sandboxes that are running.
     counters: HashMap<String, Arc<AtomicI64>>,
-}
-
-/// One record per key hash, already joined with its tenant (contract C3).
-#[derive(Debug, Default)]
-struct Entries {
-    keys: HashMap<[u8; 32], Arc<Joined>>,
-    tenants: HashMap<String, Arc<Tenant>>,
-}
-
-impl Entries {
-    fn upsert_key(&mut self, hash: [u8; 32], key: KeyRecord) {
-        let tenant = self.tenants.get(&key.tenant_id).cloned();
-        let key = Arc::new(key);
-        self.keys.insert(hash, Arc::new(Joined { key, tenant }));
-    }
-
-    /// Installs a tenant policy and re-joins that tenant's keys to it.
-    ///
-    /// This walks the keys, which is the price of a single lookup on every request: a policy
-    /// change is rare, an admission is not.
-    fn upsert_tenant(&mut self, tenant_id: &str, tenant: &Arc<Tenant>) {
-        self.tenants
-            .insert(tenant_id.to_owned(), Arc::clone(tenant));
-        for joined in self.keys.values_mut() {
-            if joined.key.tenant_id == tenant_id {
-                *joined = Arc::new(Joined {
-                    key: Arc::clone(&joined.key),
-                    tenant: Some(Arc::clone(tenant)),
-                });
-            }
-        }
-    }
 }
 
 /// A feed event the table could not accept, which ends the feed connection.
@@ -112,6 +85,21 @@ impl KeyTable {
         state.last_event = Some(now);
     }
 
+    /// Fails closed after a `key_revoke` that could not be applied: the next connection asks
+    /// for everything (`after=0`), and creates are refused until its snapshot ends.
+    pub fn require_resync(&self) {
+        let mut state = self.write();
+        state.resync_required = true;
+        state.staging = None;
+        state.last_seq = 0;
+    }
+
+    /// Whether creates may be admitted: the table is not waiting for a forced resync.
+    #[must_use]
+    pub fn resync_required(&self) -> bool {
+        self.read().resync_required
+    }
+
     /// Time since the feed last delivered any event, or since startup if it never has.
     #[must_use]
     pub fn feed_age(&self, now: Instant) -> Duration {
@@ -150,6 +138,7 @@ impl KeyTable {
                     .take()
                     .ok_or(FeedViolation::UnopenedSnapshot)?;
                 state.live = staged;
+                state.resync_required = false;
             }
             FeedEvent::KeyUpsert {
                 key_hash,
@@ -292,6 +281,8 @@ impl State {
     }
 }
 
+#[path = "key_entries.rs"]
+mod entries;
 #[cfg(test)]
 #[path = "keys_sequence_tests.rs"]
 mod sequence_tests;

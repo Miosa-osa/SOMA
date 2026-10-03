@@ -133,6 +133,16 @@ struct SeqOnly {
     seq: u64,
 }
 
+/// The `kind` of a line that may not parse as any event.
+#[must_use]
+pub fn kind_of(line: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()?
+        .get("kind")?
+        .as_str()
+        .map(str::to_owned)
+}
+
 /// The sequence number of a line that may not parse as any event.
 #[must_use]
 pub fn seq_of(line: &str) -> Option<u64> {

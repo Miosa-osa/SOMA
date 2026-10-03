@@ -154,7 +154,7 @@ fn a_float_rate_is_accepted_and_a_malformed_event_is_skipped_not_fatal() {
         ),
         "{oops}".to_owned(),
         r#"{"seq":3,"kind":"key_upsert","key_hash":"ab"}"#.to_owned(),
-        r#"{"seq":4,"kind":"key_revoke","key_hash":"NOT-HEX"}"#.to_owned(),
+        r#"{"seq":4,"kind":"key_upsert","key_hash":"NOT-HEX","key_id":"k-2","tenant_id":"t","user_id":null,"projects":"*","rate_per_s":null}"#.to_owned(),
         format!(
             r#"{{"seq":5,"kind":"tenant_policy","tenant_id":"{TENANT}","soma":true,"suspended":false,"max_concurrent_share":null,"default_timeout_s":300}}"#
         ),
@@ -190,5 +190,50 @@ fn fractional_and_tiny_rates_round_up_to_at_least_one() {
             panic!("a key_upsert");
         };
         assert_eq!(rate_per_s, Some(expected), "rate {rate}");
+    }
+}
+
+/// A revoke that cannot be applied fails closed: the stream ends, the next connection asks for
+/// a full snapshot (`after=0`), and creates are refused until that snapshot has ended.
+#[test]
+fn an_unappliable_revoke_forces_a_full_resync() {
+    for bad in [
+        r#"{"seq":5,"kind":"key_revoke"}"#,
+        r#"{"seq":5,"kind":"key_revoke","key_hash":"NOT-HEX"}"#,
+    ] {
+        let table = crate::runner::keys::tests::enabled_table();
+        let mut reader = LineReader::default();
+        let result = reader.push(format!("{bad}\n").as_bytes(), &table, Instant::now());
+
+        assert!(result.is_err(), "{bad} ends the stream");
+        assert!(table.resync_required(), "{bad} refuses creates");
+        assert_eq!(table.last_seq(), 0, "{bad} reconnects with after=0");
+        assert!(
+            table.admit(Some(&format!("Bearer {TOKEN}"))).is_ok(),
+            "existing access keeps working until the snapshot replaces it"
+        );
+
+        table.begin_connection();
+        let mut reader = LineReader::default();
+        reader
+            .push(
+                b"{\"seq\":40,\"kind\":\"snapshot_begin\"}\n",
+                &table,
+                Instant::now(),
+            )
+            .expect("applies");
+        assert!(table.resync_required(), "still refused mid-snapshot");
+        reader
+            .push(
+                b"{\"seq\":41,\"kind\":\"snapshot_end\"}\n",
+                &table,
+                Instant::now(),
+            )
+            .expect("applies");
+        assert!(!table.resync_required(), "the snapshot ended the resync");
+        assert!(
+            table.admit(Some(&format!("Bearer {TOKEN}"))).is_err(),
+            "the key the snapshot no longer lists is gone"
+        );
     }
 }

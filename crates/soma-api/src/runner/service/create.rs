@@ -116,6 +116,7 @@ impl Runner {
         body: &[u8],
     ) -> Result<CreateParams, Box<RunnerResponse>> {
         if !self.keys.has_received()
+            || self.keys.resync_required()
             || self.keys.feed_age(Instant::now()) > self.config.feed_stale_after()
         {
             return Err(Box::new(RunnerResponse::feed_stale()));

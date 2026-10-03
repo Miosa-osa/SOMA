@@ -9,7 +9,7 @@ use http_body_util::BodyExt;
 
 use crate::runner::{
     control_plane::Client,
-    feed::{FeedEvent, seq_of},
+    feed::{FeedEvent, kind_of, seq_of},
     keys::{FeedViolation, KeyTable},
 };
 
@@ -55,6 +55,15 @@ impl LineReader {
             // a stream that ends on it would leave the table empty or stale for every key.
             let event = match FeedEvent::parse(line) {
                 Ok(event) => event,
+                // A revoke that cannot be read fails closed: the key it named may still be
+                // admitted, so the table resyncs from a full snapshot.
+                Err(error) if kind_of(line).as_deref() == Some("key_revoke") => {
+                    return Err(resync(
+                        table,
+                        &format!("a malformed key_revoke: {error}: {line}"),
+                    ));
+                }
+                // Anything else that cannot be read only fails to add access; skip it.
                 Err(error) => {
                     eprintln!("soma-api: runner feed: skipped a malformed event: {error}: {line}");
                     table.skip(seq_of(line), now);
@@ -65,6 +74,12 @@ impl LineReader {
                 Ok(()) => applied += 1,
                 Err(regressed @ FeedViolation::SequenceRegressed { .. }) => {
                     return Err(invalid(&format!("{regressed:?}")));
+                }
+                Err(violation) if matches!(event, FeedEvent::KeyRevoke { .. }) => {
+                    return Err(resync(
+                        table,
+                        &format!("a refused key_revoke: {violation:?}: {line}"),
+                    ));
                 }
                 Err(violation) => {
                     eprintln!(
@@ -130,6 +145,15 @@ async fn follow(client: &Client, table: &KeyTable) -> io::Result<usize> {
             }
         }
     }
+}
+
+/// Forces a full resync and ends the connection (see [`KeyTable::require_resync`]).
+fn resync(table: &KeyTable, reason: &str) -> io::Error {
+    eprintln!(
+        "soma-api: runner feed: {reason}; resyncing from after=0, creates refused until the snapshot ends"
+    );
+    table.require_resync();
+    invalid(reason)
 }
 
 fn invalid(message: &str) -> io::Error {
