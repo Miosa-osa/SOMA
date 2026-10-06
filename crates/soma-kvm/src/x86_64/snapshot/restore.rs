@@ -241,7 +241,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         launch_page,
         clock: Stopwatch::new(),
         timeline,
-        cmdline: crate::x86_64::cmdline::compose_generation(devices),
+        cmdline: crate::cmdline::compose_generation(devices),
     })?;
     Ok(Sterile {
         machine,

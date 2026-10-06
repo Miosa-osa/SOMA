@@ -12,7 +12,6 @@
 use std::time::{Duration, Instant};
 
 use soma_guest::{HostLaunchMaterial, LaunchNetwork, TerminalStatus};
-use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{
     Milestone, RestoreRequest, SandboxDisks, Sterile, SterileRequest, restore, restore_sterile,
 };
@@ -52,7 +51,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
                 root: fixture.root(),
                 overlay: Some(head),
             },
-            devices: DeviceSet::new(true, false),
+            devices: fixture.devices(),
             guest_cid: cid,
             memory_bytes: fixture.ram_bytes,
             verify_artifacts: false,
@@ -70,7 +69,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
             root: fixture.root(),
             overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
             memory_bytes: fixture.ram_bytes,
-            devices: DeviceSet::new(true, false),
+            devices: fixture.devices(),
             verify_artifacts: false,
         })
         .expect("a sterile machine restores without an Instance");
@@ -116,7 +115,7 @@ fn sterile() -> Sterile {
         root: fixture.root(),
         overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
         memory_bytes: fixture.ram_bytes,
-        devices: DeviceSet::new(true, false),
+        devices: fixture.devices(),
         verify_artifacts: false,
     })
     .expect("a sterile machine restores without an Instance")
@@ -148,7 +147,7 @@ fn a_prepared_machine_reaches_ready_and_runs_one_command() {
     let network = LaunchNetwork::new(
         cid,
         cid,
-        restored.facts.mac,
+        fixture::launch_mac(restored.facts.mac),
         [10, 0, 0, 2],
         24,
         [10, 0, 0, 1],

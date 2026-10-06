@@ -1,5 +1,6 @@
 //! A block backend that declares a store's shape while holding no store.
 
+#[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 use super::{BackendError, BlockBackend};
 
 /// A backend that declares a store's shape while holding no store at all.

@@ -43,6 +43,17 @@ pub const PAUSE_GRACE: Duration = Duration::from_secs(10);
 
 const MIB: u64 = 1024 * 1024;
 
+/// The MAC the launch page carries: the captured one, or the fixed
+/// link-down placeholder when the Generation declared no network device
+/// (the capture then holds the zero MAC, which the page refuses).
+pub fn launch_mac(captured: [u8; 6]) -> [u8; 6] {
+    if captured == [0; 6] {
+        [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01]
+    } else {
+        captured
+    }
+}
+
 /// Everything the tests share, built once.
 pub struct Fixture {
     pub scratch: PathBuf,
@@ -58,6 +69,14 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    /// The device set the Generation declares - the one the snapshot was
+    /// captured with. Every restore must name this same set: the machine
+    /// contract digest binds it, so a test pinning its own `DeviceSet` is a
+    /// different machine and an Incompatible(MachineContract) refusal.
+    pub fn devices(&self) -> soma_kvm::DeviceSet {
+        self.compiled.manifest().device_set()
+    }
+
     /// A fresh read-only handle on the immutable Generation root.
     pub fn root(&self) -> File {
         let manifest = &self.compiled.manifest();
@@ -183,6 +202,7 @@ fn capture_source(
         open_artifact(&compiled.store, &manifest.root.descriptor).unwrap(),
         head.try_clone().unwrap(),
         ram_bytes,
+        manifest.device_set(),
     );
     let mut sandbox = SandboxMachine::create(config).expect("create the source machine");
     sandbox.watch_console(REPAIR_POINT_LINE);

@@ -123,7 +123,7 @@ pub fn cpu_template_v1() -> ContractBinding {
 /// actually boot with and a second spelling of it could only ever drift from the first.
 #[must_use]
 pub fn kernel_command_line_v1(devices: DeviceSet) -> Vec<u8> {
-    soma_kvm::x86_64::generation_command_line(devices).into_bytes()
+    soma_kvm::generation_command_line(devices).into_bytes()
 }
 
 /// Returns the digest of the fixed readiness command bytes.
