@@ -227,7 +227,8 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     // Every route exists before any captured interrupt state is armed.
     platform::write_irqchip(machine.vm_fd(), &state.irqchip)?;
     platform::write_pit(machine.vm_fd(), state.pit)?;
-    platform::write_clock(machine.vm_fd(), state.clock)?;
+    // Frozen: the paused clock, never realtime-advanced - see ClockState::frozen.
+    platform::write_clock(machine.vm_fd(), state.clock.frozen())?;
     sequence.complete(RestoreStep::RestoreDeviceAndInterruptState)?;
     timeline.mark(Milestone::Events);
 
