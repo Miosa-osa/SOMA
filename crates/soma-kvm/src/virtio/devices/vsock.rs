@@ -216,7 +216,7 @@ impl ChainHandler for VsockDevice {
         Self::chain_limits_for(queue)
     }
 
-    /// Transmit only; receive and event buffers are filled by [`rx`].
+    /// Transmit only; receive and event buffers are filled by the `rx` module.
     fn handle_chain<M: GuestMemory + ?Sized>(
         &mut self,
         queue: u16,
