@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 pub use crate::runner::principal::{
     Joined, KeyRecord, Principal, Projects, Refusal, Tenant, TenantPolicy,
 };
+use entries::Entries;
+
 use crate::runner::{feed::FeedEvent, ids::decode_sha256_hex, journal::ExpireReason};
 
 /// The in-memory key and policy table the control-plane feed fills.
@@ -29,43 +31,12 @@ struct State {
     staging: Option<Entries>,
     last_seq: u64,
     last_event: Option<Instant>,
-    /// Set when a feed connection opens and cleared by its first event.
-    connection_opened: bool,
+    /// A revoke could not be applied: the table may still admit a revoked key, so creates are
+    /// refused until a full snapshot has been applied again.
+    resync_required: bool,
     /// Live sandbox counts per tenant. Kept outside the entries so that neither a snapshot nor
     /// a policy change forgets sandboxes that are running.
     counters: HashMap<String, Arc<AtomicI64>>,
-}
-
-/// One record per key hash, already joined with its tenant (contract C3).
-#[derive(Debug, Default)]
-struct Entries {
-    keys: HashMap<[u8; 32], Arc<Joined>>,
-    tenants: HashMap<String, Arc<Tenant>>,
-}
-
-impl Entries {
-    fn upsert_key(&mut self, hash: [u8; 32], key: KeyRecord) {
-        let tenant = self.tenants.get(&key.tenant_id).cloned();
-        let key = Arc::new(key);
-        self.keys.insert(hash, Arc::new(Joined { key, tenant }));
-    }
-
-    /// Installs a tenant policy and re-joins that tenant's keys to it.
-    ///
-    /// This walks the keys, which is the price of a single lookup on every request: a policy
-    /// change is rare, an admission is not.
-    fn upsert_tenant(&mut self, tenant_id: &str, tenant: &Arc<Tenant>) {
-        self.tenants
-            .insert(tenant_id.to_owned(), Arc::clone(tenant));
-        for joined in self.keys.values_mut() {
-            if joined.key.tenant_id == tenant_id {
-                *joined = Arc::new(Joined {
-                    key: Arc::clone(&joined.key),
-                    tenant: Some(Arc::clone(tenant)),
-                });
-            }
-        }
-    }
 }
 
 /// A feed event the table could not accept, which ends the feed connection.
@@ -100,16 +71,33 @@ impl KeyTable {
         self.read().last_seq
     }
 
-    /// Marks the start of a feed connection.
-    ///
-    /// Any half-built snapshot of the previous connection is forgotten; the live table stays as
-    /// it was. A snapshot that opens the new connection may restart the sequence below the last
-    /// applied number, which is how a control plane that lost its own sequence (a restart) brings
-    /// a runner back without the runner refusing it forever.
+    /// Marks a new feed connection: the last one's half-built snapshot is forgotten.
     pub fn begin_connection(&self) {
+        self.write().staging = None;
+    }
+
+    /// Counts a skipped malformed line for sequence and age, so a reconnect skips it too.
+    pub fn skip(&self, seq: Option<u64>, now: Instant) {
         let mut state = self.write();
+        if let Some(seq) = seq.filter(|seq| *seq > state.last_seq) {
+            state.last_seq = seq;
+        }
+        state.last_event = Some(now);
+    }
+
+    /// Fails closed after a `key_revoke` that could not be applied: the next connection asks
+    /// for everything (`after=0`), and creates are refused until its snapshot ends.
+    pub fn require_resync(&self) {
+        let mut state = self.write();
+        state.resync_required = true;
         state.staging = None;
-        state.connection_opened = true;
+        state.last_seq = 0;
+    }
+
+    /// Whether creates may be admitted: the table is not waiting for a forced resync.
+    #[must_use]
+    pub fn resync_required(&self) -> bool {
+        self.read().resync_required
     }
 
     /// Time since the feed last delivered any event, or since startup if it never has.
@@ -134,8 +122,8 @@ impl KeyTable {
     pub fn apply(&self, event: &FeedEvent, now: Instant) -> Result<(), FeedViolation> {
         let mut state = self.write();
         let seq = event.seq();
-        let resync = state.connection_opened && matches!(event, FeedEvent::SnapshotBegin { .. });
-        state.connection_opened = false;
+        // A snapshot is a reset point and may be numbered below the last applied event.
+        let resync = matches!(event, FeedEvent::SnapshotBegin { .. });
         if seq <= state.last_seq && !resync {
             return Err(FeedViolation::SequenceRegressed {
                 last: state.last_seq,
@@ -150,6 +138,7 @@ impl KeyTable {
                     .take()
                     .ok_or(FeedViolation::UnopenedSnapshot)?;
                 state.live = staged;
+                state.resync_required = false;
             }
             FeedEvent::KeyUpsert {
                 key_hash,
@@ -292,6 +281,11 @@ impl State {
     }
 }
 
+#[path = "key_entries.rs"]
+mod entries;
+#[cfg(test)]
+#[path = "keys_sequence_tests.rs"]
+mod sequence_tests;
 #[cfg(test)]
 #[path = "keys_tests.rs"]
 pub(crate) mod tests;
