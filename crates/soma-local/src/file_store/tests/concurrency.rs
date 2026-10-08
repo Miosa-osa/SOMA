@@ -9,6 +9,7 @@ use soma::{StateRevision, StateStore, StateStoreFailureKind};
 
 use super::{FileStateStore, INSTANCE, TempRoot, instance, record};
 use crate::file_store::{
+    barrier::SyncBarrier,
     filesystem::ensure_directory,
     layout::{instance_lock_path, revision_path},
     revision::{commit_revision, read_record},
@@ -53,14 +54,18 @@ fn concurrent_revision_publication_never_replaces_an_existing_target() {
     let directory = root.path().join(INSTANCE);
     ensure_directory(&directory).expect("create instance directory");
     let barrier = Arc::new(Barrier::new(3));
+    // The two publishers share one sync barrier, as two facades on one root do.
+    // The window is zero so this test measures publication, not batching.
+    let sync = Arc::new(SyncBarrier::new(Duration::ZERO));
     let mut handles = Vec::new();
     for value in [b"first".as_slice(), b"second".as_slice()] {
         let barrier = Arc::clone(&barrier);
         let directory = directory.clone();
         let value = value.to_vec();
+        let sync = Arc::clone(&sync);
         handles.push(thread::spawn(move || {
             barrier.wait();
-            commit_revision(&directory, StateRevision::INITIAL, &record(&value))
+            commit_revision(&directory, StateRevision::INITIAL, &record(&value), &sync)
         }));
     }
     barrier.wait();

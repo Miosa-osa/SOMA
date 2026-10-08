@@ -34,6 +34,10 @@
 pub mod head;
 pub mod lease;
 pub mod profile;
+
+/// One filesystem-wide durability barrier.
+#[cfg(target_os = "linux")]
+pub mod sync;
 pub mod template;
 
 #[cfg(unix)]

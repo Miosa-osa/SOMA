@@ -1,3 +1,4 @@
+mod barrier;
 mod enumerate;
 mod failure;
 mod filesystem;
@@ -8,12 +9,14 @@ mod revision;
 use std::{
     fmt,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use soma::{InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StoredState};
 
 pub(crate) use self::layout::MACHINE_HOST_DIRECTORY;
 use self::{
+    barrier::{SyncBarrier, for_root},
     enumerate::instance_identities,
     failure::{capacity_exceeded, conflict, invalid_record, unavailable},
     filesystem::{ensure_directory, existing_directory},
@@ -23,9 +26,14 @@ use self::{
 };
 
 /// A process-safe, revisioned local store rooted at an explicit caller-owned directory.
+///
+/// Every store opened on one root shares that root's sync barrier, because a
+/// runner holds a pool of facades in one process and group commit only groups
+/// if they share.
 pub struct FileStateStore {
     root: PathBuf,
     locks: PathBuf,
+    sync: Arc<SyncBarrier>,
 }
 
 impl FileStateStore {
@@ -42,7 +50,8 @@ impl FileStateStore {
         ensure_directory(&root)?;
         let locks = root.join(LOCK_DIRECTORY);
         ensure_directory(&locks)?;
-        Ok(Self { root, locks })
+        let sync = for_root(&root);
+        Ok(Self { root, locks, sync })
     }
 
     fn with_instance_lock<T>(
@@ -79,7 +88,7 @@ impl StateStore for FileStateStore {
             if !scan_revisions(directory)?.is_empty() {
                 return Err(conflict());
             }
-            commit_revision(directory, StateRevision::INITIAL, &record)?;
+            commit_revision(directory, StateRevision::INITIAL, &record, &self.sync)?;
             Ok(StateRevision::INITIAL)
         })
     }
@@ -121,7 +130,7 @@ impl StateStore for FileStateStore {
                 .checked_add(1)
                 .ok_or_else(capacity_exceeded)?;
             let next = StateRevision::new(next_value).map_err(|_| capacity_exceeded())?;
-            commit_revision(directory, next, &replacement)?;
+            commit_revision(directory, next, &replacement, &self.sync)?;
             prune_superseded(&revisions, next);
             Ok(next)
         })
