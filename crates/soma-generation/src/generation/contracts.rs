@@ -7,6 +7,11 @@ use super::artifacts::Sha256Digest;
 /// Version 1 is guest RAM in slot 0 and the dedicated non-snapshot launch page in slot 1.
 pub const MEMORY_SLOT_LAYOUT_VERSION: u16 = 1;
 
+/// The memory-slot layout version of a machine whose RAM is split around the MMIO hole.
+///
+/// It restates `soma_kvm::memory_layout::SPLIT_LAYOUT_VERSION`; a test binds the two values.
+pub const MEMORY_SLOT_LAYOUT_VERSION_V2: u16 = 2;
+
 /// The launch-page layout version the guest protocol fixes.
 ///
 /// This restates `soma_guest::LAUNCH_PAGE_SCHEMA_VERSION`; a test binds the two values, and a
@@ -183,6 +188,19 @@ pub fn kernel_command_line_for(devices: DeviceSet, version: u16) -> Option<Vec<u
     Some(soma_kvm::generation_command_line_for(devices, contract).into_bytes())
 }
 
+/// The memory-slot layout version one guest RAM size produces.
+///
+/// A machine at or below the MMIO boundary is the version 1 single-range layout whatever
+/// contract built it; a larger one is split, and a Generation binds which of the two it is
+/// rather than leaving a restore to infer it.
+#[must_use]
+pub fn memory_slot_layout_version(memory_bytes: u64) -> u16 {
+    soma_kvm::memory_layout::GuestLayout::new(memory_bytes)
+        .map_or(MEMORY_SLOT_LAYOUT_VERSION, |layout| {
+            layout.slot_layout_version()
+        })
+}
+
 /// Returns the digest of the fixed readiness command bytes.
 #[must_use]
 pub fn readiness_command_digest() -> Sha256Digest {
@@ -233,6 +251,28 @@ mod tests {
             Some(v2.as_slice())
         );
         assert_eq!(kernel_command_line_for(DeviceSet::FULL, 3), None);
+    }
+
+    #[test]
+    fn the_slot_layout_versions_restate_the_machine_geometry() {
+        // A restatement is only safe while a test binds it to the thing it restates.
+        assert_eq!(
+            MEMORY_SLOT_LAYOUT_VERSION,
+            soma_kvm::memory_layout::LAYOUT_VERSION
+        );
+        assert_eq!(
+            MEMORY_SLOT_LAYOUT_VERSION_V2,
+            soma_kvm::memory_layout::SPLIT_LAYOUT_VERSION
+        );
+        assert_eq!(MEMORY_SLOT_LAYOUT_VERSION, 1);
+        assert_eq!(
+            memory_slot_layout_version(3 * 1024 * 1024 * 1024),
+            MEMORY_SLOT_LAYOUT_VERSION
+        );
+        assert_eq!(
+            memory_slot_layout_version(16 * 1024 * 1024 * 1024),
+            MEMORY_SLOT_LAYOUT_VERSION_V2
+        );
     }
 
     #[test]

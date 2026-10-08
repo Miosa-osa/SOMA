@@ -5,6 +5,7 @@ use super::{
     artifacts::Sha256Digest,
     contracts,
     error::{CompileError, CompileErrorKind, CompilePhase},
+    request::ProfileLimits,
 };
 
 mod network;
@@ -13,7 +14,6 @@ pub use network::{NetworkPolicyClass, network_policy_digest};
 
 const MIB: u64 = 1024 * 1024;
 const MINIMUM_MEMORY_BYTES: u64 = 128 * MIB;
-const MAXIMUM_MEMORY_BYTES: u64 = 3 * 1024 * MIB;
 const MINIMUM_STORAGE_BYTES: u64 = 64 * MIB;
 /// Maximum accepted Instance lifetime.
 pub const MAX_TTL_SECONDS: u64 = 30 * 24 * 3600;
@@ -150,16 +150,17 @@ pub struct TemplateRevision {
 }
 
 impl TemplateRevision {
-    /// Assembles one revision and enforces the `x86_64` profile v1 shape bounds.
+    /// Assembles one revision and enforces the shape bounds of its compiler profile.
     ///
     /// The network policy intent lives inside the Machine shape capabilities, as the portable
     /// `soma` request contract already defines it.
     ///
     /// # Errors
     ///
-    /// Returns [`CompileErrorKind::Unsupported`] for a platform other than `linux/amd64` or
-    /// more than one vCPU, and [`CompileErrorKind::InvalidInput`] for memory outside 128 MiB
-    /// through 3 GiB, memory not in 4 KiB units, or writable storage below 64 MiB or not in
+    /// Returns [`CompileErrorKind::Unsupported`] for a platform other than `linux/amd64`, for a
+    /// profile version this compiler has no limits for, or for more vCPUs than that profile
+    /// admits, and [`CompileErrorKind::InvalidInput`] for memory outside 128 MiB through the
+    /// profile's ceiling, memory not in 4 KiB units, or writable storage below 64 MiB or not in
     /// 4 MiB units.
     pub fn new(
         image: TemplateImage,
@@ -168,10 +169,14 @@ impl TemplateRevision {
         lifetime: LifetimeLimits,
         profile_version: u16,
     ) -> Result<Self, CompileError> {
+        let limits = ProfileLimits::for_version(profile_version).ok_or_else(|| {
+            CompileError::new(CompilePhase::ResolveInputs, CompileErrorKind::Unsupported)
+        })?;
         if image.platform.operating_system() != "linux"
             || image.platform.architecture() != "amd64"
             || image.platform.variant().is_some()
-            || shape.vcpu_count() != 1
+            || shape.vcpu_count() < 1
+            || shape.vcpu_count() > limits.max_vcpus
         {
             return Err(CompileError::new(
                 CompilePhase::ResolveInputs,
@@ -185,7 +190,8 @@ impl TemplateRevision {
         // size class the compiler can build a sterile template for.
         let storage_valid =
             storage == 0 || (storage >= MINIMUM_STORAGE_BYTES && storage.is_multiple_of(4 * MIB));
-        if !(MINIMUM_MEMORY_BYTES..=MAXIMUM_MEMORY_BYTES).contains(&memory) || !storage_valid {
+        let ceiling = limits.max_memory_mib.saturating_mul(MIB);
+        if !(MINIMUM_MEMORY_BYTES..=ceiling).contains(&memory) || !storage_valid {
             return Err(invalid());
         }
         Ok(Self {

@@ -25,6 +25,11 @@ const MIB: u64 = 1024 * 1024;
 /// fail-closed isolated network policy, so an overlay device and no network device.
 const DEVICES: DeviceSet = DeviceSet::new(true, false);
 
+/// The device set this fixture's Template fields imply.
+pub(crate) const fn devices() -> DeviceSet {
+    DEVICES
+}
+
 pub(crate) fn digest(fill: u8) -> Sha256Digest {
     Sha256Digest::from_bytes([fill; 32])
 }
@@ -115,6 +120,25 @@ pub(crate) fn profile_v1() -> GenerationManifest {
             ttl_seconds: 3600,
         },
     }
+}
+
+/// A manifest that satisfies every profile v2 compatibility rule.
+///
+/// It is the version 1 fixture with the three things version 2 changes: the compiler-policy
+/// version, the machine contract and its command line, and a shape at the version 2 ceiling
+/// whose RAM is split around the MMIO hole.
+pub(crate) fn profile_v2() -> GenerationManifest {
+    let mut manifest = profile_v1();
+    manifest.compiler_policy_version = 2;
+    manifest.command_line = contracts::kernel_command_line_v2(DEVICES);
+    manifest.machine_contract = contracts::machine_contract_v2();
+    manifest.shape = MachineShapeBinding {
+        memory_bytes: 16 * 1024 * MIB,
+        vcpu_count: 8,
+        memory_slot_layout_version: contracts::memory_slot_layout_version(16 * 1024 * MIB),
+        launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
+    };
+    manifest
 }
 
 /// A captured snapshot binding a certification token can carry.

@@ -41,6 +41,11 @@ pub const MMIO_HOLE_END: u64 = 0x1_0000_0000;
 /// Length of the MMIO hole between the low and high RAM ranges.
 pub const MMIO_HOLE_BYTES: u64 = MMIO_HOLE_END - LOW_RAM_END;
 
+/// The memory-slot layout version of a machine whose RAM is one range from address zero.
+pub const LAYOUT_VERSION: u16 = 1;
+/// The memory-slot layout version of a machine whose RAM is split around the MMIO hole.
+pub const SPLIT_LAYOUT_VERSION: u16 = 2;
+
 /// Largest number of RAM regions a machine can have: low, and high when RAM crosses the hole.
 pub const MAX_RAM_REGIONS: usize = 2;
 /// KVM memory slot of the high RAM range.
@@ -164,6 +169,19 @@ impl GuestLayout {
     #[must_use]
     pub const fn is_split(self) -> bool {
         self.region_count == 2
+    }
+
+    /// The memory-slot layout version this RAM size produces.
+    ///
+    /// A generation binds this, and a restore re-derives it from the certified RAM size, so a
+    /// manifest built for one layout cannot be restored as another.
+    #[must_use]
+    pub const fn slot_layout_version(self) -> u16 {
+        if self.is_split() {
+            SPLIT_LAYOUT_VERSION
+        } else {
+            LAYOUT_VERSION
+        }
     }
 
     /// One past the highest backed guest-physical address.
