@@ -49,6 +49,7 @@ pub(crate) struct Prepared {
 /// compilation, or publication. A failed run leaves no entry behind.
 pub(crate) fn prepare<Decide>(
     inputs: &BuildInputs,
+    profile: CompilerProfile,
     decide: Decide,
 ) -> Result<Prepared, Box<dyn Error>>
 where
@@ -81,7 +82,7 @@ where
     ))?;
 
     let revision = decide(&normalized, &store)?;
-    let mut profile = CompilerProfile::v1();
+    let mut profile = profile;
     // A revision with writable storage narrows the profile to the one class it selects, so the
     // compiler builds exactly the template that Generation needs. A revision with none builds
     // no template at all, and the profile's declared classes are left alone because nothing
