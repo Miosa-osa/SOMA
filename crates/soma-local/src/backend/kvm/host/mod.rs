@@ -21,6 +21,7 @@ mod serve;
 mod sterile;
 mod transport;
 mod warm;
+mod warm_gate;
 mod wire;
 
 #[cfg(test)]
