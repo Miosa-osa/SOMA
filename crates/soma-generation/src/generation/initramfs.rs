@@ -1,3 +1,20 @@
+//! Deterministic `newc` initramfs construction and allowlist verification.
+//!
+//! One archive holds the early-init executable, the guest agent, and, in layout v4, one
+//! canonical capture warm plan. The layout is an allowlist: every entry, mode, device number,
+//! and padding byte is fixed, so an archive that deviates in any way is rejected rather than
+//! repaired.
+//!
+//! Construction lives in `build_initramfs` and verification in `verify_initramfs`. The layout
+//! contract and the `newc` codec the two share stay here, because both directions must agree on
+//! one definition of the format.
+
+mod build;
+mod verify;
+
+pub use build::build_initramfs;
+pub use verify::verify_initramfs;
+
 use soma_guest::CaptureWarmPlan;
 
 use super::{
@@ -110,48 +127,6 @@ fn fields(inode: u32, mode: u32, rdev: (u32, u32), size: u32, name_len: usize) -
     ]
 }
 
-/// Builds the deterministic `newc` archive: layout v3, or layout v4 when a capture warm plan
-/// is declared.
-///
-/// Entries are emitted in raw path-byte order with root ownership, fixed modes, zero mtime,
-/// sequential inode numbers, zero device numbers except the two character nodes, zero
-/// padding, and a final `TRAILER!!!`.
-///
-/// # Errors
-///
-/// Returns [`CompileErrorKind::LimitExceeded`] when the total exceeds `max_bytes`.
-pub fn build_initramfs(
-    early_init: &[u8],
-    guest_agent: &[u8],
-    capture_warm: Option<&CaptureWarmPlan>,
-    max_bytes: u64,
-) -> Result<Vec<u8>, CompileError> {
-    let warm = capture_warm.map(CaptureWarmPlan::encode);
-    let mut archive = Vec::new();
-    for (index, (path, mode, rdev)) in layout(warm.is_some()).enumerate() {
-        let body: &[u8] = match *path {
-            EARLY_INIT_PATH => early_init,
-            GUEST_AGENT_PATH => guest_agent,
-            CAPTURE_WARM_PATH => warm.as_deref().unwrap_or_default(),
-            _ => &[],
-        };
-        let inode = u32::try_from(index + 1).map_err(|_| build_limit())?;
-        let size = u32::try_from(body.len()).map_err(|_| build_limit())?;
-        push_entry(
-            &mut archive,
-            &fields(inode, *mode, *rdev, size, path.len()),
-            path.as_bytes(),
-            body,
-        );
-    }
-    push_entry(&mut archive, &TRAILER_FIELDS, TRAILER.as_bytes(), &[]);
-    pad(&mut archive, 512);
-    if u64::try_from(archive.len()).map_err(|_| build_limit())? > max_bytes {
-        return Err(build_limit());
-    }
-    Ok(archive)
-}
-
 const TRAILER_FIELDS: Fields = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 11, 0];
 
 fn push_entry(archive: &mut Vec<u8>, fields: &Fields, name: &[u8], body: &[u8]) {
@@ -171,67 +146,6 @@ fn pad(archive: &mut Vec<u8>, alignment: usize) {
     if remainder != 0 {
         archive.resize(archive.len() + alignment - remainder, 0);
     }
-}
-
-/// Decodes and verifies a layout v3 or v4 archive, rejecting any deviation from the allowlist.
-///
-/// A layout v2 archive is rejected because its `etc/soma/responder.key` entry is not in the
-/// v3 allowlist, so a Generation carrying an immutable guest secret cannot be verified here.
-/// A layout v4 archive is accepted only when its warm entry is the last one and holds a
-/// canonical capture warm plan.
-///
-/// # Errors
-///
-/// Returns [`CompileErrorKind::InvalidInput`] for malformed headers, ordering, padding,
-/// metadata, unknown paths, a non-canonical plan, or trailing bytes.
-pub fn verify_initramfs(archive: &[u8]) -> Result<InitramfsContents, CompileError> {
-    let mut cursor = 0_usize;
-    let mut expected = layout(true).enumerate();
-    let mut early_init = None;
-    let mut guest_agent = None;
-    let mut capture_warm = None;
-    for _ in 0..=MAX_ENTRIES {
-        let entry = read_entry(archive, cursor)?;
-        cursor = entry.next;
-        if entry.name == TRAILER.as_bytes() {
-            // Only the optional warm entry may remain unconsumed, and only when it is absent.
-            let remaining = expected.next();
-            if remaining.is_some_and(|(_, entry)| entry.0 != CAPTURE_WARM_PATH)
-                || (remaining.is_some() && capture_warm.is_some())
-                || entry.fields != TRAILER_FIELDS
-            {
-                return Err(invalid());
-            }
-            let trailing = archive.get(cursor..).ok_or_else(invalid)?;
-            if trailing.len() >= 512 || trailing.iter().any(|byte| *byte != 0) {
-                return Err(invalid());
-            }
-            return Ok(InitramfsContents {
-                early_init_digest: early_init.ok_or_else(invalid)?,
-                guest_agent_digest: guest_agent.ok_or_else(invalid)?,
-                layout_version: layout_version(capture_warm.is_some()),
-                capture_warm,
-            });
-        }
-        let (index, (path, mode, rdev)) = expected.next().ok_or_else(invalid)?;
-        let inode = u32::try_from(index + 1).map_err(|_| invalid())?;
-        let size = u32::try_from(entry.body.len()).map_err(|_| invalid())?;
-        if entry.name != path.as_bytes()
-            || entry.fields != fields(inode, *mode, *rdev, size, path.len())
-        {
-            return Err(invalid());
-        }
-        match *path {
-            EARLY_INIT_PATH => early_init = Some(Sha256Digest::of(entry.body)),
-            GUEST_AGENT_PATH => guest_agent = Some(Sha256Digest::of(entry.body)),
-            CAPTURE_WARM_PATH => {
-                capture_warm = Some(CaptureWarmPlan::decode(entry.body).map_err(|_| invalid())?);
-            }
-            _ if !entry.body.is_empty() => return Err(invalid()),
-            _ => {}
-        }
-    }
-    Err(invalid())
 }
 
 struct RawEntry<'a> {
