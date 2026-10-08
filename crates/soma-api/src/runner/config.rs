@@ -3,6 +3,10 @@ use std::{io, net::SocketAddr, path::PathBuf, time::Duration};
 use serde::Deserialize;
 use soma::MachineShape;
 
+mod launch;
+
+pub use launch::{LargeShape, LaunchConfig};
+
 /// The per-key request budget when the feed does not set one, matching the fast-lane edge's own
 /// default so a key sees the same ceiling on either path.
 pub const DEFAULT_RATE_PER_SECOND: u32 = 300;
@@ -20,7 +24,6 @@ pub const DEFAULT_FEED_STALE_AFTER: Duration = Duration::from_mins(15);
 /// the 10-03 live run, while the host served all 100 once it was lifted.
 pub const DEFAULT_ADMISSION: usize = 1_024;
 
-const DEFAULT_TIMEOUT_SECONDS: u64 = crate::runner::idle::DEFAULT_IDLE_TIMEOUT_SECONDS;
 const DEFAULT_MAX_CONNECTIONS: usize = 16_384;
 const DEFAULT_BATCH_LINES: usize = 500;
 
@@ -123,18 +126,6 @@ pub struct JournalConfig {
     pub batch_lines: usize,
 }
 
-/// What a create launches, and what the compact create answer reports about it.
-#[derive(Clone, Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LaunchConfig {
-    pub image: String,
-    pub shape: MachineShape,
-    /// The template id the compact answer reports, as the standard path's `template_id`.
-    pub template_id: String,
-    #[serde(default = "default_timeout_seconds")]
-    pub default_timeout_seconds: u64,
-}
-
 impl RunnerConfig {
     /// Reads and validates the runner configuration file.
     ///
@@ -183,6 +174,12 @@ impl RunnerConfig {
         }
         soma::OciImage::parse(self.launch.image.clone())
             .map_err(|_| invalid(&"launch.image is not a valid OCI reference"))?;
+        // The large shape is resolved on every `size: "large"` create, so an unusable one is
+        // refused here rather than on a request path that cannot answer an operator.
+        if let Some(large) = &self.launch.large {
+            MachineShape::new(large.vcpu_count, large.memory_mib, large.storage_mib)
+                .map_err(|_| invalid(&"launch.large is not a valid machine shape"))?;
+        }
         control_plane_authority(&self.control_plane.url)?;
         if let Some(peers) = &self.peers {
             for (tag, peer) in &peers.runners {
@@ -269,10 +266,6 @@ const fn default_connections_per_ip() -> usize {
 
 const fn default_batch_lines() -> usize {
     DEFAULT_BATCH_LINES
-}
-
-const fn default_timeout_seconds() -> u64 {
-    DEFAULT_TIMEOUT_SECONDS
 }
 
 const fn default_shell_free_exec() -> bool {
