@@ -21,7 +21,7 @@ use soma_kvm::x86_64::{
 use crate::{
     x86_64_discover::kernel_path,
     x86_64_sandbox_boot_generation as generation,
-    x86_64_sandbox_boot_host::{require_scratch_space, scratch_dir},
+    x86_64_sandbox_boot_host::{require_scratch_space, require_scratch_space_for, scratch_dir},
     x86_64_sandbox_boot_session as session,
 };
 
@@ -33,6 +33,57 @@ pub const LAYOUT_VAR: &str = "SOMA_OCI_NODE_LAYOUT";
 pub const MEMORY_MIB: u64 = 1024;
 /// Writable class of the captured machine; every restore clones a head of this size.
 pub const STORAGE_MIB: u64 = 256;
+
+/// The image, shape, and contract one captured machine is built from.
+pub struct Recipe {
+    /// The image the Generation is built from.
+    pub image: &'static str,
+    /// Environment variable naming a pre-exported OCI layout for it.
+    pub layout_var: &'static str,
+    /// Name of this recipe's scratch tree under the run's scratch root.
+    pub scratch: &'static str,
+    /// vCPUs the captured machine runs.
+    pub vcpus: u16,
+    /// Guest RAM in MiB.
+    pub memory_mib: u64,
+    /// Writable class in MiB.
+    pub storage_mib: u64,
+    /// The contract the Generation is compiled, captured, and restored under.
+    pub contract: MachineContract,
+}
+
+/// The single-vCPU `node:22` machine every test written before contract v2 shares.
+pub const NODE22: Recipe = Recipe {
+    image: IMAGE,
+    layout_var: LAYOUT_VAR,
+    scratch: "node22",
+    vcpus: 1,
+    memory_mib: MEMORY_MIB,
+    storage_mib: STORAGE_MIB,
+    contract: MachineContract::V1,
+};
+
+/// The eight-vCPU, sixteen-gigabyte machine contract v2 exists for.
+///
+/// BusyBox rather than `node:22`: the claim under test is the shape, and the smaller image keeps
+/// the capture and every restore cheap. `storage_mib` stays at the same writable class, because
+/// nothing in the shape claim depends on it and a larger head costs the restore time.
+pub const BUSYBOX_V2: Recipe = Recipe {
+    image: "busybox:stable-musl",
+    layout_var: "SOMA_OCI_BUSYBOX_LAYOUT",
+    scratch: "busybox-v2",
+    vcpus: 8,
+    memory_mib: 16 * 1024,
+    storage_mib: STORAGE_MIB,
+    contract: MachineContract::V2,
+};
+
+/// Free space a contract v2 capture needs before it starts.
+///
+/// The capture walk writes the whole memory object, so a sixteen-gigabyte machine stages sixteen
+/// gigabytes of image alongside its root, its overlay, and its state, and a run that starts with
+/// less fails deep inside the walk instead of at the door.
+pub const V2_REQUIRED_FREE_BYTES: u64 = 20 * 1024 * 1024 * 1024;
 /// The context identifier the captured machine holds; every restore is assigned another.
 pub const CAPTURE_CID: u32 = 3;
 /// The exact console line the pinned guest agent prints at the disconnected repair point.
@@ -63,6 +114,10 @@ pub struct Fixture {
     pub compiled: generation::Compiled,
     pub candidate_id: [u8; 32],
     pub ram_bytes: u64,
+    /// vCPUs the captured machine ran, which every restore must come back with.
+    pub vcpus: u16,
+    /// The contract the Generation was compiled and captured under.
+    pub contract: MachineContract,
     /// The pinned static guest agent the Generation was built with.
     pub agent: PathBuf,
     /// The evidence of the machine the snapshot was taken from.
@@ -112,7 +167,8 @@ impl Fixture {
 /// The shared fixture as every test borrows it.
 pub type Shared = MutexGuard<'static, Fixture>;
 
-static FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
+static NODE22_FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
+static BUSYBOX_V2_FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
 
 /// Builds the shared fixture on first use and lends it to every later caller.
 ///
@@ -122,30 +178,49 @@ static FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
 /// that reaches here asked for them by name or with `--ignored`; a missing prerequisite is
 /// then a failed run and never a test that reports `ok` having executed nothing.
 pub fn shared() -> Shared {
-    // The Generation is compiled once and every later caller borrows it, so a suite that
-    // cannot export the image fails in seconds instead of recompiling it for every test.
-    FIXTURE
-        .get_or_init(|| Mutex::new(build()))
+    borrow(&NODE22_FIXTURE, &NODE22)
+}
+
+/// The shared eight-vCPU, sixteen-gigabyte fixture the contract v2 proofs borrow.
+pub fn shared_v2() -> Shared {
+    borrow(&BUSYBOX_V2_FIXTURE, &BUSYBOX_V2)
+}
+
+/// Compiles one recipe's Generation and captures one snapshot of it, once per process.
+///
+/// The Generation is compiled once and every later caller borrows it, so a suite that cannot
+/// export the image fails in seconds instead of recompiling it for every test.
+fn borrow(cell: &'static OnceLock<Mutex<Fixture>>, recipe: &Recipe) -> Shared {
+    cell.get_or_init(|| Mutex::new(build(recipe)))
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-fn build() -> Fixture {
-    require_scratch_space();
-    let scratch = scratch_dir("node22");
+fn build(recipe: &Recipe) -> Fixture {
+    // The capture walk writes the whole memory object, so a multi-vCPU shape stages its own
+    // figure rather than the floor a small machine fits in.
+    if recipe.vcpus > 1 {
+        require_scratch_space_for(V2_REQUIRED_FREE_BYTES);
+    } else {
+        require_scratch_space();
+    }
+    let scratch = scratch_dir(recipe.scratch);
     let inputs = generation::inputs(kernel_path());
-    let layout = generation::oci_layout(IMAGE, LAYOUT_VAR, &scratch).unwrap_or_else(|| {
-        panic!(
-            "prerequisite failed: the {IMAGE} OCI layout could not be exported; set {LAYOUT_VAR}. It never passes silently"
-        )
-    });
+    let layout = generation::oci_layout(recipe.image, recipe.layout_var, &scratch).unwrap_or_else(
+        || {
+            panic!(
+                "prerequisite failed: the {} OCI layout could not be exported; set {}. It never passes silently",
+                recipe.image, recipe.layout_var
+            )
+        },
+    );
     let compiled = generation::compile(
         &layout,
-        &format!("docker.io/library/{IMAGE}"),
+        &format!("docker.io/library/{}", recipe.image),
         generation::Shape {
-            memory_mib: MEMORY_MIB,
-            storage_mib: STORAGE_MIB,
-            vcpus: 1,
+            memory_mib: recipe.memory_mib,
+            storage_mib: recipe.storage_mib,
+            vcpus: recipe.vcpus,
         },
         &inputs,
         &scratch,
@@ -166,8 +241,9 @@ fn build() -> Fixture {
     let _ignored = fs::remove_dir_all(&directory);
     fs::create_dir_all(&directory).expect("create the snapshot directory");
     let paths = SnapshotPaths::new(directory);
-    let ram_bytes = MEMORY_MIB * MIB;
-    let (source, capture) = capture_source(&compiled, &paths, candidate_id, ram_bytes, &scratch);
+    let ram_bytes = recipe.memory_mib * MIB;
+    let (source, capture) =
+        capture_source(&compiled, &paths, candidate_id, ram_bytes, &scratch, recipe);
     Fixture {
         scratch,
         paths,
@@ -175,6 +251,8 @@ fn build() -> Fixture {
         compiled,
         candidate_id,
         ram_bytes,
+        vcpus: recipe.vcpus,
+        contract: recipe.contract,
         agent: inputs.agent.clone(),
         source,
     }
@@ -187,6 +265,7 @@ fn capture_source(
     candidate_id: [u8; 32],
     ram_bytes: u64,
     scratch: &Path,
+    recipe: &Recipe,
 ) -> (SandboxEvidence, CaptureOutcome) {
     let manifest = &compiled.manifest();
     let kernel = open_artifact(&compiled.store, &manifest.kernel.descriptor).unwrap();
@@ -205,8 +284,8 @@ fn capture_source(
         head.try_clone().unwrap(),
         session::Machine {
             ram_bytes,
-            vcpus: 1,
-            contract: MachineContract::V1,
+            vcpus: recipe.vcpus,
+            contract: recipe.contract,
         },
         manifest.device_set(),
     );
@@ -225,7 +304,7 @@ fn capture_source(
             overlay: Some(&mut head),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
-            contract: MachineContract::V1,
+            contract: recipe.contract,
         },
         started + REPAIR_POINT_DEADLINE,
     );
