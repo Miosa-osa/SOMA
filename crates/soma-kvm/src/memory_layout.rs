@@ -9,8 +9,8 @@
 //! [`crate::x86_64`]: the same region list, the same guest-to-object translation, and the same
 //! memory map are what a client on another host verifies, so they are unit-tested there.
 //!
-//! The object [`GuestLayout::ram_bytes`] names is exactly the backed RAM: the hole is
-//! address space, never bytes, so `memory.raw` stays the size the snapshot format documents.
+//! The object a layout's `ram_bytes` names is exactly the backed RAM: the hole is address
+//! space, never bytes, so `memory.raw` stays the size the snapshot format documents.
 
 use std::fmt;
 
