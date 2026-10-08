@@ -229,14 +229,7 @@ impl SandboxMachine {
                 kicks,
                 Arc::clone(&self.finished),
             );
-            match VcpuRun::start(
-                &context,
-                vcpu,
-                ports.clone(),
-                Some(dispatch),
-                None,
-                &self.exits,
-            ) {
+            match VcpuRun::start(&context, vcpu, &ports, Some(dispatch), None, &self.exits) {
                 Ok(run) => runs.push(run),
                 Err(report) => {
                     for run in runs {

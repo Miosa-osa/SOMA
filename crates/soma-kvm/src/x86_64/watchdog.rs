@@ -130,7 +130,7 @@ pub(crate) fn total_mmio(reports: &[RunReport]) -> MmioCounters {
 /// caller can release the VM and guest memory afterwards.
 pub(crate) fn run_with_deadline(
     vcpu: VcpuFd,
-    bus: PortBusHandle,
+    bus: &PortBusHandle,
     mmio: Option<MmioDispatch>,
     sentinel: Option<Vec<u8>>,
     timeout: Duration,
@@ -177,7 +177,7 @@ impl VcpuRun {
     pub(crate) fn start(
         context: &RunContext,
         vcpu: VcpuFd,
-        bus: PortBusHandle,
+        bus: &PortBusHandle,
         mmio: Option<MmioDispatch>,
         sentinel: Option<Vec<u8>>,
         ledger: &Arc<ExitLedger>,
@@ -194,7 +194,7 @@ impl VcpuRun {
             .spawn(move || {
                 worker_main(
                     vcpu,
-                    worker_bus,
+                    &worker_bus,
                     mmio,
                     sentinel.as_deref(),
                     &Control {

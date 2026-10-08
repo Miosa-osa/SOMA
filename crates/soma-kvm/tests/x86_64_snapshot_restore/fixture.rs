@@ -203,9 +203,11 @@ fn capture_source(
         initramfs,
         open_artifact(&compiled.store, &manifest.root.descriptor).unwrap(),
         head.try_clone().unwrap(),
-        ram_bytes,
-        1,
-        MachineContract::V1,
+        session::Machine {
+            ram_bytes,
+            vcpus: 1,
+            contract: MachineContract::V1,
+        },
         manifest.device_set(),
     );
     let mut sandbox = SandboxMachine::create(config).expect("create the source machine");

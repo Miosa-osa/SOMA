@@ -118,14 +118,8 @@ impl GuestRam {
     /// derived, not at an address a caller chose.
     pub(crate) fn register(&self, vm: &VmFd) -> Result<(), MachineError> {
         for region in self.layout.regions() {
-            self.mapping.register_range(
-                vm,
-                region.slot,
-                region.guest_start,
-                region.host_offset,
-                region.size,
-                Phase::RegisterMemory,
-            )?;
+            self.mapping
+                .register_range(vm, region, Phase::RegisterMemory)?;
         }
         Ok(())
     }

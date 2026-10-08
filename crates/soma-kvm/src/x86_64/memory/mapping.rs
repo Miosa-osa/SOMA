@@ -11,6 +11,7 @@ use kvm_bindings::kvm_userspace_memory_region;
 use kvm_ioctls::VmFd;
 
 use super::super::error::{MachineError, Phase};
+use crate::memory_layout::RamRegion;
 
 /// One anonymous private mapping unmapped exactly once when the last owner drops it.
 pub(crate) struct RamMapping {
@@ -145,25 +146,36 @@ impl RamMapping {
     ) -> Result<(), MachineError> {
         let size = u64::try_from(self.len)
             .map_err(|_| MachineError::invalid(phase, "mapping length overflow"))?;
-        self.register_range(vm, slot, guest_phys_addr, 0, size, phase)
+        self.register_range(
+            vm,
+            &RamRegion {
+                slot,
+                guest_start: guest_phys_addr,
+                host_offset: 0,
+                size,
+            },
+            phase,
+        )
     }
 
-    /// Registers `[host_offset, host_offset + size)` as KVM user-memory `slot` at
-    /// `guest_phys_addr`.
+    /// Registers one backed range of guest RAM as one KVM user-memory slot.
     ///
-    /// A machine whose RAM ends above the MMIO boundary has two ranges in one object, so the
-    /// slot covers a slice of the mapping rather than the whole of it; the slice is proved
-    /// inside the mapping before any byte of it is published to KVM.
+    /// A machine whose RAM ends above the MMIO boundary has two ranges in one object, so a slot
+    /// covers a slice of the mapping rather than the whole of it; the slice is proved inside the
+    /// mapping before any byte of it is published to KVM.
     #[allow(unsafe_code)]
     pub(crate) fn register_range(
         &self,
         vm: &VmFd,
-        slot: u32,
-        guest_phys_addr: u64,
-        host_offset: u64,
-        size: u64,
+        region: &RamRegion,
         phase: Phase,
     ) -> Result<(), MachineError> {
+        let RamRegion {
+            slot,
+            guest_start: guest_phys_addr,
+            host_offset,
+            size,
+        } = *region;
         let length = usize::try_from(size)
             .map_err(|_| MachineError::invalid(phase, "mapping slice length overflow"))?;
         if self.range(host_offset, length).is_none() {

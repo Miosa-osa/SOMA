@@ -1,9 +1,8 @@
 //! Drives one sandbox from cold boot through the authenticated session to cleanup and prints it.
 
 use std::{
-    fs::{self, File},
+    fs::File,
     io::Read as _,
-    path::Path,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -18,6 +17,8 @@ use soma_kvm::x86_64::{
 use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::x86_64_sandbox_boot_control::HostIo;
+
+pub mod evidence;
 
 pub const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
 pub const GUEST_CID: u32 = 3;
@@ -184,17 +185,31 @@ fn execute_one<'a>(
     ))
 }
 
+/// The shape and contract one session's machine is built at.
+#[derive(Clone, Copy)]
+pub struct Machine {
+    /// Guest RAM in bytes.
+    pub ram_bytes: u64,
+    /// The vCPU count.
+    pub vcpus: u16,
+    /// The machine contract the Generation was built under.
+    pub contract: MachineContract,
+}
+
 /// The machine this session runs, with exactly the manifest's declared devices.
 pub fn config(
     kernel: File,
     initramfs: File,
     root: File,
     overlay: File,
-    ram_bytes: u64,
-    vcpus: u16,
-    contract: MachineContract,
+    machine: Machine,
     devices: DeviceSet,
 ) -> SandboxConfig {
+    let Machine {
+        ram_bytes,
+        vcpus,
+        contract,
+    } = machine;
     let overlay = Some(overlay);
     SandboxConfig {
         kernel,
@@ -209,53 +224,6 @@ pub fn config(
         contract,
         devices,
     }
-}
-
-/// Prints the timeline, phases, counters, and console tail; retains the console log.
-pub fn report(label: &str, evidence: &SandboxEvidence, log: &Path) {
-    fs::write(log, &evidence.serial).unwrap();
-    let text = String::from_utf8_lossy(&evidence.serial);
-    let lines: Vec<&str> = text.lines().collect();
-    eprintln!(
-        "[{label}] serial log ({} bytes, {} lines) retained at {}",
-        evidence.serial.len(),
-        lines.len(),
-        log.display()
-    );
-    for line in lines.iter().rev().take(16).rev() {
-        eprintln!("  | {line}");
-    }
-    eprintln!("[{label}] COLD timeline (ns since sandbox creation began; delta from previous):");
-    let mut previous = 0;
-    for mark in &evidence.timeline {
-        eprintln!(
-            "  {:<20} {:>14} {:>+14}",
-            format!("{:?}", mark.milestone),
-            mark.elapsed_ns,
-            i128::from(mark.elapsed_ns) - i128::from(previous)
-        );
-        previous = mark.elapsed_ns;
-    }
-    for timing in &evidence.phases {
-        eprintln!(
-            "  phase={:?} elapsed_ns={}",
-            timing.phase(),
-            timing.elapsed_ns()
-        );
-    }
-    eprintln!(
-        "[{label}] cmdline={:?} entry={:#x} initramfs={:?} exit={:?} launch_page_retired={}",
-        evidence.cmdline,
-        evidence.entry,
-        evidence.initramfs,
-        evidence.exit,
-        evidence.launch_page_retired
-    );
-    eprintln!(
-        "[{label}] bus={:?} uart={:?} mmio={:?}",
-        evidence.bus, evidence.uart, evidence.mmio
-    );
-    eprintln!("[{label}] devices={:?}", evidence.devices);
 }
 
 /// The assertions every successful sandbox run must satisfy.

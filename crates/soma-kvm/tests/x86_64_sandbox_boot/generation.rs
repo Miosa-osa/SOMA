@@ -1,7 +1,5 @@
-//! Compiles a real Generation for the live sandbox proof: exports an image from Docker into
-//! an OCI layout, imports and normalizes it, and runs the production compiler with the pinned
-//! kernel and the built static guest agent.
-//! No secret is a compiler input; the guest responder authority is fresh per Instance.
+//! Compiles a real Generation for the live sandbox proof: exports an image from Docker into an
+//! OCI layout, imports and normalizes it, and runs the production compiler with the guest agent.
 
 use std::{
     env,
@@ -90,7 +88,7 @@ pub fn inputs(kernel: PathBuf) -> Inputs {
 }
 
 /// Exports `image` from the local Docker engine into an OCI layout under `dir`, or returns the
-/// layout named by `override_var`; `None` when Docker cannot export it.
+/// layout `override_var` names; `None` when Docker cannot export it.
 pub fn oci_layout(image: &str, override_var: &str, dir: &Path) -> Option<PathBuf> {
     if let Some(layout) = env::var_os(override_var) {
         let layout = PathBuf::from(layout);
@@ -128,10 +126,9 @@ pub fn oci_layout(image: &str, override_var: &str, dir: &Path) -> Option<PathBuf
 }
 
 /// One compiled Generation Candidate and the store that holds its artifacts.
-///
-/// Everything here is reconstructible from the store, so a compiled Generation can be cached
-/// and reopened instead of rebuilt. The normalized rootfs is deliberately not retained: only
-/// its two reported facts are, and those are recorded rather than recomputed.
+/// Everything here is reconstructible from the store, so a compiled Generation can be cached and
+/// reopened instead of rebuilt. The normalized rootfs is not retained; only its two reported
+/// facts are, and those are recorded rather than recomputed.
 pub struct Compiled {
     pub store: PathBuf,
     pub(crate) id: CandidateId,
@@ -141,7 +138,7 @@ pub struct Compiled {
 }
 
 impl Compiled {
-    /// The Candidate identity, derived from the exact published manifest bytes.
+    /// The Candidate identity, from the exact published manifest bytes.
     pub fn id(&self) -> &CandidateId {
         &self.id
     }
@@ -153,9 +150,8 @@ impl Compiled {
 }
 
 /// The Machine shape a test Generation targets.
-///
-/// A shape above one vCPU or three gigabytes targets profile version 2, which admits the
-/// multi-vCPU machine; every other shape stays on version 1, so its live proofs are unchanged.
+/// A shape above one vCPU or three gigabytes targets profile version 2; every other shape stays
+/// on version 1, so its live proofs are unchanged.
 #[derive(Clone, Copy)]
 pub struct Shape {
     pub memory_mib: u64,
@@ -164,6 +160,16 @@ pub struct Shape {
 }
 
 impl Shape {
+    /// One shape, so a call site is a line rather than a block.
+    #[must_use]
+    pub const fn new(memory_mib: u64, storage_mib: u64, vcpus: u16) -> Self {
+        Self {
+            memory_mib,
+            storage_mib,
+            vcpus,
+        }
+    }
+
     /// The compiler profile this shape targets.
     fn profile(self) -> CompilerProfile {
         if self.vcpus > 1 || self.memory_mib > 3 * 1024 {
@@ -174,8 +180,7 @@ impl Shape {
     }
 }
 
-/// Returns the compiled Generation for these inputs, building it only on a cache miss.
-///
+/// Returns the compiled Generation for these inputs, on a cache miss building it once.
 /// `scratch` is retained for callers' own artifacts; the store lives in the shared cache.
 pub fn compile(
     layout: &Path,
@@ -188,7 +193,7 @@ pub fn compile(
     crate::x86_64_sandbox_boot_generation_cache::compile(&root, layout, reference, shape, inputs)
 }
 
-/// Imports, normalizes, and compiles one image for `shape` with one writable class.
+/// Imports, normalizes, and compiles one image for `shape`.
 pub(crate) fn compile_uncached(
     layout: &Path,
     reference: &str,
@@ -196,11 +201,6 @@ pub(crate) fn compile_uncached(
     inputs: &Inputs,
     scratch: &Path,
 ) -> Compiled {
-    let Shape {
-        memory_mib,
-        storage_mib,
-        vcpus,
-    } = shape;
     let profile = shape.profile();
     let store = scratch.join("store");
     fs::create_dir_all(&store).unwrap();
@@ -225,14 +225,14 @@ pub(crate) fn compile_uncached(
             workload.manifest_digest().clone(),
             workload.platform().clone(),
         ),
-        MachineShape::new(vcpus, memory_mib, storage_mib).unwrap(),
+        MachineShape::new(shape.vcpus, shape.memory_mib, shape.storage_mib).unwrap(),
         StartupBehavior::readiness_only(),
         LifetimeLimits::new(3600).unwrap(),
         profile.policy_version,
     )
     .unwrap();
     let mut profile = profile;
-    profile.overlay_capacities = vec![storage_mib * MIB];
+    profile.overlay_capacities = vec![shape.storage_mib * MIB];
     let staging = scratch.join("staging");
     fs::create_dir_all(&staging).unwrap();
     let generation = compile_generation(CompileGeneration::new(
@@ -261,7 +261,7 @@ pub(crate) fn compile_uncached(
     }
 }
 
-/// Lowercase hex SHA-256 of a whole file, read from the start; the cursor is rewound after.
+/// Lowercase hex SHA-256 of a whole file; the cursor is rewound after.
 pub fn sha256_file(mut file: &File) -> String {
     file.seek(SeekFrom::Start(0)).unwrap();
     let mut hasher = Sha256::new();

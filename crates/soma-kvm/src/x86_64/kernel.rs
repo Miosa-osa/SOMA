@@ -202,7 +202,7 @@ fn prepare_and_run(
         .nonce
         .filter(|_| config.stop_on_sentinel)
         .map(|nonce| nonce.sentinel().into_bytes());
-    let report = watchdog::run_with_deadline(vcpu, bus.clone(), None, sentinel, config.timeout);
+    let report = watchdog::run_with_deadline(vcpu, &bus, None, sentinel, config.timeout);
     clock.lap(Phase::Run);
     let (serial, bus, uart) = bus.into_inner().map_or(
         (

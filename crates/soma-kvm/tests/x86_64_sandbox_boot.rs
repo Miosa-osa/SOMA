@@ -79,9 +79,7 @@ mod live {
         name: &str,
         image: &str,
         override_var: &str,
-        memory_mib: u64,
-        storage_mib: u64,
-        vcpus: u16,
+        shape: generation::Shape,
         command: &session::Command<'_>,
     ) -> Option<Proof> {
         require_scratch_space();
@@ -97,11 +95,7 @@ mod live {
         let compiled = generation::compile(
             &layout,
             &format!("docker.io/library/{image}"),
-            generation::Shape {
-                memory_mib,
-                storage_mib,
-                vcpus,
-            },
+            shape,
             &inputs,
             &scratch,
         );
@@ -138,16 +132,18 @@ mod live {
             manifest.overlay.templates[0].descriptor.digest.to_string(),
             "the private head must start as an exact copy of the sterile template"
         );
-        let ram_bytes = memory_mib * MIB;
+        let ram_bytes = shape.memory_mib * MIB;
         let config = session::config(
             kernel,
             initramfs,
             root,
             head,
-            ram_bytes,
-            vcpus,
-            MachineContract::require(manifest.machine_contract.version)
-                .expect("the compiled Generation names a contract this host builds"),
+            session::Machine {
+                ram_bytes,
+                vcpus: shape.vcpus,
+                contract: MachineContract::require(manifest.machine_contract.version)
+                    .expect("the compiled Generation names a contract this host builds"),
+            },
             manifest.device_set(),
         );
         let expected_cmdline = String::from_utf8(manifest.command_line.clone()).unwrap();
@@ -162,7 +158,7 @@ mod live {
         x86_64_host_sample::describe("host_last_sample_with_guest_mapped", &host_last);
         x86_64_host_sample::describe("host_peak_vmrss_while_running", &host_peak);
         eprintln!("host_peaks_while_running: {host_peaks:?}");
-        session::report(name, &evidence, &scratch.join("serial.log"));
+        session::evidence::report(name, &evidence, &scratch.join("serial.log"));
         eprintln!(
             "[{name}] fd_before={fd_before} fd_after={fd_after} threads_before={threads_before} threads_after={threads_after}"
         );
@@ -218,9 +214,7 @@ mod live {
             "busybox",
             BUSYBOX,
             "SOMA_OCI_BUSYBOX_LAYOUT",
-            256,
-            64,
-            1,
+            generation::Shape::new(256, 64, 1),
             &command,
         )
         .expect("prerequisite failed: the busybox OCI layout could not be exported; install Docker or set SOMA_OCI_BUSYBOX_LAYOUT");
@@ -243,7 +237,13 @@ mod live {
             timeout_millis: 30_000,
             output_bytes: 65_536,
         };
-        let proof = boot_generation("node22", NODE, "SOMA_OCI_NODE_LAYOUT", 1024, 1024, 1, &command)
+        let proof = boot_generation(
+            "node22",
+            NODE,
+            "SOMA_OCI_NODE_LAYOUT",
+            generation::Shape::new(1024, 1024, 1),
+            &command,
+        )
             .expect("prerequisite failed: the node:22 OCI layout could not be exported; set SOMA_OCI_NODE_LAYOUT");
         assert_proof(&proof);
         let stdout = String::from_utf8_lossy(&proof.executed.stdout);
@@ -272,9 +272,7 @@ mod live {
             "busybox-smp",
             BUSYBOX,
             "SOMA_OCI_BUSYBOX_LAYOUT",
-            16 * 1024,
-            1024,
-            8,
+            generation::Shape::new(16 * 1024, 1024, 8),
             &command,
         )
         .expect("prerequisite failed: the busybox OCI layout could not be exported; set SOMA_OCI_BUSYBOX_LAYOUT");

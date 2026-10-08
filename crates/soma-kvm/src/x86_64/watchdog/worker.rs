@@ -38,7 +38,7 @@ pub(super) struct Control<'a> {
 
 pub(super) fn worker_main(
     mut vcpu: VcpuFd,
-    bus: PortBusHandle,
+    bus: &PortBusHandle,
     mut mmio: Option<Box<MmioDispatch>>,
     sentinel: Option<&[u8]>,
     control: &Control<'_>,
@@ -52,14 +52,7 @@ pub(super) fn worker_main(
     let result = match RunMaskGuard::install(&vcpu, signal) {
         Ok(mask) => {
             let result = if sender.send(WorkerEvent::Ready).is_ok() {
-                run::run(
-                    &mut vcpu,
-                    &bus,
-                    mmio.as_deref_mut(),
-                    sentinel,
-                    pause,
-                    ledger,
-                )
+                run::run(&mut vcpu, bus, mmio.as_deref_mut(), sentinel, pause, ledger)
             } else {
                 Err(MachineError::new(Phase::Run, MachineErrorKind::WorkerLost))
             };
