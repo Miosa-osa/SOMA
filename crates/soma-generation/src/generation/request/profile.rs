@@ -15,6 +15,12 @@ use super::super::{
     tree_decoder::TreeBounds,
 };
 use super::{CompilerProfile, GIB, MIB, ProfileLimits};
+
+/// The writable class the version 2 machine is defined at, in bytes.
+///
+/// It is the size the large shape declares as its writable storage, and it is the largest class
+/// either machine contract admits. Nothing outside this profile may produce or admit it.
+const LARGE_WRITABLE_CLASS_BYTES: u64 = 20 * GIB;
 impl CompilerProfile {
     /// Returns compiler profile version 1 for the `x86_64` EROFS-plus-overlay Generation.
     #[must_use]
@@ -45,11 +51,17 @@ impl CompilerProfile {
     }
 
     /// Returns compiler profile version 2 for the multi-vCPU `x86_64` Generation.
+    ///
+    /// The version 2 machine is the one that carries a large writable class, so the classes this
+    /// profile admits are version 1's plus that one. A Generation that declares a class the
+    /// profile does not list cannot be compiled or admitted, which is why the class the large
+    /// shape is defined at has to be named here rather than only in a test fixture.
     #[must_use]
     pub fn v2() -> Self {
         Self {
             policy_version: 2,
             machine_contract: MachineContract::V2,
+            overlay_capacities: vec![256 * MIB, GIB, 4 * GIB, LARGE_WRITABLE_CLASS_BYTES],
             ..Self::v1()
         }
     }
