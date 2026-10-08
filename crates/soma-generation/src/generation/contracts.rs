@@ -52,6 +52,28 @@ loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000
 initramfs=top-down-page-aligned modules-max=1\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off noapic cryptomgr.notests\n";
 
+/// The canonical machine-readable statement of `x86_64` machine contract v2.
+///
+/// It extends version 1 with three things and changes nothing else: up to eight vCPUs, a
+/// sixteen-gigabyte ceiling, and the place an Intel MP table lives. The MP table is what the
+/// kernel uses to find its application processors, because the version 2 command line drops
+/// `noapic` and still boots with ACPI off, so there is no MADT to read instead. The statement
+/// also records the address split that keeps guest RAM clear of the fixed MMIO window and the
+/// TSS page once RAM passes three gigabytes: the low range ends below the window and the
+/// remainder is placed above the four-gigabyte boundary, leaving the window in a hole.
+///
+/// The digest of these bytes, rather than of the prose document, is what the manifest binds.
+pub const MACHINE_CONTRACT_V2: &[u8] = b"soma-x86_64-machine-contract-v2\n\
+boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
+vcpu=1-8 ram-min=134217728 ram-max=17179869184 ram-step=4096\n\
+ram-split=low:0x0-0xc0000000 mmio-hole:0xc0000000-0x100000000 high:0x100000000-above\n\
+start-info=0x6000 memmap=0x7000 modules=0x8000 cmdline=0x9000 cmdline-max=8191\n\
+mptable=0xf0000 mptable-max=1024 lapic=0xfee00000 ioapic=0xfec00000\n\
+low-reserved=0x0-0x5fff workspace=0xb000-0x9ffff legacy-hole=0xa0000-0xfffff\n\
+loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000\n\
+initramfs=top-down-page-aligned modules-max=1\n\
+base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
+
 /// The header every device-contract statement opens with, before its present slots.
 const DEVICE_CONTRACT_HEADER: &str = "soma-minimal-device-surface-v1\n\
 transport=virtio-mmio version=2 magic=0x74726976 features=VIRTIO_F_VERSION_1 queues=split\n\
@@ -104,6 +126,27 @@ pub fn machine_contract_v1() -> ContractBinding {
     ContractBinding::of(1, MACHINE_CONTRACT_V1)
 }
 
+/// Returns the machine contract v2 binding.
+#[must_use]
+pub fn machine_contract_v2() -> ContractBinding {
+    ContractBinding::of(2, MACHINE_CONTRACT_V2)
+}
+
+/// Returns the machine contract binding for one version, or `None` for a version this compiler
+/// does not build.
+///
+/// Verification compares the manifest's binding against the one this returns for the version the
+/// manifest itself declares, so an unknown version fails closed rather than silently matching
+/// some other contract, and version 1 stays exactly the binding it has always been.
+#[must_use]
+pub fn machine_contract_for(version: u16) -> Option<ContractBinding> {
+    match version {
+        1 => Some(machine_contract_v1()),
+        2 => Some(machine_contract_v2()),
+        _ => None,
+    }
+}
+
 /// Returns the device contract v1 binding for one device set.
 #[must_use]
 pub fn device_contract_v1(devices: DeviceSet) -> ContractBinding {
@@ -126,8 +169,79 @@ pub fn kernel_command_line_v1(devices: DeviceSet) -> Vec<u8> {
     soma_kvm::generation_command_line(devices).into_bytes()
 }
 
+/// Returns the complete generated kernel command line for machine contract v2.
+#[must_use]
+pub fn kernel_command_line_v2(devices: DeviceSet) -> Vec<u8> {
+    soma_kvm::generation_command_line_for(devices, soma_kvm::MachineContract::V2).into_bytes()
+}
+
+/// Returns the complete generated kernel command line for one machine contract version, or
+/// `None` for a version this compiler does not build.
+#[must_use]
+pub fn kernel_command_line_for(devices: DeviceSet, version: u16) -> Option<Vec<u8>> {
+    let contract = soma_kvm::MachineContract::from_version(version)?;
+    Some(soma_kvm::generation_command_line_for(devices, contract).into_bytes())
+}
+
 /// Returns the digest of the fixed readiness command bytes.
 #[must_use]
 pub fn readiness_command_digest() -> Sha256Digest {
     Sha256Digest::of(READINESS_COMMAND)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use soma_kvm::DeviceSet;
+
+    #[test]
+    fn version_two_statement_records_the_mp_table_and_the_no_noapic_line() {
+        let text = core::str::from_utf8(MACHINE_CONTRACT_V2).unwrap();
+        assert!(text.starts_with("soma-x86_64-machine-contract-v2\n"));
+        assert!(text.contains("vcpu=1-8"));
+        assert!(text.contains("ram-max=17179869184"));
+        // The declared address is the one the encoder writes to, so the statement cannot drift
+        // from the machine without failing here.
+        assert!(text.contains(&format!(
+            "mptable={:#x}",
+            soma_kvm::mptable::MP_TABLE_ADDRESS
+        )));
+        assert!(!text.contains("noapic"));
+        assert!(text.contains("base-cmdline=console=ttyS0"));
+    }
+
+    #[test]
+    fn version_one_statement_keeps_the_fields_that_make_its_digest() {
+        let text = core::str::from_utf8(MACHINE_CONTRACT_V1).unwrap();
+        assert!(text.starts_with("soma-x86_64-machine-contract-v1\n"));
+        assert!(text.contains("vcpu=1 ram-min=134217728 ram-max=3221225472 ram-step=4096"));
+        assert!(text.ends_with("noapic cryptomgr.notests\n"));
+    }
+
+    #[test]
+    fn command_line_selects_the_contract_base_argument_set() {
+        let v1 = kernel_command_line_v1(DeviceSet::FULL);
+        let v2 = kernel_command_line_v2(DeviceSet::FULL);
+        assert!(String::from_utf8_lossy(&v1).contains(" noapic "));
+        assert!(!String::from_utf8_lossy(&v2).contains("noapic"));
+        assert_eq!(
+            kernel_command_line_for(DeviceSet::FULL, 1).as_deref(),
+            Some(v1.as_slice())
+        );
+        assert_eq!(
+            kernel_command_line_for(DeviceSet::FULL, 2).as_deref(),
+            Some(v2.as_slice())
+        );
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 3), None);
+    }
+
+    #[test]
+    fn contract_binding_selection_refuses_unknown_versions() {
+        assert_eq!(machine_contract_for(1), Some(machine_contract_v1()));
+        assert_eq!(machine_contract_for(2), Some(machine_contract_v2()));
+        assert_eq!(machine_contract_for(0), None);
+        assert_ne!(machine_contract_v1(), machine_contract_v2());
+        assert_eq!(machine_contract_v1().version, 1);
+        assert_eq!(machine_contract_v2().version, 2);
+    }
 }
