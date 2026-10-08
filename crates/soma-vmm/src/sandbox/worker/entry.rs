@@ -58,6 +58,8 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             disks,
             devices,
             memory_bytes,
+            vcpus,
+            contract,
         } => {
             let restored = restore(RestoreRequest {
                 objects,
@@ -66,6 +68,8 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 devices,
                 guest_cid,
                 memory_bytes,
+                vcpus,
+                contract,
                 // Re-hashing every byte of the memory object is the installation and audit
                 // boundary, not the request path.
                 verify_artifacts: false,

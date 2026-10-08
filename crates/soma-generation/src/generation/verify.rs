@@ -18,7 +18,10 @@ mod profile;
 #[cfg(test)]
 mod tests;
 
-pub use admission::{InstalledGeneration, admit_installed_generation, admit_verified_handoff};
+pub use admission::{
+    InstalledGeneration, admit_installed_generation, admit_verified_handoff,
+    declared_policy_version, installed_policy_version,
+};
 pub use content::{VerifiedCandidate, VerifiedGeneration, verify_candidate, verify_generation};
 pub use incompatibility::Incompatibility;
 

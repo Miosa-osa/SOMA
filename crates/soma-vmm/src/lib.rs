@@ -24,7 +24,8 @@ pub use request::{
     TimeoutMillis,
 };
 pub use spec::{
-    DeclaredDevices, DiskBytes, Generation, MachineSpec, MemoryBytes, SpecError, VcpuCount,
+    ContractVersion, DeclaredDevices, DiskBytes, Generation, MachineSpec, MemoryBytes, SpecError,
+    VcpuCount,
 };
 
 #[cfg(test)]

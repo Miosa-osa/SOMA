@@ -58,7 +58,7 @@ impl KvmBackend {
             // prepared. A depleted pool restored its own machine and says so.
             launched.preparation,
             DigestBinding::LaunchEnforced,
-            effective_shape(launched.memory_mib, launched.storage_mib),
+            effective_shape(launched.memory_mib, launched.vcpus, launched.storage_mib),
             launched.network,
             // The launch stamp is taken on the clock of whichever process built the machine, so
             // a hosted launch reports it after this operation was admitted here and never after

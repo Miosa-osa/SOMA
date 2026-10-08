@@ -1,16 +1,17 @@
-//! Ordered teardown: reclaim vCPU 0, stop the device thread, deregister every route, retire a
-//! still-mapped launch page, release the VM and mappings, and assemble the evidence.
+//! Ordered teardown: reclaim every vCPU, stop the device thread, deregister every route, retire
+//! a still-mapped launch page, release the VM and mappings, and assemble the evidence.
 
 use std::{sync::PoisonError, time::Duration};
 
-use super::{Milestone, SandboxEvidence, SandboxMachine, Stage};
+use super::{Milestone, Paused, Running, SandboxEvidence, SandboxMachine, Stage};
 use crate::x86_64::{
     error::{MachineError, Phase},
     event_loop::EventLoopReport,
     mmio::MmioCounters,
-    ports::BusCounters,
+    ports::{BusCounters, PortBusHandle},
+    run::GuestExit,
     serial::SerialCounters,
-    watchdog::{CANCELLATION_GRACE, RunReport},
+    watchdog::{CANCELLATION_GRACE, RunReport, total_mmio},
 };
 
 const KERNEL_INIT_LINE: &[u8] = b"Run /init as init process";
@@ -19,7 +20,8 @@ const AGENT_READY_LINE: &[u8] = b"soma-guest-agent: ready";
 impl SandboxMachine {
     /// Stops the guest for good while it still owns everything.
     ///
-    /// The device thread is joined and vCPU 0 is kicked out of `KVM_RUN` and never re-entered,
+    /// The device thread is joined and every vCPU is kicked out of `KVM_RUN` and never
+    /// re-entered,
     /// so once this returns the guest cannot execute another instruction, whatever stage the
     /// machine was in. The VM, its memory, and its descriptors are still held and are released by
     /// [`SandboxMachine::finish`], which is the expensive half: closing the VM waits on KVM tearing
@@ -34,11 +36,12 @@ impl SandboxMachine {
         let _ignored = self.pause(CANCELLATION_GRACE);
     }
 
-    /// Reclaims the vCPU within `exit_deadline`, stops the device thread, deregisters every
+    /// Reclaims every vCPU within `exit_deadline`, stops the device thread, deregisters every
     /// route, releases every mapping and descriptor, and returns the evidence.
     pub fn finish(mut self, exit_deadline: Duration) -> SandboxEvidence {
-        let (report, devices, retired) = self.stop(exit_deadline);
-        let (serial, bus, uart, marks) = report.bus.as_ref().map_or_else(
+        let (reports, devices, retired) = self.stop(exit_deadline);
+        let ports = self.ports.take();
+        let (serial, bus, uart, marks) = ports.and_then(PortBusHandle::into_inner).map_or_else(
             || {
                 (
                     Vec::new(),
@@ -64,11 +67,12 @@ impl SandboxMachine {
                 )
             },
         );
-        let mmio = report
-            .mmio
-            .as_ref()
-            .map_or(MmioCounters::default(), |dispatch| dispatch.counters());
-        let RunReport { result, .. } = report;
+        // Every dispatcher's counters are summed, so the evidence counts what the whole machine
+        // did rather than what the bootstrap processor happened to do.
+        let mmio: MmioCounters = total_mmio(&reports);
+        let exit = machine_exit(&reports);
+        let vcpus: Vec<Result<GuestExit, MachineError>> =
+            reports.iter().map(|report| report.result.clone()).collect();
         let Self {
             machine,
             shared,
@@ -90,8 +94,8 @@ impl SandboxMachine {
                 timeline.mark_at(milestone, at);
             }
         }
-        // The vCPU thread cannot mark the shared timeline while it runs, so the two sides of
-        // its first `KVM_RUN` are transcribed here from the offsets it recorded instead.
+        // The vCPU threads cannot mark the shared timeline while they run, so the two sides of
+        // the machine's first `KVM_RUN` are transcribed here from the offsets it recorded.
         for (milestone, at) in [
             (Milestone::FirstRunEntered, exits.first_entry()),
             (Milestone::FirstRunReturned, exits.first_return()),
@@ -111,7 +115,8 @@ impl SandboxMachine {
             cmdline,
             entry,
             initramfs,
-            exit: result,
+            exit,
+            vcpus,
             bus,
             uart,
             mmio,
@@ -121,14 +126,30 @@ impl SandboxMachine {
         }
     }
 
-    fn stop(&mut self, exit_deadline: Duration) -> (RunReport, EventLoopReport, bool) {
+    fn stop(&mut self, exit_deadline: Duration) -> (Vec<RunReport>, EventLoopReport, bool) {
         let stage = std::mem::replace(&mut self.stage, Stage::Stopped);
-        let (report, devices) = match stage {
+        let (reports, devices) = match stage {
             Stage::Running(running) => {
-                let report = running.vcpu.wait(exit_deadline);
+                let Running {
+                    context,
+                    vcpus,
+                    event_loop,
+                } = running;
+                let mut reports = Vec::with_capacity(vcpus.len());
+                let mut remaining = vcpus.into_iter();
+                // The bootstrap processor decides when the machine has stopped. Every other
+                // processor is interrupted the moment it does, because a guest that is already
+                // going down leaves them idle inside KVM_RUN with nothing left to run.
+                if let Some(bootstrap) = remaining.next() {
+                    reports.push(bootstrap.wait(exit_deadline));
+                }
+                for run in remaining {
+                    reports.push(run.pause(CANCELLATION_GRACE));
+                }
+                drop(context);
                 self.mark(Milestone::GuestExit);
                 self.clock.lap(Phase::Run);
-                let devices = match running.event_loop.stop() {
+                let devices = match event_loop.stop() {
                     Some((devices, mut notify, mut irq)) => {
                         notify.unregister(&self.machine.vm);
                         irq.unregister(&self.machine.vm);
@@ -136,16 +157,16 @@ impl SandboxMachine {
                     }
                     None => EventLoopReport::default(),
                 };
-                (report, devices)
+                (reports, devices)
             }
             Stage::Prepared(prepared) => {
                 let super::Prepared {
-                    vcpu,
+                    vcpus,
                     serial_line,
                     mut irq,
                     mut notify,
                 } = prepared;
-                drop(vcpu);
+                drop(vcpus);
                 notify.unregister(&self.machine.vm);
                 irq.unregister(&self.machine.vm);
                 drop(serial_line);
@@ -155,8 +176,8 @@ impl SandboxMachine {
                 )
             }
             Stage::Paused(paused) => {
-                let super::Paused { report, devices } = *paused;
-                (report, devices)
+                let Paused { reports, devices } = *paused;
+                (reports, devices)
             }
             Stage::Stopped => (
                 never_ran("sandbox already stopped"),
@@ -168,15 +189,27 @@ impl SandboxMachine {
         } else {
             self.retire_launch_page().is_ok()
         };
-        (report, devices, retired)
+        (reports, devices, retired)
     }
 }
 
-fn never_ran(reason: &'static str) -> RunReport {
-    RunReport {
-        bus: None,
+/// The machine's outcome: the first failure any vCPU reported, or the first exit.
+fn machine_exit(reports: &[RunReport]) -> Result<GuestExit, MachineError> {
+    let mut first = None;
+    for report in reports {
+        match &report.result {
+            Err(error) => return Err(error.clone()),
+            Ok(exit) if first.is_none() => first = Some(*exit),
+            Ok(_) => {}
+        }
+    }
+    first.ok_or_else(|| MachineError::invalid(Phase::Run, "no vCPU reported an exit"))
+}
+
+fn never_ran(reason: &'static str) -> Vec<RunReport> {
+    vec![RunReport {
         mmio: None,
         result: Err(MachineError::invalid(Phase::Run, reason)),
         vcpu: None,
-    }
+    }]
 }

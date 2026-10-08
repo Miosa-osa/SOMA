@@ -23,7 +23,7 @@ pub(crate) const HALT_PROGRAM: [u8; 18] = [
 
 /// Writes the boot structures and the halt program into guest RAM and returns the entry point.
 pub(crate) fn load(ram: &mut GuestRam) -> Result<u64, MachineError> {
-    let memmap = boot_info::memmap(ram.layout())?;
+    let memmap = boot_info::memmap(ram.layout());
     let entries = u32::try_from(memmap.len() / boot_info::MEMMAP_ENTRY_BYTES)
         .map_err(|_| MachineError::invalid(super::error::Phase::LoadGuest, "memmap overflow"))?;
     ram.write(START_INFO_ADDRESS, &boot_info::start_info(entries, 0))?;

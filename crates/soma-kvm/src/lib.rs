@@ -18,6 +18,25 @@ mod linux;
 /// a Linux x86_64 host can boot it.
 pub mod cmdline;
 
+/// The versioned `x86_64` machine contract as portable data.
+///
+/// Lives outside the `x86_64` machine gate for the same reason [`cmdline`] does: a client on a
+/// host that cannot boot the machine must still be able to name the contract a Generation was
+/// built under and reject one it does not implement.
+pub mod contract;
+
+/// The Intel MP table a multi-vCPU guest discovers its processors through.
+///
+/// Portable and unguarded like [`cmdline`]: it is pure bytes that a host which cannot run the
+/// machine must still be able to compose and verify.
+pub mod mptable;
+
+/// The pure guest-physical memory geometry of the `x86_64` machine contract.
+///
+/// Portable like [`cmdline`] and [`mptable`]: the region list, the guest-to-object translation,
+/// and the memory map are what a client on another host verifies.
+pub mod memory_layout;
+
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")
@@ -47,7 +66,14 @@ pub use linux::{
 ))]
 pub use machine::{KvmMachine, KvmMachineError};
 
-pub use cmdline::{BootNonce, compose_generation as generation_command_line};
+pub use cmdline::{
+    BootNonce, compose_generation as generation_command_line,
+    compose_generation_for as generation_command_line_for,
+};
+pub use contract::{
+    MEMORY_STEP_BYTES, MIN_MEMORY_BYTES, MachineContract, UnknownContractVersion,
+    V1_MAX_MEMORY_BYTES, V1_MAX_VCPUS, V2_MAX_MEMORY_BYTES, V2_MAX_VCPUS,
+};
 
 pub use virtio::{
     AccessWidth, ActivateError, BLK_ID_LEN, BLOCK_CONFIG_LEN, BLOCK_QUEUE_MAX, BLOCK_SERIAL_LEN,

@@ -119,9 +119,22 @@ host() {
   env_ver="$(json_field "$KDIR/source.json" reproducible_env.KBUILD_BUILD_VERSION)"
   env_epoch="$(json_field "$KDIR/source.json" reproducible_env.SOURCE_DATE_EPOCH)"
 
+  # Rootless Podman answering as the docker CLI maps `-u "$(id -u):$(id -g)"`
+  # to a subordinate uid that cannot read the bind-mounted repository, and the
+  # build dies on `Permission denied: /work/build.sh`. keep-id restores the
+  # caller's own id inside the container. Real Docker never sees the flag,
+  # and the flag changes no pinned input: same image, same toolchain, same
+  # KBUILD environment, same output digest (verified against the retained
+  # f1af3a14... vmlinux on a rootless Podman 5.4.2 host, 2026-08-30).
+  local userns_args=()
+  if docker --version 2>/dev/null | grep -qi podman; then
+    userns_args=(--userns=keep-id)
+  fi
+
   local start end
   start="$(date +%s)"
   docker run --rm --network none \
+    "${userns_args[@]}" \
     -u "$(id -u):$(id -g)" \
     -v "$KDIR:/work" -w /work \
     -e KBUILD_BUILD_TIMESTAMP="$env_ts" \

@@ -52,24 +52,77 @@ macro_rules! nonzero_bytes {
     };
 }
 
+/// The version of the machine contract a Generation was built under.
+///
+/// The provider layer is contract-neutral and cannot name the machine contract type itself, so
+/// the version travels as data and the `x86_64` provider resolves it before it restores anything.
+/// A version it does not implement is refused there rather than read back out of the snapshot,
+/// which would only agree with itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ContractVersion(NonZeroU16);
+
+impl ContractVersion {
+    /// Creates a non-zero contract version.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SpecError::Zero`] when `value` is zero.
+    pub fn new(value: u16) -> Result<Self, SpecError> {
+        NonZeroU16::new(value)
+            .map(Self)
+            .ok_or(SpecError::Zero("machine contract version"))
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u16 {
+        self.0.get()
+    }
+}
+
 nonzero_bytes!(MemoryBytes, "memory bytes");
 nonzero_bytes!(DiskBytes, "writable disk bytes");
 
+/// The exact effective dimensions of one certified machine.
+///
+/// The machine contract travels with them as the portable version that names it. The provider
+/// layer is contract-neutral and cannot name the machine contract type itself, so the version is
+/// carried here as data and the `x86_64` provider resolves it before it restores anything. A
+/// version this build does not implement is refused by that resolution rather than being read
+/// back out of the snapshot, which would only agree with itself.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MachineSpec {
     vcpus: VcpuCount,
     memory: MemoryBytes,
     writable_disk: DiskBytes,
+    contract: ContractVersion,
 }
 
 impl MachineSpec {
+    /// Names the shape of one machine, at the contract version the version 1 machine is.
+    ///
+    /// The default is the oldest contract this build implements, so a caller that knows only the
+    /// shape cannot accidentally claim a machine contract it never asserted. A caller that does
+    /// know names it with [`Self::with_contract`].
     #[must_use]
     pub const fn new(vcpus: VcpuCount, memory: MemoryBytes, writable_disk: DiskBytes) -> Self {
         Self {
             vcpus,
             memory,
             writable_disk,
+            contract: ContractVersion(NonZeroU16::MIN),
         }
+    }
+
+    /// Names the contract version this machine was built under.
+    #[must_use]
+    pub const fn with_contract(self, contract: ContractVersion) -> Self {
+        Self { contract, ..self }
+    }
+
+    /// The contract version this machine was built under.
+    #[must_use]
+    pub const fn contract(self) -> ContractVersion {
+        self.contract
     }
 
     #[must_use]

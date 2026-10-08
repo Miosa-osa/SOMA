@@ -54,12 +54,15 @@ pub use manifest::{GenerationManifest, SnapshotBinding};
 pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
 pub use publish::open_artifact;
-pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
+pub use request::{
+    BuildHost, CompileGeneration, CompilerProfile, MachineInputs, ProfileLimits, Toolchain,
+};
 pub use snapshot::{SnapshotSource, install_snapshot};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use toolchain::{BoundTool, BuilderEnvironment};
 pub use tree_decoder::TreeBounds;
 pub use verify::{
     Incompatibility, InstalledGeneration, VerifiedCandidate, VerifiedGeneration,
-    admit_installed_generation, admit_verified_handoff, verify_candidate, verify_generation,
+    admit_installed_generation, admit_verified_handoff, declared_policy_version,
+    installed_policy_version, verify_candidate, verify_generation,
 };

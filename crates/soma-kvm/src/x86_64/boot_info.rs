@@ -5,11 +5,9 @@
 
 use super::{
     error::{MachineError, Phase},
-    layout::{
-        CMDLINE_ADDRESS, CMDLINE_MAX_BYTES, GuestLayout, LEGACY_HOLE_START, MEMMAP_ADDRESS,
-        MODULE_ADDRESS,
-    },
+    layout::{CMDLINE_ADDRESS, CMDLINE_MAX_BYTES, GuestLayout, MEMMAP_ADDRESS, MODULE_ADDRESS},
 };
+use crate::memory_layout::MemoryKind;
 
 pub(crate) const START_INFO_MAGIC: u32 = 0x336e_c578;
 pub(crate) const START_INFO_VERSION: u32 = 1;
@@ -39,25 +37,30 @@ pub(crate) fn start_info(memmap_entries: u32, module_count: u32) -> [u8; START_I
     bytes
 }
 
-/// Encodes the contract's memory map: low RAM, the reserved legacy hole, then high RAM.
-pub(crate) fn memmap(layout: GuestLayout) -> Result<Vec<u8>, MachineError> {
-    let [(low_start, low_size), (high_start, high_size)] = layout.ram_ranges()?;
-    let hole_size = high_start
-        .checked_sub(LEGACY_HOLE_START)
-        .ok_or_else(|| MachineError::invalid(Phase::LoadGuest, "legacy hole overflow"))?;
-    let entries = [
-        (low_start, low_size, MEMMAP_TYPE_RAM),
-        (LEGACY_HOLE_START, hole_size, MEMMAP_TYPE_RESERVED),
-        (high_start, high_size, MEMMAP_TYPE_RAM),
-    ];
+/// Encodes the contract's memory map: RAM, the reserved legacy hole, high memory, and, on a
+/// machine whose RAM continues above the MMIO boundary, the reserved MMIO hole and the RAM
+/// above it.
+///
+/// The map is derived from the layout rather than written out here, so the bytes the guest is
+/// told about cannot disagree with the ranges the machine actually registers, whatever the
+/// admitted size.
+pub(crate) fn memmap(layout: GuestLayout) -> Vec<u8> {
+    let entries = layout.memory_map();
     let mut bytes = Vec::with_capacity(entries.len() * MEMMAP_ENTRY_BYTES);
-    for (address, size, kind) in entries {
-        bytes.extend_from_slice(&address.to_le_bytes());
-        bytes.extend_from_slice(&size.to_le_bytes());
-        bytes.extend_from_slice(&kind.to_le_bytes());
+    for entry in entries {
+        bytes.extend_from_slice(&entry.address.to_le_bytes());
+        bytes.extend_from_slice(&entry.size.to_le_bytes());
+        bytes.extend_from_slice(&kind_of(entry.kind).to_le_bytes());
         bytes.extend_from_slice(&0_u32.to_le_bytes());
     }
-    Ok(bytes)
+    bytes
+}
+
+const fn kind_of(kind: MemoryKind) -> u32 {
+    match kind {
+        MemoryKind::Ram => MEMMAP_TYPE_RAM,
+        MemoryKind::Reserved => MEMMAP_TYPE_RESERVED,
+    }
 }
 
 /// Encodes the sole `hvm_modlist_entry` for an initramfs at `address` with `size` bytes.
@@ -98,6 +101,7 @@ pub(crate) fn cmdline(text: &str) -> Result<Vec<u8>, MachineError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::memory_layout::LEGACY_HOLE_START;
     use crate::x86_64::layout::{HIGH_MEMORY_START, MIN_RAM_BYTES};
 
     #[test]
@@ -117,7 +121,7 @@ mod tests {
 
     #[test]
     fn memmap_encodes_ram_hole_and_ram() {
-        let bytes = memmap(GuestLayout::new(MIN_RAM_BYTES).unwrap()).unwrap();
+        let bytes = memmap(GuestLayout::new(MIN_RAM_BYTES).unwrap());
         assert_eq!(bytes.len(), 3 * MEMMAP_ENTRY_BYTES);
         assert_eq!(&bytes[0..8], &0_u64.to_le_bytes());
         assert_eq!(&bytes[8..16], &LEGACY_HOLE_START.to_le_bytes());

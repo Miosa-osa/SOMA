@@ -147,7 +147,7 @@ impl KvmBackend {
         if backend.jail.is_some() {
             return Err(LocalFailure::new(LocalFailureKind::BackendUnavailable));
         }
-        let recipe = claim::recipe_for(prepared, memory_mib, evidence::CONTRACT_VCPUS)
+        let recipe = claim::recipe_for(prepared, memory_mib)
             .ok_or_else(|| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
         let key = recipe.key().clone();
         let spec = recipe

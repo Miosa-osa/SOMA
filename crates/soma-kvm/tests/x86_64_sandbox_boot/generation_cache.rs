@@ -60,6 +60,7 @@ fn key(layout: &Path, reference: &str, shape: Shape, inputs: &Inputs) -> String 
     hasher.update(b"\0");
     hasher.update(shape.memory_mib.to_le_bytes());
     hasher.update(shape.storage_mib.to_le_bytes());
+    hasher.update(shape.vcpus.to_le_bytes());
     for path in [
         &layout.join("index.json"),
         &inputs.kernel,

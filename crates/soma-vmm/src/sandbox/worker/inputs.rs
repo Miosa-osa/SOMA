@@ -4,8 +4,8 @@
 //! has an empty root, no procfs, and a filter that kills `open` once it narrows.
 
 use soma_guest::{HostLaunchMaterial, SecretFile};
-use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{DeviceIdentity, SandboxConfig, SandboxDisks};
+use soma_kvm::{DeviceSet, MachineContract};
 
 use super::super::identity::GUEST_MAC;
 
@@ -27,6 +27,10 @@ pub struct ColdBootInputs {
     pub overlay: Option<std::fs::File>,
     pub ram_bytes: u64,
     pub guest_cid: u32,
+    /// The vCPU count the Generation declared; one thread runs each.
+    pub vcpus: u16,
+    /// The machine contract the Generation was built under.
+    pub contract: MachineContract,
     pub devices: DeviceSet,
 }
 
@@ -40,6 +44,8 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         overlay,
         ram_bytes,
         guest_cid,
+        vcpus,
+        contract,
         devices,
     } = inputs;
     SandboxConfig {
@@ -51,6 +57,8 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
+        vcpus,
+        contract,
         devices,
     }
 }

@@ -37,10 +37,20 @@ fn present(declared: Declared) -> bool {
     is_block_device(ROOT_DEVICE) && (!declared.overlay || is_block_device(OVERLAY_DEVICE))
 }
 
+/// The names of the guest's virtio block devices under `/sys/block`.
+///
+/// Only `vd`-prefixed names count. The machine contract names its virtio block devices `vda` and
+/// `vdb`, and a kernel also carrying a compressed swap device or a loop device is not a machine
+/// with an extra disk: `zram0` and `loop0` are kernel-internal block devices, not virtio ones.
+/// Counting them would refuse to boot a tuned guest the moment the kernel registered its own
+/// device. Measured 2026-10-08: a kernel built with `CONFIG_ZRAM=y` adds `zram0` at boot, which
+/// the unfiltered count read as an undeclared disk and failed the boot at this step.
 fn block_device_names() -> std::io::Result<BTreeSet<String>> {
-    fs::read_dir("/sys/block")?
-        .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
-        .collect()
+    Ok(fs::read_dir("/sys/block")?
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("vd"))
+        .collect())
 }
 
 fn expected_block_devices(declared: Declared) -> BTreeSet<String> {

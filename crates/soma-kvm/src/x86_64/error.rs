@@ -21,6 +21,7 @@ pub enum Phase {
     LoadGuest,
     CreateVcpu,
     Cpuid,
+    MpState,
     Sregs,
     Regs,
     Devices,
@@ -48,17 +49,18 @@ impl fmt::Display for Phase {
             Self::Pit => "create in-kernel programmable interval timer",
             Self::ReadKernel => "read kernel and initramfs artifacts",
             Self::LoadGuest => "load guest program and boot structures",
-            Self::CreateVcpu => "create vCPU 0",
+            Self::CreateVcpu => "create vCPUs",
             Self::Cpuid => "install CPUID",
+            Self::MpState => "install vCPU multiprocessing state",
             Self::Sregs => "install special registers",
             Self::Regs => "install general registers",
             Self::Devices => "build virtio devices and bus",
             Self::LaunchPage => "map launch page slot",
             Self::Events => "register ioeventfds and irqfds",
             Self::EventLoop => "start device event loop",
-            Self::Run => "run vCPU 0",
+            Self::Run => "run vCPUs",
             Self::Control => "guest control session",
-            Self::Join => "join vCPU thread",
+            Self::Join => "join vCPU threads",
             Self::Capture => "capture the machine snapshot",
             Self::Restore => "restore the machine snapshot",
             Self::Cleanup => "release owned resources",
@@ -134,6 +136,12 @@ pub struct MachineError {
     kind: MachineErrorKind,
 }
 
+impl From<crate::memory_layout::LayoutError> for MachineError {
+    fn from(error: crate::memory_layout::LayoutError) -> Self {
+        Self::invalid(Phase::MapMemory, error.reason())
+    }
+}
+
 impl MachineError {
     pub(super) const fn new(phase: Phase, kind: MachineErrorKind) -> Self {
         Self { phase, kind }
@@ -194,7 +202,7 @@ mod tests {
         let error = MachineError::new(Phase::Run, MachineErrorKind::Timeout);
         assert_eq!(
             error.to_string(),
-            "run vCPU 0: guest did not halt before the deadline"
+            "run vCPUs: guest did not halt before the deadline"
         );
         assert_eq!(error.phase(), Phase::Run);
         assert_eq!(error.kind(), &MachineErrorKind::Timeout);

@@ -169,6 +169,11 @@ fn spawn(invocation: &Invocation, stdin: &[u8]) -> Result<Child, i32> {
     if let Some(credentials) = invocation.credentials() {
         builder.uid(credentials.uid).gid(credentials.gid);
     }
+    // The agent runs at `SCHED_FIFO` (see `crate::priority`), and a forked child inherits the
+    // policy across `execve`. The workload is dropped back to the default band before it starts so
+    // the agent always outranks the command it supervises, and a command that spins cannot hold
+    // the realtime band against the agent that would answer the next request.
+    crate::priority::reset_child_policy(&mut builder);
     let mut child = builder
         .spawn()
         .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))?;

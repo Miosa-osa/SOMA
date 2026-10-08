@@ -126,6 +126,13 @@ pub struct SandboxEvidence {
     pub initramfs: Option<(u64, u64)>,
     /// How the guest stopped, or why the run failed.
     pub exit: Result<GuestExit, super::super::MachineError>,
+    /// Every vCPU's own outcome, in index order.
+    ///
+    /// A machine with more than one processor can fail in a way the machine's own exit does not
+    /// show: an application processor that stopped, faulted, or never started leaves the
+    /// bootstrap processor waiting for it, and the report reads as a plain timeout unless each
+    /// processor's result is kept.
+    pub vcpus: Vec<Result<GuestExit, super::super::MachineError>>,
     /// Port-access counts by device.
     pub bus: BusCounters,
     /// Register-access counts inside the 16550 model.

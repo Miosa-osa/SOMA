@@ -9,18 +9,15 @@ use soma_guest::TerminalStatus;
 
 use super::network::Egress;
 
-/// The one machine shape the `x86_64` contract admits.
-pub(super) const CONTRACT_VCPUS: u16 = 1;
-
 /// The shape a caller is told it received.
 ///
-/// The vCPU count is fixed by the machine contract.
-/// Memory is the amount the restore registered with KVM.
-/// Storage is the capacity of the private block backend whose agreement with the captured device
-/// state was checked before the guest could reach Ready.
-pub(super) fn effective_shape(memory_mib: u64, storage_mib: u64) -> EffectiveShape {
+/// The vCPU count is the one the Generation's machine was actually built with, and the memory is
+/// the amount the restore registered with KVM, so both are observed rather than echoed back from
+/// the request. Storage is the capacity of the private block backend whose agreement with the
+/// captured device state was checked before the guest could reach Ready.
+pub(super) fn effective_shape(memory_mib: u64, vcpus: u16, storage_mib: u64) -> EffectiveShape {
     EffectiveShape::new(
-        Observation::Observed(CONTRACT_VCPUS),
+        Observation::Observed(vcpus),
         Observation::Observed(memory_mib),
         Observation::Observed(storage_mib),
     )
@@ -136,7 +133,7 @@ mod shape_tests {
 
     #[test]
     fn a_restored_machine_reports_all_three_shape_dimensions() {
-        let effective = effective_shape(1024, 10_240);
+        let effective = effective_shape(1024, 1, 10_240);
         assert_eq!(effective.vcpu_count(), &Observation::Observed(1));
         assert_eq!(effective.memory_mib(), &Observation::Observed(1024));
         assert_eq!(effective.storage_mib(), &Observation::Observed(10_240));
