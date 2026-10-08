@@ -139,6 +139,18 @@ mod live {
         let head_path = scratch.join("overlay-head.ext4");
         let head = generation::private_head(&mut template, &head_path);
         drop(template);
+        // A private head is a sparse copy of a writable class that is written out whole, so its
+        // length says nothing about what it cost. Printing both is what tells a run whose clone
+        // materialized the class from one that did not, without waiting for the disk to fill.
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            let head_stat = head.metadata().expect("stat the private head");
+            eprintln!(
+                "[{name}] private head: {} bytes long, {} bytes allocated",
+                head_stat.len(),
+                head_stat.blocks() * 512
+            );
+        }
         let root_before = generation::sha256_file(&root);
         let head_before = generation::sha256_file(&head);
         assert_eq!(
