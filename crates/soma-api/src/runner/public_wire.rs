@@ -240,6 +240,16 @@ impl PlatformError {
         Self::new(400, "INVALID_PARAM", message, false)
             .with_details(serde_json::json!({"field": field}))
     }
+
+    /// A create field the platform does not define. The answer names the field, so a caller
+    /// that misspelled one is told which, instead of a create that quietly ignored it.
+    #[must_use]
+    pub fn unknown_field(field: &str) -> Self {
+        Self::invalid_param(
+            field,
+            &format!("unknown parameter: the create body does not define `{field}`"),
+        )
+    }
 }
 
 /// `Responder.unavailable/2`: the lane could not claim a prepared sandbox.
