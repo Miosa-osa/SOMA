@@ -5,8 +5,8 @@
 //! window and the TSS page live in the hole between them, so a machine with more than three
 //! gigabytes of RAM keeps the device addresses version 1 fixed instead of moving them.
 //!
-//! Everything here is arithmetic with no KVM and no architecture gate, unlike the machine under
-//! [`crate::x86_64`]: the same region list, the same guest-to-object translation, and the same
+//! Everything here is arithmetic with no KVM and no architecture gate, unlike the machine in the
+//! `x86_64` module: the same region list, the same guest-to-object translation, and the same
 //! memory map are what a client on another host verifies, so they are unit-tested there.
 //!
 //! The object a layout's `ram_bytes` names is exactly the backed RAM: the hole is address

@@ -6,7 +6,8 @@
 //! architecture gate, exactly like [`crate::cmdline`]: a client on a host that cannot boot
 //! the machine must still be able to compose and verify the same table the machine writes.
 //!
-//! The floating pointer structure sits at [`MP_TABLE_ADDRESS`], inside the reserved legacy
+//! The floating pointer structure sits at [`crate::mptable::MP_TABLE_ADDRESS`], inside the
+//! reserved legacy
 //! hole the machine contract already reserves and which the machine reports as reserved in
 //! its PVH memory map. That placement matters twice: the kernel scans `0xf0000..0x100000`
 //! for the floating pointer, and a region the platform describes as reserved is never handed

@@ -7,7 +7,7 @@
 //! the MP table is then the only way the kernel finds its application processors.
 //!
 //! Only the data a host that cannot boot the machine must still be able to compose and verify
-//! lives here; the boot machine itself is under [`crate::x86_64`]. This mirrors
+//! lives here; the boot machine itself is under the `x86_64` module. This mirrors
 //! [`crate::cmdline`], which is portable for the same reason.
 
 use std::fmt;
