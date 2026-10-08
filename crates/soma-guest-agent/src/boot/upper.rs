@@ -25,12 +25,16 @@ const WORK_DIR: &str = "/mnt/upper/work";
 pub(super) fn compose() -> Result<(), BootFailure> {
     verify_superblock(BootStep::UpperIdentity, OVERLAY_DEVICE, ext4_superblock_ok)?;
     fs::create_dir_all(UPPER_MOUNT).map_err(|error| failure(BootStep::UpperMount, &error))?;
+    // `noatime` and `lazytime` suit a layer whose whole content is thrown away with the machine:
+    // a workload that reads back what it just wrote would otherwise journal an access time per
+    // file for data nobody will read again, and `lazytime` keeps the timestamp in memory until
+    // something else forces a write.
     mounts::mount(
         OVERLAY_DEVICE,
         UPPER_MOUNT,
         "ext4",
         libc::MS_NOSUID | libc::MS_NODEV,
-        "errors=remount-ro",
+        "errors=remount-ro,noatime,lazytime",
     )
     .map_err(|errno| BootFailure {
         step: BootStep::UpperMount,
@@ -43,7 +47,10 @@ pub(super) fn compose() -> Result<(), BootFailure> {
         ROOT_MOUNT,
         "overlay",
         libc::MS_NOSUID | libc::MS_NODEV,
-        &format!("lowerdir={LOWER_MOUNT},upperdir={UPPER_DIR},workdir={WORK_DIR}"),
+        // `noatime` again for the composed root: the reads that matter here are the workload
+        // reading its own fresh output, and an access-time update per read is write traffic on
+        // the layer underneath for a timestamp nothing consults.
+        &format!("lowerdir={LOWER_MOUNT},upperdir={UPPER_DIR},workdir={WORK_DIR},noatime"),
     )
     .map_err(|errno| BootFailure {
         step: BootStep::Overlay,
