@@ -260,7 +260,7 @@ pub fn assert_orderly(evidence: &SandboxEvidence) {
     );
     assert_eq!(evidence.mmio.transport_violations, 0, "{:?}", evidence.mmio);
     assert_eq!(evidence.mmio.notify_exits, 0, "{:?}", evidence.mmio);
-    assert_eq!((evidence.bus.other_in, evidence.bus.other_out), (0, 0));
+    evidence::assert_ports_are_expected(evidence.vcpus.len(), &evidence.bus);
     let text = String::from_utf8_lossy(&evidence.serial);
     assert!(text.contains("soma-guest-agent: ready"));
     assert!(text.contains("soma-guest-agent: shutdown acknowledged"));
