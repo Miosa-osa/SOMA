@@ -65,6 +65,14 @@ jobs:
       - name: Run Linux validation
         run: ./scripts/check.sh linux
 
+      - name: Install the ARM64 cross C toolchain
+        run: |
+          # `ring` builds vendored C for every target but x86_64, so a cross
+          # check of the aarch64 client needs a cross C compiler. cc-rs looks
+          # for exactly `aarch64-linux-gnu-gcc`, which this package provides.
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu
+
       - name: Compile-check Linux ARM64 client
         run: |
           rustup target add aarch64-unknown-linux-gnu --toolchain "$RUST_TOOLCHAIN"
