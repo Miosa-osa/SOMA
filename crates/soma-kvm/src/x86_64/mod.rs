@@ -117,24 +117,28 @@ impl Machine {
 
     /// Registers guest RAM at exactly the layout the snapshot certified.
     ///
-    /// Version 1 certifies one slot covering all of guest RAM from address zero; anything
-    /// else is a machine this implementation cannot reproduce.
+    /// The machine derives its own range list from the certified RAM size, so a snapshot whose
+    /// slot list disagrees with that derivation in count, order, address, object offset, size,
+    /// or slot number is a machine this implementation cannot reproduce and is refused before
+    /// any slot is published.
     fn register_certified_slots(
         &self,
         state: &crate::snapshot::kvm_state::VmState,
     ) -> Result<(), MachineError> {
         let certified = state.slots();
-        let expected = self.ram.layout().ram_bytes();
-        let single = certified.first().is_some_and(|slot| {
-            slot.slot == 0
-                && slot.guest_address == 0
-                && slot.memory_offset == 0
-                && slot.size == expected
-        });
-        if certified.len() != 1 || !single {
+        let layout = self.ram.layout();
+        let regions = layout.regions();
+        let agrees = certified.len() == regions.len()
+            && certified.iter().zip(regions).all(|(slot, region)| {
+                slot.slot == region.slot
+                    && slot.guest_address == region.guest_start
+                    && slot.memory_offset == region.host_offset
+                    && slot.size == region.size
+            });
+        if !agrees {
             return Err(MachineError::invalid(
                 Phase::Restore,
-                "the certified memory-slot layout is not the version 1 single-slot layout",
+                "the certified memory-slot layout is not the layout this machine derived",
             ));
         }
         self.ram.register(&self.vm)

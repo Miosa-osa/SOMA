@@ -111,9 +111,12 @@ fn place_initramfs(
             "initramfs must be between 1 byte and 64 MiB",
         ));
     }
+    // Top-down below the low range's end rather than below the top of RAM: a machine whose RAM
+    // continues above four gigabytes must still describe its initramfs through a 32-bit boot
+    // field, so the placement never crosses the MMIO boundary.
     let start = ram
         .layout()
-        .ram_bytes()
+        .low_end()
         .checked_sub(size)
         .map(|start| start & !(PAGE_SIZE - 1))
         .filter(|start| *start >= kernel_end)
@@ -129,7 +132,7 @@ fn write_boot_pages(
     initramfs: Option<(u64, u64)>,
     cmdline: &str,
 ) -> Result<(), MachineError> {
-    let memmap = boot_info::memmap(ram.layout())?;
+    let memmap = boot_info::memmap(ram.layout());
     let entries = u32::try_from(memmap.len() / boot_info::MEMMAP_ENTRY_BYTES)
         .map_err(|_| MachineError::invalid(Phase::LoadGuest, "memmap overflow"))?;
     let modules = u32::from(initramfs.is_some());

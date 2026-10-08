@@ -31,6 +31,12 @@ pub mod contract;
 /// machine must still be able to compose and verify.
 pub mod mptable;
 
+/// The pure guest-physical memory geometry of the `x86_64` machine contract.
+///
+/// Portable like [`cmdline`] and [`mptable`]: the region list, the guest-to-object translation,
+/// and the memory map are what a client on another host verifies.
+pub mod memory_layout;
+
 #[cfg(all(
     target_os = "linux",
     any(target_arch = "x86_64", target_arch = "aarch64")

@@ -134,6 +134,12 @@ pub struct MachineError {
     kind: MachineErrorKind,
 }
 
+impl From<crate::memory_layout::LayoutError> for MachineError {
+    fn from(error: crate::memory_layout::LayoutError) -> Self {
+        Self::invalid(Phase::MapMemory, error.reason())
+    }
+}
+
 impl MachineError {
     pub(super) const fn new(phase: Phase, kind: MachineErrorKind) -> Self {
         Self { phase, kind }

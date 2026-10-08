@@ -18,6 +18,7 @@ use crate::snapshot::{
     manifest::Manifest,
     memory::{MappingError, PrivateMapping},
 };
+use crate::x86_64::error::MachineError;
 use crate::x86_64::sandbox::{Milestone, Timeline};
 
 /// Names the diagnostic. Never set on a host serving requests.
@@ -34,7 +35,7 @@ pub(super) fn map(
     timeline: &mut Timeline,
 ) -> Result<GuestRam, SnapshotError> {
     let size = manifest.header().memory.size();
-    let layout = GuestLayout::new(size)?;
+    let layout = GuestLayout::new(size).map_err(MachineError::from)?;
     let memory =
         File::open(path).map_err(|error| SnapshotError::io(Artifact::Memory, "open", &error))?;
     let mapping = PrivateMapping::map(&memory, size)?;

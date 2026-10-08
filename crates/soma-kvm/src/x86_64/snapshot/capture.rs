@@ -22,7 +22,7 @@ use crate::snapshot::{
     manifest::{Manifest, PageSize},
     memory::MemoryDescriptor,
 };
-use crate::virtio::{GuestAddress, GuestMemory as _, Slot};
+use crate::virtio::Slot;
 use crate::x86_64::{layout, sandbox::SandboxMachine};
 
 // Assembling the manifest out of what was read is beside this file: it touches no KVM and needs
@@ -149,10 +149,13 @@ pub fn capture(
     while offset < paused.ram_bytes {
         let remaining = usize::try_from(paused.ram_bytes - offset).unwrap_or(CHUNK);
         let span = remaining.min(CHUNK);
-        paused
-            .memory
-            .read_bytes(GuestAddress(offset), &mut buffer[..span])
-            .map_err(|_| SnapshotError::NotQuiescent("guest RAM shrank during capture"))?;
+        // The walk reads the memory object linearly across both ranges of a split machine, so
+        // it names object offsets rather than guest addresses.
+        if !paused.memory.read_image(offset, &mut buffer[..span]) {
+            return Err(SnapshotError::NotQuiescent(
+                "guest RAM shrank during capture",
+            ));
+        }
         memory.write(&buffer[..span])?;
         offset += u64::try_from(span).unwrap_or(0);
     }
