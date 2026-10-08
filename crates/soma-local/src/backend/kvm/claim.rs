@@ -10,7 +10,6 @@ use soma_generation::generation_manifest::SnapshotBinding;
 use soma_guest::SecretFile;
 
 use super::boot::private_head_from;
-use super::evidence::CONTRACT_VCPUS;
 use super::identity::{LaunchIdentity, fresh16, generation_bytes};
 use super::pool::{Claimed, MachinePool, Recipe, RecipeInputs};
 use super::prepared::PreparedGeneration;
@@ -46,11 +45,7 @@ pub(super) fn snapshot(
 ///
 /// Returns `None` when the entry carries no snapshot or no immutable root, because neither a
 /// prepared machine nor an on-demand restore exists for it and there is nothing to pool.
-pub(super) fn recipe_for(
-    prepared: &PreparedGeneration,
-    memory_mib: u64,
-    vcpus: u16,
-) -> Option<Recipe> {
+pub(super) fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64) -> Option<Recipe> {
     let (memory, overlay, state) = snapshot(prepared)?;
     let devices = prepared.manifest.device_set();
     let root = prepared.manifest.root.descriptor;
@@ -62,7 +57,9 @@ pub(super) fn recipe_for(
         overlay,
         state,
         memory_bytes: memory_mib * MIB,
-        vcpus,
+        vcpus: prepared.manifest.shape.vcpu_count,
+        contract: soma_kvm::MachineContract::require(prepared.manifest.machine_contract.version)
+            .ok()?,
         candidate,
         devices,
     }))
@@ -196,7 +193,7 @@ pub(super) fn prepare_and_claim(
     prepared: &PreparedGeneration,
     memory_mib: u64,
 ) -> Option<ClaimedMachine> {
-    let recipe = recipe_for(prepared, memory_mib, CONTRACT_VCPUS)?;
+    let recipe = recipe_for(prepared, memory_mib)?;
     let key = recipe.key().clone();
     pool.serve(recipe);
     pool.claim(&key).map(ClaimedMachine::Pooled)

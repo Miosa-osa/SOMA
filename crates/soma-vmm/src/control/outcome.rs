@@ -130,6 +130,7 @@ mod tests {
         control::Reply,
         {CleanupEvidence, Milestone, Milestones},
     };
+    use soma_kvm::MachineContract;
 
     fn operation() -> OperationId {
         OperationId::new([1; 16]).expect("operation")
@@ -152,6 +153,7 @@ mod tests {
                 GenerationId::new([3; 32]).expect("generation"),
                 machine,
                 DeclaredDevices::new(true, true),
+                MachineContract::V1,
             ),
         )
     }

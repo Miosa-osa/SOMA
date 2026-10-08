@@ -100,6 +100,7 @@ mod tests {
         DeclaredDevices, DiskBytes, Generation, GenerationId, InstanceId, Launch, Machine,
         MachineSpec, MemoryBytes, OperationId, VcpuCount,
     };
+    use soma_kvm::MachineContract;
 
     fn launch() -> Launch {
         let machine = MachineSpec::new(
@@ -114,6 +115,7 @@ mod tests {
                 GenerationId::new([3; 32]).expect("generation"),
                 machine,
                 DeclaredDevices::new(true, true),
+                MachineContract::V1,
             ),
         )
     }

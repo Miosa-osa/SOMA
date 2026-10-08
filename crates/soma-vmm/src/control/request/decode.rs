@@ -3,6 +3,8 @@
 //! Every value is checked by the contract constructor it feeds rather than by this module, so
 //! a request that decodes is always one the Machine may be asked to perform.
 
+use soma_kvm::MachineContract;
+
 use crate::{
     Argument, DeclaredDevices, DiskBytes, Execute, ExecutionLimits, Generation, GenerationId,
     InstanceId, Launch, MachineSpec, MemoryBytes, OperationId, OutputBytes, Program, Stop,
@@ -44,13 +46,15 @@ pub(super) fn decode_launch<'a>(
         .map_err(|_| ControlError::InvalidValue("disk"))?;
     let overlay = flag(tokens.next(), "declared overlay")?;
     let network = flag(tokens.next(), "declared network")?;
+    let contract = MachineContract::from_version(number(tokens.next(), "machine contract")?)
+        .ok_or(ControlError::InvalidValue("machine contract"))?;
     end(tokens)?;
     let machine = MachineSpec::new(vcpus, memory, disk);
     let devices = DeclaredDevices::new(overlay, network);
     Ok(Request::Launch(Launch::new(
         operation,
         instance,
-        Generation::new(generation, machine, devices),
+        Generation::new(generation, machine, devices, contract),
     )))
 }
 

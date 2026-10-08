@@ -7,6 +7,7 @@
 use std::{fs, path::Path, time::Duration};
 
 use soma_guest::{GuestLaunchMaterial, HostLaunchMaterial, LAUNCH_PAGE_SIZE, LaunchNetwork};
+use soma_kvm::MachineContract;
 use soma_kvm::snapshot::compatibility::Incompatibility;
 use soma_kvm::x86_64::{
     LAUNCH_PAGE_GPA, Milestone, RestoreRequest, SandboxDisks, SnapshotError, SnapshotPaths, restore,
@@ -231,6 +232,8 @@ fn attempt(
         devices: fixture.devices(),
         guest_cid: 30,
         memory_bytes: fixture.ram_bytes,
+        vcpus: 1,
+        contract: MachineContract::V1,
         verify_artifacts,
         network: None,
     });

@@ -57,6 +57,7 @@ pub struct HostProfile {
 /// Returns the first [`Incompatibility`] in the fixed check order.
 pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibility> {
     check_header(host, manifest)?;
+    check_vcpu_sections(host, manifest)?;
     check_vm_layout(manifest)?;
     for slot in 0..DEVICE_COUNT {
         if host
@@ -69,6 +70,30 @@ pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibil
             device_role(slot).filter(|role| manifest.section(*role).is_some())
         {
             return Err(Incompatibility::UnexpectedSection(role));
+        }
+    }
+    Ok(())
+}
+
+/// The largest vCPU section set the format admits.
+const MAX_VCPU_SECTIONS: u16 = 8;
+
+/// Requires exactly one vCPU state section per certified processor and no more.
+///
+/// The header already compares the count, but a count alone would let a manifest carry the
+/// wrong sections: a machine with one processor could carry `Vcpu0` and `Vcpu1` and still say
+/// one, and a machine with eight could carry only `Vcpu0`. Both restore into a machine that is
+/// not the one that was captured, so the section set is checked rather than inferred.
+fn check_vcpu_sections(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibility> {
+    for index in 0..MAX_VCPU_SECTIONS {
+        let Some(role) = SectionRole::vcpu(index) else {
+            continue;
+        };
+        let present = manifest.section(role).is_some();
+        match (index < host.vcpu_count, present) {
+            (true, false) => return Err(Incompatibility::MissingSection(role)),
+            (false, true) => return Err(Incompatibility::UnexpectedSection(role)),
+            _ => {}
         }
     }
     Ok(())

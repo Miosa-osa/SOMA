@@ -85,6 +85,8 @@ impl Platform for KvmPlatform {
             root,
             overlay_capacity_bytes,
             memory_bytes: launch.generation().machine().memory().get(),
+            vcpus: launch.generation().machine().vcpus().get(),
+            contract: launch.generation().contract(),
             devices: DeviceSet::new(declared.writable_disk(), declared.network()),
         };
         match Session::prepare(spec) {

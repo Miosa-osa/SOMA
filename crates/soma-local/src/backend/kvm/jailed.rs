@@ -148,13 +148,18 @@ impl Jailed {
                 GenerationId::new(launching.generation_bytes)
                     .map_err(|_| BackendFailureKind::WorkloadRejected)?,
                 MachineSpec::new(
-                    VcpuCount::new(1).map_err(|_| BackendFailureKind::WorkloadRejected)?,
+                    VcpuCount::new(launching.prepared.manifest.shape.vcpu_count)
+                        .map_err(|_| BackendFailureKind::WorkloadRejected)?,
                     MemoryBytes::new(launching.memory_mib.saturating_mul(MIB))
                         .map_err(|_| BackendFailureKind::WorkloadRejected)?,
                     DiskBytes::new(launching.disk_mib.saturating_mul(MIB).max(MIB))
                         .map_err(|_| BackendFailureKind::WorkloadRejected)?,
                 ),
                 DeclaredDevices::new(overlay, network),
+                soma_kvm::MachineContract::require(
+                    launching.prepared.manifest.machine_contract.version,
+                )
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
             ),
         ));
         outcome::ready(&self.control.ask(&request, LAUNCH_CEILING)?)?;

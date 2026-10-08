@@ -1,6 +1,6 @@
 use std::time::{Instant, SystemTime};
 
-use soma::{LaunchMachineRequest, MachineName};
+use soma::{LaunchMachineRequest, MachineName, MachineShape};
 
 use crate::{
     runner::{
@@ -62,7 +62,7 @@ impl Runner {
             principal.tenant.policy.max_lifetime_seconds,
         );
         self.sandboxes.reserve(id.clone(), owner, lifetime);
-        let Some(launch) = self.launch_request(&id, &principal.key.tenant_id) else {
+        let Some(launch) = self.launch_request(&id, &principal.key.tenant_id, &params.shape) else {
             self.sandboxes.abandon(&id);
             return with_journal(create_unavailable(), journal(503, Some(&id), project));
         };
@@ -91,6 +91,7 @@ impl Runner {
                             &id,
                             &runner_url,
                             params.timeout_seconds,
+                            &params.shape,
                             millis(call.pool + call.exec),
                         ),
                     )
@@ -132,7 +133,7 @@ impl Runner {
             .policy
             .default_timeout_seconds
             .unwrap_or(self.config.launch.default_timeout_seconds);
-        let params = CreateParams::parse(body, default_timeout, &self.config.launch.shape)
+        let params = CreateParams::parse(body, default_timeout, &self.config.launch)
             .map_err(|error| Box::new(RunnerResponse::platform(&error)))?;
         if !principal.key.projects.allows(params.project_id.as_deref()) {
             return Err(Box::new(RunnerResponse::refusal(403, "forbidden")));
@@ -145,16 +146,17 @@ impl Runner {
         id: &SandboxId,
         runner_url: &str,
         timeout_seconds: u64,
+        shape: &MachineShape,
         create_ms: u64,
     ) -> Vec<u8> {
         let created_at = iso8601_micros(SystemTime::now());
         public_wire::encode(&public_wire::Created {
-            cpu_count: self.config.launch.shape.vcpu_count(),
+            cpu_count: shape.vcpu_count(),
             create_ms,
             created_at: &created_at,
             deletion_pending: false,
             id: id.as_str(),
-            memory_mb: self.config.launch.shape.memory_mib(),
+            memory_mb: shape.memory_mib(),
             name: None,
             runner_url,
             slug: &id.as_str()[..8],
@@ -164,15 +166,16 @@ impl Runner {
         })
     }
 
-    fn launch_request(&self, id: &SandboxId, tenant_id: &str) -> Option<LaunchMachineRequest> {
+    fn launch_request(
+        &self,
+        id: &SandboxId,
+        tenant_id: &str,
+        shape: &MachineShape,
+    ) -> Option<LaunchMachineRequest> {
         let instance_id = id.instance_id()?;
         let operation = operation_id(None).ok()?;
-        let request = LaunchMachineRequest::new(
-            operation,
-            instance_id,
-            self.image.clone(),
-            self.config.launch.shape.clone(),
-        );
+        let request =
+            LaunchMachineRequest::new(operation, instance_id, self.image.clone(), shape.clone());
         Some(
             match MachineName::parse(format!("{TENANT_LABEL_PREFIX}{tenant_id}")) {
                 Ok(name) => request.with_name(name),

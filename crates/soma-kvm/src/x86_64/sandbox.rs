@@ -2,11 +2,11 @@
 //! guest agent.
 //!
 //! `create` builds every owned resource in the contract order without running the guest;
-//! `write_launch_page` publishes the material; `start` runs the device thread and vCPU 0;
-//! the caller drives the byte-level [`ControlChannel`] with `soma-guest`, retires the launch
-//! page at the repair commit, marks its own milestones, and `finish` reclaims the vCPU,
-//! stops the device thread, deregisters every route, and returns the evidence.
+//! `write_launch_page` publishes the material; `start` runs the device thread and one thread
+//! per vCPU; the caller drives the byte-level [`ControlChannel`] with `soma-guest`, retires the
+//! launch page at the repair commit, marks its milestones, and `finish` reclaims every vCPU.
 
+mod config;
 pub(in crate::x86_64) mod evidence;
 mod launch;
 mod network;
@@ -14,14 +14,12 @@ mod pause;
 pub(in crate::x86_64) mod restored;
 mod teardown;
 
-use std::{
-    fs::File,
-    sync::{Arc, Mutex, PoisonError, atomic::AtomicBool},
-};
+use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
 
 use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
+pub use self::config::SandboxConfig;
 pub(in crate::x86_64) use self::evidence::Timeline;
 pub use self::evidence::{Milestone, MilestoneMark, SandboxEvidence};
 pub use self::restored::NetworkAttachment;
@@ -30,53 +28,35 @@ use super::{
     channel::ControlChannel,
     cmdline,
     console_tap::ConsoleTap,
-    devices::{self, DeviceIdentity, SandboxDisks, SharedBus},
-    event_loop::EventLoop,
+    devices::{self, SharedBus},
+    event_loop::{EventLoop, EventLoopReport},
     events::{IrqLines, NotifyFds},
     exits::ExitLedger,
     launch_page::LaunchPageSlot,
     loader::{self, INITRAMFS_LIMIT, KERNEL_IMAGE_LIMIT},
     mmio::MmioDispatch,
-    ports::PortBus,
+    ports::{PortBus, PortBusHandle},
     serial::{SERIAL_GSI, Serial},
     timing::Stopwatch,
-    watchdog::VcpuRun,
+    watchdog::{CANCELLATION_GRACE, RunContext, RunReport, VcpuRun},
 };
-use super::{event_loop::EventLoopReport, watchdog::RunReport};
-use crate::virtio::DeviceSet;
-
-/// Inputs for one sandbox.
-pub struct SandboxConfig {
-    /// The Generation's uncompressed PVH kernel.
-    pub kernel: File,
-    /// The Generation's `newc` initramfs carrying the guest agent.
-    pub initramfs: File,
-    /// The immutable root and the Instance-private overlay head.
-    pub disks: SandboxDisks,
-    /// Non-secret device identity for this Instance.
-    pub identity: DeviceIdentity,
-    /// Guest RAM in bytes; a multiple of 4 KiB between 128 MiB and 3 GiB.
-    pub ram_bytes: u64,
-    /// The optional devices this Generation declared; it must agree with `disks`.
-    pub devices: DeviceSet,
-}
 
 struct Prepared {
-    vcpu: VcpuFd,
+    vcpus: Vec<VcpuFd>,
     serial_line: EventFd,
     irq: IrqLines,
     notify: NotifyFds,
 }
 
 struct Running {
-    vcpu: VcpuRun,
+    context: RunContext,
+    vcpus: Vec<VcpuRun>,
     event_loop: EventLoop,
 }
 
-/// A machine whose device thread stopped and whose vCPU left `KVM_RUN` with every resource
-/// still owned, so a snapshot builder can read its state.
+/// A machine whose device thread stopped and whose vCPUs left `KVM_RUN`, every resource owned.
 struct Paused {
-    report: RunReport,
+    reports: Vec<RunReport>,
     devices: EventLoopReport,
 }
 
@@ -95,7 +75,9 @@ pub struct SandboxMachine {
     finished: Arc<AtomicBool>,
     launch_page: Mutex<Option<LaunchPageSlot>>,
     console: Option<Arc<ConsoleTap>>,
-    /// Both sides of every `KVM_RUN` this machine's vCPU makes.
+    /// The shared port bus, one console buffer whatever the vCPU count, taken back at the end.
+    ports: Option<PortBusHandle>,
+    /// Both sides of every `KVM_RUN` this machine's vCPUs make.
     exits: Arc<ExitLedger>,
     stage: Stage,
     clock: Stopwatch,
@@ -106,13 +88,25 @@ pub struct SandboxMachine {
 }
 
 impl SandboxMachine {
-    /// Creates the VM, RAM, platform, devices, launch page slot, loaded guest, vCPU, and
-    /// every eventfd route, in that order, without running anything.
+    /// Creates the VM, RAM, platform, devices, launch page slot, guest, vCPUs, and eventfd
+    /// routes, in that order, without running anything.
     ///
     /// # Errors
     ///
     /// Returns the typed phase failure; everything created before it is released in reverse.
     pub fn create(config: SandboxConfig) -> Result<Self, MachineError> {
+        if !config.contract.accepts_vcpus(config.vcpus) {
+            return Err(MachineError::invalid(
+                Phase::CreateVcpu,
+                "the vCPU count is not one this machine contract admits",
+            ));
+        }
+        if !config.contract.accepts_memory(config.ram_bytes) {
+            return Err(MachineError::invalid(
+                Phase::MapMemory,
+                "the guest RAM size is not one this machine contract admits",
+            ));
+        }
         let mut timeline = Timeline::new();
         let mut clock = Stopwatch::new();
         let image = loader::read_bounded(config.kernel, KERNEL_IMAGE_LIMIT)?;
@@ -129,12 +123,19 @@ impl SandboxMachine {
         let launch_page = LaunchPageSlot::map_and_register(&machine.vm)?;
         clock.lap(Phase::LaunchPage);
         timeline.mark(Milestone::LaunchPageMapped);
-        let line = cmdline::compose_generation(config.devices);
-        let loaded = loader::load_kernel(&mut machine.ram, &image, Some(&initramfs), &line)?;
+        let line = cmdline::compose_generation_for(config.devices, config.contract);
+        let loaded = loader::load_kernel(
+            &mut machine.ram,
+            &image,
+            Some(&initramfs),
+            &line,
+            config.contract,
+            config.vcpus,
+        )?;
         drop(image);
         clock.lap(Phase::LoadGuest);
         timeline.mark(Milestone::LoadGuest);
-        let vcpu = machine.boot_vcpu(loaded.entry, &mut clock)?;
+        let vcpus = machine.boot_vcpus(loaded.entry, config.vcpus, &mut clock)?;
         timeline.mark(Milestone::Vcpu);
         let serial_line = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(|error| MachineError::io(Phase::Events, &error))?;
@@ -156,9 +157,10 @@ impl SandboxMachine {
             finished: Arc::new(AtomicBool::new(false)),
             launch_page: Mutex::new(Some(launch_page)),
             console: None,
+            ports: None,
             exits: Arc::new(ExitLedger::new()),
             stage: Stage::Prepared(Prepared {
-                vcpu,
+                vcpus,
                 serial_line,
                 irq,
                 notify,
@@ -171,7 +173,7 @@ impl SandboxMachine {
         })
     }
 
-    /// Starts the device thread and vCPU 0.
+    /// Starts the device thread and one dedicated thread per vCPU.
     ///
     /// # Errors
     ///
@@ -180,48 +182,72 @@ impl SandboxMachine {
         let Stage::Prepared(prepared) = std::mem::replace(&mut self.stage, Stage::Stopped) else {
             return Err(MachineError::invalid(Phase::Run, "sandbox already started"));
         };
-        let kicks = prepared.notify.kicks()?;
+        let Prepared {
+            vcpus,
+            serial_line,
+            irq,
+            notify,
+        } = prepared;
+        // Each worker gets its own duplicated notify descriptors.
+        let mut kicks = Vec::with_capacity(vcpus.len());
+        for _ in 0..vcpus.len() {
+            kicks.push(notify.kicks()?);
+        }
+        // An Instance with an assigned bundle has its TAP attached before this point, so the
+        // device thread can watch it from its first wakeup.
         let event_loop = EventLoop::spawn(
             Arc::clone(&self.shared),
             self.machine.ram.shared(),
-            prepared.notify,
-            prepared.irq,
+            notify,
+            irq,
             self.host_work
                 .try_clone()
                 .map_err(|error| MachineError::io(Phase::EventLoop, &error))?,
-            // An Instance with an assigned bundle has its TAP attached before this point, so
-            // the device thread can watch it from its first wakeup.
             self.net_backend_fd(),
         )
         .map_err(|error| MachineError::io(Phase::EventLoop, &error))?;
         self.clock.lap(Phase::EventLoop);
         self.mark(Milestone::EventLoop);
-        let dispatch = MmioDispatch::new(
-            Arc::clone(&self.shared),
-            self.machine.ram.shared(),
-            kicks,
-            Arc::clone(&self.finished),
-        );
-        let bus = PortBus::new(Serial::with_tap(
-            Some(prepared.serial_line),
+        let ports = PortBusHandle::new(PortBus::new(Serial::with_tap(
+            Some(serial_line),
             self.console.clone(),
-        ));
-        // RunStart is stamped BEFORE the vCPU thread exists: the timing
-        // contract reads "armed <= entered", and the thread this call spawns
-        // stamps FirstRunEntered on its own way into KVM_RUN. Stamping after
-        // the spawn returns loses that order on a small host - a 2-core
-        // machine was observed entering the guest 3.6us before the spawning
-        // thread got to the mark.
+        )));
+        // RunStart precedes any vCPU thread: each stamps FirstRunEntered on its way in.
         self.mark(Milestone::RunStart);
-        let vcpu = VcpuRun::start(prepared.vcpu, bus, Some(dispatch), None, &self.exits).map_err(
-            |report| {
-                report
-                    .result
-                    .err()
-                    .unwrap_or_else(|| MachineError::invalid(Phase::Run, "vCPU failed to start"))
-            },
-        )?;
-        self.stage = Stage::Running(Running { vcpu, event_loop });
+        let context = match RunContext::acquire() {
+            Ok(context) => context,
+            Err(error) => {
+                let _ignored = event_loop.stop();
+                return Err(error);
+            }
+        };
+        let mut runs = Vec::with_capacity(vcpus.len());
+        for (vcpu, kicks) in vcpus.into_iter().zip(kicks) {
+            let dispatch = MmioDispatch::new(
+                Arc::clone(&self.shared),
+                self.machine.ram.shared(),
+                kicks,
+                Arc::clone(&self.finished),
+            );
+            match VcpuRun::start(&context, vcpu, &ports, Some(dispatch), None, &self.exits) {
+                Ok(run) => runs.push(run),
+                Err(report) => {
+                    for run in runs {
+                        let _ignored = run.pause(CANCELLATION_GRACE);
+                    }
+                    let _ignored = event_loop.stop();
+                    return Err(report.result.err().unwrap_or_else(|| {
+                        MachineError::invalid(Phase::Run, "vCPU failed to start")
+                    }));
+                }
+            }
+        }
+        self.ports = Some(ports);
+        self.stage = Stage::Running(Running {
+            context,
+            vcpus: runs,
+            event_loop,
+        });
         Ok(())
     }
 

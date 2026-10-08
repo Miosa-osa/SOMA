@@ -15,6 +15,8 @@ mod routing;
 #[cfg(test)]
 mod scope_tests;
 mod shell;
+#[cfg(test)]
+mod size_tests;
 mod stream;
 #[cfg(test)]
 mod stream_tests;

@@ -5,12 +5,14 @@
 //! Unknown critical roles reject the whole snapshot; unknown non-critical roles are skipped
 //! after their digest is verified.
 
-use std::{error::Error, fmt};
-
 use super::{
-    Digest, WireError,
+    Digest,
     wire::{Reader, Writer},
 };
+
+mod error;
+
+pub use error::SectionError;
 
 /// Version of every known section encoding in schema v1.
 pub const SECTION_VERSION: u16 = 1;
@@ -31,6 +33,13 @@ pub enum SectionRole {
     IrqRouting,
     KvmClock,
     Pit,
+    Vcpu1,
+    Vcpu2,
+    Vcpu3,
+    Vcpu4,
+    Vcpu5,
+    Vcpu6,
+    Vcpu7,
     Device0,
     Device1,
     Device2,
@@ -40,13 +49,20 @@ pub enum SectionRole {
 }
 
 impl SectionRole {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 19] = [
         Self::VmState,
         Self::Vcpu0,
         Self::Irqchip,
         Self::IrqRouting,
         Self::KvmClock,
         Self::Pit,
+        Self::Vcpu1,
+        Self::Vcpu2,
+        Self::Vcpu3,
+        Self::Vcpu4,
+        Self::Vcpu5,
+        Self::Vcpu6,
+        Self::Vcpu7,
         Self::Device0,
         Self::Device1,
         Self::Device2,
@@ -54,6 +70,42 @@ impl SectionRole {
         Self::Device4,
         Self::RepairPointMarker,
     ];
+
+    /// The role of one vCPU's state section.
+    ///
+    /// The codes stay contiguous and ascending, which the canonical section sequence requires,
+    /// so the second and later processors take the codes immediately after the timer rather than
+    /// renumbering a role version 1 already published.
+    #[must_use]
+    pub const fn vcpu(index: u16) -> Option<Self> {
+        match index {
+            0 => Some(Self::Vcpu0),
+            1 => Some(Self::Vcpu1),
+            2 => Some(Self::Vcpu2),
+            3 => Some(Self::Vcpu3),
+            4 => Some(Self::Vcpu4),
+            5 => Some(Self::Vcpu5),
+            6 => Some(Self::Vcpu6),
+            7 => Some(Self::Vcpu7),
+            _ => None,
+        }
+    }
+
+    /// The processor index this role carries, if it is a vCPU state section.
+    #[must_use]
+    pub const fn vcpu_index(self) -> Option<u16> {
+        match self {
+            Self::Vcpu0 => Some(0),
+            Self::Vcpu1 => Some(1),
+            Self::Vcpu2 => Some(2),
+            Self::Vcpu3 => Some(3),
+            Self::Vcpu4 => Some(4),
+            Self::Vcpu5 => Some(5),
+            Self::Vcpu6 => Some(6),
+            Self::Vcpu7 => Some(7),
+            _ => None,
+        }
+    }
 
     #[must_use]
     pub const fn code(self) -> u16 {
@@ -64,6 +116,13 @@ impl SectionRole {
             Self::IrqRouting => 0x0004,
             Self::KvmClock => 0x0005,
             Self::Pit => 0x0006,
+            Self::Vcpu1 => 0x0007,
+            Self::Vcpu2 => 0x0008,
+            Self::Vcpu3 => 0x0009,
+            Self::Vcpu4 => 0x000a,
+            Self::Vcpu5 => 0x000b,
+            Self::Vcpu6 => 0x000c,
+            Self::Vcpu7 => 0x000d,
             Self::Device0 => 0x0010,
             Self::Device1 => 0x0011,
             Self::Device2 => 0x0012,
@@ -85,10 +144,24 @@ impl SectionRole {
     /// is not a weaker check: which slots a manifest must carry is a statement about a
     /// particular Generation rather than about the format, so it is the compatibility check,
     /// which knows the device set, that requires exactly the sections that machine has and
-    /// refuses any other combination.
+    /// refuses any other combination. The second and later vCPU sections are optional for the
+    /// same reason: whether a multi-processor machine carries them is a statement about that
+    /// machine, and the compatibility check knows the certified vCPU count.
     #[must_use]
     pub const fn is_required(self) -> bool {
-        !matches!(self, Self::Pit | Self::Device1 | Self::Device2)
+        !matches!(
+            self,
+            Self::Pit
+                | Self::Vcpu1
+                | Self::Vcpu2
+                | Self::Vcpu3
+                | Self::Vcpu4
+                | Self::Vcpu5
+                | Self::Vcpu6
+                | Self::Vcpu7
+                | Self::Device1
+                | Self::Device2
+        )
     }
 
     /// The device slot carried by a device section.
@@ -102,57 +175,6 @@ impl SectionRole {
             Self::Device4 => Some(4),
             _ => None,
         }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SectionError {
-    Wire(WireError),
-    PayloadTooLarge { length: u64 },
-    UnknownCriticalRole(u16),
-    UnsupportedVersion { role: u16, version: u16 },
-    ReservedFlags(u8),
-    KnownRoleNotCritical(SectionRole),
-    DigestMismatch { role: u16 },
-    RoleOrder { previous: u16, next: u16 },
-}
-
-impl fmt::Display for SectionError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Wire(error) => write!(formatter, "section wire error: {error}"),
-            Self::PayloadTooLarge { length } => {
-                write!(formatter, "section payload of {length} bytes exceeds bound")
-            }
-            Self::UnknownCriticalRole(code) => {
-                write!(formatter, "unknown critical section role {code:#06x}")
-            }
-            Self::UnsupportedVersion { role, version } => {
-                write!(
-                    formatter,
-                    "section role {role:#06x} version {version} unsupported"
-                )
-            }
-            Self::ReservedFlags(flags) => write!(formatter, "reserved section flags {flags:#04x}"),
-            Self::KnownRoleNotCritical(role) => {
-                write!(formatter, "known section {role:?} must be critical")
-            }
-            Self::DigestMismatch { role } => {
-                write!(formatter, "section role {role:#06x} digest mismatch")
-            }
-            Self::RoleOrder { previous, next } => write!(
-                formatter,
-                "section role {next:#06x} must follow {previous:#06x} in ascending order"
-            ),
-        }
-    }
-}
-
-impl Error for SectionError {}
-
-impl From<WireError> for SectionError {
-    fn from(error: WireError) -> Self {
-        Self::Wire(error)
     }
 }
 

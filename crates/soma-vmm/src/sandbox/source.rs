@@ -6,6 +6,7 @@
 
 use soma_guest::{LaunchNetwork, SecretFile};
 use soma_kvm::DeviceSet;
+use soma_kvm::MachineContract;
 use soma_kvm::x86_64::{
     Hypervisor, NetworkAttachment, SandboxConfig, SandboxDisks, SnapshotObjects,
 };
@@ -32,6 +33,10 @@ pub enum Source {
         /// The optional devices the Generation declared, which the snapshot must agree with.
         devices: DeviceSet,
         memory_bytes: u64,
+        /// The vCPU count the Generation declared, which the snapshot must agree with.
+        vcpus: u16,
+        /// The machine contract the Generation was built under.
+        contract: MachineContract,
     },
 }
 
