@@ -12,11 +12,11 @@ use soma_guest::{
     GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, RepairedHostControl,
     TerminalStatus,
 };
-use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{
     DeviceIdentity, GuestExit, Milestone, SandboxConfig, SandboxDisks, SandboxEvidence,
     SandboxMachine,
 };
+use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::x86_64_sandbox_boot_control::HostIo;
 
@@ -73,9 +73,7 @@ pub fn now_unix_nanos() -> u64 {
 }
 
 /// Boots `config`, completes the session with fresh per-Instance authority, runs one hostile
-/// unbounded-output step, executes `command`, shuts down, and cleans up.
-///
-/// Returns the evidence together with both command results, or the evidence and the failure.
+/// unbounded-output step, executes `command`, shuts down, and returns the evidence and results.
 pub fn run(
     config: SandboxConfig,
     generation_id: &str,
@@ -207,6 +205,8 @@ pub fn config(
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
+        vcpus: 1,
+        contract: MachineContract::V1,
         devices,
     }
 }

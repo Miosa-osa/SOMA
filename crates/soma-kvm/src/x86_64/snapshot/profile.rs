@@ -9,6 +9,8 @@ use kvm_bindings::{CpuId, KVM_MAX_CPUID_ENTRIES};
 use kvm_ioctls::{Cap, Kvm};
 
 use super::error::SnapshotError;
+use crate::contract::MachineContract;
+use crate::memory_layout::GuestLayout;
 use crate::snapshot::{
     Digest, Hasher,
     compatibility::{DeviceExpectation, HostProfile},
@@ -24,10 +26,6 @@ use crate::x86_64::{cmdline, cpuid, launch_page, layout};
 
 /// Version of the bounded guest control protocol the certified agent speaks.
 pub(in crate::x86_64) const GUEST_PROTOCOL_VERSION: u16 = 1;
-/// Guest RAM slot plus the separate launch-page slot.
-pub(in crate::x86_64) const REQUIRED_MEMORY_SLOTS: u16 = 2;
-/// The version 1 machine runs exactly one vCPU.
-pub(in crate::x86_64) const VCPU_COUNT: u16 = 1;
 /// Largest `kvm_xsave` region the certified state format carries.
 pub(in crate::x86_64) const XSAVE_LIMIT: i32 = 4096;
 
@@ -52,9 +50,9 @@ const REQUIRED: [(HostCapability, Cap); 12] = [
 /// It changes whenever the machine the snapshot was taken on stops being the machine the
 /// snapshot would be restored onto, which is exactly when restore must fail closed.
 #[must_use]
-pub(in crate::x86_64) fn machine_contract(devices: DeviceSet) -> Digest {
+pub(in crate::x86_64) fn machine_contract(contract: MachineContract, devices: DeviceSet) -> Digest {
     let mut hasher = Hasher::new();
-    hasher.update(b"SOMA-x86_64-machine-contract-v1\0");
+    hasher.update(contract_domain(contract));
     for value in [
         layout::TSS_ADDRESS,
         layout::START_INFO_ADDRESS,
@@ -67,8 +65,30 @@ pub(in crate::x86_64) fn machine_contract(devices: DeviceSet) -> Digest {
     ] {
         hasher.update(&value.to_be_bytes());
     }
-    hasher.update(cmdline::compose_generation(devices).as_bytes());
+    // A machine that publishes an MP table is a different machine even at the same size, so the
+    // address it writes is part of the identity rather than of the prose.
+    if contract.writes_mp_table() {
+        hasher.update(&crate::mptable::MP_TABLE_ADDRESS.to_be_bytes());
+    }
+    hasher.update(cmdline::compose_generation_for(devices, contract).as_bytes());
     hasher.finish()
+}
+
+/// The digest domain of one contract version.
+///
+/// Version 1's domain is the byte string version 1 has always hashed, so its digests do not
+/// move; a later version gets its own domain rather than sharing one.
+const fn contract_domain(contract: MachineContract) -> &'static [u8] {
+    match contract {
+        MachineContract::V1 => b"SOMA-x86_64-machine-contract-v1\0",
+        MachineContract::V2 => b"SOMA-x86_64-machine-contract-v2\0",
+    }
+}
+
+/// The memory slots a machine of this shape needs: one per RAM range plus the launch page.
+#[must_use]
+pub(in crate::x86_64) fn required_memory_slots(layout: GuestLayout) -> u16 {
+    u16::try_from(layout.regions().len() + 1).unwrap_or(u16::MAX)
 }
 
 /// Digest of this Generation's device surface: which slots it has, and for each of them the
@@ -135,7 +155,9 @@ pub(in crate::x86_64) fn cpu_template(kvm: &Kvm) -> Result<(CpuId, Digest), Snap
     let mut template = kvm
         .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
         .map_err(|error| SnapshotError::ioctl("KVM_GET_SUPPORTED_CPUID", error))?;
-    cpuid::apply_template(&mut template)?;
+    // The canonical digest describes the bootstrap processor's template; the per-processor
+    // identifier is implied by the certified vCPU count rather than hashed N times.
+    cpuid::apply_template(&mut template, 0)?;
     let entries = CpuidEntries::try_from(&template)?;
     let mut hasher = Hasher::new();
     hasher.update(b"SOMA-cpu-template-v1\0");
@@ -160,11 +182,11 @@ pub(in crate::x86_64) fn cpu_template(kvm: &Kvm) -> Result<(CpuId, Digest), Snap
 /// # Errors
 ///
 /// Returns the requirement rejection, which the fixed ascending list cannot trigger.
-pub(in crate::x86_64) fn requirements() -> Result<HostRequirements, SnapshotError> {
+pub(in crate::x86_64) fn requirements(slots: u16) -> Result<HostRequirements, SnapshotError> {
     HostRequirements::new(
         u32::try_from(crate::KVM_API_VERSION).unwrap_or(0),
         REQUIRED.iter().map(|(capability, _)| *capability).collect(),
-        REQUIRED_MEMORY_SLOTS,
+        slots,
     )
     .map_err(|error| SnapshotError::Manifest(error.into()))
 }
@@ -178,6 +200,8 @@ pub(in crate::x86_64) fn requirements() -> Result<HostRequirements, SnapshotErro
 pub(in crate::x86_64) fn host_profile(
     kvm: &Kvm,
     memory_bytes: u64,
+    vcpus: u16,
+    contract: MachineContract,
     devices: DeviceSet,
 ) -> Result<HostProfile, SnapshotError> {
     let xsave = kvm.check_extension_int(Cap::Xsave2);
@@ -198,10 +222,10 @@ pub(in crate::x86_64) fn host_profile(
         kvm_api_version: u32::try_from(kvm.get_api_version()).unwrap_or(0),
         capabilities,
         memory_slots: u16::try_from(kvm.get_nr_memslots()).unwrap_or(u16::MAX),
-        machine_contract: machine_contract(devices),
+        machine_contract: machine_contract(contract, devices),
         device_contract: device_contract(devices),
         cpu_template,
-        vcpu_count: VCPU_COUNT,
+        vcpu_count: vcpus,
         memory_bytes,
         guest_protocol_version: GUEST_PROTOCOL_VERSION,
         devices: expectations,

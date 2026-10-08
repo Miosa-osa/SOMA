@@ -3,7 +3,7 @@
 //! The vCPU enters 32-bit protected mode with paging disabled, flat code and data segments, a
 //! present 32-bit TSS, `RIP` at the entry point, and `RBX` pointing at `hvm_start_info`.
 
-use kvm_bindings::{kvm_regs, kvm_segment, kvm_sregs};
+use kvm_bindings::{KVM_MP_STATE_UNINITIALIZED, kvm_mp_state, kvm_regs, kvm_segment, kvm_sregs};
 use kvm_ioctls::VcpuFd;
 
 use super::{
@@ -30,6 +30,20 @@ pub(crate) fn install_registers(vcpu: &VcpuFd, entry: u64) -> Result<(), Machine
         .map_err(|error| MachineError::os(Phase::Sregs, error))?;
     vcpu.set_regs(&boot_regs(entry))
         .map_err(|error| MachineError::os(Phase::Regs, error))
+}
+
+/// Leaves an application processor waiting for the INIT/SIPI the guest's SMP bringup sends.
+///
+/// A processor that is not the bootstrap one starts where a real one does: in the wait-for-SIPI
+/// state, with no register or segment state the guest has not written itself. The guest's own
+/// trampoline supplies the state it needs when the start-up IPI arrives, so nothing here guesses
+/// at an entry point, and the local APIC identifier is the one KVM assigned in creation order,
+/// which is what the machine's MP table lists.
+pub(crate) fn install_ap_state(vcpu: &VcpuFd) -> Result<(), MachineError> {
+    vcpu.set_mp_state(kvm_mp_state {
+        mp_state: KVM_MP_STATE_UNINITIALIZED,
+    })
+    .map_err(|error| MachineError::os(Phase::MpState, error))
 }
 
 pub(crate) fn apply_protected_mode(sregs: &mut kvm_sregs) {

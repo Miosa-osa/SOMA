@@ -22,7 +22,7 @@ use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
 
 use super::{
     KvmBackend, claim,
-    evidence::{CONTRACT_VCPUS, command_status, effective_network},
+    evidence::{command_status, effective_network},
     host::Launched,
     identity::LaunchIdentity,
     network::{Egress, Released},
@@ -71,9 +71,11 @@ impl KvmBackend {
         if self.live.is_some() {
             return Err(self.fail(operation, BackendFailureKind::ResourceConflict));
         }
-        // The machine contract fixes one vCPU, so a larger shape is refused rather than
-        // silently served by a machine that is not the shape the caller asked for.
-        if shape.vcpu_count() != CONTRACT_VCPUS {
+        // A request for a different vCPU count than the Generation was certified at is refused
+        // rather than silently served by a machine that is not the shape the caller asked for.
+        // The number comes from the Generation, which is what the machine is actually built
+        // with, so this is a statement about the machine and not a restatement of a constant.
+        if shape.vcpu_count() != prepared.manifest.shape.vcpu_count {
             return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
         }
         let identity =
@@ -126,6 +128,7 @@ impl KvmBackend {
         Ok(Launched {
             preparation,
             memory_mib: shape.memory_mib(),
+            vcpus: prepared.manifest.shape.vcpu_count,
             network: observed,
             at_ns: launched,
         })

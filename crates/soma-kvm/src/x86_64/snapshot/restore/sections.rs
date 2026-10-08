@@ -16,7 +16,8 @@ use crate::virtio::{DeviceSet, Slot};
 /// Every decoded section a restore needs, in manifest order.
 pub(super) struct Sections {
     pub(super) vm: VmState,
-    pub(super) vcpu: VcpuState,
+    /// One decoded record per certified processor, in index order.
+    pub(super) vcpus: Vec<VcpuState>,
     pub(super) irqchip: IrqchipState,
     pub(super) routing: IrqRoutingState,
     pub(super) clock: ClockState,
@@ -30,7 +31,11 @@ impl Sections {
     ///
     /// Compatibility has already refused a manifest whose section set disagrees with that, so a
     /// missing section here is a malformed snapshot rather than a smaller machine.
-    pub(super) fn read(manifest: &Manifest, devices: DeviceSet) -> Result<Self, SnapshotError> {
+    pub(super) fn read(
+        manifest: &Manifest,
+        devices: DeviceSet,
+        vcpus: u16,
+    ) -> Result<Self, SnapshotError> {
         let devices = devices
             .present()
             .map(|slot| {
@@ -40,9 +45,14 @@ impl Sections {
                 Ok((slot, state))
             })
             .collect::<Result<Vec<_>, SnapshotError>>()?;
+        let mut states = Vec::with_capacity(usize::from(vcpus));
+        for index in 0..vcpus {
+            let role = SectionRole::vcpu(index).ok_or(SnapshotError::MissingSection("Vcpu"))?;
+            states.push(VcpuState::decode(section(manifest, role)?)?);
+        }
         Ok(Self {
             vm: VmState::decode(section(manifest, SectionRole::VmState)?)?,
-            vcpu: VcpuState::decode(section(manifest, SectionRole::Vcpu0)?)?,
+            vcpus: states,
             irqchip: IrqchipState::decode(section(manifest, SectionRole::Irqchip)?)?,
             routing: IrqRoutingState::decode(section(manifest, SectionRole::IrqRouting)?)?,
             clock: ClockState::decode(section(manifest, SectionRole::KvmClock)?)?,
@@ -59,6 +69,13 @@ pub(super) fn section(manifest: &Manifest, role: SectionRole) -> Result<&[u8], S
         .ok_or(SnapshotError::MissingSection(match role {
             SectionRole::VmState => "VmState",
             SectionRole::Vcpu0 => "Vcpu0",
+            SectionRole::Vcpu1
+            | SectionRole::Vcpu2
+            | SectionRole::Vcpu3
+            | SectionRole::Vcpu4
+            | SectionRole::Vcpu5
+            | SectionRole::Vcpu6
+            | SectionRole::Vcpu7 => "Vcpu",
             SectionRole::Irqchip => "Irqchip",
             SectionRole::IrqRouting => "IrqRouting",
             SectionRole::KvmClock => "KvmClock",

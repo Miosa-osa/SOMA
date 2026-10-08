@@ -8,7 +8,7 @@ use super::{
     error::{MachineError, MachineErrorKind, Phase},
     exits::ExitLedger,
     mmio::MmioDispatch,
-    ports::{PortBus, PortEvent},
+    ports::{PortBusHandle, PortEvent},
 };
 
 /// How the guest stopped.
@@ -31,16 +31,16 @@ pub enum GuestExit {
 
 /// Runs the vCPU until it stops, an unexpected exit occurs, or the watchdog interrupts it.
 ///
-/// Port I/O is dispatched through `bus`, MMIO through `mmio` when the machine has a device
-/// bus; when `sentinel` is given the loop stops as soon as the captured serial output ends
-/// with it. An interruption is a pause when `pause` is set and a deadline failure otherwise,
+/// Port I/O is dispatched through the shared `bus`, MMIO through `mmio` when the machine has a
+/// device bus; when `sentinel` is given the loop stops as soon as the captured serial output
+/// ends with it. An interruption is a pause when `pause` is set and a deadline failure otherwise,
 /// so the two uses of the same signal never blur into one another.
 ///
 /// `ledger` records each side of `KVM_RUN`. It is the only account of where a resume spends
 /// its time between the vCPU being armed and the guest doing anything the host can observe.
 pub(crate) fn run(
     vcpu: &mut VcpuFd,
-    bus: &mut PortBus,
+    bus: &PortBusHandle,
     mut mmio: Option<&mut MmioDispatch>,
     sentinel: Option<&[u8]>,
     pause: &AtomicBool,
@@ -64,7 +64,12 @@ pub(crate) fn run(
             Ok(VcpuExit::IoOut(port, data)) => match bus.io_out(port, data)? {
                 PortEvent::Reset => return Ok(GuestExit::Reset),
                 PortEvent::Continue => {
-                    if sentinel.is_some_and(|expected| ends_with(bus.serial().output(), expected)) {
+                    // The console is the only device on the port bus, so the sentinel is checked
+                    // through the shared bus rather than a thread-local copy of it.
+                    let reached = sentinel.is_some_and(|expected| {
+                        bus.with_serial(|serial| ends_with(serial.output(), expected))
+                    });
+                    if reached {
                         return Ok(GuestExit::Sentinel);
                     }
                 }

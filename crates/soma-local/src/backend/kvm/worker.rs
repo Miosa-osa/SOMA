@@ -89,6 +89,8 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
             disks,
             devices,
             memory_bytes,
+            vcpus,
+            contract,
         } => {
             let restored = restore(RestoreRequest {
                 paths: SnapshotPaths::new(snapshot),
@@ -96,6 +98,8 @@ pub(super) fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender
                 devices,
                 guest_cid,
                 memory_bytes,
+                vcpus,
+                contract,
                 // Re-hashing every byte of the memory object is the installation and audit
                 // boundary, not the request path.
                 verify_artifacts: false,
@@ -241,6 +245,8 @@ pub(super) struct ColdBootInputs {
     pub(super) ram_bytes: u64,
     pub(super) guest_cid: u32,
     pub(super) devices: DeviceSet,
+    pub(super) vcpus: u16,
+    pub(super) contract: soma_kvm::MachineContract,
 }
 
 /// The device identity and shape one sandbox is given.
@@ -253,6 +259,8 @@ pub(super) fn config(inputs: ColdBootInputs) -> SandboxConfig {
         ram_bytes,
         guest_cid,
         devices,
+        vcpus,
+        contract,
     } = inputs;
     SandboxConfig {
         kernel,
@@ -263,6 +271,8 @@ pub(super) fn config(inputs: ColdBootInputs) -> SandboxConfig {
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
+        vcpus,
+        contract,
         devices,
     }
 }

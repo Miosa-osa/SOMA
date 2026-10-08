@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::{
     Machine, MachineError, Phase, guest,
-    ports::PortBus,
+    ports::{PortBus, PortBusHandle},
     run::GuestExit,
     serial::Serial,
     timing::{PhaseTiming, Stopwatch},
@@ -118,11 +118,11 @@ fn prepare_and_run(
     let entry = guest::load(&mut machine.ram)?;
     clock.lap(Phase::LoadGuest);
     let vcpu = machine.boot_vcpu(entry, clock)?;
-    let bus = PortBus::new(Serial::new(None));
-    let report = watchdog::run_with_deadline(vcpu, bus, None, None, config.timeout);
+    let bus = PortBusHandle::new(PortBus::new(Serial::new(None)));
+    let report = watchdog::run_with_deadline(vcpu, bus.clone(), None, None, config.timeout);
     clock.lap(Phase::Run);
-    let serial = report
-        .bus
+    let serial = bus
+        .into_inner()
         .map(|bus| bus.into_serial().into_output())
         .unwrap_or_default();
     let exit = report.result?;

@@ -66,6 +66,10 @@ pub struct RestoreRequest {
     pub guest_cid: u32,
     /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.
     pub memory_bytes: u64,
+    /// The vCPU count the Generation declared, from its shape rather than from the snapshot.
+    pub vcpus: u16,
+    /// The machine contract the Generation was built under; a snapshot of another is refused.
+    pub contract: crate::contract::MachineContract,
     /// Whether to re-hash the memory object and the overlay template before mapping.
     ///
     /// This is the installation and audit boundary, not the warm request path: it reads every
@@ -90,6 +94,8 @@ pub struct RestoreFacts {
     pub captured_cid: u64,
     /// The fresh context identifier this Instance holds.
     pub guest_cid: u32,
+    /// The number of vCPUs the restored machine actually runs, read from the manifest.
+    pub vcpus: u16,
 }
 
 /// Restores one Instance from a published snapshot.
@@ -105,6 +111,8 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         devices,
         guest_cid,
         memory_bytes,
+        vcpus,
+        contract,
         verify_artifacts,
         network,
     } = request;
@@ -124,6 +132,8 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         overlay_capacity_bytes,
         devices,
         memory_bytes,
+        vcpus,
+        contract,
         verify_artifacts,
     })?
     .assign(overlay, guest_cid, network)
@@ -143,6 +153,8 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         overlay_capacity_bytes,
         devices,
         memory_bytes,
+        vcpus,
+        contract,
         verify_artifacts,
     } = request;
     let mut timeline = Timeline::new();
@@ -154,9 +166,9 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     // The device set comes from the Generation being launched, never from the snapshot: a set
     // read out of the artifact would agree with itself, and the point of the check is that the
     // machine this host means to build and the machine the snapshot describes are the same one.
-    let profile = profile::host_profile(&kvm, memory_bytes, devices)?;
+    let profile = profile::host_profile(&kvm, memory_bytes, vcpus, contract, devices)?;
     compatibility::check(&profile, &manifest)?;
-    let state = Sections::read(&manifest, devices)?;
+    let state = Sections::read(&manifest, devices, vcpus)?;
     let repair_point_line = marker::decode(section(&manifest, SectionRole::RepairPointMarker)?)?;
     if verify_artifacts {
         verify(&paths, &manifest, &state)?;
@@ -203,15 +215,25 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::RecreateIrqchipAndDevices)?;
     timeline.mark(Milestone::Devices);
 
-    let vcpu = machine
-        .vm_fd()
-        .create_vcpu(0)
-        .map_err(|error| MachineError::os(Phase::Restore, error))?;
+    // One descriptor per certified processor, and each carries the section captured for that
+    // index: a machine restored with the wrong processor's registers would come back believing
+    // it is a different one.
+    let mut vcus = Vec::with_capacity(state.vcpus.len());
+    for (index, captured) in state.vcpus.iter().enumerate() {
+        let vcpu = machine
+            .vm_fd()
+            .create_vcpu(
+                u64::try_from(index)
+                    .map_err(|_| MachineError::invalid(Phase::Restore, "vCPU index overflow"))?,
+            )
+            .map_err(|error| MachineError::os(Phase::Restore, error))?;
+        vcpu::write_configuration(machine.kvm_fd(), &vcpu, captured)?;
+        vcpu::write_registers(machine.kvm_fd(), &vcpu, captured)?;
+        vcus.push(vcpu);
+    }
     sequence.complete(RestoreStep::CreateVcpu)?;
     timeline.mark(Milestone::Vcpu);
-    vcpu::write_configuration(machine.kvm_fd(), &vcpu, &state.vcpu)?;
     sequence.complete(RestoreStep::RestoreCpuidAndMsrs)?;
-    vcpu::write_registers(machine.kvm_fd(), &vcpu, &state.vcpu)?;
     sequence.complete(RestoreStep::RestoreVcpuState)?;
     timeline.mark(Milestone::VcpuRestored);
 
@@ -235,14 +257,14 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     let machine = SandboxMachine::from_restored(RestoredParts {
         machine,
         bus,
-        vcpu,
+        vcpus: vcus,
         serial_line,
         irq,
         notify,
         launch_page,
         clock: Stopwatch::new(),
         timeline,
-        cmdline: crate::cmdline::compose_generation(devices),
+        cmdline: crate::cmdline::compose_generation_for(devices, contract),
     })?;
     Ok(Sterile {
         machine,
@@ -253,6 +275,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
             repair_point_line,
             mac,
             captured_cid,
+            vcpus: manifest.header().vcpu_count,
         },
         sequence,
     })

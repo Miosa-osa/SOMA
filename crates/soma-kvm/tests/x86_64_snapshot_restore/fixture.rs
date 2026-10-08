@@ -12,6 +12,7 @@ use std::{
 };
 
 use soma_generation::open_artifact;
+use soma_kvm::MachineContract;
 use soma_kvm::x86_64::{
     CaptureOutcome, CaptureRequest, Milestone, SandboxEvidence, SandboxMachine, SnapshotPaths,
     capture,
@@ -219,6 +220,7 @@ fn capture_source(
             overlay: Some(&mut head),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
+            contract: MachineContract::V1,
         },
         started + REPAIR_POINT_DEADLINE,
     );

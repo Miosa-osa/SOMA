@@ -5,6 +5,8 @@
 //! orderly reset request. Every other port reads as a floating bus and ignores writes, and every
 //! access class is counted so the evidence can show exactly what the guest touched.
 
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+
 use super::{
     error::MachineError,
     serial::{SERIAL_BASE, SERIAL_PORTS, Serial, SerialCounters},
@@ -128,6 +130,53 @@ enum Target {
     Serial(u16),
     I8042,
     Other,
+}
+
+/// The port bus shared by every vCPU thread of one machine.
+///
+/// A machine has one console, one 16550 model, and one set of port counters whatever its vCPU
+/// count, so every run loop shares this one bus behind a mutex instead of owning a private copy.
+/// A private copy would split the captured diagnostic console and undercount the evidence by
+/// whichever processor happened to touch a port, which is exactly the kind of silently weaker
+/// evidence the machine refuses elsewhere. Port access is rare - the console is the only device
+/// on it - so the lock is never contended in practice.
+#[derive(Clone)]
+pub(crate) struct PortBusHandle(Arc<Mutex<PortBus>>);
+
+impl PortBusHandle {
+    pub(crate) fn new(bus: PortBus) -> Self {
+        Self(Arc::new(Mutex::new(bus)))
+    }
+
+    /// Locks the bus, recovering a poisoned lock because every state it guards is bounded
+    /// counters and a byte buffer, and the guest is about to be torn down anyway.
+    fn lock(&self) -> MutexGuard<'_, PortBus> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(crate) fn io_in(&self, port: u16, data: &mut [u8]) {
+        self.lock().io_in(port, data);
+    }
+
+    pub(crate) fn io_out(&self, port: u16, data: &[u8]) -> Result<PortEvent, MachineError> {
+        self.lock().io_out(port, data)
+    }
+
+    /// Runs `read` against the console while the bus is locked, so nothing copies the whole
+    /// captured console on every port write.
+    pub(crate) fn with_serial<R>(&self, read: impl FnOnce(&Serial) -> R) -> R {
+        read(self.lock().serial())
+    }
+
+    /// Takes the bus back once every thread that held a clone has stopped.
+    ///
+    /// Returns `None` while another owner remains, which is a caller that asked before its
+    /// workers were joined; that is a programming error rather than a guest condition.
+    pub(crate) fn into_inner(self) -> Option<PortBus> {
+        Arc::try_unwrap(self.0)
+            .ok()
+            .map(|bus| bus.into_inner().unwrap_or_else(PoisonError::into_inner))
+    }
 }
 
 #[cfg(test)]

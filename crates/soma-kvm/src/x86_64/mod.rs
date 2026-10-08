@@ -209,15 +209,56 @@ impl Machine {
 
     /// Creates vCPU 0 with the filtered CPUID template and the contract's protected-mode state.
     fn boot_vcpu(&self, entry: u64, clock: &mut Stopwatch) -> Result<VcpuFd, MachineError> {
-        let vcpu = self
-            .vm
-            .create_vcpu(0)
-            .map_err(|error| MachineError::os(Phase::CreateVcpu, error))?;
-        clock.lap(Phase::CreateVcpu);
-        cpuid::install(&self.kvm, &vcpu)?;
-        clock.lap(Phase::Cpuid);
-        vcpu::install_registers(&vcpu, entry)?;
-        clock.lap(Phase::Regs);
-        Ok(vcpu)
+        let mut vcpus = self.boot_vcpus(entry, 1, clock)?;
+        vcpus
+            .pop()
+            .ok_or_else(|| MachineError::invalid(Phase::CreateVcpu, "no vCPU was created"))
+    }
+
+    /// Creates vCPUs `0..count`, installing the filtered CPUID template on each.
+    ///
+    /// The bootstrap processor takes the contract's protected-mode entry state; every other
+    /// processor is left waiting for the INIT/SIPI the guest's own SMP bringup sends, which is
+    /// where a real application processor starts. One dedicated host thread runs each of them,
+    /// which is the machine contract's one-thread-per-vCPU property.
+    fn boot_vcpus(
+        &self,
+        entry: u64,
+        count: u16,
+        clock: &mut Stopwatch,
+    ) -> Result<Vec<VcpuFd>, MachineError> {
+        if count == 0 {
+            return Err(MachineError::invalid(
+                Phase::CreateVcpu,
+                "a machine needs at least one vCPU",
+            ));
+        }
+        let mut vcpus = Vec::with_capacity(usize::from(count));
+        for index in 0..count {
+            let vcpu = self
+                .vm
+                .create_vcpu(u64::from(index))
+                .map_err(|error| MachineError::os(Phase::CreateVcpu, error))?;
+            clock.lap(Phase::CreateVcpu);
+            cpuid::install(
+                &self.kvm,
+                &vcpu,
+                u8::try_from(index).map_err(|_| {
+                    MachineError::invalid(
+                        Phase::Cpuid,
+                        "the vCPU index does not fit the APIC identifier field",
+                    )
+                })?,
+            )?;
+            clock.lap(Phase::Cpuid);
+            if index == 0 {
+                vcpu::install_registers(&vcpu, entry)?;
+            } else {
+                vcpu::install_ap_state(&vcpu)?;
+            }
+            clock.lap(Phase::Regs);
+            vcpus.push(vcpu);
+        }
+        Ok(vcpus)
     }
 }

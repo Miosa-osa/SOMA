@@ -23,7 +23,11 @@ use crate::snapshot::{
     memory::MemoryDescriptor,
 };
 use crate::virtio::Slot;
-use crate::x86_64::{layout, sandbox::SandboxMachine};
+use crate::x86_64::{
+    error::MachineError,
+    layout::{self, GuestLayout},
+    sandbox::SandboxMachine,
+};
 
 // Assembling the manifest out of what was read is beside this file: it touches no KVM and needs
 // no ordering, so keeping it apart is what stops the read order below being read as part of it.
@@ -49,8 +53,10 @@ pub struct CaptureRequest<'a> {
     pub overlay: Option<&'a mut File>,
     /// The console line the agent prints at the repair point.
     pub repair_point_line: Vec<u8>,
-    /// How long the vCPU may take to leave `KVM_RUN` after it is kicked.
+    /// How long each vCPU may take to leave `KVM_RUN` after it is kicked.
     pub grace: std::time::Duration,
+    /// The machine contract this Generation was built under, which the manifest binds.
+    pub contract: crate::contract::MachineContract,
 }
 
 /// What one published snapshot is.
@@ -116,18 +122,26 @@ pub fn capture(
     quiesced.prove(QuiescePrecondition::QueuesProvenQuiescent)?;
 
     let mut sequence = quiesced.begin_capture()?;
-    let vm_state = VmState::new(
-        vec![MemorySlot {
-            slot: 0,
-            guest_address: 0,
-            size: paused.ram_bytes,
-            memory_offset: 0,
-        }],
-        layout::TSS_ADDRESS,
-        0,
-    )?;
+    // The certified memory-slot layout is derived from the captured RAM size, so a restore
+    // re-derives the same ranges rather than trusting a list read out of the artifact.
+    let layout = GuestLayout::new(paused.ram_bytes).map_err(MachineError::from)?;
+    let slots = layout
+        .regions()
+        .iter()
+        .map(|region| MemorySlot {
+            slot: region.slot,
+            guest_address: region.guest_start,
+            size: region.size,
+            memory_offset: region.host_offset,
+        })
+        .collect();
+    let vm_state = VmState::new(slots, layout::TSS_ADDRESS, 0)?;
     sequence.complete(CaptureStep::ReadVmState)?;
-    let vcpu_state = vcpu::read(paused.kvm, paused.vcpu)?;
+    let vcpu_states = paused
+        .vcpus
+        .iter()
+        .map(|vcpu| vcpu::read(paused.kvm, vcpu))
+        .collect::<Result<Vec<_>, SnapshotError>>()?;
     sequence.complete(CaptureStep::ReadVcpuState)?;
     let irqchip = platform::read_irqchip(paused.vm)?;
     sequence.complete(CaptureStep::ReadIrqchip)?;
@@ -199,8 +213,9 @@ pub fn capture(
     let manifest = build(
         &request,
         &vm_state,
-        &vcpu_state,
+        &vcpu_states,
         &Parts {
+            contract: request.contract,
             cpu_template,
             irqchip: &irqchip,
             routing: &routing,

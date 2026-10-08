@@ -10,7 +10,7 @@ pub use self::config::BootKernelConfig;
 use super::{
     InterruptController, Machine, MachineError, Phase, cmdline,
     loader::{self, INITRAMFS_LIMIT, KERNEL_IMAGE_LIMIT, LoadedKernel},
-    ports::{BusCounters, PortBus},
+    ports::{BusCounters, PortBus, PortBusHandle},
     run::GuestExit,
     serial::{SERIAL_GSI, Serial, SerialCounters},
     timing::{PhaseTiming, Stopwatch},
@@ -190,14 +190,14 @@ fn prepare_and_run(
         Ok((loaded, vcpu, line))
     })();
     let (loaded, vcpu, line) = prepared.map_err(|error| (error, Vec::new()))?;
-    let bus = PortBus::new(Serial::new(Some(line)));
+    let bus = PortBusHandle::new(PortBus::new(Serial::new(Some(line))));
     let sentinel = config
         .nonce
         .filter(|_| config.stop_on_sentinel)
         .map(|nonce| nonce.sentinel().into_bytes());
-    let report = watchdog::run_with_deadline(vcpu, bus, None, sentinel, config.timeout);
+    let report = watchdog::run_with_deadline(vcpu, bus.clone(), None, sentinel, config.timeout);
     clock.lap(Phase::Run);
-    let (serial, bus, uart) = report.bus.map_or(
+    let (serial, bus, uart) = bus.into_inner().map_or(
         (
             Vec::new(),
             BusCounters::default(),

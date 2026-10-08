@@ -10,6 +10,7 @@ use std::{
 };
 
 use soma_guest::{HostControl, HostLaunchMaterial, LaunchNetwork, OperationId};
+use soma_kvm::MachineContract;
 use soma_kvm::snapshot::readiness::{ReadinessRefusal, SessionEvidence};
 use soma_kvm::x86_64::{
     Milestone, RestoreFacts, RestoreRequest, SandboxDisks, SandboxEvidence, SnapshotError, restore,
@@ -82,6 +83,8 @@ pub fn run_workload<W: Workload>(
         },
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,
+        vcpus: 1,
+        contract: MachineContract::V1,
         verify_artifacts: false,
         devices: fixture.devices(),
         network: None,
