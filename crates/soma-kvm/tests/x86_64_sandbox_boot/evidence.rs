@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path};
 
-use soma_kvm::x86_64::SandboxEvidence;
+use soma_kvm::x86_64::{ExitReason, SandboxEvidence};
 
 /// Prints the timeline, phases, counters, and console tail; retains the console log.
 pub fn report(label: &str, evidence: &SandboxEvidence, log: &Path) {
@@ -49,4 +49,20 @@ pub fn report(label: &str, evidence: &SandboxEvidence, log: &Path) {
         evidence.bus, evidence.uart, evidence.mmio
     );
     eprintln!("[{label}] devices={:?}", evidence.devices);
+    // Each processor's own outcome, and the exits the whole machine made, because an application
+    // processor that stopped or never started leaves the bootstrap processor waiting and the
+    // machine's single result reads as a plain timeout.
+    eprintln!("[{label}] vcpus={:?}", evidence.vcpus);
+    eprintln!(
+        "[{label}] exits port_in={} port_out={} mmio={} halt={} interrupted={} other={} sampled={} inside_ns={} outside_ns={}",
+        evidence.exits.of(ExitReason::PortIn),
+        evidence.exits.of(ExitReason::PortOut),
+        evidence.exits.of(ExitReason::Mmio),
+        evidence.exits.of(ExitReason::Halt),
+        evidence.exits.of(ExitReason::Interrupted),
+        evidence.exits.of(ExitReason::Other),
+        evidence.exits.sampled,
+        evidence.exits.inside_ns,
+        evidence.exits.outside_ns,
+    );
 }

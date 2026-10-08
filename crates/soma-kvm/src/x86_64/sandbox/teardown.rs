@@ -53,6 +53,8 @@ impl SandboxMachine {
         // did rather than what the bootstrap processor happened to do.
         let mmio: MmioCounters = total_mmio(&reports);
         let exit = machine_exit(&reports);
+        let vcpus: Vec<Result<GuestExit, MachineError>> =
+            reports.iter().map(|report| report.result.clone()).collect();
         let Self {
             machine,
             shared,
@@ -96,6 +98,7 @@ impl SandboxMachine {
             entry,
             initramfs,
             exit,
+            vcpus,
             bus,
             uart,
             mmio,
