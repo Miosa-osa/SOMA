@@ -7,9 +7,35 @@ use super::{
 };
 use crate::http::request::Method;
 use crate::runner::backend::CallTiming;
+use crate::runner::config::{LargeShape, LaunchConfig};
 
-fn shape() -> soma::MachineShape {
+pub(super) fn shape() -> soma::MachineShape {
     soma::MachineShape::new(1, 512, 2_048).expect("valid shape")
+}
+
+/// A launch configuration that serves exactly the one shape, as every runner did before the
+/// large size existed.
+pub(super) fn launch() -> LaunchConfig {
+    LaunchConfig {
+        image: "docker.io/library/node:22".into(),
+        shape: shape(),
+        large: None,
+        template_id: "miosa-sandbox-soma".into(),
+        default_timeout_seconds: 300,
+    }
+}
+
+/// The same runner, with the large shape configured.
+pub(super) fn launch_serving_large() -> LaunchConfig {
+    LaunchConfig {
+        large: Some(LargeShape {
+            vcpu_count: 8,
+            memory_mib: 16 * 1024,
+            storage_mib: 20 * 1024,
+            public_egress: true,
+        }),
+        ..launch()
+    }
 }
 
 #[test]
@@ -89,20 +115,20 @@ fn a_bare_create_is_accepted_with_defaults() {
     let parsed = CreateParams::parse(
         br#"{"size":"xs","wait":true,"response_format":"compact","persistent":false,"runtime_profile":"soma","project_id":"p-1","metadata":{"a":"b"}}"#,
         3_600,
-        &shape(),
+        &launch(),
     )
     .expect("accepted");
 
     assert_eq!(parsed.project_id.as_deref(), Some("p-1"));
     assert_eq!(parsed.timeout_seconds, 3_600);
     assert_eq!(
-        CreateParams::parse(br#"{"timeout":0}"#, 3_600, &shape())
+        CreateParams::parse(br#"{"timeout":0}"#, 3_600, &launch())
             .expect("0 is no idle timeout")
             .timeout_seconds,
         0
     );
     assert_eq!(
-        CreateParams::parse(b"", 3_600, &shape())
+        CreateParams::parse(b"", 3_600, &launch())
             .expect("empty body")
             .timeout_seconds,
         3_600
@@ -111,7 +137,7 @@ fn a_bare_create_is_accepted_with_defaults() {
         CreateParams::parse(
             br#"{"timeout_sec":60,"cpu_count":1,"memory_mb":512}"#,
             3_600,
-            &shape()
+            &launch()
         )
         .expect("matching shape")
         .timeout_seconds,
@@ -139,7 +165,7 @@ fn a_create_the_fast_lane_would_not_serve_is_refused() {
         "not json",
     ] {
         assert!(
-            CreateParams::parse(body.as_bytes(), 3_600, &shape()).is_err(),
+            CreateParams::parse(body.as_bytes(), 3_600, &launch()).is_err(),
             "{body} must be refused"
         );
     }
@@ -147,7 +173,7 @@ fn a_create_the_fast_lane_would_not_serve_is_refused() {
         CreateParams::parse(
             br#"{"env":{},"name":"","snapshot_id":null}"#,
             3_600,
-            &shape()
+            &launch()
         )
         .is_ok()
     );
@@ -188,8 +214,12 @@ fn exec_parameters_follow_the_fast_lane() {
 
 #[test]
 fn a_create_field_the_platform_does_not_define_is_refused_by_name() {
-    let error = CreateParams::parse(br#"{"size":"xs","runtime_profil":"soma"}"#, 3_600, &shape())
-        .expect_err("a typo must be refused");
+    let error = CreateParams::parse(
+        br#"{"size":"xs","runtime_profil":"soma"}"#,
+        3_600,
+        &launch(),
+    )
+    .expect_err("a typo must be refused");
     assert_eq!(error.status, 400);
     assert_eq!(error.code, "INVALID_PARAM");
     assert!(
@@ -208,7 +238,7 @@ fn a_create_field_the_platform_does_not_define_is_refused_by_name() {
         r#"{"metadata":"x","typo":1}"#,
     ] {
         assert_eq!(
-            CreateParams::parse(body.as_bytes(), 3_600, &shape()).map_err(|error| error.code),
+            CreateParams::parse(body.as_bytes(), 3_600, &launch()).map_err(|error| error.code),
             Err("INVALID_PARAM"),
             "{body} must be refused"
         );
@@ -222,7 +252,7 @@ fn every_field_the_platform_defines_is_still_accepted() {
         r#"{"size":"xs","wait":true,"response_format":"compact","persistent":false,"runtime_profile":"soma","timeout":0,"cpu_count":1,"memory_mb":512,"auto_start":false}"#,
     ] {
         assert!(
-            CreateParams::parse(body.as_bytes(), 3_600, &shape()).is_ok(),
+            CreateParams::parse(body.as_bytes(), 3_600, &launch()).is_ok(),
             "{body} must be accepted"
         );
     }
@@ -232,9 +262,9 @@ fn every_field_the_platform_defines_is_still_accepted() {
 fn a_create_carrying_a_working_directory_is_refused() {
     // Contract C2 lists a create with `cwd` among the requests the runner does not serve.
     assert_eq!(
-        CreateParams::parse(br#"{"cwd":"/workspace"}"#, 3_600, &shape())
+        CreateParams::parse(br#"{"cwd":"/workspace"}"#, 3_600, &launch())
             .map_err(|error| error.code),
         Err("RUNNER_UNSUPPORTED_REQUEST")
     );
-    assert!(CreateParams::parse(br#"{"cwd":null}"#, 3_600, &shape()).is_ok());
+    assert!(CreateParams::parse(br#"{"cwd":null}"#, 3_600, &launch()).is_ok());
 }

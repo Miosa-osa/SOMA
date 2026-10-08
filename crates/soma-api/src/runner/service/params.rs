@@ -1,6 +1,11 @@
 use serde_json::Value;
+use soma::MachineShape;
 
-use crate::runner::{idle::MAX_IDLE_TIMEOUT_SECONDS, public_wire::PlatformError};
+use crate::runner::{
+    config::{LargeShape, LaunchConfig},
+    idle::MAX_IDLE_TIMEOUT_SECONDS,
+    public_wire::PlatformError,
+};
 
 /// The exec timeout when a request names none, as the fast lane applies it.
 const DEFAULT_EXEC_TIMEOUT_MS: u64 = 30_000;
@@ -108,6 +113,13 @@ const CREATE_FIELDS: [&str; 60] = [
 pub(super) struct CreateParams {
     pub(super) project_id: Option<String>,
     pub(super) timeout_seconds: u64,
+    /// The machine this create launches: the shape its `size` selected.
+    ///
+    /// The one shape a create may always have is the runner's own, so a request that names no
+    /// size, or names `xs`, carries exactly the shape the host was sized and prewarmed for.
+    /// `large` carries the runner's large shape, and is only reachable on a runner that
+    /// configured one.
+    pub(super) shape: MachineShape,
 }
 
 impl CreateParams {
@@ -115,7 +127,7 @@ impl CreateParams {
     pub(super) fn parse(
         body: &[u8],
         default_timeout: u64,
-        shape: &soma::MachineShape,
+        launch: &LaunchConfig,
     ) -> Result<Self, PlatformError> {
         let params = object(body)?;
         refuse_unknown_fields(&params)?;
@@ -126,12 +138,18 @@ impl CreateParams {
                 )));
             }
         }
-        if !matches!(
-            params.get("size").map(Value::as_str),
-            None | Some(Some("xs"))
-        ) {
-            return Err(PlatformError::unsupported("a size other than xs"));
-        }
+        // The size vocabulary is closed and small: the runner's own shape, and the large one
+        // when this runner configured it. Anything else, including a size this platform names
+        // but this host cannot build, is refused by name rather than served as another size.
+        let shape = match params.get("size").map(Value::as_str) {
+            None | Some(Some("xs")) => launch.shape.clone(),
+            Some(Some("large")) => launch
+                .large
+                .as_ref()
+                .map(LargeShape::machine_shape)
+                .ok_or_else(|| PlatformError::unsupported("a size other than xs"))?,
+            Some(_) => return Err(PlatformError::unsupported("a size other than xs or large")),
+        };
         if params.get("persistent").is_some_and(truthy) {
             return Err(PlatformError::unsupported("persistent sandboxes"));
         }
@@ -188,6 +206,7 @@ impl CreateParams {
         Ok(Self {
             project_id,
             timeout_seconds,
+            shape,
         })
     }
 }

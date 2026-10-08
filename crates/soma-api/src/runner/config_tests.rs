@@ -100,3 +100,82 @@ fn the_exec_path_defaults_to_shell_free_and_rolls_back_with_one_field() {
         "one field restores the login shell"
     );
 }
+
+#[test]
+fn a_runner_without_a_large_block_serves_exactly_one_shape() {
+    let config = parse(&document()).expect("the reference document parses");
+
+    assert!(
+        config.launch.large.is_none(),
+        "a runner that configured no large shape serves none"
+    );
+}
+
+#[test]
+fn the_large_block_defaults_to_the_measured_shape_with_public_egress() {
+    let mut document = document();
+    document["launch"]["large"] = serde_json::json!({});
+    let shape = parse(&document)
+        .expect("an empty large block is the measured default")
+        .launch
+        .large
+        .expect("configured")
+        .machine_shape();
+
+    assert_eq!(shape.vcpu_count(), 8);
+    assert_eq!(shape.memory_mib(), 16 * 1024);
+    assert_eq!(shape.storage_mib(), 20 * 1024);
+    assert_eq!(
+        shape.capabilities().network_policy().egress(),
+        soma::EgressPolicy::PublicInternet,
+        "a large machine reaches the public internet unless an operator says off"
+    );
+    assert_eq!(
+        shape.capabilities().network_policy().dns(),
+        &soma::DnsPolicy::System
+    );
+}
+
+#[test]
+fn an_operator_can_take_the_network_away_from_large_machines() {
+    let mut document = document();
+    document["launch"]["large"] = serde_json::json!({"public_egress": false});
+    let shape = parse(&document)
+        .expect("parses")
+        .launch
+        .large
+        .expect("configured")
+        .machine_shape();
+
+    assert_eq!(
+        shape.capabilities().network_policy().egress(),
+        soma::EgressPolicy::Denied
+    );
+}
+
+#[test]
+fn the_large_block_names_only_fields_it_defines() {
+    let mut document = document();
+    document["launch"]["large"] = serde_json::json!({"vcpu": 8});
+
+    assert!(
+        parse(&document).is_err(),
+        "a misspelled field is refused rather than ignored"
+    );
+}
+
+#[test]
+fn a_large_shape_that_could_never_be_built_is_refused_at_load() {
+    for large in [
+        serde_json::json!({"vcpu_count": 0}),
+        serde_json::json!({"memory_mib": 0}),
+    ] {
+        let mut document = document();
+        document["launch"]["large"] = large.clone();
+
+        assert!(
+            parse(&document).is_err(),
+            "{large} must be refused before a create can resolve it"
+        );
+    }
+}
