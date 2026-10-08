@@ -7,9 +7,13 @@
 //! that can actually run it: forty gigabytes of head is not a property of the machine, it is a
 //! property of the copy.
 //!
-//! The kernel can say where a file's data is, so this walks the source's data extents and leaves
-//! its holes as holes. The destination ends up the same length and the same bytes, with the same
-//! holes, which is what the guest sees either way.
+//! Two things make a class cost less than its length. The kernel can say where a file's data is,
+//! so the walk follows the source's data extents and leaves its holes alone; and a chunk that is
+//! all zeros is skipped as well, because a class that was written out rather than left sparse has
+//! no holes to find but is still almost entirely zeros. Skipping either one is safe for the same
+//! reason: the destination is a fresh file, so a byte this never writes is a zero byte, which is
+//! exactly what the source had. The destination ends up the same length and the same bytes, which
+//! is what the guest sees either way.
 
 #![allow(unsafe_code)]
 
@@ -25,10 +29,12 @@ use std::{
 /// Bytes moved per read and write.
 const CHUNK: usize = 1024 * 1024;
 
-/// Copies `source` into `destination` up to `length`, skipping the source's holes.
+/// Copies `source` into `destination` up to `length`, skipping holes and zero chunks.
 ///
-/// The destination must already exist and be writable; its length is set to `length` whether or
-/// not the source had data at the end, so a caller comparing lengths compares what it asked for.
+/// The destination must already exist, be writable, and be **empty**: the bytes this skips are
+/// left as the zeros a fresh file has, so a destination that already carried data would keep it.
+/// Its length is set to `length` whether or not the source had data at the end, so a caller
+/// comparing lengths compares what it asked for. Returns the bytes actually written.
 ///
 /// # Errors
 ///
@@ -36,7 +42,7 @@ const CHUNK: usize = 1024 * 1024;
 pub fn copy_sparse(source: &File, destination: &File, length: u64) -> io::Result<u64> {
     let mut buffer = vec![0_u8; CHUNK];
     let mut offset = 0_u64;
-    let mut copied = 0_u64;
+    let mut written = 0_u64;
     while offset < length {
         // SAFETY: both calls take a live descriptor and an offset the loop keeps inside the file.
         let data =
@@ -57,14 +63,16 @@ pub fn copy_sparse(source: &File, destination: &File, length: u64) -> io::Result
         while at < end {
             let span = usize::try_from((end - at).min(CHUNK as u64)).unwrap_or(CHUNK);
             source.read_exact_at(&mut buffer[..span], at)?;
-            destination.write_all_at(&buffer[..span], at)?;
+            if buffer[..span].iter().any(|byte| *byte != 0) {
+                destination.write_all_at(&buffer[..span], at)?;
+                written += u64::try_from(span).unwrap_or(0);
+            }
             at += u64::try_from(span).unwrap_or(0);
         }
-        copied += end.saturating_sub(start);
         offset = end;
     }
     destination.set_len(length)?;
-    Ok(copied)
+    Ok(written)
 }
 
 #[cfg(test)]
@@ -108,28 +116,19 @@ mod tests {
         let source = sparse_source(&source_path);
         let destination = fixture(&destination_path, true);
 
-        let copied = copy_sparse(&source, &destination, 4 * MIB).expect("copy");
+        let written = copy_sparse(&source, &destination, 4 * MIB).expect("copy");
 
         let metadata = destination.metadata().expect("stat the destination");
         assert_eq!(metadata.len(), 4 * MIB, "the length is the class size");
-        // Whether a filesystem reports holes is its own business: ext4 does, an overlay over it
-        // may not, and a filesystem that reports none hands the walk one extent covering the whole
-        // file, which is correct and uninteresting. The bytes below are asserted either way.
-        if copied == MIB {
-            // Blocks are reported in 512-byte units. A copy that materialized the hole would
-            // report four megabytes of them, which is the whole point of the test.
-            let allocated = metadata.blocks() * 512;
-            assert!(
-                allocated < 2 * MIB,
-                "the copy allocated {allocated} bytes for a {MIB}-byte extent"
-            );
-        } else {
-            assert_eq!(
-                copied,
-                4 * MIB,
-                "a filesystem reporting no holes copies the whole file"
-            );
-        }
+        // Only the written megabyte is not zero, whether the filesystem reported the hole or the
+        // walk skipped it by looking at the bytes: either way the copy must not have paid for
+        // four megabytes of disk.
+        assert_eq!(written, MIB, "one megabyte of the four is data");
+        let allocated = metadata.blocks() * 512;
+        assert!(
+            allocated < 2 * MIB,
+            "the copy allocated {allocated} bytes for a {MIB}-byte extent"
+        );
         let mut head = vec![0_u8; 16];
         destination
             .read_exact_at(&mut head, 0)
