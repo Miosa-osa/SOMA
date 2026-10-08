@@ -202,7 +202,7 @@ mod tests {
         let error = MachineError::new(Phase::Run, MachineErrorKind::Timeout);
         assert_eq!(
             error.to_string(),
-            "run vCPU 0: guest did not halt before the deadline"
+            "run vCPUs: guest did not halt before the deadline"
         );
         assert_eq!(error.phase(), Phase::Run);
         assert_eq!(error.kind(), &MachineErrorKind::Timeout);
