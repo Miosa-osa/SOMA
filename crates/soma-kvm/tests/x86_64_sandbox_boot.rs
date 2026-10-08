@@ -41,11 +41,22 @@ mod x86_64_sandbox_boot_session;
 mod x86_64_sandbox_boot_host;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/images.rs"]
+mod x86_64_sandbox_boot_images;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/memory_fill.rs"]
+mod x86_64_sandbox_boot_memory_fill;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/memory.rs"]
+mod x86_64_sandbox_boot_memory;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
     use soma_kvm::MachineContract;
     use std::{
         fs,
-        path::Path,
         sync::{Mutex, MutexGuard, PoisonError},
     };
 
@@ -63,19 +74,18 @@ mod live {
     };
 
     const MIB: u64 = 1024 * 1024;
-    const BUSYBOX: &str = "busybox:stable-musl";
-    const NODE: &str = "node:22";
-    const MAC_NODE_TREE_DIGEST: &str =
-        "sha256:5dac6c571b970375a978c3f2f8777883e5bdd582fb4b43a5b872f929a2c7adf6";
+    /// The image every busybox proof in this harness builds its Generation from.
+    pub(crate) const BUSYBOX: &str = "busybox:stable-musl";
 
     static LIVE_PROOF: Mutex<()> = Mutex::new(());
 
-    fn serialize_live_proof() -> MutexGuard<'static, ()> {
+    pub(crate) fn serialize_live_proof() -> MutexGuard<'static, ()> {
         LIVE_PROOF.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Compiles one Generation at `shape`, boots it, runs `command`, and reports the proof.
     #[allow(clippy::too_many_lines)]
-    fn boot_generation(
+    pub(crate) fn boot_generation(
         name: &str,
         image: &str,
         override_var: &str,
@@ -199,58 +209,6 @@ mod live {
         })
     }
 
-    #[test]
-    #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and Docker"]
-    fn tiny_generation_boots_authenticates_and_executes_one_command() {
-        let _serialized = serialize_live_proof();
-        require_kvm();
-        let command = session::Command {
-            program: b"/bin/busybox",
-            arguments: &[b"uname", b"-a"],
-            timeout_millis: 10_000,
-            output_bytes: 65_536,
-        };
-        let proof = boot_generation(
-            "busybox",
-            BUSYBOX,
-            "SOMA_OCI_BUSYBOX_LAYOUT",
-            generation::Shape::new(256, 64, 1),
-            &command,
-        )
-        .expect("prerequisite failed: the busybox OCI layout could not be exported; install Docker or set SOMA_OCI_BUSYBOX_LAYOUT");
-        assert_proof(&proof);
-        let stdout = String::from_utf8_lossy(&proof.executed.stdout);
-        assert!(stdout.starts_with("Linux soma-"), "stdout={stdout:?}");
-        assert!(stdout.contains("6.12.107-soma-v1"));
-        assert!(stdout.contains("x86_64"));
-        assert!(proof.executed.stderr.is_empty());
-    }
-
-    #[test]
-    #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and Docker with node:22"]
-    fn node_22_generation_boots_authenticates_and_reports_its_version() {
-        let _serialized = serialize_live_proof();
-        require_kvm();
-        let command = session::Command {
-            program: b"/usr/local/bin/node",
-            arguments: &[b"--version"],
-            timeout_millis: 30_000,
-            output_bytes: 65_536,
-        };
-        let proof = boot_generation(
-            "node22",
-            NODE,
-            "SOMA_OCI_NODE_LAYOUT",
-            generation::Shape::new(1024, 1024, 1),
-            &command,
-        )
-            .expect("prerequisite failed: the node:22 OCI layout could not be exported; set SOMA_OCI_NODE_LAYOUT");
-        assert_proof(&proof);
-        let stdout = String::from_utf8_lossy(&proof.executed.stdout);
-        assert!(stdout.starts_with("v22."), "stdout={stdout:?}");
-        let _ = Path::new(MAC_NODE_TREE_DIGEST);
-    }
-
     /// The machine contract v2 gate from the plan: eight processors and sixteen gigabytes.
     ///
     /// The guest reaches `nproc` only if the MP table the machine published was found, the
@@ -283,8 +241,8 @@ mod live {
             "8",
             "the guest did not see every processor the MP table describes: stdout={stdout:?}"
         );
-        // The RAM the split memory map describes is checked by hand on the same run with
-        // `free -g`, which this harness cannot ask for: one command per boot.
+        // The RAM this machine was told about is proved by the memory test next door, which
+        // spends a boot of its own writing across all of it: one command per boot.
     }
 }
 
