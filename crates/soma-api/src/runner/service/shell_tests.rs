@@ -22,7 +22,7 @@ fn shelled(command: &str) -> &str {
 #[test]
 fn an_exec_no_longer_runs_under_a_login_shell() {
     // A word list runs as its own argv, with the lookup program resolving a bare name.
-    let direct = exec_command("node -v", true).expect("command");
+    let direct = exec_command("node -v", true, 30_000).expect("command");
     assert_eq!(direct.executable(), ENV);
     assert_eq!(
         direct.arguments(),
@@ -31,7 +31,7 @@ fn an_exec_no_longer_runs_under_a_login_shell() {
     assert!(!direct.arguments().contains(&"-l".to_owned()));
 
     // A command a shell must interpret keeps one, but not the login shell.
-    let shelled = exec_command("echo $HOME", true).expect("command");
+    let shelled = exec_command("echo $HOME", true, 30_000).expect("command");
     assert_eq!(shelled.executable(), SHELL);
     assert_eq!(
         shelled.arguments(),
@@ -40,7 +40,7 @@ fn an_exec_no_longer_runs_under_a_login_shell() {
     assert!(!shelled.arguments().contains(&"-l".to_owned()));
 
     // The rollback flag restores the fast lane's argv exactly.
-    let rolled_back = exec_command("node -v", false).expect("command");
+    let rolled_back = exec_command("node -v", false, 30_000).expect("command");
     assert_eq!(rolled_back.executable(), SHELL);
     assert_eq!(
         rolled_back.arguments(),

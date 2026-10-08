@@ -47,11 +47,12 @@ mod secret;
 
 pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
-    CommandContext, DirectoryEntry, EntryKind, EnvironmentPair, FileFailure, FileOutcome,
-    FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_CHUNK_BYTES, MAX_ENTRIES,
-    MAX_FILE_MODE, MAX_PATH_BYTES, MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS,
-    MAX_PTY_WAIT_MILLIS, OperationId, OutputChunk, PtyFailure, PtyOutcome, PtyRequest, PtySize,
-    TerminalReport, TerminalStatus,
+    CommandContext, DirectoryEntry, EntryKind, EnvironmentPair, FIXED_BODY_SIZE, FileFailure,
+    FileOutcome, FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_ARGUMENTS,
+    MAX_BODY_SIZE, MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_FIELD_BYTES, MAX_FILE_MODE, MAX_PATH_BYTES,
+    MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS, MAX_TIMEOUT_MILLIS,
+    OperationId, OutputChunk, PtyFailure, PtyOutcome, PtyRequest, PtySize, TerminalReport,
+    TerminalStatus,
 };
 pub use binding::SessionBinding;
 pub use capture_warm::{
