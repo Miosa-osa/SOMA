@@ -39,6 +39,8 @@ const RECEIPT: &str = include_str!("../../../tests/fixtures/receipt.json");
 #[derive(Default)]
 pub(super) struct Engine {
     pub(super) destroys: AtomicUsize,
+    /// How many commands reached the facade. A refused command must leave this where it was.
+    pub(super) execs: AtomicUsize,
     pub(super) listed: Mutex<Vec<SandboxEntry>>,
     /// How long each command takes, for tests of commands that outlast the idle timeout.
     pub(super) exec_delay: Mutex<Duration>,
@@ -70,6 +72,7 @@ impl SandboxFacade for Fake {
     }
 
     fn execute(&mut self, _: ExecuteMachineRequest) -> Result<CommandOutcome, ManagedFailure> {
+        self.0.execs.fetch_add(1, Ordering::SeqCst);
         std::thread::sleep(*self.0.exec_delay.lock().expect("delay"));
         let outcome = lifecycle();
         Ok(CommandOutcome {

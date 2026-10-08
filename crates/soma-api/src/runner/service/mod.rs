@@ -2,6 +2,9 @@
 
 mod command;
 mod create;
+mod exec_contract;
+#[cfg(test)]
+mod exec_refusal_tests;
 mod extend;
 #[cfg(test)]
 mod flow_tests;

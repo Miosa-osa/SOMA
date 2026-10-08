@@ -8,7 +8,10 @@ mod output;
 mod pty;
 mod terminal;
 
-pub use command::{CommandContext, EnvironmentPair, GuestCommand};
+pub use command::{
+    CommandContext, EnvironmentPair, FIXED_BODY_SIZE, GuestCommand, MAX_ARGUMENTS, MAX_FIELD_BYTES,
+    MAX_TIMEOUT_MILLIS,
+};
 pub(crate) use filesystem::check_path;
 pub use filesystem::{
     DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES, MAX_ENTRIES,
@@ -27,4 +30,11 @@ pub use terminal::{TerminalReport, TerminalStatus};
 use crate::MAX_RECORD_PAYLOAD;
 
 pub(crate) const HEADER_SIZE: usize = 28;
-pub(crate) const MAX_BODY_SIZE: usize = MAX_RECORD_PAYLOAD - HEADER_SIZE;
+/// The largest body any one application message may carry inside one authenticated record.
+///
+/// This is the whole-message ceiling rather than a per-field one: every codec here bounds its own
+/// fields as well, and the aggregate is what a single record can actually hold. It is public
+/// because a host that decides whether a request is worth sending has to make that decision
+/// against the same number this codec applies, and an aggregate a caller cannot see is one it
+/// will rediscover as a failed message.
+pub const MAX_BODY_SIZE: usize = MAX_RECORD_PAYLOAD - HEADER_SIZE;
