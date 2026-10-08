@@ -14,6 +14,7 @@ mod relay;
 mod routing;
 #[cfg(test)]
 mod scope_tests;
+mod shell;
 mod stream;
 #[cfg(test)]
 mod stream_tests;

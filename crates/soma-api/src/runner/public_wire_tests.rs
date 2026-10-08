@@ -8,9 +8,10 @@ fn text(bytes: &[u8]) -> &str {
 }
 
 #[test]
-fn the_compact_create_body_is_the_fast_lane_bytes_plus_runner_url() {
+fn the_compact_create_body_is_the_fast_lane_bytes_plus_runner_url_and_create_ms() {
     let body = encode(&Created {
         cpu_count: 1,
+        create_ms: 42,
         created_at: "2026-10-02T17:04:05.123456Z",
         deletion_pending: false,
         id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
@@ -25,7 +26,7 @@ fn the_compact_create_body_is_the_fast_lane_bytes_plus_runner_url() {
 
     assert_eq!(
         text(&body),
-        r#"{"cpu_count":1,"created_at":"2026-10-02T17:04:05.123456Z","deletion_pending":false,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","memory_mb":512,"name":null,"runner_url":"https://3.run-us.miosa.ai","slug":"3f2504e0","state":"running","template_id":"miosa-sandbox-soma","timeout_sec":3600}"#
+        r#"{"cpu_count":1,"create_ms":42,"created_at":"2026-10-02T17:04:05.123456Z","deletion_pending":false,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","memory_mb":512,"name":null,"runner_url":"https://3.run-us.miosa.ai","slug":"3f2504e0","state":"running","template_id":"miosa-sandbox-soma","timeout_sec":3600}"#
     );
 }
 
@@ -47,13 +48,14 @@ fn the_exec_and_destroy_bodies_match_the_fast_lane_bytes() {
         cpu_ms: None,
         lifetime_ms: 1234,
         id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        mem_peak_bytes: None,
         operation_id: None,
         state: "destroyed",
         total_runtime_sec: None,
     });
     assert_eq!(
         text(&destroyed),
-        r#"{"cpu_ms":null,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","lifetime_ms":1234,"operation_id":null,"state":"destroyed","total_runtime_sec":null}"#
+        r#"{"cpu_ms":null,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","lifetime_ms":1234,"mem_peak_bytes":null,"operation_id":null,"state":"destroyed","total_runtime_sec":null}"#
     );
 }
 
