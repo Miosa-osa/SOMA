@@ -1,5 +1,4 @@
-//! Drives one sandbox from cold boot through the authenticated session to cleanup and prints
-//! the evidence table.
+//! Drives one sandbox from cold boot through the authenticated session to cleanup and prints it.
 
 use std::{
     fs::{self, File},
@@ -72,8 +71,7 @@ pub fn now_unix_nanos() -> u64 {
     .unwrap()
 }
 
-/// Boots `config`, completes the session with fresh per-Instance authority, runs one hostile
-/// unbounded-output step, executes `command`, shuts down, and returns the evidence and results.
+/// Boots `config`, completes the session, runs one hostile step, executes `command`, shuts down.
 pub fn run(
     config: SandboxConfig,
     generation_id: &str,
@@ -193,6 +191,8 @@ pub fn config(
     root: File,
     overlay: File,
     ram_bytes: u64,
+    vcpus: u16,
+    contract: MachineContract,
     devices: DeviceSet,
 ) -> SandboxConfig {
     let overlay = Some(overlay);
@@ -205,13 +205,13 @@ pub fn config(
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
-        vcpus: 1,
-        contract: MachineContract::V1,
+        vcpus,
+        contract,
         devices,
     }
 }
 
-/// Prints the timeline, phases, counters, and the console tail; retains the console log.
+/// Prints the timeline, phases, counters, and console tail; retains the console log.
 pub fn report(label: &str, evidence: &SandboxEvidence, log: &Path) {
     fs::write(log, &evidence.serial).unwrap();
     let text = String::from_utf8_lossy(&evidence.serial);

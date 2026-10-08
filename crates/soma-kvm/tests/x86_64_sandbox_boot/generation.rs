@@ -152,18 +152,31 @@ impl Compiled {
     }
 }
 
-/// The 1 vCPU Machine shape a test Generation targets.
+/// The Machine shape a test Generation targets.
+///
+/// A shape above one vCPU or three gigabytes targets profile version 2, which admits the
+/// multi-vCPU machine; every other shape stays on version 1, so its live proofs are unchanged.
 #[derive(Clone, Copy)]
 pub struct Shape {
     pub memory_mib: u64,
     pub storage_mib: u64,
+    pub vcpus: u16,
+}
+
+impl Shape {
+    /// The compiler profile this shape targets.
+    fn profile(self) -> CompilerProfile {
+        if self.vcpus > 1 || self.memory_mib > 3 * 1024 {
+            CompilerProfile::v2()
+        } else {
+            CompilerProfile::v1()
+        }
+    }
 }
 
 /// Returns the compiled Generation for these inputs, building it only on a cache miss.
 ///
-/// `scratch` is retained in the signature because callers still use it for their own artifacts;
-/// the compiled store lives in the shared cache, not under it, because it is identical for
-/// identical inputs and costs minutes to rebuild.
+/// `scratch` is retained for callers' own artifacts; the store lives in the shared cache.
 pub fn compile(
     layout: &Path,
     reference: &str,
@@ -186,7 +199,9 @@ pub(crate) fn compile_uncached(
     let Shape {
         memory_mib,
         storage_mib,
+        vcpus,
     } = shape;
+    let profile = shape.profile();
     let store = scratch.join("store");
     fs::create_dir_all(&store).unwrap();
     let platform = OciPlatform::new("linux", "amd64", None).unwrap();
@@ -210,13 +225,13 @@ pub(crate) fn compile_uncached(
             workload.manifest_digest().clone(),
             workload.platform().clone(),
         ),
-        MachineShape::new(1, memory_mib, storage_mib).unwrap(),
+        MachineShape::new(vcpus, memory_mib, storage_mib).unwrap(),
         StartupBehavior::readiness_only(),
         LifetimeLimits::new(3600).unwrap(),
-        1,
+        profile.policy_version,
     )
     .unwrap();
-    let mut profile = CompilerProfile::v1();
+    let mut profile = profile;
     profile.overlay_capacities = vec![storage_mib * MIB];
     let staging = scratch.join("staging");
     fs::create_dir_all(&staging).unwrap();

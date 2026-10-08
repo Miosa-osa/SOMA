@@ -42,6 +42,7 @@ mod x86_64_sandbox_boot_host;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
+    use soma_kvm::MachineContract;
     use std::{
         fs,
         path::Path,
@@ -80,6 +81,7 @@ mod live {
         override_var: &str,
         memory_mib: u64,
         storage_mib: u64,
+        vcpus: u16,
         command: &session::Command<'_>,
     ) -> Option<Proof> {
         require_scratch_space();
@@ -98,6 +100,7 @@ mod live {
             generation::Shape {
                 memory_mib,
                 storage_mib,
+                vcpus,
             },
             &inputs,
             &scratch,
@@ -142,6 +145,9 @@ mod live {
             root,
             head,
             ram_bytes,
+            vcpus,
+            MachineContract::require(manifest.machine_contract.version)
+                .expect("the compiled Generation names a contract this host builds"),
             manifest.device_set(),
         );
         let expected_cmdline = String::from_utf8(manifest.command_line.clone()).unwrap();
@@ -214,6 +220,7 @@ mod live {
             "SOMA_OCI_BUSYBOX_LAYOUT",
             256,
             64,
+            1,
             &command,
         )
         .expect("prerequisite failed: the busybox OCI layout could not be exported; install Docker or set SOMA_OCI_BUSYBOX_LAYOUT");
@@ -236,12 +243,50 @@ mod live {
             timeout_millis: 30_000,
             output_bytes: 65_536,
         };
-        let proof = boot_generation("node22", NODE, "SOMA_OCI_NODE_LAYOUT", 1024, 1024, &command)
+        let proof = boot_generation("node22", NODE, "SOMA_OCI_NODE_LAYOUT", 1024, 1024, 1, &command)
             .expect("prerequisite failed: the node:22 OCI layout could not be exported; set SOMA_OCI_NODE_LAYOUT");
         assert_proof(&proof);
         let stdout = String::from_utf8_lossy(&proof.executed.stdout);
         assert!(stdout.starts_with("v22."), "stdout={stdout:?}");
         let _ = Path::new(MAC_NODE_TREE_DIGEST);
+    }
+
+    /// The machine contract v2 gate from the plan: eight processors and sixteen gigabytes.
+    ///
+    /// The guest reaches `nproc` only if the MP table the machine published was found, the
+    /// kernel started every application processor from it, and the I/O APIC route the device
+    /// GSIs use carried the command's interrupt. This is the proof that no unit test on a host
+    /// without KVM can stand in for.
+    #[test]
+    #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and Docker"]
+    fn an_eight_vcpu_generation_boots_and_reports_eight_processors() {
+        let _serialized = serialize_live_proof();
+        require_kvm();
+        let command = session::Command {
+            program: b"/bin/busybox",
+            arguments: &[b"nproc"],
+            timeout_millis: 30_000,
+            output_bytes: 65_536,
+        };
+        let proof = boot_generation(
+            "busybox-smp",
+            BUSYBOX,
+            "SOMA_OCI_BUSYBOX_LAYOUT",
+            16 * 1024,
+            1024,
+            8,
+            &command,
+        )
+        .expect("prerequisite failed: the busybox OCI layout could not be exported; set SOMA_OCI_BUSYBOX_LAYOUT");
+        assert_proof(&proof);
+        let stdout = String::from_utf8_lossy(&proof.executed.stdout);
+        assert_eq!(
+            stdout.trim(),
+            "8",
+            "the guest did not see every processor the MP table describes: stdout={stdout:?}"
+        );
+        // The RAM the split memory map describes is checked by hand on the same run with
+        // `free -g`, which this harness cannot ask for: one command per boot.
     }
 }
 

@@ -145,6 +145,7 @@ fn build() -> Fixture {
         generation::Shape {
             memory_mib: MEMORY_MIB,
             storage_mib: STORAGE_MIB,
+            vcpus: 1,
         },
         &inputs,
         &scratch,
@@ -203,6 +204,8 @@ fn capture_source(
         open_artifact(&compiled.store, &manifest.root.descriptor).unwrap(),
         head.try_clone().unwrap(),
         ram_bytes,
+        1,
+        MachineContract::V1,
         manifest.device_set(),
     );
     let mut sandbox = SandboxMachine::create(config).expect("create the source machine");
