@@ -16,6 +16,11 @@
 //! anyone made, so it has no receipt, and its only effect a caller can observe is that the
 //! pages are resident. The guest agent reaps every process after every command, so nothing it
 //! started outlives it.
+//!
+//! It cannot move to pool preparation. A sterile machine's vCPU has never run: the first resume
+//! publishes a launch page generated from this Instance's identity and operation, and the only
+//! command channel is the session that page binds. Running anything earlier would mean resuming
+//! the machine under some other identity, after which it is no longer sterile.
 
 use soma::InstanceId;
 use soma_guest::GuestCommand;
@@ -29,6 +34,15 @@ const WARM_COMMAND: &str = "SOMA_LAUNCH_WARM_COMMAND";
 const WARM_TIMEOUT_MS: u32 = 2_000;
 /// The output is discarded, so only enough is admitted for the command to finish normally.
 const WARM_OUTPUT_BYTES: u64 = 64 * 1024;
+
+/// Whether the service names a warm command at all.
+pub(super) fn configured() -> bool {
+    std::env::var(WARM_COMMAND)
+        .ok()
+        .as_deref()
+        .and_then(command)
+        .is_some()
+}
 
 /// Runs the configured warm command once on the machine this host holds, if one is configured.
 pub(super) fn warm(backend: &mut KvmBackend, instance: &InstanceId) {

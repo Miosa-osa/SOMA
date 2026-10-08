@@ -11,7 +11,7 @@ use std::{
 use soma::{BackendFailureKind, InstanceId, MachineShape, OperationId};
 
 use super::{
-    channel, reaper, sterile,
+    channel, reaper, sterile, warm_gate,
     wire::{InitialWire, LaunchWire, Launched, Ready},
 };
 use crate::backend::kvm::prepared::PreparedGeneration;
@@ -20,6 +20,7 @@ struct LaunchContext<'a> {
     operation_id: &'a OperationId,
     instance_id: &'a InstanceId,
     socket: PathBuf,
+    skip_warm: bool,
 }
 
 /// Claims the host that will hold one machine, and returns what its launch established.
@@ -33,6 +34,9 @@ pub(in crate::backend::kvm) fn launch(
     if !channel::addressable(directory) {
         return Err(BackendFailureKind::Unsupported);
     }
+    // Counted from the claim to the answer, which is the stretch in which a burst's launches
+    // overlap; the warm command itself runs in the host after the answer.
+    let in_flight = warm_gate::enter();
     channel::prepare_directory(directory).map_err(|()| BackendFailureKind::Unavailable)?;
     let socket = channel::socket_path(directory, instance_id);
     let sterile::SterileHost {
@@ -45,6 +49,7 @@ pub(in crate::backend::kvm) fn launch(
         operation_id,
         instance_id,
         socket,
+        skip_warm: in_flight.skip_warm(),
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
         Ok(launched) => {
@@ -76,6 +81,7 @@ fn handshake(
         manifest: soma_generation::generation_manifest::encode_manifest(&prepared.manifest)
             .map_err(|_| BackendFailureKind::Unavailable)?,
         shape: shape.clone(),
+        skip_warm: context.skip_warm,
     };
     if output.is_none() {
         let (_manifest, artifacts) = prepared

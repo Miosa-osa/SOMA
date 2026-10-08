@@ -1,6 +1,10 @@
-use std::{env, net::TcpListener, path::PathBuf, process, time::Duration};
+use std::{env, net::TcpListener, path::PathBuf, process, sync::Arc, time::Duration};
 
-use soma_api::{ApiError, FacadePool, LocalFacade, serve};
+use soma_api::{
+    ApiError, CREATE_ADMISSION_ENV, CreateAdmission, FacadePool, LocalFacade, SandboxFacade,
+    runner::{self, RunnerConfig},
+    serve,
+};
 use soma_local::{BackendSelection, LocalRuntimeConfig};
 
 /// The address the service binds when none is given.
@@ -45,9 +49,25 @@ fn run() -> i32 {
     let Some(options) = Options::parse(env::args().skip(1)) else {
         eprintln!(
             "soma-api: usage: soma-api [--listen ADDR] [--backend auto|kvm|macos|docker] \
-             [--runtime PATH] [--state-root PATH] [--workers COUNT]"
+             [--runtime PATH] [--state-root PATH] [--workers COUNT] [--runner-config PATH]"
         );
         return 64;
+    };
+    let Some(admission) =
+        CreateAdmission::from_setting(env::var(CREATE_ADMISSION_ENV).ok().as_deref())
+    else {
+        eprintln!("soma-api: {CREATE_ADMISSION_ENV} must be a positive integer");
+        return 78;
+    };
+    // The public runner is configured before anything is opened, so a broken configuration
+    // stops the service before it holds a single facade or sterile host.
+    let runner_config = match options.runner_config.as_deref().map(RunnerConfig::load) {
+        None => None,
+        Some(Ok(config)) => Some(config),
+        Some(Err(error)) => {
+            eprintln!("soma-api: {error}");
+            return 78;
+        }
     };
     let Ok(listener) = TcpListener::bind(&options.listen) else {
         eprintln!("soma-api: could not bind {}", options.listen);
@@ -74,22 +94,42 @@ fn run() -> i32 {
         eprintln!("soma-api: the local sandbox runtime could not be opened");
         return 69;
     };
-    eprintln!("soma-api: listening on {}", options.listen);
+    if let Some(config) = runner_config {
+        let runner_pool = pool.clone();
+        let opener: runner::FacadeOpener = Arc::new(move || {
+            runner_pool
+                .acquire_timeout(POOL_WAIT_TIMEOUT)
+                .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+                .ok_or_else(runtime_busy)
+        });
+        if let Err(error) = runner::spawn(config, opener) {
+            eprintln!("soma-api: the public runner could not start: {error}");
+            return 74;
+        }
+    }
+    eprintln!(
+        "soma-api: listening on {} (at most {} concurrent creates)",
+        options.listen,
+        admission.limit()
+    );
     let open_facade = move || {
-        pool.acquire_timeout(POOL_WAIT_TIMEOUT).ok_or_else(|| {
-            ApiError::new(
-                503,
-                "runtime_busy",
-                "the local sandbox runtime is at its bounded request capacity",
-                true,
-            )
-        })
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT)
+            .ok_or_else(runtime_busy)
     };
-    if serve(&listener, open_facade).is_err() {
+    if serve(&listener, open_facade, &admission).is_err() {
         eprintln!("soma-api: the listener stopped accepting connections");
         return 74;
     }
     0
+}
+
+const fn runtime_busy() -> ApiError {
+    ApiError::new(
+        503,
+        "runtime_busy",
+        "the local sandbox runtime is at its bounded request capacity",
+        true,
+    )
 }
 
 #[derive(Clone, Debug)]
@@ -99,6 +139,8 @@ struct Options {
     runtime: Option<PathBuf>,
     state_root: Option<PathBuf>,
     workers: usize,
+    /// The public runner's configuration file; the runner is off without one.
+    runner_config: Option<PathBuf>,
 }
 
 impl Options {
@@ -114,6 +156,7 @@ impl Options {
             runtime: None,
             state_root: None,
             workers: DEFAULT_WORKERS,
+            runner_config: None,
         };
         let mut arguments = arguments;
         while let Some(argument) = arguments.next() {
@@ -123,6 +166,7 @@ impl Options {
                 "--backend" => options.backend = backend(&value)?,
                 "--runtime" => options.runtime = Some(PathBuf::from(value)),
                 "--state-root" => options.state_root = Some(PathBuf::from(value)),
+                "--runner-config" => options.runner_config = Some(PathBuf::from(value)),
                 "--workers" => {
                     options.workers = value.parse().ok()?;
                     if !(1..=MAXIMUM_WORKERS).contains(&options.workers) {
@@ -161,6 +205,10 @@ mod tests {
 
         assert_eq!(options.listen, "127.0.0.1:8787");
         assert_eq!(options.workers, 128);
+        assert!(
+            options.runner_config.is_none(),
+            "the public runner is off by default"
+        );
     }
 
     #[test]

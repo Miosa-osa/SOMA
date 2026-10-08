@@ -62,6 +62,12 @@ pub(super) struct LaunchWire {
     /// Canonical ready manifest bytes already admitted by the parent.
     pub(super) manifest: Vec<u8>,
     pub(super) shape: MachineShape,
+    /// The parent saw too many launches in flight for this one to run the warm command.
+    ///
+    /// It is written only when set, so a host that predates it still reads every launch that
+    /// warms, and read as unset when absent, so a parent that predates it still warms.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) skip_warm: bool,
 }
 
 /// What a launch established, whichever side performed it.

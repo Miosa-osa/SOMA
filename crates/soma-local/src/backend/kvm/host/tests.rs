@@ -7,11 +7,11 @@
 
 use std::{io::BufReader, os::unix::net::UnixListener};
 
-use soma::{BackendFailureKind, InstanceId};
+use soma::{BackendFailureKind, GenerationId, InstanceId, MachineShape, OperationId};
 
 use super::{
     channel,
-    wire::{Call, Refusal},
+    wire::{Call, LaunchWire, Refusal},
 };
 
 fn instance(value: &str) -> InstanceId {
@@ -144,4 +144,45 @@ fn a_directory_too_deep_to_name_a_socket_in_is_not_addressable() {
             .len()
             < 108
     );
+}
+
+fn launch_wire(skip_warm: bool) -> LaunchWire {
+    LaunchWire {
+        socket: "/run/soma/one.sock".into(),
+        operation_id: OperationId::new(ONE).expect("operation"),
+        instance_id: instance(TWO),
+        reference: "base".to_owned(),
+        generation_id: GenerationId::new(format!("sha256:{}", "3".repeat(64)))
+            .expect("canonical digest"),
+        manifest: Vec::new(),
+        shape: MachineShape::new(1, 512, 0).expect("shape"),
+        skip_warm,
+    }
+}
+
+#[test]
+fn a_launch_that_warms_is_written_exactly_as_before_the_skip_existed() {
+    let written = serde_json::to_value(launch_wire(false)).expect("encodes");
+
+    assert!(written.get("skip_warm").is_none(), "{written}");
+}
+
+#[test]
+fn a_skipped_warm_crosses_the_launch_channel() {
+    let written = serde_json::to_string(&launch_wire(true)).expect("encodes");
+    let read: LaunchWire = serde_json::from_str(&written).expect("decodes");
+
+    assert!(read.skip_warm);
+}
+
+#[test]
+fn a_launch_from_a_parent_that_predates_the_skip_still_warms() {
+    let mut written = serde_json::to_value(launch_wire(false)).expect("encodes");
+    written
+        .as_object_mut()
+        .expect("an object")
+        .remove("skip_warm");
+    let read: LaunchWire = serde_json::from_value(written).expect("decodes");
+
+    assert!(!read.skip_warm);
 }

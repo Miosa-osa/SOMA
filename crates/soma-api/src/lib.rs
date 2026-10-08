@@ -1,6 +1,7 @@
 #![doc = "HTTP access to the SOMA sandbox lifecycle over the portable facade."]
 #![forbid(unsafe_code)]
 
+pub mod admission;
 pub mod capability;
 pub mod envelope;
 pub mod facade;
@@ -12,10 +13,12 @@ pub mod local;
 pub mod pool;
 pub mod report;
 pub mod route;
+pub mod runner;
 pub mod tenant;
 pub mod terminal;
 pub mod wire;
 
+pub use admission::{CREATE_ADMISSION_ENV, CreateAdmission, CreatePermit};
 pub use capability::MissingCapability;
 pub use envelope::{ApiError, ENVELOPE_SCHEMA, Envelope, FailureBody};
 pub use facade::{

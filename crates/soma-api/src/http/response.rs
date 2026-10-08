@@ -3,17 +3,30 @@ use std::io::{self, Write};
 /// One HTTP response: a status and a JSON body.
 ///
 /// The service has exactly one media type, so there is no content negotiation and no header map.
-/// Anything a caller could vary here would be a promise the service does not keep.
+/// Anything a caller could vary here would be a promise the service does not keep. The one
+/// optional header is `Retry-After`, which a refusal that should be retried elsewhere carries.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Response {
     pub status: u16,
     pub body: Vec<u8>,
+    pub retry_after_seconds: Option<u32>,
 }
 
 impl Response {
     #[must_use]
     pub const fn new(status: u16, body: Vec<u8>) -> Self {
-        Self { status, body }
+        Self {
+            status,
+            body,
+            retry_after_seconds: None,
+        }
+    }
+
+    /// The same response, telling the caller it may retry after `seconds`.
+    #[must_use]
+    pub const fn with_retry_after(mut self, seconds: u32) -> Self {
+        self.retry_after_seconds = Some(seconds);
+        self
     }
 
     /// Writes the response as HTTP/1.1 and closes the exchange.
@@ -47,11 +60,15 @@ impl Response {
              content-type: application/json\r\n\
              content-length: {}\r\n\
              cache-control: no-store\r\n\
-             connection: {connection}\r\n\r\n",
+             connection: {connection}\r\n",
             self.status,
             reason(self.status),
             self.body.len(),
         )?;
+        if let Some(seconds) = self.retry_after_seconds {
+            write!(response, "retry-after: {seconds}\r\n")?;
+        }
+        response.extend_from_slice(b"\r\n");
         response.extend_from_slice(&self.body);
         writer.write_all(&response)
     }
