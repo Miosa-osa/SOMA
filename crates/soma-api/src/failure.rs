@@ -54,6 +54,12 @@ fn run_kind_error(kind: RunFailureKind) -> ApiError {
             "guest execution was interrupted",
             true,
         ),
+        RunFailureKind::SpawnFailed { .. } => ApiError::new(
+            400,
+            "guest_spawn_failed",
+            "guest could not start the program, so no process ran",
+            false,
+        ),
         RunFailureKind::CleanupIncomplete => ApiError::new(
             500,
             "cleanup_incomplete",

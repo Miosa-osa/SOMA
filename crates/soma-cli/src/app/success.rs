@@ -94,5 +94,15 @@ fn command_result_status(status: CommandStatus) -> (Option<FailureBody>, Process
             )),
             ProcessExit::OutputLimit,
         ),
+        // A refusal has no exit code to report and no receipt to describe it as a result, so a
+        // command that could not start reads the same way a missing name does.
+        CommandStatus::SpawnFailed { .. } => (
+            Some(FailureBody::new(
+                "guest_spawn_failed",
+                "the guest could not start the program, so no process ran",
+                false,
+            )),
+            ProcessExit::NotFound,
+        ),
     }
 }

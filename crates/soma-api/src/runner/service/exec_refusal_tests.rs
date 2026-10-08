@@ -82,3 +82,40 @@ async fn a_deadline_past_the_machine_bound_is_refused_by_name() {
     assert_eq!(body["error"]["code"], "EXEC_TIMEOUT_UNSUPPORTED");
     assert_eq!(engine.execs.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn a_command_the_machine_refused_leaves_the_sandbox_usable() {
+    let engine = Arc::new(Engine::default());
+    let (runner, id) = recovered_runner(&engine).await;
+    let path = format!("/api/v1/sandboxes/{id}/exec");
+    *engine.exec_refusal.lock().expect("refusal") =
+        Some(soma::BackendFailureKind::WorkloadRejected);
+
+    let refused = call(&runner, http::Method::POST, &path, r#"{"command":"true"}"#).await;
+    assert_eq!(refused.status, 400, "a refusal is not an outage");
+    let body: serde_json::Value = serde_json::from_slice(&refused.body).expect("JSON");
+    assert_eq!(body["error"]["code"], "WORKLOAD_REJECTED");
+    assert_eq!(body["error"]["retryable"], false);
+
+    let fine = call(&runner, http::Method::POST, &path, r#"{"command":"true"}"#).await;
+    assert_eq!(fine.status, 200, "the sandbox survived the refusal");
+    assert_eq!(engine.execs.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn only_a_lost_machine_is_answered_as_an_agent_outage() {
+    let engine = Arc::new(Engine::default());
+    let (runner, id) = recovered_runner(&engine).await;
+    *engine.exec_refusal.lock().expect("refusal") = Some(soma::BackendFailureKind::GuestFailure);
+
+    let lost = call(
+        &runner,
+        http::Method::POST,
+        &format!("/api/v1/sandboxes/{id}/exec"),
+        r#"{"command":"true"}"#,
+    )
+    .await;
+    assert_eq!(lost.status, 502);
+    let body: serde_json::Value = serde_json::from_slice(&lost.body).expect("JSON");
+    assert_eq!(body["error"]["code"], "AGENT_UNAVAILABLE");
+}

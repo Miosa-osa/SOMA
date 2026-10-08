@@ -1,16 +1,18 @@
 //! The machine's exec contract, applied before a machine is asked to run anything.
 //!
-//! This runner's own request type admits commands the sandbox runtime cannot run. Its bounds allow
-//! one argument of up to 128 KiB and up to 4096 of them, while the guest protocol carries at most
-//! 4 KiB in any one field and 64 arguments in a whole command. A command between the two was
-//! admitted here and refused later, inside the engine, and an exec that fails after it was
-//! admitted is not a refusal: the engine releases the machine and writes its terminal phase. The
-//! caller lost the sandbox, and read the answer as an agent outage.
+//! This runner's own request type used to admit commands the sandbox runtime cannot run: one
+//! argument of up to 128 KiB, up to 4096 of them. The guest protocol carries at most 4 KiB in any
+//! one field and 64 arguments in a whole command. A command between the two was admitted here and
+//! refused later, inside the engine, and an exec that failed after it was admitted was not read as
+//! a refusal there: the engine released the machine and wrote its terminal phase. The caller lost
+//! the sandbox, and read the answer as an agent outage.
 //!
-//! So the size has to be decided here, where turning a request down costs nothing, and it has to be
-//! decided against the contract the machine actually applies. The bounds below are imported from
+//! So the size is decided here, where turning a request down costs nothing, and it is decided
+//! against the contract the machine actually applies. The bounds below are imported from
 //! `soma_guest`, and the verdict is the guest protocol's own constructor, so the set admitted here
-//! is the set every later layer carries rather than a second opinion about it.
+//! is the set every later layer carries rather than a second opinion about it. The request type
+//! itself now carries the same four bounds, pinned to these by a test, so the two doors into the
+//! engine refuse the same commands.
 
 use soma_guest::{
     FIXED_BODY_SIZE, MAX_ARGUMENTS, MAX_BODY_SIZE, MAX_FIELD_BYTES, MAX_TIMEOUT_MILLIS,

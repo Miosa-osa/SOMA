@@ -135,11 +135,21 @@ impl ExecutionReceipt {
             TerminalStatus::Signaled { .. }
             | TerminalStatus::TimedOut
             | TerminalStatus::OutputLimitExceeded => {
-                (match self.operation {
-                    OperationKind::Run => self.has_launch_chain() && self.has_command_chain(),
+                match self.operation {
+                    // A one-shot Run owns its machine for the length of one command, so a
+                    // command that ended abnormally is followed by the release of that machine.
+                    OperationKind::Run => {
+                        self.has_launch_chain()
+                            && self.has_command_chain()
+                            && !self.cleanup.all_not_owned()
+                    }
+                    // A managed Execute does not. The guest agent kills and reaps a command's
+                    // process group before it reports the command, so the sandbox outlives every
+                    // outcome the agent reported and no cleanup was performed. The cleanup
+                    // evidence says which of the two happened, and either is consistent.
                     OperationKind::Execute => self.has_command_chain(),
                     _ => false,
-                }) && !self.cleanup.all_not_owned()
+                }
             }
             TerminalStatus::Failed => true,
         }
