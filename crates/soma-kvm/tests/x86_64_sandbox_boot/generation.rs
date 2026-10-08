@@ -286,22 +286,7 @@ pub fn sha256_file(mut file: &File) -> String {
 
 /// Creates the Instance-private overlay head as a fresh copy of the sterile template.
 pub fn private_head(template: &mut File, path: &Path) -> File {
-    let _ = fs::remove_file(path);
-    let mut head = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .unwrap();
-    // The template is a writable class written out whole, so copying it without its holes and
-    // without its zero chunks keeps a private head as cheap as the metadata it actually carries
-    // rather than as large as the class.
-    let length = template
-        .metadata()
-        .expect("stat the overlay template")
-        .len();
-    crate::x86_64_sandbox_boot_sparse::copy_sparse(template, &head, length)
-        .expect("copy the template into a private head");
-    head.seek(SeekFrom::Start(0)).unwrap();
-    head
+    // A writable class is written out whole, so the clone has to skip its holes and its zero
+    // chunks or it costs a whole class of disk per head.
+    crate::x86_64_sandbox_boot_sparse::clone_head(template, path)
 }

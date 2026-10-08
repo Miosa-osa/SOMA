@@ -92,22 +92,10 @@ impl Fixture {
         let directory = self.scratch.join("heads");
         fs::create_dir_all(&directory).expect("create the head directory");
         let path = directory.join(format!("{name}.ext4"));
-        let _ignored = fs::remove_file(&path);
-        // Cloned the way the boot harness clones one: the writable class is written out whole, so
-        // a copy that does not skip its zero chunks costs a whole class of disk per head.
+        // Cloned the way the boot harness clones one: the class is written out whole, so a copy
+        // that does not skip its zero chunks costs a whole class of disk per head.
         let template = File::open(self.paths.overlay()).expect("open the sterile template");
-        let length = template
-            .metadata()
-            .expect("stat the sterile template")
-            .len();
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .expect("open the private head");
-        crate::x86_64_sandbox_boot_sparse::copy_sparse(&template, &file, length)
-            .expect("clone the sterile template");
+        let file = crate::x86_64_sandbox_boot_sparse::clone_head(&template, &path);
         (path, file)
     }
 }

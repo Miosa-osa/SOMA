@@ -18,12 +18,13 @@
 #![allow(unsafe_code)]
 
 use std::{
-    fs::File,
-    io,
+    fs::{self, File},
+    io::{self, Seek as _, SeekFrom},
     os::{
         fd::AsRawFd as _,
         unix::fs::{FileExt as _, MetadataExt as _},
     },
+    path::Path,
 };
 
 /// Bytes moved per read and write.
@@ -46,7 +47,7 @@ pub fn copy_sparse(source: &File, destination: &File, length: u64) -> io::Result
     while offset < length {
         // SAFETY: both calls take a live descriptor and an offset the loop keeps inside the file.
         let data =
-            unsafe { libc::lseek(source.as_raw_fd(), offset as libc::off_t, libc::SEEK_DATA) };
+            unsafe { libc::lseek(source.as_raw_fd(), offset.cast_signed(), libc::SEEK_DATA) };
         if data < 0 {
             // `ENXIO` means there is no further data: everything left is a hole, and the
             // destination already has it, because it was created empty and only written where the
@@ -75,6 +76,30 @@ pub fn copy_sparse(source: &File, destination: &File, length: u64) -> io::Result
     Ok(written)
 }
 
+/// Clones `template` into a fresh head at `path`, rewound to its start.
+///
+/// Both harnesses clone a private head this way, so the rule about what a fresh destination means
+/// lives in one place: whatever this skips is a zero byte the head already has.
+///
+/// # Panics
+///
+/// Panics when the head cannot be created or copied. It is the run's own file in the run's own
+/// scratch tree, and a live proof has nothing useful to do with a head it could not clone.
+pub fn clone_head(template: &File, path: &Path) -> File {
+    let _ = fs::remove_file(path);
+    let mut head = File::options()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .expect("create the private head");
+    let length = template.metadata().expect("stat the template").len();
+    copy_sparse(template, &head, length).expect("copy the template into a private head");
+    head.seek(SeekFrom::Start(0))
+        .expect("rewind the private head");
+    head
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,27 +107,26 @@ mod tests {
 
     const MIB: u64 = 1024 * 1024;
 
-    /// Opens a file for the test, readable as well as writable.
+    /// Creates a file for the test, readable as well as writable.
     ///
-    /// A write-only descriptor fails every read with `EBADF`, which is a property of the fixture
-    /// and not of the copy under test, and the test reads both files back.
-    fn fixture(path: &std::path::Path, empty: bool) -> File {
-        let file = File::options()
+    /// A write-only descriptor fails every read with `EBADF`, which is a property of this fixture
+    /// and not of the copy under test, and the test reads both files back. The file is always new,
+    /// so nothing it already held can be mistaken for what the copy wrote.
+    fn fixture(path: &std::path::Path) -> File {
+        let _ignored = std::fs::remove_file(path);
+        File::options()
             .read(true)
             .write(true)
-            .create(true)
+            .create_new(true)
             .open(path)
-            .expect("open");
-        if empty {
-            file.set_len(0).expect("start empty");
-        }
-        file
+            .expect("create")
     }
 
     /// A file whose first megabyte is written and whose remaining three are a hole.
     fn sparse_source(path: &std::path::Path) -> File {
-        let mut file = fixture(path, true);
-        file.write_all(&vec![0x5a_u8; MIB as usize]).expect("write");
+        let mut file = fixture(path);
+        let megabyte = usize::try_from(MIB).expect("one megabyte fits in memory");
+        file.write_all(&vec![0x5a_u8; megabyte]).expect("write");
         file.set_len(4 * MIB).expect("extend into a hole");
         file
     }
@@ -114,7 +138,7 @@ mod tests {
         let source_path = scratch.join("source.img");
         let destination_path = scratch.join("destination.img");
         let source = sparse_source(&source_path);
-        let destination = fixture(&destination_path, true);
+        let destination = fixture(&destination_path);
 
         let written = copy_sparse(&source, &destination, 4 * MIB).expect("copy");
 
