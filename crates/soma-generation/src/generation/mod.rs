@@ -54,7 +54,9 @@ pub use manifest::{GenerationManifest, SnapshotBinding};
 pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
 pub use publish::open_artifact;
-pub use request::{BuildHost, CompileGeneration, CompilerProfile, MachineInputs, Toolchain};
+pub use request::{
+    BuildHost, CompileGeneration, CompilerProfile, MachineInputs, ProfileLimits, Toolchain,
+};
 pub use snapshot::{SnapshotSource, install_snapshot};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};
 pub use toolchain::{BoundTool, BuilderEnvironment};

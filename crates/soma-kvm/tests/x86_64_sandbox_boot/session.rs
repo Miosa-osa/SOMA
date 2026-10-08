@@ -1,5 +1,4 @@
-//! Drives one sandbox from cold boot through the authenticated session to cleanup and prints
-//! the evidence table.
+//! Drives one sandbox from cold boot through the authenticated session to cleanup and prints it.
 
 use std::{
     fs::File,
@@ -11,20 +10,15 @@ use soma_guest::{
     GuestCommand, HostControl, HostLaunchMaterial, LaunchNetwork, OperationId, RepairedHostControl,
     TerminalStatus,
 };
-use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{
     DeviceIdentity, GuestExit, Milestone, SandboxConfig, SandboxDisks, SandboxEvidence,
     SandboxMachine,
 };
+use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::x86_64_sandbox_boot_control::HostIo;
 
-mod reporting;
-
-/// Print and retain the human-readable evidence from one live proof.
-pub fn report(label: &str, evidence: &SandboxEvidence, log: &std::path::Path) {
-    reporting::report(label, evidence, log);
-}
+pub mod evidence;
 
 pub const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
 pub const GUEST_CID: u32 = 3;
@@ -78,10 +72,7 @@ pub fn now_unix_nanos() -> u64 {
     .unwrap()
 }
 
-/// Boots `config`, completes the session with fresh per-Instance authority, runs one hostile
-/// unbounded-output step, executes `command`, shuts down, and cleans up.
-///
-/// Returns the evidence together with both command results, or the evidence and the failure.
+/// Boots `config`, completes the session, runs one hostile step, executes `command`, shuts down.
 pub fn run(
     config: SandboxConfig,
     generation_id: &str,
@@ -194,19 +185,31 @@ fn execute_one<'a>(
     ))
 }
 
-/// The machine this session runs, built with exactly the devices the
-/// Generation's manifest declares. `DeviceSet::FULL` here would build a
-/// machine the manifest never described - since `ba0cde7` the manifest's
-/// command line names only declared devices, so the machine/manifest
-/// cmdline equality this suite asserts is the declaration honored.
+/// The shape and contract one session's machine is built at.
+#[derive(Clone, Copy)]
+pub struct Machine {
+    /// Guest RAM in bytes.
+    pub ram_bytes: u64,
+    /// The vCPU count.
+    pub vcpus: u16,
+    /// The machine contract the Generation was built under.
+    pub contract: MachineContract,
+}
+
+/// The machine this session runs, with exactly the manifest's declared devices.
 pub fn config(
     kernel: File,
     initramfs: File,
     root: File,
     overlay: File,
-    ram_bytes: u64,
+    machine: Machine,
     devices: DeviceSet,
 ) -> SandboxConfig {
+    let Machine {
+        ram_bytes,
+        vcpus,
+        contract,
+    } = machine;
     let overlay = Some(overlay);
     SandboxConfig {
         kernel,
@@ -217,6 +220,8 @@ pub fn config(
             guest_mac: GUEST_MAC,
         },
         ram_bytes,
+        vcpus,
+        contract,
         devices,
     }
 }
@@ -255,7 +260,7 @@ pub fn assert_orderly(evidence: &SandboxEvidence) {
     );
     assert_eq!(evidence.mmio.transport_violations, 0, "{:?}", evidence.mmio);
     assert_eq!(evidence.mmio.notify_exits, 0, "{:?}", evidence.mmio);
-    assert_eq!((evidence.bus.other_in, evidence.bus.other_out), (0, 0));
+    evidence::assert_ports_are_expected(evidence.vcpus.len(), &evidence.bus);
     let text = String::from_utf8_lossy(&evidence.serial);
     assert!(text.contains("soma-guest-agent: ready"));
     assert!(text.contains("soma-guest-agent: shutdown acknowledged"));

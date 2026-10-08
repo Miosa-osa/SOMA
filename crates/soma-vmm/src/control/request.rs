@@ -109,7 +109,7 @@ fn encode_launch(launch: &Launch) -> String {
     let machine = launch.generation().machine();
     let devices = launch.generation().devices();
     format!(
-        "launch {} {} {} {} {} {} {} {}",
+        "launch {} {} {} {} {} {} {} {} {}",
         hex(launch.operation_id().as_bytes()),
         hex(launch.instance_id().as_bytes()),
         hex(launch.generation().id().as_bytes()),
@@ -118,6 +118,7 @@ fn encode_launch(launch: &Launch) -> String {
         machine.writable_disk().get(),
         u8::from(devices.writable_disk()),
         u8::from(devices.network()),
+        launch.generation().contract().version(),
     )
 }
 
@@ -147,6 +148,7 @@ mod tests {
         Argument, DiskBytes, ExecutionLimits, Generation, GenerationId, InstanceId, MachineSpec,
         MemoryBytes, OperationId, OutputBytes, Program, TimeoutMillis, VcpuCount,
     };
+    use soma_kvm::MachineContract;
 
     fn operation() -> OperationId {
         OperationId::new([1; 16]).expect("operation")
@@ -166,6 +168,7 @@ mod tests {
             GenerationId::new([3; 32]).expect("generation"),
             machine,
             DeclaredDevices::new(true, true),
+            MachineContract::V1,
         );
         Launch::new(operation(), instance(), generation)
     }

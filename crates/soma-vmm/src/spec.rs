@@ -4,6 +4,8 @@ use std::{
     num::{NonZeroU16, NonZeroU64},
 };
 
+pub use soma_kvm::MachineContract;
+
 use crate::GenerationId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -129,16 +131,33 @@ pub struct Generation {
     id: GenerationId,
     machine: MachineSpec,
     devices: DeclaredDevices,
+    contract: MachineContract,
 }
 
 impl Generation {
     #[must_use]
-    pub const fn new(id: GenerationId, machine: MachineSpec, devices: DeclaredDevices) -> Self {
+    pub const fn new(
+        id: GenerationId,
+        machine: MachineSpec,
+        devices: DeclaredDevices,
+        contract: MachineContract,
+    ) -> Self {
         Self {
             id,
             machine,
             devices,
+            contract,
         }
+    }
+
+    /// The machine contract this Generation was built under.
+    ///
+    /// A snapshot may only be resumed under the contract that produced it: the contract fixes
+    /// the guest's command line and whether it programs an I/O APIC at all, so a machine
+    /// restored under another one would run with arguments it never certified.
+    #[must_use]
+    pub const fn contract(&self) -> MachineContract {
+        self.contract
     }
 
     #[must_use]

@@ -11,6 +11,7 @@ pub(super) fn launch() -> Launch {
             GenerationId::new([3; 32]).expect("generation ID"),
             machine_spec(),
             crate::DeclaredDevices::new(true, true),
+            soma_kvm::MachineContract::V2,
         ),
     )
 }

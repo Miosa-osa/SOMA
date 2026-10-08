@@ -12,14 +12,13 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
 use soma_guest::{HostControl, HostLaunchMaterial, RepairedHostControl, SecretFile};
-use soma_kvm::DeviceSet;
 use soma_kvm::snapshot::readiness::SessionEvidence;
-use soma_kvm::x86_64::{
-    DeviceIdentity, Milestone, RestoreRequest, Restored, SandboxConfig, SandboxDisks,
-    SandboxMachine, restore,
-};
+use soma_kvm::x86_64::{Milestone, RestoreRequest, Restored, SandboxMachine, restore};
 
 mod activation;
+mod cold;
+
+pub use cold::{ColdBootInputs, config};
 
 use self::activation::open_network;
 use super::io::HostIo;
@@ -27,7 +26,6 @@ use super::io::HostIo;
 mod commands;
 mod files;
 mod pty;
-use super::identity::GUEST_MAC;
 use super::pending::PendingActivation;
 use super::session::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, SessionError};
 use super::source::{Boot, Network, Source};
@@ -98,6 +96,8 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             disks,
             devices,
             memory_bytes,
+            vcpus,
+            contract,
         } => {
             let restored = restore(RestoreRequest {
                 objects,
@@ -106,6 +106,8 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 devices,
                 guest_cid,
                 memory_bytes,
+                vcpus,
+                contract,
                 // Re-hashing every byte of the memory object is the installation and audit
                 // boundary, not the request path.
                 verify_artifacts: false,
@@ -263,44 +265,6 @@ fn reach_session(
     machine.mark(Milestone::Handshake);
     host.prepare().map_err(|_| SessionError::Ready)
 }
-
-/// The opened artifacts and declared shape one cold boot starts from.
-pub struct ColdBootInputs {
-    pub kernel: std::fs::File,
-    pub initramfs: std::fs::File,
-    pub root: std::fs::File,
-    /// The Instance-private head, or `None` for a Generation with no writable storage.
-    pub overlay: Option<std::fs::File>,
-    pub ram_bytes: u64,
-    pub guest_cid: u32,
-    pub devices: DeviceSet,
-}
-
-/// The device identity and shape one sandbox is given.
-#[must_use]
-pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
-    let ColdBootInputs {
-        kernel,
-        initramfs,
-        root,
-        overlay,
-        ram_bytes,
-        guest_cid,
-        devices,
-    } = inputs;
-    SandboxConfig {
-        kernel,
-        initramfs,
-        disks: SandboxDisks { root, overlay },
-        identity: DeviceIdentity {
-            guest_cid,
-            guest_mac: GUEST_MAC,
-        },
-        ram_bytes,
-        devices,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::Duration;

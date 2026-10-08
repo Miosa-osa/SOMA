@@ -19,23 +19,25 @@
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use std::{
     error::Error,
-    fs::{self, File, OpenOptions},
-    io::Write as _,
-    os::unix::fs::OpenOptionsExt as _,
+    fs::{self, File},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use soma_generation::{
-    ArtifactDescriptor, ArtifactRole, CandidateId, CompilerProfile, PublishedCandidate,
-    Sha256Digest, SnapshotSource, certify_candidate, generation_manifest::decode_candidate,
-    install_snapshot, open_artifact, promote_candidate,
+    ArtifactDescriptor, ArtifactRole, CandidateId, PublishedCandidate, Sha256Digest,
+    generation_manifest, generation_manifest::decode_candidate, open_artifact,
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "capture_snapshot/publish.rs"]
+mod publish;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use publish::install_and_publish;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use soma_kvm::x86_64::{
-    CaptureOutcome, CaptureRequest, DeviceIdentity, SandboxConfig, SandboxDisks, SandboxMachine,
-    capture,
+    CaptureRequest, DeviceIdentity, SandboxConfig, SandboxDisks, SandboxMachine, capture,
 };
 
 /// The console line the pinned agent prints when it parks awaiting launch material.
@@ -82,112 +84,36 @@ fn source_head(template: &mut File, path: &Path) -> Result<File, Box<dyn Error>>
 
 /// Publishes the ready identity last so a prepared entry is either a Candidate or a complete
 /// Generation, never a partially promoted mixture.
+/// The source machine's configuration: exactly the machine the Candidate declares.
+///
+/// A Candidate that declared no writable storage gets no overlay device, which is what makes its
+/// capture publish no `overlay.raw` and every Instance restored from it clone nothing.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn publish_generation_id(entry: &Path, identity: &str) -> Result<(), Box<dyn Error>> {
-    let path = entry.join("generation.id");
-    if path.exists() {
-        return existing_generation_id(&path, identity);
-    }
-    let temporary = entry.join(format!(
-        ".generation.id.{}.{}.tmp",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_nanos()
-    ));
-    let mut options = OpenOptions::new();
-    options.create_new(true).write(true).mode(0o600);
-    let mut file = options.open(&temporary)?;
-    file.write_all(identity.as_bytes())?;
-    file.sync_all()?;
-    match fs::hard_link(&temporary, &path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            fs::remove_file(&temporary)?;
-            return existing_generation_id(&path, identity);
-        }
-        Err(error) => {
-            let _ignored = fs::remove_file(&temporary);
-            return Err(error.into());
-        }
-    }
-    fs::remove_file(&temporary)?;
-    File::open(entry)?.sync_all()?;
-    Ok(())
-}
-
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn existing_generation_id(path: &Path, identity: &str) -> Result<(), Box<dyn Error>> {
-    let existing = fs::read_to_string(path)?;
-    if existing == identity {
-        Ok(())
-    } else {
-        Err("generation.id already names another Generation".into())
-    }
-}
-
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn descriptor(
-    role: ArtifactRole,
-    digest: soma_kvm::snapshot::Digest,
-    size: u64,
-) -> ArtifactDescriptor {
-    ArtifactDescriptor {
-        role,
-        digest: Sha256Digest::from_bytes(*digest.as_bytes()),
-        size,
-    }
-}
-
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-fn install_and_publish(
-    entry: &Path,
+fn source_config(
     store: &Path,
-    candidate: &PublishedCandidate,
-    outcome: &CaptureOutcome,
-) -> Result<(), Box<dyn Error>> {
-    let mut memory = File::open(outcome.paths.memory())?;
-    let mut overlay = File::open(outcome.paths.overlay())?;
-    let mut state = File::open(outcome.paths.state())?;
-    let binding = install_snapshot(
-        store,
-        SnapshotSource::new(
-            &mut memory,
-            descriptor(
-                ArtifactRole::MemorySnapshot,
-                outcome.memory_digest,
-                outcome.memory_bytes,
-            ),
-        ),
-        SnapshotSource::new(
-            &mut overlay,
-            descriptor(
-                ArtifactRole::OverlaySnapshot,
-                outcome.overlay_digest,
-                outcome.overlay_bytes,
-            ),
-        ),
-        SnapshotSource::new(
-            &mut state,
-            descriptor(
-                ArtifactRole::StateManifest,
-                outcome.state_digest,
-                outcome.state_bytes,
-            ),
-        ),
-    )?;
-    let certification = certify_candidate(store, candidate, &CompilerProfile::v1(), binding)?;
-    let generation = promote_candidate(store, candidate, &certification)?;
-    publish_generation_id(entry, generation.id.as_str())?;
-    println!(
-        "captured {}\n  generation {}\n  memory {} bytes\n  overlay {} bytes\n  state {} bytes",
-        outcome.paths.memory().parent().unwrap_or(entry).display(),
-        generation.id.as_str(),
-        outcome.memory_bytes,
-        outcome.overlay_bytes,
-        outcome.state_bytes,
-    );
-    Ok(())
+    manifest: &generation_manifest::GenerationManifest,
+    kernel: File,
+    initramfs: File,
+    head: Option<&File>,
+    memory_mib: u64,
+) -> Result<SandboxConfig, Box<dyn Error>> {
+    Ok(SandboxConfig {
+        kernel,
+        initramfs,
+        disks: SandboxDisks {
+            root: open_artifact(store, &manifest.root.descriptor)
+                .map_err(|error| format!("root: {error:?}"))?,
+            overlay: head.map(File::try_clone).transpose()?,
+        },
+        identity: DeviceIdentity {
+            guest_cid: CAPTURE_CID,
+            guest_mac: GUEST_MAC,
+        },
+        ram_bytes: memory_mib * MIB,
+        devices: manifest.device_set(),
+        vcpus: 1,
+        contract: soma_kvm::MachineContract::V1,
+    })
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -215,8 +141,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     // The source machine is built as exactly the machine the Candidate declares. A Candidate
     // with no writable storage has no template to open, no head to seed, and publishes no
     // `overlay.raw`, so every Instance restored from its snapshot clones nothing.
-    let devices = manifest.device_set();
-    let mut template = if devices.overlay() {
+    let mut template = if manifest.device_set().overlay() {
         let template_descriptor = &manifest
             .overlay
             .templates
@@ -250,21 +175,14 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     // resident when the capture records guest memory. Nothing is seeded into the overlay here:
     // the agent requires a sterile upper layer and refuses to boot if anything is placed in it.
 
-    let config = SandboxConfig {
+    let config = source_config(
+        &store,
+        &manifest,
         kernel,
         initramfs,
-        disks: SandboxDisks {
-            root: open_artifact(&store, &manifest.root.descriptor)
-                .map_err(|error| format!("root: {error:?}"))?,
-            overlay: head.as_ref().map(File::try_clone).transpose()?,
-        },
-        identity: DeviceIdentity {
-            guest_cid: CAPTURE_CID,
-            guest_mac: GUEST_MAC,
-        },
-        ram_bytes: memory_mib * MIB,
-        devices,
-    };
+        head.as_ref(),
+        memory_mib,
+    )?;
 
     let mut sandbox = SandboxMachine::create(config).map_err(|error| format!("create: {error}"))?;
     sandbox.watch_console(REPAIR_POINT_LINE);
@@ -282,6 +200,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             overlay: head.as_mut(),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
+            contract: soma_kvm::MachineContract::V1,
         },
         started + REPAIR_POINT_DEADLINE,
     );

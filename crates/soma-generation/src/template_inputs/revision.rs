@@ -86,14 +86,36 @@ pub fn compiler_revision(
 /// Cannot panic: the platform list is one entry and every bound is a constant.
 #[must_use]
 pub fn profile_v1_backend() -> BackendCapabilities {
+    profile_backend(1)
+}
+
+/// The Backend capabilities of the compiler's `x86_64` profile version 2.
+#[must_use]
+pub fn profile_v2_backend() -> BackendCapabilities {
+    profile_backend(2)
+}
+
+/// The Backend capabilities one compiler profile declares.
+///
+/// The vCPU and memory bounds come from the profile's own limits rather than being restated
+/// here, so a document the compiler would refuse cannot be admitted by this declaration.
+///
+/// # Panics
+///
+/// Cannot panic: every version this is called with declares limits, and the platform list is
+/// one entry.
+#[must_use]
+fn profile_backend(version: u16) -> BackendCapabilities {
+    let limits =
+        crate::ProfileLimits::for_version(version).expect("every compiler profile declares limits");
     BackendCapabilities::new(
         &[OciPlatform::linux_amd64()],
         // Stopping or checkpointing an idle Instance is a Backend lifecycle the KVM adapter
         // does not offer through a prepared Generation yet, so destroy is the only action.
         &[IdleAction::Destroy],
         ResourceLimits {
-            max_vcpus: 1,
-            max_memory_mib: 3 * 1024,
+            max_vcpus: u32::from(limits.max_vcpus),
+            max_memory_mib: limits.max_memory_mib,
             max_writable_storage_mib: 64 * 1024,
         },
     )

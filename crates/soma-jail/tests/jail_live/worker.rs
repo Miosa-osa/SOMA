@@ -35,6 +35,7 @@ fn launch_request() -> Request {
             GenerationId::new([9; 32]).expect("generation"),
             machine,
             DeclaredDevices::new(true, true),
+            soma_vmm::MachineContract::V1,
         ),
     ))
 }

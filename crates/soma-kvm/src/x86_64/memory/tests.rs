@@ -1,4 +1,5 @@
 use super::*;
+use crate::virtio::{GuestAddress, GuestMemory as _};
 use crate::x86_64::layout::{KERNEL_START, MIN_RAM_BYTES};
 
 #[test]

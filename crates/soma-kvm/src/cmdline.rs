@@ -6,20 +6,15 @@
 
 use std::fmt::Write as _;
 
+use crate::contract::MachineContract;
 use crate::virtio::DeviceSet;
 
-/// The fixed ordered diagnostic arguments from the `x86_64` machine contract.
-pub(crate) const FIXED_ARGUMENTS: [&str; 9] = [
-    "console=ttyS0",
-    "reboot=k",
-    "panic=1",
-    "nomodule",
-    "random.trust_cpu=off",
-    "pci=off",
-    "acpi=off",
-    "noapic",
-    "cryptomgr.notests",
-];
+/// The fixed ordered diagnostic arguments of machine contract version 1.
+///
+/// They are the version 1 list restated here so the diagnostic boot keeps the spelling it has
+/// always had; the contract module owns the list a Generation is composed from.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) const FIXED_ARGUMENTS: [&str; 9] = crate::contract::V1_BASE_ARGUMENTS;
 
 /// Init path inside the SOMA initramfs fixture and the compiled Generation initramfs.
 pub(crate) const INITRAMFS_INIT: &str = "rdinit=/init";
@@ -30,6 +25,9 @@ pub(crate) const GENERATION_UPPER: &str = "soma.upper=/dev/vdb";
 /// The network interface, named only by a Generation that declared a network device.
 pub(crate) const GENERATION_NET: &str = "soma.net=eth0";
 /// The kernel argument that carries the challenge nonce to the guest.
+///
+/// Gated with the machine tree that composes diagnostic boots: on client
+/// targets no diagnostic boot exists, only Generation-line composition.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) const NONCE_ARGUMENT: &str = "soma.nonce";
 /// The prefix of the challenge-bound sentinel the guest writes to its console.
@@ -76,8 +74,18 @@ impl BootNonce {
 /// waits forever for a device nobody built.
 #[must_use]
 pub fn compose_generation(devices: DeviceSet) -> String {
+    compose_generation_for(devices, MachineContract::V1)
+}
+
+/// Composes the complete command line for one compiled Generation under `contract`.
+///
+/// Version 1 and version 2 differ only in the fixed ordered set the contract owns, so the
+/// device declarations, the init, and the disk and network names are composed identically and
+/// a Generation's line stays a function of its contract and its device set alone.
+#[must_use]
+pub fn compose_generation_for(devices: DeviceSet, contract: MachineContract) -> String {
     let mut arguments = vec![
-        FIXED_ARGUMENTS.join(" "),
+        contract.base_arguments().join(" "),
         crate::virtio::kernel_command_line(devices),
         INITRAMFS_INIT.to_owned(),
         GENERATION_LOWER.to_owned(),
@@ -131,6 +139,19 @@ mod tests {
         );
         assert_eq!(line.matches("virtio_mmio.device=").count(), 5);
         assert!(!line.contains("soma.nonce"));
+    }
+
+    #[test]
+    fn version_two_line_drops_only_noapic_from_the_version_one_line() {
+        let v1 = compose_generation(DeviceSet::FULL);
+        let v2 = compose_generation_for(DeviceSet::FULL, MachineContract::V2);
+        assert!(v1.contains(" noapic "));
+        assert!(!v2.contains("noapic"));
+        assert_eq!(v1.replace(" noapic", ""), v2);
+        assert_eq!(
+            v2.matches("virtio_mmio.device=").count(),
+            v1.matches("virtio_mmio.device=").count()
+        );
     }
 
     #[test]

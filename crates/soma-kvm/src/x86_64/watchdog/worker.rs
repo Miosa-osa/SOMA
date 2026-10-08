@@ -22,7 +22,7 @@ use crate::x86_64::{
     exits::ExitLedger,
     kick::{self, RunMaskGuard},
     mmio::MmioDispatch,
-    ports::PortBus,
+    ports::PortBusHandle,
     run::{self, GuestExit},
 };
 
@@ -38,7 +38,7 @@ pub(super) struct Control<'a> {
 
 pub(super) fn worker_main(
     mut vcpu: VcpuFd,
-    mut bus: Box<PortBus>,
+    bus: &PortBusHandle,
     mut mmio: Option<Box<MmioDispatch>>,
     sentinel: Option<&[u8]>,
     control: &Control<'_>,
@@ -52,14 +52,7 @@ pub(super) fn worker_main(
     let result = match RunMaskGuard::install(&vcpu, signal) {
         Ok(mask) => {
             let result = if sender.send(WorkerEvent::Ready).is_ok() {
-                run::run(
-                    &mut vcpu,
-                    &mut bus,
-                    mmio.as_deref_mut(),
-                    sentinel,
-                    pause,
-                    ledger,
-                )
+                run::run(&mut vcpu, bus, mmio.as_deref_mut(), sentinel, pause, ledger)
             } else {
                 Err(MachineError::new(Phase::Run, MachineErrorKind::WorkerLost))
             };
@@ -79,7 +72,7 @@ pub(super) fn worker_main(
     if let Some(dispatch) = mmio.as_deref() {
         dispatch.finish();
     }
-    let _ignored = sender.send(WorkerEvent::Finished(bus, mmio, result, carried));
+    let _ignored = sender.send(WorkerEvent::Finished(mmio, result, carried));
 }
 
 pub(super) fn cancel(
@@ -89,13 +82,13 @@ pub(super) fn cancel(
 ) -> RunReport {
     let kick_error = kick::kick(&worker, signal).err();
     match receiver.recv_timeout(CANCELLATION_GRACE) {
-        Ok(WorkerEvent::Finished(bus, mmio, result, vcpu)) => {
+        Ok(WorkerEvent::Finished(mmio, result, vcpu)) => {
             let result = match (kick_error, result) {
                 (Some(error), _) => Err(error),
                 (None, Ok(exit)) => Ok(exit),
                 (None, Err(_)) => Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout)),
             };
-            finish(worker, bus, mmio, result, vcpu)
+            finish(worker, mmio, result, vcpu)
         }
         // A kicked worker that neither finishes nor disconnects may still own a live vCPU.
         Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
@@ -105,20 +98,11 @@ pub(super) fn cancel(
 
 pub(super) fn finish(
     worker: JoinHandle<()>,
-    bus: Box<PortBus>,
     mmio: Option<Box<MmioDispatch>>,
     result: Result<GuestExit, MachineError>,
     vcpu: Option<VcpuFd>,
 ) -> RunReport {
-    join_then(
-        worker,
-        RunReport {
-            bus: Some(bus),
-            mmio,
-            result,
-            vcpu,
-        },
-    )
+    join_then(worker, RunReport { mmio, result, vcpu })
 }
 
 /// Joins the worker within the grace period; a join failure replaces the pending result.
@@ -132,7 +116,6 @@ pub(super) fn join_then(worker: JoinHandle<()>, report: RunReport) -> RunReport 
     }
     if worker.join().is_err() {
         return RunReport {
-            bus: report.bus,
             mmio: report.mmio,
             result: Err(MachineError::new(Phase::Join, MachineErrorKind::WorkerLost)),
             vcpu: report.vcpu,
