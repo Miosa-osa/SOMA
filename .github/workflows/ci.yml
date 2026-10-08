@@ -70,8 +70,13 @@ jobs:
           # `ring` builds vendored C for every target but x86_64, so a cross
           # check of the aarch64 client needs a cross C compiler. cc-rs looks
           # for exactly `aarch64-linux-gnu-gcc`, which this package provides.
+          # Ubuntu only recommends the cross libc headers beside it, and this
+          # installs without recommends, so they are named outright: without
+          # them the compiler reads the host `stdint.h` and fails on
+          # `bits/libc-header-start.h`.
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu
+          sudo apt-get install --yes --no-install-recommends \
+            gcc-aarch64-linux-gnu libc6-dev-arm64-cross
 
       - name: Compile-check Linux ARM64 client
         run: |
