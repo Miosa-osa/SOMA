@@ -20,9 +20,10 @@ async fn a_create_names_an_unknown_field_instead_of_ignoring_it() {
     eventually("the feed connection", || !state.connections().is_empty()).await;
     snapshot(&state, 1);
 
-    // An allowed create is unchanged.
+    // An allowed create is unchanged, and its body now carries the server-side create time.
     let created = create_when_ready(address, "").await;
     assert_eq!(created.status, 201, "{}", created.text);
+    assert!(created.body["create_ms"].is_u64(), "{}", created.text);
     assert_eq!(engine.launches.load(Ordering::SeqCst), 1);
 
     // A misspelled top-level field is a 400 that names it, and never reaches the facade.

@@ -15,6 +15,9 @@ use serde_json::Value;
 #[derive(Serialize)]
 pub struct Created<'a> {
     pub cpu_count: u16,
+    /// Server-side create time in whole milliseconds: the sum of the `pool` and `exec` segments
+    /// the same answer reports in `Server-Timing` (plan track T4, an added key).
+    pub create_ms: u64,
     pub created_at: &'a str,
     pub deletion_pending: bool,
     pub id: &'a str,

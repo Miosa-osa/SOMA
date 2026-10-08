@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, params::CreateParams,
-    with_journal,
+    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, millis,
+    params::CreateParams, with_journal,
 };
 
 impl Runner {
@@ -87,7 +87,12 @@ impl Runner {
                 with_journal(
                     RunnerResponse::new(
                         201,
-                        self.created_body(&id, &runner_url, params.timeout_seconds),
+                        self.created_body(
+                            &id,
+                            &runner_url,
+                            params.timeout_seconds,
+                            millis(call.pool + call.exec),
+                        ),
                     )
                     .header("soma-runner-url", runner_url),
                     journal(201, Some(&id), project),
@@ -135,10 +140,17 @@ impl Runner {
         Ok(params)
     }
 
-    fn created_body(&self, id: &SandboxId, runner_url: &str, timeout_seconds: u64) -> Vec<u8> {
+    fn created_body(
+        &self,
+        id: &SandboxId,
+        runner_url: &str,
+        timeout_seconds: u64,
+        create_ms: u64,
+    ) -> Vec<u8> {
         let created_at = iso8601_micros(SystemTime::now());
         public_wire::encode(&public_wire::Created {
             cpu_count: self.config.launch.shape.vcpu_count(),
+            create_ms,
             created_at: &created_at,
             deletion_pending: false,
             id: id.as_str(),

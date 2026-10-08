@@ -74,6 +74,22 @@ async fn serve_the_lifecycle(
             && timing.contains(",exec;dur="),
         "{timing}"
     );
+    // The 201 body's create_ms is the same pool + exec the header reports (T4). The header's
+    // value is milliseconds with three decimals, so the segment is recovered exactly in micros.
+    let segment_micros = |name: &str| -> u64 {
+        let value = timing
+            .split(',')
+            .find_map(|part| part.strip_prefix(&format!("{name};dur=")))
+            .unwrap_or_else(|| panic!("{name} in {timing}"));
+        let (whole, fraction) = value.split_once('.').expect("millis with three decimals");
+        whole.parse::<u64>().expect("millis") * 1_000 + fraction.parse::<u64>().expect("micros")
+    };
+    let create_ms = created.body["create_ms"].as_u64().expect("create_ms");
+    assert_eq!(
+        create_ms,
+        (segment_micros("pool") + segment_micros("exec")) / 1_000,
+        "{timing}"
+    );
     assert_eq!(engine.launches.load(Ordering::SeqCst), 1);
 
     // Exec over HTTP/1.1 on the same runner.
