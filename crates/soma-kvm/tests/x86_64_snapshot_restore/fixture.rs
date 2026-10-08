@@ -30,8 +30,8 @@ const MIB: u64 = 1024 * 1024;
 mod recipe;
 
 pub use recipe::{
-    BUSYBOX_V2, CAPTURE_CID, NODE22, PAUSE_GRACE, REPAIR_POINT_DEADLINE, REPAIR_POINT_LINE, Recipe,
-    STORAGE_MIB, V2_REQUIRED_FREE_BYTES,
+    BUSYBOX_V2, CAPTURE_CID, LARGE_V2, NODE22, PAUSE_GRACE, REPAIR_POINT_DEADLINE,
+    REPAIR_POINT_LINE, Recipe, STORAGE_MIB, V2_REQUIRED_FREE_BYTES,
 };
 
 /// The MAC the launch page carries: the captured one, or the fixed
@@ -126,7 +126,7 @@ pub fn shared_v2() -> Shared {
 ///
 /// The Generation is compiled once and every later caller borrows it, so a suite that cannot
 /// export the image fails in seconds instead of recompiling it for every test.
-fn borrow(cell: &'static OnceLock<Mutex<Fixture>>, recipe: &Recipe) -> Shared {
+pub(crate) fn borrow(cell: &'static OnceLock<Mutex<Fixture>>, recipe: &Recipe) -> Shared {
     cell.get_or_init(|| Mutex::new(build(recipe)))
         .lock()
         .unwrap_or_else(PoisonError::into_inner)

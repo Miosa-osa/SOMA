@@ -1,0 +1,13 @@
+# Large-shape additions on top of soma-v1.fragment.
+#
+# D3 needs a compressed swap device in RAM: the large shape runs a build workload whose memory
+# use is a spike, and the machine has no disk swap. `CONFIG_SWAP` is the whole swap subsystem and
+# `CONFIG_ZRAM` brings the compressed block device and its `zsmalloc` allocator; `make
+# olddefconfig` resolves the compressor's own dependencies (lzo-rle and its crypto).
+#
+# Nothing is removed and nothing is reconfigured: this fragment only adds facilities, so a guest
+# that never enables the device behaves exactly as the version 1 kernel does. The version 1
+# kernel and its pinned config are untouched; the large shape binds this kernel separately.
+CONFIG_SWAP=y
+CONFIG_ZRAM=y
+CONFIG_ZRAM_DEF_COMP_LZORLE=y

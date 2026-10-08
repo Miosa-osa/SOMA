@@ -120,6 +120,9 @@ pub(super) fn spawn(slave: &File) -> io::Result<Child> {
     unsafe {
         command.pre_exec(become_session_leader);
     }
+    // The shell is a workload, not the agent: drop it to the default scheduling band so it cannot
+    // hold the agent's realtime band (see `crate::priority`) against the agent that supervises it.
+    crate::priority::reset_child_policy(&mut command);
     command.spawn()
 }
 
