@@ -6,6 +6,7 @@
 //! CA whose key was discarded; they authenticate nothing outside these tests.
 
 mod clients;
+mod contract;
 mod control_plane;
 mod facade;
 mod forwarding;
@@ -14,3 +15,4 @@ mod resync;
 mod stale;
 mod support;
 mod tenancy;
+mod timing;

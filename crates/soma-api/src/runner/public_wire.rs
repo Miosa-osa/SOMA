@@ -15,6 +15,9 @@ use serde_json::Value;
 #[derive(Serialize)]
 pub struct Created<'a> {
     pub cpu_count: u16,
+    /// Server-side create time in whole milliseconds: the sum of the `pool` and `exec` segments
+    /// the same answer reports in `Server-Timing` (plan track T4, an added key).
+    pub create_ms: u64,
     pub created_at: &'a str,
     pub deletion_pending: bool,
     pub id: &'a str,
@@ -48,8 +51,14 @@ pub struct Destroyed<'a> {
     /// Guest CPU time; `null` until soma-api exposes per-sandbox CPU accounting (C7).
     pub cpu_ms: Option<u64>,
     pub id: &'a str,
-    /// Wall time from create to destroy (C7).
+    /// Wall time from create to destroy (C7). This is the sandbox's uptime: the clock starts
+    /// when the create claimed it and stops when the destroy answered, so it is reported here
+    /// once rather than duplicated into a second `uptime_ms` key.
     pub lifetime_ms: u64,
+    /// Peak resident bytes the sandbox used, `null` until the machine host exposes per-sandbox
+    /// peak memory: the facade's receipt and the destroy answer carry no such figure today, and
+    /// a stand-in derived from the shape would be the shape's ceiling, not a measurement.
+    pub mem_peak_bytes: Option<u64>,
     pub operation_id: Option<&'a str>,
     pub state: &'a str,
     pub total_runtime_sec: Option<u64>,
@@ -239,6 +248,16 @@ impl PlatformError {
     pub fn invalid_param(field: &str, message: &str) -> Self {
         Self::new(400, "INVALID_PARAM", message, false)
             .with_details(serde_json::json!({"field": field}))
+    }
+
+    /// A create field the platform does not define. The answer names the field, so a caller
+    /// that misspelled one is told which, instead of a create that quietly ignored it.
+    #[must_use]
+    pub fn unknown_field(field: &str) -> Self {
+        Self::invalid_param(
+            field,
+            &format!("unknown parameter: the create body does not define `{field}`"),
+        )
     }
 }
 

@@ -11,8 +11,8 @@ use crate::{
 };
 
 use super::{
-    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, params::CreateParams,
-    with_journal,
+    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, millis,
+    params::CreateParams, timing::LaunchPhases, with_journal,
 };
 
 impl Runner {
@@ -31,6 +31,9 @@ impl Runner {
                 status,
             ))
         };
+        // Every segment is additive to the header, so the runner's own work is
+        // timed here rather than inferred from the client's view of the request.
+        let prep_started = Instant::now();
         let params = match self.create_params(principal, body) {
             Ok(params) => params,
             Err(response) => {
@@ -66,13 +69,17 @@ impl Runner {
             self.sandboxes.abandon(&id);
             return with_journal(create_unavailable(), journal(503, Some(&id), project));
         };
+        timing.prep = prep_started.elapsed();
         let outcome = self
             .backend
             .call(move |facade| {
                 if facade.hosts_addressable_sandboxes() {
+                    // The receipt comes back so the answer can report the phases
+                    // the launch evidence already timed; the runner itself does
+                    // not read it for anything else.
                     facade
                         .launch(launch)
-                        .map(|_| ())
+                        .map(|launched| launched.receipt)
                         .map_err(|failure| failure_code(&failure))
                 } else {
                     Err("durable_machine_hosting_missing")
@@ -80,16 +87,21 @@ impl Runner {
             })
             .await;
         match outcome {
-            Ok((Ok(()), call)) => {
+            Ok((Ok(receipt), call)) => {
                 timing.call = call;
+                timing.launch = LaunchPhases::from_receipt(&receipt, call.exec);
+                let finish_started = Instant::now();
                 self.sandboxes.confirm(&id);
                 let runner_url = self.runner_url(self.config.host_tag);
+                let body = self.created_body(
+                    &id,
+                    &runner_url,
+                    params.timeout_seconds,
+                    millis(call.pool + call.exec),
+                );
+                timing.finish = finish_started.elapsed();
                 with_journal(
-                    RunnerResponse::new(
-                        201,
-                        self.created_body(&id, &runner_url, params.timeout_seconds),
-                    )
-                    .header("soma-runner-url", runner_url),
+                    RunnerResponse::new(201, body).header("soma-runner-url", runner_url),
                     journal(201, Some(&id), project),
                 )
             }
@@ -135,10 +147,17 @@ impl Runner {
         Ok(params)
     }
 
-    fn created_body(&self, id: &SandboxId, runner_url: &str, timeout_seconds: u64) -> Vec<u8> {
+    fn created_body(
+        &self,
+        id: &SandboxId,
+        runner_url: &str,
+        timeout_seconds: u64,
+        create_ms: u64,
+    ) -> Vec<u8> {
         let created_at = iso8601_micros(SystemTime::now());
         public_wire::encode(&public_wire::Created {
             cpu_count: self.config.launch.shape.vcpu_count(),
+            create_ms,
             created_at: &created_at,
             deletion_pending: false,
             id: id.as_str(),

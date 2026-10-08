@@ -1,12 +1,8 @@
-use std::time::Duration;
-
 use super::{
-    Timing,
     params::{CreateParams, ExecParams},
     routing::{Forward, Route, route},
 };
 use crate::http::request::Method;
-use crate::runner::backend::CallTiming;
 
 fn shape() -> soma::MachineShape {
     soma::MachineShape::new(1, 512, 2_048).expect("valid shape")
@@ -66,22 +62,6 @@ fn routes_only_the_contract_paths() {
     ] {
         assert_eq!(route(&method, path), Route::NotFound, "{method} {path}");
     }
-}
-
-#[test]
-fn server_timing_reports_three_millisecond_segments() {
-    let timing = Timing {
-        auth: Duration::from_micros(12),
-        call: CallTiming {
-            pool: Duration::from_micros(1_500),
-            exec: Duration::from_millis(21),
-        },
-    };
-
-    assert_eq!(
-        timing.header(),
-        "auth;dur=0.012,pool;dur=1.500,exec;dur=21.000"
-    );
 }
 
 #[test]
@@ -184,4 +164,57 @@ fn exec_parameters_follow_the_fast_lane() {
         ExecParams::parse(br#"{"command":"ls","cwd":"/tmp"}"#).map_err(|error| error.code),
         Err("RUNNER_UNSUPPORTED_REQUEST")
     );
+}
+
+#[test]
+fn a_create_field_the_platform_does_not_define_is_refused_by_name() {
+    let error = CreateParams::parse(br#"{"size":"xs","runtime_profil":"soma"}"#, 3_600, &shape())
+        .expect_err("a typo must be refused");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.code, "INVALID_PARAM");
+    assert!(
+        error.message.contains("runtime_profil"),
+        "the answer names the field: {}",
+        error.message
+    );
+    assert_eq!(
+        error.details,
+        Some(serde_json::json!({"field": "runtime_profil"}))
+    );
+
+    for body in [
+        r#"{"listn":"0.0.0.0:443"}"#,
+        r#"{"snapshotid":"s"}"#,
+        r#"{"metadata":"x","typo":1}"#,
+    ] {
+        assert_eq!(
+            CreateParams::parse(body.as_bytes(), 3_600, &shape()).map_err(|error| error.code),
+            Err("INVALID_PARAM"),
+            "{body} must be refused"
+        );
+    }
+}
+
+#[test]
+fn every_field_the_platform_defines_is_still_accepted() {
+    for body in [
+        r#"{"project_id":"p-1","timeout_sec":60,"region":"us","tags":{},"metadata":{},"disk_size_mb":4096,"idle_timeout_sec":0,"workspace_id":null,"agent_runtime_profile_id":null,"revision":null,"workdir":"/workspace"}"#,
+        r#"{"size":"xs","wait":true,"response_format":"compact","persistent":false,"runtime_profile":"soma","timeout":0,"cpu_count":1,"memory_mb":512,"auto_start":false}"#,
+    ] {
+        assert!(
+            CreateParams::parse(body.as_bytes(), 3_600, &shape()).is_ok(),
+            "{body} must be accepted"
+        );
+    }
+}
+
+#[test]
+fn a_create_carrying_a_working_directory_is_refused() {
+    // Contract C2 lists a create with `cwd` among the requests the runner does not serve.
+    assert_eq!(
+        CreateParams::parse(br#"{"cwd":"/workspace"}"#, 3_600, &shape())
+            .map_err(|error| error.code),
+        Err("RUNNER_UNSUPPORTED_REQUEST")
+    );
+    assert!(CreateParams::parse(br#"{"cwd":null}"#, 3_600, &shape()).is_ok());
 }
