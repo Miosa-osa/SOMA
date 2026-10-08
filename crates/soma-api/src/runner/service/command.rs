@@ -20,7 +20,7 @@ use crate::{
 };
 
 use super::{
-    Runner, RunnerResponse, Timing, entry, params::ExecParams, refused_sandbox, with_journal,
+    Runner, RunnerResponse, Timing, entry, params::ExecParams, refused_sandbox, shell, with_journal,
 };
 
 /// A command that passed every check and now holds its sandbox's lifecycle slot.
@@ -87,7 +87,7 @@ impl Runner {
             .sandboxes
             .begin_command(&id, &principal.key.tenant_id)
             .map_err(|unavailable| refuse(&command_refusal(&unavailable), None))?;
-        let Some(request) = execute_request(&id, &params) else {
+        let Some(request) = execute_request(&id, &params, self.config.shell_free_exec) else {
             self.sandboxes.release(&id);
             let error =
                 PlatformError::invalid_param("command", "the command exceeds the runner's bounds");
@@ -174,9 +174,24 @@ pub(super) fn command_refusal(unavailable: &Unavailable) -> PlatformError {
     }
 }
 
-/// The command exactly as the fast lane's host executor ran it: `/bin/sh -lc <command>`.
-fn execute_request(id: &SandboxId, params: &ExecParams) -> Option<ExecuteMachineRequest> {
-    let command = DirectCommand::new("/bin/sh", ["-lc", params.command.as_str()]).ok()?;
+/// One command's argv, chosen by [`shell::plan`].
+///
+/// With `shell_free_exec` off this is the fast lane's own `/bin/sh -lc <command>`; with it on the
+/// command runs under `/bin/sh -c`, which sources no profile.
+pub(super) fn exec_command(text: &str, shell_free_exec: bool) -> Option<DirectCommand> {
+    match shell::plan(text, shell_free_exec) {
+        shell::Plan::LoginShell(command) => DirectCommand::new(shell::SHELL, ["-lc", command]).ok(),
+        shell::Plan::PlainShell(command) => DirectCommand::new(shell::SHELL, ["-c", command]).ok(),
+    }
+}
+
+/// The request one exec carries to the facade.
+fn execute_request(
+    id: &SandboxId,
+    params: &ExecParams,
+    shell_free_exec: bool,
+) -> Option<ExecuteMachineRequest> {
+    let command = exec_command(&params.command, shell_free_exec)?;
     let limits =
         ExecutionLimits::new(params.timeout_ms, ExecutionLimits::DEFAULT_MAX_OUTPUT_BYTES).ok()?;
     Some(ExecuteMachineRequest::new(

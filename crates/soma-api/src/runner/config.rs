@@ -47,6 +47,12 @@ pub struct RunnerConfig {
     /// The most creates this host runs at once before answering `runtime_busy`.
     #[serde(default)]
     pub admission: Option<usize>,
+    /// Run each exec without a login shell, and as its own argv when it needs no shell at all.
+    ///
+    /// Default on. Set `false` to restore `/bin/sh -lc <command>` for every exec, which is the
+    /// one-field rollback for the exec path: flipping it needs no code change and no reinstall.
+    #[serde(default = "default_shell_free_exec")]
+    pub shell_free_exec: bool,
     /// The per-key budget for keys whose feed record carries none.
     #[serde(default = "default_rate")]
     pub rate_per_second: u32,
@@ -267,6 +273,10 @@ const fn default_batch_lines() -> usize {
 
 const fn default_timeout_seconds() -> u64 {
     DEFAULT_TIMEOUT_SECONDS
+}
+
+const fn default_shell_free_exec() -> bool {
+    true
 }
 
 #[cfg(test)]

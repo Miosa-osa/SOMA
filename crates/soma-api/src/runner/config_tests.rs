@@ -81,3 +81,22 @@ fn a_configured_admission_cap_wins() {
 
     assert_eq!(parse(&document).expect("parses").admission(), 64);
 }
+
+#[test]
+fn the_exec_path_defaults_to_shell_free_and_rolls_back_with_one_field() {
+    assert!(
+        parse(&document())
+            .expect("the reference document parses")
+            .shell_free_exec,
+        "the shell-free exec path is on unless a host says otherwise"
+    );
+
+    let mut rolled_back = document();
+    rolled_back["shell_free_exec"] = serde_json::json!(false);
+    assert!(
+        !parse(&rolled_back)
+            .expect("the rollback document parses")
+            .shell_free_exec,
+        "one field restores the login shell"
+    );
+}
