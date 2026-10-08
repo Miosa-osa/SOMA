@@ -1,6 +1,13 @@
 //! The bounded `KVM_RUN` loop shared by the halt guest and the kernel boot.
+//!
+//! How long a vCPU KVM reports as not runnable waits before calling `KVM_RUN` again.
+const PARK_RETRY: Duration = Duration::from_millis(1);
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{
+    sync::atomic::{AtomicBool, Ordering},
+    thread,
+    time::Duration,
+};
 
 use kvm_ioctls::{VcpuExit, VcpuFd};
 
@@ -83,6 +90,18 @@ pub(crate) fn run(
                     return Ok(GuestExit::Paused);
                 }
                 return Err(MachineError::new(Phase::Run, MachineErrorKind::Timeout));
+            }
+            // KVM reports `EAGAIN` for a vCPU that is not runnable yet and cannot be blocked,
+            // which is an application processor whose start-up signal has not arrived. It is not
+            // a failure and must not end the thread: the guest's own SMP bringup sends the
+            // INIT/SIPI a moment later, and a thread that has already left would never run it.
+            // Sleep rather than spin, and let the machine's own deadline end the run if the
+            // signal never arrives.
+            Err(error) if error.errno() == libc::EAGAIN => {
+                if pause.load(Ordering::Acquire) {
+                    return Ok(GuestExit::Paused);
+                }
+                thread::sleep(PARK_RETRY);
             }
             Err(error) => return Err(MachineError::os(Phase::Run, error)),
         }
