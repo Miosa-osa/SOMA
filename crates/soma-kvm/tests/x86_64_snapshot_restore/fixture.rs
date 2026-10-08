@@ -65,7 +65,7 @@ pub const NODE22: Recipe = Recipe {
 
 /// The eight-vCPU, sixteen-gigabyte machine contract v2 exists for.
 ///
-/// BusyBox rather than `node:22`: the claim under test is the shape, and the smaller image keeps
+/// `BusyBox` rather than `node:22`: the claim under test is the shape, and the smaller image keeps
 /// the capture and every restore cheap. `storage_mib` stays at the same writable class, because
 /// nothing in the shape claim depends on it and a larger head costs the restore time.
 pub const BUSYBOX_V2: Recipe = Recipe {
