@@ -20,6 +20,14 @@ pub enum RunFailureKind {
     TimedOut,
     OutputLimitExceeded,
     Interrupted,
+    /// The guest agent could not start the program, so no process ever ran.
+    ///
+    /// This is the machine refusing the invocation rather than failing at it, and the errno is
+    /// the one `execve` reported. It is a named outcome rather than a backend failure because a
+    /// caller can act on it: the program it named does not exist, and the sandbox is untouched.
+    SpawnFailed {
+        errno: i32,
+    },
     StateStore {
         kind: crate::StateStoreFailureKind,
     },

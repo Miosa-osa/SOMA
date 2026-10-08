@@ -254,6 +254,11 @@ impl<B: Backend, S> Engine<B, S> {
                 receipt: Box::new(outcome.receipt),
                 output: Some(outcome.output),
             }),
+            CommandStatus::SpawnFailed { errno } => Err(RunFailure {
+                kind: RunFailureKind::SpawnFailed { errno },
+                receipt: Box::new(outcome.receipt),
+                output: Some(outcome.output),
+            }),
         }
     }
 }

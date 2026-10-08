@@ -1,9 +1,6 @@
 use std::time::Instant;
 
-use soma::{
-    BackendFailureKind, DirectCommand, ExecuteMachineRequest, ExecutionLimits, ManagedFailure,
-    ManagedStateError, RunFailureKind, TerminalStatus,
-};
+use soma::{DirectCommand, ExecuteMachineRequest, ExecutionLimits, ManagedFailure};
 
 use crate::{
     facade::CommandOutcome,
@@ -14,14 +11,14 @@ use crate::{
         journal::{Entry, EntryKind},
         keys::Principal,
         public_wire::{self, PlatformError},
-        sandboxes::{Owner, Unavailable},
+        sandboxes::Owner,
     },
     wire::operation_id,
 };
 
 use super::{
-    Runner, RunnerResponse, Timing, entry, exec_contract, params::ExecParams, refused_sandbox,
-    shell, with_journal,
+    Runner, RunnerResponse, Timing, entry, exec_contract, outcome, params::ExecParams,
+    refused_sandbox, shell, with_journal,
 };
 
 /// A command that passed every check and now holds its sandbox's lifecycle slot.
@@ -87,7 +84,7 @@ impl Runner {
         let owner = self
             .sandboxes
             .begin_command(&id, &principal.key.tenant_id)
-            .map_err(|unavailable| refuse(&command_refusal(&unavailable), None))?;
+            .map_err(|unavailable| refuse(&outcome::command_refusal(&unavailable), None))?;
         let request = match execute_request(&id, &params, self.config.shell_free_exec) {
             Ok(request) => request,
             Err(error) => {
@@ -125,9 +122,9 @@ fn executed_answer(
 ) -> (RunnerResponse, Option<i32>) {
     let failure = match outcome {
         Ok((Ok(executed), _)) => {
-            let TerminalStatus::Exited { code } = executed.status else {
-                // The fast lane only ever answered an exited command; anything else decoded as
-                // an invalid receipt and was answered as an unavailable agent.
+            let Some(code) = outcome::exit_code(executed.status) else {
+                // The fast lane only ever answered a command that ended; anything else decoded
+                // as an invalid receipt and was answered as an unavailable agent.
                 return (
                     RunnerResponse::platform(&PlatformError::agent_unavailable()),
                     None,
@@ -151,73 +148,8 @@ fn executed_answer(
         Ok((Err(failure), _)) => failure,
         Err(Busy) => return (RunnerResponse::runtime_busy(), None),
     };
-    let error = failure_error(&failure);
+    let error = outcome::failure_error(&failure);
     (RunnerResponse::platform(&error), None)
-}
-
-/// The platform error one failed command answers with.
-///
-/// Only a machine that is genuinely gone is an agent outage. A request the runner or the machine
-/// refused is a refusal, and answering one as `AGENT_UNAVAILABLE` told the caller to retry a
-/// request that could never succeed while the sandbox it was aimed at had already been released.
-pub(super) fn failure_error(failure: &ManagedFailure) -> PlatformError {
-    match failure {
-        ManagedFailure::State(ManagedStateError::MachineNotFound) => {
-            PlatformError::sandbox_not_found()
-        }
-        ManagedFailure::State(ManagedStateError::MachineStopped) => {
-            PlatformError::sandbox_not_running()
-        }
-        ManagedFailure::Operation(failure) => match failure.kind() {
-            RunFailureKind::Backend { kind, .. } => backend_failure_error(kind),
-            _ => PlatformError::agent_unavailable(),
-        },
-        ManagedFailure::Backend(kind) => backend_failure_error(*kind),
-        _ => PlatformError::agent_unavailable(),
-    }
-}
-
-/// The platform error one backend refusal answers with.
-///
-/// These three are properties of the request rather than of the machine: a workload the sandbox
-/// runtime will not take, a second operation against a sandbox already running one, and an
-/// operation this backend does not serve. Each is answered by its own code so a caller can tell
-/// them apart, and none of them is retryable because asking again changes none of them.
-fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
-    match kind {
-        BackendFailureKind::WorkloadRejected => PlatformError::new(
-            400,
-            "WORKLOAD_REJECTED",
-            "the sandbox runtime refused this request",
-            false,
-        ),
-        BackendFailureKind::ResourceConflict => PlatformError::new(
-            409,
-            "RESOURCE_CONFLICT",
-            "the sandbox is already running another operation",
-            false,
-        ),
-        BackendFailureKind::Unsupported => PlatformError::new(
-            501,
-            "BACKEND_UNSUPPORTED",
-            "the sandbox runtime does not serve this request",
-            false,
-        ),
-        BackendFailureKind::Unavailable
-        | BackendFailureKind::IsolationFailure
-        | BackendFailureKind::GuestFailure
-        | BackendFailureKind::Timeout
-        | BackendFailureKind::OutputLimit
-        | BackendFailureKind::CleanupFailure => PlatformError::agent_unavailable(),
-    }
-}
-
-pub(super) fn command_refusal(unavailable: &Unavailable) -> PlatformError {
-    match unavailable {
-        Unavailable::NotFound => PlatformError::sandbox_not_found(),
-        Unavailable::Busy => PlatformError::exec_busy(),
-        Unavailable::Destroyed(..) => PlatformError::sandbox_not_running(),
-    }
 }
 
 /// One command's argv, chosen by [`shell::plan`] and admitted by the machine's exec contract.

@@ -170,6 +170,10 @@ pub(super) fn terminal_status(status: CommandStatus) -> TerminalStatus {
         CommandStatus::Signaled { signal } => TerminalStatus::Signaled { signal },
         CommandStatus::TimedOut => TerminalStatus::TimedOut,
         CommandStatus::OutputLimitExceeded => TerminalStatus::OutputLimitExceeded,
+        // A receipt status describes what a command did, and a program that never started did
+        // nothing. The failure carrying this receipt names the errno, so the receipt records
+        // the operation as failed rather than inventing a process outcome.
+        CommandStatus::SpawnFailed { .. } => TerminalStatus::Failed,
     }
 }
 

@@ -48,6 +48,10 @@ pub enum ExitStatus {
     Signal(u8),
     TimedOut,
     OutputLimit,
+    /// The program could not be started, so no process ran. This is the positive Linux errno
+    /// `execve` reported, and it is a refusal rather than a result: a supervisor that reads it
+    /// knows the guest agent answered and the machine is untouched.
+    SpawnFailed(i32),
 }
 
 impl ExitStatus {
@@ -62,10 +66,11 @@ impl ExitStatus {
             Self::Signal(signal) => format!("signal:{signal}"),
             Self::TimedOut => "timed-out".to_owned(),
             Self::OutputLimit => "output-limit".to_owned(),
+            Self::SpawnFailed(errno) => format!("spawn-failed:{errno}"),
         }
     }
 
-    /// The status one wire token is, or `None` when the token is not one of the four forms.
+    /// The status one wire token is, or `None` when the token is not one of the five forms.
     #[must_use]
     pub fn from_token(token: &str) -> Option<Self> {
         match token {
@@ -76,6 +81,7 @@ impl ExitStatus {
                 match form {
                     "code" => value.parse().ok().map(Self::Code),
                     "signal" => value.parse().ok().map(Self::Signal),
+                    "spawn-failed" => value.parse().ok().map(Self::SpawnFailed),
                     _ => None,
                 }
             }

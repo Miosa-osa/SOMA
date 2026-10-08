@@ -10,10 +10,10 @@ use std::{
 
 use bytes::Bytes;
 use soma::{
-    BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt,
-    FileMachineRequest, InspectMachineRequest, LaunchMachineRequest, MachineName, ManagedFailure,
-    PtyMachineRequest, SandboxEntry, SandboxLiveness, SandboxPhase, StopMachineRequest,
-    TerminalStatus,
+    BackendFailureKind, BackendKind, DestroyMachineRequest, ExecuteMachineRequest,
+    ExecutionReceipt, FileMachineRequest, InspectMachineRequest, LaunchMachineRequest, MachineName,
+    ManagedFailure, PtyMachineRequest, SandboxEntry, SandboxLiveness, SandboxPhase,
+    StopMachineRequest, TerminalStatus,
 };
 
 use super::{Runner, RunnerRequest, RunnerResponse};
@@ -41,6 +41,9 @@ pub(super) struct Engine {
     pub(super) destroys: AtomicUsize,
     /// How many commands reached the facade. A refused command must leave this where it was.
     pub(super) execs: AtomicUsize,
+    /// A refusal the next command gets instead of running, so a test can drive the failure paths
+    /// the engine reports after it has taken an operation.
+    pub(super) exec_refusal: Mutex<Option<BackendFailureKind>>,
     pub(super) listed: Mutex<Vec<SandboxEntry>>,
     /// How long each command takes, for tests of commands that outlast the idle timeout.
     pub(super) exec_delay: Mutex<Duration>,
@@ -74,6 +77,9 @@ impl SandboxFacade for Fake {
     fn execute(&mut self, _: ExecuteMachineRequest) -> Result<CommandOutcome, ManagedFailure> {
         self.0.execs.fetch_add(1, Ordering::SeqCst);
         std::thread::sleep(*self.0.exec_delay.lock().expect("delay"));
+        if let Some(kind) = self.0.exec_refusal.lock().expect("refusal").take() {
+            return Err(ManagedFailure::Backend(kind));
+        }
         let outcome = lifecycle();
         Ok(CommandOutcome {
             instance_id: outcome.instance_id,
