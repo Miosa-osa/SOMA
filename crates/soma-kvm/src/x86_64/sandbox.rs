@@ -6,6 +6,7 @@
 //! per vCPU; the caller drives the byte-level [`ControlChannel`] with `soma-guest`, retires the
 //! launch page at the repair commit, marks its milestones, and `finish` reclaims every vCPU.
 
+mod config;
 pub(in crate::x86_64) mod evidence;
 mod launch;
 mod network;
@@ -13,14 +14,12 @@ mod pause;
 pub(in crate::x86_64) mod restored;
 mod teardown;
 
-use std::{
-    fs::File,
-    sync::{Arc, Mutex, PoisonError, atomic::AtomicBool},
-};
+use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
 
 use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
+pub use self::config::SandboxConfig;
 pub(in crate::x86_64) use self::evidence::Timeline;
 pub use self::evidence::{Milestone, MilestoneMark, SandboxEvidence};
 pub use self::restored::NetworkAttachment;
@@ -29,7 +28,7 @@ use super::{
     channel::ControlChannel,
     cmdline,
     console_tap::ConsoleTap,
-    devices::{self, DeviceIdentity, SandboxDisks, SharedBus},
+    devices::{self, SharedBus},
     event_loop::{EventLoop, EventLoopReport},
     events::{IrqLines, NotifyFds},
     exits::ExitLedger,
@@ -41,28 +40,6 @@ use super::{
     timing::Stopwatch,
     watchdog::{CANCELLATION_GRACE, RunContext, RunReport, VcpuRun},
 };
-use crate::contract::MachineContract;
-use crate::virtio::DeviceSet;
-
-/// Inputs for one sandbox.
-pub struct SandboxConfig {
-    /// The Generation's uncompressed PVH kernel.
-    pub kernel: File,
-    /// The Generation's `newc` initramfs carrying the guest agent.
-    pub initramfs: File,
-    /// The immutable root and the Instance-private overlay head.
-    pub disks: SandboxDisks,
-    /// Non-secret device identity for this Instance.
-    pub identity: DeviceIdentity,
-    /// Guest RAM in bytes; a multiple of 4 KiB within the contract's admitted range.
-    pub ram_bytes: u64,
-    /// The vCPU count the Generation declared; one thread runs each.
-    pub vcpus: u16,
-    /// The machine contract the Generation was built under.
-    pub contract: MachineContract,
-    /// The optional devices this Generation declared; it must agree with `disks`.
-    pub devices: DeviceSet,
-}
 
 struct Prepared {
     vcpus: Vec<VcpuFd>,
@@ -147,7 +124,14 @@ impl SandboxMachine {
         clock.lap(Phase::LaunchPage);
         timeline.mark(Milestone::LaunchPageMapped);
         let line = cmdline::compose_generation_for(config.devices, config.contract);
-        let loaded = loader::load_kernel(&mut machine.ram, &image, Some(&initramfs), &line)?;
+        let loaded = loader::load_kernel(
+            &mut machine.ram,
+            &image,
+            Some(&initramfs),
+            &line,
+            config.contract,
+            config.vcpus,
+        )?;
         drop(image);
         clock.lap(Phase::LoadGuest);
         timeline.mark(Milestone::LoadGuest);

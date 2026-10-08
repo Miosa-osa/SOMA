@@ -178,7 +178,14 @@ fn prepare_and_run(
     let prepared = (|| {
         machine.configure_platform(InterruptController::InKernel, config.pit, clock)?;
         let line = cmdline::compose(initramfs.is_some(), config.nonce.as_ref());
-        let loaded = loader::load_kernel(&mut machine.ram, image, initramfs, &line)?;
+        let loaded = loader::load_kernel(
+            &mut machine.ram,
+            image,
+            initramfs,
+            &line,
+            crate::contract::MachineContract::V1,
+            1,
+        )?;
         clock.lap(Phase::LoadGuest);
         let vcpu = machine.boot_vcpu(loaded.entry, clock)?;
         let line = EventFd::new(libc::EFD_NONBLOCK)
