@@ -931,3 +931,17 @@ ADR 0045 records the authority boundary and the honest on-demand fallback for de
 The HTTP server now supports at most sixteen correctly framed requests per HTTP/1.1 connection, and the exact harness reuses that connection across create, `node -v`, and excluded cleanup.
 Final binary SHA-256 `fbeb7229640c56876799196752daf2ed787e2ca545b38c4fa9aa5105324bff90` produced two consecutive clean 100-way cohorts at 60.01/69.27/69.85 ms and 63.78/70.75/71.04 ms for median/p95/p99 with 200 of 200 commands and cleanups.
 A third cohort kept 100 percent success but host10 was simultaneously contended by encrypted-disk and control-plane work, producing an approximately 1.17 second tail that is retained as resilience evidence and excluded from clean comparison.
+
+## 2026-10-07 - The runner exec path stops taking a login shell, and the create contract is closed
+
+Every public-runner exec used to be `/bin/sh -lc <command>`, so the shell sourced the profile files on every command and a shell process stood between the agent and the program.
+The command now runs under `/bin/sh -c`, and a command that is nothing but whitespace-separated words runs as its own argv with no shell at all, so the guest agent's direct `execve` is the only execution path.
+One field, `shell_free_exec` in the runner configuration (default true), restores `/bin/sh -lc` for every exec, which is the rollback for the whole exec path.
+
+The non-obvious constraint is that the guest agent requires an absolute program path: `Invocation::from_command` rejects a relative one, and `DirectCommand`/`GuestCommand` reject it before that, so `node -v` cannot be exec'd as the bare word the classifier sees.
+A bare name is therefore resolved by `/usr/bin/env`, which replaces itself with the program and so adds no process, and an absolute path is exec'd as it is.
+`/usr/bin/env` was verified in the runner's own launch image rather than assumed: `docker run --rm --platform linux/amd64 docker.io/library/node:22` shows `/usr/bin/env` present and `/bin` a symlink to `/usr/bin`.
+The classifier keeps the shell for anything it cannot prove is a plain word list, which includes every shell syntax character, a leading dash, an empty command, and a first word the shell defines for itself, because `cd`, `export`, `echo`, and `test` mean the shell's own thing and most of them have no external program to run instead.
+
+Three create-contract changes landed with it. An unknown top-level create field is now a 400 naming the field instead of a key silently ignored, and the allowlist is the platform's own create vocabulary read from the fast-lane door (`Handler.build_attrs/3`, `shape?/2`), `Web.Controllers.Sandboxes.CreateParams`, and the published SDK's create body, so a first-party create cannot be refused. `cwd` also joined the refused-when-non-empty list, because contract C2 already names a create carrying it among the requests the runner does not serve and only that list answers with `RUNNER_UNSUPPORTED_REQUEST`. The 201 body carries `create_ms`, the pool and exec segments `Server-Timing` already reports for the same create, and the destroy body carries `mem_peak_bytes`.
+`cpu_ms` and `mem_peak_bytes` stay null on destroy because nothing measured them: the facade, the execution receipt, and the destroy answer all carry no per-sandbox CPU or peak-memory figure, and a value derived from the shape would be the shape's ceiling rather than a measurement. `lifetime_ms` is the sandbox's uptime (create to destroy), so it is not duplicated under an `uptime_ms` key.

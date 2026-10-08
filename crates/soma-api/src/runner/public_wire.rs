@@ -51,8 +51,14 @@ pub struct Destroyed<'a> {
     /// Guest CPU time; `null` until soma-api exposes per-sandbox CPU accounting (C7).
     pub cpu_ms: Option<u64>,
     pub id: &'a str,
-    /// Wall time from create to destroy (C7).
+    /// Wall time from create to destroy (C7). This is the sandbox's uptime: the clock starts
+    /// when the create claimed it and stops when the destroy answered, so it is reported here
+    /// once rather than duplicated into a second `uptime_ms` key.
     pub lifetime_ms: u64,
+    /// Peak resident bytes the sandbox used, `null` until the machine host exposes per-sandbox
+    /// peak memory: the facade's receipt and the destroy answer carry no such figure today, and
+    /// a stand-in derived from the shape would be the shape's ceiling, not a measurement.
+    pub mem_peak_bytes: Option<u64>,
     pub operation_id: Option<&'a str>,
     pub state: &'a str,
     pub total_runtime_sec: Option<u64>,

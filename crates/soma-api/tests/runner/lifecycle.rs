@@ -166,7 +166,8 @@ async fn destroy_twice(address: SocketAddr, engine: &Engine, id: &str) {
         lifetimes.push(lifetime);
         assert_eq!(
             destroyed.body,
-            serde_json::json!({"cpu_ms": null, "id": id, "lifetime_ms": null, "operation_id": null, "state": "destroyed", "total_runtime_sec": null})
+            serde_json::json!({"cpu_ms": null, "id": id, "lifetime_ms": null, "mem_peak_bytes": null, "operation_id": null, "state": "destroyed", "total_runtime_sec": null}),
+            "the usage keys T4 added are present, and the ones the host cannot yet fill are null"
         );
     }
     assert_eq!(

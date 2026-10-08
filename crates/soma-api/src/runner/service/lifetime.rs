@@ -234,9 +234,13 @@ enum Released {
 
 fn destroyed_body(id: &SandboxId, lifetime: Duration) -> Vec<u8> {
     public_wire::encode(&public_wire::Destroyed {
+        // `cpu_ms` and `mem_peak_bytes` stay null because the facade and the receipt it returns
+        // carry no per-sandbox CPU or peak-memory figure today (contract C7). `lifetime_ms` is
+        // the sandbox's uptime, so it is not repeated under a second name.
         cpu_ms: None,
         id: id.as_str(),
         lifetime_ms: millis(lifetime),
+        mem_peak_bytes: None,
         operation_id: None,
         state: "destroyed",
         total_runtime_sec: None,

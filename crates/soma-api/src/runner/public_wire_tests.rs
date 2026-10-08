@@ -48,13 +48,14 @@ fn the_exec_and_destroy_bodies_match_the_fast_lane_bytes() {
         cpu_ms: None,
         lifetime_ms: 1234,
         id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        mem_peak_bytes: None,
         operation_id: None,
         state: "destroyed",
         total_runtime_sec: None,
     });
     assert_eq!(
         text(&destroyed),
-        r#"{"cpu_ms":null,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","lifetime_ms":1234,"operation_id":null,"state":"destroyed","total_runtime_sec":null}"#
+        r#"{"cpu_ms":null,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","lifetime_ms":1234,"mem_peak_bytes":null,"operation_id":null,"state":"destroyed","total_runtime_sec":null}"#
     );
 }
 
