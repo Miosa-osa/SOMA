@@ -1498,6 +1498,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "soma",
+ "soma-guest",
  "soma-local",
  "tokio",
  "tokio-rustls",
