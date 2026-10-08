@@ -129,9 +129,11 @@ pub(super) fn set_create_file_mode(options: &mut OpenOptions) {
 #[cfg(not(unix))]
 pub(super) const fn set_create_file_mode(_options: &mut OpenOptions) {}
 
-/// Linux does not compile this: [`sync_root`] there is a filesystem-wide
-/// `syncfs`, which covers the directory entry too, so nothing calls it.
-#[cfg(all(unix, not(target_os = "linux")))]
+/// Linux `x86_64` does not compile this: [`sync_root`] there is a filesystem-wide
+/// `syncfs`, which covers the directory entry too, so nothing calls it. The gate
+/// matches that of the `soma-storage` dependency, which this host build declares
+/// only for that target.
+#[cfg(all(unix, not(all(target_os = "linux", target_arch = "x86_64"))))]
 pub(super) fn sync_directory(directory: &Path) -> Result<(), StateStoreFailure> {
     File::open(directory)
         .and_then(|file| file.sync_all())
@@ -151,30 +153,30 @@ pub(super) fn sync_directory(directory: &Path) -> Result<(), StateStoreFailure> 
 /// directory entry, so every writer in a batch can be released by a single
 /// call. It also commits unrelated dirty data on that filesystem, which is more
 /// than this store needs and never less than it needs.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) fn sync_root(directory: &Path) -> Result<(), StateStoreFailure> {
     soma_storage::sync::filesystem(directory).map_err(|_| unavailable())
 }
 
 /// Everywhere else the standard library has no filesystem-wide sync, so the
 /// directory entry is what gets flushed, exactly as it was before group commit.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 pub(super) fn sync_root(directory: &Path) -> Result<(), StateStoreFailure> {
     sync_directory(directory)
 }
 
 /// Makes a record's own bytes durable, before any link can publish them.
 ///
-/// Linux gets this from [`sync_root`], because one `syncfs` covers the bytes
+/// Linux `x86_64` gets this from [`sync_root`], because one `syncfs` covers the bytes
 /// too. Elsewhere there is no such call, so the record's file is flushed on its
 /// own, which is the sync this store performed before group commit existed and
 /// is not batched on those platforms.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) fn sync_record(directory: &Path, _record: &Path) -> Result<(), StateStoreFailure> {
     sync_root(directory)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 pub(super) fn sync_record(_directory: &Path, record: &Path) -> Result<(), StateStoreFailure> {
     File::open(record)
         .and_then(|file| file.sync_data())
