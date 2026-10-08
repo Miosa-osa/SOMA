@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use soma_guest::{ControlIo, HostControlIo};
-use soma_kvm::x86_64::{ChannelError, ControlChannel, SandboxMachine};
+use soma_kvm::x86_64::{ChannelError, ControlChannel, Milestone, SandboxMachine};
 
 /// The exact domain bytes at the start of every valid launch page.
 pub(crate) const PAGE_DOMAIN: &[u8] = b"SOMA-LAUNCH-PAGE";
@@ -53,6 +53,9 @@ impl HostControlIo for HostIo<'_> {
     /// A failure here is reported as a closed channel: the session cannot continue against a
     /// machine whose launch material may still be mapped.
     fn commit_repair(&mut self, _deadline: Instant) -> Result<(), ChannelError> {
+        // Stamped before the slot removal so the timeline separates the guest's repair and the
+        // `Prepare` round trip from the host's grace-period wait.
+        self.sandbox.mark(Milestone::RepairReported);
         self.sandbox
             .retire_launch_page()
             .map_err(|_| ChannelError::Closed)
