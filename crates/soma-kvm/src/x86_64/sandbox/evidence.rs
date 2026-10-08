@@ -55,6 +55,10 @@ pub enum Milestone {
     VsockConnected,
     /// The caller completed the authenticated handshake.
     Handshake,
+    /// The caller received the authenticated `RepairComplete`, before the launch page slot is
+    /// retired. From `Handshake` to here is the guest's remaining repair work plus the
+    /// `Prepare` round trip.
+    RepairReported,
     /// The caller observed the authenticated `RepairComplete` and the page was retired.
     LaunchPageRetired,
     /// The caller completed the fixed readiness probe.

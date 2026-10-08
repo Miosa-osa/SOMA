@@ -23,7 +23,7 @@ use std::io::Write as _;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 
-use soma_kvm::x86_64::SandboxEvidence;
+use soma_kvm::x86_64::{Milestone, MilestoneMark, SandboxEvidence};
 
 /// The directory each sandbox's timeline is written to, when an operator names one.
 const TIMELINE_DIR: &str = "SOMA_KVM_TIMELINE";
@@ -113,7 +113,19 @@ fn render(evidence: &SandboxEvidence) -> String {
         let _ignored = write!(out, "\"{name}\":{}", mark.elapsed_ns);
         seen.push(name);
     }
-    out.push_str("},\"phases_ns\":{");
+    out.push('}');
+    let split = ready_split(&evidence.timeline);
+    if !split.is_empty() {
+        out.push_str(",\"ready_split_ns\":{");
+        for (index, (name, elapsed)) in split.iter().enumerate() {
+            if index > 0 {
+                out.push(',');
+            }
+            let _ignored = write!(out, "\"{name}\":{elapsed}");
+        }
+        out.push('}');
+    }
+    out.push_str(",\"phases_ns\":{");
     for (index, timing) in evidence.phases.iter().enumerate() {
         if index > 0 {
             out.push(',');
@@ -122,6 +134,43 @@ fn render(evidence: &SandboxEvidence) -> String {
     }
     out.push_str("}}\n");
     out
+}
+
+/// The ordered steps between resuming the guest and `Ready`, as named spans in nanoseconds.
+///
+/// Each span runs from the previous step that was recorded to the next, so a step a particular
+/// path never marks folds into its neighbour instead of failing the dump. `page_consumed` is
+/// observed by a host poll and is therefore late by up to one poll interval plus timer slack;
+/// it is an upper bound on when the guest took the page, and the later spans absorb the same
+/// amount in reverse.
+fn ready_split(timeline: &[MilestoneMark]) -> Vec<(&'static str, u64)> {
+    const STEPS: [(&str, Milestone); 6] = [
+        ("page_consumed", Milestone::LaunchPageConsumed),
+        ("vsock_connected", Milestone::VsockConnected),
+        ("handshake_done", Milestone::Handshake),
+        ("repair_reported", Milestone::RepairReported),
+        ("page_retired", Milestone::LaunchPageRetired),
+        ("ready", Milestone::Ready),
+    ];
+    let at = |wanted: Milestone| {
+        timeline
+            .iter()
+            .find(|mark| mark.milestone == wanted)
+            .map(|mark| mark.elapsed_ns)
+    };
+    let (Some(start), Some(end)) = (at(Milestone::RunStart), at(Milestone::Ready)) else {
+        return Vec::new();
+    };
+    let mut spans = Vec::new();
+    let mut previous = start;
+    for (name, milestone) in STEPS {
+        if let Some(now) = at(milestone) {
+            spans.push((name, now.saturating_sub(previous)));
+            previous = now;
+        }
+    }
+    spans.push(("run_start_to_ready", end.saturating_sub(start)));
+    spans
 }
 
 /// Renders a failed sandbox's timeline, naming the step that failed.
@@ -161,7 +210,59 @@ fn escaped(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_error, safe_instance};
+    use soma_kvm::x86_64::{Milestone, MilestoneMark};
+
+    use super::{append_error, ready_split, safe_instance};
+
+    fn mark(milestone: Milestone, elapsed_ns: u64) -> MilestoneMark {
+        MilestoneMark {
+            milestone,
+            elapsed_ns,
+        }
+    }
+
+    #[test]
+    fn the_ready_segment_is_split_at_every_recorded_step() {
+        let timeline = [
+            mark(Milestone::RunStart, 1_000),
+            mark(Milestone::LaunchPageConsumed, 1_900),
+            mark(Milestone::VsockConnected, 2_500),
+            mark(Milestone::Handshake, 3_100),
+            mark(Milestone::RepairReported, 4_000),
+            mark(Milestone::LaunchPageRetired, 4_700),
+            mark(Milestone::Ready, 4_900),
+        ];
+        assert_eq!(
+            ready_split(&timeline),
+            vec![
+                ("page_consumed", 900),
+                ("vsock_connected", 600),
+                ("handshake_done", 600),
+                ("repair_reported", 900),
+                ("page_retired", 700),
+                ("ready", 200),
+                ("run_start_to_ready", 3_900),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_step_a_path_never_marks_folds_into_the_next_span() {
+        let timeline = [
+            mark(Milestone::RunStart, 0),
+            mark(Milestone::Handshake, 500),
+            mark(Milestone::Ready, 800),
+        ];
+        let split = ready_split(&timeline);
+        assert_eq!(split[0], ("handshake_done", 500));
+        assert_eq!(split[1], ("ready", 300));
+    }
+
+    #[test]
+    fn no_split_without_both_ends() {
+        assert!(ready_split(&[mark(Milestone::RunStart, 0)]).is_empty());
+        assert!(ready_split(&[mark(Milestone::Ready, 9)]).is_empty());
+    }
 
     #[test]
     fn hostile_error_text_remains_valid_json() {
