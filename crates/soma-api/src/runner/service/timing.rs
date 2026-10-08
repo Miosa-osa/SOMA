@@ -135,3 +135,7 @@ fn between(from: Option<Duration>, to: Option<Duration>) -> Duration {
 pub(super) fn millis(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
+
+#[cfg(test)]
+#[path = "timing_tests.rs"]
+mod tests;
