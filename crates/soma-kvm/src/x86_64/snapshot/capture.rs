@@ -20,7 +20,7 @@ use crate::snapshot::{
     device_state::DeviceState,
     kvm_state::{MemorySlot, VmState},
     manifest::{Manifest, PageSize},
-    memory::MemoryDescriptor,
+    memory::{MemoryDescriptor, MemoryError},
 };
 use crate::virtio::Slot;
 use crate::x86_64::{
@@ -92,6 +92,7 @@ pub fn capture(
     deadline: Instant,
 ) -> Result<CaptureOutcome, SnapshotError> {
     let mut quiesced = Quiesce::new();
+    let capture_ceiling = request.contract.max_memory_bytes();
     let repair_point_at =
         sandbox
             .wait_console_line(deadline)
@@ -121,6 +122,18 @@ pub fn capture(
     let posted = quiesce::posted(&mut bus, &paused.memory);
     quiesced.prove(QuiescePrecondition::QueuesProvenQuiescent)?;
 
+    // A machine contract is what decides whether this much RAM may be captured at all. The
+    // descriptor's own bound is the widest ceiling any contract admits, so without this a v1
+    // machine could publish a sixteen-gigabyte memory object no v1 restore is allowed to map. The
+    // check runs before the capture walk rather than at the descriptor, because the walk is what
+    // costs the host a full write of that RAM.
+    if !request.contract.accepts_memory(paused.ram_bytes) {
+        return Err(MemoryError::SizeExceedsBound {
+            size: paused.ram_bytes,
+            bound: capture_ceiling,
+        }
+        .into());
+    }
     let mut sequence = quiesced.begin_capture()?;
     // The certified memory-slot layout is derived from the captured RAM size, so a restore
     // re-derives the same ranges rather than trusting a list read out of the artifact.
