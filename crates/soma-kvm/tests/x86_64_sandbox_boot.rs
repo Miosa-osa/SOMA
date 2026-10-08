@@ -41,6 +41,10 @@ mod x86_64_sandbox_boot_session;
 mod x86_64_sandbox_boot_host;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/sparse.rs"]
+mod x86_64_sandbox_boot_sparse;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_sandbox_boot/images.rs"]
 mod x86_64_sandbox_boot_images;
 
