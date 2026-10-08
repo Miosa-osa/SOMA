@@ -53,6 +53,10 @@ mod x86_64_sandbox_boot_images;
 mod x86_64_sandbox_boot_large;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/block_transfer.rs"]
+mod x86_64_sandbox_boot_block_transfer;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_sandbox_boot/memory_fill.rs"]
 mod x86_64_sandbox_boot_memory_fill;
 

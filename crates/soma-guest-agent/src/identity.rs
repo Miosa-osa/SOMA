@@ -12,18 +12,26 @@ use std::os::unix::fs::PermissionsExt;
 
 use crate::boot::Declared;
 use crate::mounts;
+use crate::tuning;
 
 const HOSTNAME_SYSCTL: &str = "/proc/sys/kernel/hostname";
 const HOSTNAME_FILE: &str = "/etc/hostname";
 const MACHINE_ID_FILE: &str = "/etc/machine-id";
 const MACHINE_ID_STAGING: &str = "/etc/.machine-id.soma";
 const HOSTNAME_PREFIX: &str = "soma-";
-/// Filesystem-specific tmpfs parameters; `nosuid` and `nodev` are mount flags, not
-/// parameters, and the new mount API rejects them inside the option string.
-const SESSION_TMPFS: [(&str, &str); 2] = [
-    ("/run", "mode=0755,size=16m"),
-    ("/tmp", "mode=1777,size=64m"),
-];
+// The session filesystems carry only option strings: `nosuid` and `nodev` are mount flags, not
+// parameters, and the new mount API rejects them inside the option string.
+
+/// Process state, never a workload, so its 16 MiB has never needed to move.
+const RUN_DIRECTORY: &str = "/run";
+/// The options `/run` is mounted with.
+const RUN_OPTIONS: &str = "mode=0755,size=16m";
+/// The shared scratch filesystem, where a workload writes and the size is the machine's.
+const SCRATCH_DIRECTORY: &str = "/tmp";
+/// The permissions `/tmp` is mounted with.
+const SCRATCH_MODE: &str = "mode=1777";
+/// The `size` unit tmpfs is told in, so a byte count is never read as a kibibyte count.
+const KIB: u64 = 1024;
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
 /// Redacted identity-repair failure.
@@ -99,10 +107,20 @@ pub fn repair(
     }
     // The session tmpfs mounts happen either way: they are what gives a read-only sandbox a
     // writable `/tmp` and `/run` at all, and they carry no captured state into the Instance.
-    for (directory, options) in SESSION_TMPFS {
-        reset_session_directory(directory, options)?;
-    }
+    reset_session_directory(RUN_DIRECTORY, RUN_OPTIONS)?;
+    let scratch = scratch_options();
+    reset_session_directory(SCRATCH_DIRECTORY, &scratch)?;
     set_clock(time_sample_nanos)
+}
+
+/// The mount options for the shared scratch filesystem on this machine.
+///
+/// A version 1 machine, and one whose kernel does not report its memory, keeps the 64 MiB of
+/// `/tmp` it has always had. The large shape takes half of what the kernel reports, because a
+/// build writes its workspace there and 64 MiB is where that build stops.
+fn scratch_options() -> String {
+    let bytes = tuning::session_tmp_bytes(tuning::total_memory_bytes());
+    format!("{SCRATCH_MODE},size={}k", bytes / KIB)
 }
 
 fn reset_session_directory(directory: &str, options: &str) -> Result<(), IdentityError> {

@@ -55,7 +55,7 @@ pub(super) fn build(
         page_size: PageSize::FOUR_KIB,
         candidate_id: CandidateId::new(request.candidate_id)?,
         machine_contract: profile::machine_contract(parts.contract, parts.device_set),
-        device_contract: profile::device_contract(parts.device_set),
+        device_contract: profile::device_contract(parts.device_set, parts.contract),
         cpu_template: parts.cpu_template,
         host: profile::requirements(slots)?,
         memory: parts.memory,

@@ -7,11 +7,11 @@
 
 use super::{
     BLOCK_SERIAL_LEN, BlockBackend, BlockConfigError, BlockCounters, BlockDevice, BlockRole,
-    SECTOR_SIZE,
+    SECTOR_SIZE, TransferShape,
 };
 
 impl BlockDevice {
-    /// Binds a backend to a role.
+    /// Binds a backend to a role, advertising the transfer shape the machine chose.
     ///
     /// # Errors
     /// Rejects a role/backend mismatch, a bad block size, or a bad capacity.
@@ -20,6 +20,7 @@ impl BlockDevice {
         backend: Box<dyn BlockBackend + Send>,
         blk_size: u32,
         serial: [u8; BLOCK_SERIAL_LEN],
+        transfer: TransferShape,
     ) -> Result<Self, BlockConfigError> {
         if backend.read_only() != role.read_only() {
             return Err(BlockConfigError::RoleMismatch);
@@ -33,6 +34,7 @@ impl BlockDevice {
         }
         Ok(Self {
             role,
+            transfer,
             backend,
             blk_size,
             capacity_sectors: capacity_bytes / SECTOR_SIZE,

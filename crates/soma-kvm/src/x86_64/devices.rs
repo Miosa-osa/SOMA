@@ -17,15 +17,17 @@ use std::{
 };
 
 use super::error::{MachineError, MachineErrorKind, Phase};
+use crate::contract::MachineContract;
 use crate::virtio::{
-    BLOCK_SERIAL_LEN, BlockDevice, BlockRole, BusDevices, Detached, DeviceSet, FileBackend,
-    LoopbackBackend, MmioBus, NetDevice, OsEntropy, RngDevice, VsockDevice,
+    BlockDevice, BlockRole, BusDevices, Detached, DeviceSet, LoopbackBackend, MmioBus, NetDevice,
+    OsEntropy, RngDevice, VsockDevice,
 };
 
-/// Logical block size reported by both block devices; equal to the EROFS and ext4 block size.
-pub const BLOCK_SIZE: u32 = 4096;
-const ROOT_SERIAL: &[u8] = b"soma-root";
-const OVERLAY_SERIAL: &[u8] = b"soma-overlay";
+mod shape;
+
+pub(crate) use shape::block_transfer;
+pub use shape::{BLOCK_SIZE, DeviceIdentity, SandboxDisks};
+use shape::{OVERLAY_SERIAL, ROOT_SERIAL, block, serial};
 
 /// The bus shared between the vCPU thread, the device thread, and the control channel.
 ///
@@ -59,52 +61,14 @@ impl SharedBus {
     }
 }
 
-/// Preopened disk images: the immutable root must not be writable through this handle.
-pub struct SandboxDisks {
-    /// The EROFS Generation root, opened read-only.
-    pub root: File,
-    /// The Instance-private ext4 overlay head, opened read-write, when there is one.
-    ///
-    /// A Generation that declared no writable storage has none: the guest mounts the immutable
-    /// root read-only and never composes an `OverlayFS`, so there is no head to clone and the
-    /// largest and most variable cost on the launch path is not paid at all.
-    pub overlay: Option<File>,
-}
-
-/// Non-secret device identity assigned to one Instance.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DeviceIdentity {
-    /// The guest vsock context identifier, at least 3.
-    pub guest_cid: u32,
-    /// The effective unicast MAC the guest will install; reported in virtio-net config.
-    pub guest_mac: [u8; 6],
-}
-
-fn serial(name: &[u8]) -> [u8; BLOCK_SERIAL_LEN] {
-    let mut serial = [0_u8; BLOCK_SERIAL_LEN];
-    serial[..name.len()].copy_from_slice(name);
-    serial
-}
-
-fn block(
-    role: BlockRole,
-    file: File,
-    read_only: bool,
-    name: &[u8],
-) -> Result<BlockDevice, MachineError> {
-    let backend = FileBackend::new(file, read_only)
-        .map_err(|error| MachineError::io(Phase::Devices, &error))?;
-    BlockDevice::new(role, Box::new(backend), BLOCK_SIZE, serial(name))
-        .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))
-}
-
 /// Binds the declared device models to fresh transports.
 pub(crate) fn build_bus(
     disks: SandboxDisks,
     identity: DeviceIdentity,
     devices: DeviceSet,
+    contract: MachineContract,
 ) -> Result<MmioBus, MachineError> {
-    MmioBus::new(build_devices(disks, identity, devices)?)
+    MmioBus::new(build_devices(disks, identity, devices, contract)?)
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Bus(error)))
 }
 
@@ -116,6 +80,7 @@ pub(crate) fn build_devices(
     disks: SandboxDisks,
     identity: DeviceIdentity,
     devices: DeviceSet,
+    contract: MachineContract,
 ) -> Result<BusDevices, MachineError> {
     let overlay = match (devices.overlay(), disks.overlay) {
         (true, Some(file)) => Some(block(
@@ -123,11 +88,12 @@ pub(crate) fn build_devices(
             file,
             false,
             OVERLAY_SERIAL,
+            block_transfer(contract),
         )?),
         (false, None) => None,
         _ => return Err(overlay_disagreement()),
     };
-    build_around_overlay(disks.root, overlay, identity, devices)
+    build_around_overlay(disks.root, overlay, identity, devices, contract)
 }
 
 /// Builds the declared device models with the private overlay declared rather than held.
@@ -146,6 +112,7 @@ pub(crate) fn build_devices_detached_overlay(
     overlay_capacity_bytes: Option<u64>,
     identity: DeviceIdentity,
     devices: DeviceSet,
+    contract: MachineContract,
 ) -> Result<BusDevices, MachineError> {
     let overlay = match (devices.overlay(), overlay_capacity_bytes) {
         (true, Some(capacity)) => Some(
@@ -154,13 +121,14 @@ pub(crate) fn build_devices_detached_overlay(
                 Box::new(Detached::new(capacity, false)),
                 BLOCK_SIZE,
                 serial(OVERLAY_SERIAL),
+                block_transfer(contract),
             )
             .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?,
         ),
         (false, None) => None,
         _ => return Err(overlay_disagreement()),
     };
-    build_around_overlay(root, overlay, identity, devices)
+    build_around_overlay(root, overlay, identity, devices, contract)
 }
 
 /// A caller that names a device set and hands over resources for a different one has two
@@ -176,8 +144,15 @@ fn build_around_overlay(
     overlay: Option<BlockDevice>,
     identity: DeviceIdentity,
     devices: DeviceSet,
+    contract: MachineContract,
 ) -> Result<BusDevices, MachineError> {
-    let root = block(BlockRole::ImmutableRoot, root, true, ROOT_SERIAL)?;
+    let root = block(
+        BlockRole::ImmutableRoot,
+        root,
+        true,
+        ROOT_SERIAL,
+        block_transfer(contract),
+    )?;
     let net = devices
         .net()
         .then(|| NetDevice::new(Box::new(LoopbackBackend::default()), identity.guest_mac));
@@ -222,7 +197,13 @@ mod tests {
 
     #[test]
     fn builds_the_five_slots_with_fixed_geometry_and_identity() {
-        let bus = build_bus(full_disks(), identity(), DeviceSet::FULL).unwrap();
+        let bus = build_bus(
+            full_disks(),
+            identity(),
+            DeviceSet::FULL,
+            MachineContract::V1,
+        )
+        .unwrap();
         assert_eq!(bus.root().device().role(), BlockRole::ImmutableRoot);
         assert_eq!(bus.root().device().blk_size(), BLOCK_SIZE);
         assert_eq!(bus.root().device().capacity_sectors(), 64 * 8);
@@ -243,7 +224,13 @@ mod tests {
             root: image(64 * 4096),
             overlay: None,
         };
-        let bus = build_bus(disks, identity(), DeviceSet::new(false, false)).unwrap();
+        let bus = build_bus(
+            disks,
+            identity(),
+            DeviceSet::new(false, false),
+            MachineContract::V1,
+        )
+        .unwrap();
         assert!(bus.overlay().is_none());
         assert!(bus.net().is_none());
         assert_eq!(bus.device_set(), DeviceSet::new(false, false));
@@ -252,7 +239,12 @@ mod tests {
 
     #[test]
     fn refuses_a_head_the_declared_set_has_no_slot_for() {
-        let Err(error) = build_bus(full_disks(), identity(), DeviceSet::new(false, true)) else {
+        let Err(error) = build_bus(
+            full_disks(),
+            identity(),
+            DeviceSet::new(false, true),
+            MachineContract::V1,
+        ) else {
             panic!("an overlay handed to a machine with no overlay slot must be refused");
         };
         assert_eq!(error.phase(), Phase::Devices);
@@ -260,7 +252,7 @@ mod tests {
             root: image(64 * 4096),
             overlay: None,
         };
-        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL) else {
+        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL, MachineContract::V2) else {
             panic!("a declared overlay with no head must be refused");
         };
         assert_eq!(error.phase(), Phase::Devices);
@@ -275,6 +267,7 @@ mod tests {
                 ..identity()
             },
             DeviceSet::FULL,
+            MachineContract::V1,
         ) else {
             panic!("a reserved CID must be rejected");
         };
@@ -284,7 +277,7 @@ mod tests {
             root: image(4096 + 512),
             overlay: Some(image(64 * 1024 * 1024)),
         };
-        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL) else {
+        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL, MachineContract::V2) else {
             panic!("an unaligned root must be rejected");
         };
         assert!(matches!(error.kind(), MachineErrorKind::Block(_)));
@@ -292,7 +285,7 @@ mod tests {
 
     impl BlockDevice {
         fn feature_allowlist_ro(&self) -> u64 {
-            self.role().features() & VIRTIO_BLK_F_RO
+            self.features() & VIRTIO_BLK_F_RO
         }
     }
 }

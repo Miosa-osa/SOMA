@@ -212,7 +212,7 @@ pub fn capture(
             };
             let specific = device::specific(&bus, slot, image)
                 .ok_or(SnapshotError::DeviceStateNotCanonical(slot))?;
-            let state = device::canonical(slot, record, specific)?;
+            let state = device::canonical(slot, record, specific, request.contract)?;
             if device::reproduces(slot, record, &state) {
                 Ok((slot, state))
             } else {

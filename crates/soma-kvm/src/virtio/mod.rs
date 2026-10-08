@@ -33,8 +33,9 @@ pub use devices::block::request::{
 pub use devices::block::state::{BLOCK_STATE_LEN, BLOCK_STATE_VERSION, BlockState};
 pub use devices::block::{
     BLOCK_CONFIG_LEN, BLOCK_QUEUE_MAX, BLOCK_SERIAL_LEN, BlockConfigError, BlockCounters,
-    BlockDevice, BlockRole, VIRTIO_BLK_DEVICE_ID, VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH,
-    VIRTIO_BLK_F_RO,
+    BlockDevice, BlockRole, TRANSFER_SEG_MAX, TransferShape, VIRTIO_BLK_DEVICE_ID,
+    VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SEG_MAX,
+    VIRTIO_BLK_F_SIZE_MAX,
 };
 pub use devices::net::backend::{
     LOOPBACK_QUEUE_LIMIT, LoopbackBackend, LoopbackHandle, NetBackend, NetBackendError, TapBackend,

@@ -13,6 +13,7 @@ use super::super::{
     objects::SnapshotObjects,
 };
 use super::sections::Sections;
+use crate::contract::MachineContract;
 use crate::snapshot::{device_state::DeviceSpecific, manifest::Manifest};
 use crate::virtio::{DeviceSet, MmioBus, Slot, SlotSnapshot};
 use crate::x86_64::{
@@ -27,14 +28,33 @@ pub(super) struct Identity {
     pub(super) captured_cid: u64,
 }
 
+/// The device set a restore rebuilds, and the machine contract it rebuilds it under.
+///
+/// A block device's advertised transfer limit is part of the device surface, and which limit a
+/// device advertises is the machine contract's to say, so the two travel together rather than as
+/// separate arguments a caller could pair wrongly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct Declared {
+    /// The private overlay head's capacity, when the Generation declared writable storage.
+    pub(super) overlay_capacity_bytes: Option<u64>,
+    /// The devices the Generation declared.
+    pub(super) set: DeviceSet,
+    /// The machine contract the Generation was built under.
+    pub(super) contract: MachineContract,
+}
+
 pub(super) fn recreate_devices(
     machine: &Machine,
     root: std::fs::File,
-    overlay_capacity_bytes: Option<u64>,
     state: &Sections,
     identity: &Identity,
-    set: DeviceSet,
+    declared: Declared,
 ) -> Result<MmioBus, SnapshotError> {
+    let Declared {
+        overlay_capacity_bytes,
+        set,
+        contract,
+    } = declared;
     let captured_cid = u32::try_from(identity.captured_cid)
         .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Vsock))?;
     // Every restore builds the overlay slot against the head's declared shape and receives the
@@ -48,6 +68,7 @@ pub(super) fn recreate_devices(
             guest_mac: identity.mac,
         },
         set,
+        contract,
     )?;
     let records = state
         .devices

@@ -117,7 +117,12 @@ impl SandboxMachine {
         timeline.mark(Milestone::MapRegister);
         machine.configure_platform(InterruptController::InKernel, true, &mut clock)?;
         timeline.mark(Milestone::Platform);
-        let bus = devices::build_bus(config.disks, config.identity, config.devices)?;
+        let bus = devices::build_bus(
+            config.disks,
+            config.identity,
+            config.devices,
+            config.contract,
+        )?;
         clock.lap(Phase::Devices);
         timeline.mark(Milestone::Devices);
         let launch_page = LaunchPageSlot::map_and_register(&machine.vm)?;

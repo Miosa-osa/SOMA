@@ -55,6 +55,10 @@ const DIRTY_BACKGROUND_DENOMINATOR: u64 = 4;
 const DIRTY_EXPIRE_CENTISECS: u64 = 360_000;
 /// zram is sized to this share of guest RAM.
 const ZRAM_DIVISOR: u64 = 4;
+/// The scratch filesystem every machine has had, and the one the small shape keeps.
+const SESSION_TMP_BYTES: u64 = 64 * 1024 * 1024;
+/// The scratch filesystem of the large shape, as a share of guest RAM.
+const SESSION_TMP_DIVISOR: u64 = 2;
 
 const MEMINFO: &str = "/proc/meminfo";
 const GIB: u64 = 1024 * 1024 * 1024;
@@ -102,6 +106,21 @@ pub const fn sizing_applies(total_bytes: u64) -> bool {
     total_bytes > LARGE_FLOOR_BYTES
 }
 
+/// The size of the shared scratch filesystem for a machine whose `MemTotal` is `total_bytes`.
+///
+/// A machine the kernel does not describe, and every machine at or below the version 1 ceiling,
+/// gets the 64 MiB of `/tmp` it has always had. The large shape is where a build writes its
+/// workspace, and 64 MiB is where such a build stops with `ENOSPC`; it takes half of what the
+/// kernel reports, which is a ceiling rather than a reservation because a tmpfs is only charged
+/// for what it holds.
+#[must_use]
+pub const fn session_tmp_bytes(total_bytes: Option<u64>) -> u64 {
+    match total_bytes {
+        Some(total) if sizing_applies(total) => total / SESSION_TMP_DIVISOR,
+        _ => SESSION_TMP_BYTES,
+    }
+}
+
 /// One boot's tuning, as the console line that carries it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Report {
@@ -138,8 +157,8 @@ impl fmt::Display for Report {
     }
 }
 
-/// Reads `MemTotal` from `/proc/meminfo`, in bytes.
-fn total_memory_bytes() -> Option<u64> {
+/// Reads `MemTotal` from `/proc/meminfo`, in bytes; `None` when the kernel does not report it.
+pub(crate) fn total_memory_bytes() -> Option<u64> {
     let text = fs::read_to_string(MEMINFO).ok()?;
     let kib = text
         .lines()
@@ -219,6 +238,23 @@ mod tests {
     fn zram_is_a_quarter_of_ram() {
         assert_eq!(zram_bytes(16 * GIB), 4 * GIB);
         assert_eq!(zram_bytes(GIB), 256 * 1024 * 1024);
+    }
+
+    #[test]
+    fn the_scratch_filesystem_is_sized_by_the_shape_and_never_shrinks_below_the_small_one() {
+        assert_eq!(session_tmp_bytes(None), SESSION_TMP_BYTES);
+        assert_eq!(
+            session_tmp_bytes(Some(256 * 1024 * 1024)),
+            SESSION_TMP_BYTES
+        );
+        assert_eq!(session_tmp_bytes(Some(3 * GIB)), SESSION_TMP_BYTES);
+        // The large shape is 16 GiB and gets half of what the kernel reports, which is more
+        // than the eight gigabytes a DAX workspace needs and less than the machine's RAM.
+        assert_eq!(
+            session_tmp_bytes(Some(16 * GIB - 4096 * 1024)),
+            8 * GIB - 2048 * 1024
+        );
+        assert!(session_tmp_bytes(Some(16 * GIB)) < 16 * GIB);
     }
 
     #[test]
