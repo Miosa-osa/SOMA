@@ -45,6 +45,31 @@ pub fn mount(
     check(result)
 }
 
+/// Bind-mounts an existing file or directory at `source` over `target`.
+///
+/// The lock-down cover uses this to put an empty in-memory file in place of a single procfs file,
+/// which a fresh tmpfs cannot do because a filesystem is mounted over a directory and not a file.
+///
+/// # Errors
+///
+/// Returns the kernel errno.
+pub fn bind_mount(source: &str, target: &str) -> Result<(), Errno> {
+    let source = c_string(source)?;
+    let target = c_string(target)?;
+    // SAFETY: both pointers are valid NUL-terminated strings; `MS_BIND` ignores the null
+    // filesystem type and data pointers.
+    let result = unsafe {
+        libc::mount(
+            source.as_ptr(),
+            target.as_ptr(),
+            std::ptr::null(),
+            libc::MS_BIND,
+            std::ptr::null(),
+        )
+    };
+    check(result)
+}
+
 /// Moves an existing mount from `from` to `to`.
 ///
 /// # Errors

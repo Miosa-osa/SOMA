@@ -58,6 +58,10 @@ mod x86_64_sandbox_boot_memory_fill;
 mod x86_64_snapshot_restore_v2;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_snapshot_restore/large.rs"]
+mod x86_64_snapshot_restore_large;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_snapshot_restore/fixture.rs"]
 mod x86_64_snapshot_restore_fixture;
 

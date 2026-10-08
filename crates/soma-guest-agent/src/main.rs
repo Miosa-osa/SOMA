@@ -46,6 +46,8 @@ mod network_repair;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pid1;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod priority;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pty;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod shutdown;
@@ -77,7 +79,7 @@ mod agent {
     use crate::timings::{self, Step as Measured};
     use crate::{
         boot, console, control, entropy, identity, launch_page, lifecycle, network_repair, pid1,
-        tuning, warm,
+        priority, tuning, warm,
     };
 
     /// Console line the agent prints once it is parked at the disconnected repair point.
@@ -103,6 +105,10 @@ mod agent {
             console::report("refusing to run outside PID 1");
             pid1::poweroff();
         }
+        // The control path outranks the workload it supervises, so a command that spins cannot
+        // starve the agent that would answer the next request. The policy is guest kernel state
+        // and a capture carries it, so a restored Instance starts already protected.
+        console::report(&format!("scheduling {}", priority::raise()));
         let controller = Controller::captured();
         let declared = match boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
             Ok(declared) => declared,
@@ -121,13 +127,14 @@ mod agent {
         // Reading the workload runtime here makes its pages resident, so the capture records
         // them and every restored Instance finds them already in memory instead of faulting
         // them in one sandbox at a time. Nothing is executed and nothing fails the boot.
-        // The tuning is guest state and it is applied before the repair point below, so a capture
-        // taken here carries it and every restored Instance starts already tuned.
-        console::report(&tuning::apply().to_string());
         let warmed = warm::runtime();
         if warmed > 0 {
             console::report(&format!("warmed {warmed} runtime files"));
         }
+        // Tune the guest before the repair point, and clear the golden boot's kernel log so no
+        // restored Instance carries it. Both are guest state and are captured with the machine.
+        console::report(&tuning::apply().to_string());
+        tuning::clear_boot_log();
         pid1::sync();
         console::report(REPAIR_POINT_LINE);
         let (controller, material) = advance(controller.accept_material(

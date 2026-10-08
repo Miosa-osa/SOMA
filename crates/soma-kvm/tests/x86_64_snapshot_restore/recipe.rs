@@ -62,6 +62,23 @@ pub const BUSYBOX_V2: Recipe = Recipe {
     contract: MachineContract::V2,
 };
 
+/// The large workload shape: the DAX image, eight processors, sixteen gigabytes, and a writable
+/// class big enough for the workload's install.
+///
+/// This is the shape S2 builds and tunes, so its capture is the proof that the tuning is machine
+/// state rather than a script a restored sandbox would have to run again. The image is the one the
+/// shape actually boots, with Node 22 and the DAX toolset, so a restored Instance can run the
+/// workload rather than only report its shape.
+pub const LARGE_V2: Recipe = Recipe {
+    image: "soma-large-dax:1",
+    layout_var: "SOMA_OCI_LARGE_LAYOUT",
+    scratch: "large-v2",
+    vcpus: 8,
+    memory_mib: 16 * 1024,
+    storage_mib: 20 * 1024,
+    contract: MachineContract::V2,
+};
+
 /// Free space a contract v2 capture needs before it starts.
 ///
 /// The capture walk writes the whole memory object, so a sixteen-gigabyte machine stages sixteen

@@ -49,6 +49,10 @@ mod x86_64_sandbox_boot_sparse;
 mod x86_64_sandbox_boot_images;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/large.rs"]
+mod x86_64_sandbox_boot_large;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_sandbox_boot/memory_fill.rs"]
 mod x86_64_sandbox_boot_memory_fill;
 
