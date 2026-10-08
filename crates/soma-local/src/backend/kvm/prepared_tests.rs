@@ -4,6 +4,9 @@
 //! so each case exercises the branch its name claims instead of depending on how the process
 //! happened to be started.
 
+use std::path::Path;
+
+use super::entry::is_link;
 use super::*;
 
 #[cfg(target_os = "linux")]
