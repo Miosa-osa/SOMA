@@ -25,6 +25,12 @@ soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.1" }
 libc = "=0.2.189"
 soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.1" }
 
+[dev-dependencies]
+# The portable facade's path rule is compared against the guest protocol's, and that
+# comparison is meaningful on every host the facade builds for, so the protocol crate is a
+# test dependency everywhere rather than only where a machine can be booted.
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 tempfile = "=3.27.0"
 
