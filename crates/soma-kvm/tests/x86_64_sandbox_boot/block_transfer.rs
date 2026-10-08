@@ -83,35 +83,43 @@ fn the_large_shape_serves_a_write_past_a_mebibyte_and_sizes_its_scratch() {
 /// Asserts the queue geometry every virtio block device advertises, and that a write past the
 /// old limit completed and flushed.
 fn assert_block_transfer(stdout: &str) {
-    let advertised = queue_lines(stdout, "_MAX_HW_SECTORS_KB");
+    // `max_segment_size` is `size_max` read back from configuration space, so it is the one
+    // number that proves the driver negotiated the feature and read the field. A device that
+    // advertises nothing leaves the kernel's own UINT_MAX here, which is what let a driver form
+    // a request the device then refused. `max_segments` is `seg_max`, and with one segment the
+    // request is bounded by the segment size.
+    let segments = queue_lines(stdout, "_MAX_SEGMENT_SIZE");
     assert!(
-        !advertised.is_empty(),
+        !segments.is_empty(),
         "no virtio block device reported its queue: stdout={stdout:?}"
     );
-    // `max_hw_sectors_kb` is the ceiling the driver's own merges may reach. A device that
-    // advertises no `size_max` leaves it at 2147483644, which is a lie the driver then builds
-    // requests against.
-    for (device, sectors) in &advertised {
+    for (device, size) in &segments {
         assert_eq!(
-            *sectors,
-            SIZE_MAX / 512,
-            "{device} advertises max_hw_sectors_kb={sectors}, not the four mebibytes it answers"
+            *size, SIZE_MAX,
+            "{device} advertises max_segment_size={size}, not the four mebibytes it answers"
         );
     }
-    for (device, segments) in queue_lines(stdout, "_MAX_SEGMENT_SIZE") {
-        assert_eq!(
-            segments, SIZE_MAX,
-            "{device} advertises max_segment_size={segments}"
-        );
+    for (device, count) in queue_lines(stdout, "_MAX_SEGMENTS") {
+        assert_eq!(count, 1, "{device} advertises max_segments={count}");
     }
-    for (device, segments) in queue_lines(stdout, "_MAX_SEGMENTS") {
-        assert_eq!(segments, 1, "{device} advertises max_segments={segments}");
-    }
-    // The write below only crosses the old mebibyte cap if the driver is allowed more than one
-    // mebibyte in a single request, so the cap is part of the proof rather than a detail.
-    for (device, kib) in queue_lines(stdout, "_MAX_SECTORS_KB") {
+    // `max_hw_sectors_kb` is not ours: this kernel derives it from neither `size_max` nor
+    // `seg_max`, so it stays at its own default and is reported rather than asserted. What the
+    // device does bound is the request the driver may build, which is the segment size times the
+    // segment count, and that is checked here against the parser's own limit.
+    let sectors = queue_lines(stdout, "_MAX_SECTORS_KB");
+    assert!(
+        !sectors.is_empty(),
+        "no virtio block device reported its request cap: stdout={stdout:?}"
+    );
+    for (device, kib) in &sectors {
         assert!(
-            kib > 1024,
+            kib.saturating_mul(1024) <= SIZE_MAX,
+            "{device} may merge {kib} KiB into one request, past the four mebibytes the device answers"
+        );
+        // The write below only crosses the old mebibyte cap if the driver is allowed more than
+        // one mebibyte in a single request, so the cap is part of the proof rather than a detail.
+        assert!(
+            *kib > 1024,
             "{device} caps one request at {kib} KiB, so the write never crossed the old limit"
         );
     }
