@@ -51,6 +51,8 @@ mod pty;
 mod shutdown;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod timings;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod tuning;
 
 #[cfg(target_os = "linux")]
 mod warm;
@@ -75,7 +77,7 @@ mod agent {
     use crate::timings::{self, Step as Measured};
     use crate::{
         boot, console, control, entropy, identity, launch_page, lifecycle, network_repair, pid1,
-        warm,
+        tuning, warm,
     };
 
     /// Console line the agent prints once it is parked at the disconnected repair point.
@@ -119,6 +121,9 @@ mod agent {
         // Reading the workload runtime here makes its pages resident, so the capture records
         // them and every restored Instance finds them already in memory instead of faulting
         // them in one sandbox at a time. Nothing is executed and nothing fails the boot.
+        // The tuning is guest state and it is applied before the repair point below, so a capture
+        // taken here carries it and every restored Instance starts already tuned.
+        console::report(&tuning::apply().to_string());
         let warmed = warm::runtime();
         if warmed > 0 {
             console::report(&format!("warmed {warmed} runtime files"));

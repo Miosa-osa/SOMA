@@ -7,12 +7,12 @@ use soma::NetworkPolicy;
 
 use crate::generation::{
     contracts::{
-        self, LAUNCH_PAGE_LAYOUT_VERSION, MEMORY_SLOT_LAYOUT_VERSION, REPAIR_POLICY_VERSION,
-        SNAPSHOT_CAPTURE_POINT_VERSION, SNAPSHOT_FORMAT_VERSION,
+        self, LAUNCH_PAGE_LAYOUT_VERSION, REPAIR_POLICY_VERSION, SNAPSHOT_CAPTURE_POINT_VERSION,
+        SNAPSHOT_FORMAT_VERSION,
     },
-    error::CompileError,
+    error::{CompileError, CompileErrorKind, CompilePhase},
     manifest::{GenerationManifest, SnapshotBinding},
-    request::CompilerProfile,
+    request::{CompilerProfile, ProfileLimits},
     template::{
         MAX_TTL_SECONDS, MAX_WORKLOAD_PROBE_BYTES, NetworkPolicyClass, network_policy_digest,
     },
@@ -24,9 +24,8 @@ use super::{
 };
 
 const MIB: u64 = 1024 * 1024;
-/// The machine contract's guest RAM range and page granularity.
+/// The machine contract's guest RAM floor and page granularity.
 const MINIMUM_MEMORY_BYTES: u64 = 128 * MIB;
-const MAXIMUM_MEMORY_BYTES: u64 = 3 * 1024 * MIB;
 const MEMORY_PAGE_BYTES: u64 = 4096;
 
 /// Rejects contract, shape, snapshot, repair, and Template fields that this host cannot honor.
@@ -42,12 +41,17 @@ pub(super) fn require_machine(
     // whose command line or device contract belongs to a different machine than the one it
     // declares fails here rather than at the guest's first missing device.
     let devices = manifest.device_set();
+    // The version the manifest declares selects both the command line and the binding it is
+    // compared against, so an unknown version matches nothing and fails closed here rather than
+    // being verified against some other contract's bytes.
+    let version = manifest.machine_contract.version;
     require(
-        manifest.command_line == contracts::kernel_command_line_v1(devices),
+        contracts::kernel_command_line_for(devices, version).as_deref()
+            == Some(manifest.command_line.as_slice()),
         Incompatibility::CommandLine,
     )?;
     require(
-        manifest.machine_contract == contracts::machine_contract_v1()
+        contracts::machine_contract_for(version) == Some(manifest.machine_contract)
             && manifest.device_contract == contracts::device_contract_v1(devices)
             && manifest.cpu_template == contracts::cpu_template_v1(),
         Incompatibility::ContractStatement,
@@ -64,17 +68,28 @@ pub(super) fn require_machine(
 
 fn require_shape(manifest: &GenerationManifest) -> Result<(), CompileError> {
     let shape = manifest.shape;
+    // The bounds are the declared contract's, so a version 1 manifest carrying a version 2 shape
+    // is rejected for the shape rather than admitted because some profile would have allowed it.
+    let limits =
+        ProfileLimits::for_version(manifest.machine_contract.version).ok_or_else(|| {
+            CompileError::new(CompilePhase::VerifyGeneration, CompileErrorKind::Integrity)
+        })?;
     require(
-        (MINIMUM_MEMORY_BYTES..=MAXIMUM_MEMORY_BYTES).contains(&shape.memory_bytes),
+        (MINIMUM_MEMORY_BYTES..=limits.max_memory_mib.saturating_mul(MIB))
+            .contains(&shape.memory_bytes),
         Incompatibility::MemorySize,
     )?;
     require(
         shape.memory_bytes.is_multiple_of(MEMORY_PAGE_BYTES),
         Incompatibility::MemoryAlignment,
     )?;
-    require(shape.vcpu_count == 1, Incompatibility::VcpuCount)?;
     require(
-        shape.memory_slot_layout_version == MEMORY_SLOT_LAYOUT_VERSION,
+        shape.vcpu_count >= 1 && shape.vcpu_count <= limits.max_vcpus,
+        Incompatibility::VcpuCount,
+    )?;
+    require(
+        shape.memory_slot_layout_version
+            == contracts::memory_slot_layout_version(shape.memory_bytes),
         Incompatibility::MemorySlotVersion,
     )?;
     require(

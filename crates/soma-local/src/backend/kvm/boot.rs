@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::{LaunchNetwork, SecretFile};
+use soma_kvm::MachineContract;
 use soma_kvm::x86_64::SandboxDisks;
 use soma_storage::CloneError;
 
@@ -38,6 +39,11 @@ pub(super) fn boot_for(
     // whole point of it is that no head is cloned on the request path: the clone of a private
     // head is the largest and most variable cost between admission and a launched machine.
     let devices = manifest.device_set();
+    // The shape and the contract are the Generation's own statements, so a launch serves the
+    // machine the Generation certified rather than the shape the request happened to carry.
+    let vcpus = manifest.shape.vcpu_count;
+    let contract = MachineContract::require(manifest.machine_contract.version)
+        .map_err(|_| BackendFailureKind::WorkloadRejected)?;
     let template = if devices.overlay() {
         Some(
             manifest
@@ -67,6 +73,8 @@ pub(super) fn boot_for(
                 disks: SandboxDisks { root, overlay },
                 devices,
                 memory_bytes: memory_mib * MIB,
+                vcpus,
+                contract,
             }
         }
     } else {
@@ -82,6 +90,8 @@ pub(super) fn boot_for(
                 ram_bytes: memory_mib * MIB,
                 guest_cid,
                 devices,
+                vcpus,
+                contract,
             }))
         }
     };

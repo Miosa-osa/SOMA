@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest as _, Sha256};
 use soma_hostd::PoolKeyDigest;
 use soma_kvm::DeviceSet;
+use soma_kvm::MachineContract;
 
 use crate::backend::kvm::sterile::SterileSpec;
 
@@ -24,11 +25,17 @@ pub(in crate::backend::kvm) struct MachineKey {
     pub(super) memory_bytes: u64,
     /// The capacity of the private head this machine will be given.
     pub(super) overlay_capacity_bytes: u64,
-    /// The vCPU count.
+    /// The vCPU count the Generation declares.
     ///
-    /// The machine contract fixes this at one today. It is still part of the key so that
-    /// widening the contract cannot silently let a one-vCPU machine serve a larger request.
+    /// A machine prepared under one count cannot serve a request made under another: the guest
+    /// has already been told how many processors it has.
     pub(super) vcpus: u16,
+    /// The machine contract the Generation was built under.
+    ///
+    /// Two contracts admit different shapes and boot with different arguments, so they are two
+    /// pools even at the same size; without this a version 1 machine could serve a version 2
+    /// request.
+    pub(super) contract: MachineContract,
     /// The optional devices this machine was built with.
     ///
     /// A pool is keyed on this for the same reason it is keyed on the shape: a machine built
@@ -47,6 +54,7 @@ impl MachineKey {
         hasher.update(self.memory_bytes.to_be_bytes());
         hasher.update(self.overlay_capacity_bytes.to_be_bytes());
         hasher.update(self.vcpus.to_be_bytes());
+        hasher.update(self.contract.version().to_be_bytes());
         hasher.update([
             u8::from(self.devices.overlay()),
             u8::from(self.devices.net()),
@@ -78,6 +86,8 @@ pub(in crate::backend::kvm) struct RecipeInputs<'a> {
     pub(in crate::backend::kvm) memory_bytes: u64,
     /// The vCPU count.
     pub(in crate::backend::kvm) vcpus: u16,
+    /// The machine contract the Generation was built under.
+    pub(in crate::backend::kvm) contract: MachineContract,
     /// The Candidate the snapshot was captured from.
     pub(in crate::backend::kvm) candidate: [u8; 32],
     /// The optional devices machines in this pool are built with.
@@ -96,6 +106,7 @@ impl Recipe {
             snapshot,
             memory_bytes,
             vcpus,
+            contract,
             candidate,
             devices,
         } = inputs;
@@ -114,6 +125,7 @@ impl Recipe {
                 memory_bytes,
                 overlay_capacity_bytes,
                 vcpus,
+                contract,
                 devices,
             },
             store: store.to_path_buf(),
@@ -141,6 +153,8 @@ impl Recipe {
                 .overlay()
                 .then_some(self.key.overlay_capacity_bytes),
             memory_bytes: self.key.memory_bytes,
+            vcpus: self.key.vcpus,
+            contract: self.key.contract,
             devices: self.key.devices,
         })
     }
@@ -149,6 +163,7 @@ impl Recipe {
 #[cfg(test)]
 mod tests {
     use soma_kvm::DeviceSet;
+    use soma_kvm::MachineContract;
 
     use super::MachineKey;
 
@@ -159,6 +174,7 @@ mod tests {
             memory_bytes: 1 << 30,
             overlay_capacity_bytes: 256 << 20,
             vcpus: 1,
+            contract: MachineContract::V1,
             devices: DeviceSet::new(true, true),
         }
     }
@@ -168,12 +184,13 @@ mod tests {
     #[test]
     fn every_key_component_changes_the_digest() {
         type Mutation = (&'static str, fn(&mut MachineKey));
-        let mutations: [Mutation; 5] = [
+        let mutations: [Mutation; 6] = [
             ("candidate", |key| key.candidate = [8; 32]),
             ("snapshot", |key| key.snapshot = "/srv/other".into()),
             ("memory", |key| key.memory_bytes += 4096),
             ("overlay capacity", |key| key.overlay_capacity_bytes += 4096),
             ("vcpus", |key| key.vcpus += 1),
+            ("contract", |key| key.contract = MachineContract::V2),
         ];
         let mut seen = vec![key().digest()];
         assert_eq!(key().digest(), seen[0], "the digest is not stable");

@@ -57,7 +57,7 @@ impl MacBackend {
     /// This backend's machines do not outlive the process that launched them, so there is no
     /// later call that could address one. Answering a filesystem request here would have to
     /// invent a machine, so it refuses instead.
-    pub(super) fn unsupported(&mut self, operation: &OperationId) -> BackendFailure {
+    pub(crate) fn unsupported(&mut self, operation: &OperationId) -> BackendFailure {
         self.failure(operation, BackendFailureKind::Unsupported)
     }
 }

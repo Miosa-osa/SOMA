@@ -27,13 +27,13 @@ pub use generation::{
     Certification, CompileError, CompileErrorKind, CompileGeneration, CompilePhase,
     CompiledCandidate, CompilerProfile, ContractBinding, ErofsEvidence, GenerationManifest,
     Incompatibility, InitramfsContents, LifetimeLimits, MachineInputs, OverlayEvidence,
-    PublishedCandidate, PublishedGeneration, Sha256Digest, SnapshotBinding, SnapshotSource,
-    StartupBehavior, TemplateImage, TemplateRevision, ToolOutcome, Toolchain, TreeBounds,
-    VerifiedCandidate, VerifiedGeneration, VerifiedKernel, VerifiedKernelConfig, certify,
-    certify_candidate, compile_generation, contracts, derive_generation_id, erofs, initramfs,
-    install_snapshot, kernel, kernel_config, manifest as generation_manifest, open_artifact,
-    overlay, promote_candidate, template, toolchain, verify_candidate, verify_generation,
-    verify_kernel_config,
+    ProfileLimits, PublishedCandidate, PublishedGeneration, Sha256Digest, SnapshotBinding,
+    SnapshotSource, StartupBehavior, TemplateImage, TemplateRevision, ToolOutcome, Toolchain,
+    TreeBounds, VerifiedCandidate, VerifiedGeneration, VerifiedKernel, VerifiedKernelConfig,
+    certify, certify_candidate, compile_generation, contracts, derive_generation_id, erofs,
+    initramfs, install_snapshot, kernel, kernel_config, manifest as generation_manifest,
+    open_artifact, overlay, promote_candidate, template, toolchain, verify_candidate,
+    verify_generation, verify_kernel_config,
 };
 pub use import::import_oci_layout;
 pub use layout_image::{LayoutImage, resolve_layout_image};
@@ -43,5 +43,6 @@ pub use normalize::{
 };
 pub use template_inputs::{
     LayoutResolver, LockProjectionError, RootfsOracle, compiler_revision, profile_v1_backend,
+    profile_v2_backend,
 };
 pub use types::{ImportLimits, ImportOciLayout, ImportedOci, OciSelection};

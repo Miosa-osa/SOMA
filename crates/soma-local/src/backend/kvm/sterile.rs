@@ -38,6 +38,10 @@ pub(super) struct SterileSpec {
     pub(super) overlay_capacity_bytes: Option<u64>,
     /// Guest RAM in bytes.
     pub(super) memory_bytes: u64,
+    /// The vCPU count the Generation declared.
+    pub(super) vcpus: u16,
+    /// The machine contract the Generation was built under.
+    pub(super) contract: soma_kvm::MachineContract,
     /// The optional devices this machine is built with.
     pub(super) devices: DeviceSet,
 }
@@ -72,6 +76,8 @@ pub(super) fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: 
         root,
         overlay_capacity_bytes,
         memory_bytes,
+        vcpus,
+        contract,
         devices,
     } = spec;
     let sterile = restore_sterile(SterileRequest {
@@ -79,6 +85,8 @@ pub(super) fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: 
         root,
         overlay_capacity_bytes,
         memory_bytes,
+        vcpus,
+        contract,
         devices,
         // Re-hashing every byte of the memory object is the installation and audit boundary,
         // not the preparation path.

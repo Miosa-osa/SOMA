@@ -82,6 +82,8 @@ pub fn run_workload<W: Workload>(
         },
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,
+        vcpus: fixture.vcpus,
+        contract: fixture.contract,
         verify_artifacts: false,
         devices: fixture.devices(),
         network: None,

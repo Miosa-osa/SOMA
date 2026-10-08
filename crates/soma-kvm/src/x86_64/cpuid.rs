@@ -1,8 +1,14 @@
 //! The versioned SOMA CPU template applied over KVM's supported CPUID set.
 //!
 //! Version 1 keeps KVM's supported leaves, requires the KVM paravirtual signature leaf so the
-//! guest selects `kvmclock`, pins the bootstrap vCPU's APIC identifiers to zero, and marks the
-//! hypervisor bit. Anything the host cannot provide fails closed before vCPU execution.
+//! guest selects `kvmclock`, pins the APIC identifiers to the processor's own index, and marks
+//! the hypervisor bit. Anything the host cannot provide fails closed before vCPU execution.
+//!
+//! The identifier matters as soon as there is more than one processor. `KVM_GET_SUPPORTED_CPUID`
+//! answers with the APIC identifier of whichever host processor serviced the call, so it is
+//! pinned; for a single-vCPU machine that pin is zero, which is what version 1 has always
+//! installed, and for a multi-vCPU machine it is the index KVM assigned in creation order, which
+//! is the identifier the machine's MP table lists.
 //!
 //! Several leaves report properties of whichever host processor answered the ioctl rather than
 //! properties of the host: on a hybrid processor the two topology leaves carry that core's
@@ -31,21 +37,22 @@ const CACHE_EAX_KEPT: u32 = 0x0000_3fff;
 /// `KVMKVMKVM\0\0\0` split over `EBX`, `ECX`, and `EDX`.
 const KVM_SIGNATURE: [u32; 3] = [0x4b4d_564b, 0x564b_4d56, 0x0000_004d];
 
-pub(crate) fn install(kvm: &Kvm, vcpu: &VcpuFd) -> Result<(), MachineError> {
+pub(crate) fn install(kvm: &Kvm, vcpu: &VcpuFd, apic_id: u8) -> Result<(), MachineError> {
     let mut cpuid = kvm
         .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
         .map_err(|error| MachineError::os(Phase::Cpuid, error))?;
-    apply_template(&mut cpuid)?;
+    apply_template(&mut cpuid, apic_id)?;
     vcpu.set_cpuid2(&cpuid)
         .map_err(|error| MachineError::os(Phase::Cpuid, error))
 }
 
-pub(crate) fn apply_template(cpuid: &mut CpuId) -> Result<(), MachineError> {
+pub(crate) fn apply_template(cpuid: &mut CpuId, apic_id: u8) -> Result<(), MachineError> {
     let mut signature_seen = false;
+    let identifier = u32::from(apic_id) << 24;
     for entry in cpuid.as_mut_slice() {
         match entry.function {
             LEAF_FEATURES => {
-                entry.ebx &= !FEATURES_EBX_APIC_ID_MASK;
+                entry.ebx = (entry.ebx & !FEATURES_EBX_APIC_ID_MASK) | identifier;
                 entry.ecx |= FEATURES_ECX_HYPERVISOR;
             }
             LEAF_CACHE => {
@@ -53,7 +60,7 @@ pub(crate) fn apply_template(cpuid: &mut CpuId) -> Result<(), MachineError> {
                 entry.ebx = 0;
                 entry.ecx = 0;
             }
-            LEAF_TOPOLOGY | LEAF_TOPOLOGY_V2 => entry.edx = 0,
+            LEAF_TOPOLOGY | LEAF_TOPOLOGY_V2 => entry.edx = u32::from(apic_id),
             LEAF_L2_CACHE => {
                 entry.ecx = 0;
                 entry.edx = 0;
@@ -114,7 +121,7 @@ mod tests {
             ),
         ])
         .unwrap();
-        apply_template(&mut cpuid).unwrap();
+        apply_template(&mut cpuid, 0).unwrap();
         let cache = cpuid.as_slice()[0];
         assert_eq!(cache.eax, 0x0121, "cache type and level must survive");
         assert_eq!((cache.ebx, cache.ecx), (0, 0));
@@ -135,7 +142,7 @@ mod tests {
             ),
         ])
         .unwrap();
-        apply_template(&mut cpuid).unwrap();
+        apply_template(&mut cpuid, 0).unwrap();
         let entries = cpuid.as_slice();
         assert_eq!(entries[0].ebx, 0x0000_0800);
         assert_eq!(entries[0].ecx, FEATURES_ECX_HYPERVISOR);
@@ -146,10 +153,10 @@ mod tests {
         );
 
         let mut without = CpuId::from_entries(&[entry(LEAF_FEATURES, 0, 0, 0)]).unwrap();
-        let error = apply_template(&mut without).unwrap_err();
+        let error = apply_template(&mut without, 0).unwrap_err();
         assert_eq!(error.phase(), Phase::Cpuid);
 
         let mut wrong = CpuId::from_entries(&[entry(LEAF_KVM_SIGNATURE, 1, 2, 3)]).unwrap();
-        assert!(apply_template(&mut wrong).is_err());
+        assert!(apply_template(&mut wrong, 0).is_err());
     }
 }

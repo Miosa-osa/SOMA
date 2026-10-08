@@ -1,5 +1,6 @@
 //! What a prepared worker must refuse, proved against real KVM.
 
+use soma_kvm::MachineContract;
 use soma_kvm::x86_64::{SterileRequest, restore_sterile};
 
 use super::{fixture, require_kvm};
@@ -12,6 +13,8 @@ fn sterile(fixture: &fixture::Fixture) -> soma_kvm::x86_64::Sterile {
         overlay_capacity_bytes: Some(fixture.overlay_capacity_bytes()),
         devices: fixture.devices(),
         memory_bytes: fixture.ram_bytes,
+        vcpus: 1,
+        contract: MachineContract::V1,
         verify_artifacts: false,
     })
     .expect("a sterile machine restores without an Instance")

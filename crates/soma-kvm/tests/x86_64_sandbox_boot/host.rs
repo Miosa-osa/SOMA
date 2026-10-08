@@ -78,9 +78,18 @@ const REQUIRED_FREE_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 /// exercises tree naming must not demand the space a gigabyte-scale live run needs, and CI
 /// runners have less free space than such a run requires.
 pub fn require_scratch_space() {
+    require_scratch_space_for(REQUIRED_FREE_BYTES);
+}
+
+/// Fails a live run before it starts when the scratch filesystem cannot hold `bytes`.
+///
+/// A run that stages more than the floor asks for its own figure: a snapshot capture writes the
+/// whole memory object, so a sixteen-gigabyte machine needs sixteen gigabytes of image on top of
+/// everything else, and starting without them fails deep inside the walk rather than at the door.
+pub fn require_scratch_space_for(bytes: u64) {
     let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("x86_64-sandbox-boot");
     if fs::create_dir_all(&root).is_ok() {
-        require_free_space(&root);
+        require_free_space(&root, bytes);
     }
 }
 
@@ -91,7 +100,7 @@ pub fn require_scratch_space() {
 /// tree can also strand a boot until its deadline. Both read as flaky live tests. Naming the
 /// real condition here keeps that misreading from costing another investigation.
 #[allow(unsafe_code)]
-fn require_free_space(root: &Path) {
+fn require_free_space(root: &Path, required: u64) {
     let Ok(path) = std::ffi::CString::new(root.as_os_str().as_encoded_bytes()) else {
         return;
     };
@@ -105,8 +114,8 @@ fn require_free_space(root: &Path) {
     let stats = unsafe { stats.assume_init() };
     let available = stats.f_bavail.saturating_mul(stats.f_frsize);
     assert!(
-        available >= REQUIRED_FREE_BYTES,
-        "scratch filesystem at {} has {available} bytes free, below the {REQUIRED_FREE_BYTES} \
+        available >= required,
+        "scratch filesystem at {} has {available} bytes free, below the {required} \
          one run needs; reclaim that directory, whose trees are kept for {} hours",
         root.display(),
         SCRATCH_LIFETIME.as_secs() / 3600,

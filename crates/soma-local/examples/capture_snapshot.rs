@@ -138,6 +138,8 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         },
         ram_bytes: memory_mib * MIB,
         devices,
+        vcpus: 1,
+        contract: soma_kvm::MachineContract::V1,
     };
 
     let mut sandbox = SandboxMachine::create(config).map_err(|error| format!("create: {error}"))?;
@@ -156,6 +158,7 @@ fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             overlay: head.as_mut(),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
+            contract: soma_kvm::MachineContract::V1,
         },
         started + REPAIR_POINT_DEADLINE,
     );

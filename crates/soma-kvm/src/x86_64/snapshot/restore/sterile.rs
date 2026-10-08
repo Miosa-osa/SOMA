@@ -30,6 +30,10 @@ pub struct SterileRequest {
     pub devices: crate::virtio::DeviceSet,
     /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.
     pub memory_bytes: u64,
+    /// The vCPU count the Generation declared, from its shape rather than from the snapshot.
+    pub vcpus: u16,
+    /// The machine contract the Generation was built under; a snapshot of another is refused.
+    pub contract: crate::contract::MachineContract,
     /// Whether to re-hash the memory object and the overlay template before mapping.
     pub verify_artifacts: bool,
 }
@@ -52,6 +56,7 @@ pub(super) struct SterileFacts {
     pub(super) repair_point_line: Vec<u8>,
     pub(super) mac: [u8; 6],
     pub(super) captured_cid: u64,
+    pub(super) vcpus: u16,
 }
 
 impl Sterile {
@@ -86,6 +91,7 @@ impl Sterile {
                 mac: facts.mac,
                 captured_cid: facts.captured_cid,
                 guest_cid,
+                vcpus: facts.vcpus,
             },
             sequence: Cell::new(sequence),
             readiness,

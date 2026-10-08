@@ -13,6 +13,11 @@ use crate::mounts;
 use super::superblock::{ext4_superblock_ok, verify_superblock};
 use super::{BootFailure, BootStep, LOWER_MOUNT, OVERLAY_DEVICE, ROOT_MOUNT, failure};
 
+/// The mount flag that defers timestamp updates to memory; Linux 4.0 and later.
+///
+/// Spelled here rather than taken from `libc`, whose `MS_*` set stops short of it.
+const MS_LAZYTIME: libc::c_ulong = 1 << 25;
+
 const UPPER_MOUNT: &str = "/mnt/upper";
 const UPPER_DIR: &str = "/mnt/upper/upper";
 const WORK_DIR: &str = "/mnt/upper/work";
@@ -25,11 +30,18 @@ const WORK_DIR: &str = "/mnt/upper/work";
 pub(super) fn compose() -> Result<(), BootFailure> {
     verify_superblock(BootStep::UpperIdentity, OVERLAY_DEVICE, ext4_superblock_ok)?;
     fs::create_dir_all(UPPER_MOUNT).map_err(|error| failure(BootStep::UpperMount, &error))?;
+    // `noatime` and `lazytime` suit a layer whose whole content is thrown away with the machine:
+    // a workload that reads back what it just wrote would otherwise journal an access time per
+    // file for data nobody will read again, and `lazytime` keeps the timestamp in memory until
+    // something else forces a write.
+    //
+    // They are mount *flags*, not filesystem data: ext4 refuses an unknown word in the data
+    // string with `EINVAL`, so passing "noatime" there fails the mount and, through it, the boot.
     mounts::mount(
         OVERLAY_DEVICE,
         UPPER_MOUNT,
         "ext4",
-        libc::MS_NOSUID | libc::MS_NODEV,
+        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOATIME | MS_LAZYTIME,
         "errors=remount-ro",
     )
     .map_err(|errno| BootFailure {
@@ -42,7 +54,11 @@ pub(super) fn compose() -> Result<(), BootFailure> {
         "overlay",
         ROOT_MOUNT,
         "overlay",
-        libc::MS_NOSUID | libc::MS_NODEV,
+        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOATIME,
+        // The composed root takes the same treatment as its upper layer, and again as a flag:
+        // the reads that matter here are the workload reading its own fresh output, and an
+        // access-time update per read is write traffic on the layer underneath for a timestamp
+        // nothing consults.
         &format!("lowerdir={LOWER_MOUNT},upperdir={UPPER_DIR},workdir={WORK_DIR}"),
     )
     .map_err(|errno| BootFailure {
