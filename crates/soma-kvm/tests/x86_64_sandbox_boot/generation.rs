@@ -293,8 +293,15 @@ pub fn private_head(template: &mut File, path: &Path) -> File {
         .create_new(true)
         .open(path)
         .unwrap();
-    template.seek(SeekFrom::Start(0)).unwrap();
-    std::io::copy(template, &mut head).unwrap();
+    // The template is a writable class written out whole, so copying it without its holes and
+    // without its zero chunks keeps a private head as cheap as the metadata it actually carries
+    // rather than as large as the class.
+    let length = template
+        .metadata()
+        .expect("stat the overlay template")
+        .len();
+    crate::x86_64_sandbox_boot_sparse::copy_sparse(template, &head, length)
+        .expect("copy the template into a private head");
     head.seek(SeekFrom::Start(0)).unwrap();
     head
 }
