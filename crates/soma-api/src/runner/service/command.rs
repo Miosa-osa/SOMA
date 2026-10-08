@@ -176,12 +176,14 @@ pub(super) fn command_refusal(unavailable: &Unavailable) -> PlatformError {
 
 /// One command's argv, chosen by [`shell::plan`].
 ///
-/// With `shell_free_exec` off this is the fast lane's own `/bin/sh -lc <command>`; with it on the
-/// command runs under `/bin/sh -c`, which sources no profile.
+/// With `shell_free_exec` off this is the fast lane's own `/bin/sh -lc <command>` for every
+/// command. With it on, a command that is only whitespace-separated words runs with no shell at
+/// all, and everything else runs under `/bin/sh -c` without sourcing a profile.
 pub(super) fn exec_command(text: &str, shell_free_exec: bool) -> Option<DirectCommand> {
     match shell::plan(text, shell_free_exec) {
         shell::Plan::LoginShell(command) => DirectCommand::new(shell::SHELL, ["-lc", command]).ok(),
         shell::Plan::PlainShell(command) => DirectCommand::new(shell::SHELL, ["-c", command]).ok(),
+        shell::Plan::Direct { program, arguments } => DirectCommand::new(program, arguments).ok(),
     }
 }
 
