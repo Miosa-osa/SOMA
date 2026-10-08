@@ -86,12 +86,13 @@ pub(super) fn command_parts(request: &ExecutionRequest<'_>) -> Option<CommandPar
     })
 }
 
-/// The portable status for a command the guest actually ran.
+/// The portable status for a command the guest agent reported the end of.
 ///
-/// `ExecFailed` and `AgentFailed` have no portable equivalent, and they are not command results:
-/// the first means the program never started, the second that the agent itself failed. Reporting
-/// either as an exit code would describe a command that never ran as one that ran and finished,
-/// so they become a guest failure instead.
+/// `ExecFailed` means the program never started: the agent answered and had nothing to run, so
+/// the invocation is refused rather than a process described. Reporting it as an exit code would
+/// call a command that never ran one that ran and finished, and reporting nothing at all leaves
+/// the engine unable to tell a refusal from a lost machine. `AgentFailed` is the agent itself
+/// failing, which no status describes, so it becomes a guest failure.
 pub(super) const fn command_status(status: TerminalStatus) -> Option<CommandStatus> {
     match status {
         TerminalStatus::Exited(code) => Some(CommandStatus::Exited { code }),
@@ -100,7 +101,8 @@ pub(super) const fn command_status(status: TerminalStatus) -> Option<CommandStat
         }),
         TerminalStatus::TimedOut => Some(CommandStatus::TimedOut),
         TerminalStatus::OutputLimit => Some(CommandStatus::OutputLimitExceeded),
-        TerminalStatus::ExecFailed(_) | TerminalStatus::AgentFailed(_) => None,
+        TerminalStatus::ExecFailed(errno) => Some(CommandStatus::SpawnFailed { errno }),
+        TerminalStatus::AgentFailed(_) => None,
     }
 }
 

@@ -116,7 +116,8 @@ A backend that cannot enforce an explicit `denied` or `allowed` policy must fail
 Commands are an absolute guest `executable` plus an `arguments` array.
 SOMA never accepts a shell command string, ambient host executable selection, environment map, mount list, runtime path, secret field, or remote MCP URL.
 The executable is limited to 4,096 bytes.
-There may be at most 4,096 arguments, each argument is limited to 128 KiB, and the total executable plus argument payload is limited to 1 MiB.
+There may be at most 64 arguments, and each argument is limited to 4,096 bytes.
+The executable plus the arguments, counting two length bytes for each argument, is limited to 65,459 bytes, which is one guest record's body allowance less its fixed part, so a command within these bounds always fits the one message that carries it to the guest.
 NUL bytes are rejected.
 
 `timeout_ms` defaults to 30,000 and must be from 1 through 86,400,000.

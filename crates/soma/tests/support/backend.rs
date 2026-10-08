@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use soma::{
     Backend, BackendFailure, BackendFailureKind, BackendKind, CleanupEvidence, CleanupMethod,
@@ -27,6 +30,13 @@ pub struct TestBackend {
     files: SharedFiles,
     /// The one terminal session, for the same reason the filesystem is here.
     terminal: terminal::SharedTerminal,
+    /// How many commands this machine has already run.
+    ///
+    /// A fixture mode models one command going wrong, not a machine that is broken. The first
+    /// command takes the mode's outcome and every later one exits zero, so a test can ask what a
+    /// sandbox does *after* a failure. A machine that was released answers the follow-up with a
+    /// state failure instead, which is exactly the difference these tests read.
+    executions: Arc<AtomicUsize>,
 }
 
 #[allow(
@@ -44,6 +54,7 @@ impl TestBackend {
                 cleanup_gate: None,
                 files: Arc::new(Mutex::new(BTreeMap::new())),
                 terminal: Arc::new(Mutex::new(None)),
+                executions: Arc::new(AtomicUsize::new(0)),
             },
             calls,
         )
@@ -153,11 +164,10 @@ impl Backend for TestBackend {
         if let Some(gate) = &self.execute_gate {
             gate.block_backend();
         }
-        if matches!(
-            self.mode,
-            Mode::CommandFailure | Mode::FailureTimeRegression
-        ) {
-            let occurred_at = if self.mode == Mode::FailureTimeRegression {
+        let first = self.executions.fetch_add(1, Ordering::SeqCst) == 0;
+        let mode = if first { self.mode } else { Mode::Happy };
+        if matches!(mode, Mode::CommandFailure | Mode::FailureTimeRegression) {
+            let occurred_at = if mode == Mode::FailureTimeRegression {
                 35
             } else {
                 55
@@ -167,27 +177,39 @@ impl Backend for TestBackend {
                 occurred_at,
             ));
         }
-        let status = match self.mode {
+        if mode == Mode::WorkloadRejected {
+            return Err(BackendFailure::new(
+                BackendFailureKind::WorkloadRejected,
+                55,
+            ));
+        }
+        let status = match mode {
             Mode::Timeout => CommandStatus::TimedOut,
-            Mode::CombinedOutputOverflow => CommandStatus::OutputLimitExceeded,
+            Mode::CombinedOutputOverflow | Mode::OutputLimit => CommandStatus::OutputLimitExceeded,
             Mode::Signaled => CommandStatus::Signaled { signal: None },
+            Mode::SpawnFailed => CommandStatus::SpawnFailed { errno: 2 },
             _ => CommandStatus::Exited { code: 0 },
         };
-        let instance_id = if self.mode == Mode::CommandIdentityMismatch {
+        let instance_id = if mode == Mode::CommandIdentityMismatch {
             InstanceId::new("99999999999999999999999999999999").expect("valid fixture identity")
         } else {
             request.instance_id().clone()
         };
-        let times = if self.mode == Mode::NonMonotonicCommand {
+        let times = if mode == Mode::NonMonotonicCommand {
             CommandTimes::new(39, 60)
         } else {
             CommandTimes::new(50, 60)
         };
-        let output = match self.mode {
+        let output = match mode {
             Mode::BinaryOutput => soma::ObservedOutput::new(vec![0, 0xff, b'\n'], 3, vec![0x80], 1),
             Mode::CombinedOutputOverflow => {
                 soma::ObservedOutput::new(vec![b'a'; 8], 8, vec![b'b'; 8], 8)
             }
+            // A program that never started produced nothing on either stream.
+            Mode::SpawnFailed => soma::ObservedOutput::new(Vec::new(), 0, Vec::new(), 0),
+            // Eight bytes were kept of the twelve the command wrote, which is what a command
+            // stopped at a ten byte allowance looks like from the host.
+            Mode::OutputLimit => soma::ObservedOutput::new(vec![b'a'; 8], 12, Vec::new(), 0),
             _ => soma::ObservedOutput::new(b"v22.23.2\n".to_vec(), 10, Vec::new(), 0),
         };
         Ok(CommandObservation::new(

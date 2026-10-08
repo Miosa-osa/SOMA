@@ -162,3 +162,66 @@ fn every_refusal_answers_a_specific_code_rather_than_an_outage() {
         );
     }
 }
+
+#[test]
+fn the_facade_type_and_the_machine_state_one_exec_contract() {
+    // The runner's own request type used to admit far more than any machine could run, which is
+    // how a command reached the engine, was refused there, and took the sandbox with it. The two
+    // sets are now the same set, and this is what says so: change one bound alone and this fails.
+    use soma::DirectCommand;
+    use soma_guest::{FIXED_BODY_SIZE, MAX_BODY_SIZE};
+
+    assert_eq!(DirectCommand::MAX_EXECUTABLE_BYTES, MAX_FIELD_BYTES);
+    assert_eq!(DirectCommand::MAX_ARGUMENTS, MAX_ARGUMENTS);
+    assert_eq!(DirectCommand::MAX_ARGUMENT_BYTES, MAX_FIELD_BYTES);
+    assert_eq!(
+        DirectCommand::MAX_AGGREGATE_BYTES,
+        MAX_BODY_SIZE - FIXED_BODY_SIZE
+    );
+}
+
+#[test]
+fn every_command_the_shared_type_admits_is_one_the_machine_can_be_asked_to_run() {
+    use soma::DirectCommand;
+
+    // The aggregate is the binding bound here rather than the count: fifteen full fields and the
+    // remainder spend exactly one guest record's body, and both layers take exactly that.
+    let full =
+        DirectCommand::MAX_AGGREGATE_BYTES - ("/bin/true".len() + 15 * (2 + MAX_FIELD_BYTES));
+    let arguments = |last: usize| {
+        let mut arguments = vec!["a".repeat(MAX_FIELD_BYTES); 15];
+        arguments.push("a".repeat(last));
+        arguments
+    };
+    let admitted =
+        DirectCommand::new("/bin/true", arguments(full - 2)).expect("the machine carries it");
+    assert_eq!(
+        admit(
+            admitted.executable(),
+            &admitted
+                .arguments()
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            30_000,
+        ),
+        Ok(())
+    );
+
+    // One byte more is past both: the shared type refuses it, and so does the machine's own
+    // contract, which is the property that keeps a command out of the engine entirely.
+    let over = arguments(full - 1);
+    assert!(DirectCommand::new("/bin/true", over.clone()).is_err());
+    assert!(
+        admit(
+            "/bin/true",
+            &over.iter().map(String::as_str).collect::<Vec<_>>(),
+            30_000
+        )
+        .is_err()
+    );
+
+    // And the two countable bounds agree too.
+    assert!(DirectCommand::new("/bin/true", vec!["a".repeat(MAX_FIELD_BYTES + 1)]).is_err());
+    assert!(DirectCommand::new("/bin/true", vec!["x"; MAX_ARGUMENTS + 1]).is_err());
+}

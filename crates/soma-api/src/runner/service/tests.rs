@@ -273,7 +273,7 @@ fn a_create_carrying_a_working_directory_is_refused() {
 fn a_refused_command_is_not_reported_as_an_agent_outage() {
     use soma::{BackendFailureKind, ManagedFailure};
 
-    use super::command::failure_error;
+    use super::outcome::failure_error;
 
     // Each of these is a property of the request rather than of the machine, so each answers its
     // own 4xx/5xx instead of sending the caller back to retry something that cannot succeed.

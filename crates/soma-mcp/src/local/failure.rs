@@ -78,6 +78,9 @@ const fn map_run_failure_kind(kind: RunFailureKind) -> RuntimeFailureKind {
         },
         RunFailureKind::TimedOut => RuntimeFailureKind::Timeout,
         RunFailureKind::OutputLimitExceeded => RuntimeFailureKind::OutputLimit,
+        // A program the guest could not start is a request the caller can fix, in the same way
+        // a request the machine would not take is, so both read as a rejection.
+        RunFailureKind::SpawnFailed { .. } => RuntimeFailureKind::Rejected,
         RunFailureKind::CleanupIncomplete => RuntimeFailureKind::CleanupIncomplete,
         RunFailureKind::Interrupted
         | RunFailureKind::ObservationMismatch
