@@ -22,7 +22,13 @@ use crate::timings::{self, Step};
 pub use soma_guest::CONTROL_VSOCK_PORT;
 
 const MIN_TIMEOUT: Duration = Duration::from_millis(1);
-/// Interval between vsock context-identifier reads while waiting for a restored assignment.
+/// First wait after a vsock context-identifier read still reports the captured CID.
+///
+/// The transport-reset event that makes the driver re-read the CID is handled within
+/// microseconds of the resume, so a flat 2 ms first wait was paid in full by every instance that
+/// lost the race, which is more of them under host load.
+const FIRST_CID_POLL: Duration = Duration::from_micros(50);
+/// Longest wait between context-identifier reads, for a driver that stays stale.
 const CID_POLL: Duration = Duration::from_millis(2);
 const VSOCK_DEVICE: &str = "/dev/vsock";
 const IOCTL_VM_SOCKETS_GET_LOCAL_CID: libc::c_ulong = 0x7b9;
@@ -224,15 +230,32 @@ pub fn connect_vsock(
 /// report the captured CID; polling turns that ordering into a bounded wait instead of a
 /// spurious mismatch, and a genuinely wrong CID still fails closed at the deadline.
 fn await_local_cid(expected: u32, deadline: Instant) -> Result<(), TransportError> {
+    await_cid_with(expected, deadline, read_local_cid, thread::sleep)
+}
+
+/// The waits between context-identifier reads: [`FIRST_CID_POLL`], doubling, saturating at
+/// [`CID_POLL`]. Endless; the caller's deadline ends the wait.
+fn cid_polls() -> impl Iterator<Item = Duration> {
+    std::iter::successors(Some(FIRST_CID_POLL), |poll| {
+        Some(poll.saturating_mul(2).min(CID_POLL))
+    })
+}
+
+fn await_cid_with(
+    expected: u32,
+    deadline: Instant,
+    mut read: impl FnMut() -> Result<u32, TransportError>,
+    mut pause: impl FnMut(Duration),
+) -> Result<(), TransportError> {
+    let mut polls = cid_polls();
     loop {
-        let actual = read_local_cid()?;
-        if actual == expected {
+        if read()? == expected {
             return Ok(());
         }
         if Instant::now() >= deadline {
             return Err(TransportError::CidMismatch);
         }
-        thread::sleep(CID_POLL);
+        pause(polls.next().unwrap_or(CID_POLL));
     }
 }
 
