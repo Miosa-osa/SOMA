@@ -150,6 +150,16 @@ pub(super) fn failure_details(kind: RunFailureKind) -> (FailureBody, ProcessExit
             ),
             ProcessExit::OutputLimit,
         ),
+        // The program the caller named does not exist, or could not be started: the same class
+        // of mistake as naming a sandbox that is not there, and the same exit code reports it.
+        RunFailureKind::SpawnFailed { .. } => (
+            FailureBody::new(
+                "guest_spawn_failed",
+                "the guest could not start the program, so no process ran",
+                false,
+            ),
+            ProcessExit::NotFound,
+        ),
         RunFailureKind::Interrupted => (
             FailureBody::new("guest_interrupted", "guest execution was interrupted", true),
             ProcessExit::GuestNonzero,

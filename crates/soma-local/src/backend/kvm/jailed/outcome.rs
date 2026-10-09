@@ -75,8 +75,22 @@ pub(super) fn executed(
             ..
         } => Ok((terminal(*status), *stdout_bytes, *stderr_bytes)),
         Outcome::Failure { kind, .. } => Err(refusal(*kind)),
+        // The worker read the request, did not perform it, and answered. It is waiting for the
+        // next one, so this is the machine turning the request down rather than a worker that
+        // cannot be addressed.
+        Outcome::Rejected(_) => Err(BackendFailureKind::WorkloadRejected),
         _ => Err(BackendFailureKind::Unavailable),
     }
+}
+
+/// Whether a failure is a refusal the worker stated, rather than a session that went wrong.
+///
+/// A worker that refuses a request does so on the thread that serves every request, so the
+/// answer proves the session is still in step and the handle still holds the machine. Every
+/// other failure is read from a session whose next reply cannot be attributed to anything, and
+/// that one poisons.
+pub(super) const fn is_refusal(kind: BackendFailureKind) -> bool {
+    matches!(kind, BackendFailureKind::WorkloadRejected)
 }
 
 /// Admits only one window of output.
@@ -113,6 +127,7 @@ const fn terminal(status: ExitStatus) -> TerminalStatus {
         ExitStatus::Signal(signal) => TerminalStatus::Signaled(signal),
         ExitStatus::TimedOut => TerminalStatus::TimedOut,
         ExitStatus::OutputLimit => TerminalStatus::OutputLimit,
+        ExitStatus::SpawnFailed(errno) => TerminalStatus::ExecFailed(errno),
     }
 }
 

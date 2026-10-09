@@ -22,7 +22,13 @@ pub enum Mode {
     Happy,
     LaunchFailure,
     CommandFailure,
+    /// The machine will not take the command at all, before running anything.
+    WorkloadRejected,
+    /// The guest agent could not start the program, so no process ever ran.
+    SpawnFailed,
     Timeout,
+    /// The guest stopped the command because its output allowance ran out.
+    OutputLimit,
     CommandIdentityMismatch,
     NonMonotonicCommand,
     CleanupFailure,

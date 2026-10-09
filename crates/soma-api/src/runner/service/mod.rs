@@ -2,13 +2,20 @@
 
 mod command;
 mod create;
+mod exec_contract;
+#[cfg(test)]
+mod exec_refusal_tests;
 mod extend;
 #[cfg(test)]
 mod flow_tests;
 mod forward;
 #[cfg(test)]
 mod idle_tests;
+mod journal;
 mod lifetime;
+mod outcome;
+#[cfg(test)]
+mod outcome_tests;
 mod params;
 mod relay;
 mod routing;
@@ -33,8 +40,8 @@ use crate::runner::{
     backend::Backend,
     config::RunnerConfig,
     ids::SandboxId,
-    journal::{Entry, EntryKind, Journal},
-    keys::{KeyTable, Principal, Refusal},
+    journal::{Entry, Journal},
+    keys::{KeyTable, Refusal},
     peers::Peers,
     public_wire::{self, PlatformError},
     rate_limit::RateLimiter,
@@ -42,6 +49,7 @@ use crate::runner::{
 };
 
 use command::failure_code;
+use journal::{entry, refused_sandbox, with_journal};
 use routing::{Route, route};
 use timing::{Timing, millis};
 
@@ -251,45 +259,4 @@ impl Runner {
     fn runner_url(&self, tag: char) -> String {
         format!("https://{tag}.{}", self.config.public_domain)
     }
-}
-
-fn entry(
-    kind: EntryKind,
-    principal: &Principal,
-    project_id: Option<String>,
-    sandbox: Option<&SandboxId>,
-    status: u16,
-) -> Entry {
-    Entry {
-        kind,
-        tenant_id: principal.key.tenant_id.clone(),
-        key_id: Some(principal.key.key_id.clone()),
-        project_id,
-        sandbox_id: sandbox.map(ToString::to_string),
-        status,
-        ms: 0,
-        exit_code: None,
-        cpu_ms: None,
-        lifetime_ms: None,
-        reason: None,
-    }
-}
-
-/// Journals an id the caller could not address here: malformed ids are paperwork, a `421` is
-/// not, because the runner that owns the sandbox journals the request it actually serves.
-fn refused_sandbox(
-    response: RunnerResponse,
-    kind: EntryKind,
-    principal: &Principal,
-) -> RunnerResponse {
-    if response.status == 421 {
-        return response;
-    }
-    let status = response.status;
-    with_journal(response, Some(entry(kind, principal, None, None, status)))
-}
-
-fn with_journal(mut response: RunnerResponse, entry: Option<Entry>) -> RunnerResponse {
-    response.journal = entry;
-    response
 }

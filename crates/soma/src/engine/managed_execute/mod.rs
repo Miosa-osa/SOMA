@@ -1,9 +1,11 @@
 mod admission;
+mod disposition;
 mod failure;
 mod receipt;
 
 use crate::{
-    Backend, CleanupEvidence, CommandStatus, Milestone, MilestoneKind, Observation, StateStore,
+    Backend, BackendFailureKind, CleanupEvidence, CommandStatus, Milestone, MilestoneKind,
+    Observation, StateStore,
 };
 
 use super::{
@@ -12,7 +14,10 @@ use super::{
     run_evidence::{append_command, append_failure, terminal_status, validate_command},
 };
 
-use self::receipt::{execution_receipt, store_operation_failure};
+use self::{
+    disposition::CommandDisposition,
+    receipt::{execution_receipt, store_operation_failure},
+};
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
     /// Executes one bounded direct command against an exact managed Instance.
@@ -53,7 +58,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 } else {
                     RunFailureKind::ObservationMismatch
                 };
-                return Err(self.fail_execution(&request, admission, milestones, kind, None));
+                return Err(self.fail_execution(
+                    &request,
+                    admission,
+                    milestones,
+                    kind,
+                    None,
+                    refusal_disposition(failure.kind()),
+                ));
             }
         };
         let Some(validated) = validated else {
@@ -63,28 +75,22 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 milestones,
                 RunFailureKind::ObservationMismatch,
                 None,
+                CommandDisposition::Unobserved,
             ));
         };
         append_command(&mut milestones, validated.times);
         let status = validated.status;
-        if matches!(
-            status,
-            CommandStatus::Signaled { .. }
-                | CommandStatus::TimedOut
-                | CommandStatus::OutputLimitExceeded
-        ) {
-            let kind = match status {
-                CommandStatus::Signaled { .. } => RunFailureKind::Interrupted,
-                CommandStatus::TimedOut => RunFailureKind::TimedOut,
-                CommandStatus::OutputLimitExceeded => RunFailureKind::OutputLimitExceeded,
-                CommandStatus::Exited { .. } => unreachable!(),
-            };
+        // A status the guest agent sent is proof the agent lived to send it, and the agent kills
+        // and reaps a command's whole process group before it reports one. So an outcome that
+        // did not succeed decides what the caller reads, and never costs the machine.
+        if let Some((kind, disposition)) = stopped_command(status) {
             return Err(self.fail_execution(
                 &request,
                 admission,
                 milestones,
                 kind,
                 Some((validated.output, validated.metadata, status)),
+                disposition,
             ));
         }
         let receipt = execution_receipt(
@@ -118,6 +124,42 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             receipt,
             output: validated.output,
         })
+    }
+}
+
+/// What one backend failure leaves behind.
+///
+/// A workload the runtime refuses is a request it would not carry to the machine at all, so the
+/// machine was never addressed. Every other backend failure is either one the machine was in
+/// the middle of or one whose state nobody observed, and an unknown machine is released.
+const fn refusal_disposition(kind: BackendFailureKind) -> CommandDisposition {
+    match kind {
+        BackendFailureKind::WorkloadRejected => CommandDisposition::RefusedBeforeRun,
+        _ => CommandDisposition::Unobserved,
+    }
+}
+
+/// What one guest-reported status means, when the command did not simply finish.
+///
+/// `None` is a command whose result the caller reads: an exit, or a signal that ended it. Those
+/// two are what a completed execution may record, so they continue along the success path and
+/// their sandbox is kept for the same reason every other keeps it, namely that the guest agent
+/// reported them.
+const fn stopped_command(status: CommandStatus) -> Option<(RunFailureKind, CommandDisposition)> {
+    match status {
+        CommandStatus::Exited { .. } | CommandStatus::Signaled { .. } => None,
+        CommandStatus::TimedOut => Some((
+            RunFailureKind::TimedOut,
+            CommandDisposition::StoppedByTheGuest,
+        )),
+        CommandStatus::OutputLimitExceeded => Some((
+            RunFailureKind::OutputLimitExceeded,
+            CommandDisposition::StoppedByTheGuest,
+        )),
+        CommandStatus::SpawnFailed { errno } => Some((
+            RunFailureKind::SpawnFailed { errno },
+            CommandDisposition::SpawnRefused,
+        )),
     }
 }
 

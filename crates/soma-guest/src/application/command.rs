@@ -24,9 +24,16 @@ use core::fmt;
 use crate::Error;
 
 /// Maximum number of direct arguments in one authenticated command.
+///
+/// Public because this is the machine's own exec contract rather than an internal detail: a host
+/// that admits a request has to admit exactly the set this protocol carries, or the refusal
+/// lands somewhere that no longer knows the request was merely too big.
 pub const MAX_ARGUMENTS: usize = 64;
 /// Maximum byte length of the program, one argument, one environment name or value, or the
 /// working directory.
+///
+/// Every field travels as one `u16`-prefixed length, so the framing ceiling that matters here is
+/// this contract's own bound rather than the width of the prefix.
 pub const MAX_FIELD_BYTES: usize = 4096;
 /// Maximum number of environment variables in one authenticated command.
 pub const MAX_ENVIRONMENT: usize = 64;
@@ -48,7 +55,11 @@ pub const MAX_OUTPUT_BYTES: u64 = 16 * 1024 * 1024;
 /// Bytes every body spends before any variable-length field: the timeout, the output
 /// allowance, the program length, the argument count, the environment count, the two optional
 /// presence flags, and the standard-input length.
-pub(super) const FIXED_BODY_SIZE: usize = 4 + 8 + 2 + 2 + 2 + 1 + 1 + 2;
+///
+/// Public with the per-field bounds above: a host that refuses a command before asking a machine
+/// to run it has to measure the command the way this codec does, and an approximation of the
+/// fixed part would refuse commands this protocol carries or admit commands it does not.
+pub const FIXED_BODY_SIZE: usize = 4 + 8 + 2 + 2 + 2 + 1 + 1 + 2;
 /// One environment name and the value bound to it, in the form a command stores them.
 pub type EnvironmentPair = (Box<[u8]>, Box<[u8]>);
 

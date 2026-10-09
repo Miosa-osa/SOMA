@@ -57,8 +57,11 @@ fn the_base_environment_is_sorted_and_free_of_shells() {
 
 #[test]
 fn local_bounds_match_the_wire_contract() {
-    assert_eq!(MAX_ARGUMENTS, 64);
-    assert_eq!(MAX_FIELD_BYTES, 4096);
+    // The protocol crate and the agent each bound the same fields, and a command one carries and
+    // the other refuses is refused at `execve` time, after the record was already on the wire. The
+    // two are bound to each other here rather than left to two literals that happen to agree.
+    assert_eq!(MAX_ARGUMENTS, soma_guest::MAX_ARGUMENTS);
+    assert_eq!(MAX_FIELD_BYTES, soma_guest::MAX_FIELD_BYTES);
     assert_eq!(super::MAX_ENVIRONMENT, 64);
     let sixty_four: Vec<&[u8]> = vec![b"x"; 64];
     assert!(Invocation::from_command(&command(b"/bin/true", &sixty_four)).is_ok());
