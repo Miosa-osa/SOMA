@@ -65,3 +65,23 @@ RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-l
  && rm -f /tmp/node.tar.xz \
  && node --version \
  && npm --version
+
+# The apt index lists are the one time-dependent thing in this image, and they have to be fresh
+# when a Generation is captured: an index that has moved on is re-downloaded whole, and one stale
+# index costs about as much as having no lists at all. The refresh cannot happen any later than
+# this, because a Generation's capture warm plan runs with `/` read-only and no network, and the
+# machine that captures has no egress either.
+#
+# Rebuilding is not enough on its own: Docker reuses the cached layers above, so their lists would
+# come back too. Passing a fresh value for this argument invalidates this one layer and nothing
+# else, which is the whole refresh:
+#
+#   docker build --platform=linux/amd64 --build-arg REFRESH_LISTS="$(date -u +%s)" \
+#     -t soma-large-dax:3 workloads/large-dax
+#
+# The default keeps the build reproducible from its pinned inputs; a refreshed build is a
+# different image with a different digest, which is correct, because its contents differ.
+ARG REFRESH_LISTS=0
+RUN echo "apt index lists refreshed for input ${REFRESH_LISTS}" \
+ && apt-get update \
+ && apt-get clean

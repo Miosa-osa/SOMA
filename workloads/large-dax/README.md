@@ -131,20 +131,30 @@ network at all. The machine that performs a capture has no egress either, becaus
 puts a link-down placeholder behind the network device when there is no TAP broker in the process.
 
 So the lists can only be refreshed where there is both a writer and a network, which is the image
-build. **The image's final apt operation is the refresh**, and the ordering that follows from it is
-that a Generation should be compiled and captured from an image built for that capture rather than
-from one built weeks earlier:
+build. The Dockerfile therefore ends with a refresh layer that exists for exactly this, and it is
+deliberately the only layer a capture needs to invalidate:
 
 ```sh
-docker build --platform=linux/amd64 -t soma-large-dax:3 workloads/large-dax   # refreshes the lists
-docker save soma-large-dax:3 -o layout.tar && tar -xf layout.tar -C oci/large  # then to OCI media types
-prepare_generation soma-large-dax:3 oci/large <kernel> <config> <agent> <erofs> <e2fsprogs> <entry>
-capture_snapshot <entry>
+docker build --platform=linux/amd64 --build-arg REFRESH_LISTS="$(date -u +%s)" \
+  -t soma-large-dax:3 workloads/large-dax
 ```
 
-That is a pipeline ordering, not a code guarantee, which is the honest description. The durable
-answer is the cache in the next section, because it makes the update cheap whether or not the lists
-are current.
+Rebuilding alone is not enough, and this is the trap worth knowing: Docker reuses the cached layers
+above, so the lists from an earlier build would come back with them and a "rebuild before capture"
+would refresh nothing. Passing a fresh value for `REFRESH_LISTS` invalidates that one layer and
+nothing else, which is the whole refresh. The default, with no argument, keeps the build
+reproducible from its pinned inputs; a refreshed build is a different image with a different digest,
+which is correct, because its contents differ.
+
+After the refresh the lists carry the current indexes, and the install still has nothing to do:
+
+```
+lists_kib=6060        install_rc=0   (apt-get install --no-download)
+```
+
+What is left is a pipeline ordering rather than a code guarantee: the refresh is only as good as
+the last time someone ran it. The durable answer is the cache in the next section, because it makes
+the update cheap whether or not the lists are current.
 
 ## What a host-local apt cache would buy
 
