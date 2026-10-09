@@ -16,13 +16,41 @@ use crate::{
     },
 };
 
-/// A loopback port nothing listens on yet, for a private listener configured before it binds.
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("bind")
-        .local_addr()
-        .expect("address")
-        .port()
+/// The private ports this test's runners will listen on, held until they are about to bind them.
+///
+/// A port is free again the moment the listener that asked for it is dropped, so a test that
+/// chooses a port and binds it later can lose it in between to another test process doing the
+/// same thing and then fail to start its runner with `AddrInUse`: a failure of this scaffolding
+/// rather than of the forwarding under test. Holding the listeners until both configurations are
+/// built narrows that window to the instant before the runner binds, which is as close as a test
+/// can come to reserving a port the runner binds for itself.
+struct ReservedPorts {
+    listeners: Vec<TcpListener>,
+    ports: [u16; RESERVED],
+}
+
+/// How many ports this test needs: host `3`'s, host `a`'s, and one nothing answers for.
+const RESERVED: usize = 3;
+
+impl ReservedPorts {
+    /// Reserves three loopback ports.
+    fn take() -> Self {
+        let listeners: Vec<TcpListener> = (0..RESERVED)
+            .map(|_| TcpListener::bind("127.0.0.1:0").expect("reserve a port"))
+            .collect();
+        let ports = std::array::from_fn(|index| {
+            listeners[index]
+                .local_addr()
+                .expect("reserved address")
+                .port()
+        });
+        Self { listeners, ports }
+    }
+
+    /// Gives the ports up, so the runners can bind them.
+    fn release(self) {
+        drop(self.listeners);
+    }
 }
 
 fn runner_config(
@@ -57,24 +85,22 @@ fn runner_config(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_call_for_another_hosts_sandbox_is_answered_by_its_owner() {
     let (control_plane, state) = start_control_plane().await;
-    let (private_three, private_a, nobody) = (free_port(), free_port(), free_port());
+    let reserved = ReservedPorts::take();
+    let [private_three, private_a, nobody] = reserved.ports;
     let three_engine = Arc::new(Engine::default());
     let a_engine = Arc::new(Engine::default());
-    let three = start_runner(
-        runner_config(
-            control_plane,
-            '3',
-            private_three,
-            &[('a', private_a), ('b', nobody)],
-        ),
-        opener(&three_engine),
-    )
-    .await;
-    let a = start_runner(
-        runner_config(control_plane, 'a', private_a, &[('3', private_three)]),
-        opener(&a_engine),
-    )
-    .await;
+    let three_config = runner_config(
+        control_plane,
+        '3',
+        private_three,
+        &[('a', private_a), ('b', nobody)],
+    );
+    let a_config = runner_config(control_plane, 'a', private_a, &[('3', private_three)]);
+    // Both configurations name both ports, so the ports are given up only here, once there is
+    // nothing left to build before the runners bind.
+    reserved.release();
+    let three = start_runner(three_config, opener(&three_engine)).await;
+    let a = start_runner(a_config, opener(&a_engine)).await;
     eventually("both feeds", || state.connections().len() == 2).await;
     snapshot(&state, 1);
 

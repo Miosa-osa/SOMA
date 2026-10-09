@@ -48,9 +48,15 @@ pub(crate) struct ControlPlaneState {
 
 impl ControlPlaneState {
     pub(crate) fn send(&self, line: &str) {
-        let mut feed = self.feed.lock().expect("feed lock");
-        assert!(!feed.is_empty(), "a runner is connected to the feed");
-        feed.retain(|sender| sender.send(Bytes::from(format!("{line}\n"))).is_ok());
+        // The count is taken and the lock released before the assertion, because a panic while
+        // holding the mutex poisons it and every later reader then fails for that instead of for
+        // what went wrong.
+        let connected = {
+            let mut feed = self.feed.lock().expect("feed lock");
+            feed.retain(|sender| sender.send(Bytes::from(format!("{line}\n"))).is_ok());
+            feed.len()
+        };
+        assert!(connected > 0, "a runner is connected to the feed");
     }
 
     /// Ends the current feed response, as a control-plane restart would.
@@ -81,9 +87,12 @@ pub(crate) async fn control_plane_answer(
             .and_then(|query| query.strip_prefix("after="))
             .and_then(|after| after.parse().ok())
             .expect("the runner always sends after=");
-        state.afters.lock().expect("afters lock").push(after);
+        // The sender is registered before the `after` mark, so a test that waits for the mark and
+        // then sends into the feed cannot find it empty: the two are recorded separately, and the
+        // other order let a test see two connections and still have nothing to send to.
         let (sender, receiver) = mpsc::unbounded_channel();
         state.feed.lock().expect("feed lock").push(sender);
+        state.afters.lock().expect("afters lock").push(after);
         return http::Response::new(http_body_util::Either::Left(ChannelBody(receiver)));
     }
     assert_eq!(path, "/internal/soma-runner/journal");
@@ -91,12 +100,15 @@ pub(crate) async fn control_plane_answer(
         request.headers()[http::header::CONTENT_TYPE],
         "application/x-ndjson"
     );
-    let body = request
-        .into_body()
-        .collect()
-        .await
-        .expect("body")
-        .to_bytes();
+    // A runner whose connection drops mid-post is a runner that will post again, so a body that
+    // cannot be read answers as though nothing had been acknowledged rather than taking the whole
+    // test down with it.
+    let Ok(body) = request.into_body().collect().await else {
+        return http::Response::new(http_body_util::Either::Right(Full::new(
+            Bytes::from_static(b"{\"acked\":0}"),
+        )));
+    };
+    let body = body.to_bytes();
     state.posts.fetch_add(1, Ordering::SeqCst);
     let mut journal = state.journal.lock().expect("journal lock");
     for line in body
