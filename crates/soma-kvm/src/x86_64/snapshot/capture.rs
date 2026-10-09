@@ -24,7 +24,8 @@ use crate::snapshot::{
 };
 use crate::virtio::Slot;
 use crate::x86_64::{
-    error::MachineError,
+    cpuid::GuestMachine,
+    error::{MachineError, Phase},
     layout::{self, GuestLayout},
     sandbox::SandboxMachine,
 };
@@ -167,7 +168,17 @@ pub fn capture(
 
     let live = bus.snapshot_all();
     let root_digest = artifacts::hash(Artifact::Root, request.root)?;
-    let (_, cpu_template) = profile::cpu_template(paused.kvm)?;
+    // A machine always has at least one processor and its contract admits at most eight, so the
+    // count fits the field a template states it in; anything else is a machine this capture
+    // cannot describe.
+    let vcpus = u16::try_from(paused.vcpus.len()).map_err(|_| {
+        MachineError::invalid(
+            Phase::Cpuid,
+            "the machine has more processors than a template can state",
+        )
+    })?;
+    let (_, cpu_template) =
+        profile::cpu_template(paused.kvm, GuestMachine::new(request.contract, vcpus))?;
     sequence.complete(CaptureStep::ReadDevices)?;
 
     let mut memory = Staging::create(&request.paths, Artifact::Memory, request.paths.memory())?;
