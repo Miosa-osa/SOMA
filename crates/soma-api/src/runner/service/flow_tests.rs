@@ -170,17 +170,12 @@ fn created_id(response: &RunnerResponse) -> String {
 
 /// Sweeps until the expired sandbox is gone, or fails once the deadline passes.
 ///
-/// A sweep compares wall-clock instants and every destroy goes back through the facade, so on a
-/// loaded machine one sweep can need longer than the timeout itself to notice an expiry. Waiting
-/// on the condition rather than on a fixed margin is what keeps these tests about expiry instead
-/// of about how busy the host running them is.
+/// A sweep compares wall-clock instants, so waiting on the condition rather than on a fixed margin
+/// is what keeps these tests about expiry and not about how busy the machine running them is.
 pub(super) async fn reap_until_destroyed(runner: &Runner, engine: &Engine) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while engine.destroys.load(Ordering::SeqCst) == 0 {
-        assert!(
-            Instant::now() < deadline,
-            "the reaper never destroyed a sandbox whose lifetime had run out"
-        );
+        assert!(Instant::now() < deadline, "the reaper never destroyed it");
         tokio::time::sleep(Duration::from_millis(10)).await;
         runner.reap().await;
     }
@@ -224,36 +219,39 @@ async fn a_restarted_runner_readopts_the_sandboxes_its_tenants_created() {
 async fn an_expired_sandbox_is_destroyed_by_the_reaper() {
     let engine = Arc::new(Engine::default());
     let runner = runner(&engine, r#""*""#, "null");
-    // Created with a lifetime no load can make this test outlast, so the sweep below proves what
-    // the contract says it proves, that a sandbox inside its lifetime survives one, instead of
-    // racing the clock: at one second, a create and a sweep on a loaded machine could take longer
-    // than the lifetime and the sandbox was already expired before it was ever swept.
+    // A sandbox with time left is not swept. Its timeout is an hour rather than a second because
+    // this is about the sweep's own rule, not about how fast one request follows another: the one
+    // meant to expire is created below.
+    let living = call(
+        &runner,
+        http::Method::POST,
+        "/api/v1/sandboxes",
+        r#"{"timeout_sec":3600}"#,
+    )
+    .await;
+    assert_eq!(living.status, 201);
+    runner.reap().await;
+    assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
+    assert_eq!(runner.sandboxes().live(), 1);
+
+    // One whose time is up is swept, and the sweep journals its expiry.
     let created = call(
         &runner,
         http::Method::POST,
         "/api/v1/sandboxes",
-        r#"{"timeout_sec":600}"#,
+        r#"{"timeout_sec":1}"#,
     )
     .await;
     assert_eq!(created.status, 201);
 
-    runner.reap().await;
-    assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
-
-    // Shortened to a second, and then destroyed by the sweep that follows the expiry.
-    let shortened = call(
-        &runner,
-        http::Method::PATCH,
-        &format!("/api/v1/sandboxes/{}", created_id(&created)),
-        r#"{"timeout":1}"#,
-    )
-    .await;
-    assert_eq!(shortened.status, 200);
-
     reap_until_destroyed(&runner, &engine).await;
 
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
-    assert_eq!(runner.sandboxes().live(), 0);
+    assert_eq!(
+        runner.sandboxes().live(),
+        1,
+        "only the sandbox whose time was up is swept"
+    );
     // The create's own paperwork is the transport's job; the sweep journals its expiry.
     wait_for(runner.journal(), 1);
     let journal = std::fs::read_to_string(runner.journal().path()).expect("journal");
