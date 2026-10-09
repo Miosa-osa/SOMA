@@ -15,7 +15,10 @@ use crate::{
 };
 
 /// The image the large proof builds its Generation from, exported from the workload Dockerfile.
-const LARGE: &str = "soma-large-dax:1";
+///
+/// Version 2 of the tag carries `python3-setuptools`, which is the one package the DAX script's
+/// `prepare()` installs that version 1 did not bake.
+const LARGE: &str = "soma-large-dax:2";
 /// The machine contract v2 shape this Generation targets.
 const MEMORY_MIB: u64 = 16 * 1024;
 const STORAGE_MIB: u64 = 20 * 1024;
@@ -34,6 +37,8 @@ const SIZE_MAX: u64 = 4 * 1024 * 1024;
 pub const SCRIPT: &str = r#"set -u
 echo "TMP_FSTYPE=$(findmnt -no FSTYPE /tmp)"
 echo "TMP_SIZE_KIB=$(df -k /tmp | awk 'NR==2 {print $2}')"
+echo "TMP_SAME_DEVICE_AS_ROOT=$( [ "$(stat -c %d /tmp)" = "$(stat -c %d /)" ] && echo yes || echo no )"
+echo "TMP_MODE=$(stat -c %a /tmp)"
 echo "RUN_FSTYPE=$(findmnt -no FSTYPE /run)"
 echo "RUN_SIZE_KIB=$(df -k /run | awk 'NR==2 {print $2}')"
 for d in /sys/block/vd*; do
@@ -48,7 +53,13 @@ dd if=/dev/zero of=/var/blkproof/fill bs=1M count=256 status=none
 echo "BLK_WRITE_BYTES=$(wc -c < /var/blkproof/fill)"
 sync
 echo "BLK_SYNC=ok"
-rm -rf /var/blkproof
+find /var/blkproof -mindepth 1 -delete
+mkdir -p /tmp/blkproof
+dd if=/dev/zero of=/tmp/blkproof/fill bs=1M count=256 status=none
+echo "TMP_WRITE_BYTES=$(wc -c < /tmp/blkproof/fill)"
+sync
+echo "TMP_SYNC=ok"
+find /tmp/blkproof -mindepth 1 -delete
 echo "END""#;
 
 #[test]
@@ -124,30 +135,52 @@ fn assert_block_transfer(stdout: &str) {
         );
     }
 
-    assert_eq!(
-        reported(stdout, "blk_write_bytes"),
-        Some(WRITE_BYTES),
-        "the guest did not write what it was told to: stdout={stdout:?}"
-    );
-    // The stall was a `sync` that never returned, so the boot finishing with this line printed
-    // after it is the whole point.
-    assert_eq!(
-        line(stdout, "blk_sync"),
-        Some("ok"),
-        "the guest never came back from sync: stdout={stdout:?}"
-    );
+    // Both writes reach the private overlay, which is a virtio block device, so either one
+    // reproduces the stall. `/var` is asserted first because it is the same location every
+    // revision writes to, which keeps the before and after runs comparable.
+    for (bytes, synced) in [
+        ("blk_write_bytes", "blk_sync"),
+        ("tmp_write_bytes", "tmp_sync"),
+    ] {
+        assert_eq!(
+            reported(stdout, bytes),
+            Some(WRITE_BYTES),
+            "the guest did not write what it was told to: stdout={stdout:?}"
+        );
+        // The stall was a `sync` that never returned, so the boot finishing with this line
+        // printed after it is the whole point.
+        assert_eq!(
+            line(stdout, synced),
+            Some("ok"),
+            "the guest never came back from sync: stdout={stdout:?}"
+        );
+    }
     assert!(stdout.contains("END"), "the guest script did not finish");
 }
 
-/// Asserts the scratch filesystem the large shape was given, and that `/run` did not move.
+/// Asserts that the large shape's scratch filesystem is on the writable root, not in RAM.
 fn assert_scratch(stdout: &str) {
-    assert_eq!(line(stdout, "tmp_fstype"), Some("tmpfs"));
+    // A tmpfs is charged to guest RAM, which on a build shape is RAM the build cannot have. `/tmp`
+    // must be the same device as `/`, which is the private overlay, and it must be roomy enough
+    // that a workspace does not stop at 64 MiB.
+    assert_ne!(
+        line(stdout, "tmp_fstype"),
+        Some("tmpfs"),
+        "/tmp is still in RAM: stdout={stdout:?}"
+    );
+    assert_eq!(
+        line(stdout, "tmp_same_device_as_root"),
+        Some("yes"),
+        "/tmp is not on the writable root: stdout={stdout:?}"
+    );
+    assert_eq!(line(stdout, "tmp_mode"), Some("1777"), "stdout={stdout:?}");
     let tmp = reported(stdout, "tmp_size_kib").expect("no /tmp size reported");
     assert!(
-        tmp >= 7 * 1024 * 1024,
-        "/tmp is {tmp} KiB, which is not the large shape's half of RAM; 64 MiB is 65536 KiB"
+        tmp >= 15 * 1024 * 1024,
+        "/tmp holds {tmp} KiB, which is not the twenty-gigabyte writable root"
     );
-    // `/run` holds sockets and process state, not a workload, so the small machine's size stands.
+
+    // `/run` holds sockets and process state, not a workload, so the small machine's tmpfs stands.
     assert_eq!(line(stdout, "run_fstype"), Some("tmpfs"));
     assert_eq!(
         reported(stdout, "run_size_kib"),
