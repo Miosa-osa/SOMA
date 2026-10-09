@@ -211,7 +211,7 @@ impl Machine {
 
     /// Creates vCPU 0 with the filtered CPUID template and the contract's protected-mode state.
     fn boot_vcpu(&self, entry: u64, clock: &mut Stopwatch) -> Result<VcpuFd, MachineError> {
-        let mut vcpus = self.boot_vcpus(entry, 1, clock)?;
+        let mut vcpus = self.boot_vcpus(entry, 1, cpuid::GuestMachine::one(), clock)?;
         vcpus
             .pop()
             .ok_or_else(|| MachineError::invalid(Phase::CreateVcpu, "no vCPU was created"))
@@ -223,10 +223,15 @@ impl Machine {
     /// processor is left waiting for the INIT/SIPI the guest's own SMP bringup sends, which is
     /// where a real application processor starts. One dedicated host thread runs each of them,
     /// which is the machine contract's one-thread-per-vCPU property.
+    ///
+    /// What each vCPU's template states is the machine being booted, so a caller that boots a
+    /// version 2 machine passes its contract and its processor count; a diagnostic boot is the
+    /// single-processor version 1 machine and states nothing a host did not.
     fn boot_vcpus(
         &self,
         entry: u64,
         count: u16,
+        machine: cpuid::GuestMachine,
         clock: &mut Stopwatch,
     ) -> Result<Vec<VcpuFd>, MachineError> {
         if count == 0 {
@@ -251,6 +256,7 @@ impl Machine {
                         "the vCPU index does not fit the APIC identifier field",
                     )
                 })?,
+                machine,
             )?;
             clock.lap(Phase::Cpuid);
             if index == 0 {

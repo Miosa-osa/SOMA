@@ -28,6 +28,7 @@ use super::{
     channel::ControlChannel,
     cmdline,
     console_tap::ConsoleTap,
+    cpuid,
     devices::{self, SharedBus},
     event_loop::{EventLoop, EventLoopReport},
     events::{IrqLines, NotifyFds},
@@ -140,7 +141,8 @@ impl SandboxMachine {
         drop(image);
         clock.lap(Phase::LoadGuest);
         timeline.mark(Milestone::LoadGuest);
-        let vcpus = machine.boot_vcpus(loaded.entry, config.vcpus, &mut clock)?;
+        let shape = cpuid::GuestMachine::new(config.contract, config.vcpus);
+        let vcpus = machine.boot_vcpus(loaded.entry, config.vcpus, shape, &mut clock)?;
         timeline.mark(Milestone::Vcpu);
         let serial_line = EventFd::new(libc::EFD_NONBLOCK)
             .map_err(|error| MachineError::io(Phase::Events, &error))?;

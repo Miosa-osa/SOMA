@@ -156,16 +156,26 @@ pub(in crate::x86_64) fn expectation(slot: Slot, contract: MachineContract) -> D
 ///
 /// Returns the KVM failure, or the template rejection when the host cannot provide a leaf
 /// the contract requires.
-pub(in crate::x86_64) fn cpu_template(kvm: &Kvm) -> Result<(CpuId, Digest), SnapshotError> {
+pub(in crate::x86_64) fn cpu_template(
+    kvm: &Kvm,
+    machine: cpuid::GuestMachine,
+) -> Result<(CpuId, Digest), SnapshotError> {
     let mut template = kvm
         .get_supported_cpuid(KVM_MAX_CPUID_ENTRIES)
         .map_err(|error| SnapshotError::ioctl("KVM_GET_SUPPORTED_CPUID", error))?;
     // The canonical digest describes the bootstrap processor's template; the per-processor
-    // identifier is implied by the certified vCPU count rather than hashed N times.
-    cpuid::apply_template(&mut template, 0)?;
+    // identifier is implied by the certified vCPU count rather than hashed N times. It is built
+    // from the same machine the host installs from, so a version 2 machine compares against the
+    // template it actually runs rather than against the host's own answer.
+    cpuid::apply_template(&mut template, 0, machine)?;
     let entries = CpuidEntries::try_from(&template)?;
     let mut hasher = Hasher::new();
-    hasher.update(b"SOMA-cpu-template-v1\0");
+    // Version 2 states leaves version 1 does not, so the two templates are different machines and
+    // get different domains; version 1 keeps the domain its digests have always used.
+    hasher.update(match machine.contract() {
+        MachineContract::V1 => b"SOMA-cpu-template-v1\0".as_slice(),
+        MachineContract::V2 => b"SOMA-cpu-template-v2\0".as_slice(),
+    });
     for entry in entries.entries() {
         for word in [
             entry.function,
@@ -218,7 +228,7 @@ pub(in crate::x86_64) fn host_profile(
         .filter(|(_, cap)| kvm.check_extension(*cap))
         .map(|(capability, _)| *capability)
         .collect();
-    let (_, cpu_template) = cpu_template(kvm)?;
+    let (_, cpu_template) = cpu_template(kvm, cpuid::GuestMachine::new(contract, vcpus))?;
     let expectations = Slot::ALL.map(|slot| devices.has(slot).then(|| expectation(slot, contract)));
     Ok(HostProfile {
         schema_version: SCHEMA_VERSION,
