@@ -9,9 +9,9 @@ extend-exclude = [
     # Shell test fixtures are captured machine envelopes, carrying base64 output and digests from
     # a real run. They are data the tests compare against, so nothing in them may be rewritten.
     "scripts/tests/fixtures/",
-    # The pinned kernel configuration is upstream Linux symbol names, not prose. It is compared
-    # byte for byte against the kernel build, so nothing in it may be rewritten.
-    "kernel/config-x86_64-soma-v1",
+    # The pinned kernel configurations are upstream Linux symbol names, not prose. Each shape's is
+    # compared byte for byte against the kernel build, so nothing in it may be rewritten.
+    "kernel/config-x86_64-soma-*",
     "kernel/required-config.txt",
     "kernel/soma-v1.fragment",
 ]
