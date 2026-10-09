@@ -12,18 +12,26 @@ use std::os::unix::fs::PermissionsExt;
 
 use crate::boot::Declared;
 use crate::mounts;
+use crate::tuning;
 
 const HOSTNAME_SYSCTL: &str = "/proc/sys/kernel/hostname";
 const HOSTNAME_FILE: &str = "/etc/hostname";
 const MACHINE_ID_FILE: &str = "/etc/machine-id";
 const MACHINE_ID_STAGING: &str = "/etc/.machine-id.soma";
 const HOSTNAME_PREFIX: &str = "soma-";
-/// Filesystem-specific tmpfs parameters; `nosuid` and `nodev` are mount flags, not
-/// parameters, and the new mount API rejects them inside the option string.
-const SESSION_TMPFS: [(&str, &str); 2] = [
-    ("/run", "mode=0755,size=16m"),
-    ("/tmp", "mode=1777,size=64m"),
-];
+// The session filesystems carry only option strings: `nosuid` and `nodev` are mount flags, not
+// parameters, and the new mount API rejects them inside the option string.
+
+/// Process state, never a workload, so its 16 MiB has never needed to move.
+const RUN_DIRECTORY: &str = "/run";
+/// The options `/run` is mounted with.
+const RUN_OPTIONS: &str = "mode=0755,size=16m";
+/// The shared scratch filesystem, where a workload writes its workspace.
+const SCRATCH_DIRECTORY: &str = "/tmp";
+/// The tmpfs `/tmp` is mounted as, on a machine that has no writable root to put it on.
+const SCRATCH_TMPFS_OPTIONS: &str = "mode=1777,size=64m";
+/// The permissions the scratch directory is given.
+const SCRATCH_MODE: u32 = 0o1777;
 const NANOS_PER_SECOND: u64 = 1_000_000_000;
 
 /// Redacted identity-repair failure.
@@ -97,12 +105,56 @@ pub fn repair(
             .and_then(|()| fs::rename(MACHINE_ID_STAGING, MACHINE_ID_FILE))
             .map_err(|error| IdentityError::MachineId(errno(&error)))?;
     }
-    // The session tmpfs mounts happen either way: they are what gives a read-only sandbox a
-    // writable `/tmp` and `/run` at all, and they carry no captured state into the Instance.
-    for (directory, options) in SESSION_TMPFS {
-        reset_session_directory(directory, options)?;
+    // `/run` is a tmpfs either way: process state, never a workload, and it is what gives a
+    // read-only sandbox a writable `/run` at all.
+    reset_session_directory(RUN_DIRECTORY, RUN_OPTIONS)?;
+    // `/tmp` is where a workload writes its workspace, so where it lives is a sizing decision
+    // rather than a session one. See [`scratch_on_disk`].
+    if scratch_on_disk(declared.overlay, tuning::total_memory_bytes()) {
+        reset_scratch_directory(SCRATCH_DIRECTORY)?;
+    } else {
+        reset_session_directory(SCRATCH_DIRECTORY, SCRATCH_TMPFS_OPTIONS)?;
     }
     set_clock(time_sample_nanos)
+}
+
+/// Whether this machine keeps `/tmp` on its writable root rather than in RAM.
+///
+/// A tmpfs is charged to guest RAM. On the large shape, which is where a build writes a
+/// workspace, that is RAM the build cannot have: measured 2026-10-08, a large DAX run with `/tmp`
+/// in RAM was killed by the OOM killer about one run in three, and Firecracker keeps `/tmp` on
+/// disk for the same reason. The private overlay is where those bytes were always going to live,
+/// so the large shape puts them there.
+///
+/// Both halves are needed. The size decides the policy, because the version 1 machine keeps the
+/// tmpfs it has always had; the overlay decides whether the policy is possible at all, because a
+/// machine with no writable root has nowhere else to put `/tmp` and a read-only root would leave
+/// it unusable.
+#[must_use]
+pub const fn scratch_on_disk(overlay: bool, total_bytes: Option<u64>) -> bool {
+    match total_bytes {
+        Some(total) => overlay && tuning::sizing_applies(total),
+        None => false,
+    }
+}
+
+/// Empties the scratch directory and gives it back at the mode a tmpfs would have had.
+///
+/// A tmpfs mounted over `/tmp` hid whatever the image and the Generation's warm commands left
+/// there, so no Instance ever saw it. A directory on the writable root has to be emptied for the
+/// same reason, or a warmed file becomes captured state that every Instance inherits.
+fn reset_scratch_directory(directory: &str) -> Result<(), IdentityError> {
+    match fs::symlink_metadata(directory) {
+        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(directory)
+            .map_err(|error| IdentityError::SessionState(errno(&error)))?,
+        Ok(_) => fs::remove_file(directory)
+            .map_err(|error| IdentityError::SessionState(errno(&error)))?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(IdentityError::SessionState(errno(&error))),
+    }
+    fs::create_dir_all(directory).map_err(|error| IdentityError::SessionState(errno(&error)))?;
+    fs::set_permissions(directory, fs::Permissions::from_mode(SCRATCH_MODE))
+        .map_err(|error| IdentityError::SessionState(errno(&error)))
 }
 
 fn reset_session_directory(directory: &str, options: &str) -> Result<(), IdentityError> {
@@ -175,6 +227,24 @@ mod tests {
         );
         assert_eq!(timespec(0), (0, 0));
         assert!(timespec(u64::MAX).1 < 1_000_000_000);
+    }
+
+    #[test]
+    fn the_scratch_filesystem_moves_to_disk_only_for_a_large_machine_that_has_one() {
+        // The large shape is where a workspace is written, and a tmpfs would charge it to guest
+        // RAM. Above the version 1 ceiling, and only with a writable root to put it on.
+        assert!(scratch_on_disk(
+            true,
+            Some(16 * 1024 * 1024 * 1024 - 4096 * 1024)
+        ));
+        assert!(scratch_on_disk(true, Some(3 * 1024 * 1024 * 1024 + 1)));
+        // A version 1 machine keeps the 64 MiB tmpfs it has always had.
+        assert!(!scratch_on_disk(true, Some(256 * 1024 * 1024)));
+        assert!(!scratch_on_disk(true, Some(3 * 1024 * 1024 * 1024)));
+        // A read-only root has nowhere else to put `/tmp`, so the tmpfs stays whatever the size.
+        assert!(!scratch_on_disk(false, Some(16 * 1024 * 1024 * 1024)));
+        // A kernel that does not report its memory is not a machine whose shape we know.
+        assert!(!scratch_on_disk(true, None));
     }
 
     #[test]

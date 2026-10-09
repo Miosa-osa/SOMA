@@ -99,7 +99,7 @@ pub(in crate::x86_64) fn required_memory_slots(layout: GuestLayout) -> u16 {
 /// That check runs against the constant-size manifest header, before a single byte of the
 /// memory object is mapped.
 #[must_use]
-pub(in crate::x86_64) fn device_contract(devices: DeviceSet) -> Digest {
+pub(in crate::x86_64) fn device_contract(devices: DeviceSet, contract: MachineContract) -> Digest {
     let mut hasher = Hasher::new();
     hasher.update(b"SOMA-device-surface-v1\0");
     for slot in devices.present() {
@@ -107,7 +107,7 @@ pub(in crate::x86_64) fn device_contract(devices: DeviceSet) -> Digest {
         hasher.update(&slot.gsi().to_be_bytes());
         hasher.update(&slot.device_id().to_be_bytes());
         hasher.update(&slot.queue_count().to_be_bytes());
-        let expectation = expectation(slot);
+        let expectation = expectation(slot, contract);
         hasher.update(&expectation.negotiated_features.to_be_bytes());
         for limit in expectation.queue_limits {
             hasher.update(&limit.to_be_bytes());
@@ -117,18 +117,23 @@ pub(in crate::x86_64) fn device_contract(devices: DeviceSet) -> Digest {
 }
 
 /// The feature allowlist and queue limits this implementation offers on one slot.
+///
+/// The machine contract is an argument because a version 2 block device declares the largest
+/// request it answers and a version 1 one, whose surface is certified, does not: two different
+/// devices, and a snapshot may only be restored onto the one it was taken from.
 #[must_use]
-pub(in crate::x86_64) fn expectation(slot: Slot) -> DeviceExpectation {
+pub(in crate::x86_64) fn expectation(slot: Slot, contract: MachineContract) -> DeviceExpectation {
     let mut queue_limits = [0_u16; MAX_QUEUES];
+    let transfer = crate::x86_64::devices::block_transfer(contract);
     let (kind, negotiated_features, limits): (DeviceKind, u64, &[u16]) = match slot {
         Slot::Root => (
             DeviceKind::RootBlock,
-            BlockRole::ImmutableRoot.features(),
+            BlockRole::ImmutableRoot.features(transfer),
             &BLOCK_QUEUE_MAX,
         ),
         Slot::Overlay => (
             DeviceKind::OverlayBlock,
-            BlockRole::PrivateOverlay.features(),
+            BlockRole::PrivateOverlay.features(transfer),
             &BLOCK_QUEUE_MAX,
         ),
         Slot::Net => (DeviceKind::Net, NET_FEATURES, &NET_QUEUE_MAX),
@@ -214,7 +219,7 @@ pub(in crate::x86_64) fn host_profile(
         .map(|(capability, _)| *capability)
         .collect();
     let (_, cpu_template) = cpu_template(kvm)?;
-    let expectations = Slot::ALL.map(|slot| devices.has(slot).then(|| expectation(slot)));
+    let expectations = Slot::ALL.map(|slot| devices.has(slot).then(|| expectation(slot, contract)));
     Ok(HostProfile {
         schema_version: SCHEMA_VERSION,
         architecture: Architecture::X86_64,
@@ -223,11 +228,61 @@ pub(in crate::x86_64) fn host_profile(
         capabilities,
         memory_slots: u16::try_from(kvm.get_nr_memslots()).unwrap_or(u16::MAX),
         machine_contract: machine_contract(contract, devices),
-        device_contract: device_contract(devices),
+        device_contract: device_contract(devices, contract),
         cpu_template,
         vcpu_count: vcpus,
         memory_bytes,
         guest_protocol_version: GUEST_PROTOCOL_VERSION,
         devices: expectations,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::device_state::DeviceKind;
+    use crate::virtio::{
+        BLOCK_QUEUE_MAX, Slot, TransferShape, VIRTIO_BLK_F_SEG_MAX, VIRTIO_BLK_F_SIZE_MAX,
+    };
+
+    /// The device surface of machine contract version 1, as a digest that must never move.
+    ///
+    /// Version 1 is certified and served: every snapshot taken under it names this value in its
+    /// manifest header, and a restore compares it before it maps a byte of memory. Changing the
+    /// surface changes this digest and turns every one of those snapshots into a refusal, so the
+    /// value is pinned here rather than left to a round trip that would pass either way.
+    const V1_DEVICE_SURFACE: &str =
+        "d3d2be87c258c5cb40469fdbe60b82c579821ba265360d79afec9abef88580d3";
+
+    #[test]
+    fn the_version_one_device_surface_is_the_certified_one() {
+        assert_eq!(
+            device_contract(DeviceSet::FULL, MachineContract::V1).to_string(),
+            V1_DEVICE_SURFACE,
+            "the version 1 device surface moved, and every version 1 snapshot names the old one"
+        );
+    }
+
+    #[test]
+    fn a_version_two_block_slot_declares_its_transfer_limits_and_version_one_does_not() {
+        // The two contracts are different devices, so a snapshot of one is refused by the other.
+        assert_ne!(
+            device_contract(DeviceSet::FULL, MachineContract::V1),
+            device_contract(DeviceSet::FULL, MachineContract::V2)
+        );
+        let v1 = expectation(Slot::Overlay, MachineContract::V1);
+        let v2 = expectation(Slot::Overlay, MachineContract::V2);
+        let declared = VIRTIO_BLK_F_SIZE_MAX | VIRTIO_BLK_F_SEG_MAX;
+        assert_eq!(v2.kind, DeviceKind::OverlayBlock);
+        assert_eq!(v2.negotiated_features & declared, declared);
+        assert_eq!(v1.negotiated_features & declared, 0);
+        assert_eq!(v1.queue_limits, v2.queue_limits);
+        assert_eq!(v1.queue_limits[0], BLOCK_QUEUE_MAX[0]);
+        // The one thing the two contracts share is the role's own allowlist underneath.
+        assert_eq!(
+            BlockRole::PrivateOverlay.features(TransferShape::Declared)
+                ^ BlockRole::PrivateOverlay.features(TransferShape::Undeclared),
+            declared
+        );
+    }
 }

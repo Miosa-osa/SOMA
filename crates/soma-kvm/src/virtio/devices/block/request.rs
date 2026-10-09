@@ -31,7 +31,13 @@ pub const REQUEST_HEADER_LEN: u64 = 16;
 /// Device identity length for `GET_ID`.
 pub const BLK_ID_LEN: usize = 20;
 /// Largest data region one request may carry.
-pub const MAX_REQUEST_BYTES: u64 = 1 << 20;
+///
+/// Four mebibytes, which is the value the device advertises through `size_max` wherever the
+/// machine contract offers that feature. A driver that keeps the kernel's default of 1280 KiB
+/// per request is well inside it, and a driver that respects the advertisement can never form a
+/// request this rejects. A driver that ignores the advertisement gets
+/// [`RequestError::TooLarge`], which is a status byte rather than a lost chain.
+pub const MAX_REQUEST_BYTES: u64 = 4 * 1024 * 1024;
 
 /// A validated operation on the backing store.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -138,8 +138,8 @@ impl fmt::Display for Report {
     }
 }
 
-/// Reads `MemTotal` from `/proc/meminfo`, in bytes.
-fn total_memory_bytes() -> Option<u64> {
+/// Reads `MemTotal` from `/proc/meminfo`, in bytes; `None` when the kernel does not report it.
+pub(crate) fn total_memory_bytes() -> Option<u64> {
     let text = fs::read_to_string(MEMINFO).ok()?;
     let kib = text
         .lines()

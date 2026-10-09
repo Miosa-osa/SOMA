@@ -10,8 +10,11 @@ use crate::virtio::transport::status::*;
 use crate::virtio::transport::{MmioTransport, TransportEvent};
 
 const W: AccessWidth = AccessWidth::U32;
-/// Total guest RAM; large enough for a 1 MiB block request plus rings.
-pub(crate) const MEM_LEN: usize = 4 << 20;
+/// Total guest RAM; large enough for the block device's largest request plus the ring.
+///
+/// The block device's protocol limit is four mebibytes, and testing the refusal of a request
+/// past it needs room for that request and a little more, so the rig carries eight.
+pub(crate) const MEM_LEN: usize = 8 << 20;
 const QUEUE_BASE: u64 = 0x1000;
 const QUEUE_STRIDE: u64 = 0x4000;
 const DATA_BASE: u64 = 0x40000;

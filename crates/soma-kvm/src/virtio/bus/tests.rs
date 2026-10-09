@@ -6,6 +6,7 @@ mod optional;
 use super::slots::{SlotRestoreError, SlotSnapshot};
 use super::*;
 use crate::virtio::device::DeviceStateError;
+use crate::virtio::devices::block::TransferShape;
 use crate::virtio::devices::block::backend::MemoryBackend;
 use crate::virtio::devices::harness::{GuestRig, Seg};
 use crate::virtio::devices::net::NET_FEATURES;
@@ -31,7 +32,14 @@ const SPEC_COMMAND_LINE: &str = "virtio_mmio.device=4K@0xd0000000:5:0 virtio_mmi
 
 fn block(role: BlockRole) -> BlockDevice {
     let backend = MemoryBackend::zeroed(8, role == BlockRole::ImmutableRoot);
-    BlockDevice::new(role, Box::new(backend), 512, [0; 20]).expect("block")
+    BlockDevice::new(
+        role,
+        Box::new(backend),
+        512,
+        [0; 20],
+        TransferShape::Undeclared,
+    )
+    .expect("block")
 }
 
 fn devices(mac: [u8; 6]) -> BusDevices {

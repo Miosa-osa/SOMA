@@ -214,10 +214,13 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     let bus = recreate_devices(
         &machine,
         root,
-        overlay_capacity_bytes,
         &state,
         &Identity { mac, captured_cid },
-        devices,
+        devices::Declared {
+            overlay_capacity_bytes,
+            set: devices,
+            contract,
+        },
     )?;
     sequence.complete(RestoreStep::RecreateIrqchipAndDevices)?;
     timeline.mark(Milestone::Devices);

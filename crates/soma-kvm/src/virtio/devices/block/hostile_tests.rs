@@ -119,8 +119,14 @@ fn file_backend_reads_root_and_writes_flushes_overlay_on_a_temp_file() {
         4096,
         "trailing partial sector is ignored"
     );
-    let device =
-        BlockDevice::new(BlockRole::ImmutableRoot, Box::new(root), 512, [0; 20]).expect("dev");
+    let device = BlockDevice::new(
+        BlockRole::ImmutableRoot,
+        Box::new(root),
+        512,
+        [0; 20],
+        TransferShape::Undeclared,
+    )
+    .expect("dev");
     let (mut rig, mut t) = boot_with(device);
     let (status, used, addr) = run(&mut rig, &mut t, VIRTIO_BLK_T_IN, 2, Some((512, true, &[])));
     assert_eq!((status, used), (VIRTIO_BLK_S_OK, 513));
@@ -145,8 +151,14 @@ fn file_backend_reads_root_and_writes_flushes_overlay_on_a_temp_file() {
         .open(&overlay_path)
         .expect("rw");
     let overlay = FileBackend::new(overlay_file, false).expect("backend");
-    let device =
-        BlockDevice::new(BlockRole::PrivateOverlay, Box::new(overlay), 512, [0; 20]).expect("dev");
+    let device = BlockDevice::new(
+        BlockRole::PrivateOverlay,
+        Box::new(overlay),
+        512,
+        [0; 20],
+        TransferShape::Undeclared,
+    )
+    .expect("dev");
     let (mut rig, mut t) = boot_with(device);
     let payload = [0x77u8; 1024];
     let (status, _, _) = run(

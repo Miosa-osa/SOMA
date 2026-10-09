@@ -2,7 +2,7 @@
 
 use super::backend::{Detached, MemoryBackend};
 use super::tests::SERIAL;
-use super::{BlockConfigError, BlockDevice, BlockRole};
+use super::{BlockConfigError, BlockDevice, BlockRole, TransferShape};
 use crate::virtio::devices::block::backend::{BackendError, BlockBackend};
 
 const SECTORS: usize = 8;
@@ -14,6 +14,7 @@ fn declared() -> BlockDevice {
         Box::new(Detached::new(CAPACITY, false)),
         512,
         SERIAL,
+        TransferShape::Undeclared,
     )
     .expect("a device may be built against a declared shape")
 }

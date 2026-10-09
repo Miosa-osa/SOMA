@@ -10,6 +10,7 @@ mod construct;
 mod execute;
 pub mod request;
 pub mod state;
+mod transfer;
 
 use std::fmt;
 
@@ -25,6 +26,7 @@ use request::{
     MAX_REQUEST_BYTES, REQUEST_HEADER_LEN, RequestError, RequestLimits, SECTOR_SIZE,
     VIRTIO_BLK_S_IOERR, parse_request,
 };
+pub use transfer::{TRANSFER_SEG_MAX, TransferShape, VIRTIO_BLK_F_SEG_MAX, VIRTIO_BLK_F_SIZE_MAX};
 
 /// Virtio device identifier for a block device.
 pub const VIRTIO_BLK_DEVICE_ID: u32 = 2;
@@ -40,9 +42,17 @@ pub const BLOCK_QUEUE_MAX: [u16; 1] = [256];
 pub const BLOCK_CONFIG_LEN: usize = 24;
 /// Device identity length reported by `GET_ID`.
 pub const BLOCK_SERIAL_LEN: usize = request::BLK_ID_LEN;
+/// Host cap on the aggregate bytes of one chain, applied before the walk materializes segments.
+///
+/// The walker's cap is a bounds check on the chain; the parser's [`MAX_REQUEST_BYTES`] is the
+/// device's protocol limit, and it answers an over-limit request with `VIRTIO_BLK_S_IOERR` on a
+/// queue that keeps running. The two must not be equal: a chain the walker rejects is dropped
+/// without a status byte, and a driver whose request is never completed waits on it forever.
+/// The cap therefore sits twice the protocol limit up, so a driver that ignores the advertised
+/// transfer limit still gets an answer instead of losing the machine.
 const CHAIN_LIMITS: ChainLimits = ChainLimits {
     max_descriptors: 256,
-    max_bytes: MAX_REQUEST_BYTES + REQUEST_HEADER_LEN + 1,
+    max_bytes: 2 * MAX_REQUEST_BYTES + REQUEST_HEADER_LEN + 1,
 };
 
 /// Which of the two v1 block devices this model is.
@@ -55,13 +65,14 @@ pub enum BlockRole {
 }
 
 impl BlockRole {
-    /// Exact feature allowlist for the role.
+    /// Exact feature allowlist for the role, under a device of the given transfer shape.
     #[must_use]
-    pub const fn features(self) -> u64 {
-        match self {
+    pub const fn features(self, transfer: TransferShape) -> u64 {
+        let role = match self {
             Self::ImmutableRoot => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_RO | VIRTIO_BLK_F_BLK_SIZE,
             Self::PrivateOverlay => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_FLUSH,
-        }
+        };
+        role | transfer.features()
     }
 
     const fn read_only(self) -> bool {
@@ -105,6 +116,7 @@ pub struct BlockCounters {
 /// One block device model.
 pub struct BlockDevice {
     role: BlockRole,
+    transfer: TransferShape,
     backend: Box<dyn BlockBackend + Send>,
     blk_size: u32,
     capacity_sectors: u64,
@@ -117,6 +129,18 @@ impl BlockDevice {
     #[must_use]
     pub const fn role(&self) -> BlockRole {
         self.role
+    }
+
+    /// The transfer shape this device advertises.
+    #[must_use]
+    pub const fn transfer(&self) -> TransferShape {
+        self.transfer
+    }
+
+    /// The exact feature allowlist this device offers.
+    #[must_use]
+    pub const fn features(&self) -> u64 {
+        self.role.features(self.transfer)
     }
 
     #[must_use]
@@ -142,6 +166,13 @@ impl BlockDevice {
     fn config_bytes(&self) -> [u8; BLOCK_CONFIG_LEN] {
         let mut raw = [0u8; BLOCK_CONFIG_LEN];
         raw[0..8].copy_from_slice(&self.capacity_sectors.to_le_bytes());
+        // The two fields are only read when their feature bits are negotiated, so a device that
+        // advertises neither leaves them zero rather than publishing a limit nobody may use.
+        if self.transfer == TransferShape::Declared {
+            let size_max = u32::try_from(MAX_REQUEST_BYTES).unwrap_or(u32::MAX);
+            raw[8..12].copy_from_slice(&size_max.to_le_bytes());
+            raw[12..16].copy_from_slice(&TRANSFER_SEG_MAX.to_le_bytes());
+        }
         raw[20..24].copy_from_slice(&self.blk_size.to_le_bytes());
         raw
     }
@@ -150,7 +181,7 @@ impl BlockDevice {
         RequestLimits {
             capacity_bytes: self.capacity_sectors * SECTOR_SIZE,
             read_only: self.role.read_only(),
-            flush: self.role.features() & VIRTIO_BLK_F_FLUSH != 0,
+            flush: self.features() & VIRTIO_BLK_F_FLUSH != 0,
         }
     }
 }
@@ -197,7 +228,7 @@ impl VirtioDevice for BlockDevice {
     }
 
     fn feature_allowlist(&self) -> u64 {
-        self.role.features()
+        self.features()
     }
 
     fn queue_max_sizes(&self) -> &[u16] {
@@ -223,7 +254,7 @@ impl VirtioDevice for BlockDevice {
     }
 
     fn activate(&mut self, negotiated_features: u64) -> Result<(), ActivateError> {
-        if negotiated_features & !self.role.features() != 0 {
+        if negotiated_features & !self.features() != 0 {
             return Err(ActivateError::UnsupportedFeatures {
                 negotiated: negotiated_features,
             });
@@ -251,3 +282,5 @@ mod hostile_tests;
 mod identity_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod transfer_tests;
