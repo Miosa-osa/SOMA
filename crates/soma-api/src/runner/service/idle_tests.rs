@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use super::flow_tests::{Engine, call, runner};
+use super::flow_tests::{Engine, call, reap_until_destroyed, runner};
 
 fn id_of(response: &super::RunnerResponse) -> String {
     let body: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
@@ -141,8 +141,7 @@ async fn a_command_longer_than_the_idle_timeout_holds_its_sandbox() {
     // The timer restarted when the command ended: still alive just after, gone once idle.
     runner.reap().await;
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
-    tokio::time::sleep(Duration::from_millis(1_100)).await;
-    runner.reap().await;
+    reap_until_destroyed(&runner, &engine).await;
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
 }
 
@@ -196,7 +195,6 @@ async fn a_terminal_read_longer_than_the_idle_timeout_holds_its_sandbox_without_
     // The read's end restarted the timer.
     runner.reap().await;
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 0);
-    tokio::time::sleep(Duration::from_millis(1_100)).await;
-    runner.reap().await;
+    reap_until_destroyed(&runner, &engine).await;
     assert_eq!(engine.destroys.load(Ordering::SeqCst), 1);
 }
