@@ -44,8 +44,7 @@ Three things, in order of how much they are worth:
    python3 python3-setuptools unzip` completes in about 300 ms with `0 newly installed`.
 2. **The sources are trimmed to the one suite pair and the one component those packages live in.**
    Each suite and component is another index file, and an index that is not listed is never
-   fetched. Local measurement: the untrimmed set costs about 4.6 s for a cold `apt-get update` and
-   the trimmed set about 1.9 s, so trimming is worth roughly 60% of the update on its own.
+   fetched.
 3. **The index lists are kept rather than deleted at the end of the build.** `apt-get update`
    compares the `InRelease` it fetches against the lists already on disk and answers `Hit` for an
    index that has not changed, so a machine built from this image downloads no indexes at all:
@@ -59,6 +58,8 @@ Hit:2 http://archive.ubuntu.com/ubuntu noble-updates InRelease
 workload reads, and `Acquire::PDiffs false` takes a full index rather than a patch chain. Neither
 was separately measurable on the development machine, where the locale is `C` and the archive
 publishes no diffs for these suites; both are here because they are strictly less work.
+
+The measurements that say what the three are worth together are in the two sections below.
 
 ## Proven inside a live guest, offline half
 
@@ -86,20 +87,43 @@ there is no TAP broker in the process; from there `apt-get update` spends about 
 retrying and then errors, which is a fact about the harness rather than about the image. The update
 figure has to come from a sandbox launched by the runner, which is where the workload runs.
 
-## What the update still costs, and what a local cache would change
+## What the update costs, measured in a guest
 
-With the lists present and current, the only thing `apt-get update` fetches is the two signed
-`InRelease` files, about 380 KB together. Measured from a development machine, one `InRelease`
-fetch is about 1.05 s direct against 0.13 s through a warm local caching proxy, so the fetch is the
-whole of the remaining network term and a host-local apt cache on the runner hosts would remove
-most of it.
+Two sandboxes launched by the runner, same machine and same session, one on the previous image and
+one on this one. The first `apt-get update` is the number that matters, because a fresh sandbox has
+only what the image shipped:
 
-That number is from a laptop against `archive.ubuntu.com` and an emulated container. The guest
-reaches the archive through the runner's leased egress on a different path, so the figure that
-decides whether a cache on the runner hosts is worth building has to be taken inside a guest. The
-same two `InRelease` URLs are what to time there.
+| | previous image | this image |
+| --- | --- | --- |
+| suites / components | `noble`, `noble-updates`, `noble-backports` + `noble-security`; `main universe restricted multiverse` | `noble`, `noble-updates`; `main` |
+| `deb-src` entries | 1 | 0 |
+| index lists in the image | 4 KiB, deleted at build time | 6060 KiB, kept |
+| first `apt-get update` | 2453 ms and 4100 ms in two sessions | **1341 ms** |
+| `apt-get install` of the workload's list | 584 ms | **57 ms** |
+| what the update fetched | every index of four suites | two `InRelease` files, no indexes |
+
+The first update is three times cheaper and the install is effectively free. The second and third
+updates in the same sandbox converge, 667-1710 ms on both, because by then the previous image has
+lists too and both are doing the same thing: re-fetching two to four `InRelease` files. That
+convergence is the point rather than a disappointment, because this image starts in the state the
+old one only reached after its most expensive operation.
+
+## What a host-local apt cache would buy
+
+In this image the only thing the update still fetches is the signed `InRelease` files, about 380 KB.
+Measured with `curl` inside the same guest, one of them costs 0.36-0.96 s direct, and they are
+fetched in parallel, so roughly 0.4-1.0 s of the remaining 1.3 s is network. A cache on the runner
+hosts would serve them in milliseconds and remove most of that, leaving apt's own work at a few
+hundred milliseconds.
+
+So it would cut the remainder meaningfully, and it is the only lever left: what can be removed from
+the image side has been. Two caveats worth stating. The `InRelease` files have to be revalidated on
+every update by design, so a cache cannot remove the cost, only move it to the host. And if the
+harness ever stops running `apt-get update` when the packages are already present, the cache stops
+being worth anything at all, whereas everything in this image remains useful.
 
 ## What this image is not
+
 
 It is not a security boundary, and it carries no secrets. It is a benchmark image: it exists so the
 same bytes are measured on every host, and so the phase the official total includes costs as little
