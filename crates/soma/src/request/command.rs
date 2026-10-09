@@ -1,3 +1,15 @@
+//! One bounded direct executable invocation, and the machine contract it is bounded by.
+//!
+//! The four bounds below are the machine's own exec contract rather than a second opinion about
+//! it. Every field of a command travels to the guest as one `u16`-prefixed length, and the whole
+//! command must fit one authenticated record, so a command this type admits is one the machine
+//! can be asked to run. Admitting more is not generosity: a command between this contract and a
+//! looser one was refused inside the engine, after the operation had already been taken, and a
+//! refusal there is indistinguishable from a lost machine.
+//!
+//! `crates/soma-guest/src/application/command.rs` states the same four values. The two are
+//! pinned to each other by a test in `soma-api`, which depends on both.
+
 use std::fmt;
 
 use super::ValidationError;
@@ -9,10 +21,16 @@ pub struct DirectCommand {
 }
 
 impl DirectCommand {
+    /// The largest executable path this facade accepts.
     pub const MAX_EXECUTABLE_BYTES: usize = 4_096;
-    pub const MAX_ARGUMENTS: usize = 4_096;
-    pub const MAX_ARGUMENT_BYTES: usize = 128 * 1024;
-    pub const MAX_AGGREGATE_BYTES: usize = 1024 * 1024;
+    /// The most arguments one command may carry.
+    pub const MAX_ARGUMENTS: usize = 64;
+    /// The largest one argument may be.
+    pub const MAX_ARGUMENT_BYTES: usize = 4_096;
+    /// The largest the executable and arguments may total, counted the way the guest codec
+    /// counts them: the executable's bytes plus two length bytes plus the bytes of each
+    /// argument. This is one guest record's body allowance less its fixed part.
+    pub const MAX_AGGREGATE_BYTES: usize = 65_459;
 
     /// Creates one bounded direct executable invocation without a shell.
     ///
@@ -27,12 +45,14 @@ impl DirectCommand {
     {
         let executable = executable.into();
         let arguments: Vec<String> = arguments.into_iter().map(Into::into).collect();
-        let total_bytes = executable.len()
-            + arguments
-                .iter()
-                .map(String::len)
-                .try_fold(0_usize, usize::checked_add)
-                .ok_or(ValidationError::InvalidCommand)?;
+        // Each argument spends a two byte length prefix on the wire, so it is charged for it
+        // here; the aggregate bound is in the unit the guest codec actually measures.
+        let total_bytes = arguments
+            .iter()
+            .try_fold(executable.len(), |total, value| {
+                total.checked_add(2)?.checked_add(value.len())
+            })
+            .ok_or(ValidationError::InvalidCommand)?;
         if !executable.starts_with('/')
             || executable.contains('\0')
             || executable.len() > Self::MAX_EXECUTABLE_BYTES

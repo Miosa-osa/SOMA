@@ -119,24 +119,28 @@ impl Machine {
 
     /// Registers guest RAM at exactly the layout the snapshot certified.
     ///
-    /// Version 1 certifies one slot covering all of guest RAM from address zero; anything
-    /// else is a machine this implementation cannot reproduce.
+    /// The machine derives its own range list from the certified RAM size, so a snapshot whose
+    /// slot list disagrees with that derivation in count, order, address, object offset, size,
+    /// or slot number is a machine this implementation cannot reproduce and is refused before
+    /// any slot is published.
     fn register_certified_slots(
         &self,
         state: &crate::snapshot::kvm_state::VmState,
     ) -> Result<(), MachineError> {
         let certified = state.slots();
-        let expected = self.ram.layout().ram_bytes();
-        let single = certified.first().is_some_and(|slot| {
-            slot.slot == 0
-                && slot.guest_address == 0
-                && slot.memory_offset == 0
-                && slot.size == expected
-        });
-        if certified.len() != 1 || !single {
+        let layout = self.ram.layout();
+        let regions = layout.regions();
+        let agrees = certified.len() == regions.len()
+            && certified.iter().zip(regions).all(|(slot, region)| {
+                slot.slot == region.slot
+                    && slot.guest_address == region.guest_start
+                    && slot.memory_offset == region.host_offset
+                    && slot.size == region.size
+            });
+        if !agrees {
             return Err(MachineError::invalid(
                 Phase::Restore,
-                "the certified memory-slot layout is not the version 1 single-slot layout",
+                "the certified memory-slot layout is not the layout this machine derived",
             ));
         }
         self.ram.register(&self.vm)
@@ -207,15 +211,62 @@ impl Machine {
 
     /// Creates vCPU 0 with the filtered CPUID template and the contract's protected-mode state.
     fn boot_vcpu(&self, entry: u64, clock: &mut Stopwatch) -> Result<VcpuFd, MachineError> {
-        let vcpu = self
-            .vm
-            .create_vcpu(0)
-            .map_err(|error| MachineError::os(Phase::CreateVcpu, error))?;
-        clock.lap(Phase::CreateVcpu);
-        cpuid::install(&self.kvm, &vcpu)?;
-        clock.lap(Phase::Cpuid);
-        vcpu::install_registers(&vcpu, entry)?;
-        clock.lap(Phase::Regs);
-        Ok(vcpu)
+        let mut vcpus = self.boot_vcpus(entry, 1, cpuid::GuestMachine::one(), clock)?;
+        vcpus
+            .pop()
+            .ok_or_else(|| MachineError::invalid(Phase::CreateVcpu, "no vCPU was created"))
+    }
+
+    /// Creates vCPUs `0..count`, installing the filtered CPUID template on each.
+    ///
+    /// The bootstrap processor takes the contract's protected-mode entry state; every other
+    /// processor is left waiting for the INIT/SIPI the guest's own SMP bringup sends, which is
+    /// where a real application processor starts. One dedicated host thread runs each of them,
+    /// which is the machine contract's one-thread-per-vCPU property.
+    ///
+    /// What each vCPU's template states is the machine being booted, so a caller that boots a
+    /// version 2 machine passes its contract and its processor count; a diagnostic boot is the
+    /// single-processor version 1 machine and states nothing a host did not.
+    fn boot_vcpus(
+        &self,
+        entry: u64,
+        count: u16,
+        machine: cpuid::GuestMachine,
+        clock: &mut Stopwatch,
+    ) -> Result<Vec<VcpuFd>, MachineError> {
+        if count == 0 {
+            return Err(MachineError::invalid(
+                Phase::CreateVcpu,
+                "a machine needs at least one vCPU",
+            ));
+        }
+        let mut vcpus = Vec::with_capacity(usize::from(count));
+        for index in 0..count {
+            let vcpu = self
+                .vm
+                .create_vcpu(u64::from(index))
+                .map_err(|error| MachineError::os(Phase::CreateVcpu, error))?;
+            clock.lap(Phase::CreateVcpu);
+            cpuid::install(
+                &self.kvm,
+                &vcpu,
+                u8::try_from(index).map_err(|_| {
+                    MachineError::invalid(
+                        Phase::Cpuid,
+                        "the vCPU index does not fit the APIC identifier field",
+                    )
+                })?,
+                machine,
+            )?;
+            clock.lap(Phase::Cpuid);
+            if index == 0 {
+                vcpu::install_registers(&vcpu, entry)?;
+            } else {
+                vcpu::install_ap_state(&vcpu)?;
+            }
+            clock.lap(Phase::Regs);
+            vcpus.push(vcpu);
+        }
+        Ok(vcpus)
     }
 }

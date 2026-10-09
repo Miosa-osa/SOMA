@@ -12,6 +12,7 @@ use std::{
 };
 
 use soma_generation::open_artifact;
+use soma_kvm::MachineContract;
 use soma_kvm::x86_64::{
     CaptureOutcome, CaptureRequest, Milestone, SandboxEvidence, SandboxMachine, SnapshotPaths,
     capture,
@@ -20,28 +21,18 @@ use soma_kvm::x86_64::{
 use crate::{
     x86_64_discover::kernel_path,
     x86_64_sandbox_boot_generation as generation,
-    x86_64_sandbox_boot_host::{require_scratch_space, scratch_dir},
+    x86_64_sandbox_boot_host::{require_scratch_space, require_scratch_space_for, scratch_dir},
     x86_64_sandbox_boot_session as session,
 };
 
-/// The image the captured Generation is built from.
-pub const IMAGE: &str = "node:22";
-/// Environment variable naming a pre-exported OCI layout for it.
-pub const LAYOUT_VAR: &str = "SOMA_OCI_NODE_LAYOUT";
-/// Guest RAM of the captured machine, matching the cold-boot evidence for `node:22`.
-pub const MEMORY_MIB: u64 = 1024;
-/// Writable class of the captured machine; every restore clones a head of this size.
-pub const STORAGE_MIB: u64 = 256;
-/// The context identifier the captured machine holds; every restore is assigned another.
-pub const CAPTURE_CID: u32 = 3;
-/// The exact console line the pinned guest agent prints at the disconnected repair point.
-pub const REPAIR_POINT_LINE: &[u8] = b"soma-guest-agent: awaiting launch material";
-/// How long the guest may take to reach the repair point.
-pub const REPAIR_POINT_DEADLINE: Duration = Duration::from_secs(120);
-/// How long vCPU 0 may take to leave `KVM_RUN` after the capture kicks it.
-pub const PAUSE_GRACE: Duration = Duration::from_secs(10);
-
 const MIB: u64 = 1024 * 1024;
+
+mod recipe;
+
+pub use recipe::{
+    BUSYBOX_V2, CAPTURE_CID, LARGE_V2, NODE22, PAUSE_GRACE, REPAIR_POINT_DEADLINE,
+    REPAIR_POINT_LINE, Recipe, STORAGE_MIB, V2_REQUIRED_FREE_BYTES,
+};
 
 /// The MAC the launch page carries: the captured one, or the fixed
 /// link-down placeholder when the Generation declared no network device
@@ -62,6 +53,10 @@ pub struct Fixture {
     pub compiled: generation::Compiled,
     pub candidate_id: [u8; 32],
     pub ram_bytes: u64,
+    /// vCPUs the captured machine ran, which every restore must come back with.
+    pub vcpus: u16,
+    /// The contract the Generation was compiled and captured under.
+    pub contract: MachineContract,
     /// The pinned static guest agent the Generation was built with.
     pub agent: PathBuf,
     /// The evidence of the machine the snapshot was taken from.
@@ -97,13 +92,10 @@ impl Fixture {
         let directory = self.scratch.join("heads");
         fs::create_dir_all(&directory).expect("create the head directory");
         let path = directory.join(format!("{name}.ext4"));
-        let _ignored = fs::remove_file(&path);
-        fs::copy(self.paths.overlay(), &path).expect("clone the sterile template");
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&path)
-            .expect("open the private head");
+        // Cloned the way the boot harness clones one: the class is written out whole, so a copy
+        // that does not skip its zero chunks costs a whole class of disk per head.
+        let template = File::open(self.paths.overlay()).expect("open the sterile template");
+        let file = crate::x86_64_sandbox_boot_sparse::clone_head(&template, &path);
         (path, file)
     }
 }
@@ -111,7 +103,8 @@ impl Fixture {
 /// The shared fixture as every test borrows it.
 pub type Shared = MutexGuard<'static, Fixture>;
 
-static FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
+static NODE22_FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
+static BUSYBOX_V2_FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
 
 /// Builds the shared fixture on first use and lends it to every later caller.
 ///
@@ -121,29 +114,49 @@ static FIXTURE: OnceLock<Mutex<Fixture>> = OnceLock::new();
 /// that reaches here asked for them by name or with `--ignored`; a missing prerequisite is
 /// then a failed run and never a test that reports `ok` having executed nothing.
 pub fn shared() -> Shared {
-    // The Generation is compiled once and every later caller borrows it, so a suite that
-    // cannot export the image fails in seconds instead of recompiling it for every test.
-    FIXTURE
-        .get_or_init(|| Mutex::new(build()))
+    borrow(&NODE22_FIXTURE, &NODE22)
+}
+
+/// The shared eight-vCPU, sixteen-gigabyte fixture the contract v2 proofs borrow.
+pub fn shared_v2() -> Shared {
+    borrow(&BUSYBOX_V2_FIXTURE, &BUSYBOX_V2)
+}
+
+/// Compiles one recipe's Generation and captures one snapshot of it, once per process.
+///
+/// The Generation is compiled once and every later caller borrows it, so a suite that cannot
+/// export the image fails in seconds instead of recompiling it for every test.
+pub(crate) fn borrow(cell: &'static OnceLock<Mutex<Fixture>>, recipe: &Recipe) -> Shared {
+    cell.get_or_init(|| Mutex::new(build(recipe)))
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
 }
 
-fn build() -> Fixture {
-    require_scratch_space();
-    let scratch = scratch_dir("node22");
+fn build(recipe: &Recipe) -> Fixture {
+    // The capture walk writes the whole memory object, so a multi-vCPU shape stages its own
+    // figure rather than the floor a small machine fits in.
+    if recipe.vcpus > 1 {
+        require_scratch_space_for(V2_REQUIRED_FREE_BYTES);
+    } else {
+        require_scratch_space();
+    }
+    let scratch = scratch_dir(recipe.scratch);
     let inputs = generation::inputs(kernel_path());
-    let layout = generation::oci_layout(IMAGE, LAYOUT_VAR, &scratch).unwrap_or_else(|| {
-        panic!(
-            "prerequisite failed: the {IMAGE} OCI layout could not be exported; set {LAYOUT_VAR}. It never passes silently"
-        )
-    });
+    let layout = generation::oci_layout(recipe.image, recipe.layout_var, &scratch).unwrap_or_else(
+        || {
+            panic!(
+                "prerequisite failed: the {} OCI layout could not be exported; set {}. It never passes silently",
+                recipe.image, recipe.layout_var
+            )
+        },
+    );
     let compiled = generation::compile(
         &layout,
-        &format!("docker.io/library/{IMAGE}"),
+        &format!("docker.io/library/{}", recipe.image),
         generation::Shape {
-            memory_mib: MEMORY_MIB,
-            storage_mib: STORAGE_MIB,
+            memory_mib: recipe.memory_mib,
+            storage_mib: recipe.storage_mib,
+            vcpus: recipe.vcpus,
         },
         &inputs,
         &scratch,
@@ -164,8 +177,9 @@ fn build() -> Fixture {
     let _ignored = fs::remove_dir_all(&directory);
     fs::create_dir_all(&directory).expect("create the snapshot directory");
     let paths = SnapshotPaths::new(directory);
-    let ram_bytes = MEMORY_MIB * MIB;
-    let (source, capture) = capture_source(&compiled, &paths, candidate_id, ram_bytes, &scratch);
+    let ram_bytes = recipe.memory_mib * MIB;
+    let (source, capture) =
+        capture_source(&compiled, &paths, candidate_id, ram_bytes, &scratch, recipe);
     Fixture {
         scratch,
         paths,
@@ -173,6 +187,8 @@ fn build() -> Fixture {
         compiled,
         candidate_id,
         ram_bytes,
+        vcpus: recipe.vcpus,
+        contract: recipe.contract,
         agent: inputs.agent.clone(),
         source,
     }
@@ -185,6 +201,7 @@ fn capture_source(
     candidate_id: [u8; 32],
     ram_bytes: u64,
     scratch: &Path,
+    recipe: &Recipe,
 ) -> (SandboxEvidence, CaptureOutcome) {
     let manifest = &compiled.manifest();
     let kernel = open_artifact(&compiled.store, &manifest.kernel.descriptor).unwrap();
@@ -201,7 +218,11 @@ fn capture_source(
         initramfs,
         open_artifact(&compiled.store, &manifest.root.descriptor).unwrap(),
         head.try_clone().unwrap(),
-        ram_bytes,
+        session::Machine {
+            ram_bytes,
+            vcpus: recipe.vcpus,
+            contract: recipe.contract,
+        },
         manifest.device_set(),
     );
     let mut sandbox = SandboxMachine::create(config).expect("create the source machine");
@@ -219,6 +240,7 @@ fn capture_source(
             overlay: Some(&mut head),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
+            contract: recipe.contract,
         },
         started + REPAIR_POINT_DEADLINE,
     );

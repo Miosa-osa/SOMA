@@ -206,3 +206,40 @@ fn memory_layout_that_does_not_cover_the_object_rejects() {
         Err(Incompatibility::MalformedDevice { slot: 0, .. })
     ));
 }
+
+/// Rebuilds `manifest` with `section` appended in canonical role order.
+fn with_extra_section(manifest: &Manifest, role: SectionRole) -> Manifest {
+    let payload = manifest
+        .section(SectionRole::Vcpu0)
+        .expect("the sample carries the bootstrap processor")
+        .payload()
+        .to_vec();
+    let mut sections = manifest.sections().to_vec();
+    sections.push(Section::new(role, payload).unwrap());
+    sections.sort_by_key(|section| section.role().code());
+    Manifest::new(manifest.header().clone(), sections).unwrap()
+}
+
+#[test]
+fn the_vcpu_section_set_must_match_the_certified_count() {
+    let manifest = sample_manifest();
+    assert_eq!(check(&matching_host(), &manifest), Ok(()));
+    // A manifest that carries a second processor's state while the header says one is refused,
+    // because restoring it would build a machine with a processor the capture never had.
+    let surplus = with_extra_section(&manifest, SectionRole::Vcpu1);
+    assert_eq!(
+        check(&matching_host(), &surplus),
+        Err(Incompatibility::UnexpectedSection(SectionRole::Vcpu1))
+    );
+    // And a header that certifies two processors refuses a manifest carrying only one, because
+    // the second processor would resume with no state at all.
+    let mut header = manifest.header().clone();
+    header.vcpu_count = 2;
+    let short = Manifest::new(header, manifest.sections().to_vec()).unwrap();
+    let mut two = matching_host();
+    two.vcpu_count = 2;
+    assert_eq!(
+        check(&two, &short),
+        Err(Incompatibility::MissingSection(SectionRole::Vcpu1))
+    );
+}

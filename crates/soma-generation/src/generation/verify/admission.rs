@@ -94,6 +94,32 @@ pub fn admit_installed_generation(
     })
 }
 
+/// The compiler-policy version one canonical ready-manifest byte sequence declares.
+///
+/// A host that prepared a Generation cannot be asked which machine contract it holds before it
+/// reads the manifest: the manifest is what names it. This reads that one field out of hostile
+/// bytes under the same bounded decoder the admission path uses, so a caller can resolve the
+/// exact compiler profile and then admit the Generation as the machine it was certified as
+/// rather than as the one the caller assumed.
+///
+/// # Errors
+///
+/// Returns the decoder's failure for bytes that are not one canonical ready manifest.
+pub fn declared_policy_version(manifest_bytes: &[u8]) -> Result<u16, CompileError> {
+    Ok(decode_manifest(manifest_bytes)?.compiler_policy_version)
+}
+
+/// The compiler-policy version the ready manifest for `id` in `store` declares.
+///
+/// # Errors
+///
+/// Returns the store, read, or decoder failure for an identity that names no readable manifest.
+pub fn installed_policy_version(store: &Path, id: &GenerationId) -> Result<u16, CompileError> {
+    let store = Store::open(store).map_err(from_import)?;
+    let bytes = read_manifest_bytes(&store, id)?;
+    declared_policy_version(&bytes)
+}
+
 /// Reconstructs one admitted Generation from canonical manifest bytes and files transferred by
 /// a process that already completed [`admit_installed_generation`].
 ///

@@ -109,13 +109,14 @@ fn encode_launch(launch: &Launch) -> String {
     let machine = launch.generation().machine();
     let devices = launch.generation().devices();
     format!(
-        "launch {} {} {} {} {} {} {} {}",
+        "launch {} {} {} {} {} {} {} {} {}",
         hex(launch.operation_id().as_bytes()),
         hex(launch.instance_id().as_bytes()),
         hex(launch.generation().id().as_bytes()),
         machine.vcpus().get(),
         machine.memory().get(),
         machine.writable_disk().get(),
+        machine.contract().get(),
         u8::from(devices.writable_disk()),
         u8::from(devices.network()),
     )

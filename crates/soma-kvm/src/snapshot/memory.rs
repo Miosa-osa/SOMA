@@ -23,9 +23,15 @@ use super::{
     Digest, WireError,
     wire::{Reader, Writer},
 };
+use crate::contract::V2_MAX_MEMORY_BYTES;
 
-/// Upper bound on a v1 memory object: 3 GiB plus nothing, matching the machine contract.
-pub const MAX_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+/// Upper bound on a memory object: the widest ceiling any machine contract admits.
+///
+/// A descriptor is written and read without a contract in hand, so this is the absolute ceiling a
+/// machine could ever ask for. Whether a size below it is allowed is the contract's decision, and
+/// that check belongs where the contract is known rather than here: a v1 machine may not publish a
+/// sixteen-gigabyte memory object merely because a v2 machine may.
+pub const MAX_MEMORY_BYTES: u64 = V2_MAX_MEMORY_BYTES;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MemoryError {
@@ -188,9 +194,17 @@ impl MemoryDescriptor {
 #[cfg(test)]
 mod tests {
     use super::{Digest, MAX_MEMORY_BYTES, MemoryDescriptor, MemoryError, Reader, Writer};
+    use crate::contract::V2_MAX_MEMORY_BYTES;
 
     fn digest() -> Digest {
         Digest::of(b"memory")
+    }
+
+    #[test]
+    fn accepts_a_descriptor_at_the_widest_contract_ceiling() {
+        let descriptor =
+            MemoryDescriptor::new(digest(), V2_MAX_MEMORY_BYTES, 4096).expect("the v2 ceiling");
+        assert_eq!(descriptor.size(), V2_MAX_MEMORY_BYTES);
     }
 
     #[test]

@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use soma::BackendFailureKind;
 use soma_guest::GuestCommand;
-use soma_vmm::control::{MAX_OUTPUT_WINDOW_BYTES, OutputStream, OutputWindow, Request};
+use soma_vmm::control::{
+    MAX_OUTPUT_WINDOW_BYTES, MAX_REQUEST_BYTES, OutputStream, OutputWindow, Request,
+};
 use soma_vmm::sandbox::Completed;
 use soma_vmm::{
     Argument, Execute, ExecutionLimits, OperationId, OutputBytes, Program, TimeoutMillis,
@@ -29,7 +31,9 @@ impl Jailed {
     /// # Errors
     ///
     /// Returns the typed refusal. Every uncertain outcome poisons the handle, because a reply
-    /// that arrives late would be read as the next command's.
+    /// that arrives late would be read as the next command's. A refusal the worker itself
+    /// stated is not uncertain: it answered this request and is waiting for the next one, so
+    /// the handle keeps the machine and the caller keeps the sandbox.
     pub(in crate::backend::kvm) fn execute(
         &mut self,
         command: &GuestCommand,
@@ -43,7 +47,11 @@ impl Jailed {
         let within = Duration::from_millis(u64::from(command.timeout_millis())) + COMMAND_SLACK;
         let answered = self.control.ask(&request, within);
         let (status, stdout_bytes, stderr_bytes) = match answered {
-            Ok(reply) => outcome::executed(&reply).map_err(|kind| self.poison(kind))?,
+            Ok(reply) => match outcome::executed(&reply) {
+                Ok(completed) => completed,
+                Err(kind) if outcome::is_refusal(kind) => return Err(kind),
+                Err(kind) => return Err(self.poison(kind)),
+            },
             Err(kind) => return Err(self.poison(kind)),
         };
         let stdout = self
@@ -69,7 +77,7 @@ impl Jailed {
             TimeoutMillis::new(command.timeout_millis()).map_err(rejected)?,
             OutputBytes::new(command.output_bytes()).map_err(rejected)?,
         );
-        Execute::new(
+        let request = Execute::new(
             operation,
             self.instance,
             Program::new(command.program().to_vec()).map_err(rejected)?,
@@ -82,7 +90,17 @@ impl Jailed {
             limits,
         )
         .map(Request::Execute)
-        .map_err(rejected)
+        .map_err(rejected)?;
+        // One control packet is one datagram, and a datagram longer than the worker's receive
+        // buffer is truncated by the kernel rather than refused. The program and every argument
+        // travel hex encoded, so a command the packet cannot carry would arrive cut short and be
+        // decoded as a shorter command than the caller asked for. The length is therefore
+        // decided here, while the request is still this process's to turn down and no worker has
+        // been addressed at all.
+        if request.encode().len() > MAX_REQUEST_BYTES {
+            return Err(BackendFailureKind::WorkloadRejected);
+        }
+        Ok(request)
     }
 
     /// Reads one stream of a completed command back, one bounded window at a time.

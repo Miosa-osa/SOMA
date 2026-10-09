@@ -4,9 +4,9 @@
 //! a request that decodes is always one the Machine may be asked to perform.
 
 use crate::{
-    Argument, DeclaredDevices, DiskBytes, Execute, ExecutionLimits, Generation, GenerationId,
-    InstanceId, Launch, MachineSpec, MemoryBytes, OperationId, OutputBytes, Program, Stop,
-    TimeoutMillis, VcpuCount,
+    Argument, ContractVersion, DeclaredDevices, DiskBytes, Execute, ExecutionLimits, Generation,
+    GenerationId, InstanceId, Launch, MachineSpec, MemoryBytes, OperationId, OutputBytes, Program,
+    Stop, TimeoutMillis, VcpuCount,
 };
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -42,10 +42,12 @@ pub(super) fn decode_launch<'a>(
         .map_err(|_| ControlError::InvalidValue("memory"))?;
     let disk = DiskBytes::new(number(tokens.next(), "disk")?)
         .map_err(|_| ControlError::InvalidValue("disk"))?;
+    let contract = ContractVersion::new(number(tokens.next(), "contract")?)
+        .map_err(|_| ControlError::InvalidValue("contract"))?;
     let overlay = flag(tokens.next(), "declared overlay")?;
     let network = flag(tokens.next(), "declared network")?;
     end(tokens)?;
-    let machine = MachineSpec::new(vcpus, memory, disk);
+    let machine = MachineSpec::new(vcpus, memory, disk).with_contract(contract);
     let devices = DeclaredDevices::new(overlay, network);
     Ok(Request::Launch(Launch::new(
         operation,

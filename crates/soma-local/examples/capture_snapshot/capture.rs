@@ -22,20 +22,39 @@ use soma_kvm::x86_64::{
 use super::publish::{candidate_bytes, install_and_publish, source_head};
 use super::{CAPTURE_CID, GUEST_MAC, MIB, PAUSE_GRACE, REPAIR_POINT_DEADLINE, REPAIR_POINT_LINE};
 
+/// The Candidate the entry's own bytes publish.
+fn published_candidate(bytes: &[u8]) -> Result<PublishedCandidate, Box<dyn Error>> {
+    let candidate = PublishedCandidate {
+        id: CandidateId::of(bytes),
+        descriptor: ArtifactDescriptor {
+            role: ArtifactRole::GenerationCandidate,
+            digest: Sha256Digest::of(bytes),
+            size: u64::try_from(bytes.len())?,
+        },
+        manifest: decode_candidate(bytes).map_err(|error| format!("{error:?}"))?,
+    };
+    Ok(candidate)
+}
+
+/// The machine contract the Candidate declares, resolved or refused.
+///
+/// The source machine is built as exactly the machine the Candidate names: a multi-vCPU
+/// Generation is captured on a multi-vCPU machine, and a version 2 snapshot describes a version 2
+/// machine. A contract this host cannot build is refused before anything is booted.
+fn declared_contract(
+    manifest: &soma_generation::GenerationManifest,
+) -> Result<soma_kvm::MachineContract, Box<dyn Error>> {
+    soma_kvm::MachineContract::require(manifest.machine_contract.version).map_err(|error| {
+        format!("the Candidate names a machine contract this host cannot build: {error:?}").into()
+    })
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     let store = entry.join("store");
     let bytes = fs::read(entry.join("candidate.somacan"))?;
-    let manifest = decode_candidate(&bytes).map_err(|error| format!("{error:?}"))?;
-    let candidate = PublishedCandidate {
-        id: CandidateId::of(&bytes),
-        descriptor: ArtifactDescriptor {
-            role: ArtifactRole::GenerationCandidate,
-            digest: Sha256Digest::of(&bytes),
-            size: u64::try_from(bytes.len())?,
-        },
-        manifest: manifest.clone(),
-    };
+    let candidate = published_candidate(&bytes)?;
+    let manifest = candidate.manifest.clone();
     let candidate_id = candidate_bytes(candidate.id.as_str())?;
 
     let kernel = open_artifact(&store, &manifest.kernel.descriptor)
@@ -82,6 +101,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     // resident when the capture records guest memory. Nothing is seeded into the overlay here:
     // the agent requires a sterile upper layer and refuses to boot if anything is placed in it.
 
+    let contract = declared_contract(&manifest)?;
     let config = SandboxConfig {
         kernel,
         initramfs,
@@ -95,6 +115,8 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             guest_mac: GUEST_MAC,
         },
         ram_bytes: memory_mib * MIB,
+        vcpus: manifest.shape.vcpu_count,
+        contract,
         devices,
     };
 
@@ -114,6 +136,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             overlay: head.as_mut(),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
             grace: PAUSE_GRACE,
+            contract,
         },
         started + REPAIR_POINT_DEADLINE,
     );

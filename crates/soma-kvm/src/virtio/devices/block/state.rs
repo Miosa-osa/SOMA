@@ -30,7 +30,7 @@ impl BlockState {
     pub fn capture(device: &BlockDevice) -> Self {
         Self {
             device_id: VIRTIO_BLK_DEVICE_ID,
-            features: device.role.features(),
+            features: device.features(),
             role: device.role,
             blk_size: device.blk_size,
             capacity_sectors: device.capacity_sectors,

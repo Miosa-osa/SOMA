@@ -42,4 +42,6 @@ mod revision;
 
 pub use oracle::RootfsOracle;
 pub use resolver::LayoutResolver;
-pub use revision::{LockProjectionError, compiler_revision, profile_v1_backend};
+pub use revision::{
+    LockProjectionError, compiler_revision, profile_v1_backend, profile_v2_backend,
+};

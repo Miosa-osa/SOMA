@@ -1,93 +1,44 @@
-//! Fixed guest-physical layout from the `x86_64` machine contract v1.
+//! Fixed guest-physical layout from the `x86_64` machine contract.
 //!
-//! Every constant is a guest-physical byte address. Callers validate overflow, overlap, and
-//! containment through [`GuestLayout`] before any byte is published to guest RAM.
+//! Every constant is a guest-physical byte address. The pure geometry - the RAM ranges, the
+//! guest-to-object translation, and the PVH memory map - lives in [`crate::memory_layout`] so a
+//! host that cannot boot the machine can still verify it; this module adds the boot-page and TSS
+//! addresses the machine itself writes and re-exports the rest under the paths the machine uses.
 
-use super::error::{MachineError, Phase};
-
-pub(crate) const PAGE_SIZE: u64 = 4096;
-pub(crate) const MIN_RAM_BYTES: u64 = 128 * 1024 * 1024;
-pub(crate) const MAX_RAM_BYTES: u64 = 3 * 1024 * 1024 * 1024;
+pub(crate) use crate::memory_layout::{
+    GuestLayout, HIGH_MEMORY_START, KERNEL_START, LEGACY_HOLE_START, LOW_RAM_END, PAGE_SIZE,
+};
+/// The RAM bound is named only by proofs, so it is re-exported only where they are built.
+#[cfg(test)]
+pub(crate) use crate::memory_layout::{MAX_RAM_BYTES, MIN_RAM_BYTES};
 
 /// One 56-byte `hvm_start_info` followed by zeroes.
 pub(crate) const START_INFO_ADDRESS: u64 = 0x6000;
 /// Bounded `hvm_memmap_table_entry` values.
 pub(crate) const MEMMAP_ADDRESS: u64 = 0x7000;
-/// At most one initramfs module entry in version 1 (unused by the halt guest).
+/// At most one initramfs module entry (unused by the halt guest).
 pub(crate) const MODULE_ADDRESS: u64 = 0x8000;
 /// NUL-terminated ASCII command line, at most 8,191 bytes.
 pub(crate) const CMDLINE_ADDRESS: u64 = 0x9000;
 pub(crate) const CMDLINE_MAX_BYTES: u64 = 8 * 1024;
-/// Start of the reserved legacy hole that the memory map reports as reserved.
-pub(crate) const LEGACY_HOLE_START: u64 = 0x000a_0000;
-/// First byte above the legacy hole and the loader gap begins here.
-pub(crate) const HIGH_MEMORY_START: u64 = 0x0010_0000;
-/// `CONFIG_PHYSICAL_START` of the pinned kernel; the halt guest is loaded here too.
-pub(crate) const KERNEL_START: u64 = 0x0100_0000;
-/// Conventional three-page TSS window placed above any supported guest RAM size.
+/// Conventional three-page TSS window, placed inside the MMIO hole above low RAM.
 pub(crate) const TSS_ADDRESS: u64 = 0xfffb_d000;
+/// Bytes the TSS window occupies; it must fit inside the hole with the MMIO window.
+pub(crate) const TSS_BYTES: u64 = 3 * PAGE_SIZE;
 
-// Boot pages sit below the legacy hole, the kernel sits above it, and RAM never reaches the TSS.
+// The boot pages sit below the legacy hole, the kernel sits above it and below the MMIO
+// boundary, and the TSS page sits inside the MMIO hole the memory layout reserves, so no
+// device or control page can land inside guest RAM at any admitted size.
 const _: () = {
     assert!(START_INFO_ADDRESS < MEMMAP_ADDRESS);
     assert!(MEMMAP_ADDRESS < MODULE_ADDRESS);
     assert!(MODULE_ADDRESS < CMDLINE_ADDRESS);
     assert!(CMDLINE_ADDRESS + CMDLINE_MAX_BYTES <= LEGACY_HOLE_START);
     assert!(HIGH_MEMORY_START < KERNEL_START);
-    assert!(MAX_RAM_BYTES <= TSS_ADDRESS);
+    assert!(KERNEL_START < LOW_RAM_END);
+    assert!(TSS_ADDRESS >= LOW_RAM_END);
+    assert!(TSS_ADDRESS + TSS_BYTES <= crate::memory_layout::MMIO_HOLE_END);
 };
-
-/// A validated guest RAM size and the derived boundaries the proof writes into.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct GuestLayout {
-    ram_bytes: u64,
-}
-
-impl GuestLayout {
-    pub(crate) fn new(ram_bytes: u64) -> Result<Self, MachineError> {
-        if !ram_bytes.is_multiple_of(PAGE_SIZE) {
-            return Err(MachineError::invalid(
-                Phase::MapMemory,
-                "guest RAM size must be a multiple of 4 KiB",
-            ));
-        }
-        if !(MIN_RAM_BYTES..=MAX_RAM_BYTES).contains(&ram_bytes) {
-            return Err(MachineError::invalid(
-                Phase::MapMemory,
-                "guest RAM size must be between 128 MiB and 3 GiB",
-            ));
-        }
-        if ram_bytes > TSS_ADDRESS {
-            return Err(MachineError::invalid(
-                Phase::MapMemory,
-                "guest RAM overlaps the TSS window",
-            ));
-        }
-        Ok(Self { ram_bytes })
-    }
-
-    pub(crate) const fn ram_bytes(self) -> u64 {
-        self.ram_bytes
-    }
-
-    /// Returns the two RAM entries the contract reports when RAM crosses the legacy hole.
-    pub(crate) fn ram_ranges(self) -> Result<[(u64, u64); 2], MachineError> {
-        let high = self
-            .ram_bytes
-            .checked_sub(HIGH_MEMORY_START)
-            .ok_or_else(|| {
-                MachineError::invalid(Phase::LoadGuest, "guest RAM ends below high memory")
-            })?;
-        Ok([(0, LEGACY_HOLE_START), (HIGH_MEMORY_START, high)])
-    }
-
-    /// Checks that `[address, address + length)` lies inside guest RAM.
-    pub(crate) fn contains(self, address: u64, length: u64) -> bool {
-        address
-            .checked_add(length)
-            .is_some_and(|end| end <= self.ram_bytes)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -105,23 +56,20 @@ mod tests {
     }
 
     #[test]
-    fn reports_two_ram_ranges_around_the_legacy_hole() {
-        let layout = GuestLayout::new(MIN_RAM_BYTES).unwrap();
-        assert_eq!(
-            layout.ram_ranges().unwrap(),
-            [
-                (0, LEGACY_HOLE_START),
-                (HIGH_MEMORY_START, MIN_RAM_BYTES - HIGH_MEMORY_START)
-            ]
-        );
-    }
-
-    #[test]
     fn containment_uses_checked_arithmetic() {
         let layout = GuestLayout::new(MIN_RAM_BYTES).unwrap();
         assert!(layout.contains(KERNEL_START, 16));
         assert!(layout.contains(MIN_RAM_BYTES - 1, 1));
         assert!(!layout.contains(MIN_RAM_BYTES, 1));
         assert!(!layout.contains(u64::MAX, 1));
+    }
+
+    #[test]
+    fn the_tss_window_never_lands_inside_guest_ram() {
+        for size in [MIN_RAM_BYTES, LOW_RAM_END, MAX_RAM_BYTES] {
+            let layout = GuestLayout::new(size).unwrap();
+            assert!(!layout.contains(TSS_ADDRESS, TSS_BYTES));
+            assert_eq!(layout.host_offset(TSS_ADDRESS), None);
+        }
     }
 }

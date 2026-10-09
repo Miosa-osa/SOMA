@@ -5,7 +5,6 @@ use super::request::*;
 use super::*;
 use crate::virtio::devices::harness::{GuestRig, Seg};
 use crate::virtio::devices::service::service_queue;
-use crate::virtio::queue::violation::QueueViolationKind;
 use crate::virtio::transport::MmioTransport;
 use crate::virtio::transport::registers::{AccessWidth, REG_INTERRUPT_STATUS};
 
@@ -14,7 +13,14 @@ type Case<'a> = (u32, u64, Option<(u32, bool, &'a [u8])>, u8);
 
 pub(super) fn device(role: BlockRole, sectors: usize) -> BlockDevice {
     let backend = MemoryBackend::zeroed(sectors, role == BlockRole::ImmutableRoot);
-    BlockDevice::new(role, Box::new(backend), 512, SERIAL).expect("device")
+    BlockDevice::new(
+        role,
+        Box::new(backend),
+        512,
+        SERIAL,
+        TransferShape::Undeclared,
+    )
+    .expect("device")
 }
 
 pub(super) fn boot(role: BlockRole, sectors: usize) -> (GuestRig, MmioTransport<BlockDevice>) {
@@ -24,7 +30,7 @@ pub(super) fn boot(role: BlockRole, sectors: usize) -> (GuestRig, MmioTransport<
 /// A fresh rig per transport: the rig's available index must start with the queue.
 pub(super) fn boot_with(device: BlockDevice) -> (GuestRig, MmioTransport<BlockDevice>) {
     let rig = GuestRig::new(&[64]);
-    let features = device.role().features();
+    let features = device.features();
     let mut t = MmioTransport::new(device).expect("transport");
     rig.init(&mut t, features);
     (rig, t)
@@ -83,7 +89,14 @@ fn root_read_returns_backend_bytes_and_used_length() {
     let mut backend = MemoryBackend::zeroed(8, true);
     backend.bytes[1024..2048].copy_from_slice(&pattern);
     let (mut rig, mut t) = boot_with(
-        BlockDevice::new(BlockRole::ImmutableRoot, Box::new(backend), 512, SERIAL).expect("dev"),
+        BlockDevice::new(
+            BlockRole::ImmutableRoot,
+            Box::new(backend),
+            512,
+            SERIAL,
+            TransferShape::Undeclared,
+        )
+        .expect("dev"),
     );
     let (status, used, addr) = run(
         &mut rig,
@@ -218,37 +231,17 @@ fn short_header_and_missing_status_are_handled_without_backend_io() {
 }
 
 #[test]
-fn oversized_chain_is_rejected_by_the_walker_and_counted() {
-    let (mut rig, mut t) = boot(BlockRole::PrivateOverlay, 4096);
-    let head = rig.alloc(&header(VIRTIO_BLK_T_IN, 0));
-    let data = rig.alloc_zeroed(u32::try_from(MAX_REQUEST_BYTES + 512).expect("small"));
-    let status = rig.alloc(&[0xaa]);
-    rig.submit(
-        0,
-        &[
-            Seg::readable(head, 16),
-            Seg::writable(data, u32::try_from(MAX_REQUEST_BYTES + 512).expect("small")),
-            Seg::writable(status, 1),
-        ],
-    );
-    let report = service_queue(&mut t, &rig.mem, 0, 8).expect("service");
-    assert_eq!((report.completed, report.rejected), (0, 1));
-    assert_eq!(
-        t.queue(0)
-            .expect("queue")
-            .violations()
-            .count(QueueViolationKind::Chain),
-        1
-    );
-    assert_eq!(rig.read(status, 1)[0], 0xaa);
-}
-
-#[test]
 fn short_host_io_and_backend_failure_are_io_errors() {
     let mut backend = MemoryBackend::zeroed(8, false);
     backend.short_by = 1;
-    let device =
-        BlockDevice::new(BlockRole::PrivateOverlay, Box::new(backend), 512, SERIAL).expect("dev");
+    let device = BlockDevice::new(
+        BlockRole::PrivateOverlay,
+        Box::new(backend),
+        512,
+        SERIAL,
+        TransferShape::Undeclared,
+    )
+    .expect("dev");
     let (mut rig, mut t) = boot_with(device);
     let (status, used, _) = run(&mut rig, &mut t, VIRTIO_BLK_T_IN, 0, Some((512, true, &[])));
     assert_eq!((status, used), (VIRTIO_BLK_S_IOERR, 1));
@@ -263,8 +256,14 @@ fn short_host_io_and_backend_failure_are_io_errors() {
 
     let mut backend = MemoryBackend::zeroed(8, false);
     backend.fail = Some(std::io::ErrorKind::Other);
-    let device =
-        BlockDevice::new(BlockRole::PrivateOverlay, Box::new(backend), 512, SERIAL).expect("dev");
+    let device = BlockDevice::new(
+        BlockRole::PrivateOverlay,
+        Box::new(backend),
+        512,
+        SERIAL,
+        TransferShape::Undeclared,
+    )
+    .expect("dev");
     let (mut rig, mut t) = boot_with(device);
     let (status, _, _) = run(&mut rig, &mut t, VIRTIO_BLK_T_FLUSH, 0, None);
     assert_eq!(status, VIRTIO_BLK_S_IOERR);

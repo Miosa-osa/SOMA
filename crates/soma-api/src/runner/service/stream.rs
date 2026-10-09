@@ -10,7 +10,6 @@ use std::{sync::Arc, time::Duration, time::Instant};
 
 use bytes::Bytes;
 use serde::Serialize;
-use soma::TerminalStatus;
 use tokio::sync::mpsc;
 
 use crate::runner::{
@@ -23,8 +22,9 @@ use crate::runner::{
 
 use super::{
     Runner, RunnerResponse, Timing,
-    command::{Prepared, command_entry, failure_error},
+    command::{Prepared, command_entry},
     millis,
+    outcome::{exit_code, failure_error},
 };
 
 /// How often a running command's stream says it is still alive.
@@ -110,7 +110,7 @@ impl Run {
         self.sandboxes.release(id);
         match outcome {
             Ok((Ok(executed), _)) => {
-                if let TerminalStatus::Exited { code } = executed.status {
+                if let Some(code) = exit_code(executed.status) {
                     self.event(
                         "stdout",
                         &Text {

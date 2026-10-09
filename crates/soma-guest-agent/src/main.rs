@@ -48,11 +48,15 @@ mod network_repair;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pid1;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod priority;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pty;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod shutdown;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod timings;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod tuning;
 
 #[cfg(target_os = "linux")]
 mod warm;
@@ -77,7 +81,7 @@ mod agent {
     use crate::timings::{self, Step as Measured};
     use crate::{
         boot, capture_warm, console, control, entropy, identity, launch_page, lifecycle,
-        network_repair, pid1, warm,
+        network_repair, pid1, priority, tuning, warm,
     };
 
     /// Console line the agent prints once it is parked at the disconnected repair point.
@@ -103,6 +107,10 @@ mod agent {
             console::report("refusing to run outside PID 1");
             pid1::poweroff();
         }
+        // The control path outranks the workload it supervises, so a command that spins cannot
+        // starve the agent that would answer the next request. The policy is guest kernel state
+        // and a capture carries it, so a restored Instance starts already protected.
+        console::report(&format!("scheduling {}", priority::raise()));
         let controller = Controller::captured();
         // The capture warm plan lives in the initramfs, so it is read while the initramfs is
         // still the root; early init leaves it behind. A present plan that cannot be decoded
@@ -144,6 +152,11 @@ mod agent {
                 outcome.swept
             ));
         }
+        // Tune the guest before the repair point, and clear the golden boot's kernel log so no
+        // restored Instance carries it. Both are guest state and are captured with the machine.
+        // The tuning runs after the warm commands so the kernel log it clears holds theirs too.
+        console::report(&tuning::apply().to_string());
+        tuning::clear_boot_log();
         pid1::sync();
         console::report(REPAIR_POINT_LINE);
         let (controller, material) = advance(controller.accept_material(

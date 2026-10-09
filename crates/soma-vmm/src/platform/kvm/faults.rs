@@ -77,15 +77,17 @@ pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
 
 /// The contract status one guest terminal status is.
 ///
-/// A command the guest could not start, or that its own agent failed to run, produced no
-/// process and therefore no status a caller may read as one. Those are refusals of the
-/// execution rather than results of it, so they return nothing and become a typed failure.
+/// A command the guest could not start produced no process, so it has no exit code, but the
+/// agent that answered is alive and had nothing to run. That is a refusal with a name, and it
+/// travels as one. A command the agent itself could not carry out says the agent is not
+/// trustworthy, which no status describes, so it returns nothing and becomes a typed failure.
 pub(super) const fn exit_status(status: TerminalStatus) -> Option<ExitStatus> {
     match status {
         TerminalStatus::Exited(code) => Some(ExitStatus::Code(code)),
         TerminalStatus::Signaled(signal) => Some(ExitStatus::Signal(signal)),
         TerminalStatus::TimedOut => Some(ExitStatus::TimedOut),
         TerminalStatus::OutputLimit => Some(ExitStatus::OutputLimit),
-        TerminalStatus::ExecFailed(_) | TerminalStatus::AgentFailed(_) => None,
+        TerminalStatus::ExecFailed(errno) => Some(ExitStatus::SpawnFailed(errno)),
+        TerminalStatus::AgentFailed(_) => None,
     }
 }

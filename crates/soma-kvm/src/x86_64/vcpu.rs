@@ -3,7 +3,7 @@
 //! The vCPU enters 32-bit protected mode with paging disabled, flat code and data segments, a
 //! present 32-bit TSS, `RIP` at the entry point, and `RBX` pointing at `hvm_start_info`.
 
-use kvm_bindings::{kvm_regs, kvm_segment, kvm_sregs};
+use kvm_bindings::{KVM_MP_STATE_INIT_RECEIVED, kvm_mp_state, kvm_regs, kvm_segment, kvm_sregs};
 use kvm_ioctls::VcpuFd;
 
 use super::{
@@ -30,6 +30,26 @@ pub(crate) fn install_registers(vcpu: &VcpuFd, entry: u64) -> Result<(), Machine
         .map_err(|error| MachineError::os(Phase::Sregs, error))?;
     vcpu.set_regs(&boot_regs(entry))
         .map_err(|error| MachineError::os(Phase::Regs, error))
+}
+
+/// Parks an application processor where the guest's SMP bringup expects to find it.
+///
+/// A processor that is not the bootstrap one starts where a real one does: with no register or
+/// segment state the guest has not written itself, waiting for the INIT and the SIPI that start
+/// it. The guest's own trampoline supplies everything else when the start-up IPI arrives, so
+/// nothing here guesses at an entry point, and the local APIC identifier is the one KVM assigned
+/// in creation order, which is what the machine's MP table lists.
+///
+/// The wait-for-SIPI state is `INIT_RECEIVED`, not the `UNINITIALIZED` a vCPU is created in.
+/// `UNINITIALIZED` is where a processor sits before anything has been delivered to it, and
+/// `KVM_RUN` on such a vCPU returns `EAGAIN` instead of blocking, so a thread parked there comes
+/// back to userspace on its first call and the SIPI then arrives for a processor nobody is
+/// running. `INIT_RECEIVED` is the state KVM blocks in and the state it accepts the SIPI from.
+pub(crate) fn install_ap_state(vcpu: &VcpuFd) -> Result<(), MachineError> {
+    vcpu.set_mp_state(kvm_mp_state {
+        mp_state: KVM_MP_STATE_INIT_RECEIVED,
+    })
+    .map_err(|error| MachineError::os(Phase::MpState, error))
 }
 
 pub(crate) fn apply_protected_mode(sregs: &mut kvm_sregs) {

@@ -9,18 +9,15 @@ use soma_guest::TerminalStatus;
 
 use super::network::Egress;
 
-/// The one machine shape the `x86_64` contract admits.
-pub(super) const CONTRACT_VCPUS: u16 = 1;
-
 /// The shape a caller is told it received.
 ///
-/// The vCPU count is fixed by the machine contract.
-/// Memory is the amount the restore registered with KVM.
-/// Storage is the capacity of the private block backend whose agreement with the captured device
-/// state was checked before the guest could reach Ready.
-pub(super) fn effective_shape(memory_mib: u64, storage_mib: u64) -> EffectiveShape {
+/// The vCPU count is the one the Generation's machine was actually built with, and the memory is
+/// the amount the restore registered with KVM, so both are observed rather than echoed back from
+/// the request. Storage is the capacity of the private block backend whose agreement with the
+/// captured device state was checked before the guest could reach Ready.
+pub(super) fn effective_shape(memory_mib: u64, vcpus: u16, storage_mib: u64) -> EffectiveShape {
     EffectiveShape::new(
-        Observation::Observed(CONTRACT_VCPUS),
+        Observation::Observed(vcpus),
         Observation::Observed(memory_mib),
         Observation::Observed(storage_mib),
     )
@@ -89,12 +86,13 @@ pub(super) fn command_parts(request: &ExecutionRequest<'_>) -> Option<CommandPar
     })
 }
 
-/// The portable status for a command the guest actually ran.
+/// The portable status for a command the guest agent reported the end of.
 ///
-/// `ExecFailed` and `AgentFailed` have no portable equivalent, and they are not command results:
-/// the first means the program never started, the second that the agent itself failed. Reporting
-/// either as an exit code would describe a command that never ran as one that ran and finished,
-/// so they become a guest failure instead.
+/// `ExecFailed` means the program never started: the agent answered and had nothing to run, so
+/// the invocation is refused rather than a process described. Reporting it as an exit code would
+/// call a command that never ran one that ran and finished, and reporting nothing at all leaves
+/// the engine unable to tell a refusal from a lost machine. `AgentFailed` is the agent itself
+/// failing, which no status describes, so it becomes a guest failure.
 pub(super) const fn command_status(status: TerminalStatus) -> Option<CommandStatus> {
     match status {
         TerminalStatus::Exited(code) => Some(CommandStatus::Exited { code }),
@@ -103,7 +101,8 @@ pub(super) const fn command_status(status: TerminalStatus) -> Option<CommandStat
         }),
         TerminalStatus::TimedOut => Some(CommandStatus::TimedOut),
         TerminalStatus::OutputLimit => Some(CommandStatus::OutputLimitExceeded),
-        TerminalStatus::ExecFailed(_) | TerminalStatus::AgentFailed(_) => None,
+        TerminalStatus::ExecFailed(errno) => Some(CommandStatus::SpawnFailed { errno }),
+        TerminalStatus::AgentFailed(_) => None,
     }
 }
 
@@ -136,7 +135,7 @@ mod shape_tests {
 
     #[test]
     fn a_restored_machine_reports_all_three_shape_dimensions() {
-        let effective = effective_shape(1024, 10_240);
+        let effective = effective_shape(1024, 1, 10_240);
         assert_eq!(effective.vcpu_count(), &Observation::Observed(1));
         assert_eq!(effective.memory_mib(), &Observation::Observed(1024));
         assert_eq!(effective.storage_mib(), &Observation::Observed(10_240));

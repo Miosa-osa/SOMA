@@ -20,10 +20,15 @@ use crate::snapshot::{
     device_state::DeviceState,
     kvm_state::{MemorySlot, VmState},
     manifest::{Manifest, PageSize},
-    memory::MemoryDescriptor,
+    memory::{MemoryDescriptor, MemoryError},
 };
-use crate::virtio::{GuestAddress, GuestMemory as _, Slot};
-use crate::x86_64::{layout, sandbox::SandboxMachine};
+use crate::virtio::Slot;
+use crate::x86_64::{
+    cpuid::GuestMachine,
+    error::{MachineError, Phase},
+    layout::{self, GuestLayout},
+    sandbox::SandboxMachine,
+};
 
 // Assembling the manifest out of what was read is beside this file: it touches no KVM and needs
 // no ordering, so keeping it apart is what stops the read order below being read as part of it.
@@ -49,8 +54,10 @@ pub struct CaptureRequest<'a> {
     pub overlay: Option<&'a mut File>,
     /// The console line the agent prints at the repair point.
     pub repair_point_line: Vec<u8>,
-    /// How long the vCPU may take to leave `KVM_RUN` after it is kicked.
+    /// How long each vCPU may take to leave `KVM_RUN` after it is kicked.
     pub grace: std::time::Duration,
+    /// The machine contract this Generation was built under, which the manifest binds.
+    pub contract: crate::contract::MachineContract,
 }
 
 /// What one published snapshot is.
@@ -86,6 +93,7 @@ pub fn capture(
     deadline: Instant,
 ) -> Result<CaptureOutcome, SnapshotError> {
     let mut quiesced = Quiesce::new();
+    let capture_ceiling = request.contract.max_memory_bytes();
     let repair_point_at =
         sandbox
             .wait_console_line(deadline)
@@ -115,19 +123,39 @@ pub fn capture(
     let posted = quiesce::posted(&mut bus, &paused.memory);
     quiesced.prove(QuiescePrecondition::QueuesProvenQuiescent)?;
 
-    let mut sequence = quiesced.begin_capture()?;
-    let vm_state = VmState::new(
-        vec![MemorySlot {
-            slot: 0,
-            guest_address: 0,
+    // A machine contract is what decides whether this much RAM may be captured at all. The
+    // descriptor's own bound is the widest ceiling any contract admits, so without this a v1
+    // machine could publish a sixteen-gigabyte memory object no v1 restore is allowed to map. The
+    // check runs before the capture walk rather than at the descriptor, because the walk is what
+    // costs the host a full write of that RAM.
+    if !request.contract.accepts_memory(paused.ram_bytes) {
+        return Err(MemoryError::SizeExceedsBound {
             size: paused.ram_bytes,
-            memory_offset: 0,
-        }],
-        layout::TSS_ADDRESS,
-        0,
-    )?;
+            bound: capture_ceiling,
+        }
+        .into());
+    }
+    let mut sequence = quiesced.begin_capture()?;
+    // The certified memory-slot layout is derived from the captured RAM size, so a restore
+    // re-derives the same ranges rather than trusting a list read out of the artifact.
+    let layout = GuestLayout::new(paused.ram_bytes).map_err(MachineError::from)?;
+    let slots = layout
+        .regions()
+        .iter()
+        .map(|region| MemorySlot {
+            slot: region.slot,
+            guest_address: region.guest_start,
+            size: region.size,
+            memory_offset: region.host_offset,
+        })
+        .collect();
+    let vm_state = VmState::new(slots, layout::TSS_ADDRESS, 0)?;
     sequence.complete(CaptureStep::ReadVmState)?;
-    let vcpu_state = vcpu::read(paused.kvm, paused.vcpu)?;
+    let vcpu_states = paused
+        .vcpus
+        .iter()
+        .map(|vcpu| vcpu::read(paused.kvm, vcpu))
+        .collect::<Result<Vec<_>, SnapshotError>>()?;
     sequence.complete(CaptureStep::ReadVcpuState)?;
     let irqchip = platform::read_irqchip(paused.vm)?;
     sequence.complete(CaptureStep::ReadIrqchip)?;
@@ -140,7 +168,17 @@ pub fn capture(
 
     let live = bus.snapshot_all();
     let root_digest = artifacts::hash(Artifact::Root, request.root)?;
-    let (_, cpu_template) = profile::cpu_template(paused.kvm)?;
+    // A machine always has at least one processor and its contract admits at most eight, so the
+    // count fits the field a template states it in; anything else is a machine this capture
+    // cannot describe.
+    let vcpus = u16::try_from(paused.vcpus.len()).map_err(|_| {
+        MachineError::invalid(
+            Phase::Cpuid,
+            "the machine has more processors than a template can state",
+        )
+    })?;
+    let (_, cpu_template) =
+        profile::cpu_template(paused.kvm, GuestMachine::new(request.contract, vcpus))?;
     sequence.complete(CaptureStep::ReadDevices)?;
 
     let mut memory = Staging::create(&request.paths, Artifact::Memory, request.paths.memory())?;
@@ -149,10 +187,13 @@ pub fn capture(
     while offset < paused.ram_bytes {
         let remaining = usize::try_from(paused.ram_bytes - offset).unwrap_or(CHUNK);
         let span = remaining.min(CHUNK);
-        paused
-            .memory
-            .read_bytes(GuestAddress(offset), &mut buffer[..span])
-            .map_err(|_| SnapshotError::NotQuiescent("guest RAM shrank during capture"))?;
+        // The walk reads the memory object linearly across both ranges of a split machine, so
+        // it names object offsets rather than guest addresses.
+        if !paused.memory.read_image(offset, &mut buffer[..span]) {
+            return Err(SnapshotError::NotQuiescent(
+                "guest RAM shrank during capture",
+            ));
+        }
         memory.write(&buffer[..span])?;
         offset += u64::try_from(span).unwrap_or(0);
     }
@@ -182,7 +223,7 @@ pub fn capture(
             };
             let specific = device::specific(&bus, slot, image)
                 .ok_or(SnapshotError::DeviceStateNotCanonical(slot))?;
-            let state = device::canonical(slot, record, specific)?;
+            let state = device::canonical(slot, record, specific, request.contract)?;
             if device::reproduces(slot, record, &state) {
                 Ok((slot, state))
             } else {
@@ -196,8 +237,9 @@ pub fn capture(
     let manifest = build(
         &request,
         &vm_state,
-        &vcpu_state,
+        &vcpu_states,
         &Parts {
+            contract: request.contract,
             cpu_template,
             irqchip: &irqchip,
             routing: &routing,

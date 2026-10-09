@@ -59,8 +59,13 @@ fn every_bound_contract_statement_must_be_the_pinned_one() {
     rejected(Incompatibility::CommandLine, |m| {
         m.command_line = b"console=ttyS0".to_vec();
     });
+    // Naming another contract version names another machine, and the command line that version
+    // composes is checked first, so the version bump is refused there rather than for the
+    // binding. Either refusal fails closed; the version is not silently accepted.
+    rejected(Incompatibility::CommandLine, |m| {
+        m.machine_contract.version = 2;
+    });
     for mutate in [
-        |m: &mut GenerationManifest| m.machine_contract.version = 2,
         |m: &mut GenerationManifest| {
             m.device_contract.digest = Sha256Digest::from_bytes([9; 32]);
         },

@@ -24,7 +24,8 @@ use crate::x86_64::{
 pub(in crate::x86_64) struct RestoredParts {
     pub(in crate::x86_64) machine: Machine,
     pub(in crate::x86_64) bus: MmioBus,
-    pub(in crate::x86_64) vcpu: VcpuFd,
+    /// Every restored vCPU, in index order.
+    pub(in crate::x86_64) vcpus: Vec<VcpuFd>,
     pub(in crate::x86_64) serial_line: EventFd,
     pub(in crate::x86_64) irq: IrqLines,
     pub(in crate::x86_64) notify: NotifyFds,
@@ -131,9 +132,10 @@ impl SandboxMachine {
             finished: Arc::new(AtomicBool::new(false)),
             launch_page: Mutex::new(Some(parts.launch_page)),
             console: None,
+            ports: None,
             exits: Arc::new(crate::x86_64::exits::ExitLedger::new()),
             stage: Stage::Prepared(Prepared {
-                vcpu: parts.vcpu,
+                vcpus: parts.vcpus,
                 serial_line: parts.serial_line,
                 irq: parts.irq,
                 notify: parts.notify,

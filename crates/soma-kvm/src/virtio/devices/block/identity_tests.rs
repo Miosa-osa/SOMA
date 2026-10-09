@@ -11,15 +11,36 @@ use crate::virtio::transport::registers::AccessWidth;
 fn constructor_rejects_bad_role_block_size_and_capacity() {
     let ro = || Box::new(MemoryBackend::zeroed(8, true));
     assert_eq!(
-        BlockDevice::new(BlockRole::PrivateOverlay, ro(), 512, SERIAL).err(),
+        BlockDevice::new(
+            BlockRole::PrivateOverlay,
+            ro(),
+            512,
+            SERIAL,
+            TransferShape::Undeclared,
+        )
+        .err(),
         Some(BlockConfigError::RoleMismatch)
     );
     assert!(
-        BlockDevice::new(BlockRole::ImmutableRoot, ro(), 4096, SERIAL).is_ok(),
+        BlockDevice::new(
+            BlockRole::ImmutableRoot,
+            ro(),
+            4096,
+            SERIAL,
+            TransferShape::Undeclared,
+        )
+        .is_ok(),
         "8 sectors is exactly one 4 KiB block"
     );
     assert_eq!(
-        BlockDevice::new(BlockRole::ImmutableRoot, ro(), 1000, SERIAL).err(),
+        BlockDevice::new(
+            BlockRole::ImmutableRoot,
+            ro(),
+            1000,
+            SERIAL,
+            TransferShape::Undeclared,
+        )
+        .err(),
         Some(BlockConfigError::InvalidBlockSize { blk_size: 1000 })
     );
     assert_eq!(
@@ -27,7 +48,8 @@ fn constructor_rejects_bad_role_block_size_and_capacity() {
             BlockRole::ImmutableRoot,
             Box::new(MemoryBackend::zeroed(0, true)),
             512,
-            SERIAL
+            SERIAL,
+            TransferShape::Undeclared,
         )
         .err(),
         Some(BlockConfigError::InvalidCapacity { capacity_bytes: 0 })

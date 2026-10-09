@@ -1,0 +1,26 @@
+# Large-shape additions on top of soma-v1.fragment.
+#
+# D3 needs a compressed swap device in RAM: the large shape runs a build workload whose memory
+# use is a spike, and the machine has no disk swap. `CONFIG_SWAP` is the whole swap subsystem and
+# `CONFIG_ZRAM` brings the compressed block device and its `zsmalloc` allocator; `make
+# olddefconfig` resolves the compressor's own dependencies (lzo-rle and its crypto).
+#
+# D4 needs transparent huge pages. The large shape runs a compiler whose working set is hundreds
+# of megabytes and whose access pattern is close to random, so the guest's own page tables are
+# worth widening: measured in a guest that has this facility, `MADV_HUGEPAGE` over the shape's
+# own read-mostly region halves the translation work and takes a two-gigabyte pointer chase from
+# 1416 ms to 1079 ms, 1.31x, and the same guest builds a large TypeScript project about a fifth
+# faster than a guest that does not. Version 1 cannot ask for it at all: the call fails closed
+# with `EINVAL` when the feature is compiled out, so a workload that requests huge pages silently
+# pays full four-kilobyte translation cost. `TRANSPARENT_HUGEPAGE_ALWAYS` rather than `MADVISE`
+# because the compilers on this shape are third-party binaries whose `madvise` behaviour we do
+# not control, and the shape's guest is sized to fit its workload either way.
+#
+# Nothing is removed and nothing is reconfigured: this fragment only adds facilities, so a guest
+# that never enables the device behaves exactly as the version 1 kernel does. The version 1
+# kernel and its pinned config are untouched; the large shape binds this kernel separately.
+CONFIG_SWAP=y
+CONFIG_ZRAM=y
+CONFIG_ZRAM_DEF_COMP_LZORLE=y
+CONFIG_TRANSPARENT_HUGEPAGE=y
+CONFIG_TRANSPARENT_HUGEPAGE_ALWAYS=y

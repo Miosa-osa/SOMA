@@ -3,6 +3,7 @@
 
 mod fields;
 mod hostile;
+mod v2;
 
 use crate::generation::{
     artifacts::Sha256Digest, manifest::GenerationManifest, manifest::fixture,

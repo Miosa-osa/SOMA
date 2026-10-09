@@ -41,10 +41,38 @@ mod x86_64_sandbox_boot_session;
 mod x86_64_sandbox_boot_host;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/sparse.rs"]
+mod x86_64_sandbox_boot_sparse;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/images.rs"]
+mod x86_64_sandbox_boot_images;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/large.rs"]
+mod x86_64_sandbox_boot_large;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/block_transfer.rs"]
+mod x86_64_sandbox_boot_block_transfer;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/apt_prepare.rs"]
+mod x86_64_sandbox_boot_apt_prepare;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/memory_fill.rs"]
+mod x86_64_sandbox_boot_memory_fill;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/memory.rs"]
+mod x86_64_sandbox_boot_memory;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
+    use soma_kvm::MachineContract;
     use std::{
         fs,
-        path::Path,
         sync::{Mutex, MutexGuard, PoisonError},
     };
 
@@ -62,24 +90,22 @@ mod live {
     };
 
     const MIB: u64 = 1024 * 1024;
-    const BUSYBOX: &str = "busybox:stable-musl";
-    const NODE: &str = "node:22";
-    const MAC_NODE_TREE_DIGEST: &str =
-        "sha256:5dac6c571b970375a978c3f2f8777883e5bdd582fb4b43a5b872f929a2c7adf6";
+    /// The image every busybox proof in this harness builds its Generation from.
+    pub(crate) const BUSYBOX: &str = "busybox:stable-musl";
 
     static LIVE_PROOF: Mutex<()> = Mutex::new(());
 
-    fn serialize_live_proof() -> MutexGuard<'static, ()> {
+    pub(crate) fn serialize_live_proof() -> MutexGuard<'static, ()> {
         LIVE_PROOF.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Compiles one Generation at `shape`, boots it, runs `command`, and reports the proof.
     #[allow(clippy::too_many_lines)]
-    fn boot_generation(
+    pub(crate) fn boot_generation(
         name: &str,
         image: &str,
         override_var: &str,
-        memory_mib: u64,
-        storage_mib: u64,
+        shape: generation::Shape,
         command: &session::Command<'_>,
     ) -> Option<Proof> {
         require_scratch_space();
@@ -95,10 +121,7 @@ mod live {
         let compiled = generation::compile(
             &layout,
             &format!("docker.io/library/{image}"),
-            generation::Shape {
-                memory_mib,
-                storage_mib,
-            },
+            shape,
             &inputs,
             &scratch,
         );
@@ -128,6 +151,18 @@ mod live {
         let head_path = scratch.join("overlay-head.ext4");
         let head = generation::private_head(&mut template, &head_path);
         drop(template);
+        // A private head is a sparse copy of a writable class that is written out whole, so its
+        // length says nothing about what it cost. Printing both is what tells a run whose clone
+        // materialized the class from one that did not, without waiting for the disk to fill.
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            let head_stat = head.metadata().expect("stat the private head");
+            eprintln!(
+                "[{name}] private head: {} bytes long, {} bytes allocated",
+                head_stat.len(),
+                head_stat.blocks() * 512
+            );
+        }
         let root_before = generation::sha256_file(&root);
         let head_before = generation::sha256_file(&head);
         assert_eq!(
@@ -135,13 +170,18 @@ mod live {
             manifest.overlay.templates[0].descriptor.digest.to_string(),
             "the private head must start as an exact copy of the sterile template"
         );
-        let ram_bytes = memory_mib * MIB;
+        let ram_bytes = shape.memory_mib * MIB;
         let config = session::config(
             kernel,
             initramfs,
             root,
             head,
-            ram_bytes,
+            session::Machine {
+                ram_bytes,
+                vcpus: shape.vcpus,
+                contract: MachineContract::require(manifest.machine_contract.version)
+                    .expect("the compiled Generation names a contract this host builds"),
+            },
             manifest.device_set(),
         );
         let expected_cmdline = String::from_utf8(manifest.command_line.clone()).unwrap();
@@ -156,7 +196,7 @@ mod live {
         x86_64_host_sample::describe("host_last_sample_with_guest_mapped", &host_last);
         x86_64_host_sample::describe("host_peak_vmrss_while_running", &host_peak);
         eprintln!("host_peaks_while_running: {host_peaks:?}");
-        session::report(name, &evidence, &scratch.join("serial.log"));
+        session::evidence::report(name, &evidence, &scratch.join("serial.log"));
         eprintln!(
             "[{name}] fd_before={fd_before} fd_after={fd_after} threads_before={threads_before} threads_after={threads_after}"
         );
@@ -197,51 +237,40 @@ mod live {
         })
     }
 
+    /// The machine contract v2 gate from the plan: eight processors and sixteen gigabytes.
+    ///
+    /// The guest reaches `nproc` only if the MP table the machine published was found, the
+    /// kernel started every application processor from it, and the I/O APIC route the device
+    /// GSIs use carried the command's interrupt. This is the proof that no unit test on a host
+    /// without KVM can stand in for.
     #[test]
     #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and Docker"]
-    fn tiny_generation_boots_authenticates_and_executes_one_command() {
+    fn an_eight_vcpu_generation_boots_and_reports_eight_processors() {
         let _serialized = serialize_live_proof();
         require_kvm();
         let command = session::Command {
             program: b"/bin/busybox",
-            arguments: &[b"uname", b"-a"],
-            timeout_millis: 10_000,
-            output_bytes: 65_536,
-        };
-        let proof = boot_generation(
-            "busybox",
-            BUSYBOX,
-            "SOMA_OCI_BUSYBOX_LAYOUT",
-            256,
-            64,
-            &command,
-        )
-        .expect("prerequisite failed: the busybox OCI layout could not be exported; install Docker or set SOMA_OCI_BUSYBOX_LAYOUT");
-        assert_proof(&proof);
-        let stdout = String::from_utf8_lossy(&proof.executed.stdout);
-        assert!(stdout.starts_with("Linux soma-"), "stdout={stdout:?}");
-        assert!(stdout.contains("6.12.107-soma-v1"));
-        assert!(stdout.contains("x86_64"));
-        assert!(proof.executed.stderr.is_empty());
-    }
-
-    #[test]
-    #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and Docker with node:22"]
-    fn node_22_generation_boots_authenticates_and_reports_its_version() {
-        let _serialized = serialize_live_proof();
-        require_kvm();
-        let command = session::Command {
-            program: b"/usr/local/bin/node",
-            arguments: &[b"--version"],
+            arguments: &[b"nproc"],
             timeout_millis: 30_000,
             output_bytes: 65_536,
         };
-        let proof = boot_generation("node22", NODE, "SOMA_OCI_NODE_LAYOUT", 1024, 1024, &command)
-            .expect("prerequisite failed: the node:22 OCI layout could not be exported; set SOMA_OCI_NODE_LAYOUT");
+        let proof = boot_generation(
+            "busybox-smp",
+            BUSYBOX,
+            "SOMA_OCI_BUSYBOX_LAYOUT",
+            generation::Shape::new(16 * 1024, 1024, 8),
+            &command,
+        )
+        .expect("prerequisite failed: the busybox OCI layout could not be exported; set SOMA_OCI_BUSYBOX_LAYOUT");
         assert_proof(&proof);
         let stdout = String::from_utf8_lossy(&proof.executed.stdout);
-        assert!(stdout.starts_with("v22."), "stdout={stdout:?}");
-        let _ = Path::new(MAC_NODE_TREE_DIGEST);
+        assert_eq!(
+            stdout.trim(),
+            "8",
+            "the guest did not see every processor the MP table describes: stdout={stdout:?}"
+        );
+        // The RAM this machine was told about is proved by the memory test next door, which
+        // spends a boot of its own writing across all of it: one command per boot.
     }
 }
 

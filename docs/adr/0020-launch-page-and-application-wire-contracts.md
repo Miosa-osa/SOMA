@@ -155,9 +155,10 @@ A presence byte is exactly 0 or 1, and a present field is nonempty, so an absent
 
 The complete encoded command must fit one application body and therefore one Noise record.
 
-The current `soma-vmm` request surface admits up to 4096 arguments and 1 MiB of aggregate argument bytes.
-That surface must be reconciled with this wire contract before KVM integration.
-The adapter must not truncate arguments, fragment a version 1 command, or silently accept a request it cannot represent.
+The `soma-vmm` request surface still admits up to 4096 arguments and 1 MiB of aggregate argument bytes, which is wider than this contract.
+Nothing user-supplied reaches it: its only production caller lowers a command the facade has already bounded to this contract, and the supervisor refuses any request whose packet would not fit one worker datagram rather than letting the kernel truncate it.
+Narrowing that surface is owed, but it is no longer a door.
+No adapter may truncate arguments, fragment a version 1 command, or silently accept a request it cannot represent.
 
 ### Output and terminal bodies
 

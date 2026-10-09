@@ -202,14 +202,25 @@ impl ManifestParts<'_> {
                 application_protocol_version: profile.application_protocol_version,
                 handshake_protocol_version: profile.handshake_protocol_version,
             },
-            command_line: contracts::kernel_command_line_v1(template.device_set()),
-            machine_contract: contracts::machine_contract_v1(),
+            command_line: contracts::kernel_command_line_for(
+                template.device_set(),
+                profile.machine_contract.version(),
+            )
+            .ok_or_else(|| {
+                CompileError::new(CompilePhase::ResolveInputs, CompileErrorKind::Unsupported)
+            })?,
+            machine_contract: contracts::machine_contract_for(profile.machine_contract.version())
+                .ok_or_else(|| {
+                CompileError::new(CompilePhase::ResolveInputs, CompileErrorKind::Unsupported)
+            })?,
             device_contract: contracts::device_contract_v1(template.device_set()),
             cpu_template: contracts::cpu_template_v1(),
             shape: MachineShapeBinding {
                 memory_bytes: template.memory_bytes(),
                 vcpu_count: template.shape().vcpu_count(),
-                memory_slot_layout_version: contracts::MEMORY_SLOT_LAYOUT_VERSION,
+                memory_slot_layout_version: contracts::memory_slot_layout_version(
+                    template.memory_bytes(),
+                ),
                 launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
             },
             snapshot: SnapshotBinding::Absent,

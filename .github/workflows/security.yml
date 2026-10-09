@@ -13,6 +13,7 @@ on:
       - scripts/check-workflows.sh
       - .github/actionlint.yaml
       - .github/workflows/**
+      - .gitleaks.toml
   push:
     branches:
       - main
@@ -27,6 +28,7 @@ on:
       - scripts/check-workflows.sh
       - .github/actionlint.yaml
       - .github/workflows/**
+      - .gitleaks.toml
   schedule:
     - cron: "17 8 * * 1"
   workflow_dispatch:

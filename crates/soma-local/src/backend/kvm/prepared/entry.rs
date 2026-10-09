@@ -12,7 +12,10 @@ use std::{
 };
 
 use soma::GenerationId;
-use soma_generation::{CompilerProfile, admit_installed_generation, admit_verified_handoff};
+use soma_generation::{
+    CompilerProfile, admit_installed_generation, admit_verified_handoff, declared_policy_version,
+    installed_policy_version,
+};
 
 use super::{
     CANDIDATE, GENERATION_ID, GENERATION_ID_BYTES, MAX_REFERENCE_BYTES, PreparedError,
@@ -27,7 +30,12 @@ pub(in crate::backend::kvm) fn from_handoff(
     descriptors: Vec<OwnedFd>,
 ) -> Result<PreparedGeneration, PreparedError> {
     let files = descriptors.into_iter().map(std::fs::File::from).collect();
-    let admitted = admit_verified_handoff(id, manifest, files, &CompilerProfile::v1())
+    // The profile is the one the manifest itself declares. A Generation built under a newer
+    // machine contract cannot be admitted by a host that assumed the older one, and the manifest
+    // a launching parent already verified is exactly what names the contract it holds.
+    let profile =
+        profile_for(declared_policy_version(manifest).map_err(|_| PreparedError::Damaged)?)?;
+    let admitted = admit_verified_handoff(id, manifest, files, &profile)
         .map_err(|_| PreparedError::Damaged)?;
     let admitted_id = admitted.id.clone();
     let (manifest, artifacts) = admitted.into_parts();
@@ -42,6 +50,14 @@ pub(in crate::backend::kvm) fn from_handoff(
         manifest,
         artifacts,
     })
+}
+
+/// The compiler profile one declared compiler-policy version names.
+///
+/// A prepared entry whose policy has no profile in this build is refused as damaged rather than
+/// admitted under a profile that describes a different machine.
+fn profile_for(version: u16) -> Result<CompilerProfile, PreparedError> {
+    CompilerProfile::from_policy_version(version).ok_or(PreparedError::Damaged)
 }
 
 /// Whether `path` is a symbolic link, treating an unreadable path as one.
@@ -156,8 +172,12 @@ pub(super) fn read_entry(
     let bytes = read_bounded(&generation_id, GENERATION_ID_BYTES).ok_or(PreparedError::Damaged)?;
     let text = std::str::from_utf8(&bytes).map_err(|_| PreparedError::Damaged)?;
     let id = GenerationId::new(text.trim().to_owned()).map_err(|_| PreparedError::Damaged)?;
-    let admitted = admit_installed_generation(&store, &id, &CompilerProfile::v1())
-        .map_err(|_| PreparedError::Damaged)?;
+    // The entry states the contract it was prepared under, and admission uses that rather than
+    // a fixed one, so a host that prepared a newer machine admits it as the machine it is.
+    let profile =
+        profile_for(installed_policy_version(&store, &id).map_err(|_| PreparedError::Damaged)?)?;
+    let admitted =
+        admit_installed_generation(&store, &id, &profile).map_err(|_| PreparedError::Damaged)?;
     let admitted_id = admitted.id.clone();
     let (manifest, artifacts) = admitted.into_parts();
     let artifacts = artifacts

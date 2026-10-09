@@ -7,6 +7,7 @@
 //! restore re-derives from readiness and the queue cursors. Capture proves that the canonical
 //! form reproduces everything else exactly.
 
+use crate::contract::MachineContract;
 use crate::snapshot::{
     Digest,
     device_state::{
@@ -68,8 +69,9 @@ pub(super) fn canonical(
     slot: Slot,
     live: &SlotSnapshot,
     specific: DeviceSpecific,
+    contract: MachineContract,
 ) -> Result<DeviceState, SnapshotError> {
-    let expectation = profile::expectation(slot);
+    let expectation = profile::expectation(slot, contract);
     if live.transport.driver_features != expectation.negotiated_features {
         return Err(SnapshotError::FeatureNegotiation {
             slot,

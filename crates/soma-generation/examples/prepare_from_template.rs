@@ -73,7 +73,7 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     let document = fs::read(&args.template)
         .map_err(|error| format!("{}: {error}", args.template.display()))?;
     let template: Template = parse_template(&document)?;
-    let prepared = build::prepare(&args.inputs, |normalized, store| {
+    let prepared = build::prepare(&args.inputs, CompilerProfile::v1(), |normalized, store| {
         let resolver = LayoutResolver::new(
             &args.inputs.layout,
             template.workload().image(),

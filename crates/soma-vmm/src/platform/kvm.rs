@@ -18,8 +18,8 @@ use std::time::Duration;
 
 use soma_guest::GuestCommand;
 use soma_jail::DescriptorManifest;
-use soma_kvm::DeviceSet;
 use soma_kvm::x86_64::{GuestExit, Hypervisor, SnapshotObjects};
+use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::sandbox::{
     Assignment, Network, Session, SessionError, SterileSpec, guest_cid_for, link_down_network,
@@ -79,12 +79,28 @@ impl Platform for KvmPlatform {
             overlay,
         } = resources;
         self.overlay = overlay;
+        let machine = launch.generation().machine();
+        // The contract arrives as the portable version the parent stated, and a version this
+        // build does not implement is refused here rather than restored as the wrong machine.
+        let shape = MachineContract::require(machine.contract().get())
+            .ok()
+            .zip(Some(machine.vcpus().get()));
+        let Some((contract, vcpus)) = shape else {
+            // A version this build does not implement, or a shape that does not fit the
+            // contract's own field widths, is a property of this host and its store rather
+            // than of the request, so it lands where the other restore faults do.
+            return Err(RestoreFailure::at_restore(faults::restore_recovery(
+                SessionError::Create,
+            )));
+        };
         let spec = SterileSpec {
             objects: SnapshotObjects::adopt(state, memory, None),
             hypervisor: Hypervisor::Adopted(kvm),
             root,
             overlay_capacity_bytes,
-            memory_bytes: launch.generation().machine().memory().get(),
+            memory_bytes: machine.memory().get(),
+            vcpus,
+            contract,
             devices: DeviceSet::new(declared.writable_disk(), declared.network()),
         };
         match Session::prepare(spec) {

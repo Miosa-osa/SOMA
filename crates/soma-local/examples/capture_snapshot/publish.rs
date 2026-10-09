@@ -138,7 +138,12 @@ pub(super) fn install_and_publish(
             ),
         ),
     )?;
-    let certification = certify_candidate(store, candidate, &CompilerProfile::v1(), binding)?;
+    // The profile is the one the Candidate itself declares. A Candidate built under a newer
+    // machine contract cannot be certified under the older profile, and the manifest is what
+    // names the contract this machine was actually built as.
+    let profile = CompilerProfile::from_policy_version(candidate.manifest.compiler_policy_version)
+        .ok_or("the Candidate names a compiler policy this build does not implement")?;
+    let certification = certify_candidate(store, candidate, &profile, binding)?;
     let generation = promote_candidate(store, candidate, &certification)?;
     publish_generation_id(entry, generation.id.as_str())?;
     println!(
