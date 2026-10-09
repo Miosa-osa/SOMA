@@ -60,6 +60,32 @@ workload reads, and `Acquire::PDiffs false` takes a full index rather than a pat
 was separately measurable on the development machine, where the locale is `C` and the archive
 publishes no diffs for these suites; both are here because they are strictly less work.
 
+## Proven inside a live guest, offline half
+
+`crates/soma-kvm/tests/x86_64_sandbox_boot/apt_prepare.rs` boots a large-shape guest from this
+image and reports what it carries:
+
+```
+SOURCES=Suites: noble noble-updates;   COMPONENTS=Components: main;   DEB_SRC=0;
+LISTS_KIB=6060
+PKG_bash=install ok installed  PKG_build-essential=install ok installed
+PKG_ca-certificates=install ok installed  PKG_curl=install ok installed
+PKG_git=install ok installed  PKG_python3=install ok installed
+PKG_python3-setuptools=install ok installed  PKG_unzip=install ok installed
+NODE=present
+INSTALL_RC=0   INSTALL_MS=80   NEWLY_INSTALLED=0
+```
+
+`--no-download` is what makes that an assertion rather than a hope: the install succeeds with the
+network forbidden, and names nothing to fetch, so the packages the workload's `prepare()` asks for
+are already here.
+
+That gate deliberately does not touch the network. A machine booted by the test harness has no
+egress at all, because the device layer puts a link-down placeholder behind the network device when
+there is no TAP broker in the process; from there `apt-get update` spends about seven seconds
+retrying and then errors, which is a fact about the harness rather than about the image. The update
+figure has to come from a sandbox launched by the runner, which is where the workload runs.
+
 ## What the update still costs, and what a local cache would change
 
 With the lists present and current, the only thing `apt-get update` fetches is the two signed
