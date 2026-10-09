@@ -119,3 +119,35 @@ async fn only_a_lost_machine_is_answered_as_an_agent_outage() {
     let body: serde_json::Value = serde_json::from_slice(&lost.body).expect("JSON");
     assert_eq!(body["error"]["code"], "AGENT_UNAVAILABLE");
 }
+
+#[test]
+fn a_refused_command_is_not_reported_as_an_agent_outage() {
+    use soma::{BackendFailureKind, ManagedFailure};
+
+    use super::outcome::failure_error;
+
+    // Each of these is a property of the request rather than of the machine, so each answers its
+    // own 4xx/5xx instead of sending the caller back to retry something that cannot succeed.
+    for (kind, status, code) in [
+        (
+            BackendFailureKind::WorkloadRejected,
+            400,
+            "WORKLOAD_REJECTED",
+        ),
+        (
+            BackendFailureKind::ResourceConflict,
+            409,
+            "RESOURCE_CONFLICT",
+        ),
+        (BackendFailureKind::Unsupported, 501, "BACKEND_UNSUPPORTED"),
+    ] {
+        let error = failure_error(&ManagedFailure::Backend(kind));
+        assert_eq!((error.status, error.code), (status, code), "{kind:?}");
+        assert!(!error.retryable, "{kind:?} must not invite a retry");
+    }
+
+    // A machine that actually went missing is still an outage.
+    let lost = failure_error(&ManagedFailure::Backend(BackendFailureKind::GuestFailure));
+    assert_eq!((lost.status, lost.code), (502, "AGENT_UNAVAILABLE"));
+    assert!(lost.retryable);
+}
