@@ -108,6 +108,44 @@ lists too and both are doing the same thing: re-fetching two to four `InRelease`
 convergence is the point rather than a disappointment, because this image starts in the state the
 old one only reached after its most expensive operation.
 
+## The lists have to be fresh at capture, and nothing in the capture path can refresh them
+
+Shipping the lists only helps while they are current. Measured on the same image, in the same
+container, by dropping index files to simulate an archive that has moved on:
+
+| state of `/var/lib/apt/lists` | `apt-get update` |
+| --- | --- |
+| current | 1805 ms |
+| one index stale | 2943 ms |
+| empty, which is the previous image's state | 2812 ms |
+
+One stale index costs about as much as having no lists at all, because a changed index is
+re-downloaded whole and the fetches run in parallel, so there is no middle ground to design for:
+either the lists are current or the update pays the full price.
+
+That makes "refresh immediately before the capture" a real requirement, and it cannot be met where
+it would naturally go. A Generation's capture warm plan runs just before the snapshot is taken, and
+it is deliberately unable to do this: its commands run under private mount namespaces in which `/`
+is read-only, so they cannot write `/var/lib/apt/lists`, and they are documented as running with no
+network at all. The machine that performs a capture has no egress either, because the device layer
+puts a link-down placeholder behind the network device when there is no TAP broker in the process.
+
+So the lists can only be refreshed where there is both a writer and a network, which is the image
+build. **The image's final apt operation is the refresh**, and the ordering that follows from it is
+that a Generation should be compiled and captured from an image built for that capture rather than
+from one built weeks earlier:
+
+```sh
+docker build --platform=linux/amd64 -t soma-large-dax:3 workloads/large-dax   # refreshes the lists
+docker save soma-large-dax:3 -o layout.tar && tar -xf layout.tar -C oci/large  # then to OCI media types
+prepare_generation soma-large-dax:3 oci/large <kernel> <config> <agent> <erofs> <e2fsprogs> <entry>
+capture_snapshot <entry>
+```
+
+That is a pipeline ordering, not a code guarantee, which is the honest description. The durable
+answer is the cache in the next section, because it makes the update cheap whether or not the lists
+are current.
+
 ## What a host-local apt cache would buy
 
 In this image the only thing the update still fetches is the signed `InRelease` files, about 380 KB.
@@ -117,10 +155,17 @@ hosts would serve them in milliseconds and remove most of that, leaving apt's ow
 hundred milliseconds.
 
 So it would cut the remainder meaningfully, and it is the only lever left: what can be removed from
-the image side has been. Two caveats worth stating. The `InRelease` files have to be revalidated on
-every update by design, so a cache cannot remove the cost, only move it to the host. And if the
-harness ever stops running `apt-get update` when the packages are already present, the cache stops
-being worth anything at all, whereas everything in this image remains useful.
+the image side has been. It is also worth more than that number suggests, because a cache answers a
+stale index as fast as a current one, and the staleness table above says a stale index costs about
+as much as having no lists at all. A cache therefore removes the requirement in the previous
+section rather than merely softening it.
+
+Three caveats worth stating. The `InRelease` files have to be revalidated on every update by design,
+so a cache moves that cost to the host rather than removing it. Ubuntu's noble archive advertises
+`Acquire-By-Hash: yes`, so an index is fetched by digest and any HTTP cache can serve it, which is
+why this is a plain caching proxy rather than something bespoke. And if the harness ever stops
+running `apt-get update` when the packages are already present, the cache stops being worth anything
+at all, whereas everything in this image remains useful.
 
 ## What this image is not
 
