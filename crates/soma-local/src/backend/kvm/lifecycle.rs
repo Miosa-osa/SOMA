@@ -55,6 +55,12 @@ pub(super) struct Live {
     pub(super) egress: Egress,
     /// What this Instance was told its network is, reported again by every later observation.
     pub(super) network: EffectiveNetwork,
+    /// The vCPUs the machine booted with, which is the most a live resize can give it.
+    pub(super) vcpus: u16,
+    /// The vCPUs the machine is limited to now.
+    pub(super) cpu_limit: u16,
+    /// The memory the machine booted with, in MiB.
+    pub(super) memory_mib: u64,
 }
 
 impl KvmBackend {
@@ -167,6 +173,9 @@ impl KvmBackend {
             held,
             egress,
             network: observed.clone(),
+            vcpus: prepared.manifest.shape.vcpu_count,
+            cpu_limit: prepared.manifest.shape.vcpu_count,
+            memory_mib: shape.memory_mib(),
         });
         Ok(Launched {
             preparation,

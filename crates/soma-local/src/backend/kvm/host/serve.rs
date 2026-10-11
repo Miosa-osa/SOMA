@@ -193,6 +193,13 @@ fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
         },
         // Both terminal calls are decided by the loop rather than here, because each ends the
         // process and only one of them answers first.
+        Call::Resize {
+            instance_id,
+            request,
+        } => match backend.resize_resident(&instance_id, request) {
+            Ok(outcome) => Answer::Resized(outcome),
+            Err(failure) => Answer::ResizeRefused(failure),
+        },
         Call::Cleanup { .. } | Call::Shutdown | Call::Tunnel { .. } => {
             Answer::Refused(BackendFailureKind::Unsupported.into())
         }

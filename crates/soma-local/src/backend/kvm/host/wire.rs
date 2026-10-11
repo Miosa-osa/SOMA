@@ -141,6 +141,11 @@ pub(super) enum Call {
         instance_id: InstanceId,
         port: u16,
     },
+    /// Change the CPU and memory of the machine this host holds, live.
+    Resize {
+        instance_id: InstanceId,
+        request: crate::ResizeRequest,
+    },
     /// End the host, because nothing has addressed its machine for long enough.
     Shutdown,
 }
@@ -169,6 +174,8 @@ pub(super) enum Answer {
     },
     /// The connection now carries the guest's stream.
     Tunneled,
+    Resized(crate::ResizeOutcome),
+    ResizeRefused(crate::ResizeFailure),
     TunnelRefused(crate::TunnelFailure),
     Refused(Refusal),
 }

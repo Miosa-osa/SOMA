@@ -172,6 +172,24 @@ pub(super) fn pty(
 ///
 /// A socket nothing answers on is removed by the connect itself, so a host that died leaves no
 /// name behind for a second listing to report.
+/// Asks the host that holds `instance` to change its CPU and memory live.
+pub(crate) fn resize(
+    directory: &Path,
+    instance: &InstanceId,
+    request: crate::ResizeRequest,
+) -> Result<crate::ResizeOutcome, crate::ResizeFailure> {
+    let call = Call::Resize {
+        instance_id: instance.clone(),
+        request,
+    };
+    match ask(directory, instance, &call, CONTROL_CEILING) {
+        Ok(Answer::Resized(outcome)) => Ok(outcome),
+        Ok(Answer::ResizeRefused(failure)) => Err(failure),
+        Err(HostFailure::Absent) => Err(crate::ResizeFailure::NotFound),
+        _ => Err(crate::ResizeFailure::Unavailable),
+    }
+}
+
 pub(super) fn liveness(directory: &Path, instance: &InstanceId) -> SandboxLiveness {
     match channel::connect(directory, instance) {
         Ok(_) => SandboxLiveness::Live,

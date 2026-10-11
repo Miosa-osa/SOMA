@@ -5,6 +5,7 @@ mod backend;
 mod config;
 mod error;
 mod file_store;
+mod resize;
 mod runtime;
 mod tunnel;
 
@@ -12,6 +13,9 @@ mod tunnel;
 mod test_support;
 
 pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
+pub use resize::{
+    CpuResize, DimensionState, MemoryResize, ResizeFailure, ResizeOutcome, ResizeRequest,
+};
 pub use tunnel::TunnelFailure;
 
 /// Waits for one launch capability, then serves that durable machine until it is released.
