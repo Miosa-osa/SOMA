@@ -64,6 +64,14 @@ pub(super) struct SterileFacts {
 }
 
 impl Sterile {
+    /// The backing over the restored machine's empty hotplug region, if the snapshot carried one.
+    ///
+    /// The memory device is rebuilt from this before the machine runs.
+    #[must_use]
+    pub fn hotplug_backing(&self) -> Option<crate::x86_64::HotplugBacking> {
+        self.machine.hotplug_backing()
+    }
+
     /// Consumes the sterile worker and gives the resulting restore fresh Instance authority.
     ///
     /// The readiness secret is sampled only after resource assignment succeeds.

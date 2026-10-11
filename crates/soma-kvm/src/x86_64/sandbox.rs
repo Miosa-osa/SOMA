@@ -207,6 +207,14 @@ impl SandboxMachine {
         Ok(crate::x86_64::HotplugBacking::new(ram))
     }
 
+    /// The backing over the machine's hotplug region, for a machine built with one or restored
+    /// from a snapshot that carried one. Every call shares the same mapping, so the memory
+    /// device can be rebuilt from it after a restore.
+    #[must_use]
+    pub fn hotplug_backing(&self) -> Option<crate::x86_64::HotplugBacking> {
+        self.machine.ram.hotplug_backing()
+    }
+
     /// The hotplug region, when the machine has one.
     #[must_use]
     pub fn hotplug_region(&self) -> Option<crate::memory_layout::HotplugRegion> {

@@ -145,3 +145,26 @@ fn plug_touch_discard_returns_the_memory() {
     backing.discard(0, BLOCK).unwrap();
     assert_eq!(backing.resident_bytes().unwrap(), 0);
 }
+
+#[test]
+fn the_guest_ram_hands_out_backings_over_one_mapping() {
+    let mut guest = GuestRam::map(GuestLayout::new(MIN_RAM_BYTES).unwrap()).unwrap();
+    assert!(guest.hotplug_backing().is_none());
+    guest.attach_hotplug(region()).unwrap();
+    let (first, second) = (
+        guest.hotplug_backing().unwrap(),
+        guest.hotplug_backing().unwrap(),
+    );
+    assert!(
+        guest
+            .hotplug()
+            .unwrap()
+            .write(region().guest_start, &[1; 4096])
+    );
+    // A touch through the shared view shows in both backings; a discard through one clears it.
+    assert_eq!(first.resident_bytes().unwrap(), 4096);
+    assert_eq!(second.resident_bytes().unwrap(), 4096);
+    let mut first = first;
+    first.discard(0, BLOCK).unwrap();
+    assert_eq!(second.resident_bytes().unwrap(), 0);
+}

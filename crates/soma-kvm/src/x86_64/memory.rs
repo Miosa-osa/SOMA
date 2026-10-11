@@ -78,6 +78,12 @@ impl GuestRam {
         self.hotplug.clone()
     }
 
+    /// A fresh backing over the hotplug region, when the machine has one; every call shares the
+    /// same mapping.
+    pub(crate) fn hotplug_backing(&self) -> Option<HotplugBacking> {
+        self.hotplug.clone().map(HotplugBacking::new)
+    }
+
     pub(crate) const fn layout(&self) -> GuestLayout {
         self.layout
     }
