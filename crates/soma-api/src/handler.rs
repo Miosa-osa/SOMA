@@ -12,7 +12,7 @@ use crate::{
         CommandReport, InspectionReport, OutputBytes, SandboxListReport, SandboxReport,
         command_status,
     },
-    resources::{ResourcesBody, ResourcesReport, nothing_applied},
+    resources::{ResourcesBody, ResourcesReport, nothing_applied, remember, replayed},
     route::{FilesystemOperation, Route, TerminalOperation, resolve},
     tenant::{TENANT_HEADER, identify},
     terminal::{TerminalBody, TerminalReport},
@@ -138,11 +138,18 @@ fn resources<F: SandboxFacade + ?Sized>(
     } else {
         "sandbox.resources"
     };
-    let request = if change {
-        parse::<ResourcesBody>(body)?.into_request()?
+    let (request, operation_id) = if change {
+        let parsed = parse::<ResourcesBody>(body)?;
+        let operation_id = parsed.operation()?.map(str::to_owned);
+        (parsed.into_request()?, operation_id)
     } else {
-        soma_local::ResizeRequest::default()
+        (soma_local::ResizeRequest::default(), None)
     };
+    if let Some(id) = &operation_id
+        && let Some((status, stored)) = replayed(instance_id, id)
+    {
+        return Ok(Response::new(status, stored));
+    }
     let outcome = facade
         .resize(instance_id, request)
         .map_err(|failure| match failure {
@@ -159,20 +166,22 @@ fn resources<F: SandboxFacade + ?Sized>(
                 true,
             ),
         })?;
-    let report = ResourcesReport::new(instance_id, &outcome);
-    if change && nothing_applied(&outcome) {
+    let report = ResourcesReport::new(instance_id, operation_id.as_deref(), &outcome);
+    let response = if change && nothing_applied(&outcome) {
         let error = ApiError::new(
             409,
             "resize_not_applied",
             "nothing was applied; the report says why for each dimension",
             false,
         );
-        return Ok(Response::new(
-            409,
-            failure_body_with_result(operation, error, &report),
-        ));
+        Response::new(409, failure_body_with_result(operation, error, &report))
+    } else {
+        success(200, operation, &report, None)
+    };
+    if let Some(id) = &operation_id {
+        remember(instance_id, id, response.status, &response.body);
     }
-    Ok(success(200, operation, &report, None))
+    Ok(response)
 }
 
 /// Serves one filesystem operation, or reports the backend that cannot hold a machine for it.
