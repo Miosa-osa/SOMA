@@ -2,39 +2,23 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+mod backend;
 mod file;
 mod network;
 mod pty;
+mod resize;
 
+pub use backend::BackendSelection;
 pub use file::{FileArgs, FileCommand, FilePathArgs};
 pub use network::{DnsInput, EgressInput, NetworkArgs, ProtocolInput};
 pub use pty::{PtyArgs, PtyCommand, PtyTargetArgs};
+pub use resize::ResizeArgs;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum OutputFormat {
     #[default]
     Human,
     Json,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
-pub enum BackendSelection {
-    #[default]
-    Auto,
-    Macos,
-    Docker,
-    Kvm,
-}
-
-impl From<BackendSelection> for soma_local::BackendSelection {
-    fn from(value: BackendSelection) -> Self {
-        match value {
-            BackendSelection::Auto => Self::Auto,
-            BackendSelection::Macos => Self::Macos,
-            BackendSelection::Docker => Self::Docker,
-            BackendSelection::Kvm => Self::Kvm,
-        }
-    }
 }
 
 #[derive(Parser)]
@@ -106,6 +90,8 @@ pub enum MachineCommand {
     File(FileArgs),
     /// Drive the interactive terminal of a running sandbox.
     Pty(PtyArgs),
+    /// Change the CPU and memory of a running sandbox, live.
+    Resize(ResizeArgs),
     /// List the sandboxes this state root holds.
     List,
 }

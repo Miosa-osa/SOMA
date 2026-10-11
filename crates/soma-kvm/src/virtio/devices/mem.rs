@@ -16,9 +16,12 @@
 pub mod backing;
 mod requests;
 pub mod state;
+mod types;
 
 #[cfg(test)]
 mod hostile_tests;
+#[cfg(test)]
+mod suites;
 #[cfg(test)]
 mod tests;
 
@@ -30,6 +33,7 @@ use crate::virtio::devices::service::{ChainHandler, DeviceFault};
 use crate::virtio::guest_memory::GuestMemory;
 use crate::virtio::queue::chain::{ChainLimits, DescriptorChain};
 use backing::RegionBacking;
+pub use types::{MemCounters, SizeError};
 
 /// Virtio device identifier for a memory device.
 pub const VIRTIO_MEM_DEVICE_ID: u32 = 24;
@@ -64,27 +68,6 @@ const STATE_PLUGGED: u16 = 0;
 const STATE_UNPLUGGED: u16 = 1;
 const STATE_MIXED: u16 = 2;
 
-/// Saturating counters; never guest data.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct MemCounters {
-    pub plugged: u32,
-    pub unplugged: u32,
-    pub nacked: u32,
-    pub errored: u32,
-    pub rejected: u32,
-}
-
-/// Why the host's request for a size was refused.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SizeError {
-    /// The size is not a whole number of blocks.
-    Unaligned,
-    /// The size exceeds the region.
-    BeyondRegion,
-    /// The machine has no memory device to ask.
-    NoDevice,
-}
-
 /// The memory device model.
 pub struct MemDevice {
     addr: u64,
@@ -95,6 +78,8 @@ pub struct MemDevice {
     plugged_blocks: u64,
     backing: Box<dyn RegionBacking + Send>,
     activated: bool,
+    /// Set when a reset could not return the plugged blocks, so they are still tracked.
+    stale: bool,
     counters: MemCounters,
 }
 
@@ -130,6 +115,7 @@ impl MemDevice {
             plugged_blocks: 0,
             backing,
             activated: false,
+            stale: false,
             counters: MemCounters::default(),
         })
     }
@@ -179,6 +165,18 @@ impl MemDevice {
     #[must_use]
     pub const fn counters(&self) -> MemCounters {
         self.counters
+    }
+
+    /// Hands every plugged block back to the host, and forgets them only if it took them.
+    fn release_all(&mut self) -> bool {
+        if self.backing.discard(0, self.region_size).is_err() {
+            self.counters.discard_failed = self.counters.discard_failed.saturating_add(1);
+            return false;
+        }
+        self.bitmap.fill(0);
+        self.plugged_blocks = 0;
+        self.stale = false;
+        true
     }
 
     /// Whether nothing is plugged, the only state in which a capture is permitted.
@@ -263,18 +261,24 @@ impl VirtioDevice for MemDevice {
                 negotiated: negotiated_features,
             });
         }
+        // A reset that could not hand its blocks back left them tracked. A new driver starts from
+        // nothing, so they are returned before it may begin; if the host still cannot, the driver
+        // is refused rather than started over memory the device no longer accounts for.
+        if self.stale && !self.release_all() {
+            return Err(ActivateError::BackendUnavailable);
+        }
         self.activated = true;
         Ok(())
     }
 
     fn reset(&mut self) {
-        // A reset driver has forgotten every block it held, so the device does too.
+        // A reset driver has forgotten every block it held. The device forgets them too, but
+        // only once the host has taken the memory back: a block that could not be returned stays
+        // tracked and counted, so the plugged size stays true and nothing is untracked silently.
         self.activated = false;
         if self.plugged_blocks > 0 {
-            let _discarded = self.backing.discard(0, self.region_size);
+            self.stale = !self.release_all();
         }
-        self.bitmap.fill(0);
-        self.plugged_blocks = 0;
     }
 
     fn snapshot_state(&self) -> Vec<u8> {

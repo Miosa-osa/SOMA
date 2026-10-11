@@ -13,6 +13,7 @@ use crate::cli::{
 mod file;
 mod network;
 mod pty;
+mod resize;
 
 pub enum PreparedOperation {
     Run {
@@ -47,6 +48,10 @@ pub enum PreparedOperation {
         instance_id: InstanceId,
         request: PtyMachineRequest,
     },
+    Resize {
+        instance_id: InstanceId,
+        request: soma_local::ResizeRequest,
+    },
     /// Enumerate the sandboxes the durable state root holds. It names no Instance.
     List,
 }
@@ -63,6 +68,7 @@ impl PreparedOperation {
             Self::Destroy { .. } => "machine.destroy",
             Self::File { .. } => "machine.file",
             Self::Pty { .. } => "machine.pty",
+            Self::Resize { .. } => "machine.resize",
             Self::List => "machine.list",
         }
     }
@@ -103,6 +109,7 @@ pub fn prepare_machine(arguments: MachineArgs) -> Result<PreparedOperation, Requ
         MachineCommand::Destroy(arguments) => prepare_control(arguments, ControlKind::Destroy),
         MachineCommand::File(arguments) => file::prepare(arguments),
         MachineCommand::Pty(arguments) => pty::prepare(arguments),
+        MachineCommand::Resize(arguments) => resize::prepare(arguments),
         MachineCommand::List => Ok(PreparedOperation::List),
     }
 }

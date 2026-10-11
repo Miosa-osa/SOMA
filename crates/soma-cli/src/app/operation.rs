@@ -5,7 +5,10 @@ use soma_local::{LocalRuntime, LocalRuntimeConfig, MachineHosting};
 use crate::{
     cli::BackendSelection,
     exit::ProcessExit,
-    model::{FileReport, InspectionReport, PtyReport, Response, ResultBody, SandboxListReport},
+    model::{
+        FileReport, InspectionReport, PtyReport, ResizeReport, Response, ResultBody,
+        SandboxListReport,
+    },
     request::PreparedOperation,
 };
 
@@ -106,6 +109,10 @@ fn dispatch(
             Ok(outcome) => pty_success(command, instance_id, &outcome),
             Err(failure) => managed_failure(command, instance_id, &failure),
         },
+        PreparedOperation::Resize {
+            instance_id,
+            request,
+        } => resize(runtime, command, instance_id, request),
         PreparedOperation::List => match runtime.list_machines() {
             Ok(entries) => Execution {
                 response: Response::success(
@@ -210,4 +217,69 @@ fn inspection_success(
         ),
         exit: ProcessExit::Success,
     }
+}
+
+/// Changes a hosted sandbox's CPU and memory and reports what each dimension ended as.
+///
+/// A resize that changed nothing because every dimension was refused is a conflict, not a
+/// success, so a script never reads a zero exit as "the sandbox now has what I asked for".
+fn resize(
+    runtime: &LocalRuntime,
+    command: &'static str,
+    instance_id: soma::InstanceId,
+    request: soma_local::ResizeRequest,
+) -> Execution {
+    match runtime.resize_machine(&instance_id, request) {
+        Ok(outcome) => {
+            let refused = request != soma_local::ResizeRequest::default()
+                && !outcome.applied_live()
+                && !unchanged(&outcome);
+            let body = ResultBody::Resize(ResizeReport::new(instance_id, outcome));
+            if refused {
+                return Execution {
+                    response: Response::failure_with_result(
+                        command,
+                        body,
+                        crate::model::FailureBody::new(
+                            "resize_not_applied",
+                            "the sandbox could not apply the change live",
+                            false,
+                        ),
+                    ),
+                    exit: ProcessExit::Conflict,
+                };
+            }
+            Execution {
+                response: Response::success(command, body),
+                exit: ProcessExit::Success,
+            }
+        }
+        Err(failure) => {
+            let (code, message, exit) = match failure {
+                soma_local::ResizeFailure::NotFound => (
+                    "machine_not_found",
+                    "no hosted sandbox with this identity is reachable",
+                    ProcessExit::NotFound,
+                ),
+                soma_local::ResizeFailure::Unavailable => (
+                    "resize_unavailable",
+                    "the process holding the sandbox did not answer",
+                    ProcessExit::BackendFailure,
+                ),
+            };
+            Execution {
+                response: Response::failure(
+                    command,
+                    crate::model::FailureBody::new(code, message, false),
+                ),
+                exit,
+            }
+        }
+    }
+}
+
+/// Whether every dimension that was asked about already had what it was asked for.
+fn unchanged(outcome: &soma_local::ResizeOutcome) -> bool {
+    use soma_local::DimensionState::Unchanged;
+    outcome.cpu.state == Unchanged && outcome.memory.state == Unchanged
 }

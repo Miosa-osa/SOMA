@@ -54,7 +54,11 @@ impl KvmBackend {
                 .memory_mb
                 .map(|_| "generation_without_virtio_mem".to_owned()),
         };
-        Ok(ResizeOutcome { cpu, memory })
+        Ok(ResizeOutcome {
+            host_pid: std::process::id(),
+            cpu,
+            memory,
+        })
     }
 }
 

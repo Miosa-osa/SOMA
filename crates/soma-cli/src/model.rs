@@ -7,10 +7,12 @@ use soma::{BackendKind, CommandStatus, ExecutionReceipt, InstanceId, MachineStat
 mod file;
 mod list;
 mod pty;
+mod resize;
 
 pub use file::FileReport;
 pub use list::SandboxListReport;
 pub use pty::PtyReport;
+pub use resize::ResizeReport;
 
 pub const ENVELOPE_SCHEMA: &str = "soma.cli.v1";
 pub const MAX_OUTPUT_BYTES_USIZE: usize = 16 * 1024 * 1024;
@@ -170,6 +172,7 @@ pub enum ResultBody {
     Inspection(InspectionReport),
     File(FileReport),
     Pty(PtyReport),
+    Resize(ResizeReport),
     List(SandboxListReport),
 }
 
