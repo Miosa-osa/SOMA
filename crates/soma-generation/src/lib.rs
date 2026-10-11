@@ -25,17 +25,17 @@ pub use error::{ImportError, ImportErrorKind, ImportPhase};
 pub use generation::{
     ArtifactDescriptor, ArtifactRole, BoundTool, BuildHost, BuilderEnvironment, CandidateId,
     Certification, CompileError, CompileErrorKind, CompileGeneration, CompilePhase,
-    CompiledCandidate, CompilerProfile, ContractBinding, ErofsEvidence, GenerationManifest,
-    Incompatibility, InitramfsContents, InstalledGeneration, LifetimeLimits, MachineInputs,
-    OverlayEvidence, ProfileLimits, PublishedCandidate, PublishedGeneration, Sha256Digest,
-    SnapshotBinding, SnapshotSource, StartupBehavior, TemplateImage, TemplateRevision, ToolOutcome,
-    Toolchain, TreeBounds, VerifiedCandidate, VerifiedGeneration, VerifiedKernel,
-    VerifiedKernelConfig, admit_installed_generation, admit_verified_handoff, certify,
-    certify_candidate, compile_generation, contracts, declared_policy_version,
-    derive_generation_id, erofs, initramfs, install_snapshot, installed_policy_version, kernel,
-    kernel_config, manifest as generation_manifest, open_artifact, overlay, promote_candidate,
-    template, toolchain, verify_candidate, verify_generation, verify_kernel_config,
-    verify_kernel_config_for,
+    CompiledCandidate, CompilerProfile, ContractBinding, DEFAULT_HOTPLUG_BYTES, ErofsEvidence,
+    GenerationManifest, HOTPLUG_BLOCK_BYTES, Incompatibility, InitramfsContents,
+    InstalledGeneration, LifetimeLimits, MachineInputs, OverlayEvidence, ProfileLimits,
+    PublishedCandidate, PublishedGeneration, Sha256Digest, SnapshotBinding, SnapshotSource,
+    StartupBehavior, TemplateImage, TemplateRevision, ToolOutcome, Toolchain, TreeBounds,
+    VerifiedCandidate, VerifiedGeneration, VerifiedKernel, VerifiedKernelConfig,
+    admit_installed_generation, admit_verified_handoff, certify, certify_candidate,
+    compile_generation, contracts, declared_policy_version, derive_generation_id, erofs, initramfs,
+    install_snapshot, installed_policy_version, kernel, kernel_config,
+    manifest as generation_manifest, open_artifact, overlay, promote_candidate, template,
+    toolchain, verify_candidate, verify_generation, verify_kernel_config, verify_kernel_config_for,
 };
 pub use import::import_oci_layout;
 pub use layout_image::{LayoutImage, resolve_layout_image};

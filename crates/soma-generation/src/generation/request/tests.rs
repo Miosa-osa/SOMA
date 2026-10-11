@@ -43,3 +43,35 @@ fn the_v3_profile_is_a_live_resize_policy_so_its_kernel_must_carry_the_memory_dr
     assert!(CompilerProfile::v3().policy_version >= LIVE_RESIZE_POLICY_VERSION);
     assert!(CompilerProfile::v2().policy_version < LIVE_RESIZE_POLICY_VERSION);
 }
+
+#[test]
+fn a_hotplug_region_belongs_to_the_profile_whose_machine_has_the_memory_device() {
+    use super::{DEFAULT_HOTPLUG_BYTES, HOTPLUG_BLOCK_BYTES};
+    assert_eq!(CompilerProfile::v1().hotplug_bytes, 0);
+    assert_eq!(CompilerProfile::v2().hotplug_bytes, 0);
+    assert_eq!(CompilerProfile::v3().hotplug_bytes, DEFAULT_HOTPLUG_BYTES);
+    assert!(
+        CompilerProfile::v2()
+            .with_hotplug_bytes(HOTPLUG_BLOCK_BYTES)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        CompilerProfile::v3()
+            .with_hotplug_bytes(0)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        CompilerProfile::v3()
+            .with_hotplug_bytes(HOTPLUG_BLOCK_BYTES + 1)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        CompilerProfile::v3()
+            .with_hotplug_bytes(HOTPLUG_BLOCK_BYTES)
+            .validate()
+            .is_ok()
+    );
+}

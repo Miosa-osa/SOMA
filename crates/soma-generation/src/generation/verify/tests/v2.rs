@@ -148,3 +148,66 @@ fn a_version_three_manifest_carrying_the_version_two_machine_is_refused() {
         Some(Incompatibility::ContractStatement)
     );
 }
+
+#[test]
+fn the_hotplug_region_belongs_to_the_memory_device_and_stays_inside_its_ceiling() {
+    let mib = MIB;
+    // A machine without the device has no region to declare.
+    let mut without = fixture::profile_v2();
+    without.shape.hotplug_bytes = 128 * mib;
+    let error = require_profile(&without, &profile(2)).expect_err("v2 has no memory device");
+    assert_eq!(error.incompatibility(), Some(Incompatibility::MemorySize));
+
+    // A machine with it must declare one, in whole plug blocks, within the contract's ceiling.
+    let v3 = |change: fn(&mut GenerationManifest)| {
+        let mut manifest = fixture::profile_v3();
+        change(&mut manifest);
+        require_profile(&manifest, &profile(3)).map_err(|error| error.incompatibility())
+    };
+    assert_eq!(v3(|_| {}), Ok(()));
+    assert_eq!(
+        v3(|m| m.shape.hotplug_bytes = 0),
+        Err(Some(Incompatibility::MemorySize))
+    );
+    assert_eq!(
+        v3(|m| m.shape.hotplug_bytes = 4 * 1024 * 1024 + 1),
+        Err(Some(Incompatibility::MemoryAlignment))
+    );
+    assert_eq!(
+        v3(|m| m.shape.hotplug_bytes = 16 * 1024 * 1024 * 1024),
+        Err(Some(Incompatibility::MemorySize)),
+        "boot plus region above the contract's sixteen gigabytes"
+    );
+    assert_eq!(
+        v3(|m| m.shape.hotplug_bytes = u64::MAX - 4 * 1024 * 1024 + 4 * 1024 * 1024),
+        Err(Some(Incompatibility::MemorySize)),
+        "an overflowing ceiling is refused, not wrapped"
+    );
+}
+
+#[test]
+fn the_hotplug_region_round_trips_from_policy_three_and_is_not_encoded_before_it() {
+    use crate::generation::manifest::{decode_manifest, encode_manifest};
+
+    let v3 = fixture::profile_v3();
+    let decoded = decode_manifest(&encode_manifest(&v3).expect("encodes")).expect("decodes");
+    assert_eq!(decoded.shape.hotplug_bytes, 1024 * MIB);
+    assert_eq!(decoded, v3);
+
+    // Before policy 3 the field is not part of the bytes, so a manifest from before live resize
+    // keeps exactly the identity it had: setting the field changes nothing it encodes to.
+    let v2 = fixture::profile_v2();
+    let mut stray = v2.clone();
+    stray.shape.hotplug_bytes = 1024 * MIB;
+    assert_eq!(
+        encode_manifest(&stray).expect("encodes"),
+        encode_manifest(&v2).expect("encodes")
+    );
+    // And the version 3 encoding differs from the same manifest without a region.
+    let mut none = v3.clone();
+    none.shape.hotplug_bytes = 0;
+    assert_ne!(
+        encode_manifest(&none).expect("encodes"),
+        encode_manifest(&v3).expect("encodes")
+    );
+}

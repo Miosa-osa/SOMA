@@ -9,6 +9,7 @@ mod limits;
 mod profile;
 
 pub use limits::ProfileLimits;
+pub use profile::{DEFAULT_HOTPLUG_BYTES, HOTPLUG_BLOCK_BYTES};
 
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;
@@ -53,6 +54,10 @@ pub struct CompilerProfile {
     /// `validate` refuses a profile where they disagree rather than letting one describe a
     /// machine the other does not admit.
     pub machine_contract: MachineContract,
+    /// Guest memory, in bytes, the machine can be grown by while it runs: its ceiling minus the
+    /// memory it boots with. Zero for every profile before the live-resize one, whose machine
+    /// has no memory device; positive and block-aligned for one that has.
+    pub hotplug_bytes: u64,
 }
 
 /// Directories holding the pinned external tools.

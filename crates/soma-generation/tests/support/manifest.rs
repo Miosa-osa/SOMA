@@ -89,6 +89,7 @@ pub fn sample() -> GenerationManifest {
             vcpu_count: 1,
             memory_slot_layout_version: 1,
             launch_page_layout_version: 1,
+            hotplug_bytes: 0,
         },
         snapshot: SnapshotBinding::Absent,
         repair: RepairBinding {

@@ -105,6 +105,7 @@ pub(crate) fn profile_v1() -> GenerationManifest {
             vcpu_count: 1,
             memory_slot_layout_version: contracts::MEMORY_SLOT_LAYOUT_VERSION,
             launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
+            hotplug_bytes: 0,
         },
         snapshot: SnapshotBinding::Absent,
         repair: RepairBinding {
@@ -137,6 +138,7 @@ pub(crate) fn profile_v2() -> GenerationManifest {
         vcpu_count: 8,
         memory_slot_layout_version: contracts::memory_slot_layout_version(16 * 1024 * MIB),
         launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
+        hotplug_bytes: 0,
     };
     manifest
 }
@@ -151,6 +153,11 @@ pub(crate) fn profile_v3() -> GenerationManifest {
         .expect("machine contract version 3 has a command line");
     manifest.machine_contract = contracts::machine_contract_v3();
     manifest.device_contract = contracts::device_contract_v1(devices);
+    // Eight gigabytes at boot and a gigabyte it can grow by: within the contract's ceiling.
+    manifest.shape.memory_bytes = 8 * 1024 * MIB;
+    manifest.shape.memory_slot_layout_version =
+        contracts::memory_slot_layout_version(manifest.shape.memory_bytes);
+    manifest.shape.hotplug_bytes = 1024 * MIB;
     manifest
 }
 
