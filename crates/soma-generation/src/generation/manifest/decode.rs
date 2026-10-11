@@ -90,6 +90,11 @@ fn decode_with(bytes: &[u8], magic: [u8; 8]) -> Result<GenerationManifest, Compi
         vcpu_count: decoder.u16()?,
         memory_slot_layout_version: decoder.u16()?,
         launch_page_layout_version: decoder.u16()?,
+        hotplug_bytes: if compiler_policy_version >= 3 {
+            decoder.u64()?
+        } else {
+            0
+        },
     };
     let snapshot = decoder.snapshot()?;
     decoder.tag(15)?;

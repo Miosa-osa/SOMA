@@ -55,7 +55,8 @@ pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;
 pub use publish::open_artifact;
 pub use request::{
-    BuildHost, CompileGeneration, CompilerProfile, MachineInputs, ProfileLimits, Toolchain,
+    BuildHost, CompileGeneration, CompilerProfile, DEFAULT_HOTPLUG_BYTES, HOTPLUG_BLOCK_BYTES,
+    MachineInputs, ProfileLimits, Toolchain,
 };
 pub use snapshot::{SnapshotSource, install_snapshot};
 pub use template::{LifetimeLimits, StartupBehavior, TemplateImage, TemplateRevision};

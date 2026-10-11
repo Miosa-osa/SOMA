@@ -18,6 +18,11 @@
 //! for the runner's large shape to put a leased egress bundle behind it. Without it a
 //! Generation is built with no network device at all, and no later request can add one.
 //!
+//! `SOMA_PREPARE_CEILING_MIB` declares the live-resize machine: the most guest memory the
+//! Generation can ever have. It targets compiler profile version 3, whose manifest records the
+//! hotplug region as the ceiling minus the boot memory, and it must be above the boot memory.
+//! Without it the Generation is built with no memory device and cannot be resized in memory.
+//!
 //! Usage:
 //!
 //! ```text
@@ -61,6 +66,8 @@ struct Args {
     storage_mib: u64,
     /// Whether this Generation declares a network device for a leased egress bundle.
     network: bool,
+    /// The memory ceiling of a live-resize Generation, when it is one.
+    ceiling_mib: Option<u64>,
 }
 
 /// The shape and compiler profile this invocation builds.
@@ -72,7 +79,13 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
     if args.network {
         shape = shape.with_capabilities(Capabilities::isolated().with_network_access());
     }
-    let profile = if args.vcpus > 1 || args.memory_mib > V2_MEMORY_MIB {
+    let profile = if let Some(ceiling) = args.ceiling_mib {
+        let hotplug = ceiling
+            .checked_sub(args.memory_mib)
+            .filter(|region| *region > 0)
+            .ok_or("SOMA_PREPARE_CEILING_MIB must be above the boot memory")?;
+        CompilerProfile::v3().with_hotplug_bytes(hotplug * 1024 * 1024)
+    } else if args.vcpus > 1 || args.memory_mib > V2_MEMORY_MIB {
         CompilerProfile::v2()
     } else {
         CompilerProfile::v1()
@@ -112,6 +125,10 @@ fn parse_args() -> Result<Args, String> {
             ));
         }
     };
+    let ceiling_mib = match std::env::var("SOMA_PREPARE_CEILING_MIB").as_deref() {
+        Err(_) | Ok("") => None,
+        Ok(value) => Some(number(value, "SOMA_PREPARE_CEILING_MIB")?),
+    };
     Ok(Args {
         reference: raw[0].clone(),
         inputs: BuildInputs {
@@ -131,6 +148,7 @@ fn parse_args() -> Result<Args, String> {
             .map_or(Ok(DEFAULT_STORAGE_MIB), |v| number(v, "storage_mib"))?,
         vcpus,
         network,
+        ceiling_mib,
     })
 }
 

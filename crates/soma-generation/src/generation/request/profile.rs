@@ -21,6 +21,12 @@ use super::{CompilerProfile, GIB, MIB, ProfileLimits};
 /// It is the size the large shape declares as its writable storage, and it is the largest class
 /// either machine contract admits. Nothing outside this profile may produce or admit it.
 const LARGE_WRITABLE_CLASS_BYTES: u64 = 20 * GIB;
+
+/// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
+pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
+/// The block a hotplug region is a whole number of: virtio-mem's plug granularity in this
+/// machine, which is also the unit the guest onlines.
+pub const HOTPLUG_BLOCK_BYTES: u64 = 4 * MIB;
 impl CompilerProfile {
     /// Returns compiler profile version 1 for the `x86_64` EROFS-plus-overlay Generation.
     #[must_use]
@@ -47,6 +53,7 @@ impl CompilerProfile {
             application_protocol_version: 1,
             handshake_protocol_version: 1,
             machine_contract: MachineContract::V1,
+            hotplug_bytes: 0,
         }
     }
 
@@ -77,8 +84,19 @@ impl CompilerProfile {
         Self {
             policy_version: 3,
             machine_contract: MachineContract::V3,
+            hotplug_bytes: DEFAULT_HOTPLUG_BYTES,
             ..Self::v2()
         }
+    }
+
+    /// This profile with a different hotplug region: the ceiling minus the boot memory.
+    ///
+    /// Only a profile whose machine has the memory device admits a non-zero region; `validate`
+    /// refuses the rest.
+    #[must_use]
+    pub const fn with_hotplug_bytes(mut self, hotplug_bytes: u64) -> Self {
+        self.hotplug_bytes = hotplug_bytes;
+        self
     }
 
     /// Returns the compiler profile one compiler-policy version names, or `None` for a version
@@ -98,6 +116,16 @@ impl CompilerProfile {
             // and restore path, so a host admits a Generation built under it.
             3 => Some(Self::v3()),
             _ => None,
+        }
+    }
+
+    /// Whether the hotplug region is one this profile's machine can have: none without the
+    /// memory device, and a whole number of blocks with it.
+    fn hotplug_valid(&self) -> bool {
+        if self.machine_contract.has_memory_device() {
+            self.hotplug_bytes > 0 && self.hotplug_bytes.is_multiple_of(HOTPLUG_BLOCK_BYTES)
+        } else {
+            self.hotplug_bytes == 0
         }
     }
 
@@ -129,6 +157,7 @@ impl CompilerProfile {
         if zero
             || !limits_declared
             || self.machine_contract.version() != self.policy_version
+            || !self.hotplug_valid()
             || !capacities_valid
             || self.guest_agent_provenance.len() > 256
         {

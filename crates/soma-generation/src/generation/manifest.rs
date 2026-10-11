@@ -138,6 +138,10 @@ pub struct MachineShapeBinding {
     pub memory_slot_layout_version: u16,
     /// The immutable launch-page layout version.
     pub launch_page_layout_version: u16,
+    /// Guest memory in bytes the machine can be grown by while it runs: its ceiling minus
+    /// `memory_bytes`. Zero before compiler policy 3, and not part of the encoding there, so a
+    /// manifest from before live resize keeps its identity.
+    pub hotplug_bytes: u64,
 }
 
 /// Group 14: the certified snapshot, or its typed absence.

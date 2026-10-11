@@ -92,6 +92,10 @@ fn encode_with(manifest: &GenerationManifest, magic: [u8; 8]) -> Result<Vec<u8>,
     encoder.u16(manifest.shape.vcpu_count)?;
     encoder.u16(manifest.shape.memory_slot_layout_version)?;
     encoder.u16(manifest.shape.launch_page_layout_version)?;
+    // Written only from policy 3, so every earlier manifest encodes to the bytes it always did.
+    if manifest.compiler_policy_version >= 3 {
+        encoder.u64(manifest.shape.hotplug_bytes)?;
+    }
 
     encoder.u8(14)?;
     match manifest.snapshot {
