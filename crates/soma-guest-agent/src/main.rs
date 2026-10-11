@@ -54,6 +54,10 @@ mod pty;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod shutdown;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod sizing;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod survivors;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod timings;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod tuning;

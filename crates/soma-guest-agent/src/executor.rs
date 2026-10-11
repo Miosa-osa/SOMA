@@ -18,6 +18,7 @@ use crate::descendants;
 use crate::environment::{InvalidInvocation, Invocation};
 use crate::output::{Ending, OutputBudget, terminal_status};
 use crate::pid1;
+use crate::survivors;
 use crate::timings::{self, Step};
 
 mod pipes;
@@ -131,7 +132,7 @@ pub fn execute(
         descendants::kill_group(process_group);
         descendants::reap_group(process_group);
         pid1::reap_orphans();
-        descendants::sweep_strays_sparing(descendants::SURVIVORS_FILE);
+        survivors::sweep_strays_sparing(survivors::SURVIVORS_FILE);
     });
     if streamed.sink_failed {
         return Err(ExecutorFault::Sink);
