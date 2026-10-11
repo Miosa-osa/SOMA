@@ -109,6 +109,26 @@ impl<'a, T: Serialize> Envelope<'a, T> {
     }
 }
 
+/// Renders a failure envelope that still carries the result the caller needs to understand it.
+///
+/// A resize that applied nothing is refused, yet its report says which dimension was
+/// unsupported and why; the status and the report travel in one document.
+#[must_use]
+pub fn failure_body_with_result<T: Serialize>(
+    operation: &'static str,
+    error: ApiError,
+    result: &T,
+) -> Vec<u8> {
+    render(&Envelope {
+        schema: ENVELOPE_SCHEMA,
+        operation,
+        status: "error",
+        result: Some(result),
+        error: Some(error.body()),
+        receipt: None,
+    })
+}
+
 /// Renders a failure envelope without a result payload.
 ///
 /// Failures are rendered through a concrete unit type so callers never have to name a result

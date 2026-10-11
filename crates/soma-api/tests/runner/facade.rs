@@ -24,6 +24,9 @@ pub(crate) struct Engine {
     pub(crate) destroys: AtomicUsize,
     pub(crate) inspects: AtomicUsize,
     pub(crate) tunnels: AtomicUsize,
+    /// What the next resizes answer; `None` is a backend that cannot resize.
+    pub(crate) resize_outcome: Mutex<Option<soma_api::ResizeOutcome>>,
+    pub(crate) resizes: Mutex<Vec<soma_api::ResizeRequest>>,
     /// Why the next tunnels are refused; `None` connects them to an echoing guest.
     pub(crate) tunnel_failure: Mutex<Option<soma_api::TunnelFailure>>,
 }
@@ -33,6 +36,20 @@ pub(crate) struct FakeFacade(Arc<Engine>);
 impl SandboxFacade for FakeFacade {
     fn hosts_addressable_sandboxes(&self) -> bool {
         true
+    }
+
+    fn resize(
+        &mut self,
+        _: &soma::InstanceId,
+        request: soma_api::ResizeRequest,
+    ) -> Result<soma_api::ResizeOutcome, soma_api::ResizeFailure> {
+        self.0.resizes.lock().expect("resizes").push(request);
+        self.0
+            .resize_outcome
+            .lock()
+            .expect("outcome")
+            .clone()
+            .ok_or(soma_api::ResizeFailure::Unavailable)
     }
 
     fn tunnel(
