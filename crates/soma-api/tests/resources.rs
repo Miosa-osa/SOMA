@@ -13,6 +13,7 @@ use support::{Call, FIXTURE_INSTANCE_ID, FakeFacade, Mode, call, identified};
 
 fn outcome(cpu: DimensionState, memory: DimensionState) -> ResizeOutcome {
     ResizeOutcome {
+        host_pid: 0,
         cpu: CpuResize {
             state: cpu,
             requested: Some(2),
