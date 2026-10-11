@@ -92,6 +92,10 @@ pub fn capture(
     mut request: CaptureRequest<'_>,
     deadline: Instant,
 ) -> Result<CaptureOutcome, SnapshotError> {
+    // Hotplugged memory is not part of the memory object, so a capture of a machine that holds
+    // any would silently lose it. Refuse before the guest is paused; the check repeats once it
+    // is, because the guest could plug between the two.
+    refuse_plugged(sandbox)?;
     let mut quiesced = Quiesce::new();
     let capture_ceiling = request.contract.max_memory_bytes();
     let repair_point_at =
@@ -110,6 +114,7 @@ pub fn capture(
 
     // `pause` joins the device thread first and only then kicks vCPU 0 out of `KVM_RUN`.
     sandbox.pause(request.grace)?;
+    refuse_plugged(sandbox)?;
     quiesced.prove(QuiescePrecondition::DeviceWorkDrained)?;
     quiesced.prove(QuiescePrecondition::OverlayFlushed)?;
     quiesced.prove(QuiescePrecondition::VcpuPaused)?;
@@ -247,6 +252,7 @@ pub fn capture(
             pit: &pit,
             devices: &devices,
             device_set,
+            hotplug: sandbox.hotplug().map(|region| region.geometry()),
             memory: MemoryDescriptor::new(
                 memory.running_digest(),
                 memory.written(),
@@ -296,4 +302,14 @@ pub fn capture(
         repair_point_at,
         posted_buffers: posted,
     })
+}
+
+/// Refuses a machine that has hotplugged memory plugged: capture needs the region empty.
+fn refuse_plugged(sandbox: &SandboxMachine) -> Result<(), SnapshotError> {
+    match sandbox.hotplug().map(|region| region.plugged_bytes()) {
+        Some(plugged_bytes) if plugged_bytes > 0 => {
+            Err(SnapshotError::HotplugPlugged { plugged_bytes })
+        }
+        _ => Ok(()),
+    }
 }

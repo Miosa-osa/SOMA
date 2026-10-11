@@ -45,11 +45,13 @@ pub enum SectionRole {
     Device2,
     Device3,
     Device4,
+    /// Geometry of the optional hotplug region; present only on a machine that has one.
+    HotplugRegion,
     RepairPointMarker,
 }
 
 impl SectionRole {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::VmState,
         Self::Vcpu0,
         Self::Irqchip,
@@ -68,6 +70,7 @@ impl SectionRole {
         Self::Device2,
         Self::Device3,
         Self::Device4,
+        Self::HotplugRegion,
         Self::RepairPointMarker,
     ];
 
@@ -128,6 +131,7 @@ impl SectionRole {
             Self::Device2 => 0x0012,
             Self::Device3 => 0x0013,
             Self::Device4 => 0x0014,
+            Self::HotplugRegion => 0x0018,
             Self::RepairPointMarker => 0x0020,
         }
     }
@@ -161,6 +165,7 @@ impl SectionRole {
                 | Self::Vcpu7
                 | Self::Device1
                 | Self::Device2
+                | Self::HotplugRegion
         )
     }
 

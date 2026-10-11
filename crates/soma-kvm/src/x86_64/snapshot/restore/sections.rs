@@ -81,6 +81,7 @@ pub(super) fn section(manifest: &Manifest, role: SectionRole) -> Result<&[u8], S
             SectionRole::KvmClock => "KvmClock",
             SectionRole::Pit => "Pit",
             SectionRole::RepairPointMarker => "RepairPointMarker",
+            SectionRole::HotplugRegion => "HotplugRegion",
             _ => "Device",
         }))
 }

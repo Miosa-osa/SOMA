@@ -236,6 +236,7 @@ fn attempt(
         contract: MachineContract::V1,
         verify_artifacts,
         network: None,
+        hotplug: None,
     });
     let result = outcome.map(|restored| drop(restored.machine.finish(EXIT_GRACE)));
     let _ignored = fs::remove_file(&head_path);

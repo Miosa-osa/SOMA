@@ -55,7 +55,7 @@ pub use self::{
     hypervisor::Hypervisor,
     kernel::{BootKernelConfig, KernelBootEvidence, KernelBootFailure, run_kernel_boot},
     launch_page::{LAUNCH_PAGE_GPA, LAUNCH_PAGE_SIZE, LAUNCH_PAGE_SLOT},
-    memory::SharedRam,
+    memory::{HotplugRam, HotplugRamError, SharedRam},
     mmio::MmioCounters,
     ports::BusCounters,
     run::GuestExit,

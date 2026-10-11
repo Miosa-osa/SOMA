@@ -180,6 +180,38 @@ impl SandboxMachine {
         })
     }
 
+    /// Adds the empty hotplug region behind its own KVM memory slot.
+    ///
+    /// Call it before [`Self::start`]. Boot RAM, the memory object, and the certified slot list
+    /// are untouched; the region is neither captured nor restored as memory.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the machine already has a region or the host refuses the mapping or slot.
+    pub fn attach_hotplug(
+        &mut self,
+        geometry: crate::memory_layout::HotplugGeometry,
+    ) -> Result<std::sync::Arc<crate::x86_64::HotplugRam>, MachineError> {
+        if self.machine.ram.hotplug().is_some() {
+            return Err(MachineError::invalid(
+                Phase::MapMemory,
+                "the machine already has a hotplug region",
+            ));
+        }
+        self.machine.ram.attach_hotplug(geometry)?;
+        let region = self.machine.ram.hotplug().ok_or_else(|| {
+            MachineError::invalid(Phase::MapMemory, "the hotplug region was not attached")
+        })?;
+        region.register(&self.machine.vm)?;
+        Ok(region)
+    }
+
+    /// The hotplug region, when the machine has one.
+    #[must_use]
+    pub fn hotplug(&self) -> Option<std::sync::Arc<crate::x86_64::HotplugRam>> {
+        self.machine.ram.hotplug()
+    }
+
     /// Starts the device thread and one dedicated thread per vCPU.
     ///
     /// # Errors

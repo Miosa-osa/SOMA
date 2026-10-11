@@ -60,6 +60,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
             vcpus: 1,
             contract: MachineContract::V1,
             verify_artifacts: false,
+            hotplug: None,
             network: None,
         })
         .expect("an on-demand restore produces a machine");
@@ -80,6 +81,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
             contract: MachineContract::V1,
             devices: fixture.devices(),
             verify_artifacts: false,
+            hotplug: None,
         })
         .expect("a sterile machine restores without an Instance");
         let (path, head) = fixture.private_head(&format!("prepared-{iteration}"));
@@ -130,6 +132,7 @@ fn sterile() -> Sterile {
         contract: MachineContract::V1,
         devices: fixture.devices(),
         verify_artifacts: false,
+        hotplug: None,
     })
     .expect("a sterile machine restores without an Instance")
 }

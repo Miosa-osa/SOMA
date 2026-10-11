@@ -27,6 +27,8 @@ pub(super) struct Parts<'a> {
     pub(super) devices: &'a [(Slot, DeviceState)],
     pub(super) device_set: crate::virtio::DeviceSet,
     pub(super) memory: MemoryDescriptor,
+    /// Geometry of the hotplug region, for a machine that has one.
+    pub(super) hotplug: Option<crate::memory_layout::HotplugGeometry>,
 }
 
 pub(super) fn build(
@@ -49,7 +51,8 @@ pub(super) fn build(
     // machine derived its ranges from, so a requirement and a layout cannot disagree.
     let layout = crate::memory_layout::GuestLayout::new(vm_state.total_bytes())
         .map_err(|error| SnapshotError::Machine(crate::x86_64::error::MachineError::from(error)))?;
-    let slots = profile::required_memory_slots(layout);
+    // The region takes one memory slot of its own on top of boot RAM and the launch page.
+    let slots = profile::required_memory_slots(layout) + u16::from(parts.hotplug.is_some());
     let header = ManifestHeader {
         architecture: Architecture::X86_64,
         page_size: PageSize::FOUR_KIB,
@@ -84,6 +87,9 @@ pub(super) fn build(
     for (slot, state) in parts.devices {
         let role = device::role(*slot).ok_or(SnapshotError::DeviceStateNotCanonical(*slot))?;
         sections.push(Section::new(role, state.encode())?);
+    }
+    if let Some(geometry) = parts.hotplug {
+        sections.push(crate::snapshot::hotplug::section(geometry)?);
     }
     sections.push(Section::new(
         SectionRole::RepairPointMarker,

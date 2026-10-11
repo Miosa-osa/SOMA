@@ -95,6 +95,7 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         // Re-hashing every byte of the memory object is the installation and audit boundary,
         // not the preparation path.
         verify_artifacts: false,
+        hotplug: None,
     });
     let Ok(sterile) = sterile else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));

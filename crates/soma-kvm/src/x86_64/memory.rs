@@ -13,17 +13,21 @@ use super::{
     layout::GuestLayout,
 };
 
+mod hotplug;
 mod mapping;
 mod shared;
 
 pub(crate) use mapping::RamMapping;
 
+pub use hotplug::{HotplugRam, HotplugRamError};
 pub use shared::SharedRam;
 
 /// One private, lazily populated guest RAM mapping registered as KVM memory slot 0 at GPA 0.
 pub(crate) struct GuestRam {
     mapping: Arc<RamMapping>,
     layout: GuestLayout,
+    /// The hotplug region, present only on a machine whose ceiling is above its boot memory.
+    hotplug: Option<Arc<HotplugRam>>,
 }
 
 impl GuestRam {
@@ -33,6 +37,7 @@ impl GuestRam {
         Ok(Self {
             mapping: Arc::new(RamMapping::anonymous(length, Phase::MapMemory)?),
             layout,
+            hotplug: None,
         })
     }
 
@@ -45,6 +50,7 @@ impl GuestRam {
             Ok(Self {
                 mapping: Arc::new(mapping),
                 layout,
+                hotplug: None,
             })
         } else {
             Err(MachineError::invalid(
@@ -52,6 +58,24 @@ impl GuestRam {
                 "restored mapping length does not match the certified guest RAM size",
             ))
         }
+    }
+
+    /// Adds an empty hotplug region behind its own memory slot.
+    ///
+    /// Boot RAM, the memory object, and the slot list a snapshot certifies are unchanged: the
+    /// region is registered by [`Self::register`] alongside them but belongs to none of them.
+    /// Restore calls this too, so a restored machine always starts with nothing plugged.
+    pub(crate) fn attach_hotplug(
+        &mut self,
+        geometry: crate::memory_layout::HotplugGeometry,
+    ) -> Result<(), MachineError> {
+        self.hotplug = Some(Arc::new(HotplugRam::map(geometry)?));
+        Ok(())
+    }
+
+    /// The hotplug region, when the machine has one.
+    pub(crate) fn hotplug(&self) -> Option<Arc<HotplugRam>> {
+        self.hotplug.clone()
     }
 
     pub(crate) const fn layout(&self) -> GuestLayout {
@@ -121,6 +145,9 @@ impl GuestRam {
             self.mapping
                 .register_range(vm, region, Phase::RegisterMemory)?;
         }
+        if let Some(hotplug) = &self.hotplug {
+            hotplug.register(vm)?;
+        }
         Ok(())
     }
 
@@ -129,6 +156,7 @@ impl GuestRam {
         SharedRam {
             mapping: Arc::clone(&self.mapping),
             layout: self.layout,
+            hotplug: self.hotplug.clone(),
         }
     }
 }

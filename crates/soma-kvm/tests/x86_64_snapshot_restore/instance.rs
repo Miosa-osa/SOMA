@@ -87,6 +87,7 @@ pub fn run_workload<W: Workload>(
         vcpus: fixture.vcpus,
         contract: fixture.contract,
         verify_artifacts: false,
+        hotplug: None,
         devices: fixture.devices(),
         network: None,
     })

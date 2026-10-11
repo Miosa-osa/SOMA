@@ -14,6 +14,7 @@ pub use reason::Incompatibility;
 use super::{
     Digest,
     device_state::{DEVICE_COUNT, DeviceKind, DeviceState, MAX_QUEUES},
+    hotplug,
     kvm_state::VmState,
     manifest::{Architecture, HostCapability, Manifest, PageSize, SCHEMA_VERSION},
     section::SectionRole,
@@ -73,6 +74,34 @@ pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibil
         }
     }
     Ok(())
+}
+
+/// Requires the snapshot's hotplug region to be exactly the one the Generation declared.
+///
+/// A machine without a region carries no section and a machine with one carries exactly one, so
+/// a snapshot can neither gain a region on restore nor lose the one the guest was built around.
+/// Only the geometry is compared: the plugged blocks are never captured.
+///
+/// # Errors
+///
+/// Returns [`Incompatibility::HotplugRegion`] or [`Incompatibility::MalformedHotplug`].
+pub fn check_hotplug(
+    expected: Option<crate::memory_layout::HotplugGeometry>,
+    manifest: &Manifest,
+) -> Result<(), Incompatibility> {
+    let actual = manifest
+        .section(SectionRole::HotplugRegion)
+        .map(|section| hotplug::decode(section.payload()))
+        .transpose()
+        .map_err(Incompatibility::MalformedHotplug)?;
+    if expected == actual {
+        Ok(())
+    } else {
+        Err(Incompatibility::HotplugRegion {
+            expected: expected.map(crate::memory_layout::HotplugGeometry::size),
+            actual: actual.map(crate::memory_layout::HotplugGeometry::size),
+        })
+    }
 }
 
 /// The largest vCPU section set the format admits.

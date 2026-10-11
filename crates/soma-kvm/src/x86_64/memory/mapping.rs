@@ -135,6 +135,39 @@ impl RamMapping {
         true
     }
 
+    /// Returns `count` bytes at `offset` to the host and makes them read as zero again.
+    ///
+    /// `madvise(MADV_DONTNEED)` on a private anonymous mapping drops the resident pages at once,
+    /// and the next touch faults in a fresh zero page, so a discarded range costs no memory and
+    /// leaks no earlier content. `offset` and `count` must be whole pages inside the mapping.
+    #[allow(unsafe_code)]
+    pub(crate) fn discard(&self, offset: u64, count: usize) -> Result<(), MachineError> {
+        let page = crate::memory_layout::PAGE_SIZE;
+        let aligned = offset.is_multiple_of(page)
+            && u64::try_from(count).is_ok_and(|c| c.is_multiple_of(page));
+        let Some(start) = self.range(offset, count).filter(|_| aligned && count > 0) else {
+            return Err(MachineError::invalid(
+                Phase::MapMemory,
+                "discard range is not whole pages inside the mapping",
+            ));
+        };
+        // SAFETY: `range` proved `[start, start + count)` lies inside the live mapping and the
+        // alignment check proved it is whole pages. `MADV_DONTNEED` on a private anonymous
+        // mapping only drops pages; it never unmaps, so every pointer into it stays valid.
+        let rc = unsafe {
+            libc::madvise(
+                self.base.as_ptr().add(start).cast(),
+                count,
+                libc::MADV_DONTNEED,
+            )
+        };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(MachineError::last_os(Phase::MapMemory))
+        }
+    }
+
     /// Registers the whole mapping as KVM user-memory `slot` at `guest_phys_addr`.
     #[allow(unsafe_code)]
     pub(crate) fn register(

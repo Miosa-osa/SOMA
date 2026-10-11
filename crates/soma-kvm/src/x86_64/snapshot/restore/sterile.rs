@@ -38,6 +38,8 @@ pub struct SterileRequest {
     pub contract: crate::contract::MachineContract,
     /// Whether to re-hash the memory object and the overlay template before mapping.
     pub verify_artifacts: bool,
+    /// The hotplug region the Generation declared, or `None` for a machine without one.
+    pub hotplug: Option<crate::memory_layout::HotplugGeometry>,
 }
 
 /// A restored machine that holds no per-Instance authority yet.

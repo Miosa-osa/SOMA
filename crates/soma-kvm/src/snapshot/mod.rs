@@ -9,6 +9,7 @@ pub mod capture;
 pub mod compatibility;
 pub mod device_state;
 mod digest;
+pub mod hotplug;
 pub mod inspection;
 pub mod kvm_state;
 pub mod manifest;

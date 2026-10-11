@@ -79,6 +79,9 @@ pub struct RestoreRequest {
     pub verify_artifacts: bool,
     /// The assigned network bundle, when this Instance was given one.
     pub network: Option<NetworkAttachment>,
+    /// The hotplug region the Generation declared, or `None` for a machine without one; a
+    /// snapshot that disagrees is refused. The region always restores empty.
+    pub hotplug: Option<crate::memory_layout::HotplugGeometry>,
 }
 
 /// What the restored machine is, taken from the manifest rather than from the caller.
@@ -118,6 +121,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         contract,
         verify_artifacts,
         network,
+        hotplug,
     } = request;
     let SandboxDisks { root, overlay } = disks;
     let overlay_capacity_bytes = overlay
@@ -139,6 +143,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         vcpus,
         contract,
         verify_artifacts,
+        hotplug,
     })?
     .assign(overlay, guest_cid, network)
 }
@@ -161,6 +166,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         vcpus,
         contract,
         verify_artifacts,
+        hotplug,
     } = request;
     let mut timeline = Timeline::new();
     let mut sequence = RestoreSequence::start();
@@ -175,6 +181,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     // machine this host means to build and the machine the snapshot describes are the same one.
     let profile = profile::host_profile(&kvm, memory_bytes, vcpus, contract, devices)?;
     compatibility::check(&profile, &manifest)?;
+    compatibility::check_hotplug(hotplug, &manifest)?;
     let state = Sections::read(&manifest, devices, vcpus)?;
     let repair_point_line = marker::decode(section(&manifest, SectionRole::RepairPointMarker)?)?;
     if verify_artifacts {
@@ -189,7 +196,11 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::CreateVm)?;
     timeline.mark(Milestone::CreateVm);
 
-    let ram = guest_memory::map(objects.memory(), &manifest, &mut timeline)?;
+    let mut ram = guest_memory::map(objects.memory(), &manifest, &mut timeline)?;
+    // The region is never in the memory object, so it restores empty from its geometry alone.
+    if let Some(geometry) = hotplug {
+        ram.attach_hotplug(geometry)?;
+    }
     sequence.complete(RestoreStep::MapMemoryPrivately)?;
     timeline.mark(Milestone::MapMemory);
 

@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use super::RamMapping;
+use super::{HotplugRam, RamMapping};
 use crate::memory_layout::GuestLayout;
 use crate::virtio::{GuestAddress, GuestMemory, GuestMemoryError};
 
@@ -21,6 +21,7 @@ use crate::virtio::{GuestAddress, GuestMemory, GuestMemoryError};
 pub struct SharedRam {
     pub(super) mapping: Arc<RamMapping>,
     pub(super) layout: GuestLayout,
+    pub(super) hotplug: Option<Arc<HotplugRam>>,
 }
 
 impl SharedRam {
@@ -40,7 +41,12 @@ impl GuestMemory for SharedRam {
         }
         addr.checked_add(len)
             .ok_or(GuestMemoryError::Overflow { addr, len })?;
-        if self.layout.contains(addr.raw(), len) {
+        if self.layout.contains(addr.raw(), len)
+            || self
+                .hotplug
+                .as_ref()
+                .is_some_and(|region| region.is_plugged(addr.raw(), len))
+        {
             Ok(())
         } else {
             Err(GuestMemoryError::OutOfRegion { addr, len })
@@ -51,10 +57,12 @@ impl GuestMemory for SharedRam {
         let len =
             u64::try_from(buf.len()).map_err(|_| GuestMemoryError::Overflow { addr, len: 0 })?;
         self.check_range(addr, len)?;
-        let offset = self
-            .layout
-            .host_offset(addr.raw())
-            .ok_or(GuestMemoryError::OutOfRegion { addr, len })?;
+        let Some(offset) = self.layout.host_offset(addr.raw()) else {
+            return match &self.hotplug {
+                Some(region) if region.read(addr.raw(), buf) => Ok(()),
+                _ => Err(GuestMemoryError::OutOfRegion { addr, len }),
+            };
+        };
         if self.mapping.read(offset, buf) {
             Ok(())
         } else {
@@ -66,10 +74,12 @@ impl GuestMemory for SharedRam {
         let len =
             u64::try_from(bytes.len()).map_err(|_| GuestMemoryError::Overflow { addr, len: 0 })?;
         self.check_range(addr, len)?;
-        let offset = self
-            .layout
-            .host_offset(addr.raw())
-            .ok_or(GuestMemoryError::OutOfRegion { addr, len })?;
+        let Some(offset) = self.layout.host_offset(addr.raw()) else {
+            return match &self.hotplug {
+                Some(region) if region.write(addr.raw(), bytes) => Ok(()),
+                _ => Err(GuestMemoryError::OutOfRegion { addr, len }),
+            };
+        };
         if self.mapping.write(offset, bytes) {
             Ok(())
         } else {

@@ -16,8 +16,13 @@ use std::fmt;
 
 use crate::contract::{MIN_MEMORY_BYTES, V2_MAX_MEMORY_BYTES};
 
+mod hotplug;
 mod region;
 
+pub use hotplug::{
+    HOTPLUG_BLOCK_BYTES, HOTPLUG_RAM_SLOT, HOTPLUG_REGION_START, HOTPLUG_SLOT_BYTES, HotplugError,
+    HotplugGeometry, MAX_HOTPLUG_BYTES,
+};
 pub use region::{MemoryKind, MemoryMapEntry, RamRegion};
 
 /// Guest page size.

@@ -243,3 +243,73 @@ fn the_vcpu_section_set_must_match_the_certified_count() {
         Err(Incompatibility::MissingSection(SectionRole::Vcpu1))
     );
 }
+
+fn with_hotplug(geometry: crate::memory_layout::HotplugGeometry) -> Manifest {
+    let base = sample_manifest();
+    let mut sections = base.sections().to_vec();
+    let marker = sections.pop().unwrap();
+    sections.push(crate::snapshot::hotplug::section(geometry).unwrap());
+    sections.push(marker);
+    Manifest::new(base.header().clone(), sections).unwrap()
+}
+
+#[test]
+fn a_machine_without_a_region_encodes_and_checks_exactly_as_before() {
+    use super::check_hotplug;
+    let manifest = sample_manifest();
+    assert!(manifest.section(SectionRole::HotplugRegion).is_none());
+    assert_eq!(check_hotplug(None, &manifest), Ok(()));
+    assert_eq!(check(&matching_host(), &manifest), Ok(()));
+}
+
+#[test]
+fn the_hotplug_region_must_match_the_declared_geometry_exactly() {
+    use super::check_hotplug;
+    use crate::memory_layout::{HOTPLUG_SLOT_BYTES, HotplugGeometry};
+    let four = HotplugGeometry::new(4 * HOTPLUG_SLOT_BYTES).unwrap();
+    let eight = HotplugGeometry::new(8 * HOTPLUG_SLOT_BYTES).unwrap();
+    let manifest = with_hotplug(four);
+
+    assert_eq!(check_hotplug(Some(four), &manifest), Ok(()));
+    // The rest of the manifest is still compatible: the region is additive.
+    assert_eq!(check(&matching_host(), &manifest), Ok(()));
+    let decoded = Manifest::decode(&manifest.encode()).unwrap();
+    assert_eq!(check_hotplug(Some(four), &decoded), Ok(()));
+
+    assert_eq!(
+        check_hotplug(Some(eight), &manifest),
+        Err(Incompatibility::HotplugRegion {
+            expected: Some(eight.size()),
+            actual: Some(four.size()),
+        })
+    );
+    assert_eq!(
+        check_hotplug(None, &manifest),
+        Err(Incompatibility::HotplugRegion {
+            expected: None,
+            actual: Some(four.size()),
+        })
+    );
+    assert_eq!(
+        check_hotplug(Some(four), &sample_manifest()),
+        Err(Incompatibility::HotplugRegion {
+            expected: Some(four.size()),
+            actual: None,
+        })
+    );
+}
+
+#[test]
+fn a_malformed_hotplug_record_is_refused() {
+    use super::check_hotplug;
+    let base = sample_manifest();
+    let mut sections = base.sections().to_vec();
+    let marker = sections.pop().unwrap();
+    sections.push(Section::new(SectionRole::HotplugRegion, vec![0; 3]).unwrap());
+    sections.push(marker);
+    let manifest = Manifest::new(base.header().clone(), sections).unwrap();
+    assert!(matches!(
+        check_hotplug(None, &manifest),
+        Err(Incompatibility::MalformedHotplug(_))
+    ));
+}
