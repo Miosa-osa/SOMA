@@ -11,6 +11,7 @@ use soma_kvm::x86_64::{Milestone, SandboxMachine};
 
 use super::super::identity::fresh16;
 use super::super::io::HostIo;
+use super::super::memory;
 use super::super::session::{Completed, Request, Response, SessionError};
 use super::Ending;
 use super::{files, pty};
@@ -55,6 +56,18 @@ pub(super) fn serve_commands(
                         stdout: outcome.stdout().to_vec(),
                         stderr: outcome.stderr().to_vec(),
                     })))
+                    .map_err(|_| SessionError::Gone)?;
+            }
+            Request::SetRequestedMemory(bytes) => {
+                let outcome = memory::apply(memory::device_of(machine), bytes);
+                responses
+                    .send(Response::Memory(outcome))
+                    .map_err(|_| SessionError::Gone)?;
+            }
+            Request::GetMemory => {
+                let level = memory::level(memory::device_of(machine));
+                responses
+                    .send(Response::Memory(Ok(level)))
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::File(operation) => {

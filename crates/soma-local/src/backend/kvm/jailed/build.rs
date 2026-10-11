@@ -49,6 +49,8 @@ const NOFILE_SLACK: u32 = 16;
 /// A machine runs its vCPU, its device loop, and its sandbox thread; the ceiling is generous
 /// enough for the runtime's own helpers and finite enough that a worker cannot fork a host.
 const PIDS_MAX: u32 = 32;
+/// The scheduling period a CPU quota is a multiple of.
+const CPU_PERIOD_US: u64 = 100_000;
 
 /// The descriptor roles one jailed machine receives, in manifest order.
 pub(super) fn roles(overlay: bool) -> Vec<DescriptorRole> {
@@ -151,6 +153,7 @@ pub(super) fn open(
 /// The jail one machine of this shape runs in.
 pub(super) fn spec(
     instance: &InstanceId,
+    vcpus: u16,
     memory_mib: u64,
     disk_mib: u64,
     overlay: bool,
@@ -167,10 +170,11 @@ pub(super) fn spec(
             memory_max_bytes: memory_mib
                 .saturating_mul(MIB)
                 .saturating_add(HOST_OVERHEAD_BYTES),
-            // The machine contract fixes one vCPU, so one CPU is the whole machine's share.
+            // The machine's share is one CPU per vCPU it was built with. A quota fixed at one CPU
+            // would throttle an eight vCPU machine to an eighth of itself until its first resize.
             cpu_max: CpuMax {
-                quota_us: 100_000,
-                period_us: 100_000,
+                quota_us: u64::from(vcpus.max(1)) * CPU_PERIOD_US,
+                period_us: CPU_PERIOD_US,
             },
             pids_max: PIDS_MAX,
             io_max: None,

@@ -81,6 +81,7 @@ impl Jailed {
         let devices = launching.prepared.manifest.device_set();
         let spec = build::spec(
             launching.instance,
+            launching.prepared.manifest.shape.vcpu_count,
             launching.memory_mib,
             launching.disk_mib,
             devices.overlay(),

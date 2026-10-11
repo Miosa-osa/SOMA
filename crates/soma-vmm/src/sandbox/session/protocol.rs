@@ -8,6 +8,7 @@
 use soma_guest::{ActivationReceipt, GuestCommand, TerminalStatus};
 use soma_kvm::x86_64::SandboxEvidence;
 
+use super::super::memory::{MemoryError, MemoryLevel};
 use super::super::sterile::Assignment;
 
 /// What the lifecycle asks a live sandbox to do.
@@ -25,6 +26,10 @@ pub enum Request {
     File(soma::FileOperation),
     /// Perform one bounded terminal operation over the authenticated session.
     Pty(soma::PtyOperation),
+    /// State how much memory should be plugged on top of the boot memory.
+    SetRequestedMemory(u64),
+    /// Read how much memory is requested and plugged.
+    GetMemory,
     /// Ask the guest to shut down, then finish the machine and report its evidence.
     Shutdown,
     /// End the machine without asking the guest, then report its evidence.
@@ -54,6 +59,8 @@ pub enum Response {
     FileAnswered(Box<soma::FileAnswer>),
     /// One terminal operation was performed and the guest answered it.
     PtyAnswered(Box<soma::PtyAnswer>),
+    /// What the memory device holds, or why it refused.
+    Memory(Result<MemoryLevel, MemoryError>),
     /// The machine stopped and released everything it owned.
     Finished(Box<SandboxEvidence>),
     /// An aborted machine's vCPU will never run again; its release is still under way.
