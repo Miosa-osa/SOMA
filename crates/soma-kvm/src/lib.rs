@@ -114,8 +114,13 @@ pub use virtio::{
     read_readable, service_queue, validate_size, validate_tx, walk_chain, write_writable,
 };
 
-#[cfg(unix)]
 pub use virtio::{FileBackend, OsEntropy};
+#[cfg(unix)]
+pub use virtio::{
+    MEM_BLOCK_SIZE, MEM_CONFIG_LEN, MEM_FEATURES, MEM_QUEUE_MAX, MEM_STATE_LEN, MEM_STATE_VERSION,
+    MemCounters, MemDevice, MemState, RecordingBacking, RegionBacking, SizeError,
+    VIRTIO_MEM_DEVICE_ID,
+};
 
 /// Whether this build target can run SOMA's initial KVM capability probe.
 pub const SUPPORTED_TARGET: bool = cfg!(all(
