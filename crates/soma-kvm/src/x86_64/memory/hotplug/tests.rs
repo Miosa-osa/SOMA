@@ -115,3 +115,33 @@ fn a_machine_without_a_region_has_none() {
             .is_err()
     );
 }
+
+#[test]
+fn plug_accepts_whole_in_region_ranges_and_refuses_the_rest() {
+    let ram = ram();
+    let mut backing = backing(&ram);
+    backing.plug(0, BLOCK).unwrap();
+    backing.plug(REGION_BYTES - BLOCK, BLOCK).unwrap();
+    for (offset, len) in [
+        (1, 4096),
+        (0, 0),
+        (0, 4097),
+        (REGION_BYTES, 4096),
+        (REGION_BYTES - 4096, 8192),
+        (u64::MAX, 4096),
+        (4096, u64::MAX),
+    ] {
+        assert!(backing.plug(offset, len).is_err(), "{offset} {len}");
+    }
+}
+
+#[test]
+fn plug_touch_discard_returns_the_memory() {
+    let ram = ram();
+    let mut backing = backing(&ram);
+    backing.plug(0, BLOCK).unwrap();
+    assert!(ram.write(region().guest_start + 64, &[7; 4096]));
+    assert_eq!(backing.resident_bytes().unwrap(), 2 * 4096);
+    backing.discard(0, BLOCK).unwrap();
+    assert_eq!(backing.resident_bytes().unwrap(), 0);
+}

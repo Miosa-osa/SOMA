@@ -98,6 +98,23 @@ impl HotplugBacking {
 }
 
 impl RegionBacking for HotplugBacking {
+    /// The anonymous NORESERVE mapping is usable as soon as it exists, so a valid plug has nothing
+    /// to do; an unaligned, empty, or out-of-range one is refused so the device never promises a
+    /// block the host does not have.
+    fn plug(&mut self, offset: u64, len: u64) -> io::Result<()> {
+        let page = crate::memory_layout::PAGE_SIZE;
+        let in_region = offset
+            .checked_add(len)
+            .is_some_and(|end| end <= self.ram.region.size);
+        if len == 0 || !offset.is_multiple_of(page) || !len.is_multiple_of(page) || !in_region {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "plug range is not whole pages inside the region",
+            ));
+        }
+        Ok(())
+    }
+
     fn discard(&mut self, offset: u64, len: u64) -> io::Result<()> {
         let count = usize::try_from(len)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "discard length"))?;
