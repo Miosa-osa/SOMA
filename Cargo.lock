@@ -1576,6 +1576,7 @@ dependencies = [
  "kvm-bindings",
  "libc",
  "soma-vmm",
+ "tempfile",
 ]
 
 [[package]]
