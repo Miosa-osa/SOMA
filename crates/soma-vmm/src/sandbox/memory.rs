@@ -69,13 +69,45 @@ impl MemoryControl for NoMemoryDevice {
     }
 }
 
-/// The memory device of a machine.
+/// The memory device of a running machine.
 ///
-/// Every machine answers as one without a device until the machine type implements
-/// [`MemoryControl`]; that is the single line to change when it does.
+/// A wrapper rather than an implementation on the machine type, which this crate does not own.
+#[derive(Clone, Copy)]
+pub struct MachineMemory<'a>(&'a soma_kvm::x86_64::SandboxMachine);
+
+impl MemoryControl for MachineMemory<'_> {
+    fn set_requested_memory(&self, bytes: u64) -> Result<(), MemoryError> {
+        // The guest is held for a checkpoint or fork, and plugged memory is not in a snapshot.
+        if self.0.is_paused() {
+            return Err(MemoryError::Busy);
+        }
+        self.0
+            .set_requested_memory(bytes)
+            .map_err(|error| match error {
+                soma_kvm::SizeError::NoDevice => MemoryError::NoDevice,
+                soma_kvm::SizeError::Unaligned | soma_kvm::SizeError::BeyondRegion => {
+                    MemoryError::BadSize
+                }
+            })
+    }
+
+    fn plugged_memory(&self) -> u64 {
+        self.0.plugged_memory()
+    }
+
+    fn requested_memory(&self) -> u64 {
+        self.0.requested_memory()
+    }
+
+    fn region_bytes(&self) -> u64 {
+        self.0.hotplug_bytes()
+    }
+}
+
+/// The memory device of a machine; a machine built without one answers as [`NoMemoryDevice`].
 #[must_use]
-pub fn device_of(_machine: &soma_kvm::x86_64::SandboxMachine) -> &dyn MemoryControl {
-    &NoMemoryDevice
+pub const fn device_of(machine: &soma_kvm::x86_64::SandboxMachine) -> MachineMemory<'_> {
+    MachineMemory(machine)
 }
 
 /// Reads the level off any device.

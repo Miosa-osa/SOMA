@@ -21,8 +21,8 @@ use soma::{BackendFailureKind, CleanupMethod, InstanceId};
 use soma_jail::{JailHandle, ProbeReport};
 use soma_vmm::control::Request;
 use soma_vmm::{
-    DeclaredDevices, DiskBytes, Generation, GenerationId, InstanceId as VmmInstanceId, Launch,
-    MachineSpec, MemoryBytes, OperationId, Stop, VcpuCount,
+    DeclaredDevices, DiskBytes, Generation, GenerationId, HotplugBytes,
+    InstanceId as VmmInstanceId, Launch, MachineSpec, MemoryBytes, OperationId, Stop, VcpuCount,
 };
 
 pub(super) use anchors::Anchors;
@@ -142,19 +142,26 @@ impl Jailed {
         overlay: bool,
         network: bool,
     ) -> Result<(), BackendFailureKind> {
+        let mut machine = MachineSpec::new(
+            VcpuCount::new(1).map_err(|_| BackendFailureKind::WorkloadRejected)?,
+            MemoryBytes::new(launching.memory_mib.saturating_mul(MIB))
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
+            DiskBytes::new(launching.disk_mib.saturating_mul(MIB).max(MIB))
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
+        );
+        // The region is declared by the Generation, so a launch carries it only when it did.
+        if let Some(bytes) = super::hotplug::declared_bytes(launching.prepared) {
+            machine = machine.with_hotplug(
+                HotplugBytes::new(bytes).map_err(|_| BackendFailureKind::WorkloadRejected)?,
+            );
+        }
         let request = Request::Launch(Launch::new(
             OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?,
             self.instance,
             Generation::new(
                 GenerationId::new(launching.generation_bytes)
                     .map_err(|_| BackendFailureKind::WorkloadRejected)?,
-                MachineSpec::new(
-                    VcpuCount::new(1).map_err(|_| BackendFailureKind::WorkloadRejected)?,
-                    MemoryBytes::new(launching.memory_mib.saturating_mul(MIB))
-                        .map_err(|_| BackendFailureKind::WorkloadRejected)?,
-                    DiskBytes::new(launching.disk_mib.saturating_mul(MIB).max(MIB))
-                        .map_err(|_| BackendFailureKind::WorkloadRejected)?,
-                ),
+                machine,
                 DeclaredDevices::new(overlay, network),
             ),
         ));

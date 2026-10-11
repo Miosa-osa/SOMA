@@ -44,6 +44,11 @@ pub(in crate::backend::kvm) struct MachineKey {
     /// that wants writable storage from that pool would hand back a machine that cannot take
     /// the head it is about to be assigned.
     pub(super) devices: DeviceSet,
+    /// The size of the resizable region, zero for a machine with no memory device.
+    ///
+    /// Two machines that differ only in this are different machines: the guest has been told
+    /// where the region is and how large.
+    pub(super) hotplug_bytes: u64,
 }
 
 impl MachineKey {
@@ -60,6 +65,11 @@ impl MachineKey {
             u8::from(self.devices.overlay()),
             u8::from(self.devices.net()),
         ]);
+        // A machine without the device hashes exactly as it always has.
+        if self.devices.mem() {
+            hasher.update([1]);
+            hasher.update(self.hotplug_bytes.to_be_bytes());
+        }
         for digest in self.snapshot {
             hasher.update(digest);
         }
@@ -99,6 +109,8 @@ pub(in crate::backend::kvm) struct RecipeInputs<'a> {
     pub(in crate::backend::kvm) candidate: [u8; 32],
     /// The optional devices machines in this pool are built with.
     pub(in crate::backend::kvm) devices: DeviceSet,
+    /// The declared region size, zero for a machine with no memory device.
+    pub(in crate::backend::kvm) hotplug_bytes: u64,
 }
 
 impl Recipe {
@@ -118,6 +130,7 @@ impl Recipe {
             contract,
             candidate,
             devices,
+            hotplug_bytes,
         } = *inputs;
         // A Generation that declared no writable storage published no overlay template, so
         // there is no capacity to read and none is needed: the machine has no overlay device
@@ -136,6 +149,7 @@ impl Recipe {
                 vcpus,
                 contract,
                 devices,
+                hotplug_bytes,
             },
             prepared: prepared.clone(),
             root,
@@ -179,10 +193,12 @@ impl Recipe {
             vcpus: self.key.vcpus,
             contract: self.key.contract,
             devices: self.key.devices,
-            // The pool is keyed on a device set that never declares the memory device yet, so
-            // there is no region to place; a Generation that declares one adds its size to the
-            // key before this can carry it.
-            hotplug: None,
+            hotplug: super::super::hotplug::region_for(
+                self.key.devices,
+                self.key.memory_bytes,
+                self.key.devices.mem().then_some(self.key.hotplug_bytes),
+            )
+            .ok()?,
         })
     }
 }
@@ -203,6 +219,7 @@ mod tests {
             vcpus: 1,
             contract: MachineContract::V1,
             devices: DeviceSet::new(true, true),
+            hotplug_bytes: 0,
         }
     }
 
