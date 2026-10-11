@@ -49,6 +49,32 @@ fn declared_contract(
     })
 }
 
+/// The resizable memory region the Candidate declared, placed above the capture machine's RAM.
+///
+/// The source machine is built with the memory device exactly when the Generation declares one
+/// (a version 3 manifest binds its size in the shape), at the address every boot path and the
+/// prepared pool place it from the size alone. A device without a size, or a size without the
+/// device, is refused before anything is booted rather than resolved by preferring one.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn declared_hotplug(
+    devices: soma_kvm::DeviceSet,
+    ram_bytes: u64,
+    hotplug_bytes: u64,
+) -> Result<Option<soma_kvm::memory_layout::HotplugRegion>, Box<dyn Error>> {
+    use soma_kvm::memory_layout::{GuestLayout, HotplugRegion};
+    match (devices.mem(), hotplug_bytes) {
+        (false, 0) => Ok(None),
+        (true, bytes) if bytes > 0 => {
+            let layout = GuestLayout::new(ram_bytes)
+                .map_err(|error| format!("capture memory layout: {error:?}"))?;
+            HotplugRegion::new(layout, bytes)
+                .map(Some)
+                .map_err(|error| format!("declared hotplug region: {error:?}").into())
+        }
+        _ => Err("the Candidate's device set and its declared hotplug size disagree".into()),
+    }
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     let store = entry.join("store");
@@ -102,6 +128,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
     // the agent requires a sterile upper layer and refuses to boot if anything is placed in it.
 
     let contract = declared_contract(&manifest)?;
+    let hotplug = declared_hotplug(devices, memory_mib * MIB, manifest.shape.hotplug_bytes)?;
     let config = SandboxConfig {
         kernel,
         initramfs,
@@ -118,7 +145,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         vcpus: manifest.shape.vcpu_count,
         contract,
         devices,
-        hotplug: None,
+        hotplug,
     };
 
     let mut sandbox = SandboxMachine::create(config).map_err(|error| format!("create: {error}"))?;
