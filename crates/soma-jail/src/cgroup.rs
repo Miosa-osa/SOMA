@@ -5,7 +5,6 @@
 mod error;
 mod files;
 mod live;
-mod memory;
 
 use std::{
     fs, io,

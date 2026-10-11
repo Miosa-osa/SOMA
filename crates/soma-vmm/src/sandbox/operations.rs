@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use soma_guest::GuestCommand;
 
+use super::memory::{MemoryError, MemoryLevel};
 use super::session::{FILE_CEILING, PTY_CEILING, Request, Response};
 use super::{Completed, Session, SessionError};
 
@@ -99,4 +100,51 @@ impl Session {
             Ok(_) => Err(self.poison(SessionError::Pty)),
         }
     }
+
+    /// States how much memory should be plugged on top of the boot memory, and reads the level.
+    ///
+    /// The level returned is the device's, taken right after the request: the guest plugs in the
+    /// background, so the plugged number is read again with [`Self::memory`] until it settles.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`MemoryError`] the device refused with, or ends the session as every other
+    /// operation does when the exchange is uncertain.
+    pub fn set_requested_memory(
+        &mut self,
+        bytes: u64,
+    ) -> Result<Result<MemoryLevel, MemoryError>, SessionError> {
+        self.memory_exchange(Request::SetRequestedMemory(bytes))
+    }
+
+    /// Reads how much memory is requested and plugged.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`MemoryError`] the device refused with, or ends the session as every other
+    /// operation does when the exchange is uncertain.
+    pub fn memory(&mut self) -> Result<Result<MemoryLevel, MemoryError>, SessionError> {
+        self.memory_exchange(Request::GetMemory)
+    }
+
+    fn memory_exchange(
+        &mut self,
+        request: Request,
+    ) -> Result<Result<MemoryLevel, MemoryError>, SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        self.settle()?;
+        self.requests
+            .send(request)
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        match self.await_response(MEMORY_CEILING) {
+            Ok(Response::Memory(outcome)) => Ok(outcome),
+            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
+            Ok(_) => Err(self.poison(SessionError::Execute)),
+        }
+    }
 }
+
+/// How long one memory request or read has to answer: a flag write and a counter read.
+const MEMORY_CEILING: Duration = Duration::from_secs(5);

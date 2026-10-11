@@ -11,7 +11,9 @@ use soma::InstanceId;
 use soma_jail::{CgroupLeaf, CpuMax};
 
 use super::{KvmBackend, held::Held};
-use crate::{CpuResize, DimensionState, MemoryResize, ResizeFailure, ResizeOutcome, ResizeRequest};
+
+mod memory;
+use crate::{CpuResize, DimensionState, ResizeFailure, ResizeOutcome, ResizeRequest};
 
 /// The accounting period every live share is expressed against.
 const PERIOD_US: u64 = 100_000;
@@ -39,20 +41,22 @@ impl KvmBackend {
             ),
             Some(wanted) => resize_cpu(instance, live, wanted, jailed),
         };
-        let memory = MemoryResize {
-            state: if request.memory_mb.is_some() {
-                DimensionState::Unsupported
-            } else {
-                DimensionState::Unchanged
+        let memory = match request.memory_mb {
+            None => memory::report_unchanged(live.memory_mib, live.memory_mib, 0),
+            Some(wanted) => match &mut live.held {
+                Held::Resident(session) => memory::resize(
+                    &mut memory::ResidentLink::new(session),
+                    live.memory_mib,
+                    wanted,
+                    &memory::REAL,
+                    &mut std::thread::sleep,
+                ),
+                Held::Jailed(_) => memory::unsupported(
+                    live.memory_mib,
+                    request.memory_mb,
+                    "jailed_machines_do_not_resize_memory_yet",
+                ),
             },
-            requested_mb: request.memory_mb,
-            plugged_mb: 0,
-            total_mb: live.memory_mib,
-            booted_mb: live.memory_mib,
-            ceiling_mb: live.memory_mib,
-            reason: request
-                .memory_mb
-                .map(|_| "generation_without_virtio_mem".to_owned()),
         };
         Ok(ResizeOutcome { cpu, memory })
     }
