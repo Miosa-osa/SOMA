@@ -87,3 +87,11 @@ fn version_3_admits_the_default_writable_class_and_version_2_does_not() {
     assert!(!CompilerProfile::v2().overlay_capacities.contains(&ten_gib));
     assert!(CompilerProfile::v3().validate().is_ok());
 }
+
+#[test]
+fn version_3_admits_the_forty_gigabyte_class_and_older_profiles_do_not() {
+    let forty_gib = 40 * 1024 * 1024 * 1024;
+    assert!(CompilerProfile::v3().overlay_capacities.contains(&forty_gib));
+    assert!(!CompilerProfile::v2().overlay_capacities.contains(&forty_gib));
+    assert!(CompilerProfile::v3().validate().is_ok());
+}
