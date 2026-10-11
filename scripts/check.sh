@@ -60,6 +60,9 @@ check_repository_contract() {
     log "end to end check contract tests"
     "${SCRIPT_DIR}/tests/end-to-end-check-contract.sh"
 
+    log "live memory resize contract tests"
+    "${SCRIPT_DIR}/tests/live-memory-resize-contract.sh"
+
     log "shell scripts"
     require_command shellcheck
     local shellcheck_failed=0
