@@ -97,6 +97,7 @@ fn render_human(
         }
         Some(ResultBody::File(report)) => render_file(response, report, stdout, stderr),
         Some(ResultBody::Pty(report)) => render_pty(response, report, stdout, stderr),
+        Some(ResultBody::Resize(report)) => render_resize(report, stdout),
         Some(ResultBody::List(report)) => {
             for entry in &report.sandboxes {
                 writeln!(
@@ -216,6 +217,25 @@ const fn capability(state: CapabilityState) -> &'static str {
 
 const fn base64_encoded_length(bytes: usize) -> usize {
     bytes.div_ceil(3) * 4
+}
+
+/// Prints one resize as the two numbers that are true now.
+fn render_resize(report: &crate::model::ResizeReport, stdout: &mut impl Write) -> io::Result<()> {
+    writeln!(stdout, "{}", report.instance_id.as_str())?;
+    writeln!(
+        stdout,
+        "cpu: {:?} applied {} of {}",
+        report.cpu.state, report.cpu.applied, report.cpu.booted
+    )?;
+    writeln!(
+        stdout,
+        "memory: {:?} total {} MiB (booted {}, plugged {}, ceiling {})",
+        report.memory.state,
+        report.memory.total_mb,
+        report.memory.booted_mb,
+        report.memory.plugged_mb,
+        report.memory.ceiling_mb
+    )
 }
 
 #[cfg(test)]
