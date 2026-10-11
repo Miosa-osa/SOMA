@@ -10,6 +10,11 @@
 //! say whether the base image really carries its command's program, and only a normalized rootfs
 //! can answer that, so the image is imported first and a rejected document costs one import.
 //!
+//! `SOMA_PREPARE_CEILING_MIB` declares the live-resize machine, as it does for `prepare_generation`:
+//! the most guest memory the Generation can ever have, above the template's memory. It targets
+//! compiler profile version 3 and the manifest records the hotplug region as the ceiling minus
+//! the boot memory. The Template path keeps the single-vCPU bounds its revisions carry today.
+//!
 //! Usage:
 //!
 //! ```text
@@ -37,8 +42,10 @@ mod publication;
 
 use build::BuildInputs;
 
-/// The compiler profile the produced Generation targets.
+/// The compiler profile the produced Generation targets without a memory ceiling.
 const PROFILE_VERSION: u16 = 1;
+/// The compiler profile of a live-resize Generation, which `SOMA_PREPARE_CEILING_MIB` selects.
+const LIVE_RESIZE_PROFILE_VERSION: u16 = 3;
 
 struct Args {
     template: PathBuf,
@@ -55,6 +62,7 @@ fn parse_args() -> Result<Args, String> {
             raw.len()
         ));
     }
+    let ceiling_mib = build::ceiling_from_environment()?;
     Ok(Args {
         template: PathBuf::from(&raw[0]),
         inputs: BuildInputs {
@@ -65,6 +73,7 @@ fn parse_args() -> Result<Args, String> {
             erofs_tools: PathBuf::from(&raw[5]),
             e2fsprogs: PathBuf::from(&raw[6]),
             out_entry: PathBuf::from(&raw[7]),
+            ceiling_mib,
         },
     })
 }
@@ -73,7 +82,15 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     let document = fs::read(&args.template)
         .map_err(|error| format!("{}: {error}", args.template.display()))?;
     let template: Template = parse_template(&document)?;
-    let prepared = build::prepare(&args.inputs, CompilerProfile::v1(), |normalized, store| {
+    // A ceiling makes this the live-resize machine (profile version 3); the build derives the
+    // hotplug region from it and the template's boot memory.
+    let live_resize = args.inputs.ceiling_mib.is_some();
+    let base_profile = if live_resize {
+        CompilerProfile::v3()
+    } else {
+        CompilerProfile::v1()
+    };
+    let prepared = build::prepare(&args.inputs, base_profile, |normalized, store| {
         let resolver = LayoutResolver::new(
             &args.inputs.layout,
             template.workload().image(),
@@ -92,7 +109,12 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
         println!("lock: {}", lock.id());
         let view = LockRevision::from_lock(&lock)
             .with_provenance(&template, &ModuleRegistry::builtin())?;
-        Ok(compiler_revision(&view, PROFILE_VERSION)?)
+        let version = if live_resize {
+            LIVE_RESIZE_PROFILE_VERSION
+        } else {
+            PROFILE_VERSION
+        };
+        Ok(compiler_revision(&view, version)?)
     })?;
     build::report(&prepared, &args.inputs.out_entry);
     Ok(())
