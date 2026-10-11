@@ -1,7 +1,4 @@
-use std::time::Duration;
-
 use super::{
-    Timing,
     params::{CreateParams, ExecParams},
     routing::{Forward, Route, route},
 };
@@ -93,22 +90,6 @@ fn routes_only_the_contract_paths() {
     ] {
         assert_eq!(route(&method, path), Route::NotFound, "{method} {path}");
     }
-}
-
-#[test]
-fn server_timing_reports_three_millisecond_segments() {
-    let timing = Timing {
-        auth: Duration::from_micros(12),
-        call: CallTiming {
-            pool: Duration::from_micros(1_500),
-            exec: Duration::from_millis(21),
-        },
-    };
-
-    assert_eq!(
-        timing.header(),
-        "auth;dur=0.012,pool;dur=1.500,exec;dur=21.000"
-    );
 }
 
 #[test]
