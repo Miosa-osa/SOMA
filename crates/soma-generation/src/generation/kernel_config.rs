@@ -33,6 +33,9 @@ pub const REQUIRED_BUILTIN: &[&str] = &[
 ];
 
 /// Facilities that must be absent or disabled for Generation profile v1.
+///
+/// `CONFIG_MEMORY_HOTPLUG` is not in this list: it is admitted only together with the live-resize
+/// facilities, see [`MEMORY_HOTPLUG`].
 pub const FORBIDDEN: &[&str] = &[
     "CONFIG_MODULES",
     "CONFIG_PCI",
@@ -46,7 +49,26 @@ pub const FORBIDDEN: &[&str] = &[
     "CONFIG_VIRTIO_BALLOON",
     "CONFIG_VIRTIO_PCI",
     "CONFIG_HOTPLUG_PCI",
-    "CONFIG_MEMORY_HOTPLUG",
+];
+
+/// Memory hotplug is excluded from profile v1 and admitted only as live memory resize.
+///
+/// Hotplug is a kernel facility with a large surface (a hotplug source, onlining, migration), so
+/// it is not allowed on its own. A kernel that enables it must be the one live-resize kernel:
+/// the only hotplug source is the virtio-mem device over the existing virtio-mmio transport
+/// (no ACPI, no PCI, both stay forbidden), memory can be handed back (hot-remove), and pages can
+/// be moved out of the blocks being returned (migration). Anything less is a hotplug kernel with
+/// no way to use it or no way to give it back, and is refused.
+///
+/// A kernel without `CONFIG_MEMORY_HOTPLUG` is checked exactly as before, so every Generation
+/// compiled before live resize still verifies unchanged.
+pub const MEMORY_HOTPLUG: &str = "CONFIG_MEMORY_HOTPLUG";
+
+/// Facilities that must accompany [`MEMORY_HOTPLUG`].
+pub const LIVE_RESIZE_REQUIRED: &[&str] = &[
+    "CONFIG_MEMORY_HOTREMOVE",
+    "CONFIG_MIGRATION",
+    "CONFIG_VIRTIO_MEM",
 ];
 
 const PHYSICAL_START: &str = "CONFIG_PHYSICAL_START";
@@ -68,6 +90,31 @@ pub struct VerifiedKernelConfig {
 /// [`CompileErrorKind::Unsupported`] when a required facility is missing, an excluded facility
 /// is enabled, or `CONFIG_PHYSICAL_START` is not `0x1000000`.
 pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, CompileError> {
+    verify_kernel_config_for(0, text)
+}
+
+/// The first compiler-policy version whose machine carries the virtio-mem device.
+///
+/// From this version on a Generation is a live-resize Generation: its machine has the memory
+/// device, so its kernel must have the driver and the hotplug path that device needs. Earlier
+/// versions are checked exactly as they always were.
+pub const LIVE_RESIZE_POLICY_VERSION: u16 = 3;
+
+/// Verifies a Linux `.config` text for the compiler-policy version that will build from it.
+///
+/// This is [`verify_kernel_config`] plus one rule: at [`LIVE_RESIZE_POLICY_VERSION`] and later the
+/// kernel must enable `CONFIG_MEMORY_HOTPLUG` and everything in [`LIVE_RESIZE_REQUIRED`], so a
+/// Generation whose machine has the memory device cannot compile with a kernel that has no
+/// driver for it.
+///
+/// # Errors
+///
+/// As [`verify_kernel_config`], and [`CompileErrorKind::Unsupported`] when the policy version
+/// needs the live-resize facilities and the kernel lacks any of them.
+pub fn verify_kernel_config_for(
+    policy_version: u16,
+    text: &[u8],
+) -> Result<VerifiedKernelConfig, CompileError> {
     if text.len() > MAX_CONFIG_BYTES {
         return Err(CompileError::new(
             CompilePhase::VerifyKernel,
@@ -103,6 +150,16 @@ pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, Compile
     for forbidden in FORBIDDEN {
         if enabled.contains(forbidden) {
             return Err(unsupported());
+        }
+    }
+    if policy_version >= LIVE_RESIZE_POLICY_VERSION && !enabled.contains(&MEMORY_HOTPLUG) {
+        return Err(unsupported());
+    }
+    if enabled.contains(&MEMORY_HOTPLUG) {
+        for required in LIVE_RESIZE_REQUIRED {
+            if !enabled.contains(required) {
+                return Err(unsupported());
+            }
         }
     }
     if physical_start != Some(REQUIRED_PHYSICAL_START) {

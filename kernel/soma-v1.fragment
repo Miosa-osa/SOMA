@@ -40,7 +40,13 @@ CONFIG_PHYSICAL_ALIGN=0x200000
 # CONFIG_KEXEC_FILE is not set
 # CONFIG_CRASH_DUMP is not set
 # CONFIG_HOTPLUG_CPU stays y: def_bool y when SMP=y since Linux 6.x.
-# CONFIG_MEMORY_HOTPLUG is not set
+# Live memory resize (virtio-mem). The device is the only hotplug source: there is no ACPI and no
+# PCI, so memory arrives as virtio-mem blocks over the existing virtio-mmio transport, onlined
+# as movable so the guest can give it back.
+CONFIG_MEMORY_HOTPLUG=y
+CONFIG_MEMORY_HOTREMOVE=y
+CONFIG_MEMORY_HOTPLUG_DEFAULT_ONLINE=y
+CONFIG_EXCLUSIVE_SYSTEM_RAM=y
 # CONFIG_X86_MCE is not set
 # CONFIG_X86_CPUID is not set
 # CONFIG_X86_MSR is not set
@@ -80,7 +86,7 @@ CONFIG_VIRTIO_MMIO=y
 CONFIG_VIRTIO_MMIO_CMDLINE_DEVICES=y
 # CONFIG_VIRTIO_PCI is not set
 # CONFIG_VIRTIO_BALLOON is not set
-# CONFIG_VIRTIO_MEM is not set
+CONFIG_VIRTIO_MEM=y
 # CONFIG_VIRTIO_INPUT is not set
 # CONFIG_VIRTIO_CONSOLE is not set
 # CONFIG_VIRTIO_FS is not set
@@ -121,9 +127,13 @@ CONFIG_UNIX98_PTYS=y
 # CONFIG_GAMEPORT is not set
 # CONFIG_HID_SUPPORT is not set
 # /dev/mem is required: the guest agent reads the SOMA launch page through it.
-# Unrestricted DEVMEM also turns off EXCLUSIVE_SYSTEM_RAM and PAGE_TABLE_CHECK.
+# STRICT_DEVMEM is on since live memory resize: virtio-mem depends on EXCLUSIVE_SYSTEM_RAM, which
+# Kconfig turns off whenever /dev/mem is unrestricted. Strict mode still lets /dev/mem map any
+# range that is not System RAM, and the launch page sits above RAM and the MMIO window (see
+# launch_page.rs), so the agent's mapping is allowed. This is the one assumption the first KVM
+# boot proves: if the agent cannot map the page it fails closed before Ready.
 CONFIG_DEVMEM=y
-# CONFIG_STRICT_DEVMEM is not set
+CONFIG_STRICT_DEVMEM=y
 # CONFIG_IO_STRICT_DEVMEM is not set
 # CONFIG_DEVPORT is not set
 # CONFIG_NVRAM is not set
