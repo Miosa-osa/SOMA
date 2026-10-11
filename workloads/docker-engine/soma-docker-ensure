@@ -1,0 +1,71 @@
+#!/bin/sh
+# Starts the container engine the first time something needs it, then returns.
+#
+# A SOMA guest has no init system, so nothing starts dockerd at boot. This is the lazy start:
+# `/usr/local/bin/docker` calls it before every client command, it is idempotent, and the common
+# case (the engine is already running) is one `kill -0`. The engine is started in its own session
+# and its own cgroup, and the survivor list names that cgroup and the one containers use, so the
+# sweep that ends each command spares the engine and every container.
+#
+# Exit status: 0 when the engine answers, 1 with a one-line reason on stderr otherwise.
+set -eu
+
+PIDFILE=/run/docker.pid
+SOCKET=/run/docker.sock
+ENGINE_CGROUP=/sys/fs/cgroup/docker-engine
+SURVIVORS=/run/soma/survivors
+LOCK=/run/soma/docker-ensure.lock
+LOG=/var/log/dockerd.log
+WAIT_SECONDS=${SOMA_DOCKER_WAIT_SECONDS:-30}
+
+running() {
+  [ -S "$SOCKET" ] && [ -r "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null
+}
+
+running && exit 0
+
+mkdir -p /run/soma
+exec 9>"$LOCK"
+flock 9
+# Another caller may have finished the start while this one waited for the lock.
+running && exit 0
+
+if ! mountpoint -q /var/lib/docker; then
+  echo "docker: this sandbox has no writable storage for the engine (/var/lib/docker is not a separate mount)" >&2
+  exit 1
+fi
+if [ ! -f /sys/fs/cgroup/cgroup.controllers ]; then
+  echo "docker: cgroup v2 is not mounted at /sys/fs/cgroup" >&2
+  exit 1
+fi
+
+# The survivor entries come first: a stale line is harmless, a missing one would let the sweep
+# kill the engine the moment this command ends.
+for entry in cgroup:/docker-engine cgroup:/docker; do
+  grep -qx "$entry" "$SURVIVORS" 2>/dev/null || echo "$entry" >> "$SURVIVORS"
+done
+
+# A previous engine killed by a pre-capture sweep leaves its pidfile, socket, and runtime
+# directories behind; the new one refuses to start over them.
+rm -f "$PIDFILE" "$SOCKET"
+rm -rf /run/docker /run/containerd 2>/dev/null || true
+
+mkdir -p "$ENGINE_CGROUP" /var/log
+# `dockerd` starts and supervises its own containerd. Moving the shell into the cgroup first
+# means the engine, containerd, and every shim are born inside it.
+echo $$ > "$ENGINE_CGROUP/cgroup.procs"
+setsid dockerd --pidfile "$PIDFILE" >> "$LOG" 2>&1 < /dev/null &
+# Leave the engine cgroup so this script's own exit is not mistaken for part of it.
+echo $$ > /sys/fs/cgroup/cgroup.procs 2>/dev/null || true
+
+i=0
+while [ "$i" -lt $((WAIT_SECONDS * 10)) ]; do
+  if running && /usr/bin/docker info >/dev/null 2>&1; then
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep 0.1
+done
+echo "docker: the engine did not become ready in ${WAIT_SECONDS}s; see $LOG" >&2
+tail -n 5 "$LOG" >&2 2>/dev/null || true
+exit 1

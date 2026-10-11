@@ -24,6 +24,7 @@ use self::superblock::{erofs_superblock_ok, verify_superblock};
 
 mod declared;
 mod devices;
+mod docker;
 mod superblock;
 mod upper;
 
@@ -129,8 +130,18 @@ pub fn early_init(deadline: Instant) -> Result<Declared, BootFailure> {
     })?;
     // With no private head the immutable root is the root: there is no second layer to compose
     // it with, so the mount that is already there is the one the guest enters.
+    // An image that ships a container engine gets the cgroup v2 hierarchy mounted with the
+    // controllers delegated, so the engine can place containers without an init system. See
+    // [`docker`] for the whole contract and why none of it can fail the boot.
+    let engine = docker::image_has_engine(LOWER_MOUNT);
+    if engine {
+        docker::mount_cgroups();
+    }
     let root = if declared.overlay {
         upper::compose()?;
+        if engine {
+            docker::bind_data_root(upper::UPPER_MOUNT, ROOT_MOUNT);
+        }
         ROOT_MOUNT
     } else {
         LOWER_MOUNT

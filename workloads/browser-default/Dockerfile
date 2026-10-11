@@ -68,3 +68,29 @@ RUN mkdir -p /etc/soma \
       ldd /usr/lib/chromium/chromium | awk '/=> \//{print $3}'; \
     } | awk '!seen[$0]++' > /etc/soma/warm \
  && test "$(wc -l < /etc/soma/warm)" -gt 50
+
+# Docker Engine, Compose and Buildx, started lazily.
+#
+# The guest has no init system, so nothing starts the engine at boot and the snapshot holds no
+# daemon. `/usr/local/bin/docker` runs `soma-docker-ensure` first, which starts dockerd on first
+# use (see workloads/docker-engine/README.md). The guest agent mounts cgroup v2 and binds the
+# engine's data root onto the writable head when it finds /usr/bin/dockerd in the image.
+#
+# The pinned install script is shared with the other MIOSA images and expects systemd, so a
+# no-op systemctl stands in for the duration of the install only.
+#
+# Build with the engine directory as a named context:
+#   docker build --platform=linux/amd64 --build-context docker-engine=workloads/docker-engine \
+#     -t soma-browser-default:1 workloads/browser-default
+COPY --from=docker-engine install-docker-ce.sh /tmp/install-docker-ce.sh
+RUN printf '#!/bin/sh\nexit 0\n' > /usr/bin/systemctl \
+ && chmod 0755 /usr/bin/systemctl \
+ && printf '#!/bin/sh\nexit 101\n' > /usr/sbin/policy-rc.d \
+ && chmod 0755 /usr/sbin/policy-rc.d \
+ && DOCKER_SOCKET_ACTIVATED=0 bash /tmp/install-docker-ce.sh \
+ && rm -f /usr/bin/systemctl /usr/sbin/policy-rc.d /tmp/install-docker-ce.sh \
+ && find /var/lib/apt/lists -type f -delete \
+ && docker --version && docker compose version && docker buildx version
+COPY --from=docker-engine --chmod=0644 daemon.json /etc/docker/daemon.json
+COPY --from=docker-engine --chmod=0755 soma-docker-ensure /usr/local/libexec/soma-docker-ensure
+COPY --from=docker-engine --chmod=0755 docker-wrapper /usr/local/bin/docker

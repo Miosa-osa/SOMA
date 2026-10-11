@@ -70,6 +70,15 @@ pub fn bind_mount(source: &str, target: &str) -> Result<(), Errno> {
     check(result)
 }
 
+/// Bind-mounts the directory `source` at `target`.
+///
+/// # Errors
+///
+/// Returns the kernel errno.
+pub fn bind(source: &str, target: &str) -> Result<(), Errno> {
+    mount(source, target, "none", libc::MS_BIND, "")
+}
+
 /// Moves an existing mount from `from` to `to`.
 ///
 /// # Errors

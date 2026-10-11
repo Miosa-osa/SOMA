@@ -38,11 +38,20 @@ pub fn sweep_strays_sparing(survivors: &str) -> usize {
     if !pid1::is_pid1() {
         return 0;
     }
-    let ids = survivor_ids(&fs::read_to_string(survivors).unwrap_or_default());
-    if ids.is_empty() {
+    let text = fs::read_to_string(survivors).unwrap_or_default();
+    let ids = survivor_ids(&text);
+    let cgroups = spared_cgroups(&text);
+    if ids.is_empty() && cgroups.is_empty() {
         return sweep_strays();
     }
-    let targets = doomed(&ids, &process_groups());
+    let targets: Vec<i32> = doomed(&ids, &process_groups())
+        .into_iter()
+        .filter(|pid| {
+            cgroups.is_empty()
+                || !fs::read_to_string(format!("/proc/{pid}/cgroup"))
+                    .is_ok_and(|contents| cgroup_spared(&cgroups, &contents))
+        })
+        .collect();
     for pid in &targets {
         // SAFETY: `kill` with a positive identifier has no memory preconditions; the identifier
         // was read from `/proc` and is neither this process nor a reserved value.
@@ -81,6 +90,36 @@ pub fn survivor_ids(text: &str) -> Vec<i32> {
         .filter_map(|line| line.trim().parse::<i32>().ok())
         .filter(|id| *id > INIT_PID)
         .collect()
+}
+
+/// The cgroups a survivor list spares, from lines of the form `cgroup:/path`.
+///
+/// A process is spared when its cgroup is the named one or lies beneath it, which is how a
+/// container engine survives the sweep that ends a command: the engine, its supervisor, every
+/// shim, and every container process share two subtrees, and none of them can be named by process
+/// id, group, or session, because containers start their own sessions. The root cgroup is never
+/// accepted, so a list cannot exempt everything.
+#[must_use]
+pub fn spared_cgroups(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| line.trim().strip_prefix("cgroup:"))
+        .map(|path| path.trim().trim_end_matches('/').to_owned())
+        .filter(|path| path.starts_with('/') && path.len() > 1 && !path.contains(".."))
+        .collect()
+}
+
+/// Whether the contents of `/proc/<pid>/cgroup` place the process in or under a spared cgroup.
+#[must_use]
+pub fn cgroup_spared(spared: &[String], proc_cgroup: &str) -> bool {
+    // On cgroup v2 the file is the single line `0::/path`.
+    proc_cgroup
+        .lines()
+        .filter_map(|line| line.strip_prefix("0::"))
+        .any(|path| {
+            spared
+                .iter()
+                .any(|root| path == root || path.starts_with(&format!("{root}/")))
+        })
 }
 
 /// A process, its process group, and its session, as `/proc/<pid>/stat` reports them.
@@ -183,6 +222,23 @@ mod tests {
         assert_eq!(doomed(&[], &processes), [412, 430, 431, 500, 501]);
         // An id that matches nothing spares nothing.
         assert_eq!(doomed(&[999], &processes).len(), 5);
+    }
+
+    #[test]
+    fn cgroup_lines_spare_the_named_subtree_and_never_the_root() {
+        let text = "412\ncgroup:/docker-engine\n cgroup:/docker/ \ncgroup:/\ncgroup:relative\ncgroup:/a/../b\n";
+        assert_eq!(spared_cgroups(text), ["/docker-engine", "/docker"]);
+        // Plain id lines and cgroup lines do not interfere.
+        assert_eq!(survivor_ids(text), [412]);
+        let spared = spared_cgroups(text);
+        assert!(cgroup_spared(&spared, "0::/docker-engine\n"));
+        assert!(cgroup_spared(&spared, "0::/docker/3f9c\n"));
+        assert!(cgroup_spared(&spared, "0::/docker/3f9c/sub\n"));
+        // A sibling that merely shares a prefix is not under the named cgroup.
+        assert!(!cgroup_spared(&spared, "0::/docker-other\n"));
+        assert!(!cgroup_spared(&spared, "0::/\n"));
+        assert!(!cgroup_spared(&spared, ""));
+        assert!(!cgroup_spared(&[], "0::/docker\n"));
     }
 
     #[test]

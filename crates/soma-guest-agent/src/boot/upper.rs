@@ -18,7 +18,7 @@ use super::{BootFailure, BootStep, LOWER_MOUNT, OVERLAY_DEVICE, ROOT_MOUNT, fail
 /// Spelled here rather than taken from `libc`, whose `MS_*` set stops short of it.
 const MS_LAZYTIME: libc::c_ulong = 1 << 25;
 
-const UPPER_MOUNT: &str = "/mnt/upper";
+pub(super) const UPPER_MOUNT: &str = "/mnt/upper";
 const UPPER_DIR: &str = "/mnt/upper/upper";
 const WORK_DIR: &str = "/mnt/upper/work";
 
