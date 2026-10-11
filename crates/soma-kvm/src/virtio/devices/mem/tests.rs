@@ -242,3 +242,31 @@ fn a_block_the_host_cannot_back_is_refused_and_never_promised() {
     assert_eq!(ask(&mut r, REQ_PLUG, block(0), 2), (RESP_ACK, 0));
     assert_eq!(*r.plugged.lock().expect("log"), vec![(0, 2 * BLOCK_SIZE)]);
 }
+
+#[test]
+fn a_reset_the_host_cannot_honour_keeps_the_blocks_tracked_and_refuses_the_next_driver() {
+    let mut r = boot();
+    request_size(&mut r, 2 * BLOCK_SIZE);
+    assert_eq!(ask(&mut r, REQ_PLUG, block(0), 2), (RESP_ACK, 0));
+    r.fail.store(true, Ordering::Relaxed);
+    r.t.device_mut().reset();
+    let device = r.t.device();
+    assert_eq!(
+        device.plugged_size(),
+        2 * BLOCK_SIZE,
+        "memory the host still holds stays counted"
+    );
+    assert!(!device.is_quiescent(), "a capture is still refused");
+    assert_eq!(device.counters().discard_failed, 1);
+    // A new driver may not start over memory the device does not account for.
+    assert_eq!(
+        r.t.device_mut().activate(MEM_FEATURES),
+        Err(ActivateError::BackendUnavailable)
+    );
+    assert_eq!(r.t.device().counters().discard_failed, 2);
+    // Once the host can take it back, the next driver starts empty.
+    r.fail.store(false, Ordering::Relaxed);
+    r.t.device_mut().activate(MEM_FEATURES).expect("activate");
+    assert_eq!(r.t.device().plugged_size(), 0);
+    assert!(r.t.device().is_quiescent());
+}
