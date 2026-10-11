@@ -131,7 +131,7 @@ pub fn execute(
         descendants::kill_group(process_group);
         descendants::reap_group(process_group);
         pid1::reap_orphans();
-        descendants::sweep_strays();
+        descendants::sweep_strays_sparing(descendants::SURVIVORS_FILE);
     });
     if streamed.sink_failed {
         return Err(ExecutorFault::Sink);

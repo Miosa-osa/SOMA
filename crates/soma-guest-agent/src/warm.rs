@@ -46,10 +46,13 @@ const CONVENTIONAL: &[&str] = &[
 /// Most bytes read from any one listed file.
 ///
 /// A runtime's own text is the part that matters, and this bounds a hostile or mistaken entry
-/// naming something enormous from spending the whole boot budget.
-const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
+/// naming something enormous from spending the whole boot budget. It is sized to hold the largest
+/// single file a default image warms: the Chromium binary, which is about 290 MiB.
+const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 /// Most entries honoured, so a long list cannot stall the boot either.
-const MAX_ENTRIES: usize = 64;
+///
+/// A browser links about a hundred shared libraries, and the list names the resident ones.
+const MAX_ENTRIES: usize = 256;
 
 /// Reads every file the warm list names, returning how many were read.
 ///
@@ -98,5 +101,47 @@ fn read_through(path: &str) -> bool {
             Ok(0) | Err(_) => return any,
             Ok(_) => any = true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_list_warms_only_absolute_paths_that_exist_and_skips_comments() {
+        let dir = std::env::temp_dir().join(format!("soma-warm-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("scratch directory");
+        let real = dir.join("real.bin");
+        fs::write(&real, vec![7_u8; 300_000]).expect("fixture");
+        let list = format!(
+            "# a comment\n\n{}\nrelative/path\n/soma/no/such/file\n  {}  \n",
+            real.display(),
+            real.display()
+        );
+        assert_eq!(warm_listed(&list), 2);
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_list_is_cut_off_at_the_entry_bound() {
+        let dir = std::env::temp_dir().join(format!("soma-warm-cap-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("scratch directory");
+        let real = dir.join("real.bin");
+        fs::write(&real, b"x").expect("fixture");
+        let list = format!("{}\n", real.display()).repeat(MAX_ENTRIES + 40);
+        assert_eq!(warm_listed(&list), MAX_ENTRIES);
+        fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_file_larger_than_the_sink_is_read_through_in_full() {
+        let dir = std::env::temp_dir().join(format!("soma-warm-big-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("scratch directory");
+        let big = dir.join("big.bin");
+        fs::write(&big, vec![1_u8; 1_000_000]).expect("fixture");
+        assert!(read_through(big.to_str().expect("utf8 path")));
+        assert!(!read_through("/soma/no/such/file"));
+        fs::remove_dir_all(&dir).expect("cleanup");
     }
 }
