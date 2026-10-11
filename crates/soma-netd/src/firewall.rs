@@ -122,6 +122,35 @@ pub(crate) fn protected_sets(protected: &ProtectedSet, out: &mut String) {
 }
 
 impl SandboxRuleset<'_> {
+    /// The input rule that admits the guest's replies to the broker's own connection.
+    fn render_connect_reply(&self, out: &mut String) {
+        if self.connect_ports.is_empty() {
+            return;
+        }
+        let tap = &self.names.tap;
+        let mac = mac_text(self.guest_mac);
+        let guest = self.lease.guest();
+        let gateway = self.lease.host();
+        let _ = writeln!(
+            out,
+            "\t\tiifname \"{tap}\" ether saddr {mac} ip saddr {guest} ip daddr {gateway} ct state established,related accept"
+        );
+    }
+
+    /// The output rule that lets the namespace open a connection to its own guest.
+    fn render_connect_out(&self, out: &mut String) {
+        if self.connect_ports.is_empty() {
+            return;
+        }
+        let tap = &self.names.tap;
+        let guest = self.lease.guest();
+        let _ = writeln!(
+            out,
+            "\t\toifname \"{tap}\" ip daddr {guest} tcp dport {{ {} }} ct state new accept",
+            port_set(self.connect_ports)
+        );
+    }
+
     /// Renders the complete `nft -f` text, starting with a flush of the same table.
     #[must_use]
     pub fn render(&self) -> String {
@@ -158,12 +187,7 @@ impl SandboxRuleset<'_> {
             out,
             "\t\tiifname \"{tap}\" ether saddr {mac} ip saddr {guest} ip daddr {gateway} icmp type echo-request accept"
         );
-        if !self.connect_ports.is_empty() {
-            let _ = writeln!(
-                out,
-                "\t\tiifname \"{tap}\" ether saddr {mac} ip saddr {guest} ip daddr {gateway} ct state established,related accept"
-            );
-        }
+        self.render_connect_reply(&mut out);
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out, "\tchain forward {{");
         let _ = writeln!(
@@ -234,13 +258,7 @@ impl SandboxRuleset<'_> {
             out,
             "\t\toifname \"{tap}\" ip daddr {guest} ct state established,related accept"
         );
-        if !self.connect_ports.is_empty() {
-            let _ = writeln!(
-                out,
-                "\t\toifname \"{tap}\" ip daddr {guest} tcp dport {{ {} }} ct state new accept",
-                port_set(self.connect_ports)
-            );
-        }
+        self.render_connect_out(&mut out);
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out, "}}");
         out

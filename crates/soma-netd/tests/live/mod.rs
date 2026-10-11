@@ -3,6 +3,7 @@
 pub mod burst;
 pub mod checks;
 pub mod codec;
+pub mod connect;
 pub mod control;
 pub mod delivery;
 pub mod frames;

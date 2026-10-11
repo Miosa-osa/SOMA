@@ -125,10 +125,10 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::single_range_in_vec_init, clippy::reversed_empty_ranges)]
     fn an_allowlist_is_never_empty_and_never_allows_port_zero() {
         assert!(ConnectPorts::new(&[]).is_err());
         assert!(ConnectPorts::new(&[0..=10]).is_err());
-        #[allow(clippy::reversed_empty_ranges)]
         let inverted = [10..=5];
         assert!(ConnectPorts::new(&inverted).is_err());
         let ports = ConnectPorts::new(&[3000..=3010, 5173..=5173]).expect("ports");

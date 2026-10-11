@@ -19,7 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use soma_netd::{ControlAuthority, MAX_FRAME, Reply, Request, serve};
+use soma_netd::{ControlAuthority, MAX_FRAME, NetworkIntent, ProfileDigest, Reply, Request, serve};
 
 const PATIENCE: Duration = Duration::from_secs(5);
 
@@ -153,4 +153,40 @@ impl Client {
         }
         Some(Reply::decode(&frame[..received.cast_unsigned()]).expect("reply"))
     }
+}
+
+/// One of each lifecycle request, with identities the broker never assigned.
+#[must_use]
+pub fn lifecycle_requests() -> Vec<Request> {
+    let (bundle, instance, operation) = super::ids(0xd1);
+    let intent = NetworkIntent::new(
+        soma_netd::EgressClass::Denied,
+        Vec::new(),
+        Vec::new(),
+        ProfileDigest([1; 32]),
+    )
+    .expect("intent");
+    let generation = soma_netd::CleanupGeneration::new(1).expect("generation");
+    let mut bytes = [7_u8; soma_guest::ActivationReceipt::LEN];
+    bytes[0] = 1;
+    vec![
+        Request::Claim {
+            instance,
+            operation,
+            vsock_cid: 5,
+            intent,
+        },
+        Request::Activate {
+            bundle,
+            generation,
+            receipt: soma_guest::ActivationReceipt::from_bytes(&bytes).expect("receipt"),
+        },
+        Request::Release { bundle, generation },
+        Request::Connect {
+            instance,
+            bundle,
+            generation,
+            port: 9223,
+        },
+    ]
 }

@@ -258,17 +258,21 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
             peer,
             (instance, bundle, generation, port),
         ),
-        Request::Reconcile => match reconcile(&state.broker) {
-            Ok(report) => {
-                let (consistent, drifted, orphaned) = report.counts();
-                Reply::Reconciled {
-                    consistent,
-                    drifted,
-                    orphaned,
-                    unowned: report.unowned(),
-                }
+        Request::Reconcile => reconciled(state),
+    }
+}
+
+fn reconciled(state: &State) -> Reply {
+    match reconcile(&state.broker) {
+        Ok(report) => {
+            let (consistent, drifted, orphaned) = report.counts();
+            Reply::Reconciled {
+                consistent,
+                drifted,
+                orphaned,
+                unowned: report.unowned(),
             }
-            Err(error) => Reply::Failed(error_code(&error)),
-        },
+        }
+        Err(error) => Reply::Failed(error_code(&error)),
     }
 }

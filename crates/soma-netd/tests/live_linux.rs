@@ -13,14 +13,14 @@ use live::{
         PROBE, assert_forwarding_off, assert_launch_values, assert_policy_after_activation,
         assert_sterile, public_intent, transfer_tap,
     },
-    control::{Client, broker_on, current_group},
+    control::{Client, broker_on, current_group, lifecycle_requests},
     frames::SynOutcome,
     session::{self, Wrong, forged},
     world::{self, World},
 };
 use soma_netd::{
-    ControlAuthority, Disposition, Error, NetNamespace, NetworkIntent, ProfileDigest, Reply,
-    Request, activate, broker_owner, error_code, reconcile, release,
+    ControlAuthority, Disposition, Error, NetNamespace, Reply, Request, activate, broker_owner,
+    error_code, reconcile, release,
 };
 
 #[test]
@@ -247,6 +247,20 @@ fn the_control_socket_grants_each_operation_only_to_its_capability() {
         "a lifecycle peer must not reconcile"
     );
 
+    // A lifecycle peer that names a bundle the broker never assigned learns only that.
+    let (bundle, instance, _) = live::ids(0xd2);
+    host.send(&Request::Connect {
+        instance,
+        bundle,
+        generation: soma_netd::CleanupGeneration::new(1).expect("generation"),
+        port: 9223,
+    });
+    assert_eq!(
+        host.reply(),
+        Some(Reply::Failed(error_code(&Error::NotAssigned))),
+        "an unknown bundle must not be dialed"
+    );
+
     let third = tempfile::tempdir().expect("state dir");
     let closed = run.path().join("closed").join("broker.sock");
     broker_on(
@@ -259,32 +273,4 @@ fn the_control_socket_grants_each_operation_only_to_its_capability() {
         None,
         "an unadmitted peer must be closed without a reply or a descriptor"
     );
-}
-
-fn lifecycle_requests() -> Vec<Request> {
-    let (bundle, instance, operation) = live::ids(0xd1);
-    let intent = NetworkIntent::new(
-        soma_netd::EgressClass::Denied,
-        Vec::new(),
-        Vec::new(),
-        ProfileDigest([1; 32]),
-    )
-    .expect("intent");
-    let generation = soma_netd::CleanupGeneration::new(1).expect("generation");
-    let mut bytes = [7_u8; soma_guest::ActivationReceipt::LEN];
-    bytes[0] = 1;
-    vec![
-        Request::Claim {
-            instance,
-            operation,
-            vsock_cid: 5,
-            intent,
-        },
-        Request::Activate {
-            bundle,
-            generation,
-            receipt: soma_guest::ActivationReceipt::from_bytes(&bytes).expect("receipt"),
-        },
-        Request::Release { bundle, generation },
-    ]
 }
