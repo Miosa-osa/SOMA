@@ -79,6 +79,30 @@ loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000
 initramfs=top-down-page-aligned modules-max=1\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
 
+/// The canonical machine-readable statement of `x86_64` machine contract v3.
+///
+/// Version 2 plus one device: a virtio-mem device on the page after the five device slots, so a
+/// running machine's memory can be plugged and unplugged live. Everything version 2 states is
+/// restated unchanged, because a machine of this version is version 2 with that one addition.
+/// The statement also fixes that the device is declared on the kernel command line by the
+/// contract itself, whatever device set the Generation declared, and that the guest must online
+/// hotplugged memory without userspace help.
+///
+/// The digest of these bytes, rather than of the prose document, is what the manifest binds.
+pub const MACHINE_CONTRACT_V3: &[u8] = b"soma-x86_64-machine-contract-v3\n\
+boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
+vcpu=1-8 ram-min=134217728 ram-max=17179869184 ram-step=4096\n\
+ram-split=low:0x0-0xc0000000 mmio-hole:0xc0000000-0x100000000 high:0x100000000-above\n\
+start-info=0x6000 memmap=0x7000 modules=0x8000 cmdline=0x9000 cmdline-max=8191\n\
+mptable=0xf0000 mptable-max=1024 lapic=0xfee00000 ioapic=0xfec00000\n\
+low-reserved=0x0-0x5fff workspace=0xb000-0x9ffff legacy-hole=0xa0000-0xfffff\n\
+loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000\n\
+initramfs=top-down-page-aligned modules-max=1\n\
+mem-device=virtio-mem id=24 mmio=0xd0005000-0xd0005fff gsi=10 queues=request:128 \
+hotplug=online-movable declared-by=contract\n\
+base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off \
+cryptomgr.notests virtio_mmio.device=4K@0xd0005000:10:5\n";
+
 /// The header every device-contract statement opens with, before its present slots.
 const DEVICE_CONTRACT_HEADER: &str = "soma-minimal-device-surface-v1\n\
 transport=virtio-mmio version=2 magic=0x74726976 features=VIRTIO_F_VERSION_1 queues=split\n\
@@ -137,6 +161,12 @@ pub fn machine_contract_v2() -> ContractBinding {
     ContractBinding::of(2, MACHINE_CONTRACT_V2)
 }
 
+/// Returns the machine contract v3 binding.
+#[must_use]
+pub fn machine_contract_v3() -> ContractBinding {
+    ContractBinding::of(3, MACHINE_CONTRACT_V3)
+}
+
 /// Returns the machine contract binding for one version, or `None` for a version this compiler
 /// does not build.
 ///
@@ -148,6 +178,7 @@ pub fn machine_contract_for(version: u16) -> Option<ContractBinding> {
     match version {
         1 => Some(machine_contract_v1()),
         2 => Some(machine_contract_v2()),
+        3 => Some(machine_contract_v3()),
         _ => None,
     }
 }
@@ -250,7 +281,9 @@ mod tests {
             kernel_command_line_for(DeviceSet::FULL, 2).as_deref(),
             Some(v2.as_slice())
         );
-        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 3), None);
+        let v3 = kernel_command_line_for(DeviceSet::FULL, 3).expect("version 3 has a line");
+        assert!(String::from_utf8_lossy(&v3).contains("virtio_mmio.device=4K@0xd0005000:10:5"));
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 4), None);
     }
 
     #[test]
@@ -280,7 +313,11 @@ mod tests {
         assert_eq!(machine_contract_for(1), Some(machine_contract_v1()));
         assert_eq!(machine_contract_for(2), Some(machine_contract_v2()));
         assert_eq!(machine_contract_for(0), None);
+        assert_eq!(machine_contract_for(3), Some(machine_contract_v3()));
+        assert_eq!(machine_contract_for(4), None);
         assert_ne!(machine_contract_v1(), machine_contract_v2());
+        assert_ne!(machine_contract_v2(), machine_contract_v3());
+        assert_eq!(machine_contract_v3().version, 3);
         assert_eq!(machine_contract_v1().version, 1);
         assert_eq!(machine_contract_v2().version, 2);
     }

@@ -9,10 +9,10 @@ use crate::generation::{
 };
 
 fn profile(version: u16) -> CompilerProfile {
-    let mut profile = if version == 2 {
-        CompilerProfile::v2()
-    } else {
-        CompilerProfile::v1()
+    let mut profile = match version {
+        3 => CompilerProfile::v3(),
+        2 => CompilerProfile::v2(),
+        _ => CompilerProfile::v1(),
     };
     profile.overlay_capacities = vec![256 * MIB, 1024 * MIB];
     profile
@@ -77,9 +77,51 @@ fn every_version_two_bound_field_rejects_on_mismatch() {
 
 #[test]
 fn an_unknown_machine_contract_version_fails_closed() {
-    // Neither a command line nor a binding exists for version 3, so a manifest naming it matches
+    // Neither a command line nor a binding exists for version 4, so a manifest naming it matches
     // nothing and is refused rather than verified against some other contract's bytes.
     rejected(Incompatibility::CommandLine, |manifest| {
-        manifest.machine_contract.version = 3;
+        manifest.machine_contract.version = 4;
     });
+}
+
+#[test]
+fn the_version_three_fixture_is_accepted_only_by_its_own_profile() {
+    assert_eq!(
+        require_profile(&fixture::profile_v3(), &profile(3))
+            .map_err(|error| error.incompatibility()),
+        Ok(())
+    );
+    // Versions 1 and 2 refuse a manifest that binds policy version 3, and version 3 refuses theirs.
+    for older in [1, 2] {
+        assert_eq!(
+            require_profile(&fixture::profile_v3(), &profile(older))
+                .map_err(|error| error.incompatibility()),
+            Err(Some(Incompatibility::PolicyVersion))
+        );
+    }
+    assert_eq!(
+        require_profile(&fixture::profile_v2(), &profile(3))
+            .map_err(|error| error.incompatibility()),
+        Err(Some(Incompatibility::PolicyVersion))
+    );
+}
+
+#[test]
+fn the_version_three_command_line_names_the_memory_device_and_version_two_does_not() {
+    let v3 = String::from_utf8(fixture::profile_v3().command_line).expect("ASCII");
+    let v2 = String::from_utf8(fixture::profile_v2().command_line).expect("ASCII");
+    assert!(v3.contains("virtio_mmio.device=4K@0xd0005000:10:5"), "{v3}");
+    assert!(!v2.contains("0xd0005000"), "{v2}");
+}
+
+#[test]
+fn a_version_three_manifest_carrying_the_version_two_machine_is_refused() {
+    let mut manifest = fixture::profile_v3();
+    manifest.machine_contract = crate::generation::contracts::machine_contract_v2();
+    manifest.machine_contract.version = 3;
+    let error = require_profile(&manifest, &profile(3)).expect_err("a contract mix is refused");
+    assert_eq!(
+        error.incompatibility(),
+        Some(Incompatibility::ContractStatement)
+    );
 }

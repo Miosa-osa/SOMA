@@ -141,6 +141,17 @@ pub(crate) fn profile_v2() -> GenerationManifest {
     manifest
 }
 
+/// A manifest that satisfies every profile v3 compatibility rule: the version 2 fixture under
+/// policy version 3 and the machine contract that adds the virtio-mem device.
+pub(crate) fn profile_v3() -> GenerationManifest {
+    let mut manifest = profile_v2();
+    manifest.compiler_policy_version = 3;
+    manifest.command_line = contracts::kernel_command_line_for(DEVICES, 3)
+        .expect("machine contract version 3 has a command line");
+    manifest.machine_contract = contracts::machine_contract_v3();
+    manifest
+}
+
 /// A captured snapshot binding a certification token can carry.
 pub(crate) fn captured_snapshot() -> SnapshotBinding {
     SnapshotBinding::Captured {
