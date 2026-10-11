@@ -20,7 +20,6 @@ fn outcome(applied: bool) -> ResizeOutcome {
         DimensionState::Unsupported
     };
     ResizeOutcome {
-        host_pid: 0,
         cpu: CpuResize {
             state,
             requested: Some(2),
@@ -61,10 +60,14 @@ async fn the_runner_resizes_and_reports_a_sandbox_it_owns() {
         "PATCH",
         &path,
         Some(TOKEN),
-        r#"{"cpu_count":2,"memory_mb":4096}"#,
+        r#"{"cpu_count":2,"memory_mb":4096,"operation_id":"0123456789abcdef0123456789abcdef"}"#,
     )
     .await;
     assert_eq!(changed.status, 200, "{}", changed.text);
+    assert_eq!(
+        changed.body["result"]["operation_id"],
+        "0123456789abcdef0123456789abcdef"
+    );
     assert_eq!(changed.body["result"]["applied_live"], true);
     assert_eq!(changed.body["result"]["memory"]["mechanism"], "virtio_mem");
     assert_eq!(changed.body["result"]["memory"]["total_mb"], 4_096);

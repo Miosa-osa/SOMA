@@ -18,20 +18,48 @@ pub const CPU_MECHANISM: &str = "cgroup_quota";
 pub const MEMORY_MECHANISM: &str = "virtio_mem";
 
 /// What a `PATCH` asks for; a field left out is left alone.
-#[derive(Clone, Copy, Debug, Deserialize)]
+///
+/// `operation_id` names the attempt (32 lowercase hex, a compact UUID). The same id sent again
+/// for the same sandbox is answered with the stored answer instead of being applied twice, which
+/// is how a caller whose delivery was ambiguous learns what happened.
+#[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourcesBody {
     pub cpu_count: Option<u16>,
     pub memory_mb: Option<u64>,
+    #[serde(default)]
+    pub operation_id: Option<String>,
 }
 
 impl ResourcesBody {
+    /// The operation id, when the caller named one and it is well formed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `400` for an id that is not 32 lowercase hex characters.
+    pub fn operation(&self) -> Result<Option<&str>, ApiError> {
+        match self.operation_id.as_deref() {
+            None => Ok(None),
+            Some(id)
+                if id.len() == 32 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) =>
+            {
+                Ok(Some(id))
+            }
+            Some(_) => Err(ApiError::new(
+                400,
+                "invalid_resize",
+                "operation_id must be 32 lowercase hex characters",
+                false,
+            )),
+        }
+    }
+
     /// The facade request this body means.
     ///
     /// # Errors
     ///
     /// Returns a `400` for a body that asks for nothing or for zero of something.
-    pub fn into_request(self) -> Result<ResizeRequest, ApiError> {
+    pub fn into_request(&self) -> Result<ResizeRequest, ApiError> {
         if self.cpu_count.is_none() && self.memory_mb.is_none() {
             return Err(ApiError::new(
                 400,
@@ -58,6 +86,9 @@ impl ResourcesBody {
 #[derive(Serialize)]
 pub struct ResourcesReport<'a> {
     pub instance_id: &'a soma::InstanceId,
+    /// Echoes the attempt's id when the caller named one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation_id: Option<&'a str>,
     pub applied_live: bool,
     pub cpu: CpuReport<'a>,
     pub memory: MemoryReport<'a>,
@@ -89,7 +120,11 @@ pub struct MemoryReport<'a> {
 
 impl<'a> ResourcesReport<'a> {
     #[must_use]
-    pub fn new(instance_id: &'a soma::InstanceId, outcome: &'a ResizeOutcome) -> Self {
+    pub fn new(
+        instance_id: &'a soma::InstanceId,
+        operation_id: Option<&'a str>,
+        outcome: &'a ResizeOutcome,
+    ) -> Self {
         let CpuResize {
             state,
             requested,
@@ -108,6 +143,7 @@ impl<'a> ResourcesReport<'a> {
         } = &outcome.memory;
         Self {
             instance_id,
+            operation_id,
             applied_live: outcome.applied_live(),
             cpu: CpuReport {
                 state: *state,
@@ -138,4 +174,45 @@ impl<'a> ResourcesReport<'a> {
 pub fn nothing_applied(outcome: &ResizeOutcome) -> bool {
     let refused = |state| matches!(state, DimensionState::Unsupported | DimensionState::Failed);
     !outcome.applied_live() && (refused(outcome.cpu.state) || refused(outcome.memory.state))
+}
+
+/// Sandboxes whose last answered operation is remembered.
+const REPLAY_CAPACITY: usize = 8_192;
+
+/// The last answered operation per sandbox: its id, status and body.
+type Remembered = std::collections::HashMap<String, (String, u16, Vec<u8>)>;
+
+fn replays() -> &'static std::sync::Mutex<Remembered> {
+    static REPLAYS: std::sync::OnceLock<std::sync::Mutex<Remembered>> = std::sync::OnceLock::new();
+    REPLAYS.get_or_init(|| std::sync::Mutex::new(Remembered::new()))
+}
+
+/// The stored answer when `operation_id` is the last one answered for `instance`.
+#[must_use]
+pub fn replayed(instance: &soma::InstanceId, operation_id: &str) -> Option<(u16, Vec<u8>)> {
+    let table = replays()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    table
+        .get(instance.as_str())
+        .filter(|(id, _, _)| id == operation_id)
+        .map(|(_, status, body)| (*status, body.clone()))
+}
+
+/// Remembers the answer to `operation_id` for `instance`, replacing its previous one.
+///
+/// Only the latest attempt per sandbox is kept: a caller replays the attempt it is unsure about,
+/// not an old one. When the table is full it is emptied rather than grown, which at worst makes a
+/// replay apply again, and an apply to the same target is `unchanged`.
+pub fn remember(instance: &soma::InstanceId, operation_id: &str, status: u16, body: &[u8]) {
+    let mut table = replays()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if table.len() >= REPLAY_CAPACITY && !table.contains_key(instance.as_str()) {
+        table.clear();
+    }
+    table.insert(
+        instance.as_str().to_owned(),
+        (operation_id.to_owned(), status, body.to_vec()),
+    );
 }
