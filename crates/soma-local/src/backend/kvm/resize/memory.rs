@@ -138,6 +138,26 @@ pub(super) fn report_unchanged(booted_mb: u64, ceiling_mb: u64, plugged_mb: u64)
     )
 }
 
+/// Nothing was asked: the memory the device holds now.
+///
+/// A launch may have plugged memory beyond the Generation's boot size, so a machine that was never
+/// resized live can still hold more than it booted with. The answer is the device's level, never
+/// the boot size assumed.
+pub(super) fn current(link: &mut impl MemoryLink, booted_mb: u64) -> MemoryResize {
+    match link.level() {
+        Ok(level) => answer(
+            DimensionState::Unchanged,
+            booted_mb,
+            booted_mb + level.region_bytes / MIB,
+            level.plugged_bytes / MIB,
+            None,
+            None,
+        ),
+        Err(LinkError::Device(MemoryError::NoDevice)) => report_unchanged(booted_mb, booted_mb, 0),
+        Err(error) => failed(booted_mb, booted_mb, 0, None, error),
+    }
+}
+
 /// The machine cannot do it live, for a reason that does not depend on the request.
 pub(super) fn unsupported(booted_mb: u64, requested_mb: Option<u64>, reason: &str) -> MemoryResize {
     answer(
@@ -386,6 +406,25 @@ mod tests {
                 region_bytes: self.region,
             }
         }
+    }
+
+    #[test]
+    fn an_untouched_machine_reports_what_the_device_holds_not_what_it_booted_with() {
+        // A launch that plugged memory leaves a machine that was never resized live holding more
+        // than it booted with, and the answer must say so.
+        let mut link = Fake::new(8192, 8192);
+        let held = current(&mut link, 8192);
+        assert_eq!(held.state, DimensionState::Unchanged);
+        assert_eq!(
+            (
+                held.booted_mb,
+                held.plugged_mb,
+                held.total_mb,
+                held.ceiling_mb
+            ),
+            (8192, 8192, 16384, 16384)
+        );
+        assert_eq!(held.requested_mb, None);
     }
 
     impl MemoryLink for Fake {

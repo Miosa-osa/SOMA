@@ -42,7 +42,12 @@ impl KvmBackend {
             Some(wanted) => resize_cpu(instance, live, wanted, jailed),
         };
         let memory = match request.memory_mb {
-            None => memory::report_unchanged(live.memory_mib, live.memory_mib, 0),
+            None => match &mut live.held {
+                Held::Resident(session) => {
+                    memory::current(&mut memory::ResidentLink::new(session), live.memory_mib)
+                }
+                Held::Jailed(_) => memory::report_unchanged(live.memory_mib, live.memory_mib, 0),
+            },
             Some(wanted) => match &mut live.held {
                 Held::Resident(session) => memory::resize(
                     &mut memory::ResidentLink::new(session),
@@ -63,6 +68,49 @@ impl KvmBackend {
             cpu,
             memory,
         })
+    }
+}
+
+impl KvmBackend {
+    /// Brings a machine that was just launched to the limits its request named.
+    ///
+    /// A Generation boots at its own vCPU count and memory. A smaller vCPU request is a CPU
+    /// quota and a larger memory request is plugged memory, both applied before the Launch is
+    /// answered so the shape it reports is the shape the machine has.
+    pub(super) fn fit_to_request(
+        &mut self,
+        instance: &InstanceId,
+        shape: &soma::MachineShape,
+    ) -> Result<(), soma::BackendFailureKind> {
+        use soma::BackendFailureKind::Unavailable;
+        let Some(live) = self.live_for(instance) else {
+            return Err(Unavailable);
+        };
+        let jailed = matches!(live.held, Held::Jailed(_));
+        if shape.vcpu_count() != live.vcpus {
+            let applied = resize_cpu(instance, live, shape.vcpu_count(), jailed);
+            if applied.state != DimensionState::AppliedLive {
+                return Err(Unavailable);
+            }
+        }
+        if shape.memory_mib() > live.memory_mib {
+            let Held::Resident(session) = &mut live.held else {
+                return Err(Unavailable);
+            };
+            let plugged = memory::resize(
+                &mut memory::ResidentLink::new(session),
+                live.memory_mib,
+                shape.memory_mib(),
+                &memory::REAL,
+                &mut std::thread::sleep,
+            );
+            if plugged.state != DimensionState::AppliedLive
+                || plugged.total_mb != shape.memory_mib()
+            {
+                return Err(Unavailable);
+            }
+        }
+        Ok(())
     }
 }
 

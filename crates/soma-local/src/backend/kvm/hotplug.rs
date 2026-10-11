@@ -17,6 +17,23 @@ pub(super) fn declared_bytes(prepared: &PreparedGeneration) -> Option<u64> {
     bytes_of(prepared.manifest.shape.hotplug_bytes)
 }
 
+/// Whether the Generation can hold `total_mib` of guest memory by growing past its boot size.
+pub(super) fn room_for(prepared: &PreparedGeneration, total_mib: u64) -> bool {
+    fits(
+        prepared.manifest.shape.memory_bytes,
+        declared_bytes(prepared),
+        total_mib,
+    )
+}
+
+fn fits(boot_bytes: u64, region: Option<u64>, total_mib: u64) -> bool {
+    region.is_some_and(|region| {
+        total_mib
+            .checked_mul(1024 * 1024)
+            .is_some_and(|total| total <= boot_bytes.saturating_add(region))
+    })
+}
+
 /// The declared size, with zero meaning no region.
 const fn bytes_of(hotplug_bytes: u64) -> Option<u64> {
     if hotplug_bytes == 0 {
@@ -55,6 +72,16 @@ mod tests {
     use super::*;
 
     const RAM: u64 = 1 << 30;
+
+    #[test]
+    fn a_total_fits_up_to_boot_plus_the_declared_region_and_never_without_one() {
+        let gib = 1 << 30;
+        assert!(fits(8 * gib, Some(8 * gib), 16 * 1024));
+        assert!(!fits(8 * gib, Some(8 * gib), 16 * 1024 + 1));
+        assert!(fits(2 * gib, Some(14 * gib), 4096));
+        assert!(!fits(2 * gib, None, 4096));
+        assert!(!fits(2 * gib, Some(gib), u64::MAX));
+    }
 
     #[test]
     fn a_generation_without_the_device_has_no_region() {

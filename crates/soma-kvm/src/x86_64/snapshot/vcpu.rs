@@ -15,6 +15,9 @@ use crate::snapshot::kvm_state::{
     VcpuStateParts, Xcrs, XsaveArea,
 };
 
+/// `IA32_TSC_DEADLINE`, the armed deadline of the local APIC timer in deadline mode.
+const MSR_TSC_DEADLINE: u32 = 0x0000_06e0;
+
 /// The fixed SOMA allowlist of model-specific registers a version 1 snapshot carries.
 ///
 /// It is intersected with `KVM_GET_MSR_INDEX_LIST`, so a host that does not implement an
@@ -187,10 +190,53 @@ pub(super) fn write_registers(
     write_xsave(kvm, vcpu, &kvm_xsave::try_from(state.xsave())?)?;
     vcpu.set_lapic(&state.lapic().into())
         .map_err(|error| SnapshotError::ioctl("KVM_SET_LAPIC", error))?;
+    write_deadline_after_lapic(vcpu, state)?;
     vcpu.set_mp_state(state.mp_state().into())
         .map_err(|error| SnapshotError::ioctl("KVM_SET_MP_STATE", error))?;
     vcpu.set_vcpu_events(&(*state.events()).into())
         .map_err(|error| SnapshotError::ioctl("KVM_SET_VCPU_EVENTS", error))
+}
+
+/// The TSC deadline timer's armed deadline, written after the local APIC it belongs to.
+///
+/// KVM ignores a write to `IA32_TSC_DEADLINE` unless the local APIC timer is already in deadline
+/// mode, and that mode lives in the APIC's own register page. The allowlisted MSRs are written
+/// with the CPU configuration, before the APIC state, so a machine whose guest uses the deadline
+/// timer (every version 2 and 3 guest) came back with its timer disarmed. The guest then idled
+/// with nothing to wake it, and a launch waited for an answer that never came. Writing the value
+/// again once the APIC is in place arms the timer exactly as the guest left it; a snapshot with
+/// no deadline entry, or one that was never armed, is unchanged.
+fn write_deadline_after_lapic(vcpu: &VcpuFd, state: &VcpuState) -> Result<(), SnapshotError> {
+    let Some(deadline) = state
+        .msrs()
+        .entries()
+        .iter()
+        .find(|entry| entry.index == MSR_TSC_DEADLINE)
+    else {
+        return Ok(());
+    };
+    let msrs = Msrs::from_entries(&[kvm_msr_entry {
+        index: deadline.index,
+        reserved: 0,
+        data: deadline.value,
+    }])
+    .map_err(|_| SnapshotError::PartialTable {
+        operation: "KVM_SET_MSRS",
+        expected: 1,
+        actual: 0,
+    })?;
+    let written = vcpu
+        .set_msrs(&msrs)
+        .map_err(|error| SnapshotError::ioctl("KVM_SET_MSRS", error))?;
+    if written == 1 {
+        Ok(())
+    } else {
+        Err(SnapshotError::PartialTable {
+            operation: "KVM_SET_MSRS",
+            expected: 1,
+            actual: written,
+        })
+    }
 }
 
 /// Installs the 4,096-byte extended state, after proving the host cannot read past it.

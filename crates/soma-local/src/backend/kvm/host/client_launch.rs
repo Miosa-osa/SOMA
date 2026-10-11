@@ -44,7 +44,10 @@ pub(in crate::backend::kvm) fn launch(
         handoff,
         output,
         ..
-    } = sterile::claim(prepared, shape.memory_mib())?;
+    } = sterile::claim(
+        prepared,
+        prepared.manifest.shape.memory_bytes / (1024 * 1024),
+    )?;
     let context = LaunchContext {
         operation_id,
         instance_id,
