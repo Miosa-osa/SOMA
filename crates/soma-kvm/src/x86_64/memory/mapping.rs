@@ -53,6 +53,20 @@ impl RamMapping {
         Ok(Self { base, len })
     }
 
+    /// Opts the mapping out of transparent huge pages.
+    ///
+    /// A region whose blocks the guest plugs and unplugs two mebibytes at a time must return a
+    /// block's memory when it is discarded, and a huge page would keep a whole 2 MiB resident
+    /// for one touched byte. Best effort: a kernel without huge pages refuses the advice and
+    /// has nothing to opt out of.
+    #[allow(unsafe_code)]
+    pub(crate) fn no_huge_pages(&self) {
+        // SAFETY: `base` and `len` are exactly the live mapping; the advice changes only how the
+        // kernel backs it and never unmaps or moves it.
+        let _ignored =
+            unsafe { libc::madvise(self.base.as_ptr().cast(), self.len, libc::MADV_NOHUGEPAGE) };
+    }
+
     /// Takes ownership of a range another mapper produced, unmapping it exactly once on drop.
     ///
     /// Snapshot restore maps `memory.raw` with `MAP_PRIVATE | MAP_NORESERVE` through the
