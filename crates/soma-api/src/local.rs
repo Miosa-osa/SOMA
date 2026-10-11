@@ -109,6 +109,14 @@ impl SandboxFacade for LocalFacade {
         Ok(lifecycle(outcome.receipt()))
     }
 
+    fn resize(
+        &mut self,
+        instance_id: &soma::InstanceId,
+        request: soma_local::ResizeRequest,
+    ) -> Result<soma_local::ResizeOutcome, soma_local::ResizeFailure> {
+        self.runtime.resize_machine(instance_id, request)
+    }
+
     fn tunnel(
         &mut self,
         instance_id: &soma::InstanceId,

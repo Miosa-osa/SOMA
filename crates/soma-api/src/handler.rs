@@ -3,7 +3,7 @@ use soma::ExecutionReceipt;
 
 use crate::{
     capability::MissingCapability,
-    envelope::{ApiError, Envelope, failure_body, render},
+    envelope::{ApiError, Envelope, failure_body, failure_body_with_result, render},
     facade::SandboxFacade,
     failure::managed_error,
     filesystem::{FilesystemBody, FilesystemReport},
@@ -12,6 +12,7 @@ use crate::{
         CommandReport, InspectionReport, OutputBytes, SandboxListReport, SandboxReport,
         command_status,
     },
+    resources::{ResourcesBody, ResourcesReport, nothing_applied},
     route::{FilesystemOperation, Route, TerminalOperation, resolve},
     tenant::{TENANT_HEADER, identify},
     terminal::{TerminalBody, TerminalReport},
@@ -102,6 +103,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             "a tunnel needs `Connection: Upgrade` and `Upgrade: soma-tunnel` over HTTP/1.1",
             false,
         )),
+        Route::Resources(instance_id, change) => resources(facade, &instance_id, change, body),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;
@@ -118,6 +120,59 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             ))
         }
     }
+}
+
+/// Reads or changes a running sandbox's CPU and memory.
+///
+/// A read, and a change that left a dimension unchanged, answer `200`. A change that applied
+/// nothing and was refused (an old Generation, a failed attempt) is a `409` carrying the same
+/// report, so the reason is in the place a success would have put the numbers.
+fn resources<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance_id: &soma::InstanceId,
+    change: bool,
+    body: &[u8],
+) -> Result<Response, ApiError> {
+    let operation = if change {
+        "sandbox.resize"
+    } else {
+        "sandbox.resources"
+    };
+    let request = if change {
+        parse::<ResourcesBody>(body)?.into_request()?
+    } else {
+        soma_local::ResizeRequest::default()
+    };
+    let outcome = facade
+        .resize(instance_id, request)
+        .map_err(|failure| match failure {
+            soma_local::ResizeFailure::NotFound => ApiError::new(
+                404,
+                "machine_not_found",
+                "sandbox is not running on this host",
+                false,
+            ),
+            soma_local::ResizeFailure::Unavailable => ApiError::new(
+                503,
+                "resize_unavailable",
+                "the sandbox could not be reached to resize it",
+                true,
+            ),
+        })?;
+    let report = ResourcesReport::new(instance_id, &outcome);
+    if change && nothing_applied(&outcome) {
+        let error = ApiError::new(
+            409,
+            "resize_not_applied",
+            "nothing was applied; the report says why for each dimension",
+            false,
+        );
+        return Ok(Response::new(
+            409,
+            failure_body_with_result(operation, error, &report),
+        ));
+    }
+    Ok(success(200, operation, &report, None))
 }
 
 /// Serves one filesystem operation, or reports the backend that cannot hold a machine for it.

@@ -173,6 +173,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().destroy(request)
     }
 
+    fn resize(
+        &mut self,
+        instance_id: &soma::InstanceId,
+        request: soma_local::ResizeRequest,
+    ) -> Result<soma_local::ResizeOutcome, soma_local::ResizeFailure> {
+        self.deref_mut().resize(instance_id, request)
+    }
+
     fn tunnel(
         &mut self,
         instance_id: &soma::InstanceId,

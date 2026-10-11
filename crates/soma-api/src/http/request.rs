@@ -32,6 +32,7 @@ pub enum Method {
     Get,
     Post,
     Delete,
+    Patch,
     Other,
 }
 
@@ -139,6 +140,7 @@ fn request_line(line: &str) -> Result<(Method, String, bool), ApiError> {
             "GET" => Method::Get,
             "POST" => Method::Post,
             "DELETE" => Method::Delete,
+            "PATCH" => Method::Patch,
             _ => Method::Other,
         },
         path.to_owned(),

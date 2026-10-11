@@ -52,6 +52,7 @@ pub enum Call {
     Stop,
     Destroy,
     Tunnel(u16),
+    Resize(soma_api::ResizeRequest),
 }
 
 /// A facade that answers from a retained receipt and records what it was asked to do.
@@ -70,6 +71,8 @@ pub struct FakeFacade {
     sandboxes: Vec<SandboxEntry>,
     /// Why a tunnel is refused; `None` connects it to an echoing guest.
     tunnel_failure: Option<TunnelFailure>,
+    /// What a resize answers; `None` is a backend that cannot resize.
+    resize_outcome: Option<soma_api::ResizeOutcome>,
 }
 
 impl FakeFacade {
@@ -83,7 +86,15 @@ impl FakeFacade {
             session: None,
             sandboxes: Vec::new(),
             tunnel_failure: None,
+            resize_outcome: None,
         }
+    }
+
+    /// A facade whose sandboxes resize with `outcome`.
+    #[must_use]
+    pub fn resizing(mut self, outcome: soma_api::ResizeOutcome) -> Self {
+        self.resize_outcome = Some(outcome);
+        self
     }
 
     /// A facade whose tunnels are refused with `failure`.
@@ -130,6 +141,19 @@ impl FakeFacade {
 impl SandboxFacade for FakeFacade {
     fn hosts_addressable_sandboxes(&self) -> bool {
         self.hosts_addressable_sandboxes
+    }
+
+    fn resize(
+        &mut self,
+        _instance_id: &soma::InstanceId,
+        request: soma_api::ResizeRequest,
+    ) -> Result<soma_api::ResizeOutcome, soma_api::ResizeFailure> {
+        self.calls.push(Call::Resize(request));
+        match (&self.mode, &self.resize_outcome) {
+            (Mode::NotFound, _) => Err(soma_api::ResizeFailure::NotFound),
+            (_, Some(outcome)) => Ok(outcome.clone()),
+            (_, None) => Err(soma_api::ResizeFailure::Unavailable),
+        }
     }
 
     fn tunnel(

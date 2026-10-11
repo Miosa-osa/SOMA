@@ -78,6 +78,8 @@ pub enum Route {
     Terminal(InstanceId, TerminalOperation),
     /// A raw byte stream to a guest port; served by the connection, not by a handler.
     Tunnel(InstanceId, u16),
+    /// `GET` reads, `PATCH` changes, what a running sandbox has.
+    Resources(InstanceId, bool),
 }
 
 impl Route {
@@ -94,6 +96,8 @@ impl Route {
             Self::Filesystem(_, _) => "sandbox.filesystem",
             Self::Terminal(_, _) => "sandbox.terminal",
             Self::Tunnel(_, _) => "sandbox.tunnel",
+            Self::Resources(_, false) => "sandbox.resources",
+            Self::Resources(_, true) => "sandbox.resize",
         }
     }
 }
@@ -135,6 +139,14 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
                 filesystem_operation(operation)?,
             );
             post_only(request, route)
+        }
+        ["v1", "sandboxes", instance, "resources"] => {
+            let instance_id = path_instance_id(instance)?;
+            match request.method {
+                Method::Get => Ok(Route::Resources(instance_id, false)),
+                Method::Patch => Ok(Route::Resources(instance_id, true)),
+                _ => Err(ApiError::method_not_allowed()),
+            }
         }
         ["v1", "sandboxes", instance, "tunnel", port] => {
             let instance_id = path_instance_id(instance)?;
