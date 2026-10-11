@@ -37,6 +37,24 @@ pub use devices::block::{
     VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SEG_MAX,
     VIRTIO_BLK_F_SIZE_MAX,
 };
+pub use devices::mem::backend::{MemBackend, MemBackendError, NullBackend as NullMemBackend};
+pub use devices::mem::bitmap::{
+    BitmapError as PluggedBitmapError, MAX_BLOCKS as MEM_MAX_BLOCKS, PluggedBitmap,
+    RangeState as MemRangeState,
+};
+pub use devices::mem::request::{
+    MemRequest, REQUEST_LEN as MEM_REQUEST_LEN, RESPONSE_LEN as MEM_RESPONSE_LEN,
+    RequestKind as MemRequestKind, VIRTIO_MEM_REQ_PLUG, VIRTIO_MEM_REQ_STATE,
+    VIRTIO_MEM_REQ_UNPLUG, VIRTIO_MEM_REQ_UNPLUG_ALL, VIRTIO_MEM_RESP_ACK, VIRTIO_MEM_RESP_BUSY,
+    VIRTIO_MEM_RESP_ERROR, VIRTIO_MEM_RESP_NACK, VIRTIO_MEM_STATE_MIXED, VIRTIO_MEM_STATE_PLUGGED,
+    VIRTIO_MEM_STATE_UNPLUGGED,
+};
+pub use devices::mem::state::{MEM_STATE_HEADER_LEN, MEM_STATE_VERSION, MemState};
+pub use devices::mem::{
+    GeometryError, MAX_BLOCK_SIZE, MAX_REQUEST_BLOCKS, MEM_CONFIG_LEN, MEM_FEATURES, MEM_QUEUE_MAX,
+    MIN_BLOCK_SIZE, MemCounters, MemDevice, MemGeometry, RequestedSizeError, VIRTIO_MEM_DEVICE_ID,
+    VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE,
+};
 pub use devices::net::backend::{
     LOOPBACK_QUEUE_LIMIT, LoopbackBackend, LoopbackHandle, NetBackend, NetBackendError, TapBackend,
 };

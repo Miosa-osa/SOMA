@@ -114,6 +114,18 @@ pub use virtio::{
     read_readable, service_queue, validate_size, validate_tx, walk_chain, write_writable,
 };
 
+pub use virtio::{
+    GeometryError, MAX_BLOCK_SIZE, MAX_REQUEST_BLOCKS, MEM_CONFIG_LEN, MEM_FEATURES,
+    MEM_MAX_BLOCKS, MEM_QUEUE_MAX, MEM_REQUEST_LEN, MEM_RESPONSE_LEN, MEM_STATE_HEADER_LEN,
+    MEM_STATE_VERSION, MIN_BLOCK_SIZE, MemBackend, MemBackendError, MemCounters, MemDevice,
+    MemGeometry, MemRangeState, MemRequest, MemRequestKind, MemState, NullMemBackend,
+    PluggedBitmap, PluggedBitmapError, RequestedSizeError, VIRTIO_MEM_DEVICE_ID,
+    VIRTIO_MEM_F_UNPLUGGED_INACCESSIBLE, VIRTIO_MEM_REQ_PLUG, VIRTIO_MEM_REQ_STATE,
+    VIRTIO_MEM_REQ_UNPLUG, VIRTIO_MEM_REQ_UNPLUG_ALL, VIRTIO_MEM_RESP_ACK, VIRTIO_MEM_RESP_BUSY,
+    VIRTIO_MEM_RESP_ERROR, VIRTIO_MEM_RESP_NACK, VIRTIO_MEM_STATE_MIXED, VIRTIO_MEM_STATE_PLUGGED,
+    VIRTIO_MEM_STATE_UNPLUGGED,
+};
+
 #[cfg(unix)]
 pub use virtio::{FileBackend, OsEntropy};
 
