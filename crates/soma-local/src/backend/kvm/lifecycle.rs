@@ -25,6 +25,7 @@ use super::{
     evidence::{command_status, effective_network},
     held::Held,
     host::Launched,
+    hotplug,
     identity::LaunchIdentity,
     network::{Egress, Released},
     prepared::PreparedGeneration,
@@ -78,11 +79,12 @@ impl KvmBackend {
         if self.live.is_some() {
             return Err(self.fail(operation, BackendFailureKind::ResourceConflict));
         }
-        // A request for a different vCPU count than the Generation was certified at is refused
-        // rather than silently served by a machine that is not the shape the caller asked for.
-        // The number comes from the Generation, which is what the machine is actually built
-        // with, so this is a statement about the machine and not a restatement of a constant.
-        if shape.vcpu_count() != prepared.manifest.shape.vcpu_count {
+        // A request the machine cannot give is refused rather than served by a machine that is
+        // not the shape the caller asked for. The bounds come from the Generation, which is what
+        // the machine is actually built with.
+        let booted_vcpus = prepared.manifest.shape.vcpu_count;
+        let boot_mib = prepared.manifest.shape.memory_bytes / (1024 * 1024);
+        if !self.admits(prepared, shape) {
             return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
         }
         let Some(storage_mib) = prepared
@@ -128,8 +130,7 @@ impl KvmBackend {
         let claimed = if self.jail.is_some() {
             None
         } else {
-            let key =
-                claim::recipe_for(prepared, shape.memory_mib()).map(|recipe| recipe.key().clone());
+            let key = claim::recipe_for(prepared, boot_mib).map(|recipe| recipe.key().clone());
             let primed_matches = self
                 .primed
                 .as_ref()
@@ -139,7 +140,7 @@ impl KvmBackend {
                     .take()
                     .map(|(_, session, overlay)| claim::ClaimedMachine::Primed { session, overlay })
             } else {
-                claim::prepare_and_claim(&self.machines, prepared, shape.memory_mib())
+                claim::prepare_and_claim(&self.machines, prepared, boot_mib)
             }
         };
         // No secret reaches this Backend yet. The portable Launch request carries a Template's
@@ -151,7 +152,7 @@ impl KvmBackend {
             instance,
             prepared,
             identity,
-            memory_mib: shape.memory_mib(),
+            memory_mib: boot_mib,
             storage_mib: shape.storage_mib(),
             network,
             secrets: Vec::new(),
@@ -173,15 +174,21 @@ impl KvmBackend {
             held,
             egress,
             network: observed.clone(),
-            vcpus: prepared.manifest.shape.vcpu_count,
-            cpu_limit: prepared.manifest.shape.vcpu_count,
-            memory_mib: shape.memory_mib(),
+            vcpus: booted_vcpus,
+            cpu_limit: booted_vcpus,
+            memory_mib: boot_mib,
         });
+        // The answer states the machine as it is, so a Launch that cannot give the limits it
+        // was asked for ends here instead of reporting a shape the machine does not have.
+        if let Err(kind) = self.fit_to_request(instance, shape) {
+            let _ignored = self.cleanup_resident(instance, Force::Immediately);
+            return Err(self.fail(operation, kind));
+        }
         Ok(Launched {
             preparation,
             memory_mib: shape.memory_mib(),
             storage_mib,
-            vcpus: prepared.manifest.shape.vcpu_count,
+            vcpus: shape.vcpu_count(),
             network: observed,
             at_ns: launched,
         })
@@ -295,3 +302,23 @@ impl KvmBackend {
 
 #[path = "lifecycle/lookup.rs"]
 pub(super) mod lookup;
+
+impl KvmBackend {
+    /// Whether this Backend can give a request the vCPUs and memory it names.
+    ///
+    /// A request may be smaller than the machine the Generation booted: the vCPUs it did not
+    /// ask for are withheld by a CPU quota applied before the launch answers. It can never be
+    /// larger, because the guest has only the processors it booted with. Memory is restored at
+    /// the Generation's own boot size and grown to the request, which needs the memory device
+    /// and a machine that is not jailed.
+    fn admits(&self, prepared: &PreparedGeneration, shape: &MachineShape) -> bool {
+        let booted = &prepared.manifest.shape;
+        let boot_mib = booted.memory_bytes / (1024 * 1024);
+        let vcpus = shape.vcpu_count() >= 1 && shape.vcpu_count() <= booted.vcpu_count;
+        let memory = shape.memory_mib() == boot_mib
+            || (shape.memory_mib() > boot_mib
+                && self.jail.is_none()
+                && hotplug::room_for(prepared, shape.memory_mib()));
+        vcpus && memory
+    }
+}

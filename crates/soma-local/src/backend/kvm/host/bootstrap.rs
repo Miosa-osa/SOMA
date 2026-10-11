@@ -90,7 +90,7 @@ fn serve_primed(
     };
     if request.reference != prepared.reference
         || request.generation_id != prepared.id
-        || request.shape.memory_mib() != plan.memory_mib
+        || request.shape.memory_mib() < plan.memory_mib
     {
         return refuse(BackendFailureKind::WorkloadRejected);
     }
