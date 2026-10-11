@@ -59,13 +59,13 @@ pub(super) fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::SetRequestedMemory(bytes) => {
-                let outcome = memory::apply(memory::device_of(machine), bytes);
+                let outcome = memory::apply(&memory::device_of(machine), bytes);
                 responses
                     .send(Response::Memory(outcome))
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::GetMemory => {
-                let level = memory::level(memory::device_of(machine));
+                let level = memory::level(&memory::device_of(machine));
                 responses
                     .send(Response::Memory(Ok(level)))
                     .map_err(|_| SessionError::Gone)?;
