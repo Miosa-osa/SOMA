@@ -81,7 +81,7 @@ pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
 #[cfg(target_os = "linux")]
 pub use client::{BrokerClient, ClientError};
 #[cfg(target_os = "linux")]
-pub use connect::ConnectPorts;
+pub use connect::{ConnectPlan, ConnectPorts};
 #[cfg(target_os = "linux")]
 pub use daemon::serve;
 #[cfg(target_os = "linux")]

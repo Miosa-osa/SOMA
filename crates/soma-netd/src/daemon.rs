@@ -498,47 +498,7 @@ fn handle_lifecycle(
             }
         }
         Request::Release { bundle, generation } => {
-            state.traffic.wait_quiet(RELEASE_PATIENCE);
-            let _turn = state.teardowns.acquire();
-            let result = match state.disown((bundle, generation)) {
-                Some(owned) if owned.peer != peer.uid() => {
-                    state.own(owned);
-                    Err(Error::Unauthorized("assignment owner"))
-                }
-                Some(owned) => {
-                    let operation = operation_of(&owned.assigned);
-                    let record = owned.assigned.record().clone();
-                    let evidence = release(&state.broker, owned.assigned);
-                    log_release(&record, &evidence);
-                    if evidence.complete {
-                        state.forget(operation);
-                        state.recycle(&record);
-                    }
-                    Ok(evidence)
-                }
-                None => match state.broker.ledger().lookup(bundle, generation) {
-                    Ok(entry) if entry.record.owner != peer.uid() => {
-                        Err(Error::Unauthorized("assignment owner"))
-                    }
-                    Ok(entry) => {
-                        let evidence = release_record(&state.broker, &entry.record);
-                        if evidence.complete {
-                            state.forget((entry.record.instance, entry.record.operation));
-                            if !entry.released {
-                                state.recycle(&entry.record);
-                            }
-                        }
-                        Ok(evidence)
-                    }
-                    Err(error) => Err(error),
-                },
-            };
-            match result {
-                Ok(evidence) => Reply::Released {
-                    complete: evidence.complete,
-                },
-                Err(error) => Reply::Failed(error_code(&error)),
-            }
+            release_request(state, peer, (bundle, generation))
         }
         Request::Connect {
             instance,
@@ -552,6 +512,51 @@ fn handle_lifecycle(
             (instance, bundle, generation, port),
         ),
         Request::Reconcile => Reply::Failed(error_code(&Error::InvalidState("reconcile"))),
+    }
+}
+
+fn release_request(state: &State, peer: PeerIdentity, slot: Slot) -> Reply {
+    let (bundle, generation) = slot;
+    state.traffic.wait_quiet(RELEASE_PATIENCE);
+    let _turn = state.teardowns.acquire();
+    let result = match state.disown((bundle, generation)) {
+        Some(owned) if owned.peer != peer.uid() => {
+            state.own(owned);
+            Err(Error::Unauthorized("assignment owner"))
+        }
+        Some(owned) => {
+            let operation = operation_of(&owned.assigned);
+            let record = owned.assigned.record().clone();
+            let evidence = release(&state.broker, owned.assigned);
+            log_release(&record, &evidence);
+            if evidence.complete {
+                state.forget(operation);
+                state.recycle(&record);
+            }
+            Ok(evidence)
+        }
+        None => match state.broker.ledger().lookup(bundle, generation) {
+            Ok(entry) if entry.record.owner != peer.uid() => {
+                Err(Error::Unauthorized("assignment owner"))
+            }
+            Ok(entry) => {
+                let evidence = release_record(&state.broker, &entry.record);
+                if evidence.complete {
+                    state.forget((entry.record.instance, entry.record.operation));
+                    if !entry.released {
+                        state.recycle(&entry.record);
+                    }
+                }
+                Ok(evidence)
+            }
+            Err(error) => Err(error),
+        },
+    };
+    match result {
+        Ok(evidence) => Reply::Released {
+            complete: evidence.complete,
+        },
+        Err(error) => Reply::Failed(error_code(&error)),
     }
 }
 

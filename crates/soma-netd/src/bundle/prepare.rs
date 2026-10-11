@@ -44,7 +44,7 @@ pub(super) fn build(
         intent: broker.prewarm_intent(),
         protected: broker.profile().protected(),
         published: &[],
-        connect_ports: &[],
+        connect_ports: broker.connect_ports().ranges(),
     }
     .render();
     let ruleset = ruleset_digest(&sandbox);
