@@ -64,15 +64,18 @@ printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.gpg] https://download.do
 apt-get remove -y docker.io docker-compose docker-doc podman-docker containerd runc 2>/dev/null || true
 
 # iptables is the one hard runtime dependency that --no-install-recommends
-# installs skip; pigz speeds layer extraction; xz-utils unpacks xz layers.
+# installs skip; xz-utils unpacks xz layers. pigz (faster layer extraction) lives in
+# `universe`, which an image with a trimmed apt configuration may not enable, so it is
+# installed separately and only when available.
 apt-get update
 apt-get install -y --no-install-recommends \
-  iptables pigz xz-utils \
+  iptables xz-utils \
   "docker-ce=5:${DOCKER_CE_VERSION}-1${suffix}" \
   "docker-ce-cli=5:${DOCKER_CLI_VERSION}-1${suffix}" \
   "containerd.io=${CONTAINERD_VERSION}${suffix}" \
   "docker-buildx-plugin=${DOCKER_BUILDX_VERSION}${suffix}" \
   "docker-compose-plugin=${DOCKER_COMPOSE_VERSION}${suffix}"
+apt-get install -y --no-install-recommends pigz > /dev/null 2>&1 || true
 apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null
 
 # The Docker repository is configured only for this install. Leaving it in place would add one
