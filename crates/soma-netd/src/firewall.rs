@@ -5,7 +5,7 @@
 //! egress mode; DNS is admitted only to declared resolvers; the guest MAC and address are
 //! bound to the TAP so the guest cannot spoof another lease.
 
-use std::fmt::Write as _;
+use std::{fmt::Write as _, ops::RangeInclusive};
 
 use crate::{NetworkIntent, ProtectedSet, ingress::PublishedPort, ipam::Lease};
 
@@ -63,6 +63,29 @@ pub struct SandboxRuleset<'a> {
     /// the only step that renders the table again with the admitted mappings, so an inbound
     /// connection has nothing to match on until then.
     pub published: &'a [PublishedPort],
+    /// The guest ports the broker may dial from inside the namespace, once the bundle is
+    /// assigned.
+    ///
+    /// Empty while the bundle is sterile, so a sterile ruleset stays fully denied. With ports,
+    /// the namespace itself may open a new connection to the guest on exactly these ports, and
+    /// the guest's replies to it come back in; the guest still cannot open a connection toward
+    /// the gateway, because `new` is admitted in no input rule.
+    pub connect_ports: &'a [RangeInclusive<u16>],
+}
+
+/// Formats inclusive port ranges as an nftables set body.
+fn port_set(ranges: &[RangeInclusive<u16>]) -> String {
+    ranges
+        .iter()
+        .map(|range| {
+            if range.start() == range.end() {
+                range.start().to_string()
+            } else {
+                format!("{}-{}", range.start(), range.end())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Formats one MAC for nftables.
@@ -135,6 +158,12 @@ impl SandboxRuleset<'_> {
             out,
             "\t\tiifname \"{tap}\" ether saddr {mac} ip saddr {guest} ip daddr {gateway} icmp type echo-request accept"
         );
+        if !self.connect_ports.is_empty() {
+            let _ = writeln!(
+                out,
+                "\t\tiifname \"{tap}\" ether saddr {mac} ip saddr {guest} ip daddr {gateway} ct state established,related accept"
+            );
+        }
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out, "\tchain forward {{");
         let _ = writeln!(
@@ -205,6 +234,13 @@ impl SandboxRuleset<'_> {
             out,
             "\t\toifname \"{tap}\" ip daddr {guest} ct state established,related accept"
         );
+        if !self.connect_ports.is_empty() {
+            let _ = writeln!(
+                out,
+                "\t\toifname \"{tap}\" ip daddr {guest} tcp dport {{ {} }} ct state new accept",
+                port_set(self.connect_ports)
+            );
+        }
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out, "}}");
         out

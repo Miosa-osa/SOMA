@@ -225,6 +225,7 @@ impl Broker {
             intent,
             protected: self.profile.protected(),
             published: &published,
+            connect_ports: self.connect_ports.ranges(),
         }
         .render();
         bundle.namespace.within(move || nft::apply(&ruleset))?;

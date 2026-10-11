@@ -35,6 +35,7 @@ pub(super) fn build(
         intent: &denied,
         protected: broker.profile().protected(),
         published: &[],
+        connect_ports: &[],
     }
     .render();
     netlink::create_veth(

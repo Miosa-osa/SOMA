@@ -27,6 +27,15 @@ fn render_with(
     resolvers: Vec<Ipv4Addr>,
     published: &[PublishedPort],
 ) -> String {
+    render_connecting(egress, resolvers, published, &[])
+}
+
+fn render_connecting(
+    egress: EgressClass,
+    resolvers: Vec<Ipv4Addr>,
+    published: &[PublishedPort],
+    connect_ports: &[std::ops::RangeInclusive<u16>],
+) -> String {
     let names = BundleNames::new("0a0b0c0d");
     let intent = intent(egress, resolvers);
     let protected = ProtectedSet::certified_default();
@@ -37,6 +46,7 @@ fn render_with(
         intent: &intent,
         protected: &protected,
         published,
+        connect_ports,
     }
     .render()
 }
@@ -241,4 +251,41 @@ fn the_host_table_opens_only_for_traffic_its_publication_table_translated() {
         .find("iifname \"sv0a0b0c0d\" drop")
         .expect("nothing else may reach the host");
     assert!(reply < closed);
+}
+
+#[test]
+fn a_ruleset_without_connect_ports_admits_no_connection_out_to_the_guest() {
+    let ruleset = render_with(EgressClass::Denied, Vec::new(), &[]);
+    assert!(!chain(&ruleset, "output").contains("ct state new"));
+    assert!(!chain(&ruleset, "input").contains("ct state"));
+}
+
+#[test]
+fn connect_ports_admit_only_new_connections_out_to_the_guest_and_their_replies_in() {
+    let ruleset = render_connecting(
+        EgressClass::Denied,
+        Vec::new(),
+        &[],
+        &[9223..=9224, 80..=80],
+    );
+    let output = chain(&ruleset, "output");
+    assert!(
+        output.contains(
+            "oifname \"tap0\" ip daddr 10.200.0.22 tcp dport { 9223-9224, 80 } ct state new accept"
+        ),
+        "{output}"
+    );
+    // Nothing else in the output chain opens a new connection.
+    assert_eq!(output.matches("ct state new").count(), 1, "{output}");
+    let input = chain(&ruleset, "input");
+    assert!(
+        input.contains(
+            "iifname \"tap0\" ether saddr 02:01:02:03:04:05 ip saddr 10.200.0.22 ip daddr 10.200.0.21 ct state established,related accept"
+        ),
+        "{input}"
+    );
+    // The guest still cannot open a connection toward the gateway: `new` is admitted in no
+    // input rule, and the chain keeps its default drop.
+    assert!(!input.contains("ct state new"), "{input}");
+    assert!(input.contains("policy drop;"));
 }
