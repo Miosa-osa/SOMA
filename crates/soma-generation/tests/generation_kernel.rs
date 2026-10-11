@@ -3,7 +3,7 @@ mod support;
 use soma_generation::{
     CompileErrorKind, CompilePhase, Sha256Digest,
     kernel::{MINIMUM_LOAD_PADDR, verify_kernel},
-    verify_kernel_config,
+    verify_kernel_config, verify_kernel_config_for,
 };
 use support::generation::{kernel_config, synthetic_kernel};
 
@@ -192,4 +192,46 @@ fn the_pinned_kernel_configs_verify() {
         let text = std::fs::read(root.join(name)).unwrap();
         verify_kernel_config(&text).unwrap_or_else(|error| panic!("{name}: {error:?}"));
     }
+}
+
+#[test]
+fn a_live_resize_policy_requires_the_memory_device_driver() {
+    let good = kernel_config();
+    let resize = format!(
+        "{good}CONFIG_MEMORY_HOTPLUG=y\nCONFIG_MEMORY_HOTREMOVE=y\nCONFIG_MIGRATION=y\nCONFIG_VIRTIO_MEM=y\n"
+    );
+    // Policy 3 and later describe a machine with the memory device, so the kernel needs its driver.
+    assert!(verify_kernel_config_for(3, resize.as_bytes()).is_ok());
+    assert!(verify_kernel_config_for(4, resize.as_bytes()).is_ok());
+    for policy in [3_u16, 4] {
+        assert_eq!(
+            verify_kernel_config_for(policy, good.as_bytes())
+                .unwrap_err()
+                .kind(),
+            CompileErrorKind::Unsupported,
+            "policy {policy} must refuse a kernel with no hotplug"
+        );
+    }
+    for missing in [
+        "CONFIG_MEMORY_HOTPLUG",
+        "CONFIG_MEMORY_HOTREMOVE",
+        "CONFIG_MIGRATION",
+        "CONFIG_VIRTIO_MEM",
+    ] {
+        let partial = resize.replace(&format!("{missing}=y\n"), "");
+        assert_eq!(
+            verify_kernel_config_for(3, partial.as_bytes())
+                .unwrap_err()
+                .kind(),
+            CompileErrorKind::Unsupported,
+            "policy 3 without {missing} must be refused"
+        );
+    }
+    // Earlier policies are unchanged: a kernel with no hotplug still verifies, and one with the
+    // live-resize facilities does too.
+    for policy in [0_u16, 1, 2] {
+        assert!(verify_kernel_config_for(policy, good.as_bytes()).is_ok());
+        assert!(verify_kernel_config_for(policy, resize.as_bytes()).is_ok());
+    }
+    assert!(verify_kernel_config(good.as_bytes()).is_ok());
 }
