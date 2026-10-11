@@ -16,6 +16,7 @@
 pub mod backing;
 mod requests;
 pub mod state;
+mod types;
 
 #[cfg(test)]
 mod hostile_tests;
@@ -30,6 +31,7 @@ use crate::virtio::devices::service::{ChainHandler, DeviceFault};
 use crate::virtio::guest_memory::GuestMemory;
 use crate::virtio::queue::chain::{ChainLimits, DescriptorChain};
 use backing::RegionBacking;
+pub use types::{MemCounters, SizeError};
 
 /// Virtio device identifier for a memory device.
 pub const VIRTIO_MEM_DEVICE_ID: u32 = 24;
@@ -63,27 +65,6 @@ const RESP_ERROR: u16 = 3;
 const STATE_PLUGGED: u16 = 0;
 const STATE_UNPLUGGED: u16 = 1;
 const STATE_MIXED: u16 = 2;
-
-/// Saturating counters; never guest data.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct MemCounters {
-    pub plugged: u32,
-    pub unplugged: u32,
-    pub nacked: u32,
-    pub errored: u32,
-    pub rejected: u32,
-    /// Times the host could not take a block back when the driver reset or a new one started.
-    pub discard_failed: u32,
-}
-
-/// Why the host's request for a size was refused.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SizeError {
-    /// The size is not a whole number of blocks.
-    Unaligned,
-    /// The size exceeds the region.
-    BeyondRegion,
-}
 
 /// The memory device model.
 pub struct MemDevice {
