@@ -87,6 +87,15 @@ pub(crate) fn machine_host_directory(state_root: &std::path::Path) -> PathBuf {
     state_root.join(crate::file_store::MACHINE_HOST_DIRECTORY)
 }
 
+/// Opens a stream to a guest port through the process hosting the machine.
+pub(crate) fn tunnel_machine(
+    _directory: &std::path::Path,
+    _instance: &soma::InstanceId,
+    _port: u16,
+) -> Result<std::os::unix::net::UnixStream, crate::TunnelFailure> {
+    Err(crate::TunnelFailure::Unavailable)
+}
+
 pub(crate) enum LocalBackend {
     Docker(docker::DockerBackend),
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

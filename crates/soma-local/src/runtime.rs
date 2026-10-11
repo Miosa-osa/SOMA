@@ -12,6 +12,7 @@ use crate::{
 
 pub struct LocalRuntime {
     engine: Engine<LocalBackend, FileStateStore>,
+    host_directory: Option<std::path::PathBuf>,
     configured_backend: BackendSelection,
     backend_kind: BackendKind,
 }
@@ -28,12 +29,13 @@ impl LocalRuntime {
             .hosted_machines
             .then(|| crate::backend::machine_host_directory(&config.state_root));
         let (backend, configured_backend) =
-            LocalBackend::open(config.backend, config.runtime, host_directory)?;
+            LocalBackend::open(config.backend, config.runtime, host_directory.clone())?;
         let backend_kind = backend.kind();
         let state = FileStateStore::open(config.state_root)
             .map_err(|failure| LocalFailure::new(LocalFailureKind::StateStore(failure.kind())))?;
         Ok(Self {
             engine: Engine::with_state_store(backend, state),
+            host_directory,
             configured_backend,
             backend_kind,
         })
@@ -131,6 +133,27 @@ impl LocalRuntime {
         request: soma::InspectMachineRequest,
     ) -> Result<MachineInspection, ManagedFailure> {
         self.engine.inspect_machine(request)
+    }
+
+    /// Opens a byte stream to `port` on the guest of a hosted Machine.
+    ///
+    /// The stream is already connected: bytes written reach the guest's service and the guest's
+    /// replies are read back. Closing it closes the connection to the guest. The port must be
+    /// one the broker was configured to allow.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed [`crate::TunnelFailure`].
+    pub fn tunnel_machine(
+        &self,
+        instance: &soma::InstanceId,
+        port: u16,
+    ) -> Result<std::os::unix::net::UnixStream, crate::TunnelFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::TunnelFailure::Unavailable)?;
+        crate::backend::tunnel_machine(directory, instance, port)
     }
 
     /// Gracefully attempts to stop and release one managed Machine.

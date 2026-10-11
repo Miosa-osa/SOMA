@@ -6,11 +6,13 @@ mod config;
 mod error;
 mod file_store;
 mod runtime;
+mod tunnel;
 
 #[cfg(test)]
 mod test_support;
 
 pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
+pub use tunnel::TunnelFailure;
 
 /// Waits for one launch capability, then serves that durable machine until it is released.
 ///
