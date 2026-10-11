@@ -8,9 +8,7 @@
 //! The device validates every request against the region and against `requested_size`, so a
 //! guest cannot take more than it was given, cannot plug a block twice, and cannot unplug one it
 //! never held. An unplugged block is handed back to the host through [`RegionBacking`], so a
-//! shrink really frees memory.
-//!
-//! Plugged memory is not in a snapshot. The record carries the region geometry only, a capture is
+//! shrink really frees memory. Plugged memory is not in a snapshot. The record carries the region geometry only, a capture is
 //! refused while anything is plugged, and a restore always starts empty.
 
 pub mod backing;

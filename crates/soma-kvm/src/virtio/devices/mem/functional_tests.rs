@@ -5,6 +5,7 @@
 
 use super::rig::{ACK, NACK, PLUG, Rig, ST_PLUGGED, STATE, UNPLUG};
 use super::*;
+use std::cmp::Ordering;
 
 const BLOCKS: u64 = 32;
 /// The widest plug the driver tries in one request.
@@ -33,44 +34,52 @@ impl Driver {
     /// changed anything. A refusal ends the pass; the driver tries again on the next change.
     fn step(&mut self, r: &mut Rig) -> bool {
         let want = r.t.device().requested_size() / BLOCK_SIZE;
-        let have = self.count();
-        if have < want {
-            let first = self
-                .held
-                .iter()
-                .position(|held| !held)
-                .expect("a free block");
-            let run = self.held[first..].iter().take_while(|held| !**held).count() as u64;
-            let take = u16::try_from((want - have).min(run).min(u64::from(BURST))).expect("small");
-            let answer = r.ask(PLUG, Rig::at(first as u64), take);
-            match answer.kind {
-                ACK => {
-                    self.held[first..first + usize::from(take)].fill(true);
-                    true
-                }
-                NACK => {
-                    self.nacks += 1;
-                    false
-                }
-                2 => {
-                    self.busy += 1;
-                    false
-                }
-                other => panic!("the driver sent a bad plug: {other}"),
-            }
-        } else if have > want {
-            let last = self
-                .held
-                .iter()
-                .rposition(|held| *held)
-                .expect("a held block");
-            let answer = r.ask(UNPLUG, Rig::at(last as u64), 1);
-            assert_eq!(answer.kind, ACK, "unplug of a block the driver holds");
-            self.held[last] = false;
-            true
-        } else {
-            false
+        match self.count().cmp(&want) {
+            Ordering::Less => self.plug_more(r, want - self.count()),
+            Ordering::Greater => self.unplug_one(r),
+            Ordering::Equal => false,
         }
+    }
+
+    /// Plugs up to `short` blocks as one run starting at the first free block.
+    fn plug_more(&mut self, r: &mut Rig, short: u64) -> bool {
+        let first = self
+            .held
+            .iter()
+            .position(|held| !held)
+            .expect("a free block");
+        let run = self.held[first..].iter().take_while(|held| !**held).count() as u64;
+        let take = u16::try_from(short.min(run).min(u64::from(BURST))).expect("small");
+        match r.ask(PLUG, Rig::at(first as u64), take).kind {
+            ACK => {
+                self.held[first..first + usize::from(take)].fill(true);
+                true
+            }
+            NACK => {
+                self.nacks += 1;
+                false
+            }
+            2 => {
+                self.busy += 1;
+                false
+            }
+            other => panic!("the driver sent a bad plug: {other}"),
+        }
+    }
+
+    fn unplug_one(&mut self, r: &mut Rig) -> bool {
+        let last = self
+            .held
+            .iter()
+            .rposition(|held| *held)
+            .expect("a held block");
+        assert_eq!(
+            r.ask(UNPLUG, Rig::at(last as u64), 1).kind,
+            ACK,
+            "unplug of a held block"
+        );
+        self.held[last] = false;
+        true
     }
 
     fn converge(&mut self, r: &mut Rig) {
