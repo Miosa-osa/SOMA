@@ -1,9 +1,11 @@
-//! virtio-vsock (device id 19): the sole guest-control transport.
+//! virtio-vsock (device id 19): the guest-control transport and its data streams.
 //!
 //! Receive, transmit, and event queues, no device-specific features, and a
 //! host endpoint that accepts exactly one stream connection at a time on the
-//! fixed SOMA control port. Connection, credit, and buffered bytes live only
-//! in this model and never enter the snapshot record.
+//! fixed SOMA control port. Beside it, the host can arm a small number of
+//! stream ports, each accepting one guest-initiated connection (see
+//! [`streams`]). Connection, credit, and buffered bytes live only in this
+//! model and never enter the snapshot record.
 
 pub mod connection;
 pub mod credit;
@@ -11,6 +13,7 @@ mod outbound;
 pub mod packet;
 pub mod rx;
 pub mod state;
+pub mod streams;
 mod tx;
 
 use std::collections::VecDeque;
@@ -23,7 +26,9 @@ use crate::virtio::devices::service::{ChainHandler, DeviceFault};
 use crate::virtio::guest_memory::GuestMemory;
 use crate::virtio::queue::chain::{ChainLimits, DescriptorChain};
 use connection::HostEndpoint;
-use packet::{VSOCK_EVENT_TRANSPORT_RESET, VSOCK_OP_RST};
+use outbound::Outbound;
+use packet::{SOMA_CONTROL_PORT, VSOCK_EVENT_TRANSPORT_RESET, VSOCK_OP_RST};
+use streams::Stream;
 
 /// Exact feature allowlist: the common modern bit only.
 pub const VSOCK_FEATURES: u64 = VIRTIO_F_VERSION_1;
@@ -78,19 +83,13 @@ pub struct VsockCounters {
     pub rx_dropped: u32,
 }
 
-/// A queued host-to-guest control packet.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct Outbound {
-    pub op: u16,
-    pub dst_port: u32,
-    pub flags: u32,
-}
-
 /// The vsock device model.
 pub struct VsockDevice {
     guest_cid: u64,
     generation: u32,
     endpoint: Option<HostEndpoint>,
+    streams: Vec<Stream>,
+    next_stream: usize,
     outbound: VecDeque<Outbound>,
     events: VecDeque<u32>,
     activated: bool,
@@ -108,6 +107,8 @@ impl VsockDevice {
             guest_cid,
             generation: 0,
             endpoint: None,
+            streams: Vec::new(),
+            next_stream: 0,
             outbound: VecDeque::new(),
             events: VecDeque::new(),
             activated: false,
@@ -153,7 +154,7 @@ impl VsockDevice {
         if let Some(endpoint) = self.endpoint.take()
             && endpoint.is_open()
         {
-            self.queue(VSOCK_OP_RST, endpoint.peer_port(), 0);
+            self.queue(SOMA_CONTROL_PORT, VSOCK_OP_RST, endpoint.peer_port(), 0);
             self.counters.rst_sent = self.counters.rst_sent.saturating_add(1);
         }
     }
@@ -183,22 +184,16 @@ impl VsockDevice {
     /// state in which capture is permitted.
     #[must_use]
     pub fn is_quiescent(&self) -> bool {
-        self.endpoint.is_none() && self.outbound.is_empty() && self.events.is_empty()
-    }
-
-    pub(super) fn queue(&mut self, op: u16, dst_port: u32, flags: u32) {
-        if self.outbound.len() < MAX_OUTBOUND_PACKETS {
-            self.outbound.push_back(Outbound {
-                op,
-                dst_port,
-                flags,
-            });
-        }
+        self.endpoint.is_none()
+            && self.streams.is_empty()
+            && self.outbound.is_empty()
+            && self.events.is_empty()
     }
 
     /// Clears every transient state and bumps the generation.
     fn clear_transient(&mut self) {
         self.endpoint = None;
+        self.streams.clear();
         self.outbound.clear();
         self.events.clear();
         self.generation = self.generation.wrapping_add(1);
@@ -292,5 +287,7 @@ pub(crate) mod guest_driver;
 mod hostile_tests;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod stream_tests;
 #[cfg(test)]
 mod tests;
