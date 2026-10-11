@@ -11,33 +11,20 @@ use super::prepared::PreparedGeneration;
 
 /// The region size in bytes the Generation declared, or `None` when it declared no region.
 ///
-/// This is the single place the Generation's manifest is read for the size, so the machine
-/// contract version that introduces the declaration changes this function and nothing else.
+/// A version 3 manifest binds the size in its shape; every earlier manifest has zero there and
+/// reads exactly as before.
 pub(super) fn declared_bytes(prepared: &PreparedGeneration) -> Option<u64> {
-    ceiling_region(
-        prepared.manifest.machine_contract.version,
-        prepared.manifest.shape.memory_bytes,
-    )
+    bytes_of(prepared.manifest.shape.hotplug_bytes)
 }
 
-/// The bytes between a machine's boot memory and its contract's ceiling, in whole slots.
-///
-/// Machine contract 3 is the one with the memory device, and it declares the region as all the
-/// room the contract leaves above what the Generation boots with, so a Generation never has to
-/// restate a ceiling the contract already fixes. A contract without the device, or a Generation
-/// that boots at the ceiling and so leaves no whole slot, declares no region.
-fn ceiling_region(contract_version: u16, boot_bytes: u64) -> Option<u64> {
-    let contract = soma_kvm::MachineContract::from_version(contract_version)?;
-    if !contract.has_memory_device() {
-        return None;
+/// The declared size, with zero meaning no region.
+const fn bytes_of(hotplug_bytes: u64) -> Option<u64> {
+    if hotplug_bytes == 0 {
+        None
+    } else {
+        Some(hotplug_bytes)
     }
-    let room = contract.max_memory_bytes().checked_sub(boot_bytes)?;
-    let slots = room / SLOT_BYTES;
-    (slots > 0).then(|| slots * SLOT_BYTES)
 }
-
-/// The granularity a region is declared in: one 128 MiB slot, the unit the kernel adds memory in.
-const SLOT_BYTES: u64 = 128 * 1024 * 1024;
 
 /// Places the declared region above the machine's RAM.
 ///
@@ -70,29 +57,6 @@ mod tests {
     const RAM: u64 = 1 << 30;
 
     #[test]
-    fn contract_three_declares_the_room_above_the_boot_memory_and_older_ones_declare_none() {
-        let gib = 1_u64 << 30;
-        assert_eq!(ceiling_region(1, 2 * gib), None);
-        assert_eq!(ceiling_region(2, 2 * gib), None);
-        assert_eq!(ceiling_region(3, 2 * gib), Some(14 * gib));
-        assert_eq!(
-            ceiling_region(3, 16 * gib),
-            None,
-            "no room above the ceiling"
-        );
-        assert_eq!(
-            ceiling_region(3, 16 * gib - 64 * 1024 * 1024),
-            None,
-            "less than one slot"
-        );
-        assert_eq!(
-            ceiling_region(9, 2 * gib),
-            None,
-            "an unknown contract declares nothing"
-        );
-    }
-
-    #[test]
     fn a_generation_without_the_device_has_no_region() {
         assert_eq!(region_for(DeviceSet::FULL, RAM, None), Ok(None));
     }
@@ -112,5 +76,28 @@ mod tests {
         assert_eq!(region_for(DeviceSet::FULL_WITH_MEM, RAM, None), Err(()));
         assert_eq!(region_for(DeviceSet::FULL, RAM, Some(1 << 30)), Err(()));
         assert_eq!(region_for(DeviceSet::FULL_WITH_MEM, RAM, Some(1)), Err(()));
+    }
+
+    const GIB: u64 = 1 << 30;
+
+    #[test]
+    fn a_zero_size_is_no_region_and_a_size_is_the_declaration() {
+        assert_eq!(bytes_of(0), None);
+        assert_eq!(bytes_of(GIB), Some(GIB));
+    }
+
+    #[test]
+    fn a_version_three_generation_gets_a_placed_region_and_an_older_one_none() {
+        let boot = 2 * GIB;
+        let v3 = region_for(DeviceSet::FULL_WITH_MEM, boot, bytes_of(14 * GIB))
+            .unwrap()
+            .expect("a region");
+        assert_eq!(v3.size, 14 * GIB);
+        assert!(v3.guest_start >= 1 << 32);
+        // Older Generations: no device, no size, no region, and nothing else changes.
+        assert_eq!(
+            region_for(DeviceSet::new(true, true), boot, bytes_of(0)),
+            Ok(None)
+        );
     }
 }
