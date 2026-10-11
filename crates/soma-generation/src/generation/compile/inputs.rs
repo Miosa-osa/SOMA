@@ -5,7 +5,7 @@ use crate::generation::{
     error::{CompileError, CompileErrorKind, CompilePhase},
     initramfs::{InitramfsContents, build_initramfs, verify_initramfs},
     kernel::{VerifiedKernel, verify_kernel},
-    kernel_config::{MAX_CONFIG_BYTES, VerifiedKernelConfig, verify_kernel_config},
+    kernel_config::{MAX_CONFIG_BYTES, VerifiedKernelConfig, verify_kernel_config_for},
     request::{CompileGeneration, CompilerProfile},
 };
 use crate::{ImportPhase, normalize::TREE_MEDIA_TYPE, oci::Descriptor, store::Store};
@@ -33,11 +33,14 @@ impl MachineArtifacts {
         )?;
         let kernel = verify_kernel(&kernel_bytes)?;
         let config_limit = u64::try_from(MAX_CONFIG_BYTES).unwrap_or(u64::MAX);
-        let config = verify_kernel_config(&read_bounded(
-            inputs.kernel_config,
-            config_limit,
-            CompilePhase::VerifyKernel,
-        )?)?;
+        let config = verify_kernel_config_for(
+            profile.policy_version,
+            &read_bounded(
+                inputs.kernel_config,
+                config_limit,
+                CompilePhase::VerifyKernel,
+            )?,
+        )?;
         let early_init = read_bounded(
             inputs.early_init,
             profile.max_executable_bytes,

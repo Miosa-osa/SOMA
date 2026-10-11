@@ -35,6 +35,7 @@ pub use generation::{
     derive_generation_id, erofs, initramfs, install_snapshot, installed_policy_version, kernel,
     kernel_config, manifest as generation_manifest, open_artifact, overlay, promote_candidate,
     template, toolchain, verify_candidate, verify_generation, verify_kernel_config,
+    verify_kernel_config_for,
 };
 pub use import::import_oci_layout;
 pub use layout_image::{LayoutImage, resolve_layout_image};

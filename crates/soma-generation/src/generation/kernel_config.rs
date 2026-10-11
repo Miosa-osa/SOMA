@@ -90,6 +90,31 @@ pub struct VerifiedKernelConfig {
 /// [`CompileErrorKind::Unsupported`] when a required facility is missing, an excluded facility
 /// is enabled, or `CONFIG_PHYSICAL_START` is not `0x1000000`.
 pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, CompileError> {
+    verify_kernel_config_for(0, text)
+}
+
+/// The first compiler-policy version whose machine carries the virtio-mem device.
+///
+/// From this version on a Generation is a live-resize Generation: its machine has the memory
+/// device, so its kernel must have the driver and the hotplug path that device needs. Earlier
+/// versions are checked exactly as they always were.
+pub const LIVE_RESIZE_POLICY_VERSION: u16 = 3;
+
+/// Verifies a Linux `.config` text for the compiler-policy version that will build from it.
+///
+/// This is [`verify_kernel_config`] plus one rule: at [`LIVE_RESIZE_POLICY_VERSION`] and later the
+/// kernel must enable `CONFIG_MEMORY_HOTPLUG` and everything in [`LIVE_RESIZE_REQUIRED`], so a
+/// Generation whose machine has the memory device cannot compile with a kernel that has no
+/// driver for it.
+///
+/// # Errors
+///
+/// As [`verify_kernel_config`], and [`CompileErrorKind::Unsupported`] when the policy version
+/// needs the live-resize facilities and the kernel lacks any of them.
+pub fn verify_kernel_config_for(
+    policy_version: u16,
+    text: &[u8],
+) -> Result<VerifiedKernelConfig, CompileError> {
     if text.len() > MAX_CONFIG_BYTES {
         return Err(CompileError::new(
             CompilePhase::VerifyKernel,
@@ -126,6 +151,9 @@ pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, Compile
         if enabled.contains(forbidden) {
             return Err(unsupported());
         }
+    }
+    if policy_version >= LIVE_RESIZE_POLICY_VERSION && !enabled.contains(&MEMORY_HOTPLUG) {
+        return Err(unsupported());
     }
     if enabled.contains(&MEMORY_HOTPLUG) {
         for required in LIVE_RESIZE_REQUIRED {
