@@ -108,7 +108,7 @@ impl Request {
 fn encode_launch(launch: &Launch) -> String {
     let machine = launch.generation().machine();
     let devices = launch.generation().devices();
-    format!(
+    let mut text = format!(
         "launch {} {} {} {} {} {} {} {} {}",
         hex(launch.operation_id().as_bytes()),
         hex(launch.instance_id().as_bytes()),
@@ -119,7 +119,13 @@ fn encode_launch(launch: &Launch) -> String {
         machine.contract().get(),
         u8::from(devices.writable_disk()),
         u8::from(devices.network()),
-    )
+    );
+    // A machine with no resizable region encodes exactly as every earlier launch did.
+    if let Some(hotplug) = machine.hotplug() {
+        text.push(' ');
+        text.push_str(&hotplug.get().to_string());
+    }
+    text
 }
 
 fn encode_execute(execute: &Execute) -> String {
@@ -184,6 +190,54 @@ mod tests {
             limits,
         )
         .expect("execute")
+    }
+
+    fn launch_with_hotplug(bytes: u64) -> Launch {
+        let machine = MachineSpec::new(
+            VcpuCount::new(1).expect("vcpus"),
+            MemoryBytes::new(1 << 30).expect("memory"),
+            DiskBytes::new(1 << 32).expect("disk"),
+        )
+        .with_hotplug(crate::HotplugBytes::new(bytes).expect("hotplug"));
+        Launch::new(
+            operation(),
+            instance(),
+            Generation::new(
+                GenerationId::new([3; 32]).expect("generation"),
+                machine,
+                DeclaredDevices::new(true, true),
+            ),
+        )
+    }
+
+    #[test]
+    fn a_launch_without_a_region_encodes_exactly_as_before_and_one_with_it_round_trips() {
+        let plain = Request::Launch(launch()).encode();
+        assert_eq!(plain.split(' ').count(), 10, "{plain}");
+        let region = Request::Launch(launch_with_hotplug(1 << 30));
+        let encoded = region.encode();
+        assert_eq!(encoded, format!("{plain} {}", 1_u64 << 30));
+        assert_eq!(Request::decode(&encoded), Ok(region));
+        assert!(
+            matches!(
+                Request::decode(&Request::Launch(launch()).encode()),
+                Ok(Request::Launch(decoded)) if decoded.generation().machine().hotplug().is_none()
+            ),
+            "the old form decodes with no region"
+        );
+    }
+
+    #[test]
+    fn a_malformed_or_extra_hotplug_field_is_refused() {
+        let plain = Request::Launch(launch()).encode();
+        for bad in [
+            format!("{plain} 0"),
+            format!("{plain} x"),
+            format!("{plain} -1"),
+            format!("{plain} 1024 1024"),
+        ] {
+            assert!(Request::decode(&bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

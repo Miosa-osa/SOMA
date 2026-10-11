@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use soma_guest::GuestCommand;
 use soma_jail::DescriptorManifest;
+use soma_kvm::memory_layout::{GuestLayout, HotplugRegion};
 use soma_kvm::x86_64::{GuestExit, Hypervisor, SnapshotObjects};
 use soma_kvm::{DeviceSet, MachineContract};
 
@@ -93,6 +94,22 @@ impl Platform for KvmPlatform {
                 SessionError::Create,
             )));
         };
+        // The region is placed above this machine's RAM from the declared size alone, so a restore
+        // and a cold boot of the same Generation put it at the same address.
+        let hotplug = match machine.hotplug() {
+            None => None,
+            Some(bytes) => {
+                let placed = GuestLayout::new(machine.memory().get())
+                    .ok()
+                    .and_then(|layout| HotplugRegion::new(layout, bytes.get()).ok());
+                let Some(region) = placed else {
+                    return Err(RestoreFailure::at_restore(faults::restore_recovery(
+                        SessionError::Create,
+                    )));
+                };
+                Some(region)
+            }
+        };
         let spec = SterileSpec {
             objects: SnapshotObjects::adopt(state, memory, None),
             hypervisor: Hypervisor::Adopted(kvm),
@@ -101,7 +118,9 @@ impl Platform for KvmPlatform {
             memory_bytes: machine.memory().get(),
             vcpus,
             contract,
-            devices: DeviceSet::new(declared.writable_disk(), declared.network()),
+            devices: DeviceSet::new(declared.writable_disk(), declared.network())
+                .with_mem(hotplug.is_some()),
+            hotplug,
         };
         match Session::prepare(spec) {
             Ok(session) => {

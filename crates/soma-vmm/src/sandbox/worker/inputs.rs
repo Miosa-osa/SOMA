@@ -32,6 +32,8 @@ pub struct ColdBootInputs {
     /// The machine contract the Generation was built under.
     pub contract: MachineContract,
     pub devices: DeviceSet,
+    /// The resizable region the Generation declared, placed above the machine's RAM.
+    pub hotplug: Option<soma_kvm::memory_layout::HotplugRegion>,
 }
 
 /// The device identity and shape one sandbox is given.
@@ -47,6 +49,7 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         vcpus,
         contract,
         devices,
+        hotplug,
     } = inputs;
     SandboxConfig {
         kernel,
@@ -60,6 +63,6 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         vcpus,
         contract,
         devices,
-        hotplug: None,
+        hotplug,
     }
 }

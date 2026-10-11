@@ -179,6 +179,10 @@ impl Recipe {
             vcpus: self.key.vcpus,
             contract: self.key.contract,
             devices: self.key.devices,
+            // The pool is keyed on a device set that never declares the memory device yet, so
+            // there is no region to place; a Generation that declares one adds its size to the
+            // key before this can carry it.
+            hotplug: None,
         })
     }
 }

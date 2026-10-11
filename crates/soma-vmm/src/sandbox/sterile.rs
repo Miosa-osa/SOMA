@@ -46,6 +46,8 @@ pub struct SterileSpec {
     pub contract: soma_kvm::MachineContract,
     /// The optional devices this machine is built with.
     pub devices: DeviceSet,
+    /// The resizable region the Generation declared, which restore attaches empty.
+    pub hotplug: Option<soma_kvm::memory_layout::HotplugRegion>,
 }
 
 /// The fresh per-Instance authority a claim transfers into one prepared worker, exactly once.
@@ -82,6 +84,7 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         vcpus,
         contract,
         devices,
+        hotplug,
     } = spec;
     let sterile = restore_sterile(SterileRequest {
         objects,
@@ -95,7 +98,7 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         // Re-hashing every byte of the memory object is the installation and audit boundary,
         // not the preparation path.
         verify_artifacts: false,
-        hotplug: None,
+        hotplug,
     });
     let Ok(sterile) = sterile else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));

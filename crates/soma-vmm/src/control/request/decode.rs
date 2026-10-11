@@ -5,8 +5,8 @@
 
 use crate::{
     Argument, ContractVersion, DeclaredDevices, DiskBytes, Execute, ExecutionLimits, Generation,
-    GenerationId, InstanceId, Launch, MachineSpec, MemoryBytes, OperationId, OutputBytes, Program,
-    Stop, TimeoutMillis, VcpuCount,
+    GenerationId, HotplugBytes, InstanceId, Launch, MachineSpec, MemoryBytes, OperationId,
+    OutputBytes, Program, Stop, TimeoutMillis, VcpuCount,
 };
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -46,8 +46,18 @@ pub(super) fn decode_launch<'a>(
         .map_err(|_| ControlError::InvalidValue("contract"))?;
     let overlay = flag(tokens.next(), "declared overlay")?;
     let network = flag(tokens.next(), "declared network")?;
+    let hotplug = tokens
+        .next()
+        .map(|token| {
+            HotplugBytes::new(number(Some(token), "hotplug")?)
+                .map_err(|_| ControlError::InvalidValue("hotplug"))
+        })
+        .transpose()?;
     end(tokens)?;
-    let machine = MachineSpec::new(vcpus, memory, disk).with_contract(contract);
+    let mut machine = MachineSpec::new(vcpus, memory, disk).with_contract(contract);
+    if let Some(hotplug) = hotplug {
+        machine = machine.with_hotplug(hotplug);
+    }
     let devices = DeclaredDevices::new(overlay, network);
     Ok(Request::Launch(Launch::new(
         operation,

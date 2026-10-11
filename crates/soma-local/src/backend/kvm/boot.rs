@@ -103,6 +103,7 @@ pub(super) fn boot_for(
                 devices,
                 vcpus,
                 contract,
+                hotplug: None,
             }))
         }
     };

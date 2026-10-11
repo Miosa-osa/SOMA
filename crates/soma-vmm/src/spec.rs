@@ -81,6 +81,7 @@ impl ContractVersion {
 
 nonzero_bytes!(MemoryBytes, "memory bytes");
 nonzero_bytes!(DiskBytes, "writable disk bytes");
+nonzero_bytes!(HotplugBytes, "hotplug region bytes");
 
 /// The exact effective dimensions of one certified machine.
 ///
@@ -95,6 +96,7 @@ pub struct MachineSpec {
     memory: MemoryBytes,
     writable_disk: DiskBytes,
     contract: ContractVersion,
+    hotplug: Option<HotplugBytes>,
 }
 
 impl MachineSpec {
@@ -110,6 +112,7 @@ impl MachineSpec {
             memory,
             writable_disk,
             contract: ContractVersion(NonZeroU16::MIN),
+            hotplug: None,
         }
     }
 
@@ -117,6 +120,24 @@ impl MachineSpec {
     #[must_use]
     pub const fn with_contract(self, contract: ContractVersion) -> Self {
         Self { contract, ..self }
+    }
+
+    /// Declares a resizable memory region of `hotplug` bytes beside the boot memory.
+    ///
+    /// A machine without one is the machine every earlier Generation was; the region is part of
+    /// what a Generation declares, so it cannot appear at launch without having been certified.
+    #[must_use]
+    pub const fn with_hotplug(self, hotplug: HotplugBytes) -> Self {
+        Self {
+            hotplug: Some(hotplug),
+            ..self
+        }
+    }
+
+    /// The size of the resizable memory region, when the machine has one.
+    #[must_use]
+    pub const fn hotplug(self) -> Option<HotplugBytes> {
+        self.hotplug
     }
 
     /// The contract version this machine was built under.
