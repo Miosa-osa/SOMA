@@ -222,6 +222,7 @@ impl ManifestParts<'_> {
                     template.memory_bytes(),
                 ),
                 launch_page_layout_version: contracts::LAUNCH_PAGE_LAYOUT_VERSION,
+                hotplug_bytes: profile.hotplug_bytes,
             },
             snapshot: SnapshotBinding::Absent,
             repair: RepairBinding {

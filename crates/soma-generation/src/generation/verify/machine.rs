@@ -12,7 +12,7 @@ use crate::generation::{
     },
     error::{CompileError, CompileErrorKind, CompilePhase},
     manifest::{GenerationManifest, SnapshotBinding},
-    request::{CompilerProfile, ProfileLimits},
+    request::{CompilerProfile, HOTPLUG_BLOCK_BYTES, ProfileLimits},
     template::{
         MAX_TTL_SECONDS, MAX_WORKLOAD_PROBE_BYTES, NetworkPolicyClass, network_policy_digest,
     },
@@ -83,6 +83,7 @@ fn require_shape(manifest: &GenerationManifest) -> Result<(), CompileError> {
         shape.memory_bytes.is_multiple_of(MEMORY_PAGE_BYTES),
         Incompatibility::MemoryAlignment,
     )?;
+    require_hotplug(manifest, limits.max_memory_mib.saturating_mul(MIB))?;
     require(
         shape.vcpu_count >= 1 && shape.vcpu_count <= limits.max_vcpus,
         Incompatibility::VcpuCount,
@@ -171,5 +172,34 @@ fn require_probe(manifest: &GenerationManifest) -> Result<(), CompileError> {
             && probe.starts_with(b"/")
             && !probe.iter().any(u8::is_ascii_control),
         Incompatibility::WorkloadProbe,
+    )
+}
+
+/// The hotplug region the declared machine contract allows.
+///
+/// A machine without the memory device has none, so a non-zero region on a manifest that names
+/// one is a machine the manifest describes wrongly. One with the device has a region that is
+/// whole plug blocks, and the ceiling it reaches (boot plus region) is within the contract's.
+fn require_hotplug(
+    manifest: &GenerationManifest,
+    max_memory_bytes: u64,
+) -> Result<(), CompileError> {
+    let shape = manifest.shape;
+    let has_device = soma_kvm::MachineContract::from_version(manifest.machine_contract.version)
+        .is_some_and(soma_kvm::MachineContract::has_memory_device);
+    if !has_device {
+        return require(shape.hotplug_bytes == 0, Incompatibility::MemorySize);
+    }
+    require(
+        shape.hotplug_bytes > 0
+            && shape
+                .memory_bytes
+                .checked_add(shape.hotplug_bytes)
+                .is_some_and(|ceiling| ceiling <= max_memory_bytes),
+        Incompatibility::MemorySize,
+    )?;
+    require(
+        shape.hotplug_bytes.is_multiple_of(HOTPLUG_BLOCK_BYTES),
+        Incompatibility::MemoryAlignment,
     )
 }
