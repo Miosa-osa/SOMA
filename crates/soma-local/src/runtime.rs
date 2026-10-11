@@ -153,7 +153,7 @@ impl LocalRuntime {
             .host_directory
             .as_deref()
             .ok_or(crate::TunnelFailure::Unavailable)?;
-        crate::backend::tunnel_machine(directory, instance, port)
+        crate::tunnel::tunnel_machine(directory, instance, port)
     }
 
     /// Gracefully attempts to stop and release one managed Machine.

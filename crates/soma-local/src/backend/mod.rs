@@ -25,6 +25,8 @@ use selection::resolve_selection;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::host_machine;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::open_tunnel;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::prewarm_machine_hosts;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -85,26 +87,6 @@ pub fn probe_backend(
 /// caller had to reconcile.
 pub(crate) fn machine_host_directory(state_root: &std::path::Path) -> PathBuf {
     state_root.join(crate::file_store::MACHINE_HOST_DIRECTORY)
-}
-
-/// Opens a stream to a guest port through the process hosting the machine.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(crate) fn tunnel_machine(
-    directory: &std::path::Path,
-    instance: &soma::InstanceId,
-    port: u16,
-) -> Result<std::os::unix::net::UnixStream, crate::TunnelFailure> {
-    kvm::open_tunnel(directory, instance, port)
-}
-
-/// Only the KVM backend hosts machines whose guests have a network of their own.
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-pub(crate) fn tunnel_machine(
-    _directory: &std::path::Path,
-    _instance: &soma::InstanceId,
-    _port: u16,
-) -> Result<std::os::unix::net::UnixStream, crate::TunnelFailure> {
-    Err(crate::TunnelFailure::Unavailable)
 }
 
 pub(crate) enum LocalBackend {

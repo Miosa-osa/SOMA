@@ -20,3 +20,23 @@ pub enum TunnelFailure {
     /// The exchange failed for any other reason.
     Unavailable,
 }
+
+/// Opens a stream to a guest port through the process hosting the machine.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) fn tunnel_machine(
+    directory: &std::path::Path,
+    instance: &soma::InstanceId,
+    port: u16,
+) -> Result<std::os::unix::net::UnixStream, TunnelFailure> {
+    crate::backend::open_tunnel(directory, instance, port)
+}
+
+/// Only the KVM backend hosts machines whose guests have a network of their own.
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+pub(crate) fn tunnel_machine(
+    _directory: &std::path::Path,
+    _instance: &soma::InstanceId,
+    _port: u16,
+) -> Result<std::os::unix::net::UnixStream, TunnelFailure> {
+    Err(TunnelFailure::Unavailable)
+}

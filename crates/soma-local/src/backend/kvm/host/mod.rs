@@ -42,7 +42,7 @@ pub(crate) use bootstrap::host_machine;
 pub(super) use client_launch::launch;
 pub(crate) use sterile::{PrewarmPlan, prewarm as prewarm_machine_hosts};
 use transport::{ask, await_close, exchange, open};
-pub(in crate::backend) use tunnel::open_tunnel;
+pub(crate) use tunnel::open_tunnel;
 pub(in crate::backend::kvm) use wire::Launched;
 use wire::{Answer, Call};
 

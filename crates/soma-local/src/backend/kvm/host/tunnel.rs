@@ -33,7 +33,7 @@ const MAX_ANSWER: usize = 4096;
 const CHUNK: usize = 16 * 1024;
 
 /// Asks the host holding `instance` for a stream to `port` on its guest.
-pub(in crate::backend) fn open_tunnel(
+pub(crate) fn open_tunnel(
     directory: &Path,
     instance: &InstanceId,
     port: u16,

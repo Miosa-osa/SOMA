@@ -25,7 +25,7 @@ use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
 use host::Role;
-pub(super) use host::open_tunnel;
+pub(crate) use host::open_tunnel;
 use network::BrokerConfiguration;
 use pool::{MachineKey, MachinePool};
 use runtime::Ownership;
