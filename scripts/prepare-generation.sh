@@ -13,6 +13,14 @@
 #   prepare-generation.sh <image-reference> <store-directory> <fs-tools-directory> \
 #       [memory_mib] [storage_mib]
 #
+# The reference names the entry (it is hashed into the entry's directory), and by default it is
+# also where the image is pulled from. An image built on this machine and never pushed, such as
+# workloads/browser-default, is exported from the local docker daemon instead by naming the
+# skopeo source explicitly:
+#
+#   SOMA_IMAGE_SOURCE=docker-daemon:soma-browser-default:1 \
+#       scripts/prepare-generation.sh soma-browser-default:1 /srv/soma/prepared /srv/soma/fs-tools 2048
+#
 # Example:
 #   scripts/prepare-generation.sh node:22 /srv/soma/prepared /srv/soma/fs-tools
 #
@@ -91,14 +99,13 @@ resolve_inputs() {
 }
 
 export_oci() {
-    local source
-    source="$(registry_reference)"
+    local source="${SOMA_IMAGE_SOURCE:-docker://$(registry_reference)}"
     LAYOUT="$(mktemp -d "$STORE_DIR/.oci.XXXXXXXX")"
     log "exporting $IMAGE to an OCI layout with skopeo"
     command -v skopeo >/dev/null || die "skopeo is required; setup-host.sh installs it"
     # docker:// pulls from the registry without needing a local docker image or the docker daemon.
     skopeo copy --override-os linux --override-arch amd64 \
-        "docker://$source" "oci:$LAYOUT:soma"
+        "$source" "oci:$LAYOUT:soma"
     [[ -f "$LAYOUT/oci-layout" ]] || die "skopeo did not produce an OCI layout"
 }
 

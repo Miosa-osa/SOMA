@@ -68,4 +68,41 @@ mkdir -p "$WORK/warm/snapshot"
 : >"$WORK/warm/snapshot/state.somasnap"
 expect_boot_report "$WORK/warm" 0 "RESTORE from" 0
 
+# The image is pulled from its registry unless the operator names another skopeo source, which is
+# how an image that was built on this machine and never pushed becomes a Generation input.
+mkdir -p "$WORK/bin" "$WORK/store"
+cat >"$WORK/bin/skopeo" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >"$SKOPEO_LOG"
+layout="${*: -1}"
+layout="${layout#oci:}"
+layout="${layout%:soma}"
+: >"$layout/oci-layout"
+STUB
+chmod +x "$WORK/bin/skopeo"
+
+expect_skopeo_source() {
+    local expected="$1" setup="$2"
+    (
+        # export_oci reads the shared IMAGE and STORE_DIR inputs by design.
+        # shellcheck disable=SC2030,SC2031
+        export SKOPEO_LOG="$WORK/skopeo.log" PATH="$WORK/bin:$PATH"
+        # shellcheck disable=SC2034
+        STORE_DIR="$WORK/store"
+        eval "$setup"
+        export_oci >/dev/null
+    )
+    case "$(<"$WORK/skopeo.log")" in
+        *" $expected oci:"*) ;;
+        *)
+            printf 'skopeo was not given source %s: %s\n' "$expected" "$(<"$WORK/skopeo.log")" >&2
+            return 1
+            ;;
+    esac
+}
+
+expect_skopeo_source "docker://docker.io/library/node:22" 'IMAGE=node:22'
+expect_skopeo_source "docker-daemon:soma-browser-default:1" \
+    'IMAGE=soma-browser-default:1; export SOMA_IMAGE_SOURCE=docker-daemon:soma-browser-default:1'
+
 printf 'prepare-generation shell contract passed\n'
