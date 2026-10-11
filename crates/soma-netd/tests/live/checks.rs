@@ -106,11 +106,13 @@ pub fn assert_policy_after_activation(guest_a: &mut Guest, world: &World) {
             .as_deref(),
         Some(&b"dns-ok"[..])
     );
-    assert!(
+    // Any public resolver answers, as `dig @8.8.8.8` does from a Firecracker sandbox.
+    assert_eq!(
         guest_a
             .udp_probe(world::UNDECLARED_RESOLVER, 53, PROBE)
-            .is_none(),
-        "undeclared DNS dropped"
+            .as_deref(),
+        Some(&b"dns-ok"[..]),
+        "a public resolver the operator did not declare must still answer"
     );
     assert!(
         !guest_a.ping(world::HOST_ADDRESS, PROBE),

@@ -31,6 +31,7 @@ impl Session {
         if self.poisoned {
             return Err(SessionError::Poisoned);
         }
+        self.settle()?;
         self.requests
             .send(Request::Execute(command))
             .map_err(|_| self.poison(SessionError::Gone))?;
@@ -59,6 +60,7 @@ impl Session {
         if self.poisoned {
             return Err(SessionError::Poisoned);
         }
+        self.settle()?;
         self.requests
             .send(Request::File(operation))
             .map_err(|_| self.poison(SessionError::Gone))?;
@@ -85,6 +87,7 @@ impl Session {
         if self.poisoned {
             return Err(SessionError::Poisoned);
         }
+        self.settle()?;
         self.requests
             .send(Request::Pty(operation))
             .map_err(|_| self.poison(SessionError::Gone))?;

@@ -89,7 +89,6 @@ fn every_protected_is_dropped_before_any_accept(ruleset: &str) {
         .expect("mac");
     assert!(spoof < first_accept);
     assert!(forward.find("ip saddr != 10.200.0.22 drop").expect("addr") < first_accept);
-    assert!(forward.contains("udp dport 53 drop") && forward.contains("tcp dport 53 drop"));
 }
 
 #[test]
@@ -123,11 +122,25 @@ fn public_internet_ruleset_admits_declared_dns_and_egress_after_protection() {
     let dns = forward
         .find("ip daddr @resolvers4 udp dport 53 accept")
         .expect("dns accept");
-    let dns_drop = forward.find("udp dport 53 drop").expect("dns drop");
     let egress = forward
         .find("iifname \"tap0\" oifname \"vs0\" ct state new,established accept")
         .expect("egress");
-    assert!(dns < dns_drop && dns_drop < egress);
+    assert!(dns < egress);
+    // Any public resolver is reachable on 53, so nothing closes the port after the protected
+    // set has been dropped.
+    assert!(!forward.contains("dport 53 drop"));
+}
+
+#[test]
+fn an_intent_that_denies_dns_closes_port_53_before_egress() {
+    let ruleset = render(EgressClass::PublicInternet, Vec::new());
+    let forward = chain(&ruleset, "forward");
+    let drop = forward.find("udp dport 53 drop").expect("udp 53 drop");
+    assert!(forward.contains("tcp dport 53 drop"));
+    let egress = forward
+        .find("oifname \"vs0\" ct state new,established accept")
+        .expect("egress");
+    assert!(drop < egress);
 }
 
 #[test]

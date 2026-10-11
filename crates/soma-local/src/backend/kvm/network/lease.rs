@@ -24,7 +24,52 @@ pub(in crate::backend::kvm) struct Lease {
     /// Taken exactly once, by the machine that attaches it.
     tap: Option<std::fs::File>,
     released: bool,
+    /// Where a background activation reports, so release and dials can wait for it.
+    settled: std::sync::Arc<Settled>,
 }
+
+/// The state of an activation that runs off the launch path.
+#[derive(Default)]
+struct Settled {
+    state: std::sync::Mutex<Activation>,
+    changed: std::sync::Condvar,
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+enum Activation {
+    /// No background activation was started.
+    #[default]
+    Idle,
+    Running,
+    Accepted,
+    Refused,
+}
+
+impl Settled {
+    fn set(&self, next: Activation) {
+        *self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+        self.changed.notify_all();
+    }
+
+    /// Waits while an activation is running, for at most `patience`, and reports where it ended.
+    fn wait(&self, patience: std::time::Duration) -> Activation {
+        let guard = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (guard, _timeout) = self
+            .changed
+            .wait_timeout_while(guard, patience, |state| *state == Activation::Running)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard
+    }
+}
+
+/// The longest a release or a dial waits for an activation still in flight.
+const ACTIVATION_PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Lease {
     /// Claims one bundle from the broker listening at `socket`.
@@ -72,6 +117,7 @@ impl Lease {
             },
             tap: Some(std::fs::File::from(tap)),
             released: false,
+            settled: std::sync::Arc::default(),
         })
     }
 
@@ -136,8 +182,52 @@ impl Lease {
         Err(())
     }
 
+    /// Builds the broker half of an activation so it can run on another thread.
+    ///
+    /// The job opens its own connection, because the lease's connection is not shared, and
+    /// reports into the lease's state so that [`Self::release`] and [`Self::connect_guest`]
+    /// wait for it instead of racing it.
+    pub(super) fn activation_job(
+        &self,
+        receipt: &ActivationReceipt,
+    ) -> soma_vmm::sandbox::ActivationJob {
+        let (socket, bundle, generation, receipt) =
+            (self.socket.clone(), self.bundle, self.generation, *receipt);
+        let settled = std::sync::Arc::clone(&self.settled);
+        settled.set(Activation::Running);
+        Box::new(move || {
+            let request = Request::Activate {
+                bundle,
+                generation,
+                receipt,
+            };
+            let accepted = BrokerClient::connect(&socket)
+                .ok()
+                .and_then(|client| client.call(&request).ok())
+                .is_some_and(|(reply, _)| matches!(reply, Reply::Activated));
+            settled.set(if accepted {
+                Activation::Accepted
+            } else {
+                Activation::Refused
+            });
+            if accepted {
+                Ok(())
+            } else {
+                Err(soma_vmm::sandbox::SessionError::Network)
+            }
+        })
+    }
+
     /// Has the broker dial `port` on this Instance's guest from inside its namespace.
     pub(super) fn connect_guest(&self, port: u16) -> Result<std::os::fd::OwnedFd, ClientError> {
+        // A guest is dialed only through an activated bundle, so an activation still in flight
+        // is waited for, and one that was refused or never answered is a failure here too.
+        if matches!(
+            self.settled.wait(ACTIVATION_PATIENCE),
+            Activation::Running | Activation::Refused
+        ) {
+            return Err(ClientError::Protocol);
+        }
         self.connection
             .connect_guest(self.instance, self.bundle, self.generation, port)
     }
@@ -147,6 +237,9 @@ impl Lease {
             return Released::Complete;
         }
         self.released = true;
+        // A release must not race the activation of the same bundle: the broker would see the
+        // bundle taken out of its map mid-activation and tear it down underneath it.
+        let _settled = self.settled.wait(ACTIVATION_PATIENCE);
         // The descriptor is closed before the request, so the broker's own inspection cannot
         // find this process still holding the TAP it is trying to release.
         drop(self.tap.take());

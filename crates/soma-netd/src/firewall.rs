@@ -227,8 +227,14 @@ impl SandboxRuleset<'_> {
         // Direct outbound mail is the commonest abuse of a free sandbox and has no use here: a
         // workload that sends mail does so through an HTTPS API.
         let _ = writeln!(out, "\t\tiifname \"{tap}\" tcp dport 25 drop");
-        let _ = writeln!(out, "\t\tiifname \"{tap}\" udp dport 53 drop");
-        let _ = writeln!(out, "\t\tiifname \"{tap}\" tcp dport 53 drop");
+        // Name resolution follows the destination policy and nothing else: when DNS is allowed
+        // any public resolver is reachable on 53, as it is from a Firecracker sandbox, and the
+        // protected set above has already refused every private, link-local and metadata
+        // address on every port. Only an intent that denied DNS closes port 53 outright.
+        if !self.intent.dns_allowed() {
+            let _ = writeln!(out, "\t\tiifname \"{tap}\" udp dport 53 drop");
+            let _ = writeln!(out, "\t\tiifname \"{tap}\" tcp dport 53 drop");
+        }
         if self.intent.egress().forwards() {
             let _ = writeln!(
                 out,

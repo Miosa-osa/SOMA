@@ -117,24 +117,33 @@ impl Egress {
         }
     }
 
-    /// Activates the lease with the receipt the repaired guest session minted.
-    ///
-    /// # Errors
-    ///
-    /// Returns the broker's refusal; the lease is released before the failure is returned, so a
-    /// launch that cannot activate leaves nothing behind.
-    pub(super) fn activate(&mut self, receipt: &ActivationReceipt) -> Result<(), ()> {
-        match self {
-            Self::Declined => Ok(()),
-            Self::Leased(lease) => lease.activate(receipt),
-        }
-    }
-
     /// Dials `port` on the guest from inside its namespace, through the broker.
     pub(super) fn connect_guest(&self, port: u16) -> Result<std::os::fd::OwnedFd, TunnelFailure> {
         match self {
             Self::Declined => Err(TunnelFailure::NoNetwork),
             Self::Leased(lease) => lease.connect_guest(port).map_err(tunnel_failure),
+        }
+    }
+
+    /// How this Instance's activation is to be spent: now, or off the launch path.
+    ///
+    /// A deferred activation returns the broker half as a job the session runs in the
+    /// background; everything that needs the network waits for it. The default is deferred,
+    /// because the broker's answer is the part of a create that grows with concurrency.
+    /// `SOMA_ASYNC_ACTIVATION=0` restores the synchronous exchange, which is how the two are
+    /// compared on a host.
+    pub(super) fn activation(
+        &mut self,
+        receipt: &ActivationReceipt,
+    ) -> Result<soma_vmm::sandbox::Activation, ()> {
+        match self {
+            Self::Declined => Ok(soma_vmm::sandbox::Activation::Done),
+            Self::Leased(lease) if deferred_activation() => Ok(
+                soma_vmm::sandbox::Activation::Deferred(lease.activation_job(receipt)),
+            ),
+            Self::Leased(lease) => lease
+                .activate(receipt)
+                .map(|()| soma_vmm::sandbox::Activation::Done),
         }
     }
 
@@ -145,6 +154,12 @@ impl Egress {
             Self::Leased(lease) => lease.release(),
         }
     }
+}
+
+/// Whether activation runs off the launch path; on unless `SOMA_ASYNC_ACTIVATION` says `0`.
+fn deferred_activation() -> bool {
+    static MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| std::env::var("SOMA_ASYNC_ACTIVATION").map_or(true, |value| value != "0"))
 }
 
 /// The policy a request with no stated egress is served: the public internet through the

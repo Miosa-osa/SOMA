@@ -22,8 +22,45 @@ use super::worker::serve;
 mod protocol;
 mod shutdown;
 
-pub use protocol::{Completed, Request, Response, SessionError};
+use std::sync::{Arc, Condvar, Mutex};
+
+pub use protocol::{Activation, ActivationJob, Completed, Request, Response, SessionError};
 pub use shutdown::Teardown;
+
+/// How long an operation waits for a background activation before it gives the session up.
+pub const ACTIVATION_PATIENCE: Duration = Duration::from_secs(10);
+
+/// How a background activation ended, shared between the thread that runs it and its waiter.
+#[derive(Default)]
+pub struct Outcome {
+    result: Mutex<Option<Result<(), SessionError>>>,
+    done: Condvar,
+}
+
+impl Outcome {
+    /// Records the answer and wakes the waiter.
+    pub fn set(&self, result: Result<(), SessionError>) {
+        *self
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(result);
+        self.done.notify_all();
+    }
+
+    /// Waits for the answer, or reports that none came within `patience`.
+    #[must_use]
+    pub fn wait(&self, patience: Duration) -> Option<Result<(), SessionError>> {
+        let guard = self
+            .result
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (guard, _timeout) = self
+            .done
+            .wait_timeout_while(guard, patience, |result| result.is_none())
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *guard
+    }
+}
 
 /// How long a cold boot has to reach an authenticated Ready.
 pub const BOOT_DEADLINE: Duration = Duration::from_secs(60);
@@ -53,6 +90,8 @@ pub struct Session {
     /// as the next command's. Attributing it to that next command would report one command's
     /// output as another's, so an uncertain outcome ends the session instead.
     pub(super) poisoned: bool,
+    /// A background activation the next network-using operation must wait for.
+    pub(super) pending: Option<Arc<Outcome>>,
 }
 
 impl Session {
@@ -66,7 +105,7 @@ impl Session {
     /// Returns the [`SessionError`] that stopped the sandbox before it reached Ready.
     pub fn launch(
         boot: Boot,
-        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
+        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<Activation, SessionError>,
     ) -> Result<Self, SessionError> {
         let (request_tx, request_rx) = channel();
         let (response_tx, response_rx) = channel();
@@ -79,6 +118,7 @@ impl Session {
             responses: response_rx,
             thread: Some(thread),
             poisoned: false,
+            pending: None,
         };
         match session.await_response(BOOT_DEADLINE + EXIT_GRACE) {
             Ok(Response::Ready) => Ok(session),
@@ -100,7 +140,7 @@ impl Session {
     fn open_the_link(
         mut self,
         receipt: &ActivationReceipt,
-        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
+        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<Activation, SessionError>,
     ) -> Result<Self, SessionError> {
         self.raise_the_link(receipt, activate)?;
         Ok(self)

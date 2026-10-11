@@ -30,7 +30,7 @@ use soma_hostd::{Claiming, Limits, LimitsError, Phase, Slot, Worker, WorkerId};
 
 pub(super) use key::{MachineKey, Recipe, RecipeInputs};
 
-use soma_vmm::sandbox::{Assignment, Session, SessionError};
+use soma_vmm::sandbox::{Activation, Assignment, Session, SessionError};
 
 /// How long the replenisher sleeps when there is nothing to build or a build just failed.
 ///
@@ -215,7 +215,7 @@ impl Claimed {
     pub(in crate::backend) fn assign(
         mut self,
         assignment: Assignment,
-        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<(), SessionError>,
+        activate: &mut dyn FnMut(&ActivationReceipt) -> Result<Activation, SessionError>,
     ) -> Result<Session, SessionError> {
         let (Some(worker), Some(mut session)) = (self.worker.take(), self.session.take()) else {
             return Err(SessionError::Poisoned);
