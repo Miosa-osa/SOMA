@@ -81,6 +81,8 @@ pub enum SizeError {
     Unaligned,
     /// The size exceeds the region.
     BeyondRegion,
+    /// The machine has no memory device to ask.
+    NoDevice,
 }
 
 /// The memory device model.

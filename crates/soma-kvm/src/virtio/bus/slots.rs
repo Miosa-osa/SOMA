@@ -95,6 +95,10 @@ impl MmioBus {
                 Ok(report)
             }
             (Slot::Rng, _) => service_queue(&mut self.rng, mem, queue, budget),
+            (Slot::Mem, _) => match self.mem.as_mut() {
+                Some(device) => service_queue(device, mem, queue, budget),
+                None => Ok(ServiceReport::default()),
+            },
         }
     }
 
@@ -120,7 +124,7 @@ impl MmioBus {
                 report.completed = report.completed.saturating_add(events.completed);
                 Ok(report)
             }
-            Slot::Root | Slot::Overlay | Slot::Rng => Ok(ServiceReport::default()),
+            Slot::Root | Slot::Overlay | Slot::Rng | Slot::Mem => Ok(ServiceReport::default()),
         }
     }
 
@@ -220,6 +224,7 @@ impl MmioBus {
             mut net,
             mut vsock,
             mut rng,
+            mem: mut mem_device,
         } = devices;
         let (Some(root_record), Some(vsock_record), Some(rng_record)) =
             (record(Slot::Root), record(Slot::Vsock), record(Slot::Rng))
@@ -231,6 +236,7 @@ impl MmioBus {
         };
         let overlay_record = record(Slot::Overlay);
         let net_record = record(Slot::Net);
+        let mem_record = record(Slot::Mem);
         apply_device(Slot::Root, &mut root, root_record)?;
         if let (Some(device), Some(record)) = (overlay.as_mut(), overlay_record) {
             apply_device(Slot::Overlay, device, record)?;
@@ -240,12 +246,16 @@ impl MmioBus {
         }
         apply_device(Slot::Vsock, &mut vsock, vsock_record)?;
         apply_device(Slot::Rng, &mut rng, rng_record)?;
+        if let (Some(device), Some(record)) = (mem_device.as_mut(), mem_record) {
+            apply_device(Slot::Mem, device, record)?;
+        }
         Ok(Self {
             root: restore_transport(Slot::Root, root, root_record, mem)?,
             overlay: restore_optional(Slot::Overlay, overlay, overlay_record, mem)?,
             net: restore_optional(Slot::Net, net, net_record, mem)?,
             vsock: restore_transport(Slot::Vsock, vsock, vsock_record, mem)?,
             rng: restore_transport(Slot::Rng, rng, rng_record, mem)?,
+            mem: restore_optional(Slot::Mem, mem_device, mem_record, mem)?,
         })
     }
 }

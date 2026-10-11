@@ -1,11 +1,12 @@
-//! The v1 device table: one 4 KiB page and one GSI per slot, from the minimal device surface.
+//! The device table: one 4 KiB page and one GSI per slot, from the minimal device surface.
 //! Every address, interrupt, identifier, and the kernel command-line fragment derive from this
 //! single table.
 //!
-//! The five slots are the maximum a machine may expose, not the minimum it must. Two of them
+//! The six slots are the maximum a machine may expose, not the minimum it must. Three of them
 //! carry a capability rather than the ability to run at all: a sandbox that never writes needs
-//! no private overlay, and a sandbox that may not reach the network needs no network device.
-//! A [`DeviceSet`] says which of those two a Generation declared, and everything downstream,
+//! no private overlay, a sandbox that may not reach the network needs no network device, and a
+//! machine that is never resized needs no memory device. A [`DeviceSet`] says which of those
+//! three a Generation declared, and everything downstream,
 //! meaning which device models are built, which pages the guest is told about, and which
 //! contract digest the snapshot binds, is derived from it.
 
@@ -14,11 +15,11 @@ use crate::virtio::transport::registers::{MMIO_PAGE_SIZE, REG_QUEUE_NOTIFY};
 /// First byte of the MMIO window; above the 3 GiB RAM ceiling.
 pub const MMIO_WINDOW_BASE: u64 = 0xd000_0000;
 /// Number of device slots.
-pub const SLOT_COUNT: usize = 5;
+pub const SLOT_COUNT: usize = 6;
 /// GSI of slot 0; slots use consecutive edge-triggered routes.
 pub const FIRST_GSI: u32 = 5;
 
-/// One of the five fixed device slots.
+/// One of the six fixed device slots.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub enum Slot {
     /// Immutable EROFS root block device.
@@ -31,12 +32,20 @@ pub enum Slot {
     Vsock = 3,
     /// Entropy device.
     Rng = 4,
+    /// Memory device, present only on a machine declared resizable.
+    Mem = 5,
 }
 
 impl Slot {
     /// Every slot in table order.
-    pub const ALL: [Self; SLOT_COUNT] =
-        [Self::Root, Self::Overlay, Self::Net, Self::Vsock, Self::Rng];
+    pub const ALL: [Self; SLOT_COUNT] = [
+        Self::Root,
+        Self::Overlay,
+        Self::Net,
+        Self::Vsock,
+        Self::Rng,
+        Self::Mem,
+    ];
 
     /// Table index.
     #[must_use]
@@ -76,6 +85,7 @@ impl Slot {
             Self::Net => 1,
             Self::Vsock => 19,
             Self::Rng => 4,
+            Self::Mem => 24,
         }
     }
 
@@ -83,7 +93,7 @@ impl Slot {
     #[must_use]
     pub const fn queue_count(self) -> u16 {
         match self {
-            Self::Root | Self::Overlay | Self::Rng => 1,
+            Self::Root | Self::Overlay | Self::Rng | Self::Mem => 1,
             Self::Net => 2,
             Self::Vsock => 3,
         }
@@ -120,19 +130,48 @@ impl Slot {
 pub struct DeviceSet {
     overlay: bool,
     net: bool,
+    mem: bool,
 }
 
 impl DeviceSet {
-    /// Every optional slot present: the maximum surface the contract allows.
+    /// The overlay and the network present: the surface every certified machine has.
+    ///
+    /// The memory device is not part of it. A machine that can be resized is a different machine
+    /// with a different command line and device digest, so it is asked for with
+    /// [`Self::with_mem`] and never appears by default.
     pub const FULL: Self = Self {
         overlay: true,
         net: true,
+        mem: false,
     };
 
-    /// The set a Generation gets from what it declared.
+    /// Every slot present, the memory device included.
+    pub const FULL_WITH_MEM: Self = Self {
+        overlay: true,
+        net: true,
+        mem: true,
+    };
+
+    /// The set a Generation gets from what it declared, without a memory device.
     #[must_use]
     pub const fn new(overlay: bool, net: bool) -> Self {
-        Self { overlay, net }
+        Self {
+            overlay,
+            net,
+            mem: false,
+        }
+    }
+
+    /// This set with the memory device declared or not.
+    #[must_use]
+    pub const fn with_mem(self, mem: bool) -> Self {
+        Self { mem, ..self }
+    }
+
+    /// Whether this machine can be resized while it runs.
+    #[must_use]
+    pub const fn mem(self) -> bool {
+        self.mem
     }
 
     /// Whether this machine has a private writable overlay.
@@ -154,6 +193,7 @@ impl DeviceSet {
             Slot::Root | Slot::Vsock | Slot::Rng => true,
             Slot::Overlay => self.overlay,
             Slot::Net => self.net,
+            Slot::Mem => self.mem,
         }
     }
 

@@ -19,11 +19,15 @@ use std::{
 use super::error::{MachineError, MachineErrorKind, Phase};
 use crate::contract::MachineContract;
 use crate::virtio::{
-    BlockDevice, BlockRole, BusDevices, Detached, DeviceSet, LoopbackBackend, MmioBus, NetDevice,
-    OsEntropy, RngDevice, VsockDevice,
+    BlockDevice, BlockRole, BusDevices, Detached, DeviceSet, LoopbackBackend, MemDevice, MmioBus,
+    NetDevice, OsEntropy, RegionBacking, RngDevice, VsockDevice,
 };
 
 mod shape;
+
+/// The hotplug region a machine placed, as `(guest address, bytes, host backing)`, or `None` for
+/// a machine with no memory device.
+pub(crate) type Hotplug = Option<(u64, u64, Box<dyn RegionBacking + Send>)>;
 
 pub(crate) use shape::block_transfer;
 pub use shape::{BLOCK_SIZE, DeviceIdentity, SandboxDisks};
@@ -67,8 +71,9 @@ pub(crate) fn build_bus(
     identity: DeviceIdentity,
     devices: DeviceSet,
     contract: MachineContract,
+    hotplug: Hotplug,
 ) -> Result<MmioBus, MachineError> {
-    MmioBus::new(build_devices(disks, identity, devices, contract)?)
+    MmioBus::new(build_devices(disks, identity, devices, contract, hotplug)?)
         .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Bus(error)))
 }
 
@@ -81,6 +86,7 @@ pub(crate) fn build_devices(
     identity: DeviceIdentity,
     devices: DeviceSet,
     contract: MachineContract,
+    hotplug: Hotplug,
 ) -> Result<BusDevices, MachineError> {
     let overlay = match (devices.overlay(), disks.overlay) {
         (true, Some(file)) => Some(block(
@@ -93,7 +99,7 @@ pub(crate) fn build_devices(
         (false, None) => None,
         _ => return Err(overlay_disagreement()),
     };
-    build_around_overlay(disks.root, overlay, identity, devices, contract)
+    build_around_overlay(disks.root, overlay, identity, devices, contract, hotplug)
 }
 
 /// Builds the declared device models with the private overlay declared rather than held.
@@ -113,6 +119,7 @@ pub(crate) fn build_devices_detached_overlay(
     identity: DeviceIdentity,
     devices: DeviceSet,
     contract: MachineContract,
+    hotplug: Hotplug,
 ) -> Result<BusDevices, MachineError> {
     let overlay = match (devices.overlay(), overlay_capacity_bytes) {
         (true, Some(capacity)) => Some(
@@ -128,7 +135,7 @@ pub(crate) fn build_devices_detached_overlay(
         (false, None) => None,
         _ => return Err(overlay_disagreement()),
     };
-    build_around_overlay(root, overlay, identity, devices, contract)
+    build_around_overlay(root, overlay, identity, devices, contract, hotplug)
 }
 
 /// A caller that names a device set and hands over resources for a different one has two
@@ -139,13 +146,34 @@ fn overlay_disagreement() -> MachineError {
 }
 
 /// The devices that are the same however the overlay was obtained.
+///
+/// The memory device is built from the hotplug region the machine placed, its guest address and
+/// size, and the backing over the host memory behind it, because the region's placement belongs
+/// to the machine and not to the device table.
 fn build_around_overlay(
     root: File,
     overlay: Option<BlockDevice>,
     identity: DeviceIdentity,
     devices: DeviceSet,
     contract: MachineContract,
+    hotplug: Hotplug,
 ) -> Result<BusDevices, MachineError> {
+    if devices.mem() != hotplug.is_some() {
+        return Err(MachineError::invalid(
+            Phase::Devices,
+            "the device set and the hotplug region disagree",
+        ));
+    }
+    let mem = hotplug
+        .map(|(addr, size, backing)| {
+            MemDevice::new(addr, size, backing).map_err(|_| {
+                MachineError::invalid(
+                    Phase::Devices,
+                    "the hotplug region is not a valid memory device",
+                )
+            })
+        })
+        .transpose()?;
     let root = block(
         BlockRole::ImmutableRoot,
         root,
@@ -167,6 +195,7 @@ fn build_around_overlay(
         net,
         vsock,
         rng,
+        mem,
     })
 }
 
@@ -202,6 +231,7 @@ mod tests {
             identity(),
             DeviceSet::FULL,
             MachineContract::V1,
+            None,
         )
         .unwrap();
         assert_eq!(bus.root().device().role(), BlockRole::ImmutableRoot);
@@ -215,7 +245,51 @@ mod tests {
         assert_eq!(bus.vsock().device().guest_cid(), 3);
         assert_eq!(bus.net().unwrap().device().mac(), identity().guest_mac);
         assert!(!bus.net().unwrap().device().link_up());
-        assert_eq!(Slot::ALL.len(), 5);
+        assert_eq!(Slot::ALL.len(), 6);
+        assert!(bus.mem().is_none());
+    }
+
+    fn region() -> (u64, u64, Box<dyn RegionBacking + Send>) {
+        let backing: Box<dyn RegionBacking + Send> =
+            Box::new(crate::virtio::RecordingBacking::default());
+        (0x20_0000_0000, 64 * 2 * 1024 * 1024, backing)
+    }
+
+    #[test]
+    fn a_declared_memory_device_is_built_over_the_region_the_machine_placed() {
+        let bus = build_bus(
+            full_disks(),
+            identity(),
+            DeviceSet::FULL_WITH_MEM,
+            MachineContract::V2,
+            Some(region()),
+        )
+        .unwrap();
+        assert_eq!(bus.device_set(), DeviceSet::FULL_WITH_MEM);
+        let mem = bus.mem().expect("the memory slot").device();
+        assert_eq!(mem.region_addr(), 0x20_0000_0000);
+        assert_eq!(mem.region_size(), 64 * 2 * 1024 * 1024);
+        assert_eq!(mem.plugged_size(), 0);
+    }
+
+    #[test]
+    fn a_device_set_and_a_region_that_disagree_are_refused_both_ways() {
+        let declared_without_region = build_bus(
+            full_disks(),
+            identity(),
+            DeviceSet::FULL_WITH_MEM,
+            MachineContract::V2,
+            None,
+        );
+        assert!(declared_without_region.is_err());
+        let region_without_declaration = build_bus(
+            full_disks(),
+            identity(),
+            DeviceSet::FULL,
+            MachineContract::V2,
+            Some(region()),
+        );
+        assert!(region_without_declaration.is_err());
     }
 
     #[test]
@@ -229,6 +303,7 @@ mod tests {
             identity(),
             DeviceSet::new(false, false),
             MachineContract::V1,
+            None,
         )
         .unwrap();
         assert!(bus.overlay().is_none());
@@ -244,6 +319,7 @@ mod tests {
             identity(),
             DeviceSet::new(false, true),
             MachineContract::V1,
+            None,
         ) else {
             panic!("an overlay handed to a machine with no overlay slot must be refused");
         };
@@ -252,7 +328,13 @@ mod tests {
             root: image(64 * 4096),
             overlay: None,
         };
-        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL, MachineContract::V2) else {
+        let Err(error) = build_bus(
+            disks,
+            identity(),
+            DeviceSet::FULL,
+            MachineContract::V2,
+            None,
+        ) else {
             panic!("a declared overlay with no head must be refused");
         };
         assert_eq!(error.phase(), Phase::Devices);
@@ -268,6 +350,7 @@ mod tests {
             },
             DeviceSet::FULL,
             MachineContract::V1,
+            None,
         ) else {
             panic!("a reserved CID must be rejected");
         };
@@ -277,7 +360,13 @@ mod tests {
             root: image(4096 + 512),
             overlay: Some(image(64 * 1024 * 1024)),
         };
-        let Err(error) = build_bus(disks, identity(), DeviceSet::FULL, MachineContract::V2) else {
+        let Err(error) = build_bus(
+            disks,
+            identity(),
+            DeviceSet::FULL,
+            MachineContract::V2,
+            None,
+        ) else {
             panic!("an unaligned root must be rejected");
         };
         assert!(matches!(error.kind(), MachineErrorKind::Block(_)));

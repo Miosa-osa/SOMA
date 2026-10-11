@@ -37,7 +37,7 @@ pub(crate) fn features_for(kind: DeviceKind) -> u64 {
         DeviceKind::RootBlock => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_RO | VIRTIO_BLK_F_BLK_SIZE,
         DeviceKind::OverlayBlock => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_FLUSH,
         DeviceKind::Net => VIRTIO_F_VERSION_1 | VIRTIO_NET_F_MAC,
-        DeviceKind::Vsock | DeviceKind::Rng => VIRTIO_F_VERSION_1,
+        DeviceKind::Vsock | DeviceKind::Rng | DeviceKind::Mem => VIRTIO_F_VERSION_1,
     }
 }
 
@@ -47,6 +47,7 @@ pub(crate) fn queue_limits_for(kind: DeviceKind) -> [u16; 3] {
         DeviceKind::Net => [256, 256, 0],
         DeviceKind::Vsock => [256, 256, 64],
         DeviceKind::Rng => [64, 0, 0],
+        DeviceKind::Mem => [16, 0, 0],
     }
 }
 
@@ -67,6 +68,10 @@ pub(crate) fn sample(kind: DeviceKind) -> DeviceState {
         },
         DeviceKind::Vsock => DeviceSpecific::Vsock { cid_placeholder: 3 },
         DeviceKind::Rng => DeviceSpecific::Rng,
+        DeviceKind::Mem => DeviceSpecific::Mem {
+            addr: 0x1_0000_0000,
+            region_size: 64 * 2 * 1024 * 1024,
+        },
     };
     DeviceState::new(kind, transport(), features_for(kind), queues, specific).unwrap()
 }

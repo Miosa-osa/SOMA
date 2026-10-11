@@ -27,7 +27,9 @@ use vmm_sys_util::{
 };
 
 use super::{devices::SharedBus, events::IrqLines, events::NotifyFds, memory::SharedRam};
-use crate::virtio::{NET_RX_QUEUE, SLOT_COUNT, ServiceError, ServiceReport, Slot};
+use crate::virtio::{
+    INTERRUPT_CONFIG_CHANGE, NET_RX_QUEUE, SLOT_COUNT, ServiceError, ServiceReport, Slot,
+};
 
 const WORK_BUDGET: u32 = 64;
 const PASS_LIMIT: u32 = 8;
@@ -105,6 +107,19 @@ impl Worker {
             .deliver_inbound(Slot::Vsock, &self.memory, WORK_BUDGET);
         self.finish_pass(Slot::Vsock, 0, outcome);
         self.net_frames();
+        self.memory_config_change();
+    }
+
+    /// Raises the memory device's interrupt when the host has changed its requested size and the
+    /// guest has not yet acknowledged it.
+    ///
+    /// The interrupt line belongs to this thread, so a host that flags a configuration change
+    /// wakes it rather than signalling the line itself.
+    fn memory_config_change(&mut self) {
+        let pending = self.shared.lock().interrupt_status(Slot::Mem) & INTERRUPT_CONFIG_CHANGE != 0;
+        if pending && self.irq.signal_slot(Slot::Mem) {
+            bump(&mut self.report.slots[usize::from(Slot::Mem.index())].interrupts);
+        }
     }
 
     /// Delivers frames the attached network backend already holds.

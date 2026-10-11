@@ -1,4 +1,4 @@
-//! Rebuilding the five devices with fresh backends and the certified transport state, and
+//! Rebuilding the declared devices with fresh backends and the certified transport state, and
 //! verifying the two large objects at the installation boundary.
 //!
 //! Every backend is new: a fresh read-only handle on the immutable root, a fresh private
@@ -14,11 +14,15 @@ use super::super::{
 };
 use super::sections::Sections;
 use crate::contract::MachineContract;
-use crate::snapshot::{device_state::DeviceSpecific, manifest::Manifest};
+use crate::memory_layout::HotplugRegion;
+use crate::snapshot::{
+    device_state::{DeviceSpecific, DeviceState},
+    manifest::Manifest,
+};
 use crate::virtio::{DeviceSet, MmioBus, Slot, SlotSnapshot};
 use crate::x86_64::{
-    Machine,
-    devices::{self as machine_devices, DeviceIdentity},
+    HotplugBacking, Machine,
+    devices::{self as machine_devices, DeviceIdentity, Hotplug},
 };
 
 /// The identity a restore installs: the snapshot's placeholder MAC, the context identifier it
@@ -57,6 +61,17 @@ pub(super) fn recreate_devices(
     } = declared;
     let captured_cid = u32::try_from(identity.captured_cid)
         .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Vsock))?;
+    // The memory device is rebuilt empty over the region the snapshot recorded: plugged memory is
+    // never part of a snapshot, so the geometry is all there is to reproduce, and the host memory
+    // behind it is the caller's to supply.
+    let hotplug = hotplug_for(
+        state.slot(Slot::Mem),
+        set,
+        machine
+            .ram
+            .hotplug()
+            .map(|ram| (ram.region(), HotplugBacking::new(ram))),
+    )?;
     // Every restore builds the overlay slot against the head's declared shape and receives the
     // head itself at assignment, whether or not the caller already had one. One path means a
     // prepared worker and a direct restore cannot reach different device state.
@@ -69,6 +84,7 @@ pub(super) fn recreate_devices(
         },
         set,
         contract,
+        hotplug,
     )?;
     let records = state
         .devices
@@ -122,4 +138,27 @@ fn file_len(artifact: Artifact, file: &std::fs::File) -> Result<u64, SnapshotErr
     file.metadata()
         .map(|metadata| metadata.len())
         .map_err(|error| SnapshotError::io(artifact, "stat", &error))
+}
+
+/// The hotplug region a restore rebuilds the memory device over, or none when the Generation
+/// declared none.
+///
+/// A declared device needs both the section that says where its region is and the region the
+/// restore attached empty from the caller's declaration, and the two must agree; any other
+/// combination is a disagreement about what machine this is, and none is guessed.
+fn hotplug_for(
+    state: Option<&DeviceState>,
+    set: DeviceSet,
+    region: Option<(HotplugRegion, HotplugBacking)>,
+) -> Result<Hotplug, SnapshotError> {
+    let mismatch = || SnapshotError::DeviceStateNotCanonical(Slot::Mem);
+    match (set.mem(), state.map(DeviceState::specific), region) {
+        (false, None, _) => Ok(None),
+        (true, Some(DeviceSpecific::Mem { addr, region_size }), Some((region, backing)))
+            if region.guest_start == addr && region.size == region_size =>
+        {
+            Ok(Some((addr, region_size, Box::new(backing))))
+        }
+        _ => Err(mismatch()),
+    }
 }

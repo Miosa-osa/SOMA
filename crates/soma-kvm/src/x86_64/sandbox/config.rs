@@ -4,6 +4,7 @@ use std::fs::File;
 
 use super::devices::{DeviceIdentity, SandboxDisks};
 use crate::contract::MachineContract;
+use crate::memory_layout::HotplugRegion;
 use crate::virtio::DeviceSet;
 
 /// Inputs for one sandbox.
@@ -24,4 +25,6 @@ pub struct SandboxConfig {
     pub contract: MachineContract,
     /// The devices this Generation declared; it must agree with `disks`.
     pub devices: DeviceSet,
+    /// The resizable region the machine places, when `devices` declares a memory device.
+    pub hotplug: Option<HotplugRegion>,
 }

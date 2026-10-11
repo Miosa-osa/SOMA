@@ -39,6 +39,15 @@ pub(crate) fn sample_header() -> ManifestHeader {
 }
 
 pub(crate) fn sample_manifest_with_memory_slots(covered: u64) -> Manifest {
+    sample_manifest_shaped(covered, false)
+}
+
+/// The sample manifest of a machine that declared the resizable memory device.
+pub(crate) fn sample_manifest_with_mem() -> Manifest {
+    sample_manifest_shaped(MEMORY_BYTES, true)
+}
+
+fn sample_manifest_shaped(covered: u64, with_mem: bool) -> Manifest {
     let section = |role, payload| Section::new(role, payload).unwrap();
     let mut sections = vec![
         section(SectionRole::VmState, sample_vm(covered).encode()),
@@ -47,13 +56,16 @@ pub(crate) fn sample_manifest_with_memory_slots(covered: u64) -> Manifest {
         section(SectionRole::IrqRouting, sample_routing().encode()),
         section(SectionRole::KvmClock, sample_clock().encode()),
     ];
-    for (kind, role) in DeviceKind::ALL.into_iter().zip([
+    let roles = [
         SectionRole::Device0,
         SectionRole::Device1,
         SectionRole::Device2,
         SectionRole::Device3,
         SectionRole::Device4,
-    ]) {
+        SectionRole::Device5,
+    ];
+    let present = if with_mem { 6 } else { 5 };
+    for (kind, role) in DeviceKind::ALL.into_iter().zip(roles).take(present) {
         sections.push(section(role, sample_device(kind).encode()));
     }
     sections.push(section(

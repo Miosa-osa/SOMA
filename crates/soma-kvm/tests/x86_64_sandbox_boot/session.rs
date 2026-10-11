@@ -223,6 +223,7 @@ pub fn config(
         vcpus,
         contract,
         devices,
+        hotplug: None,
     }
 }
 

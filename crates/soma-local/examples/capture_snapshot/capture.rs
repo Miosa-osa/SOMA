@@ -118,6 +118,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
         vcpus: manifest.shape.vcpu_count,
         contract,
         devices,
+        hotplug: None,
     };
 
     let mut sandbox = SandboxMachine::create(config).map_err(|error| format!("create: {error}"))?;

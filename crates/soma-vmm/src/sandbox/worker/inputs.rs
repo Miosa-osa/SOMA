@@ -60,5 +60,6 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         vcpus,
         contract,
         devices,
+        hotplug: None,
     }
 }

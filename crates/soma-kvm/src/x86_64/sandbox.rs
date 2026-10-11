@@ -9,6 +9,7 @@
 mod config;
 pub(in crate::x86_64) mod evidence;
 mod launch;
+mod memory;
 mod network;
 mod pause;
 pub(in crate::x86_64) mod restored;
@@ -118,11 +119,27 @@ impl SandboxMachine {
         timeline.mark(Milestone::MapRegister);
         machine.configure_platform(InterruptController::InKernel, true, &mut clock)?;
         timeline.mark(Milestone::Platform);
+        // The region is placed and registered before the device that describes it exists, because
+        // the device needs the backing over it and the machine, not the device table, owns that.
+        let hotplug = match config.hotplug {
+            Some(region) => {
+                machine.ram.attach_hotplug(region)?;
+                let ram = machine.ram.hotplug().ok_or_else(|| {
+                    MachineError::invalid(Phase::MapMemory, "the hotplug region was not attached")
+                })?;
+                ram.register(&machine.vm)?;
+                let backing: Box<dyn crate::virtio::RegionBacking + Send> =
+                    Box::new(crate::x86_64::HotplugBacking::new(ram));
+                Some((region.guest_start, region.size, backing))
+            }
+            None => None,
+        };
         let bus = devices::build_bus(
             config.disks,
             config.identity,
             config.devices,
             config.contract,
+            hotplug,
         )?;
         clock.lap(Phase::Devices);
         timeline.mark(Milestone::Devices);

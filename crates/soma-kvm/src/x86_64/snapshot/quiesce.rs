@@ -3,7 +3,7 @@
 //! Each check is a statement about the live devices, not a hope about them: the network link
 //! is down and no frame is buffered, vsock holds no connection, credit, packet, or event, the
 //! entropy device holds no request, and no queue has a driver-posted head that no device has
-//! taken. A capture that cannot prove all of them aborts instead of guessing later.
+//! taken, and the memory device holds nothing plugged. A capture that cannot prove all of them aborts instead of guessing later.
 
 use super::error::SnapshotError;
 use crate::virtio::{GuestMemory, MmioBus, Slot};
@@ -30,6 +30,13 @@ pub(super) fn prove_no_ingress(bus: &MmioBus) -> Result<(), SnapshotError> {
         return Err(SnapshotError::NotQuiescent(
             "the vsock device holds a connection, packet, or event",
         ));
+    }
+    // Plugged memory is not part of a snapshot, so a capture while the guest holds any would
+    // restore a guest whose driver believes it owns blocks the machine no longer has.
+    if let Some(mem) = bus.mem().filter(|mem| !mem.device().is_quiescent()) {
+        return Err(SnapshotError::MemoryPlugged {
+            plugged_bytes: mem.device().plugged_size(),
+        });
     }
     Ok(())
 }
@@ -71,11 +78,12 @@ pub(super) fn drain<M: GuestMemory + ?Sized>(
 /// The receive and event queues are excluded on purpose: the driver posts empty buffers into
 /// them in advance and the device fills them only when the host has something to deliver, so a
 /// nonzero count there is ordinary posted capacity that restore carries forward unchanged.
-const GUEST_DRIVEN: [(Slot, u16); 4] = [
+const GUEST_DRIVEN: [(Slot, u16); 5] = [
     (Slot::Root, 0),
     (Slot::Overlay, 0),
     (Slot::Net, crate::virtio::NET_TX_QUEUE),
     (Slot::Rng, 0),
+    (Slot::Mem, 0),
 ];
 
 /// Proves that no guest-driven queue holds a head the device has not taken.

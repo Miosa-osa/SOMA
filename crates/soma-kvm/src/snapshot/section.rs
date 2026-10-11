@@ -45,13 +45,14 @@ pub enum SectionRole {
     Device2,
     Device3,
     Device4,
+    Device5,
     /// Geometry of the optional hotplug region; present only on a machine that has one.
     HotplugRegion,
     RepairPointMarker,
 }
 
 impl SectionRole {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::VmState,
         Self::Vcpu0,
         Self::Irqchip,
@@ -70,6 +71,7 @@ impl SectionRole {
         Self::Device2,
         Self::Device3,
         Self::Device4,
+        Self::Device5,
         Self::HotplugRegion,
         Self::RepairPointMarker,
     ];
@@ -131,6 +133,7 @@ impl SectionRole {
             Self::Device2 => 0x0012,
             Self::Device3 => 0x0013,
             Self::Device4 => 0x0014,
+            Self::Device5 => 0x0015,
             Self::HotplugRegion => 0x0018,
             Self::RepairPointMarker => 0x0020,
         }
@@ -143,8 +146,9 @@ impl SectionRole {
 
     /// Whether the codec refuses a manifest that lacks this section.
     ///
-    /// The two optional device slots are structurally optional here because a Generation that
-    /// declared neither writable storage nor a network never had those devices to capture. That
+    /// The three optional device slots are structurally optional here because a Generation that
+    /// declared no writable storage, no network, and no resizable memory never had those devices to
+    /// capture. That
     /// is not a weaker check: which slots a manifest must carry is a statement about a
     /// particular Generation rather than about the format, so it is the compatibility check,
     /// which knows the device set, that requires exactly the sections that machine has and
@@ -165,6 +169,7 @@ impl SectionRole {
                 | Self::Vcpu7
                 | Self::Device1
                 | Self::Device2
+                | Self::Device5
                 | Self::HotplugRegion
         )
     }
@@ -178,6 +183,7 @@ impl SectionRole {
             Self::Device2 => Some(2),
             Self::Device3 => Some(3),
             Self::Device4 => Some(4),
+            Self::Device5 => Some(5),
             _ => None,
         }
     }

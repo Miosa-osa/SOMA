@@ -1,4 +1,4 @@
-//! The MMIO bus: checked interval dispatch over the five fixed transports.
+//! The MMIO bus: checked interval dispatch over the six fixed transports.
 //!
 //! The bus owns the transports and routes reads, writes, notifications,
 //! inbound delivery, and snapshot records by slot. It performs no KVM call;
@@ -10,6 +10,7 @@ pub mod slots;
 pub mod table;
 
 use crate::virtio::devices::block::{BlockDevice, BlockRole};
+use crate::virtio::devices::mem::MemDevice;
 use crate::virtio::devices::net::NetDevice;
 use crate::virtio::devices::rng::RngDevice;
 use crate::virtio::devices::vsock::VsockDevice;
@@ -21,22 +22,23 @@ pub use table::{DeviceSet, FIRST_GSI, MMIO_WINDOW_BASE, SLOT_COUNT, Slot, kernel
 
 /// The device models in slot order, before they are bound to transports.
 ///
-/// The two optional slots are `None` when the Generation declared neither the capability they
-/// carry, which is what keeps a read-only or network-free machine from paying for a device it
-/// would never use.
+/// The three optional slots are `None` when the Generation declared none of the capability they
+/// carry, which is what keeps a read-only, network-free, or fixed-size machine from paying for a
+/// device it would never use.
 pub struct BusDevices {
     pub root: BlockDevice,
     pub overlay: Option<BlockDevice>,
     pub net: Option<NetDevice>,
     pub vsock: VsockDevice,
     pub rng: RngDevice,
+    pub mem: Option<MemDevice>,
 }
 
 impl BusDevices {
     /// The set these models make up.
     #[must_use]
     pub const fn device_set(&self) -> DeviceSet {
-        DeviceSet::new(self.overlay.is_some(), self.net.is_some())
+        DeviceSet::new(self.overlay.is_some(), self.net.is_some()).with_mem(self.mem.is_some())
     }
 }
 
@@ -47,6 +49,7 @@ pub struct MmioBus {
     net: Option<MmioTransport<NetDevice>>,
     vsock: MmioTransport<VsockDevice>,
     rng: MmioTransport<RngDevice>,
+    mem: Option<MmioTransport<MemDevice>>,
 }
 
 /// Runs `$body` against the slot's transport, or yields `None` when the slot is absent.
@@ -71,6 +74,7 @@ macro_rules! with_slot {
                 let $t = &mut $bus.rng;
                 Some($body)
             }
+            Slot::Mem => $bus.mem.as_mut().map(|$t| $body),
         }
     };
 }
@@ -98,13 +102,17 @@ impl MmioBus {
                 .transpose()?,
             vsock: transport(Slot::Vsock, devices.vsock)?,
             rng: transport(Slot::Rng, devices.rng)?,
+            mem: devices
+                .mem
+                .map(|device| transport(Slot::Mem, device))
+                .transpose()?,
         })
     }
 
     /// Which optional slots this bus actually carries.
     #[must_use]
     pub const fn device_set(&self) -> DeviceSet {
-        DeviceSet::new(self.overlay.is_some(), self.net.is_some())
+        DeviceSet::new(self.overlay.is_some(), self.net.is_some()).with_mem(self.mem.is_some())
     }
 
     /// Reads from a transport register or configuration byte range.
@@ -157,6 +165,7 @@ impl MmioBus {
             Slot::Net => self.net.as_ref().map_or(0, MmioTransport::interrupt_status),
             Slot::Vsock => self.vsock.interrupt_status(),
             Slot::Rng => self.rng.interrupt_status(),
+            Slot::Mem => self.mem.as_ref().map_or(0, MmioTransport::interrupt_status),
         }
     }
 
@@ -217,6 +226,18 @@ impl MmioBus {
     #[must_use]
     pub const fn rng(&self) -> &MmioTransport<RngDevice> {
         &self.rng
+    }
+
+    /// The memory device's transport, when the machine can be resized.
+    #[must_use]
+    pub const fn mem(&self) -> Option<&MmioTransport<MemDevice>> {
+        self.mem.as_ref()
+    }
+
+    /// The memory device's transport, so the host can raise or lower the requested size and
+    /// signal the configuration change.
+    pub const fn mem_mut(&mut self) -> Option<&mut MmioTransport<MemDevice>> {
+        self.mem.as_mut()
     }
 }
 
