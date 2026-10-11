@@ -10,6 +10,7 @@ Usage:
   judge.py instance <envelope.json>   the launched machine's 32 character identity
   judge.py stdout   <envelope.json>   the guest command's decoded stdout, when it exited zero
   judge.py memory   <envelope.json>   "<state> <plugged_mb> <total_mb> <booted_mb> <ceiling_mb>"
+  judge.py hostpid  <envelope.json>   the process that holds the machine, from a resize result
   judge.py meminfo  <field>           reads /proc/meminfo text on stdin, prints that field in KiB
 """
 
@@ -24,7 +25,7 @@ def fail(reason: str) -> "None":
     raise SystemExit(1)
 
 
-def envelope(path: str) -> "dict":
+def envelope(path: str, lenient: bool = False) -> "dict":
     try:
         with open(path, "r", encoding="utf-8") as handle:
             lines = [line for line in handle.read().splitlines() if line.strip()]
@@ -38,7 +39,9 @@ def envelope(path: str) -> "dict":
         fail(f"the last line is not an envelope: {error}")
     if record.get("schema") != "soma.cli.v1":
         fail(f"unexpected envelope schema: {record.get('schema')}")
-    if record.get("status") != "ok":
+    # A resize that applied nothing exits 69 with status "error" and the numbers still in
+    # `result`: the numbers are the answer, so a reader that wants them accepts that.
+    if record.get("status") != "ok" and not (lenient and record.get("result")):
         fail(f"the command reported {record.get('status')}: {json.dumps(record.get('error'))[:120]}")
     return record.get("result") or {}
 
@@ -61,8 +64,15 @@ def stdout(path: str) -> str:
     return base64.b64decode(stream.get("data", "")).decode("utf-8", "replace")
 
 
+def hostpid(path: str) -> str:
+    pid = envelope(path, lenient=True).get("host_pid")
+    if not isinstance(pid, int) or pid <= 1:
+        fail(f"the resize result carries no usable host_pid: {pid!r}")
+    return str(pid)
+
+
 def memory(path: str) -> str:
-    dimension = envelope(path).get("memory")
+    dimension = envelope(path, lenient=True).get("memory")
     if not isinstance(dimension, dict):
         fail("the resize result has no memory dimension")
     needed = ("state", "plugged_mb", "total_mb", "booted_mb", "ceiling_mb")
@@ -80,10 +90,16 @@ def meminfo(field: str) -> str:
 
 
 def main() -> "None":
-    if len(sys.argv) != 3 or sys.argv[1] not in ("instance", "stdout", "memory", "meminfo"):
-        fail("usage: judge.py instance|stdout|memory <envelope.json> | meminfo <field>")
+    if len(sys.argv) != 3 or sys.argv[1] not in ("instance", "stdout", "memory", "hostpid", "meminfo"):
+        fail("usage: judge.py instance|stdout|memory|hostpid <envelope.json> | meminfo <field>")
     command, argument = sys.argv[1], sys.argv[2]
-    handler = {"instance": instance, "stdout": stdout, "memory": memory, "meminfo": meminfo}
+    handler = {
+        "instance": instance,
+        "stdout": stdout,
+        "memory": memory,
+        "hostpid": hostpid,
+        "meminfo": meminfo,
+    }
     sys.stdout.write(handler[command](argument).rstrip("\n") + "\n")
 
 

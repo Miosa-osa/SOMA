@@ -17,9 +17,11 @@
 #   bounds        past the ceiling and below the boot size change nothing they should not
 #   cleanup       the machine is destroyed and no process naming it is left
 #
-# Resizing uses the command line verb `soma machine resize --instance-id ID --memory-mib N`,
-# which prints the usual envelope with `result.memory`. If the verb is named differently, pass
-# --resize-cmd with {id} and {mib} placeholders. It never writes to a shared store.
+# Resizing uses `soma machine resize --instance-id ID --memory-mib N`, whose envelope carries
+# `result.memory` and `result.host_pid`; exit 69 means nothing was applied and the body is still
+# read. Pass --resize-cmd with {id} and {mib} placeholders to use another command line. Host
+# memory is the jail cgroup leaf's memory.current when SOMA_JAIL_CGROUP_ROOT is set and the leaf
+# exists, otherwise the host process's resident size. It never writes to a shared store.
 #
 # Usage:
 #   live-memory-resize.sh [--image REF] [--work DIR] [--fs-tools DIR] [--boot-mib N]
@@ -42,6 +44,7 @@ IMAGE="node:22"
 WORK=""
 FS_TOOLS="$REPO_ROOT/fs-tools"
 BOOT_MIB=1024
+VCPUS=2
 PLUG_MIB=2048
 TOUCH_MIB=1536
 MIN_RETURN_MIB=1024
@@ -133,11 +136,10 @@ stage_capture_snapshot() {
 }
 
 stage_launch() {
-    soma machine launch --memory-mib "$BOOT_MIB" "$IMAGE" >"$WORK/launch.json" 2>"$WORK/launch.err" \
+    soma machine launch --vcpus "$VCPUS" --memory-mib "$BOOT_MIB" "$IMAGE" >"$WORK/launch.json" 2>"$WORK/launch.err" \
         || { DETAIL="launch: $(tail -c 160 "$WORK/launch.err")"; return 1; }
     INSTANCE="$(python3 "$JUDGE" instance "$WORK/launch.json")" || { DETAIL="$INSTANCE"; return 1; }
-    HOST_PID="$(host_pid "$INSTANCE" "$STATE_ROOT")"
-    [[ -n "$HOST_PID" ]] || { DETAIL="no process hosts machine $INSTANCE"; return 1; }
+    HOST_PID="$(host_pid "$VCPUS")" || { DETAIL="no host_pid: $HOST_PID"; return 1; }
     MEMTOTAL0="$(guest_memtotal_kib)" || { DETAIL="MemTotal unreadable: $MEMTOTAL0"; return 1; }
     RSS0="$(host_rss_kib "$HOST_PID")"
     DETAIL="instance=${INSTANCE:0:8} pid=$HOST_PID MemTotal=$((MEMTOTAL0 / 1024))MiB host_rss=$((RSS0 / 1024))MiB"
