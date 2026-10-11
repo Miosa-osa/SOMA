@@ -25,6 +25,8 @@ const HOSTNAME_PREFIX: &str = "soma-";
 
 /// Process state, never a workload, so its 16 MiB has never needed to move.
 const RUN_DIRECTORY: &str = "/run";
+/// The agent's directory under `/run`.
+const AGENT_RUN_DIRECTORY: &str = "/run/soma";
 /// The options `/run` is mounted with.
 const RUN_OPTIONS: &str = "mode=0755,size=16m";
 /// The shared scratch filesystem, where a workload writes its workspace.
@@ -107,6 +109,11 @@ pub fn repair(
     // `/run` is a tmpfs either way: process state, never a workload, and it is what gives a
     // read-only sandbox a writable `/run` at all.
     reset_session_directory(RUN_DIRECTORY, RUN_OPTIONS)?;
+    // The agent's own directory under `/run`, where a command can name the processes it means to
+    // leave behind (see `survivors`). Its presence is also how a command learns it is running
+    // under this agent, whatever PID 1's name happens to be.
+    fs::create_dir_all(AGENT_RUN_DIRECTORY)
+        .map_err(|error| IdentityError::SessionState(errno(&error)))?;
     // `/tmp` is where a workload writes its workspace, so where it lives is a sizing decision
     // rather than a session one. See [`scratch_on_disk`].
     if scratch_on_disk(declared.overlay, tuning::total_memory_bytes()) {
