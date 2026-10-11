@@ -244,11 +244,20 @@ fn the_vcpu_section_set_must_match_the_certified_count() {
     );
 }
 
-fn with_hotplug(geometry: crate::memory_layout::HotplugGeometry) -> Manifest {
+fn region(slots: u64) -> crate::memory_layout::HotplugRegion {
+    use crate::memory_layout::{GuestLayout, HOTPLUG_ALIGN_BYTES, HotplugRegion};
+    HotplugRegion::new(
+        GuestLayout::new(MEMORY_BYTES).unwrap(),
+        slots * HOTPLUG_ALIGN_BYTES,
+    )
+    .unwrap()
+}
+
+fn with_hotplug(region: crate::memory_layout::HotplugRegion) -> Manifest {
     let base = sample_manifest();
     let mut sections = base.sections().to_vec();
     let marker = sections.pop().unwrap();
-    sections.push(crate::snapshot::hotplug::section(geometry).unwrap());
+    sections.push(crate::snapshot::hotplug::section(region).unwrap());
     sections.push(marker);
     Manifest::new(base.header().clone(), sections).unwrap()
 }
@@ -265,9 +274,7 @@ fn a_machine_without_a_region_encodes_and_checks_exactly_as_before() {
 #[test]
 fn the_hotplug_region_must_match_the_declared_geometry_exactly() {
     use super::check_hotplug;
-    use crate::memory_layout::{HOTPLUG_SLOT_BYTES, HotplugGeometry};
-    let four = HotplugGeometry::new(4 * HOTPLUG_SLOT_BYTES).unwrap();
-    let eight = HotplugGeometry::new(8 * HOTPLUG_SLOT_BYTES).unwrap();
+    let (four, eight) = (region(4), region(8));
     let manifest = with_hotplug(four);
 
     assert_eq!(check_hotplug(Some(four), &manifest), Ok(()));
@@ -279,21 +286,21 @@ fn the_hotplug_region_must_match_the_declared_geometry_exactly() {
     assert_eq!(
         check_hotplug(Some(eight), &manifest),
         Err(Incompatibility::HotplugRegion {
-            expected: Some(eight.size()),
-            actual: Some(four.size()),
+            expected: Some(eight),
+            actual: Some(four),
         })
     );
     assert_eq!(
         check_hotplug(None, &manifest),
         Err(Incompatibility::HotplugRegion {
             expected: None,
-            actual: Some(four.size()),
+            actual: Some(four),
         })
     );
     assert_eq!(
         check_hotplug(Some(four), &sample_manifest()),
         Err(Incompatibility::HotplugRegion {
-            expected: Some(four.size()),
+            expected: Some(four),
             actual: None,
         })
     );

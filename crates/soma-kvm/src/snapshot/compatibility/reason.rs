@@ -2,6 +2,7 @@
 
 use std::{error::Error, fmt};
 
+use crate::memory_layout::HotplugRegion;
 use crate::snapshot::{
     Digest,
     device_state::DeviceStateError,
@@ -78,11 +79,11 @@ pub enum Incompatibility {
         expected: u64,
         actual: u64,
     },
-    /// The hotplug region the Generation declared is not the one the snapshot carries; a size
-    /// of `None` means no region.
+    /// The hotplug region the Generation declared is not the one the snapshot carries; `None` means
+    /// no region.
     HotplugRegion {
-        expected: Option<u64>,
-        actual: Option<u64>,
+        expected: Option<HotplugRegion>,
+        actual: Option<HotplugRegion>,
     },
     MalformedHotplug(HotplugRecordError),
 }

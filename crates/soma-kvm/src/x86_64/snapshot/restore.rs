@@ -80,8 +80,8 @@ pub struct RestoreRequest {
     /// The assigned network bundle, when this Instance was given one.
     pub network: Option<NetworkAttachment>,
     /// The hotplug region the Generation declared, or `None` for a machine without one; a
-    /// snapshot that disagrees is refused. The region always restores empty.
-    pub hotplug: Option<crate::memory_layout::HotplugGeometry>,
+    /// snapshot that disagrees is refused. The region always restores empty, and its slot is registered with the rest.
+    pub hotplug: Option<crate::memory_layout::HotplugRegion>,
 }
 
 /// What the restored machine is, taken from the manifest rather than from the caller.
@@ -198,8 +198,8 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
 
     let mut ram = guest_memory::map(objects.memory(), &manifest, &mut timeline)?;
     // The region is never in the memory object, so it restores empty from its geometry alone.
-    if let Some(geometry) = hotplug {
-        ram.attach_hotplug(geometry)?;
+    if let Some(region) = hotplug {
+        ram.attach_hotplug(region)?;
     }
     sequence.complete(RestoreStep::MapMemoryPrivately)?;
     timeline.mark(Milestone::MapMemory);

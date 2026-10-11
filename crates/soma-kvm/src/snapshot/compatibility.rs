@@ -80,13 +80,15 @@ pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibil
 ///
 /// A machine without a region carries no section and a machine with one carries exactly one, so
 /// a snapshot can neither gain a region on restore nor lose the one the guest was built around.
-/// Only the geometry is compared: the plugged blocks are never captured.
+/// Only the geometry is compared: the plugged blocks are never captured. The caller derives
+/// the expected region from the Generation's boot size and ceiling, so a snapshot whose region
+/// starts or ends elsewhere is refused.
 ///
 /// # Errors
 ///
 /// Returns [`Incompatibility::HotplugRegion`] or [`Incompatibility::MalformedHotplug`].
 pub fn check_hotplug(
-    expected: Option<crate::memory_layout::HotplugGeometry>,
+    expected: Option<crate::memory_layout::HotplugRegion>,
     manifest: &Manifest,
 ) -> Result<(), Incompatibility> {
     let actual = manifest
@@ -97,10 +99,7 @@ pub fn check_hotplug(
     if expected == actual {
         Ok(())
     } else {
-        Err(Incompatibility::HotplugRegion {
-            expected: expected.map(crate::memory_layout::HotplugGeometry::size),
-            actual: actual.map(crate::memory_layout::HotplugGeometry::size),
-        })
+        Err(Incompatibility::HotplugRegion { expected, actual })
     }
 }
 

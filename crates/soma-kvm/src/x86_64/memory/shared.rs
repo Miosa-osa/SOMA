@@ -45,7 +45,7 @@ impl GuestMemory for SharedRam {
             || self
                 .hotplug
                 .as_ref()
-                .is_some_and(|region| region.is_plugged(addr.raw(), len))
+                .is_some_and(|ram| ram.region().contains(addr.raw(), len))
         {
             Ok(())
         } else {

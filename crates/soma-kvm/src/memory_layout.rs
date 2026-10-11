@@ -20,8 +20,8 @@ mod hotplug;
 mod region;
 
 pub use hotplug::{
-    HOTPLUG_BLOCK_BYTES, HOTPLUG_RAM_SLOT, HOTPLUG_REGION_START, HOTPLUG_SLOT_BYTES, HotplugError,
-    HotplugGeometry, MAX_HOTPLUG_BYTES,
+    HOTPLUG_ALIGN_BYTES, HOTPLUG_MIN_BLOCK_BYTES, HOTPLUG_RAM_SLOT, HotplugError, HotplugRegion,
+    MAX_HOTPLUG_BYTES,
 };
 pub use region::{MemoryKind, MemoryMapEntry, RamRegion};
 

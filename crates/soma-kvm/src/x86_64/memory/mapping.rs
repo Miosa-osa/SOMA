@@ -168,6 +168,36 @@ impl RamMapping {
         }
     }
 
+    /// Bytes of the mapping currently resident in host memory, counted a gigabyte at a time.
+    #[allow(unsafe_code)]
+    pub(crate) fn resident_bytes(&self) -> Result<u64, MachineError> {
+        const WINDOW: usize = 1 << 30;
+        let page = usize::try_from(crate::memory_layout::PAGE_SIZE).unwrap_or(4096);
+        let mut resident = 0_u64;
+        let mut start = 0_usize;
+        let mut vec = vec![0_u8; WINDOW.min(self.len).div_ceil(page)];
+        while start < self.len {
+            let span = WINDOW.min(self.len - start);
+            // SAFETY: `[start, start + span)` lies inside the live mapping, `start` is a
+            // multiple of the window and so of the page size, and `vec` holds one byte per
+            // page of the span.
+            let rc = unsafe {
+                libc::mincore(
+                    self.base.as_ptr().add(start).cast(),
+                    span,
+                    vec.as_mut_ptr().cast(),
+                )
+            };
+            if rc != 0 {
+                return Err(MachineError::last_os(Phase::MapMemory));
+            }
+            let pages = span.div_ceil(page);
+            resident += vec[..pages].iter().filter(|byte| **byte & 1 == 1).count() as u64;
+            start += span;
+        }
+        Ok(resident * crate::memory_layout::PAGE_SIZE)
+    }
+
     /// Registers the whole mapping as KVM user-memory `slot` at `guest_phys_addr`.
     #[allow(unsafe_code)]
     pub(crate) fn register(

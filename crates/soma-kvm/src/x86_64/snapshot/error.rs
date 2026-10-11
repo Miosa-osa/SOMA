@@ -84,8 +84,6 @@ pub enum SnapshotError {
     Incompatible(Incompatibility),
     /// A required section is absent from the manifest.
     MissingSection(&'static str),
-    /// The machine has hotplugged memory plugged, which a capture cannot carry.
-    HotplugPlugged { plugged_bytes: u64 },
     /// The repair-point marker is absent or does not describe a pre-launch capture.
     RepairPointMarker,
     /// An artifact file operation failed.
@@ -153,10 +151,6 @@ impl fmt::Display for SnapshotError {
             Self::Mapping(error) => write!(formatter, "{error}"),
             Self::Incompatible(reason) => write!(formatter, "incompatible snapshot: {reason}"),
             Self::MissingSection(role) => write!(formatter, "section {role} is absent"),
-            Self::HotplugPlugged { plugged_bytes } => write!(
-                formatter,
-                "{plugged_bytes} bytes of hotplugged memory are plugged; unplug it before capture"
-            ),
             Self::RepairPointMarker => {
                 formatter.write_str("the snapshot does not carry a pre-launch repair-point marker")
             }

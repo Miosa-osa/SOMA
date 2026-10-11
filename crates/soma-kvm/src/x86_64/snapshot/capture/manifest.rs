@@ -28,7 +28,7 @@ pub(super) struct Parts<'a> {
     pub(super) device_set: crate::virtio::DeviceSet,
     pub(super) memory: MemoryDescriptor,
     /// Geometry of the hotplug region, for a machine that has one.
-    pub(super) hotplug: Option<crate::memory_layout::HotplugGeometry>,
+    pub(super) hotplug: Option<crate::memory_layout::HotplugRegion>,
 }
 
 pub(super) fn build(
@@ -88,8 +88,8 @@ pub(super) fn build(
         let role = device::role(*slot).ok_or(SnapshotError::DeviceStateNotCanonical(*slot))?;
         sections.push(Section::new(role, state.encode())?);
     }
-    if let Some(geometry) = parts.hotplug {
-        sections.push(crate::snapshot::hotplug::section(geometry)?);
+    if let Some(region) = parts.hotplug {
+        sections.push(crate::snapshot::hotplug::section(region)?);
     }
     sections.push(Section::new(
         SectionRole::RepairPointMarker,

@@ -12,9 +12,7 @@ use super::{
     section::{Section, SectionError, SectionRole},
     wire::{Reader, Writer},
 };
-use crate::memory_layout::{
-    HOTPLUG_BLOCK_BYTES, HOTPLUG_REGION_START, HotplugError, HotplugGeometry,
-};
+use crate::memory_layout::{HotplugError, HotplugRegion};
 
 /// Version of the record encoding, carried inside the payload.
 pub const RECORD_VERSION: u16 = 1;
@@ -23,10 +21,6 @@ pub const RECORD_VERSION: u16 = 1;
 pub enum HotplugRecordError {
     Wire(WireError),
     UnsupportedVersion(u16),
-    /// The region does not start where this implementation places it.
-    GuestStart(u64),
-    /// The block size is not the fixed 2 MiB.
-    BlockBytes(u32),
     Geometry(HotplugError),
 }
 
@@ -37,10 +31,6 @@ impl fmt::Display for HotplugRecordError {
             Self::UnsupportedVersion(version) => {
                 write!(formatter, "unsupported hotplug record version {version}")
             }
-            Self::GuestStart(start) => {
-                write!(formatter, "hotplug region starts at unsupported {start:#x}")
-            }
-            Self::BlockBytes(bytes) => write!(formatter, "hotplug block size {bytes} is not fixed"),
             Self::Geometry(error) => write!(formatter, "{error}"),
         }
     }
@@ -56,13 +46,11 @@ impl From<WireError> for HotplugRecordError {
 
 /// Encodes the geometry of one region.
 #[must_use]
-pub fn encode(geometry: HotplugGeometry) -> Vec<u8> {
-    let mut writer = Writer::with_capacity(22);
+pub fn encode(region: HotplugRegion) -> Vec<u8> {
+    let mut writer = Writer::with_capacity(18);
     writer.put_u16(RECORD_VERSION);
-    writer.put_u64(geometry.guest_start());
-    writer.put_u64(geometry.size());
-    // The constant is 2 MiB, which fits `u32`.
-    writer.put_u32(u32::try_from(HOTPLUG_BLOCK_BYTES).unwrap_or(u32::MAX));
+    writer.put_u64(region.guest_start);
+    writer.put_u64(region.size);
     writer.finish()
 }
 
@@ -71,8 +59,8 @@ pub fn encode(geometry: HotplugGeometry) -> Vec<u8> {
 /// # Errors
 ///
 /// Returns [`SectionError`] when the payload exceeds the section bound, which it cannot.
-pub fn section(geometry: HotplugGeometry) -> Result<Section, SectionError> {
-    Section::new(SectionRole::HotplugRegion, encode(geometry))
+pub fn section(region: HotplugRegion) -> Result<Section, SectionError> {
+    Section::new(SectionRole::HotplugRegion, encode(region))
 }
 
 /// Decodes and validates one record.
@@ -80,7 +68,7 @@ pub fn section(geometry: HotplugGeometry) -> Result<Section, SectionError> {
 /// # Errors
 ///
 /// Returns a typed [`HotplugRecordError`] for a malformed, unsupported, or trailing record.
-pub fn decode(bytes: &[u8]) -> Result<HotplugGeometry, HotplugRecordError> {
+pub fn decode(bytes: &[u8]) -> Result<HotplugRegion, HotplugRecordError> {
     let mut reader = Reader::new(bytes);
     let version = reader.u16()?;
     if version != RECORD_VERSION {
@@ -88,37 +76,34 @@ pub fn decode(bytes: &[u8]) -> Result<HotplugGeometry, HotplugRecordError> {
     }
     let guest_start = reader.u64()?;
     let size = reader.u64()?;
-    let block_bytes = reader.u32()?;
     reader.finish()?;
-    if guest_start != HOTPLUG_REGION_START {
-        return Err(HotplugRecordError::GuestStart(guest_start));
-    }
-    if u64::from(block_bytes) != HOTPLUG_BLOCK_BYTES {
-        return Err(HotplugRecordError::BlockBytes(block_bytes));
-    }
-    HotplugGeometry::new(size).map_err(HotplugRecordError::Geometry)
+    HotplugRegion::from_parts(guest_start, size).map_err(HotplugRecordError::Geometry)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory_layout::HOTPLUG_SLOT_BYTES;
+    use crate::memory_layout::{GuestLayout, HOTPLUG_ALIGN_BYTES, MIN_RAM_BYTES};
 
-    fn geometry() -> HotplugGeometry {
-        HotplugGeometry::new(4 * HOTPLUG_SLOT_BYTES).unwrap()
+    fn region() -> HotplugRegion {
+        HotplugRegion::new(
+            GuestLayout::new(MIN_RAM_BYTES).unwrap(),
+            4 * HOTPLUG_ALIGN_BYTES,
+        )
+        .unwrap()
     }
 
     #[test]
     fn round_trips_geometry_only() {
-        let bytes = encode(geometry());
-        // Geometry only: version, start, size, block size - no plugged-block state.
-        assert_eq!(bytes.len(), 2 + 8 + 8 + 4);
-        assert_eq!(decode(&bytes), Ok(geometry()));
+        let bytes = encode(region());
+        // Geometry only: version, start, size - no plugged-block state.
+        assert_eq!(bytes.len(), 2 + 8 + 8);
+        assert_eq!(decode(&bytes), Ok(region()));
     }
 
     #[test]
     fn rejects_every_other_shape() {
-        let good = encode(geometry());
+        let good = encode(region());
         let mut version = good.clone();
         version[1] = 2;
         assert_eq!(
@@ -130,14 +115,7 @@ mod tests {
         start[9] ^= 1;
         assert!(matches!(
             decode(&start),
-            Err(HotplugRecordError::GuestStart(_))
-        ));
-
-        let mut block = good.clone();
-        block[19] ^= 1;
-        assert!(matches!(
-            decode(&block),
-            Err(HotplugRecordError::BlockBytes(_))
+            Err(HotplugRecordError::Geometry(_))
         ));
 
         let mut size = good.clone();
@@ -171,8 +149,8 @@ mod tests {
         assert!(SectionRole::Device4.code() < SectionRole::HotplugRegion.code());
         assert!(SectionRole::HotplugRegion.code() < SectionRole::RepairPointMarker.code());
         assert!(!SectionRole::HotplugRegion.is_required());
-        let section = section(geometry()).unwrap();
+        let section = section(region()).unwrap();
         assert_eq!(section.role(), SectionRole::HotplugRegion);
-        assert_eq!(decode(section.payload()), Ok(geometry()));
+        assert_eq!(decode(section.payload()), Ok(region()));
     }
 }

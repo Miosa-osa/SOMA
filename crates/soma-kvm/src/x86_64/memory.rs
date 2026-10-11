@@ -19,7 +19,7 @@ mod shared;
 
 pub(crate) use mapping::RamMapping;
 
-pub use hotplug::{HotplugRam, HotplugRamError};
+pub use hotplug::{HotplugBacking, HotplugRam};
 pub use shared::SharedRam;
 
 /// One private, lazily populated guest RAM mapping registered as KVM memory slot 0 at GPA 0.
@@ -67,9 +67,9 @@ impl GuestRam {
     /// Restore calls this too, so a restored machine always starts with nothing plugged.
     pub(crate) fn attach_hotplug(
         &mut self,
-        geometry: crate::memory_layout::HotplugGeometry,
+        region: crate::memory_layout::HotplugRegion,
     ) -> Result<(), MachineError> {
-        self.hotplug = Some(Arc::new(HotplugRam::map(geometry)?));
+        self.hotplug = Some(Arc::new(HotplugRam::map(region)?));
         Ok(())
     }
 
