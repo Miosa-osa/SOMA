@@ -11,6 +11,7 @@ mod control_plane;
 mod facade;
 mod forwarding;
 mod lifecycle;
+mod resources;
 mod resync;
 mod stale;
 mod support;

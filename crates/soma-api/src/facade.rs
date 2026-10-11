@@ -6,7 +6,7 @@ use soma::{
 
 use std::os::unix::net::UnixStream;
 
-pub use soma_local::TunnelFailure;
+pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
 
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -159,5 +159,20 @@ pub trait SandboxFacade {
         _port: u16,
     ) -> Result<UnixStream, TunnelFailure> {
         Err(TunnelFailure::Unavailable)
+    }
+
+    /// Changes the CPU and memory of one hosted sandbox live, and reports what is now true.
+    /// An empty request changes nothing and reports the current values.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed resize failure; a machine that cannot resize live is an outcome with
+    /// `Unsupported` dimensions, not a failure.
+    fn resize(
+        &mut self,
+        _instance_id: &InstanceId,
+        _request: ResizeRequest,
+    ) -> Result<ResizeOutcome, ResizeFailure> {
+        Err(ResizeFailure::Unavailable)
     }
 }

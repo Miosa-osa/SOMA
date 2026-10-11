@@ -156,6 +156,20 @@ impl LocalRuntime {
         crate::tunnel::tunnel_machine(directory, instance, port)
     }
 
+    /// Changes the CPU and memory of a hosted Machine live (TEMPORARY stand-in for soma-resize's
+    /// real implementation; dropped when that branch lands).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ResizeFailure`] when the Machine cannot be reached.
+    pub fn resize_machine(
+        &self,
+        _instance: &soma::InstanceId,
+        _request: crate::ResizeRequest,
+    ) -> Result<crate::ResizeOutcome, crate::ResizeFailure> {
+        Err(crate::ResizeFailure::Unavailable)
+    }
+
     /// Gracefully attempts to stop and release one managed Machine.
     ///
     /// # Errors

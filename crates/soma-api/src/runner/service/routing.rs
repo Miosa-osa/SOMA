@@ -74,6 +74,16 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
         (&http::Method::DELETE, ["", id]) if !id.is_empty() => Route::Destroy(id),
         (&http::Method::PATCH, ["", id]) if !id.is_empty() => Route::Extend(id),
         (&http::Method::GET, ["", id]) if !id.is_empty() => forward(id, Method::Get),
+        (&http::Method::GET | &http::Method::PATCH, ["", id, "resources"]) if !id.is_empty() => {
+            forward(
+                id,
+                if method == http::Method::GET {
+                    Method::Get
+                } else {
+                    Method::Patch
+                },
+            )
+        }
         (&http::Method::POST, ["", id, "stop"]) if !id.is_empty() => forward(id, Method::Post),
         (&http::Method::POST, ["", id, "filesystem" | "terminal", operation])
             if !id.is_empty() && !operation.is_empty() =>
