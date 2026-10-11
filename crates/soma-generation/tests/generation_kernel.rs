@@ -131,3 +131,65 @@ fn kernel_config_requirements_are_enforced() {
         CompileErrorKind::InvalidInput
     );
 }
+
+#[test]
+fn memory_hotplug_is_admitted_only_as_live_resize() {
+    let good = kernel_config();
+    // A kernel without hotplug verifies as it always did.
+    assert!(verify_kernel_config(good.as_bytes()).is_ok());
+
+    let resize = format!(
+        "{good}CONFIG_MEMORY_HOTPLUG=y\nCONFIG_MEMORY_HOTREMOVE=y\nCONFIG_MIGRATION=y\nCONFIG_VIRTIO_MEM=y\n"
+    );
+    let verified = verify_kernel_config(resize.as_bytes()).unwrap();
+    assert_eq!(verified.digest, Sha256Digest::of(resize.as_bytes()));
+
+    // Hotplug with any of its companions missing is refused: it would add a surface with no
+    // device to use it or no way to give the memory back.
+    for missing in [
+        "CONFIG_MEMORY_HOTREMOVE",
+        "CONFIG_MIGRATION",
+        "CONFIG_VIRTIO_MEM",
+    ] {
+        let partial = resize.replace(&format!("{missing}=y\n"), "");
+        assert_eq!(
+            verify_kernel_config(partial.as_bytes()).unwrap_err().kind(),
+            CompileErrorKind::Unsupported,
+            "hotplug without {missing} must be refused"
+        );
+    }
+    let hotplug_alone = format!("{good}CONFIG_MEMORY_HOTPLUG=y\n");
+    assert_eq!(
+        verify_kernel_config(hotplug_alone.as_bytes())
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::Unsupported
+    );
+
+    // The resize kernel is still a no-PCI, no-ACPI kernel.
+    let with_pci = format!("{resize}CONFIG_PCI=y\n");
+    assert_eq!(
+        verify_kernel_config(with_pci.as_bytes())
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::Unsupported
+    );
+    let with_balloon = format!("{resize}CONFIG_VIRTIO_BALLOON=y\n");
+    assert_eq!(
+        verify_kernel_config(with_balloon.as_bytes())
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn the_pinned_kernel_configs_verify() {
+    // The real configs this repository pins, v1 and large, are the ones a Generation is built
+    // from, so they must pass the same check a compile applies.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../kernel");
+    for name in ["config-x86_64-soma-v1", "config-x86_64-soma-large"] {
+        let text = std::fs::read(root.join(name)).unwrap();
+        verify_kernel_config(&text).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+    }
+}

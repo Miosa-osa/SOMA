@@ -33,6 +33,9 @@ pub const REQUIRED_BUILTIN: &[&str] = &[
 ];
 
 /// Facilities that must be absent or disabled for Generation profile v1.
+///
+/// `CONFIG_MEMORY_HOTPLUG` is not in this list: it is admitted only together with the live-resize
+/// facilities, see [`MEMORY_HOTPLUG`].
 pub const FORBIDDEN: &[&str] = &[
     "CONFIG_MODULES",
     "CONFIG_PCI",
@@ -46,7 +49,26 @@ pub const FORBIDDEN: &[&str] = &[
     "CONFIG_VIRTIO_BALLOON",
     "CONFIG_VIRTIO_PCI",
     "CONFIG_HOTPLUG_PCI",
-    "CONFIG_MEMORY_HOTPLUG",
+];
+
+/// Memory hotplug is excluded from profile v1 and admitted only as live memory resize.
+///
+/// Hotplug is a kernel facility with a large surface (a hotplug source, onlining, migration), so
+/// it is not allowed on its own. A kernel that enables it must be the one live-resize kernel:
+/// the only hotplug source is the virtio-mem device over the existing virtio-mmio transport
+/// (no ACPI, no PCI, both stay forbidden), memory can be handed back (hot-remove), and pages can
+/// be moved out of the blocks being returned (migration). Anything less is a hotplug kernel with
+/// no way to use it or no way to give it back, and is refused.
+///
+/// A kernel without `CONFIG_MEMORY_HOTPLUG` is checked exactly as before, so every Generation
+/// compiled before live resize still verifies unchanged.
+pub const MEMORY_HOTPLUG: &str = "CONFIG_MEMORY_HOTPLUG";
+
+/// Facilities that must accompany [`MEMORY_HOTPLUG`].
+pub const LIVE_RESIZE_REQUIRED: &[&str] = &[
+    "CONFIG_MEMORY_HOTREMOVE",
+    "CONFIG_MIGRATION",
+    "CONFIG_VIRTIO_MEM",
 ];
 
 const PHYSICAL_START: &str = "CONFIG_PHYSICAL_START";
@@ -103,6 +125,13 @@ pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, Compile
     for forbidden in FORBIDDEN {
         if enabled.contains(forbidden) {
             return Err(unsupported());
+        }
+    }
+    if enabled.contains(&MEMORY_HOTPLUG) {
+        for required in LIVE_RESIZE_REQUIRED {
+            if !enabled.contains(required) {
+                return Err(unsupported());
+            }
         }
     }
     if physical_start != Some(REQUIRED_PHYSICAL_START) {
