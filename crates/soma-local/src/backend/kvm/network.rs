@@ -15,7 +15,7 @@
 mod intent;
 mod lease;
 
-use soma::{BackendFailureKind, EgressPolicy, NetworkPolicy};
+use soma::{BackendFailureKind, DnsPolicy, EgressPolicy, NetworkPolicy};
 use soma_guest::{ActivationReceipt, LaunchNetwork};
 use soma_kvm::x86_64::NetworkAttachment;
 use soma_netd::ClientError;
@@ -50,16 +50,39 @@ impl Egress {
         configuration: Option<&BrokerConfiguration>,
         policy: &NetworkPolicy,
         identity: LaunchIdentity,
+        has_device: bool,
     ) -> Result<Self, BackendFailureKind> {
-        if matches!(
-            policy.egress(),
-            EgressPolicy::Denied | EgressPolicy::Unspecified
-        ) {
-            return Ok(Self::Declined);
+        match policy.egress() {
+            EgressPolicy::Denied => Ok(Self::Declined),
+            // A request that stated no preference gets the operator default, which is the
+            // public internet, so a sandbox can install packages and reach an API without the
+            // caller asking. Nothing was promised, so a host that cannot serve it degrades to
+            // the placeholder, and the effective network says so: the guest is reported
+            // detached, never connected.
+            EgressPolicy::Unspecified => {
+                let (Some(configuration), true) = (configuration, has_device) else {
+                    return Ok(Self::Declined);
+                };
+                let Some(defaulted) = default_policy(policy) else {
+                    return Ok(Self::Declined);
+                };
+                Ok(Self::lease(configuration, &defaulted, identity).unwrap_or(Self::Declined))
+            }
+            // Saying so is the whole point of a fail-closed network: a host with no broker
+            // cannot serve egress that was asked for, and reporting otherwise would describe a
+            // machine that reaches nothing.
+            _ => {
+                let configuration = configuration.ok_or(BackendFailureKind::Unsupported)?;
+                Self::lease(configuration, policy, identity)
+            }
         }
-        // Saying so is the whole point of a fail-closed network: a host with no broker cannot
-        // serve egress, and reporting otherwise would describe a machine that reaches nothing.
-        let configuration = configuration.ok_or(BackendFailureKind::Unsupported)?;
+    }
+
+    fn lease(
+        configuration: &BrokerConfiguration,
+        policy: &NetworkPolicy,
+        identity: LaunchIdentity,
+    ) -> Result<Self, BackendFailureKind> {
         let intent = configuration
             .admit(policy)
             .ok_or(BackendFailureKind::WorkloadRejected)?;
@@ -124,6 +147,21 @@ impl Egress {
     }
 }
 
+/// The policy a request with no stated egress is served: the public internet through the
+/// operator's resolvers, keeping whatever else the request did state.
+fn default_policy(requested: &NetworkPolicy) -> Option<NetworkPolicy> {
+    let dns = match requested.dns() {
+        DnsPolicy::Unspecified => DnsPolicy::System,
+        other => other.clone(),
+    };
+    NetworkPolicy::new(
+        EgressPolicy::PublicInternet,
+        dns,
+        requested.published_ports().to_vec(),
+    )
+    .ok()
+}
+
 /// What a release established about the resources the broker held.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Released {
@@ -176,7 +214,8 @@ mod tests {
     fn a_request_for_no_egress_never_reaches_a_broker() {
         let identity = identity();
         for policy in [NetworkPolicy::isolated(), NetworkPolicy::runtime_default()] {
-            let mut egress = Egress::claim(None, &policy, identity).expect("no egress requested");
+            let mut egress =
+                Egress::claim(None, &policy, identity, true).expect("no egress requested");
             assert!(matches!(egress, Egress::Declined));
             assert!(egress.attachment().is_none());
             assert!(egress.pending_activation().is_none());
@@ -198,7 +237,7 @@ mod tests {
         )
         .expect("policy");
         assert_eq!(
-            Egress::claim(None, &policy, identity()).err(),
+            Egress::claim(None, &policy, identity(), true).err(),
             Some(BackendFailureKind::Unsupported)
         );
     }

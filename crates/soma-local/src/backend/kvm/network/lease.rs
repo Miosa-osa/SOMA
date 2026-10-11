@@ -14,6 +14,7 @@ use soma_vmm::sandbox::PendingActivation;
 
 /// One assignment held for the life of one Instance.
 pub(in crate::backend::kvm) struct Lease {
+    socket: std::path::PathBuf,
     connection: BrokerClient,
     instance: InstanceId,
     bundle: BundleId,
@@ -58,6 +59,7 @@ impl Lease {
         let tap = descriptor.ok_or(BackendFailureKind::Unavailable)?;
         let launch = decode_launch(&launch).ok_or(BackendFailureKind::Unavailable)?;
         Ok(Self {
+            socket: socket.to_path_buf(),
             connection,
             instance,
             bundle,
@@ -71,6 +73,23 @@ impl Lease {
             tap: Some(std::fs::File::from(tap)),
             released: false,
         })
+    }
+
+    /// Sends one request, reconnecting once when the broker closed an idle connection.
+    ///
+    /// The broker drops a connection that stays silent, and a sandbox is silent on it for its
+    /// whole life, so the release at the end would otherwise find a dead socket and leave the
+    /// bundle to reconciliation. Activate and release are idempotent under the bundle and
+    /// generation, and the broker authenticates the reconnecting peer by its kernel identity.
+    fn call(&mut self, request: &Request) -> Result<(Reply, Option<std::os::fd::OwnedFd>), ()> {
+        match self.connection.call(request) {
+            Ok(answer) => return Ok(answer),
+            // The broker answered and said no; asking again would only repeat the refusal.
+            Err(ClientError::Refused(_)) => return Err(()),
+            Err(_) => {}
+        }
+        self.connection = BrokerClient::connect(&self.socket).map_err(|_| ())?;
+        self.connection.call(request).map_err(|_| ())
     }
 
     pub(super) fn attachment(&mut self) -> Option<NetworkAttachment> {
@@ -108,7 +127,7 @@ impl Lease {
             generation: self.generation,
             receipt: *receipt,
         };
-        if let Ok((Reply::Activated, _)) = self.connection.call(&request) {
+        if let Ok((Reply::Activated, _)) = self.call(&request) {
             return Ok(());
         }
         // A refused activation leaves a bundle the broker may already have torn down, and in
@@ -135,7 +154,7 @@ impl Lease {
             bundle: self.bundle,
             generation: self.generation,
         };
-        match self.connection.call(&request) {
+        match self.call(&request) {
             Ok((Reply::Released { complete: true }, _)) => Released::Complete,
             _ => Released::Incomplete,
         }

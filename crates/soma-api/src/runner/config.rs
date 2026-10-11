@@ -143,7 +143,8 @@ impl RunnerConfig {
     ///
     /// Returns an invalid-data error naming the first field that is unusable.
     pub fn parse(bytes: &[u8]) -> io::Result<Self> {
-        let config: Self = serde_json::from_slice(bytes).map_err(|error| invalid(&error))?;
+        let mut config: Self = serde_json::from_slice(bytes).map_err(|error| invalid(&error))?;
+        config.launch.apply_egress_default();
         config.validate()?;
         Ok(config)
     }

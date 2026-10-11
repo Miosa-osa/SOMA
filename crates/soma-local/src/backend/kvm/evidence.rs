@@ -50,8 +50,16 @@ pub(super) fn effective_network(egress: &Egress, policy: &NetworkPolicy) -> Effe
         ),
         Egress::Leased(lease) => EffectiveNetwork::new(
             Observation::Observed(NetworkAttachment::Attached),
-            Observation::Observed(policy.egress()),
-            Observation::Observed(policy.dns().clone()),
+            // A request that stated nothing was served the operator default, and that is what
+            // the guest holds; reporting the request's silence would describe nothing.
+            Observation::Observed(match policy.egress() {
+                EgressPolicy::Unspecified => EgressPolicy::PublicInternet,
+                stated => stated,
+            }),
+            Observation::Observed(match policy.dns() {
+                DnsPolicy::Unspecified => DnsPolicy::System,
+                stated => stated.clone(),
+            }),
             Observation::Observed(lease.addresses()),
             Observation::Observed(Vec::new()),
             Observation::Observed(PortActivationClass::NotApplicable),
