@@ -46,6 +46,12 @@ pub(super) fn boot_for(
     let vcpus = manifest.shape.vcpu_count;
     let contract = MachineContract::require(manifest.machine_contract.version)
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+    let hotplug = super::hotplug::region_for(
+        devices,
+        memory_mib * MIB,
+        super::hotplug::declared_bytes(prepared),
+    )
+    .map_err(|()| BackendFailureKind::WorkloadRejected)?;
     let template = if devices.overlay() {
         Some(
             manifest
@@ -84,6 +90,7 @@ pub(super) fn boot_for(
                 memory_bytes: memory_mib * MIB,
                 vcpus,
                 contract,
+                hotplug,
             }
         }
     } else {
@@ -103,7 +110,7 @@ pub(super) fn boot_for(
                 devices,
                 vcpus,
                 contract,
-                hotplug: None,
+                hotplug,
             }))
         }
     };

@@ -24,6 +24,7 @@ fn key() -> MachineKey {
         vcpus: 1,
         contract: MachineContract::V1,
         devices: DeviceSet::new(true, true),
+        hotplug_bytes: 0,
     }
 }
 

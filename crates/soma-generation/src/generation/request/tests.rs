@@ -22,12 +22,16 @@ fn each_profile_declares_the_bounds_of_its_own_contract() {
 }
 
 #[test]
-fn a_host_does_not_admit_version_three_until_the_machine_builds_its_device() {
+fn a_host_admits_version_three_now_that_the_machine_builds_its_device() {
     assert_eq!(
         CompilerProfile::from_policy_version(2),
         Some(CompilerProfile::v2())
     );
-    assert_eq!(CompilerProfile::from_policy_version(3), None);
+    assert_eq!(
+        CompilerProfile::from_policy_version(3),
+        Some(CompilerProfile::v3())
+    );
+    assert_eq!(CompilerProfile::from_policy_version(4), None);
 }
 
 #[test]

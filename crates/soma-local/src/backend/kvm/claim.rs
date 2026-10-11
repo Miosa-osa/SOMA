@@ -67,6 +67,7 @@ pub(super) fn recipe_for(prepared: &PreparedGeneration, memory_mib: u64) -> Opti
             .ok()?,
         candidate,
         devices,
+        hotplug_bytes: super::hotplug::declared_bytes(prepared).unwrap_or(0),
     }))
 }
 

@@ -211,3 +211,77 @@ fn only_get_and_patch_are_accepted() {
     }
     assert!(facade.calls.is_empty());
 }
+
+#[test]
+fn an_operation_id_is_echoed_and_a_replay_is_answered_without_applying_again() {
+    // One test owns the replay table's entry for this instance: the table keeps the latest
+    // attempt per sandbox, so interleaved tests naming operation ids would overwrite each other.
+    let first = "0123456789abcdef0123456789abcdef";
+    let second = "fedcba9876543210fedcba9876543210";
+    let patch = |id: &str| {
+        identified(
+            "PATCH",
+            &path(),
+            &format!(r#"{{"cpu_count":2,"operation_id":"{id}"}}"#),
+        )
+    };
+    let applied = outcome(DimensionState::AppliedLive, DimensionState::Unchanged);
+
+    let mut facade = FakeFacade::new(Mode::Succeed).resizing(applied.clone());
+    let (status, body) = call(&mut facade, &patch(first));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["operation_id"], first);
+    assert_eq!(facade.calls.len(), 1);
+
+    // The same attempt again, even on a facade that would now answer differently.
+    let mut replay = FakeFacade::new(Mode::Succeed).resizing(outcome(
+        DimensionState::Unchanged,
+        DimensionState::Unchanged,
+    ));
+    let (again_status, again) = call(&mut replay, &patch(first));
+    assert_eq!((again_status, &again), (status, &body));
+    assert!(
+        replay.calls.is_empty(),
+        "a replay must not reach the facade"
+    );
+
+    // A new attempt is applied and becomes the one remembered.
+    let (status, body) = call(&mut replay, &patch(second));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["result"]["operation_id"], second);
+    assert_eq!(replay.calls.len(), 1);
+
+    // A refusal is remembered too, so its reason is what a replay reads.
+    let third = "00112233445566778899aabbccddeeff";
+    let mut refusing = FakeFacade::new(Mode::Succeed).resizing(outcome(
+        DimensionState::Unsupported,
+        DimensionState::Unsupported,
+    ));
+    let (status, refused) = call(&mut refusing, &patch(third));
+    assert_eq!(status, 409, "{refused}");
+    let mut after = FakeFacade::new(Mode::Succeed).resizing(outcome(
+        DimensionState::AppliedLive,
+        DimensionState::AppliedLive,
+    ));
+    assert_eq!(call(&mut after, &patch(third)), (409, refused));
+    assert!(after.calls.is_empty());
+}
+
+#[test]
+fn a_malformed_operation_id_is_refused_before_the_facade_is_asked() {
+    for id in [
+        "",
+        "short",
+        "0123456789ABCDEF0123456789ABCDEF",
+        "0123456789abcdef0123456789abcdeg",
+    ] {
+        let mut facade = FakeFacade::new(Mode::Succeed).resizing(outcome(
+            DimensionState::AppliedLive,
+            DimensionState::AppliedLive,
+        ));
+        let body = format!(r#"{{"cpu_count":2,"operation_id":"{id}"}}"#);
+        let (status, response) = call(&mut facade, &identified("PATCH", &path(), &body));
+        assert_eq!(status, 400, "{id:?}: {response}");
+        assert!(facade.calls.is_empty());
+    }
+}

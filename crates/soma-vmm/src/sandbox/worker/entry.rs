@@ -60,6 +60,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             memory_bytes,
             vcpus,
             contract,
+            hotplug,
         } => {
             let restored = restore(RestoreRequest {
                 objects,
@@ -73,7 +74,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 // Re-hashing every byte of the memory object is the installation and audit
                 // boundary, not the request path.
                 verify_artifacts: false,
-                hotplug: None,
+                hotplug,
                 // An Instance the broker leased a bundle to arrives here with its frame path;
                 // one that asked for no egress keeps the device it was built with, whose link
                 // stays down and which drops every frame.
