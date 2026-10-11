@@ -79,3 +79,11 @@ fn a_hotplug_region_belongs_to_the_profile_whose_machine_has_the_memory_device()
             .is_ok()
     );
 }
+
+#[test]
+fn version_3_admits_the_default_writable_class_and_version_2_does_not() {
+    let ten_gib = 10 * 1024 * 1024 * 1024;
+    assert!(CompilerProfile::v3().overlay_capacities.contains(&ten_gib));
+    assert!(!CompilerProfile::v2().overlay_capacities.contains(&ten_gib));
+    assert!(CompilerProfile::v3().validate().is_ok());
+}

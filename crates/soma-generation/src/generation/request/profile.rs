@@ -22,6 +22,13 @@ use super::{CompilerProfile, GIB, MIB, ProfileLimits};
 /// either machine contract admits. Nothing outside this profile may produce or admit it.
 const LARGE_WRITABLE_CLASS_BYTES: u64 = 20 * GIB;
 
+/// The writable class the version 3 default sandbox is defined at, in bytes.
+///
+/// The default Generation that carries Docker, default egress and the live browser declares ten
+/// gigabytes of writable storage, so the version 3 profile names that class; a class the profile
+/// does not list can be compiled under a narrowed profile but never certified or admitted.
+const DEFAULT_WRITABLE_CLASS_BYTES: u64 = 10 * GIB;
+
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
 /// The block a hotplug region is a whole number of: virtio-mem's plug granularity in this
@@ -85,6 +92,13 @@ impl CompilerProfile {
             policy_version: 3,
             machine_contract: MachineContract::V3,
             hotplug_bytes: DEFAULT_HOTPLUG_BYTES,
+            overlay_capacities: vec![
+                256 * MIB,
+                GIB,
+                4 * GIB,
+                DEFAULT_WRITABLE_CLASS_BYTES,
+                LARGE_WRITABLE_CLASS_BYTES,
+            ],
             ..Self::v2()
         }
     }
