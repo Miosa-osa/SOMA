@@ -11,7 +11,13 @@
 #
 # Usage:
 #   prepare-generation.sh <image-reference> <store-directory> <fs-tools-directory> \
-#       [memory_mib] [storage_mib]
+#       [memory_mib] [storage_mib] [ceiling_mib]
+#
+# A ceiling_mib (or SOMA_PREPARE_CEILING_MIB, which the argument wins over) builds the live-resize
+# machine: a compiler profile version 3 Generation with a memory device whose manifest declares a
+# hotplug region of ceiling_mib minus memory_mib, so a running sandbox can be grown up to
+# ceiling_mib and shrunk back to memory_mib. It must be above memory_mib. Without it the
+# Generation has no memory device and cannot be resized in memory.
 #
 # The reference names the entry (it is hashed into the entry's directory), and by default it is
 # also where the image is pulled from. An image built on this machine and never pushed, such as
@@ -40,6 +46,7 @@ STORE_DIR=""
 FS_TOOLS=""
 MEM_MIB=""
 DISK_MIB=""
+CEILING_MIB=""
 
 readonly MUSL_TARGET="x86_64-unknown-linux-musl"
 readonly AGENT_BIN="$REPO_ROOT/target/${MUSL_TARGET}/release/soma-guest-agent"
@@ -50,8 +57,8 @@ log() { printf '\n==> %s\n' "$1"; }
 die() { printf '%s\n' "$1" >&2; exit 1; }
 
 parse_args() {
-    if [[ $# -lt 3 || $# -gt 5 ]]; then
-        printf 'usage: prepare-generation.sh <image> <store-dir> <fs-tools-dir> [mem_mib] [disk_mib]\n' >&2
+    if [[ $# -lt 3 || $# -gt 6 ]]; then
+        printf 'usage: prepare-generation.sh <image> <store-dir> <fs-tools-dir> [mem_mib] [disk_mib] [ceiling_mib]\n' >&2
         return 2
     fi
     IMAGE="$1"
@@ -59,6 +66,13 @@ parse_args() {
     FS_TOOLS="$(cd "$3" && pwd -P)"
     MEM_MIB="${4:-1024}"
     DISK_MIB="${5:-10240}"
+    CEILING_MIB="${6:-${SOMA_PREPARE_CEILING_MIB:-}}"
+    if [[ -n "$CEILING_MIB" ]]; then
+        [[ "$CEILING_MIB" =~ ^[0-9]+$ && "$MEM_MIB" =~ ^[0-9]+$ ]] || \
+            die "ceiling_mib and mem_mib must be positive integers, got ceiling '$CEILING_MIB' memory '$MEM_MIB'"
+        (( CEILING_MIB > MEM_MIB )) || \
+            die "ceiling_mib ($CEILING_MIB) must be above mem_mib ($MEM_MIB): the difference is the hotplug region"
+    fi
 }
 
 cleanup() {
@@ -113,8 +127,13 @@ prepare() {
     local entry
     entry="$STORE_DIR/ref-$(reference_key)"
     log "compiling the Generation into $entry"
-    "$PREPARE_BIN" "$IMAGE" "$LAYOUT" "$KERNEL" "$KERNEL_CONFIG" "$AGENT_BIN" \
-        "$FS_TOOLS/erofs" "$FS_TOOLS/e2fsprogs" "$entry" "$MEM_MIB" "$DISK_MIB"
+    if [[ -n "$CEILING_MIB" ]]; then
+        log "live-resize machine: boot ${MEM_MIB} MiB, ceiling ${CEILING_MIB} MiB (hotplug region $((CEILING_MIB - MEM_MIB)) MiB)"
+    fi
+    # Passed explicitly, set or empty, so an inherited value never reaches the tool unseen.
+    SOMA_PREPARE_CEILING_MIB="$CEILING_MIB" "$PREPARE_BIN" "$IMAGE" "$LAYOUT" "$KERNEL" \
+        "$KERNEL_CONFIG" "$AGENT_BIN" "$FS_TOOLS/erofs" "$FS_TOOLS/e2fsprogs" "$entry" \
+        "$MEM_MIB" "$DISK_MIB"
     rm -rf -- "$LAYOUT"
     LAYOUT=""
     log "done"
