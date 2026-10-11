@@ -1,0 +1,6 @@
+#!/bin/sh
+# `docker` on PATH: start the engine on first use, then run the real client.
+# Clients that bypass PATH (an SDK talking to /run/docker.sock directly) must run
+# `soma-docker-ensure` first; `docker version` is the zero-argument way.
+/usr/local/libexec/soma-docker-ensure || exit $?
+exec /usr/bin/docker "$@"
