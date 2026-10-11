@@ -49,6 +49,53 @@ pub const FORBIDDEN: &[&str] = &[
     "CONFIG_MEMORY_HOTPLUG",
 ];
 
+/// Facilities profile v3 adds to [`REQUIRED_BUILTIN`]: live memory resize through virtio-mem.
+///
+/// virtio-mem plugs and unplugs guest memory in blocks, which needs memory hotplug and removal,
+/// the sparse memory model that backs them, and page migration to empty a block before it is
+/// unplugged. A hotplugged block is also brought online by the kernel itself, because the
+/// guest has no udev to do it; that one is checked separately by
+/// [`ONLINE_DEFAULTS`] since the option was renamed between kernel releases.
+pub const REQUIRED_BUILTIN_V3: &[&str] = &[
+    "CONFIG_MEMORY_HOTPLUG",
+    "CONFIG_MEMORY_HOTREMOVE",
+    "CONFIG_VIRTIO_MEM",
+    "CONFIG_SPARSEMEM_VMEMMAP",
+    "CONFIG_MIGRATION",
+];
+
+/// Any one of these makes a hotplugged block online without userspace: the pre-6.14 boolean
+/// and the 6.14 choice for movable memory, which can always be unplugged again.
+pub const ONLINE_DEFAULTS: &[&str] = &[
+    "CONFIG_MEMORY_HOTPLUG_DEFAULT_ONLINE",
+    "CONFIG_MHP_DEFAULT_ONLINE_TYPE_ONLINE_MOVABLE",
+];
+
+/// Facilities profile v3 allows that profiles v1 and v2 forbid.
+const ALLOWED_ONLY_IN_V3: &[&str] = &["CONFIG_MEMORY_HOTPLUG"];
+
+/// Which kernel facility rules a compiler-policy version applies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum KernelConfigProfile {
+    /// Policy versions 1 and 2: no memory hotplug.
+    Fixed,
+    /// Policy version 3 and later: virtio-mem live resize is required and hotplug is allowed.
+    LiveResize,
+}
+
+impl KernelConfigProfile {
+    /// The rules a compiler-policy version applies; every version before 3 is [`Self::Fixed`],
+    /// so a Generation built under it verifies exactly as it always did.
+    #[must_use]
+    pub const fn for_policy_version(version: u16) -> Self {
+        if version >= 3 {
+            Self::LiveResize
+        } else {
+            Self::Fixed
+        }
+    }
+}
+
 const PHYSICAL_START: &str = "CONFIG_PHYSICAL_START";
 const REQUIRED_PHYSICAL_START: u64 = 0x0100_0000;
 
@@ -68,6 +115,19 @@ pub struct VerifiedKernelConfig {
 /// [`CompileErrorKind::Unsupported`] when a required facility is missing, an excluded facility
 /// is enabled, or `CONFIG_PHYSICAL_START` is not `0x1000000`.
 pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, CompileError> {
+    verify_kernel_config_as(text, KernelConfigProfile::Fixed)
+}
+
+/// [`verify_kernel_config`] under the rules of one [`KernelConfigProfile`].
+///
+/// # Errors
+///
+/// The same as [`verify_kernel_config`]; under [`KernelConfigProfile::LiveResize`] a missing
+/// virtio-mem facility is [`CompileErrorKind::Unsupported`] too.
+pub fn verify_kernel_config_as(
+    text: &[u8],
+    profile: KernelConfigProfile,
+) -> Result<VerifiedKernelConfig, CompileError> {
     if text.len() > MAX_CONFIG_BYTES {
         return Err(CompileError::new(
             CompilePhase::VerifyKernel,
@@ -100,8 +160,23 @@ pub fn verify_kernel_config(text: &[u8]) -> Result<VerifiedKernelConfig, Compile
             return Err(unsupported());
         }
     }
+    if profile == KernelConfigProfile::LiveResize {
+        for required in REQUIRED_BUILTIN_V3 {
+            if !enabled.contains(required) {
+                return Err(unsupported());
+            }
+        }
+        if !ONLINE_DEFAULTS
+            .iter()
+            .any(|option| enabled.contains(option))
+        {
+            return Err(unsupported());
+        }
+    }
     for forbidden in FORBIDDEN {
-        if enabled.contains(forbidden) {
+        let allowed =
+            profile == KernelConfigProfile::LiveResize && ALLOWED_ONLY_IN_V3.contains(forbidden);
+        if enabled.contains(forbidden) && !allowed {
             return Err(unsupported());
         }
     }

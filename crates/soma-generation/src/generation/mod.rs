@@ -49,7 +49,9 @@ pub use error::{CompileError, CompileErrorKind, CompilePhase};
 pub use identity::derive_generation_id;
 pub use initramfs::InitramfsContents;
 pub use kernel::VerifiedKernel;
-pub use kernel_config::{VerifiedKernelConfig, verify_kernel_config};
+pub use kernel_config::{
+    KernelConfigProfile, VerifiedKernelConfig, verify_kernel_config, verify_kernel_config_as,
+};
 pub use manifest::{GenerationManifest, SnapshotBinding};
 pub use overlay::OverlayEvidence;
 pub use process::ToolOutcome;

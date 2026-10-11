@@ -1,9 +1,10 @@
 mod support;
 
 use soma_generation::{
-    CompileErrorKind, CompilePhase, Sha256Digest,
+    CompileErrorKind, CompilePhase, KernelConfigProfile, Sha256Digest,
     kernel::{MINIMUM_LOAD_PADDR, verify_kernel},
-    verify_kernel_config,
+    kernel_config::{ONLINE_DEFAULTS, REQUIRED_BUILTIN_V3},
+    verify_kernel_config, verify_kernel_config_as,
 };
 use support::generation::{kernel_config, synthetic_kernel};
 
@@ -129,5 +130,123 @@ fn kernel_config_requirements_are_enforced() {
             .unwrap_err()
             .kind(),
         CompileErrorKind::InvalidInput
+    );
+}
+
+fn resizable_config() -> String {
+    let mut text = kernel_config();
+    for symbol in REQUIRED_BUILTIN_V3 {
+        text.push_str(symbol);
+        text.push_str("=y\n");
+    }
+    text.push_str(ONLINE_DEFAULTS[0]);
+    text.push_str("=y\n");
+    text
+}
+
+fn kind(text: &str, profile: KernelConfigProfile) -> Option<CompileErrorKind> {
+    verify_kernel_config_as(text.as_bytes(), profile)
+        .err()
+        .map(|error| error.kind())
+}
+
+#[test]
+fn only_policy_versions_from_three_use_the_live_resize_rules() {
+    assert_eq!(
+        KernelConfigProfile::for_policy_version(1),
+        KernelConfigProfile::Fixed
+    );
+    assert_eq!(
+        KernelConfigProfile::for_policy_version(2),
+        KernelConfigProfile::Fixed
+    );
+    assert_eq!(
+        KernelConfigProfile::for_policy_version(3),
+        KernelConfigProfile::LiveResize
+    );
+}
+
+#[test]
+fn memory_hotplug_is_refused_by_the_fixed_profiles_and_unchanged_for_them() {
+    let resizable = resizable_config();
+    assert_eq!(
+        kind(&resizable, KernelConfigProfile::Fixed),
+        Some(CompileErrorKind::Unsupported)
+    );
+    // The same text a v1 or v2 host has always accepted still verifies, byte for byte.
+    let good = kernel_config();
+    assert_eq!(
+        verify_kernel_config(good.as_bytes()).unwrap(),
+        verify_kernel_config_as(good.as_bytes(), KernelConfigProfile::Fixed).unwrap()
+    );
+    let hotplug_only = format!("{good}CONFIG_MEMORY_HOTPLUG=y\n");
+    assert_eq!(
+        verify_kernel_config(hotplug_only.as_bytes())
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::Unsupported
+    );
+}
+
+#[test]
+fn the_live_resize_profile_accepts_a_complete_hotplug_kernel() {
+    let resizable = resizable_config();
+    let verified =
+        verify_kernel_config_as(resizable.as_bytes(), KernelConfigProfile::LiveResize).unwrap();
+    assert_eq!(verified.digest, Sha256Digest::of(resizable.as_bytes()));
+    let movable = resizable.replace(ONLINE_DEFAULTS[0], ONLINE_DEFAULTS[1]);
+    assert_eq!(kind(&movable, KernelConfigProfile::LiveResize), None);
+}
+
+#[test]
+fn the_live_resize_profile_requires_every_hotplug_facility() {
+    // A plain v1/v2 kernel is not a live-resize kernel.
+    assert_eq!(
+        kind(&kernel_config(), KernelConfigProfile::LiveResize),
+        Some(CompileErrorKind::Unsupported)
+    );
+    let resizable = resizable_config();
+    for symbol in REQUIRED_BUILTIN_V3 {
+        let missing = resizable.replace(&format!("{symbol}=y\n"), "");
+        assert_eq!(
+            kind(&missing, KernelConfigProfile::LiveResize),
+            Some(CompileErrorKind::Unsupported),
+            "{symbol}"
+        );
+        let module = resizable.replace(&format!("{symbol}=y\n"), &format!("{symbol}=m\n"));
+        assert_eq!(
+            kind(&module, KernelConfigProfile::LiveResize),
+            Some(CompileErrorKind::Unsupported),
+            "{symbol} as a module"
+        );
+    }
+    let offline = resizable.replace(&format!("{}=y\n", ONLINE_DEFAULTS[0]), "");
+    assert_eq!(
+        kind(&offline, KernelConfigProfile::LiveResize),
+        Some(CompileErrorKind::Unsupported),
+        "a hotplugged block nobody onlines is memory the guest never sees"
+    );
+}
+
+#[test]
+fn the_live_resize_profile_keeps_every_other_exclusion() {
+    let resizable = resizable_config();
+    for forbidden in [
+        "CONFIG_PCI",
+        "CONFIG_ACPI",
+        "CONFIG_VIRTIO_BALLOON",
+        "CONFIG_VIRTIO_PCI",
+    ] {
+        let text = format!("{resizable}{forbidden}=y\n");
+        assert_eq!(
+            kind(&text, KernelConfigProfile::LiveResize),
+            Some(CompileErrorKind::Unsupported),
+            "{forbidden}"
+        );
+    }
+    let relocated = resizable.replace("0x1000000", "0x200000");
+    assert_eq!(
+        kind(&relocated, KernelConfigProfile::LiveResize),
+        Some(CompileErrorKind::Unsupported)
     );
 }
