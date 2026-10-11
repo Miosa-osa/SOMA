@@ -29,10 +29,9 @@ impl HotplugRam {
     pub(crate) fn map(region: HotplugRegion) -> Result<Self, MachineError> {
         let length = usize::try_from(region.size)
             .map_err(|_| MachineError::invalid(Phase::MapMemory, "hotplug size exceeds usize"))?;
-        Ok(Self {
-            mapping: RamMapping::anonymous(length, Phase::MapMemory)?,
-            region,
-        })
+        let mapping = RamMapping::anonymous(length, Phase::MapMemory)?;
+        mapping.no_huge_pages();
+        Ok(Self { mapping, region })
     }
 
     /// Registers the whole region as its own KVM memory slot.
@@ -74,6 +73,12 @@ impl HotplugRam {
     /// Returns the host failure of the residency query.
     pub fn resident_bytes(&self) -> io::Result<u64> {
         self.mapping.resident_bytes().map_err(io::Error::other)
+    }
+
+    /// The mapping's host address, for tests that read its kernel flags.
+    #[cfg(test)]
+    fn host_address(&self) -> u64 {
+        self.mapping.host_address().unwrap()
     }
 }
 
