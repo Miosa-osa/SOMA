@@ -23,11 +23,15 @@ mod atomicity_tests;
 #[cfg(test)]
 mod bounds_tests;
 #[cfg(test)]
+mod functional_tests;
+#[cfg(test)]
 mod hostile_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod model_tests;
+#[cfg(test)]
+mod race_tests;
 #[cfg(test)]
 mod rig;
 #[cfg(test)]
