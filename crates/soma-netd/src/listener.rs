@@ -49,10 +49,9 @@ const BACKLOG: i32 = 16;
 
 /// How long one accepted connection may stay silent before the broker closes it.
 ///
-/// The broker is single-threaded and serves one connection at a time, so an admitted peer that
-/// connects and never sends would otherwise deny every lifecycle and reconcile request to every
-/// other admitted peer. A peer whose connection is closed this way loses nothing: it reconnects
-/// and replays the same Instance and Launch operation.
+/// Each admitted connection holds a broker thread, so an admitted peer that connects and never
+/// sends would otherwise hold that thread forever. A peer whose connection is closed this way
+/// loses nothing: it reconnects and replays the same Instance and Launch operation.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The outcome of one accept.

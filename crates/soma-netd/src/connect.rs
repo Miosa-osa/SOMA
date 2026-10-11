@@ -108,8 +108,10 @@ impl Broker {
             return Err(Error::Unauthorized("connect port"));
         }
         let guest = assigned.bundle().leases().guest.guest();
+        // The namespace is held open from here, while the assignment is known to be alive, so a
+        // plan outliving its bundle can only ever dial inside the namespace it was made for.
         Ok(ConnectPlan {
-            pin: assigned.bundle().namespace().path().to_path_buf(),
+            namespace: crate::namespace::NetNamespace::open(assigned.bundle().namespace().path())?,
             address: SocketAddr::V4(SocketAddrV4::new(guest, port)),
         })
     }
@@ -118,7 +120,7 @@ impl Broker {
 /// One checked dial into one bundle's guest.
 #[derive(Debug)]
 pub struct ConnectPlan {
-    pin: std::path::PathBuf,
+    namespace: crate::namespace::NetNamespace,
     address: SocketAddr,
 }
 
@@ -130,7 +132,7 @@ impl ConnectPlan {
     /// Returns the namespace-entry or connection failure.
     pub fn dial(&self) -> Result<OwnedFd, Error> {
         let address = self.address;
-        crate::namespace::NetNamespace::open(&self.pin)?.within(move || {
+        self.namespace.within(move || {
             let stream = TcpStream::connect_timeout(&address, CONNECT_DEADLINE)
                 .map_err(|error| Error::io(Step::Connect, &error))?;
             // Interactive traffic: a frame or a keystroke must not wait for a full segment.
