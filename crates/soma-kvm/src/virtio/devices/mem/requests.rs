@@ -64,6 +64,13 @@ impl MemDevice {
             self.counters.nacked = self.counters.nacked.saturating_add(1);
             return (RESP_NACK, 0);
         }
+        if self
+            .backing
+            .plug(first * BLOCK_SIZE, count * BLOCK_SIZE)
+            .is_err()
+        {
+            return self.error();
+        }
         for block in first..first + count {
             self.set_bit(block, true);
         }

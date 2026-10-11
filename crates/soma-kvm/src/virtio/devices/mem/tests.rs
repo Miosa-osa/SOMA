@@ -16,12 +16,14 @@ pub(super) const BLOCKS: u64 = 64;
 pub(super) struct Rig {
     pub(super) guest: GuestRig,
     pub(super) t: MmioTransport<MemDevice>,
+    pub(super) plugged: Arc<Mutex<Vec<(u64, u64)>>>,
     pub(super) discarded: Arc<Mutex<Vec<(u64, u64)>>>,
     pub(super) fail: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(super) fn boot() -> Rig {
     let backing = RecordingBacking::default();
+    let plugged = Arc::clone(&backing.plugged);
     let discarded = Arc::clone(&backing.discarded);
     let fail = Arc::clone(&backing.fail);
     let device = MemDevice::new(REGION, BLOCKS * BLOCK_SIZE, Box::new(backing)).expect("device");
@@ -31,6 +33,7 @@ pub(super) fn boot() -> Rig {
     Rig {
         guest: rig,
         t,
+        plugged,
         discarded,
         fail,
     }
@@ -226,4 +229,16 @@ fn a_snapshot_records_geometry_only_and_restores_empty() {
         r.t.device_mut().restore_state(&record[1..]),
         Err(DeviceStateError::Malformed)
     );
+}
+
+#[test]
+fn a_block_the_host_cannot_back_is_refused_and_never_promised() {
+    let mut r = boot();
+    request_size(&mut r, 2 * BLOCK_SIZE);
+    r.fail.store(true, Ordering::Relaxed);
+    assert_eq!(ask(&mut r, REQ_PLUG, block(0), 2).0, RESP_ERROR);
+    assert_eq!(r.t.device().plugged_size(), 0);
+    r.fail.store(false, Ordering::Relaxed);
+    assert_eq!(ask(&mut r, REQ_PLUG, block(0), 2), (RESP_ACK, 0));
+    assert_eq!(*r.plugged.lock().expect("log"), vec![(0, 2 * BLOCK_SIZE)]);
 }
