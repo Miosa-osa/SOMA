@@ -82,6 +82,7 @@ const fn contract_domain(contract: MachineContract) -> &'static [u8] {
     match contract {
         MachineContract::V1 => b"SOMA-x86_64-machine-contract-v1\0",
         MachineContract::V2 => b"SOMA-x86_64-machine-contract-v2\0",
+        MachineContract::V3 => b"SOMA-x86_64-machine-contract-v3\0",
     }
 }
 
@@ -176,6 +177,7 @@ pub(in crate::x86_64) fn cpu_template(
     hasher.update(match machine.contract() {
         MachineContract::V1 => b"SOMA-cpu-template-v1\0".as_slice(),
         MachineContract::V2 => b"SOMA-cpu-template-v2\0".as_slice(),
+        MachineContract::V3 => b"SOMA-cpu-template-v3\0".as_slice(),
     });
     for entry in entries.entries() {
         for word in [

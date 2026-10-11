@@ -22,6 +22,8 @@ pub const MEMORY_STEP_BYTES: u64 = 4096;
 pub const V1_VERSION: u16 = 1;
 /// Version number of the multi-vCPU contract.
 pub const V2_VERSION: u16 = 2;
+/// Version number of the multi-vCPU contract that adds the virtio-mem device.
+pub const V3_VERSION: u16 = 3;
 /// The one vCPU version 1 admits.
 pub const V1_MAX_VCPUS: u16 = 1;
 /// The eight vCPUs version 2 admits.
@@ -67,6 +69,9 @@ pub enum MachineContract {
     V1,
     /// The multi-vCPU machine that discovers processors through an MP table.
     V2,
+    /// Version 2 plus a virtio-mem device (the device set's memory slot), so memory can be
+    /// plugged and unplugged live.
+    V3,
 }
 
 /// A contract version this implementation does not implement.
@@ -90,7 +95,7 @@ impl std::error::Error for UnknownContractVersion {}
 
 impl MachineContract {
     /// Every contract this implementation understands, oldest first.
-    pub const ALL: [Self; 2] = [Self::V1, Self::V2];
+    pub const ALL: [Self; 3] = [Self::V1, Self::V2, Self::V3];
 
     /// The contract's version number.
     #[must_use]
@@ -98,6 +103,7 @@ impl MachineContract {
         match self {
             Self::V1 => V1_VERSION,
             Self::V2 => V2_VERSION,
+            Self::V3 => V3_VERSION,
         }
     }
 
@@ -107,6 +113,7 @@ impl MachineContract {
         match version {
             V1_VERSION => Some(Self::V1),
             V2_VERSION => Some(Self::V2),
+            V3_VERSION => Some(Self::V3),
             _ => None,
         }
     }
@@ -128,7 +135,7 @@ impl MachineContract {
     pub const fn max_vcpus(self) -> u16 {
         match self {
             Self::V1 => V1_MAX_VCPUS,
-            Self::V2 => V2_MAX_VCPUS,
+            Self::V2 | Self::V3 => V2_MAX_VCPUS,
         }
     }
 
@@ -143,7 +150,7 @@ impl MachineContract {
     pub const fn max_memory_bytes(self) -> u64 {
         match self {
             Self::V1 => V1_MAX_MEMORY_BYTES,
-            Self::V2 => V2_MAX_MEMORY_BYTES,
+            Self::V2 | Self::V3 => V2_MAX_MEMORY_BYTES,
         }
     }
 
@@ -158,14 +165,20 @@ impl MachineContract {
     pub const fn base_arguments(self) -> &'static [&'static str] {
         match self {
             Self::V1 => &V1_BASE_ARGUMENTS,
-            Self::V2 => &V2_BASE_ARGUMENTS,
+            Self::V2 | Self::V3 => &V2_BASE_ARGUMENTS,
         }
     }
 
     /// Whether the machine writes an Intel MP table into guest memory before the guest runs.
     #[must_use]
     pub const fn writes_mp_table(self) -> bool {
-        matches!(self, Self::V2)
+        matches!(self, Self::V2 | Self::V3)
+    }
+
+    /// Whether the machine has a virtio-mem device that can plug and unplug guest memory.
+    #[must_use]
+    pub const fn has_memory_device(self) -> bool {
+        matches!(self, Self::V3)
     }
 
     /// Whether a vCPU count is one this contract admits.
@@ -196,7 +209,7 @@ mod tests {
             );
         }
         assert_eq!(MachineContract::from_version(0), None);
-        assert_eq!(MachineContract::from_version(3), None);
+        assert_eq!(MachineContract::from_version(4), None);
         assert_eq!(
             MachineContract::require(9),
             Err(UnknownContractVersion { version: 9 })
@@ -219,6 +232,22 @@ mod tests {
         assert!(!MachineContract::V2.base_arguments().contains(&"noapic"));
         assert!(!MachineContract::V1.writes_mp_table());
         assert!(MachineContract::V2.writes_mp_table());
+    }
+
+    #[test]
+    fn version_three_is_version_two_plus_the_memory_device() {
+        let v3 = MachineContract::V3;
+        assert_eq!(v3.version(), 3);
+        assert_eq!(v3.max_vcpus(), MachineContract::V2.max_vcpus());
+        assert_eq!(
+            v3.max_memory_bytes(),
+            MachineContract::V2.max_memory_bytes()
+        );
+        assert!(v3.writes_mp_table() && v3.has_memory_device());
+        assert!(!MachineContract::V2.has_memory_device());
+        // The memory device is declared by the device set, not by a contract argument, so the
+        // fixed arguments are version 2's exactly.
+        assert_eq!(v3.base_arguments(), MachineContract::V2.base_arguments());
     }
 
     #[test]

@@ -79,6 +79,27 @@ loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000
 initramfs=top-down-page-aligned modules-max=1\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
 
+/// The canonical machine-readable statement of `x86_64` machine contract v3.
+///
+/// Version 2 plus one device: a virtio-mem device in the device set's memory slot (slot 5), so a
+/// running machine's memory can be plugged and unplugged live. Everything version 2 states is
+/// restated unchanged, because a machine of this version is version 2 with that one addition.
+/// The device is declared on the kernel command line by the device set like every other slot,
+/// and the guest must online hotplugged memory without userspace help.
+///
+/// The digest of these bytes, rather than of the prose document, is what the manifest binds.
+pub const MACHINE_CONTRACT_V3: &[u8] = b"soma-x86_64-machine-contract-v3\n\
+boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
+vcpu=1-8 ram-min=134217728 ram-max=17179869184 ram-step=4096\n\
+ram-split=low:0x0-0xc0000000 mmio-hole:0xc0000000-0x100000000 high:0x100000000-above\n\
+start-info=0x6000 memmap=0x7000 modules=0x8000 cmdline=0x9000 cmdline-max=8191\n\
+mptable=0xf0000 mptable-max=1024 lapic=0xfee00000 ioapic=0xfec00000\n\
+low-reserved=0x0-0x5fff workspace=0xb000-0x9ffff legacy-hole=0xa0000-0xfffff\n\
+loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000\n\
+initramfs=top-down-page-aligned modules-max=1\n\
+mem-device=virtio-mem slot=5 hotplug=online-movable declared-by=device-set\n\
+base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
+
 /// The header every device-contract statement opens with, before its present slots.
 const DEVICE_CONTRACT_HEADER: &str = "soma-minimal-device-surface-v1\n\
 transport=virtio-mmio version=2 magic=0x74726976 features=VIRTIO_F_VERSION_1 queues=split\n\
@@ -86,8 +107,12 @@ irqchip=in-kernel ioapic edge-triggered no-shared-gsi\n";
 /// The trailer, listing what version 1 has no device for at all.
 const DEVICE_CONTRACT_TRAILER: &str =
     "excluded=pci,pcie,msi,msix,iommu,packed-ring,vhost,console,balloon,memory,fs,scsi,hotplug\n";
+/// The trailer of a machine that declared the memory device: memory is no longer excluded, and
+/// hotplug is exactly the plugging that device does.
+const DEVICE_CONTRACT_TRAILER_WITH_MEM: &str =
+    "excluded=pci,pcie,msi,msix,iommu,packed-ring,vhost,console,balloon,fs,scsi\n";
 /// One line per slot, in table order; a Generation states only the slots it has.
-const DEVICE_CONTRACT_SLOTS: [&str; 5] = [
+const DEVICE_CONTRACT_SLOTS: [&str; 6] = [
     "slot0 mmio=0xd0000000-0xd0000fff gsi=5 device=block id=2 role=immutable-root \
 queues=request:256\n",
     "slot1 mmio=0xd0001000-0xd0001fff gsi=6 device=block id=2 role=writable-overlay \
@@ -96,6 +121,7 @@ queues=request:256\n",
     "slot3 mmio=0xd0003000-0xd0003fff gsi=8 device=vsock id=19 \
 queues=receive:256,transmit:256,event:64\n",
     "slot4 mmio=0xd0004000-0xd0004fff gsi=9 device=entropy id=4 queues=request:64\n",
+    "slot5 mmio=0xd0005000-0xd0005fff gsi=10 device=mem id=24 queues=request:16\n",
 ];
 
 /// The canonical machine-readable statement of the device contract for one device set.
@@ -110,7 +136,11 @@ pub fn device_contract_statement(devices: DeviceSet) -> Vec<u8> {
     for slot in devices.present() {
         statement.push_str(DEVICE_CONTRACT_SLOTS[usize::from(slot.index())]);
     }
-    statement.push_str(DEVICE_CONTRACT_TRAILER);
+    statement.push_str(if devices.mem() {
+        DEVICE_CONTRACT_TRAILER_WITH_MEM
+    } else {
+        DEVICE_CONTRACT_TRAILER
+    });
     statement.into_bytes()
 }
 
@@ -137,6 +167,12 @@ pub fn machine_contract_v2() -> ContractBinding {
     ContractBinding::of(2, MACHINE_CONTRACT_V2)
 }
 
+/// Returns the machine contract v3 binding.
+#[must_use]
+pub fn machine_contract_v3() -> ContractBinding {
+    ContractBinding::of(3, MACHINE_CONTRACT_V3)
+}
+
 /// Returns the machine contract binding for one version, or `None` for a version this compiler
 /// does not build.
 ///
@@ -148,6 +184,7 @@ pub fn machine_contract_for(version: u16) -> Option<ContractBinding> {
     match version {
         1 => Some(machine_contract_v1()),
         2 => Some(machine_contract_v2()),
+        3 => Some(machine_contract_v3()),
         _ => None,
     }
 }
@@ -250,7 +287,22 @@ mod tests {
             kernel_command_line_for(DeviceSet::FULL, 2).as_deref(),
             Some(v2.as_slice())
         );
-        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 3), None);
+        let v3 = kernel_command_line_for(DeviceSet::FULL, 3).expect("version 3 has a line");
+        // The memory device comes from the device set, not from the contract.
+        assert!(!String::from_utf8_lossy(&v3).contains("0xd0005000"));
+        let with_mem = kernel_command_line_for(DeviceSet::FULL_WITH_MEM, 3).expect("a line");
+        assert!(
+            String::from_utf8_lossy(&with_mem).contains("virtio_mmio.device=4K@0xd0005000:10:5")
+        );
+        assert_ne!(
+            device_contract_statement(DeviceSet::FULL),
+            device_contract_statement(DeviceSet::FULL_WITH_MEM)
+        );
+        assert!(
+            String::from_utf8_lossy(&device_contract_statement(DeviceSet::FULL_WITH_MEM))
+                .contains("slot5 mmio=0xd0005000-0xd0005fff gsi=10 device=mem id=24")
+        );
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 4), None);
     }
 
     #[test]
@@ -280,7 +332,11 @@ mod tests {
         assert_eq!(machine_contract_for(1), Some(machine_contract_v1()));
         assert_eq!(machine_contract_for(2), Some(machine_contract_v2()));
         assert_eq!(machine_contract_for(0), None);
+        assert_eq!(machine_contract_for(3), Some(machine_contract_v3()));
+        assert_eq!(machine_contract_for(4), None);
         assert_ne!(machine_contract_v1(), machine_contract_v2());
+        assert_ne!(machine_contract_v2(), machine_contract_v3());
+        assert_eq!(machine_contract_v3().version, 3);
         assert_eq!(machine_contract_v1().version, 1);
         assert_eq!(machine_contract_v2().version, 2);
     }

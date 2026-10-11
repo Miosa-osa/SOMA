@@ -284,6 +284,8 @@ impl TemplateRevision {
             self.writable_storage_bytes() > 0,
             NetworkPolicyClass::of(self.network_policy()) != NetworkPolicyClass::Isolated,
         )
+        // Compiler policy 3 is the one whose machine has the memory device.
+        .with_mem(self.profile_version >= 3)
     }
 }
 

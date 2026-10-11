@@ -119,7 +119,7 @@ impl GuestMachine {
 
     /// Whether this machine states the leaves a host will not state for it.
     const fn states_its_own_processors(self) -> bool {
-        matches!(self.contract, MachineContract::V2)
+        matches!(self.contract, MachineContract::V2 | MachineContract::V3)
     }
 
     /// The processors in this machine, less one, which is how the leaves count them. A machine

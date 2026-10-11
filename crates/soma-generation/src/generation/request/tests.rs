@@ -12,11 +12,22 @@ fn each_profile_declares_the_bounds_of_its_own_contract() {
             contract.max_memory_bytes()
         );
     }
-    assert_eq!(ProfileLimits::for_version(3), None);
+    assert_eq!(ProfileLimits::for_version(4), None);
     assert_eq!(CompilerProfile::v1().machine_contract, MachineContract::V1);
     assert_eq!(CompilerProfile::v2().machine_contract, MachineContract::V2);
     assert!(CompilerProfile::v1().validate().is_ok());
     assert!(CompilerProfile::v2().validate().is_ok());
+    assert_eq!(CompilerProfile::v3().machine_contract, MachineContract::V3);
+    assert!(CompilerProfile::v3().validate().is_ok());
+}
+
+#[test]
+fn a_host_does_not_admit_version_three_until_the_machine_builds_its_device() {
+    assert_eq!(
+        CompilerProfile::from_policy_version(2),
+        Some(CompilerProfile::v2())
+    );
+    assert_eq!(CompilerProfile::from_policy_version(3), None);
 }
 
 #[test]
@@ -24,4 +35,11 @@ fn a_profile_whose_contract_and_policy_version_disagree_is_refused() {
     let mut profile = CompilerProfile::v1();
     profile.machine_contract = MachineContract::V2;
     assert!(profile.validate().is_err());
+}
+
+#[test]
+fn the_v3_profile_is_a_live_resize_policy_so_its_kernel_must_carry_the_memory_driver() {
+    use crate::generation::kernel_config::LIVE_RESIZE_POLICY_VERSION;
+    assert!(CompilerProfile::v3().policy_version >= LIVE_RESIZE_POLICY_VERSION);
+    assert!(CompilerProfile::v2().policy_version < LIVE_RESIZE_POLICY_VERSION);
 }
