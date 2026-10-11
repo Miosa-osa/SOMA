@@ -1,4 +1,4 @@
-//! Rebuilding the five devices with fresh backends and the certified transport state, and
+//! Rebuilding the declared devices with fresh backends and the certified transport state, and
 //! verifying the two large objects at the installation boundary.
 //!
 //! Every backend is new: a fresh read-only handle on the immutable root, a fresh private
@@ -14,8 +14,11 @@ use super::super::{
 };
 use super::sections::Sections;
 use crate::contract::MachineContract;
-use crate::snapshot::{device_state::DeviceSpecific, manifest::Manifest};
-use crate::virtio::{DeviceSet, MmioBus, Slot, SlotSnapshot};
+use crate::snapshot::{
+    device_state::{DeviceSpecific, DeviceState},
+    manifest::Manifest,
+};
+use crate::virtio::{DeviceSet, MemDevice, MmioBus, Slot, SlotSnapshot};
 use crate::x86_64::{
     Machine,
     devices::{self as machine_devices, DeviceIdentity},
@@ -49,6 +52,7 @@ pub(super) fn recreate_devices(
     state: &Sections,
     identity: &Identity,
     declared: Declared,
+    mem_backing: Option<Box<dyn crate::virtio::RegionBacking + Send>>,
 ) -> Result<MmioBus, SnapshotError> {
     let Declared {
         overlay_capacity_bytes,
@@ -57,6 +61,10 @@ pub(super) fn recreate_devices(
     } = declared;
     let captured_cid = u32::try_from(identity.captured_cid)
         .map_err(|_| SnapshotError::DeviceStateNotCanonical(Slot::Vsock))?;
+    // The memory device is rebuilt empty over the region the snapshot recorded: plugged memory is
+    // never part of a snapshot, so the geometry is all there is to reproduce, and the host memory
+    // behind it is the caller's to supply.
+    let mem = mem_device(state.slot(Slot::Mem), set, mem_backing)?;
     // Every restore builds the overlay slot against the head's declared shape and receives the
     // head itself at assignment, whether or not the caller already had one. One path means a
     // prepared worker and a direct restore cannot reach different device state.
@@ -69,6 +77,7 @@ pub(super) fn recreate_devices(
         },
         set,
         contract,
+        mem,
     )?;
     let records = state
         .devices
@@ -122,4 +131,26 @@ fn file_len(artifact: Artifact, file: &std::fs::File) -> Result<u64, SnapshotErr
     file.metadata()
         .map(|metadata| metadata.len())
         .map_err(|error| SnapshotError::io(artifact, "stat", &error))
+}
+
+/// The memory device a restore rebuilds, or none when the Generation declared none.
+///
+/// A declared device needs both the section that says where its region is and the backing the
+/// caller holds for it; either one missing is a disagreement about what machine this is, and
+/// neither is guessed.
+fn mem_device(
+    state: Option<&DeviceState>,
+    set: DeviceSet,
+    backing: Option<Box<dyn crate::virtio::RegionBacking + Send>>,
+) -> Result<Option<MemDevice>, SnapshotError> {
+    let mismatch = || SnapshotError::DeviceStateNotCanonical(Slot::Mem);
+    match (set.mem(), state.map(DeviceState::specific), backing) {
+        (false, None, None) => Ok(None),
+        (true, Some(DeviceSpecific::Mem { addr, region_size }), Some(backing)) => {
+            MemDevice::new(addr, region_size, backing)
+                .map(Some)
+                .map_err(|_| mismatch())
+        }
+        _ => Err(mismatch()),
+    }
 }

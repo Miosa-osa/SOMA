@@ -1,5 +1,7 @@
 //! Table, dispatch, routing, seam, and snapshot tests for the bus.
 
+#[path = "tests/mem.rs"]
+mod mem_slot;
 #[path = "tests/optional.rs"]
 mod optional;
 
@@ -49,6 +51,7 @@ fn devices(mac: [u8; 6]) -> BusDevices {
         net: Some(NetDevice::new(Box::new(LoopbackBackend::default()), mac)),
         vsock: VsockDevice::new(CID).expect("vsock"),
         rng: RngDevice::new(Box::new(CounterEntropy::default())),
+        mem: None,
     }
 }
 
@@ -96,17 +99,19 @@ fn table_matches_the_device_surface_and_command_line_exactly() {
 virtio_mmio.device=4K@0xd0004000:9:4"
     );
     let gsis: Vec<u32> = Slot::ALL.iter().map(|slot| slot.gsi()).collect();
-    assert_eq!(gsis, vec![5, 6, 7, 8, 9]);
+    assert_eq!(gsis, vec![5, 6, 7, 8, 9, 10]);
     let ids: Vec<u32> = Slot::ALL.iter().map(|slot| slot.device_id()).collect();
-    assert_eq!(ids, vec![2, 2, 1, 19, 4]);
+    assert_eq!(ids, vec![2, 2, 1, 19, 4, 24]);
     let queues: Vec<u16> = Slot::ALL.iter().map(|slot| slot.queue_count()).collect();
-    assert_eq!(queues, vec![1, 1, 2, 3, 1]);
+    assert_eq!(queues, vec![1, 1, 2, 3, 1, 1]);
     assert_eq!(Slot::from_gpa(0xcfff_ffff), None);
     assert_eq!(Slot::from_gpa(0xd000_0000), Some((Slot::Root, 0)));
     assert_eq!(Slot::from_gpa(0xd000_0fff), Some((Slot::Root, 0xfff)));
     assert_eq!(Slot::from_gpa(0xd000_1000), Some((Slot::Overlay, 0)));
     assert_eq!(Slot::from_gpa(0xd000_4fff), Some((Slot::Rng, 0xfff)));
-    assert_eq!(Slot::from_gpa(0xd000_5000), None);
+    assert_eq!(Slot::from_gpa(0xd000_5000), Some((Slot::Mem, 0)));
+    assert_eq!(Slot::from_gpa(0xd000_5fff), Some((Slot::Mem, 0xfff)));
+    assert_eq!(Slot::from_gpa(0xd000_6000), None);
     assert_eq!(Slot::from_gpa(u64::MAX), None);
     assert_eq!(Slot::from_gpa(0), None);
     assert_eq!(Slot::Vsock.end(), 0xd000_3fff);
@@ -116,7 +121,7 @@ virtio_mmio.device=4K@0xd0004000:9:4"
 #[test]
 fn dispatch_reaches_each_slot_and_rejects_unmapped_addresses() {
     let mut bus = bus();
-    for slot in Slot::ALL {
+    for slot in bus.device_set().present().collect::<Vec<_>>() {
         assert_eq!(bus.dispatch_read(slot.base(), W), Ok(0x7472_6976));
         assert_eq!(bus.dispatch_read(slot.base() + REG_VERSION, W), Ok(2));
         assert_eq!(

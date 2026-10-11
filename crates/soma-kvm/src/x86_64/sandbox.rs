@@ -123,6 +123,7 @@ impl SandboxMachine {
             config.identity,
             config.devices,
             config.contract,
+            config.mem,
         )?;
         clock.lap(Phase::Devices);
         timeline.mark(Milestone::Devices);

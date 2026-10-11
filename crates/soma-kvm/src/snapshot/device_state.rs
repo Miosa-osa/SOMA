@@ -1,4 +1,4 @@
-//! Per-device snapshot state for the five fixed virtio-mmio devices.
+//! Per-device snapshot state for the six fixed virtio-mmio devices.
 //!
 //! A device state carries transport status, negotiated features, queue geometry and
 //! cursors, interrupt status, configuration generation, and the device-specific fields
@@ -21,7 +21,7 @@ use super::{
     wire::{Reader, Writer},
 };
 
-pub const DEVICE_COUNT: u8 = 5;
+pub const DEVICE_COUNT: u8 = 6;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceKind {
@@ -30,15 +30,17 @@ pub enum DeviceKind {
     Net,
     Vsock,
     Rng,
+    Mem,
 }
 
 impl DeviceKind {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::RootBlock,
         Self::OverlayBlock,
         Self::Net,
         Self::Vsock,
         Self::Rng,
+        Self::Mem,
     ];
 
     #[must_use]
@@ -49,6 +51,7 @@ impl DeviceKind {
             Self::Net => 2,
             Self::Vsock => 3,
             Self::Rng => 4,
+            Self::Mem => 5,
         }
     }
 
@@ -60,6 +63,7 @@ impl DeviceKind {
             2 => Some(Self::Net),
             3 => Some(Self::Vsock),
             4 => Some(Self::Rng),
+            5 => Some(Self::Mem),
             _ => None,
         }
     }
@@ -68,7 +72,7 @@ impl DeviceKind {
     #[must_use]
     pub const fn queue_count(self) -> usize {
         match self {
-            Self::RootBlock | Self::OverlayBlock | Self::Rng => 1,
+            Self::RootBlock | Self::OverlayBlock | Self::Rng | Self::Mem => 1,
             Self::Net => 2,
             Self::Vsock => 3,
         }

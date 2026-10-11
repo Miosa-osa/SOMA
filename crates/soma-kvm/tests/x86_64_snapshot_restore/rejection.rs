@@ -235,6 +235,7 @@ fn attempt(
         vcpus: 1,
         contract: MachineContract::V1,
         verify_artifacts,
+        mem_backing: None,
         network: None,
     });
     let result = outcome.map(|restored| drop(restored.machine.finish(EXIT_GRACE)));

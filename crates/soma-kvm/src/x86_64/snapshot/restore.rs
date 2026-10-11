@@ -79,6 +79,8 @@ pub struct RestoreRequest {
     pub verify_artifacts: bool,
     /// The assigned network bundle, when this Instance was given one.
     pub network: Option<NetworkAttachment>,
+    /// The host memory behind the resizable region, when `devices` declares a memory device.
+    pub mem_backing: Option<Box<dyn crate::virtio::RegionBacking + Send>>,
 }
 
 /// What the restored machine is, taken from the manifest rather than from the caller.
@@ -118,6 +120,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         contract,
         verify_artifacts,
         network,
+        mem_backing,
     } = request;
     let SandboxDisks { root, overlay } = disks;
     let overlay_capacity_bytes = overlay
@@ -139,6 +142,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         vcpus,
         contract,
         verify_artifacts,
+        mem_backing,
     })?
     .assign(overlay, guest_cid, network)
 }
@@ -161,6 +165,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         vcpus,
         contract,
         verify_artifacts,
+        mem_backing,
     } = request;
     let mut timeline = Timeline::new();
     let mut sequence = RestoreSequence::start();
@@ -221,6 +226,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
             set: devices,
             contract,
         },
+        mem_backing,
     )?;
     sequence.complete(RestoreStep::RecreateIrqchipAndDevices)?;
     timeline.mark(Milestone::Devices);

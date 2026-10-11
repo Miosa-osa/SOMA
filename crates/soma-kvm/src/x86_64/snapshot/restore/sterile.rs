@@ -38,6 +38,8 @@ pub struct SterileRequest {
     pub contract: crate::contract::MachineContract,
     /// Whether to re-hash the memory object and the overlay template before mapping.
     pub verify_artifacts: bool,
+    /// The host memory behind the resizable region, when `devices` declares a memory device.
+    pub mem_backing: Option<Box<dyn crate::virtio::RegionBacking + Send>>,
 }
 
 /// A restored machine that holds no per-Instance authority yet.

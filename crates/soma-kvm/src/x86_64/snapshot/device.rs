@@ -56,6 +56,13 @@ pub(super) fn specific(bus: &MmioBus, slot: Slot, image: Digest) -> Option<Devic
             cid_placeholder: bus.vsock().device().guest_cid(),
         },
         Slot::Rng => DeviceSpecific::Rng,
+        Slot::Mem => {
+            let device = bus.mem()?.device();
+            DeviceSpecific::Mem {
+                addr: device.region_addr(),
+                region_size: device.region_size(),
+            }
+        }
     })
 }
 
@@ -193,6 +200,13 @@ pub(super) fn fresh_record(
             devices.vsock.snapshot_state()
         }
         (DeviceKind::Rng, DeviceSpecific::Rng) => devices.rng.snapshot_state(),
+        (DeviceKind::Mem, DeviceSpecific::Mem { addr, region_size }) => {
+            let device = devices.mem.as_ref().ok_or_else(mismatch)?;
+            if device.region_addr() != addr || device.region_size() != region_size {
+                return Err(mismatch());
+            }
+            device.snapshot_state()
+        }
         _ => return Err(mismatch()),
     };
     Ok(blob)

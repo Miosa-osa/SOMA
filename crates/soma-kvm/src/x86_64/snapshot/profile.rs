@@ -19,8 +19,8 @@ use crate::snapshot::{
     manifest::{Architecture, HostCapability, HostRequirements, PageSize, SCHEMA_VERSION},
 };
 use crate::virtio::{
-    BLOCK_QUEUE_MAX, BlockRole, DeviceSet, NET_FEATURES, NET_QUEUE_MAX, RNG_FEATURES,
-    RNG_QUEUE_MAX, Slot, VSOCK_FEATURES, VSOCK_QUEUE_MAX,
+    BLOCK_QUEUE_MAX, BlockRole, DeviceSet, MEM_FEATURES, MEM_QUEUE_MAX, NET_FEATURES,
+    NET_QUEUE_MAX, RNG_FEATURES, RNG_QUEUE_MAX, Slot, VSOCK_FEATURES, VSOCK_QUEUE_MAX,
 };
 use crate::x86_64::{cmdline, cpuid, launch_page, layout};
 
@@ -139,6 +139,7 @@ pub(in crate::x86_64) fn expectation(slot: Slot, contract: MachineContract) -> D
         Slot::Net => (DeviceKind::Net, NET_FEATURES, &NET_QUEUE_MAX),
         Slot::Vsock => (DeviceKind::Vsock, VSOCK_FEATURES, &VSOCK_QUEUE_MAX),
         Slot::Rng => (DeviceKind::Rng, RNG_FEATURES, &RNG_QUEUE_MAX),
+        Slot::Mem => (DeviceKind::Mem, MEM_FEATURES, &MEM_QUEUE_MAX),
     };
     for (limit, value) in queue_limits.iter_mut().zip(limits) {
         *limit = *value;

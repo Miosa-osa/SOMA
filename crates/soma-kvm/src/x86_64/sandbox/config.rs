@@ -4,7 +4,7 @@ use std::fs::File;
 
 use super::devices::{DeviceIdentity, SandboxDisks};
 use crate::contract::MachineContract;
-use crate::virtio::DeviceSet;
+use crate::virtio::{DeviceSet, MemDevice};
 
 /// Inputs for one sandbox.
 pub struct SandboxConfig {
@@ -24,4 +24,6 @@ pub struct SandboxConfig {
     pub contract: MachineContract,
     /// The devices this Generation declared; it must agree with `disks`.
     pub devices: DeviceSet,
+    /// The memory device, built with its region and host backing, when `devices` declares one.
+    pub mem: Option<MemDevice>,
 }

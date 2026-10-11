@@ -17,10 +17,24 @@ pub struct BlockState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceSpecific {
     Block(BlockState),
-    Net { mac: [u8; 6], link_up: bool },
-    Vsock { cid_placeholder: u64 },
+    Net {
+        mac: [u8; 6],
+        link_up: bool,
+    },
+    Vsock {
+        cid_placeholder: u64,
+    },
     Rng,
+    /// The resizable region: where it starts and how large it is. Plugged memory is never part of
+    /// a snapshot, so these two numbers are all the device has to say.
+    Mem {
+        addr: u64,
+        region_size: u64,
+    },
 }
+
+/// The unit the memory device plugs in, which the region must be a whole number of.
+const MEM_BLOCK_SIZE: u64 = 2 * 1024 * 1024;
 
 impl DeviceSpecific {
     /// # Errors
@@ -34,6 +48,22 @@ impl DeviceSpecific {
             (DeviceKind::Net, Self::Net { .. })
             | (DeviceKind::Vsock, Self::Vsock { .. })
             | (DeviceKind::Rng, Self::Rng) => Ok(()),
+            (DeviceKind::Mem, Self::Mem { addr, region_size }) => {
+                if *region_size == 0 || !region_size.is_multiple_of(MEM_BLOCK_SIZE) {
+                    return Err(DeviceStateError::InvalidField {
+                        field: "region_size",
+                        value: *region_size,
+                    });
+                }
+                if !addr.is_multiple_of(MEM_BLOCK_SIZE) || addr.checked_add(*region_size).is_none()
+                {
+                    return Err(DeviceStateError::InvalidField {
+                        field: "region_addr",
+                        value: *addr,
+                    });
+                }
+                Ok(())
+            }
             _ => Err(DeviceStateError::SpecificMismatch(kind)),
         }
     }
@@ -51,6 +81,10 @@ impl DeviceSpecific {
             }
             Self::Vsock { cid_placeholder } => writer.put_u64(*cid_placeholder),
             Self::Rng => {}
+            Self::Mem { addr, region_size } => {
+                writer.put_u64(*addr);
+                writer.put_u64(*region_size);
+            }
         }
     }
 
@@ -72,6 +106,10 @@ impl DeviceSpecific {
                 cid_placeholder: reader.u64()?,
             },
             DeviceKind::Rng => Self::Rng,
+            DeviceKind::Mem => Self::Mem {
+                addr: reader.u64()?,
+                region_size: reader.u64()?,
+            },
         })
     }
 }
