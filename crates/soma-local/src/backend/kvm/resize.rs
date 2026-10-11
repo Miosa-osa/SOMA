@@ -42,7 +42,12 @@ impl KvmBackend {
             Some(wanted) => resize_cpu(instance, live, wanted, jailed),
         };
         let memory = match request.memory_mb {
-            None => memory::report_unchanged(live.memory_mib, live.memory_mib, 0),
+            None => match &mut live.held {
+                Held::Resident(session) => {
+                    memory::current(&mut memory::ResidentLink::new(session), live.memory_mib)
+                }
+                Held::Jailed(_) => memory::report_unchanged(live.memory_mib, live.memory_mib, 0),
+            },
             Some(wanted) => match &mut live.held {
                 Held::Resident(session) => memory::resize(
                     &mut memory::ResidentLink::new(session),
