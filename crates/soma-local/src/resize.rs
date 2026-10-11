@@ -68,6 +68,9 @@ pub struct MemoryResize {
 /// Both dimensions of one resize.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ResizeOutcome {
+    /// The process that holds the machine, so an operator can find its memory and CPU.
+    #[serde(default)]
+    pub host_pid: u32,
     /// The CPU dimension.
     pub cpu: CpuResize,
     /// The memory dimension.
