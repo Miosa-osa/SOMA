@@ -31,6 +31,8 @@ pub enum CgroupError {
     /// The child is not listed in `cgroup.procs`.
     NotMember(i32),
     Remove(i32),
+    /// A memory resize would run in the wrong order around a plug or an unplug.
+    InvalidResize(&'static str),
 }
 
 impl fmt::Display for CgroupError {
@@ -62,6 +64,7 @@ impl fmt::Display for CgroupError {
             }
             Self::NotMember(pid) => write!(formatter, "process {pid} is not in the leaf"),
             Self::Remove(errno) => write!(formatter, "cgroup leaf rmdir failed: errno {errno}"),
+            Self::InvalidResize(reason) => write!(formatter, "invalid cgroup resize: {reason}"),
         }
     }
 }

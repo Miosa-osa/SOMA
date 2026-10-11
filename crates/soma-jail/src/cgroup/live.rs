@@ -94,6 +94,75 @@ impl CgroupLeaf {
     }
 }
 
+impl CgroupLeaf {
+    /// Raises `memory.max` to `bytes`. Run this BEFORE plugging memory into the guest, so the
+    /// plugged pages never meet a limit that is still the old one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CgroupError::InvalidResize`] if `bytes` is below the current limit, or the write
+    /// and readback failures of the underlying write.
+    pub fn raise_memory_max(&self, bytes: u64) -> Result<u64, CgroupError> {
+        let current = parse_max("memory.max", &self.read("memory.max")?)?;
+        if bytes < current {
+            return Err(CgroupError::InvalidResize("raise would lower memory.max"));
+        }
+        self.set_memory_max(bytes)
+    }
+
+    /// Lowers `memory.max` to `bytes`. Run this only AFTER the guest has unplugged the memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CgroupError::InvalidResize`] if `bytes` is above the current limit or below
+    /// `memory.current`, or the write and readback failures of the underlying write.
+    pub fn lower_memory_max(&self, bytes: u64) -> Result<u64, CgroupError> {
+        let current = parse_max("memory.max", &self.read("memory.max")?)?;
+        if bytes > current {
+            return Err(CgroupError::InvalidResize("lower would raise memory.max"));
+        }
+        let used = parse_max("memory.current", &self.read("memory.current")?)?;
+        if bytes < used {
+            return Err(CgroupError::InvalidResize(
+                "memory.max would sit below memory.current",
+            ));
+        }
+        self.set_memory_max(bytes)
+    }
+
+    /// Writes `memory.max` and returns what the kernel reports; zero is refused.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CgroupError::InvalidResize`] for zero, a write failure, or a readback that
+    /// differs.
+    pub fn set_memory_max(&self, bytes: u64) -> Result<u64, CgroupError> {
+        if bytes == 0 {
+            return Err(CgroupError::InvalidResize("memory.max of zero"));
+        }
+        self.write("memory.max", &bytes.to_string())?;
+        let found = parse_max("memory.max", &self.read("memory.max")?)?;
+        if found == bytes {
+            Ok(found)
+        } else {
+            Err(CgroupError::Readback {
+                file: "memory.max",
+                expected: bytes.to_string(),
+                found: found.to_string(),
+            })
+        }
+    }
+
+    /// Reads `memory.current`: the bytes the leaf is using now.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CgroupError::Read`] or [`CgroupError::Readback`] for an unparsable value.
+    pub fn memory_current(&self) -> Result<u64, CgroupError> {
+        parse_max("memory.current", &self.read("memory.current")?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +213,41 @@ mod tests {
         fs::create_dir(root.path().join("soma-y")).expect("leaf");
         let leaf = CgroupLeaf::open_existing(root.path(), "soma-y").expect("open");
         assert!(leaf.cpu_max().is_err());
+    }
+
+    fn memory_leaf(memory: &str, current: &str) -> (tempfile::TempDir, CgroupLeaf) {
+        let root = tempfile::tempdir().expect("root");
+        fs::create_dir(root.path().join("soma-m")).expect("leaf");
+        fs::write(root.path().join("soma-m/memory.max"), memory).expect("memory.max");
+        fs::write(root.path().join("soma-m/memory.current"), current).expect("memory.current");
+        let leaf = CgroupLeaf::open_existing(root.path(), "soma-m").expect("open");
+        (root, leaf)
+    }
+
+    #[test]
+    fn memory_is_raised_before_a_plug_and_lowered_only_after_an_unplug() {
+        let (root, leaf) = memory_leaf("2000", "1500");
+        assert_eq!(leaf.raise_memory_max(4000), Ok(4000));
+        assert_eq!(
+            leaf.raise_memory_max(3000),
+            Err(CgroupError::InvalidResize("raise would lower memory.max"))
+        );
+        assert_eq!(
+            leaf.lower_memory_max(5000),
+            Err(CgroupError::InvalidResize("lower would raise memory.max"))
+        );
+        assert_eq!(
+            leaf.lower_memory_max(1000),
+            Err(CgroupError::InvalidResize(
+                "memory.max would sit below memory.current"
+            )),
+            "a limit under the live usage must be refused, not written"
+        );
+        assert_eq!(
+            fs::read_to_string(root.path().join("soma-m/memory.max")).expect("read"),
+            "4000"
+        );
+        fs::write(root.path().join("soma-m/memory.current"), "800").expect("unplugged");
+        assert_eq!(leaf.lower_memory_max(1000), Ok(1000));
     }
 }
