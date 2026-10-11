@@ -128,6 +128,9 @@ pub fn repair(
     // mounted per Instance for the same reason `/run` is: a captured one would hand every clone
     // the files of the machine that was captured.
     reset_session_directory(SHM_DIRECTORY, &shm_options(tuning::total_memory_bytes()))?;
+    // Memory plugged in later joins the movable zone, which is the only zone that can be given
+    // back. A kernel without hotplug has no such file, and that is not a failure.
+    let _policy = crate::hotplug::online_movable(std::path::Path::new(crate::hotplug::AUTO_ONLINE));
     set_clock(time_sample_nanos)
 }
 
