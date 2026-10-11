@@ -75,6 +75,13 @@ apt-get install -y --no-install-recommends \
   "docker-compose-plugin=${DOCKER_COMPOSE_VERSION}${suffix}"
 apt-mark hold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null
 
+# The Docker repository is configured only for this install. Leaving it in place would add one
+# more source to every `apt-get update` a sandbox runs, which is a network fetch on the path of
+# every workload that updates before it installs (measured as the dominant cost of the DAX
+# prepare phase). The packages are pinned and held; to change the version, re-run this script,
+# which re-adds the source.
+rm -f /etc/apt/sources.list.d/docker.list /var/lib/apt/lists/download.docker.com_*
+
 getent group docker > /dev/null || groupadd --system docker
 if [ -n "${DOCKER_SANDBOX_USER:-}" ]; then
   usermod -aG docker "$DOCKER_SANDBOX_USER"
