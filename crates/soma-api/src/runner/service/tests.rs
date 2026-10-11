@@ -3,7 +3,6 @@ use super::{
     routing::{Forward, Route, route},
 };
 use crate::http::request::Method;
-use crate::runner::backend::CallTiming;
 use crate::runner::config::{LargeShape, LaunchConfig};
 
 pub(super) fn shape() -> soma::MachineShape {
