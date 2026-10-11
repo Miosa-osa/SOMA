@@ -45,4 +45,19 @@ impl SandboxMachine {
             .mem()
             .map_or(0, |mem| mem.device().requested_size())
     }
+
+    /// Whether the machine is stopped for a checkpoint or fork right now.
+    ///
+    /// Plugged memory is not part of a snapshot, so a resize asked for while the guest is held
+    /// for a capture would be lost or refused; callers answer busy instead.
+    #[must_use]
+    pub fn is_paused(&self) -> bool {
+        self.paused().is_some()
+    }
+
+    /// The size of the memory device's region, or zero for a machine without one.
+    #[must_use]
+    pub fn hotplug_bytes(&self) -> u64 {
+        self.hotplug_region().map_or(0, |region| region.size)
+    }
 }

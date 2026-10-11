@@ -71,12 +71,16 @@ impl MemoryControl for NoMemoryDevice {
 
 /// The memory device of a running machine.
 ///
-/// A machine whose Generation declared no region answers `NoDevice` and a region of zero bytes,
-/// so a caller can tell "cannot" from "refused" without knowing the device's geometry.
+/// A wrapper rather than an implementation on the machine type, which this crate does not own.
+#[derive(Clone, Copy)]
 pub struct MachineMemory<'a>(&'a soma_kvm::x86_64::SandboxMachine);
 
 impl MemoryControl for MachineMemory<'_> {
     fn set_requested_memory(&self, bytes: u64) -> Result<(), MemoryError> {
+        // The guest is held for a checkpoint or fork, and plugged memory is not in a snapshot.
+        if self.0.is_paused() {
+            return Err(MemoryError::Busy);
+        }
         self.0
             .set_requested_memory(bytes)
             .map_err(|error| match error {
@@ -96,11 +100,11 @@ impl MemoryControl for MachineMemory<'_> {
     }
 
     fn region_bytes(&self) -> u64 {
-        self.0.hotplug_region().map_or(0, |region| region.size)
+        self.0.hotplug_bytes()
     }
 }
 
-/// The memory device of a machine.
+/// The memory device of a machine; a machine built without one answers as [`NoMemoryDevice`].
 #[must_use]
 pub const fn device_of(machine: &soma_kvm::x86_64::SandboxMachine) -> MachineMemory<'_> {
     MachineMemory(machine)

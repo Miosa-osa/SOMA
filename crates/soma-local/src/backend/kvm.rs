@@ -5,6 +5,7 @@ mod evidence;
 mod file;
 mod held;
 mod host;
+mod hotplug;
 mod identity;
 mod jailed;
 mod lifecycle;

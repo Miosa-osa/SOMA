@@ -37,6 +37,8 @@ pub enum Source {
         /// The machine contract the Generation was built under, which the snapshot must agree
         /// with; a restore of a machine built under another contract is refused.
         contract: MachineContract,
+        /// The resizable region the Generation declared, which the restore attaches empty.
+        hotplug: Option<soma_kvm::memory_layout::HotplugRegion>,
     },
 }
 
