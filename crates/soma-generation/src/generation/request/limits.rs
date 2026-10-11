@@ -19,7 +19,8 @@ impl ProfileLimits {
                 max_vcpus: soma_kvm::V1_MAX_VCPUS,
                 max_memory_mib: 3 * 1024,
             }),
-            2 => Some(Self {
+            // Version 3 is version 2's machine plus a device, so its bounds are version 2's.
+            2 | 3 => Some(Self {
                 max_vcpus: soma_kvm::V2_MAX_VCPUS,
                 max_memory_mib: 16 * 1024,
             }),

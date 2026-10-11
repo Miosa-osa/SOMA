@@ -25,7 +25,7 @@ pub(super) const OVERLAY_SERIAL: &[u8] = b"soma-overlay";
 pub(crate) const fn block_transfer(contract: MachineContract) -> TransferShape {
     match contract {
         MachineContract::V1 => TransferShape::Undeclared,
-        MachineContract::V2 => TransferShape::Declared,
+        MachineContract::V2 | MachineContract::V3 => TransferShape::Declared,
     }
 }
 

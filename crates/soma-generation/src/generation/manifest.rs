@@ -235,6 +235,8 @@ impl GenerationManifest {
             self.template.writable_storage_bytes > 0,
             self.template.network_policy_class != NetworkPolicyClass::Isolated,
         )
+        // Machine contract 3 is the one that has the memory device, whatever else is declared.
+        .with_mem(self.machine_contract.version >= 3)
     }
 
     /// Returns every artifact descriptor in manifest order.

@@ -66,6 +66,21 @@ impl CompilerProfile {
         }
     }
 
+    /// Returns compiler profile version 3: version 2's machine plus a virtio-mem device.
+    ///
+    /// The kernel it builds must pass the live-resize rules
+    /// ([`crate::kernel_config::KernelConfigProfile::LiveResize`]), and the manifest binds
+    /// machine contract version 3, so a host that does not implement it refuses the Generation
+    /// and every version 1 and 2 Generation verifies exactly as before.
+    #[must_use]
+    pub fn v3() -> Self {
+        Self {
+            policy_version: 3,
+            machine_contract: MachineContract::V3,
+            ..Self::v2()
+        }
+    }
+
     /// Returns the compiler profile one compiler-policy version names, or `None` for a version
     /// this build does not implement.
     ///
@@ -79,6 +94,9 @@ impl CompilerProfile {
         match version {
             1 => Some(Self::v1()),
             2 => Some(Self::v2()),
+            // Version 3 can be compiled but is not admitted by a host until the machine builds
+            // the virtio-mem device its contract states; admitting it earlier would boot a
+            // Generation that promises a device the machine does not have.
             _ => None,
         }
     }
