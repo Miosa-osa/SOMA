@@ -113,6 +113,7 @@ pub enum Step {
     RecvMsg,
     Clock,
     ListLinks,
+    Connect,
 }
 
 /// One pinned userspace tool the version 1 broker invokes.

@@ -13,6 +13,7 @@ use std::{
 
 use soma_guest::{ActivationChallenge, LaunchNetwork};
 
+use crate::connect::ConnectPorts;
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, DnsPlan, Error,
     InstanceId, Ipam, Ledger, NetworkIntent, NetworkProfile, OperationId, PortReservation,
@@ -22,6 +23,19 @@ use crate::{
 
 mod prepare;
 mod types;
+
+impl Broker {
+    /// Replaces the guest ports [`Broker::connect_guest`] may dial.
+    #[must_use]
+    pub fn with_connect_ports(mut self, ports: ConnectPorts) -> Self {
+        self.connect_ports = ports;
+        self
+    }
+
+    pub(crate) const fn connect_ports(&self) -> &ConnectPorts {
+        &self.connect_ports
+    }
+}
 
 pub use types::{AssignFailure, Assigned, SterileBundle};
 
@@ -41,6 +55,7 @@ pub struct Broker {
     ledger: Ledger,
     ipam: Ipam,
     next_zone: u16,
+    connect_ports: ConnectPorts,
 }
 
 impl Broker {
@@ -69,6 +84,7 @@ impl Broker {
             ledger,
             ipam,
             next_zone: 1,
+            connect_ports: ConnectPorts::default(),
         })
     }
 

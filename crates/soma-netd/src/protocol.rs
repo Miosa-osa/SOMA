@@ -51,6 +51,18 @@ pub enum Request {
     },
     /// Compare the ledger with the kernel.
     Reconcile,
+    /// Open one TCP connection from inside an activated bundle's namespace to its own guest,
+    /// and transfer the connected socket.
+    Connect {
+        /// The Instance the bundle was claimed for; it must match the ledger.
+        instance: InstanceId,
+        /// The bundle.
+        bundle: BundleId,
+        /// Its generation.
+        generation: CleanupGeneration,
+        /// The guest port; it must be one the broker was configured to allow.
+        port: u16,
+    },
 }
 
 impl Request {
@@ -87,6 +99,18 @@ impl Request {
                 out.extend_from_slice(&generation.get().to_be_bytes());
             }
             Self::Reconcile => out.push(4),
+            Self::Connect {
+                instance,
+                bundle,
+                generation,
+                port,
+            } => {
+                out.push(5);
+                out.extend_from_slice(instance.as_bytes());
+                out.extend_from_slice(bundle.as_bytes());
+                out.extend_from_slice(&generation.get().to_be_bytes());
+                out.extend_from_slice(&port.to_be_bytes());
+            }
         }
         out
     }
@@ -124,6 +148,18 @@ impl Request {
                     .map_err(|_| Error::Protocol("generation"))?,
             }),
             4 if bytes.len() == 1 => Ok(Self::Reconcile),
+            5 if bytes.len() == 39 => Ok(Self::Connect {
+                instance: InstanceId::new(array(&bytes[1..17]))
+                    .map_err(|_| Error::Protocol("instance"))?,
+                bundle: BundleId::new(array(&bytes[17..33]))
+                    .map_err(|_| Error::Protocol("bundle"))?,
+                generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[33..37])))
+                    .map_err(|_| Error::Protocol("generation"))?,
+                port: match u16::from_be_bytes(array(&bytes[37..39])) {
+                    0 => return Err(Error::Protocol("port")),
+                    port => port,
+                },
+            }),
             _ => Err(Error::Protocol("request")),
         }
     }
@@ -218,6 +254,12 @@ mod tests {
             },
             Request::Release { bundle, generation },
             Request::Reconcile,
+            Request::Connect {
+                instance: InstanceId::new([1; 16]).expect("id"),
+                bundle,
+                generation,
+                port: 9223,
+            },
         ];
         for request in requests {
             let encoded = request.encode();
@@ -235,6 +277,7 @@ mod tests {
                 activation: ActivationChallenge::from_bytes([4; 32]).expect("challenge"),
             },
             Reply::Activated,
+            Reply::Connected { bundle, generation },
             Reply::Released { complete: true },
             Reply::Reconciled {
                 consistent: 1,

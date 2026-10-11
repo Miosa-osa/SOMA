@@ -67,9 +67,10 @@ impl Capability {
     #[must_use]
     pub const fn required_for(request: &Request) -> Self {
         match request {
-            Request::Claim { .. } | Request::Activate { .. } | Request::Release { .. } => {
-                Self::Lifecycle
-            }
+            Request::Claim { .. }
+            | Request::Activate { .. }
+            | Request::Release { .. }
+            | Request::Connect { .. } => Self::Lifecycle,
             Request::Reconcile => Self::Reconcile,
         }
     }

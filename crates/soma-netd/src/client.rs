@@ -26,7 +26,9 @@ use std::{
     ptr,
 };
 
-use crate::{MAX_FRAME, MAX_HEADER, Reply, Request, TransferHeader};
+use crate::{
+    BundleId, CleanupGeneration, InstanceId, MAX_FRAME, MAX_HEADER, Reply, Request, TransferHeader,
+};
 
 /// Why one broker exchange did not produce an answer the caller can use.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,6 +128,33 @@ impl BrokerClient {
         }
     }
 
+    /// Asks the broker to connect to `port` on the guest of an activated bundle this peer
+    /// claimed, and returns the connected socket.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ClientError::Refused`] with the broker's code for a bundle that is not the
+    /// caller's, an Instance that does not match, a port outside the allowlist, or a guest that
+    /// does not answer, and [`ClientError::Protocol`] for a reply without a socket.
+    pub fn connect_guest(
+        &self,
+        instance: InstanceId,
+        bundle: BundleId,
+        generation: CleanupGeneration,
+        port: u16,
+    ) -> Result<OwnedFd, ClientError> {
+        let request = Request::Connect {
+            instance,
+            bundle,
+            generation,
+            port,
+        };
+        match self.call(&request)? {
+            (Reply::Connected { .. }, Some(socket)) => Ok(socket),
+            _ => Err(ClientError::Protocol),
+        }
+    }
+
     /// Receives one packet, and the single descriptor it may carry.
     fn receive(&self) -> Result<(Vec<u8>, Option<OwnedFd>), ClientError> {
         let mut payload = [0_u8; MAX_FRAME + MAX_HEADER + 1];
@@ -169,7 +198,12 @@ fn names_the_same_assignment(reply: &[u8], header: &TransferHeader) -> Result<()
     match Reply::decode(reply).map_err(|_| ClientError::Protocol)? {
         Reply::Claimed {
             bundle, generation, ..
-        } if bundle == header.bundle && generation == header.generation => Ok(()),
+        }
+        | Reply::Connected { bundle, generation }
+            if bundle == header.bundle && generation == header.generation =>
+        {
+            Ok(())
+        }
         Reply::Failed(code) => Err(ClientError::Refused(code)),
         // A descriptor that arrived under one assignment and a reply describing another cannot
         // both be true, and taking either would attach a frame path to the wrong lease.

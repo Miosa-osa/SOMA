@@ -43,9 +43,11 @@ use std::{
 };
 
 mod claim;
+mod connect;
 mod delivery;
 
 use claim::{claim, fresh_id};
+use connect::connect;
 use delivery::deliver;
 
 use crate::{
@@ -245,6 +247,17 @@ fn handle(state: &mut State, request: Request, connection: &OwnedFd, peer: PeerI
                 Err(error) => Reply::Failed(error_code(&error)),
             }
         }
+        Request::Connect {
+            instance,
+            bundle,
+            generation,
+            port,
+        } => connect(
+            state,
+            connection,
+            peer,
+            (instance, bundle, generation, port),
+        ),
         Request::Reconcile => match reconcile(&state.broker) {
             Ok(report) => {
                 let (consistent, drifted, orphaned) = report.counts();

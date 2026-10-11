@@ -38,6 +38,13 @@ pub enum Reply {
         /// Kernel objects with no ledger owner.
         unowned: u32,
     },
+    /// A connected socket to the bundle's guest was transferred in the packet before this reply.
+    Connected {
+        /// The bundle the socket belongs to.
+        bundle: BundleId,
+        /// Its generation.
+        generation: CleanupGeneration,
+    },
     /// A typed failure code from [`super::error_code`].
     Failed(u16),
 }
@@ -73,6 +80,11 @@ impl Reply {
                     out.extend_from_slice(&value.to_be_bytes());
                 }
             }
+            Self::Connected { bundle, generation } => {
+                out.push(5);
+                out.extend_from_slice(bundle.as_bytes());
+                out.extend_from_slice(&generation.get().to_be_bytes());
+            }
             Self::Failed(code) => {
                 out.push(0xff);
                 out.extend_from_slice(&code.to_be_bytes());
@@ -106,6 +118,12 @@ impl Reply {
                 drifted: u32::from_be_bytes(array(&bytes[5..9])),
                 orphaned: u32::from_be_bytes(array(&bytes[9..13])),
                 unowned: u32::from_be_bytes(array(&bytes[13..17])),
+            }),
+            (Some(5), 21) => Ok(Self::Connected {
+                bundle: BundleId::new(array(&bytes[1..17]))
+                    .map_err(|_| Error::Protocol("bundle"))?,
+                generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
+                    .map_err(|_| Error::Protocol("generation"))?,
             }),
             (Some(0xff), 3) => Ok(Self::Failed(u16::from_be_bytes([bytes[1], bytes[2]]))),
             _ => Err(Error::Protocol("reply")),

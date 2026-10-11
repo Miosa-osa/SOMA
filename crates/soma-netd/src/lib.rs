@@ -31,6 +31,8 @@ mod bundle;
 #[cfg(target_os = "linux")]
 mod client;
 #[cfg(target_os = "linux")]
+mod connect;
+#[cfg(target_os = "linux")]
 mod daemon;
 #[cfg(target_os = "linux")]
 mod link;
@@ -77,6 +79,8 @@ pub use activate::{ActivationEvidence, activate};
 pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
 #[cfg(target_os = "linux")]
 pub use client::{BrokerClient, ClientError};
+#[cfg(target_os = "linux")]
+pub use connect::ConnectPorts;
 #[cfg(target_os = "linux")]
 pub use daemon::serve;
 #[cfg(target_os = "linux")]
