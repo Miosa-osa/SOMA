@@ -36,3 +36,10 @@ fn a_profile_whose_contract_and_policy_version_disagree_is_refused() {
     profile.machine_contract = MachineContract::V2;
     assert!(profile.validate().is_err());
 }
+
+#[test]
+fn the_v3_profile_is_a_live_resize_policy_so_its_kernel_must_carry_the_memory_driver() {
+    use crate::generation::kernel_config::LIVE_RESIZE_POLICY_VERSION;
+    assert!(CompilerProfile::v3().policy_version >= LIVE_RESIZE_POLICY_VERSION);
+    assert!(CompilerProfile::v2().policy_version < LIVE_RESIZE_POLICY_VERSION);
+}
