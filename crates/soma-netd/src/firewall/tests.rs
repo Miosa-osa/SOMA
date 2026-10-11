@@ -131,6 +131,22 @@ fn public_internet_ruleset_admits_declared_dns_and_egress_after_protection() {
 }
 
 #[test]
+fn outbound_smtp_is_dropped_before_egress_is_admitted_in_every_forwarding_mode() {
+    for class in [EgressClass::PublicInternet, EgressClass::Unrestricted] {
+        let ruleset = render(class, Vec::new());
+        let forward = chain(&ruleset, "forward");
+        let smtp = forward.find("tcp dport 25 drop").expect("smtp drop");
+        let egress = forward
+            .find("oifname \"vs0\" ct state new,established accept")
+            .expect("egress");
+        assert!(
+            smtp < egress,
+            "mail must be refused before anything is admitted"
+        );
+    }
+}
+
+#[test]
 fn unrestricted_ruleset_still_drops_the_protected_set_first() {
     let ruleset = render(EgressClass::Unrestricted, Vec::new());
     every_protected_is_dropped_before_any_accept(&ruleset);

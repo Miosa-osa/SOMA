@@ -21,21 +21,31 @@ pub(super) fn connect(
     target: (InstanceId, BundleId, CleanupGeneration, u16),
 ) -> Reply {
     let (instance, bundle, generation, port) = target;
-    let Some(owned) = state.assigned.get(&(bundle, generation)) else {
-        return Reply::Failed(error_code(&Error::NotAssigned));
+    // Looked up and checked under the lock; the dial itself, which can wait for the guest,
+    // runs after it is released so a slow guest never delays a claim.
+    let (plan, header) = {
+        let maps = state.maps();
+        let Some(owned) = maps.assigned.get(&(bundle, generation)) else {
+            return Reply::Failed(error_code(&Error::NotAssigned));
+        };
+        let record = owned.assigned.record();
+        if let Err(error) = authorize(owned.peer, peer.uid(), record.instance, instance) {
+            return Reply::Failed(error_code(&error));
+        }
+        let plan = match state.broker.connect_plan(&owned.assigned, port) {
+            Ok(plan) => plan,
+            Err(error) => return Reply::Failed(error_code(&error)),
+        };
+        let header = TransferHeader {
+            bundle: record.bundle,
+            generation: record.generation,
+            intent: record.intent_digest,
+        };
+        (plan, header)
     };
-    let record = owned.assigned.record();
-    if let Err(error) = authorize(owned.peer, peer.uid(), record.instance, instance) {
-        return Reply::Failed(error_code(&error));
-    }
-    let socket = match state.broker.connect_guest(&owned.assigned, port) {
+    let socket = match plan.dial() {
         Ok(socket) => socket,
         Err(error) => return Reply::Failed(error_code(&error)),
-    };
-    let header = TransferHeader {
-        bundle: record.bundle,
-        generation: record.generation,
-        intent: record.intent_digest,
     };
     match send_tap(connection.as_fd(), &header, socket.as_fd()) {
         Ok(()) => Reply::Connected { bundle, generation },

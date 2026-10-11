@@ -91,6 +91,16 @@ impl Broker {
     /// [`Error::Unauthorized`] for a port outside the allowlist, or the kernel failure at
     /// [`Step::Connect`] when the guest does not answer within [`CONNECT_DEADLINE`].
     pub fn connect_guest(&self, assigned: &Assigned, port: u16) -> Result<OwnedFd, Error> {
+        self.connect_plan(assigned, port)?.dial()
+    }
+
+    /// Checks a dial and captures everything it needs, so the connection itself can be made
+    /// without holding the lock that guards the assignment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the bundle is not activated or the port is not allowed.
+    pub fn connect_plan(&self, assigned: &Assigned, port: u16) -> Result<ConnectPlan, Error> {
         if !assigned.is_active() {
             return Err(Error::InvalidState("bundle is not activated"));
         }
@@ -98,8 +108,29 @@ impl Broker {
             return Err(Error::Unauthorized("connect port"));
         }
         let guest = assigned.bundle().leases().guest.guest();
-        let address = SocketAddr::V4(SocketAddrV4::new(guest, port));
-        assigned.bundle().namespace().within(|| {
+        Ok(ConnectPlan {
+            pin: assigned.bundle().namespace().path().to_path_buf(),
+            address: SocketAddr::V4(SocketAddrV4::new(guest, port)),
+        })
+    }
+}
+
+/// One checked dial into one bundle's guest.
+#[derive(Debug)]
+pub struct ConnectPlan {
+    pin: std::path::PathBuf,
+    address: SocketAddr,
+}
+
+impl ConnectPlan {
+    /// Dials from inside the bundle's namespace.
+    ///
+    /// # Errors
+    ///
+    /// Returns the namespace-entry or connection failure.
+    pub fn dial(&self) -> Result<OwnedFd, Error> {
+        let address = self.address;
+        crate::namespace::NetNamespace::open(&self.pin)?.within(move || {
             let stream = TcpStream::connect_timeout(&address, CONNECT_DEADLINE)
                 .map_err(|error| Error::io(Step::Connect, &error))?;
             // Interactive traffic: a frame or a keystroke must not wait for a full segment.

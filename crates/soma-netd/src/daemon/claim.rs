@@ -19,26 +19,56 @@ use crate::{
     bundle::AssignFailure, error_code, release, release_sterile, send_tap,
 };
 
-use super::{Owned, State};
+use std::time::{Duration, Instant};
+
+use super::{Maps, Owned, State};
+
+/// How long a claim waits for an earlier copy of itself before it is refused as in flight.
+const CLAIM_PATIENCE: Duration = Duration::from_secs(5);
 
 /// The identities one claim binds: Instance, Launch operation, vsock CID, and admitted intent.
 pub(super) type ClaimRequest<'a> = (InstanceId, OperationId, u32, &'a NetworkIntent);
 
 pub(super) fn claim(
-    state: &mut State,
+    state: &State,
     connection: &OwnedFd,
     peer: PeerIdentity,
     request: ClaimRequest<'_>,
 ) -> Reply {
     let (instance, operation, vsock_cid, intent) = request;
-    if state.operations.contains_key(&(instance, operation)) {
-        return replay(state, connection, peer, request);
+    let identity = (instance, operation);
+    {
+        let mut maps = state.maps();
+        // A second copy of a claim still being built must not take a second bundle. It waits
+        // for the first to be owned, and is then answered by the replay path, or for it to be
+        // abandoned, and then builds its own.
+        let patience = Instant::now() + CLAIM_PATIENCE;
+        loop {
+            if maps.operations.contains_key(&identity) {
+                return replay(&maps, connection, peer, request);
+            }
+            if maps.pending.insert(identity) {
+                break;
+            }
+            let Some(left) = patience.checked_duration_since(Instant::now()) else {
+                return Reply::Failed(error_code(&Error::InvalidState("claim in flight")));
+            };
+            maps = state
+                .settled
+                .wait_timeout(maps, left)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
     }
-    let bundle = match state.pool.pop_front() {
+    let abandon = |state: &State| state.abandon(identity);
+    let bundle = match state.take_bundle() {
         Some(bundle) => bundle,
         None => match fresh_id().and_then(|id| state.broker.prepare(id)) {
             Ok(bundle) => bundle,
-            Err(error) => return Reply::Failed(error_code(&error)),
+            Err(error) => {
+                abandon(state);
+                return Reply::Failed(error_code(&error));
+            }
         },
     };
     let assigned =
@@ -48,7 +78,11 @@ pub(super) fn claim(
         {
             Ok(assigned) => assigned,
             Err(AssignFailure { bundle, error }) => {
-                drop(release_sterile(&state.broker, *bundle, Vec::new()));
+                let record = (bundle.leases().guest.index(), bundle.zone());
+                if release_sterile(&state.broker, *bundle, Vec::new()).complete {
+                    state.broker.recycle(record.0, record.1);
+                }
+                abandon(state);
                 return Reply::Failed(error_code(&error));
             }
         };
@@ -61,7 +95,11 @@ pub(super) fn claim(
             reply
         }
         Err(error) => {
-            drop(release(&state.broker, assigned));
+            let record = assigned.record().clone();
+            if release(&state.broker, assigned).complete {
+                state.recycle(&record);
+            }
+            abandon(state);
             Reply::Failed(error_code(&error))
         }
     }
@@ -69,16 +107,16 @@ pub(super) fn claim(
 
 /// Answers a claim whose Instance and operation this broker already assigned.
 fn replay(
-    state: &mut State,
+    maps: &Maps,
     connection: &OwnedFd,
     peer: PeerIdentity,
     request: ClaimRequest<'_>,
 ) -> Reply {
     let (instance, operation, vsock_cid, intent) = request;
-    let Some(key) = state.operations.get(&(instance, operation)).copied() else {
+    let Some(key) = maps.operations.get(&(instance, operation)).copied() else {
         return Reply::Failed(error_code(&Error::NotAssigned));
     };
-    let Some(owned) = state.assigned.get(&key) else {
+    let Some(owned) = maps.assigned.get(&key) else {
         return Reply::Failed(error_code(&Error::NotAssigned));
     };
     if owned.peer != peer.uid() {

@@ -7,6 +7,7 @@ pub mod connect;
 pub mod control;
 pub mod delivery;
 pub mod frames;
+pub mod load;
 pub mod publication;
 pub mod recovery;
 pub mod session;

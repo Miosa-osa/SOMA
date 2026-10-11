@@ -65,6 +65,9 @@ pub struct ReleaseEvidence {
     pub complete: bool,
     /// The first step failure, if any; the later steps ran regardless.
     pub failure: Option<Error>,
+    /// What the bundle carried, when it was read before teardown. Absent for a bundle that
+    /// was never assigned or whose namespace could not be entered.
+    pub usage: Option<crate::Usage>,
 }
 
 /// Releases one assigned bundle.
@@ -75,7 +78,12 @@ pub fn release(broker: &Broker, assigned: Assigned) -> ReleaseEvidence {
         reservations,
         ..
     } = assigned;
-    release_sterile(broker, bundle, reservations)
+    // Read first: teardown removes the veth the counters live on. A failed read costs the
+    // report, never the release.
+    let usage = crate::usage::read(&bundle.namespace, &bundle.names.sandbox_veth).ok();
+    let mut evidence = release_sterile(broker, bundle, reservations);
+    evidence.usage = usage;
+    evidence
 }
 
 /// Releases one sterile bundle that was never assigned.
@@ -191,6 +199,7 @@ pub(crate) fn teardown(
         ledger: false,
         complete: failure.is_none() && inspected == StepResult::Removed,
         failure,
+        usage: None,
     }
 }
 

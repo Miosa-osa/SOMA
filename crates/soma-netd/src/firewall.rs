@@ -224,6 +224,9 @@ impl SandboxRuleset<'_> {
                 "\t\tiifname \"{tap}\" oifname \"{veth}\" ip daddr @resolvers4 tcp dport 53 accept"
             );
         }
+        // Direct outbound mail is the commonest abuse of a free sandbox and has no use here: a
+        // workload that sends mail does so through an HTTPS API.
+        let _ = writeln!(out, "\t\tiifname \"{tap}\" tcp dport 25 drop");
         let _ = writeln!(out, "\t\tiifname \"{tap}\" udp dport 53 drop");
         let _ = writeln!(out, "\t\tiifname \"{tap}\" tcp dport 53 drop");
         if self.intent.egress().forwards() {
