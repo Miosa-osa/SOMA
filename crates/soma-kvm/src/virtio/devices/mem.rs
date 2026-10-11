@@ -19,9 +19,21 @@ pub mod state;
 mod types;
 
 #[cfg(test)]
+mod atomicity_tests;
+#[cfg(test)]
+mod bounds_tests;
+#[cfg(test)]
 mod hostile_tests;
 #[cfg(test)]
+mod lifecycle_tests;
+#[cfg(test)]
+mod model_tests;
+#[cfg(test)]
+mod rig;
+#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wire_tests;
 
 use crate::virtio::device::{
     ActivateError, ConfigAccessError, DeviceStateError, VIRTIO_F_VERSION_1, VirtioDevice,
