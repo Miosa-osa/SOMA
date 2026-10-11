@@ -106,3 +106,28 @@ expect_skopeo_source "docker-daemon:soma-browser-default:1" \
     'IMAGE=soma-browser-default:1; export SOMA_IMAGE_SOURCE=docker-daemon:soma-browser-default:1'
 
 printf 'prepare-generation shell contract passed\n'
+
+# A memory ceiling builds the live-resize machine: the argument or the environment names it, the
+# argument wins, and it must be above the boot memory because the difference is the hotplug region.
+mkdir -p "$WORK/store" "$WORK/tools"
+
+CEILING_MIB=""
+unset SOMA_PREPARE_CEILING_MIB
+parse_args node:22 "$WORK/store" "$WORK/tools" 2048 10240
+[[ -z "$CEILING_MIB" ]] || { printf 'no ceiling was asked for but got %s\n' "$CEILING_MIB" >&2; exit 1; }
+
+parse_args node:22 "$WORK/store" "$WORK/tools" 2048 10240 8192
+[[ "$CEILING_MIB" == "8192" ]] || { printf 'ceiling argument lost: %s\n' "$CEILING_MIB" >&2; exit 1; }
+
+SOMA_PREPARE_CEILING_MIB=4096 parse_args node:22 "$WORK/store" "$WORK/tools" 2048 10240
+[[ "$CEILING_MIB" == "4096" ]] || { printf 'ceiling environment lost: %s\n' "$CEILING_MIB" >&2; exit 1; }
+
+SOMA_PREPARE_CEILING_MIB=4096 parse_args node:22 "$WORK/store" "$WORK/tools" 2048 10240 16384
+[[ "$CEILING_MIB" == "16384" ]] || { printf 'the argument must win over the environment: %s\n' "$CEILING_MIB" >&2; exit 1; }
+
+for bad in 2048 1024 abc; do
+    if (parse_args node:22 "$WORK/store" "$WORK/tools" 2048 10240 "$bad") >/dev/null 2>&1; then
+        printf 'ceiling %s was accepted over 2048 MiB of boot memory\n' "$bad" >&2
+        exit 1
+    fi
+done

@@ -28,6 +28,11 @@ pub(crate) struct BuildInputs {
     pub(crate) erofs_tools: PathBuf,
     pub(crate) e2fsprogs: PathBuf,
     pub(crate) out_entry: PathBuf,
+    /// The most guest memory the Generation can ever have, when it is a live-resize machine.
+    ///
+    /// The caller has chosen the version 3 profile and revision for it; the hotplug region the
+    /// manifest declares is this minus the revision's boot memory.
+    pub(crate) ceiling_mib: Option<u64>,
 }
 
 /// What one prepared entry ended up holding.
@@ -83,6 +88,18 @@ where
 
     let revision = decide(&normalized, &store)?;
     let mut profile = profile;
+    if let Some(ceiling) = inputs.ceiling_mib {
+        let boot_mib = revision.memory_bytes() / (1024 * 1024);
+        let region = ceiling
+            .checked_sub(boot_mib)
+            .filter(|region| *region > 0)
+            .ok_or_else(|| {
+                format!(
+                    "SOMA_PREPARE_CEILING_MIB ({ceiling}) must be above the boot memory ({boot_mib} MiB)"
+                )
+            })?;
+        profile = profile.with_hotplug_bytes(region * 1024 * 1024);
+    }
     // A revision with writable storage narrows the profile to the one class it selects, so the
     // compiler builds exactly the template that Generation needs. A revision with none builds
     // no template at all, and the profile's declared classes are left alone because nothing
@@ -145,5 +162,24 @@ fn require_present(path: &Path, kind: &str, directory: bool) -> Result<(), Strin
         Ok(())
     } else {
         Err(format!("{kind} not found at {}", path.display()))
+    }
+}
+
+/// The memory ceiling `SOMA_PREPARE_CEILING_MIB` declares, if it is set.
+///
+/// # Errors
+///
+/// Returns a message when the variable is set to something that is not a positive integer.
+pub(crate) fn ceiling_from_environment() -> Result<Option<u64>, String> {
+    match std::env::var("SOMA_PREPARE_CEILING_MIB").as_deref() {
+        Err(_) | Ok("") => Ok(None),
+        Ok(value) => value
+            .parse::<u64>()
+            .ok()
+            .filter(|ceiling| *ceiling > 0)
+            .map(Some)
+            .ok_or_else(|| {
+                format!("SOMA_PREPARE_CEILING_MIB must be a positive integer, got {value:?}")
+            }),
     }
 }
