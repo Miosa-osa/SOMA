@@ -77,6 +77,10 @@ pub struct MachineMemory<'a>(&'a soma_kvm::x86_64::SandboxMachine);
 
 impl MemoryControl for MachineMemory<'_> {
     fn set_requested_memory(&self, bytes: u64) -> Result<(), MemoryError> {
+        // The guest is held for a checkpoint or fork, and plugged memory is not in a snapshot.
+        if self.0.is_paused() {
+            return Err(MemoryError::Busy);
+        }
         self.0
             .set_requested_memory(bytes)
             .map_err(|error| match error {
