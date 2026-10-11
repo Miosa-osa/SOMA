@@ -249,4 +249,27 @@ mod tests {
             seen.push(digest);
         }
     }
+
+    /// A warm pool of region-less machines must never serve a Generation that declares a region,
+    /// nor one of another size; a machine without the device still hashes as it always has.
+    #[test]
+    fn the_memory_device_and_its_size_name_their_own_pool() {
+        let plain = key().digest();
+        let with = |bytes: u64| {
+            let mut key = key();
+            key.devices = DeviceSet::FULL_WITH_MEM;
+            key.hotplug_bytes = bytes;
+            key.digest()
+        };
+        assert_ne!(with(1 << 30), plain, "the device alone");
+        assert_ne!(with(1 << 30), with(2 << 30), "the size");
+        assert_eq!(with(1 << 30), with(1 << 30));
+        let mut stray = key();
+        stray.hotplug_bytes = 1 << 30;
+        assert_eq!(
+            stray.digest(),
+            plain,
+            "a size without the device is not hashed"
+        );
+    }
 }
