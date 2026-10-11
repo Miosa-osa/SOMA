@@ -110,6 +110,13 @@ fn answer_until_released(
         if matches!(call, Call::Shutdown) {
             break;
         }
+        if let Call::Tunnel { instance_id, port } = &call {
+            // The caller's connection becomes the tunnel, so it is handed over and the loop
+            // moves on to the next request.
+            super::tunnel::serve(backend, stream, (instance_id, *port), &activity, started);
+            activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
+            continue;
+        }
         if let Call::Cleanup {
             instance_id,
             forced,
@@ -186,7 +193,7 @@ fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
         },
         // Both terminal calls are decided by the loop rather than here, because each ends the
         // process and only one of them answers first.
-        Call::Cleanup { .. } | Call::Shutdown => {
+        Call::Cleanup { .. } | Call::Shutdown | Call::Tunnel { .. } => {
             Answer::Refused(BackendFailureKind::Unsupported.into())
         }
     }

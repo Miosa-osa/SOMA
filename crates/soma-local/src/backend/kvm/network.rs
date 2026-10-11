@@ -19,6 +19,8 @@ use soma::{BackendFailureKind, EgressPolicy, NetworkPolicy};
 use soma_guest::{ActivationReceipt, LaunchNetwork};
 use soma_kvm::x86_64::NetworkAttachment;
 use soma_netd::ClientError;
+
+use crate::TunnelFailure;
 use soma_vmm::sandbox::PendingActivation;
 
 pub(super) use self::intent::BrokerConfiguration;
@@ -105,6 +107,14 @@ impl Egress {
         }
     }
 
+    /// Dials `port` on the guest from inside its namespace, through the broker.
+    pub(super) fn connect_guest(&self, port: u16) -> Result<std::os::fd::OwnedFd, TunnelFailure> {
+        match self {
+            Self::Declined => Err(TunnelFailure::NoNetwork),
+            Self::Leased(lease) => lease.connect_guest(port).map_err(tunnel_failure),
+        }
+    }
+
     /// Releases whatever this Instance held, and reports whether the broker verified it gone.
     pub(super) fn release(&mut self) -> Released {
         match self {
@@ -123,6 +133,21 @@ pub(super) enum Released {
     Complete,
     /// The broker was asked but could not confirm; reconciliation owns what is left.
     Incomplete,
+}
+
+/// What a refused or failed dial means to the caller.
+///
+/// The codes are the broker's own: 18 is an authorization refusal, which for a dial from the
+/// Instance's own lease can only be the port allowlist; 6 is a kernel failure at the connect,
+/// which is a guest that did not accept; 11 is a bundle the broker no longer holds.
+fn tunnel_failure(error: ClientError) -> TunnelFailure {
+    match error {
+        ClientError::Refused(18) => TunnelFailure::PortNotAllowed,
+        ClientError::Refused(6) => TunnelFailure::Unreachable,
+        ClientError::Refused(11) => TunnelFailure::NotFound,
+        ClientError::Refused(_) | ClientError::Protocol => TunnelFailure::Unavailable,
+        ClientError::Unreachable => TunnelFailure::NoNetwork,
+    }
 }
 
 /// The typed failure one broker refusal becomes.

@@ -191,6 +191,18 @@ impl KvmBackend {
         Ok((status, completed.stdout, completed.stderr))
     }
 
+    /// Dials `port` on the guest of the sandbox this process is driving.
+    pub(super) fn connect_resident(
+        &mut self,
+        instance: &InstanceId,
+        port: u16,
+    ) -> Result<std::os::fd::OwnedFd, crate::TunnelFailure> {
+        let Some(live) = self.live_for(instance) else {
+            return Err(crate::TunnelFailure::NotFound);
+        };
+        live.egress.connect_guest(port)
+    }
+
     /// Reports the state of the sandbox this process is driving.
     pub(super) fn inspect_resident(
         &mut self,

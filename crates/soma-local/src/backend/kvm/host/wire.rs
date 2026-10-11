@@ -132,6 +132,15 @@ pub(super) enum Call {
         /// Whether the machine may be ended without asking the guest.
         forced: bool,
     },
+    /// Open a byte stream to a port of the guest this host holds.
+    ///
+    /// The host answers with one line, and when that line is `tunneled` the connection stops
+    /// being a request channel: from the next byte on it carries the guest's stream, in both
+    /// directions, until either side closes it.
+    Tunnel {
+        instance_id: InstanceId,
+        port: u16,
+    },
     /// End the host, because nothing has addressed its machine for long enough.
     Shutdown,
 }
@@ -158,6 +167,9 @@ pub(super) enum Answer {
     Cleaned {
         evidence: CleanupEvidence,
     },
+    /// The connection now carries the guest's stream.
+    Tunneled,
+    TunnelRefused(crate::TunnelFailure),
     Refused(Refusal),
 }
 

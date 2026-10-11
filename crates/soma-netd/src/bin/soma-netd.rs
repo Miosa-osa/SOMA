@@ -17,8 +17,8 @@ fn run() -> Result<(), String> {
     };
 
     use soma_netd::{
-        Broker, CleanupGeneration, ControlAuthority, InterfaceName, NetworkProfile, SubnetPlan,
-        broker_owner, serve,
+        Broker, CleanupGeneration, ConnectPorts, ControlAuthority, InterfaceName, NetworkProfile,
+        SubnetPlan, broker_owner, serve,
     };
 
     let mut socket = PathBuf::from("/run/soma-netd/broker.sock");
@@ -31,6 +31,7 @@ fn run() -> Result<(), String> {
     let mut socket_group = None;
     let mut lifecycle = Vec::new();
     let mut reconcile = Vec::new();
+    let mut connect_ports: Vec<std::ops::RangeInclusive<u16>> = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or(format!("{flag} needs a value"));
@@ -65,6 +66,7 @@ fn run() -> Result<(), String> {
                         .map_err(|_| "--reconcile-uid must be a uid")?,
                 );
             }
+            "--connect-ports" => connect_ports.push(parse_ports(&value()?)?),
             "--resolver" => resolvers.push(
                 value()?
                     .parse::<Ipv4Addr>()
@@ -92,9 +94,26 @@ fn run() -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
     let generation = CleanupGeneration::new(generation).map_err(|error| error.to_string())?;
-    let broker =
+    let mut broker =
         Broker::open(profile, &state, generation, 16_384).map_err(|error| error.to_string())?;
+    if !connect_ports.is_empty() {
+        let ports = ConnectPorts::new(&connect_ports).map_err(|error| error.to_string())?;
+        broker = broker.with_connect_ports(ports);
+    }
     serve(broker, &socket, prepared, authority).map_err(|error| error.to_string())
+}
+
+/// Parses `PORT` or `FIRST-LAST` into an inclusive range.
+#[cfg(target_os = "linux")]
+fn parse_ports(text: &str) -> Result<std::ops::RangeInclusive<u16>, String> {
+    let invalid = || format!("--connect-ports {text} must be PORT or FIRST-LAST");
+    let (first, last) = text.split_once('-').unwrap_or((text, text));
+    let first: u16 = first.parse().map_err(|_| invalid())?;
+    let last: u16 = last.parse().map_err(|_| invalid())?;
+    if first == 0 || last < first {
+        return Err(invalid());
+    }
+    Ok(first..=last)
 }
 
 #[cfg(not(target_os = "linux"))]

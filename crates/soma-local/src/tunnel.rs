@@ -6,7 +6,8 @@
 //! and pumps bytes between the caller's connection and the guest's.
 
 /// Why a tunnel could not be opened.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum TunnelFailure {
     /// No hosted sandbox with this identity is reachable on this host.
     NotFound,

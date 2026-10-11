@@ -4,8 +4,8 @@ use soma::BackendFailureKind;
 use soma_guest::{ActivationReceipt, LaunchNetwork};
 use soma_kvm::x86_64::NetworkAttachment;
 use soma_netd::{
-    BrokerClient, BundleId, CleanupGeneration, InstanceId, NetworkIntent, OperationId, Reply,
-    Request,
+    BrokerClient, BundleId, CleanupGeneration, ClientError, InstanceId, NetworkIntent, OperationId,
+    Reply, Request,
 };
 
 use super::super::identity::LaunchIdentity;
@@ -15,6 +15,7 @@ use soma_vmm::sandbox::PendingActivation;
 /// One assignment held for the life of one Instance.
 pub(in crate::backend::kvm) struct Lease {
     connection: BrokerClient,
+    instance: InstanceId,
     bundle: BundleId,
     generation: CleanupGeneration,
     launch: LaunchNetwork,
@@ -33,9 +34,10 @@ impl Lease {
     ) -> Result<Self, BackendFailureKind> {
         // An unreachable broker is the same condition as an unconfigured one.
         let connection = BrokerClient::connect(socket).map_err(kind_for)?;
+        let instance =
+            InstanceId::new(identity.instance).map_err(|_| BackendFailureKind::WorkloadRejected)?;
         let request = Request::Claim {
-            instance: InstanceId::new(identity.instance)
-                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
+            instance,
             operation: OperationId::new(identity.operation)
                 .map_err(|_| BackendFailureKind::WorkloadRejected)?,
             vsock_cid: identity.guest_cid,
@@ -57,6 +59,7 @@ impl Lease {
         let launch = decode_launch(&launch).ok_or(BackendFailureKind::Unavailable)?;
         Ok(Self {
             connection,
+            instance,
             bundle,
             generation,
             launch,
@@ -112,6 +115,12 @@ impl Lease {
         // every case one this Instance must not keep holding.
         let _released = self.release();
         Err(())
+    }
+
+    /// Has the broker dial `port` on this Instance's guest from inside its namespace.
+    pub(super) fn connect_guest(&self, port: u16) -> Result<std::os::fd::OwnedFd, ClientError> {
+        self.connection
+            .connect_guest(self.instance, self.bundle, self.generation, port)
     }
 
     pub(super) fn release(&mut self) -> Released {
