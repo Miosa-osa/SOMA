@@ -157,6 +157,10 @@ fn run(seed: u64, steps: usize) {
                 r.fail.store(m.host_fails, Ordering::Relaxed);
             }
             2 => {
+                // A reset the host cannot honour keeps blocks tracked and refuses the next
+                // driver (race_tests covers it), so the model reboots only a host that works.
+                m.host_fails = false;
+                r.fail.store(false, Ordering::Relaxed);
                 r.guest = GuestRig::new(&[16]);
                 r.guest.init(&mut r.t, MEM_FEATURES);
                 m.held.fill(false);

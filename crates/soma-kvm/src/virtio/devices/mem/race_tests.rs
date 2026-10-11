@@ -6,11 +6,12 @@
 
 use std::sync::atomic::Ordering;
 
-use super::rig::{ACK, ERROR, NACK, PLUG, Rig, STATE, UNPLUG, encode};
+use super::rig::{ACK, ERROR, NACK, PLUG, Rig, UNPLUG, encode};
 use super::*;
+use crate::virtio::device::ActivateError;
 use crate::virtio::devices::harness::{GuestRig, Seg};
 use crate::virtio::devices::service::service_queue;
-use crate::virtio::transport::registers::{AccessWidth, REG_CONFIG_GENERATION};
+use crate::virtio::transport::registers::{AccessWidth, REG_CONFIG_GENERATION, REG_STATUS};
 
 const BLOCKS: u64 = 16;
 
@@ -154,23 +155,32 @@ fn resetting_twice_is_the_same_as_resetting_once() {
 }
 
 #[test]
-fn a_reset_while_the_host_cannot_take_memory_back_still_empties_the_device() {
+fn a_reset_the_host_cannot_honour_keeps_the_blocks_tracked_until_it_can() {
     let mut r = Rig::new(BLOCKS);
     r.want(4);
     assert_eq!(r.ask(PLUG, Rig::at(0), 4).kind, ACK);
     r.fail.store(true, Ordering::Relaxed);
-    reboot(&mut r);
-    assert!(
-        r.t.device().is_quiescent(),
-        "the new driver starts from nothing"
-    );
-    assert_eq!(r.ask(STATE, Rig::at(0), 4).kind, ACK);
-    r.fail.store(false, Ordering::Relaxed);
+    // The guest writes status 0, the way a reboot starts.
+    r.t.write(REG_STATUS, AccessWidth::U32, 0, &r.guest.mem)
+        .expect("reset");
     assert_eq!(
-        r.ask(PLUG, Rig::at(0), 4).kind,
-        ACK,
-        "and can plug the same blocks again"
+        r.plugged(),
+        4,
+        "the host still holds the memory, so it stays counted"
     );
+    assert!(!r.t.device().is_quiescent(), "and a capture stays refused");
+    assert_eq!(r.t.device().counters().discard_failed, 1);
+    // A driver may not start over memory the device does not account for.
+    assert_eq!(
+        r.t.device_mut().activate(MEM_FEATURES),
+        Err(ActivateError::BackendUnavailable)
+    );
+    // The host recovers: the next driver starts from nothing and can plug the same blocks.
+    r.fail.store(false, Ordering::Relaxed);
+    reboot(&mut r);
+    assert!(r.t.device().is_quiescent());
+    assert_eq!(r.discards().last(), Some(&(0, BLOCKS * BLOCK_SIZE)));
+    assert_eq!(r.ask(PLUG, Rig::at(0), 4).kind, ACK);
 }
 
 #[test]
