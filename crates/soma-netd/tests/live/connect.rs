@@ -135,3 +135,45 @@ fn the_broker_dials_only_its_own_guest_on_an_allowed_port_after_activation() {
         assert!(release(&broker, assigned).complete);
     }
 }
+
+/// A plan made for one bundle cannot reach its successor, even when the successor reuses the
+/// same lease index and so the same guest address.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+#[allow(clippy::single_range_in_vec_init)]
+fn a_plan_outliving_its_bundle_never_reaches_the_bundle_that_reuses_its_address() {
+    super::require_privilege();
+    let state = tempfile::tempdir().expect("state dir");
+    let mut broker = super::broker(state.path(), 16)
+        .with_connect_ports(ConnectPorts::new(&[SERVICE..=SERVICE]).expect("ports"));
+    let intent = public_intent(&broker);
+
+    let first = bring_up(&mut broker, &intent, 0xd1, true);
+    let plan = broker
+        .connect_plan(&first.assigned, SERVICE)
+        .expect("a plan for an activated bundle");
+    let (index, zone) = (
+        first.assigned.bundle().leases().guest.index(),
+        first.assigned.bundle().zone(),
+    );
+    let address = first.assigned.bundle().leases().guest.guest();
+    drop(first.guest);
+    let released = release(&broker, first.assigned);
+    assert!(released.complete);
+    broker.recycle(index, zone);
+
+    let mut second = bring_up(&mut broker, &intent, 0xd2, true);
+    assert_eq!(
+        second.assigned.bundle().leases().guest.guest(),
+        address,
+        "the successor must reuse the address for this proof to mean anything"
+    );
+    assert!(plan.dial().is_err(), "a stale plan must not connect");
+    assert_eq!(
+        second.guest.accept_syn(SERVICE, QUIET),
+        None,
+        "the successor's guest must never see the stale plan's SYN"
+    );
+    drop(second.guest);
+    assert!(release(&broker, second.assigned).complete);
+}
