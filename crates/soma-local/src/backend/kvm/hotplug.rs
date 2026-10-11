@@ -14,10 +14,26 @@ use super::prepared::PreparedGeneration;
 /// This is the single place the Generation's manifest is read for the size, so the machine
 /// contract version that introduces the declaration changes this function and nothing else.
 pub(super) fn declared_bytes(prepared: &PreparedGeneration) -> Option<u64> {
-    ceiling_region(
+    declared_or_derived(
         prepared.manifest.machine_contract.version,
         prepared.manifest.shape.memory_bytes,
+        prepared.manifest.shape.hotplug_bytes,
     )
+}
+
+/// The size the manifest states, or, when it states none, the room its contract leaves.
+///
+/// A manifest that declares a region is taken at its word, exactly, because the Generation was
+/// compiled and captured with that region. Only a contract 3 Generation that states nothing falls
+/// back to the contract ceiling, and a contract without the device never has a region.
+fn declared_or_derived(contract_version: u16, boot_bytes: u64, declared: u64) -> Option<u64> {
+    let has_device = soma_kvm::MachineContract::from_version(contract_version)
+        .is_some_and(soma_kvm::MachineContract::has_memory_device);
+    match (has_device, declared) {
+        (false, _) => None,
+        (true, 0) => ceiling_region(contract_version, boot_bytes),
+        (true, bytes) => Some(bytes),
+    }
 }
 
 /// The bytes between a machine's boot memory and its contract's ceiling, in whole slots.
@@ -68,6 +84,20 @@ mod tests {
     use super::*;
 
     const RAM: u64 = 1 << 30;
+
+    #[test]
+    fn a_declared_size_is_used_exactly_and_the_ceiling_only_fills_in_for_silence() {
+        let gib = 1_u64 << 30;
+        let slot = 128 * 1024 * 1024;
+        assert_eq!(declared_or_derived(3, 2 * gib, 4 * slot), Some(4 * slot));
+        assert_eq!(declared_or_derived(3, 2 * gib, 0), Some(14 * gib));
+        assert_eq!(
+            declared_or_derived(2, 2 * gib, 4 * slot),
+            None,
+            "no device, no region"
+        );
+        assert_eq!(declared_or_derived(1, 2 * gib, 0), None);
+    }
 
     #[test]
     fn contract_three_declares_the_room_above_the_boot_memory_and_older_ones_declare_none() {
