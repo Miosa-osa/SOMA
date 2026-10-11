@@ -10,6 +10,8 @@ pub(super) enum Route<'a> {
     /// The same command, answered as server-sent events.
     ExecStream(&'a str),
     Destroy(&'a str),
+    /// `GET .../{id}/tunnel/{port}`: an HTTP/1.1 upgrade to raw bytes to a guest port.
+    Tunnel(&'a str, &'a str),
     /// `PATCH {"timeout": N}`: reset or extend the idle timer.
     Extend(&'a str),
     /// The caller's own sandboxes on this runner.
@@ -31,9 +33,11 @@ impl<'a> Route<'a> {
     /// The sandbox id a route names, if it names one.
     pub(super) const fn sandbox_id(self) -> Option<&'a str> {
         match self {
-            Self::Exec(id) | Self::ExecStream(id) | Self::Destroy(id) | Self::Extend(id) => {
-                Some(id)
-            }
+            Self::Exec(id)
+            | Self::ExecStream(id)
+            | Self::Destroy(id)
+            | Self::Extend(id)
+            | Self::Tunnel(id, _) => Some(id),
             Self::Forward(forward) => Some(forward.id),
             Self::Health | Self::Create | Self::List | Self::NotFound => None,
         }
@@ -66,6 +70,7 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
         (&http::Method::POST, ["", id, "exec", "stream"]) if !id.is_empty() => {
             Route::ExecStream(id)
         }
+        (&http::Method::GET, ["", id, "tunnel", port]) if !id.is_empty() => Route::Tunnel(id, port),
         (&http::Method::DELETE, ["", id]) if !id.is_empty() => Route::Destroy(id),
         (&http::Method::PATCH, ["", id]) if !id.is_empty() => Route::Extend(id),
         (&http::Method::GET, ["", id]) if !id.is_empty() => forward(id, Method::Get),

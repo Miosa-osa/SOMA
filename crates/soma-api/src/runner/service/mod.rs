@@ -30,6 +30,7 @@ mod stream_tests;
 #[cfg(test)]
 mod tests;
 mod timing;
+mod tunnel;
 
 use std::{sync::Arc, time::Instant};
 
@@ -47,6 +48,9 @@ use crate::runner::{
     rate_limit::RateLimiter,
     sandboxes::Sandboxes,
 };
+use crate::tunnel::TunnelTable;
+
+pub use tunnel::TunnelHandoff;
 
 use command::failure_code;
 use journal::{entry, refused_sandbox, with_journal};
@@ -69,6 +73,8 @@ pub struct RunnerRequest {
     pub received: Instant,
     /// Arrived from another runner over the private listener: never forwarded again.
     pub forwarded: bool,
+    /// An HTTP/1.1 request that asked for `Connection: Upgrade` and `Upgrade: soma-tunnel`.
+    pub upgrade: bool,
 }
 
 /// One answer, plus the journal entry to write once it has been sent.
@@ -81,6 +87,8 @@ pub struct RunnerResponse {
     /// after `body`, chunk by chunk, until the sender is dropped.
     pub stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
     pub journal: Option<Entry>,
+    /// A guest connection to pump after the `101` is sent; the transport owns the upgrade.
+    pub tunnel: Option<TunnelHandoff>,
 }
 
 impl RunnerResponse {
@@ -91,6 +99,7 @@ impl RunnerResponse {
             body,
             stream: None,
             journal: None,
+            tunnel: None,
         }
     }
 
@@ -130,6 +139,7 @@ pub struct Runner {
     admission: tokio::sync::Semaphore,
     image: OciImage,
     peers: Option<Peers>,
+    tunnels: Arc<TunnelTable>,
 }
 
 impl Runner {
@@ -141,6 +151,7 @@ impl Runner {
     pub fn new(config: Arc<RunnerConfig>, backend: Backend, journal: Journal) -> Self {
         let image = OciImage::parse(config.launch.image.clone())
             .expect("the configuration validated the launch image");
+        let tunnels = TunnelTable::new(config.tunnel.policy());
         Self {
             admission: tokio::sync::Semaphore::new(config.admission()),
             keys: Arc::new(KeyTable::new()),
@@ -151,6 +162,7 @@ impl Runner {
             journal,
             image,
             peers: None,
+            tunnels,
         }
     }
 
@@ -198,6 +210,7 @@ impl Runner {
             | Route::Destroy(_)
             | Route::Extend(_)
             | Route::List
+            | Route::Tunnel(..)
             | Route::Forward(_) => {}
         }
         let started = Instant::now();
@@ -224,6 +237,7 @@ impl Runner {
                 self.exec_stream(&principal, id, &request.body, request.received, timing)
             }
             Route::Destroy(id) => self.destroy(&principal, id, timing).await,
+            Route::Tunnel(id, port) => self.tunnel(&principal, id, port, request, timing).await,
             Route::Extend(id) => self.extend(&principal, id, &request.body),
             Route::List => self.list(&principal, timing).await,
             Route::Forward(forward) => {

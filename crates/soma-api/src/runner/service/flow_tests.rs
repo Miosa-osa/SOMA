@@ -159,6 +159,7 @@ pub(super) async fn call(
             body: Bytes::from(body.to_owned()),
             received: Instant::now(),
             forwarded: false,
+            upgrade: false,
         })
         .await
 }

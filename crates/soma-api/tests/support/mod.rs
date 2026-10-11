@@ -9,7 +9,7 @@ use soma::{
 };
 use soma_api::{
     CommandOutcome, FileOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot,
-    TerminalOutcome, handle,
+    TerminalOutcome, TunnelFailure, handle,
 };
 
 mod terminal;
@@ -51,6 +51,7 @@ pub enum Call {
     List,
     Stop,
     Destroy,
+    Tunnel(u16),
 }
 
 /// A facade that answers from a retained receipt and records what it was asked to do.
@@ -67,6 +68,8 @@ pub struct FakeFacade {
     session: Option<Session>,
     /// What an enumeration answers with.
     sandboxes: Vec<SandboxEntry>,
+    /// Why a tunnel is refused; `None` connects it to an echoing guest.
+    tunnel_failure: Option<TunnelFailure>,
 }
 
 impl FakeFacade {
@@ -79,7 +82,15 @@ impl FakeFacade {
             files: BTreeMap::new(),
             session: None,
             sandboxes: Vec::new(),
+            tunnel_failure: None,
         }
+    }
+
+    /// A facade whose tunnels are refused with `failure`.
+    #[must_use]
+    pub const fn refusing_tunnels(mut self, failure: TunnelFailure) -> Self {
+        self.tunnel_failure = Some(failure);
+        self
     }
 
     /// A facade whose durable state holds exactly these sandboxes.
@@ -119,6 +130,16 @@ impl FakeFacade {
 impl SandboxFacade for FakeFacade {
     fn hosts_addressable_sandboxes(&self) -> bool {
         self.hosts_addressable_sandboxes
+    }
+
+    fn tunnel(
+        &mut self,
+        _instance_id: &soma::InstanceId,
+        port: u16,
+    ) -> Result<std::os::unix::net::UnixStream, TunnelFailure> {
+        self.calls.push(Call::Tunnel(port));
+        self.tunnel_failure
+            .map_or_else(|| Ok(echo_guest(port)), Err)
     }
 
     fn launch(
@@ -283,4 +304,38 @@ fn answer_for(files: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: &FileOperation)
             }
         }
     }
+}
+
+/// A guest port reached through the broker: speaks first, then echoes until told to `quit`.
+///
+/// The returned end is what the facade hands the service; the thread behind the other end plays
+/// the broker's connected socket to the guest's service.
+#[must_use]
+pub fn echo_guest(port: u16) -> std::os::unix::net::UnixStream {
+    use std::io::{Read, Write};
+    let (service, guest) = std::os::unix::net::UnixStream::pair().expect("a socket pair");
+    std::thread::spawn(move || {
+        let mut guest = guest;
+        if guest
+            .write_all(format!("guest port {port} ready\n").as_bytes())
+            .is_err()
+        {
+            return;
+        }
+        let mut buffer = [0_u8; 4096];
+        loop {
+            match guest.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => {
+                    if buffer[..read].starts_with(b"quit") {
+                        return;
+                    }
+                    if guest.write_all(&buffer[..read]).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+    service
 }

@@ -127,6 +127,16 @@ impl Sandboxes {
         }
     }
 
+    /// Records activity on a live sandbox, restarting its idle timer. A tunnel's traffic calls
+    /// this so a browser session that moves bytes is not reaped for being idle.
+    pub fn touch(&self, id: &SandboxId) {
+        if let Some(record) = self.lock().get_mut(id)
+            && matches!(record.phase, Phase::Ready | Phase::Busy)
+        {
+            record.clock.touch(Instant::now());
+        }
+    }
+
     /// The ids of the live sandboxes `tenant_id` owns, for a tenant-scoped listing.
     #[must_use]
     pub fn owned_by(&self, tenant_id: &str) -> Vec<SandboxId> {

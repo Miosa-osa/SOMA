@@ -108,6 +108,14 @@ impl SandboxFacade for LocalFacade {
         let outcome = self.runtime.destroy_machine(request)?;
         Ok(lifecycle(outcome.receipt()))
     }
+
+    fn tunnel(
+        &mut self,
+        instance_id: &soma::InstanceId,
+        port: u16,
+    ) -> Result<std::os::unix::net::UnixStream, soma_local::TunnelFailure> {
+        self.runtime.tunnel_machine(instance_id, port)
+    }
 }
 
 /// Reads the instance identity back out of the receipt rather than off the request.

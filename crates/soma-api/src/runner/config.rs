@@ -69,6 +69,75 @@ pub struct RunnerConfig {
     /// Connections one client IP may hold, TCP and QUIC together.
     #[serde(default = "default_connections_per_ip")]
     pub max_connections_per_ip: usize,
+    /// Guest-port tunnels: which ports, how many, how long they may idle.
+    #[serde(default)]
+    pub tunnel: TunnelConfig,
+}
+
+/// What `GET .../{id}/tunnel/{port}` may reach and hold.
+///
+/// The ports are enforced here and again by the host's network broker (`soma-netd
+/// --connect-ports`); a port listed here that the broker was not configured for is refused
+/// by the broker, so widening this list alone never exposes anything.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TunnelConfig {
+    /// Allowed guest ports as `[first, last]` pairs; absent means the live browser's 9223-9224.
+    #[serde(default)]
+    pub ports: Option<Vec<[u16; 2]>>,
+    /// Tunnels one sandbox may hold at once.
+    #[serde(default)]
+    pub max_per_sandbox: Option<usize>,
+    /// Tunnels this runner may hold at once.
+    #[serde(default)]
+    pub max_total: Option<usize>,
+    /// Seconds a tunnel that moves no bytes lives.
+    #[serde(default)]
+    pub idle_seconds: Option<u64>,
+}
+
+impl TunnelConfig {
+    /// The policy this block describes, with defaults for what it leaves out.
+    #[must_use]
+    pub fn policy(&self) -> crate::tunnel::TunnelPolicy {
+        let mut policy = crate::tunnel::TunnelPolicy::default();
+        if let Some(ports) = &self.ports {
+            policy.ports = ports.iter().map(|[first, last]| *first..=*last).collect();
+        }
+        if let Some(limit) = self.max_per_sandbox {
+            policy.per_sandbox = limit;
+        }
+        if let Some(limit) = self.max_total {
+            policy.total = limit;
+        }
+        if let Some(seconds) = self.idle_seconds {
+            policy.idle = Duration::from_secs(seconds);
+        }
+        policy
+    }
+
+    fn validate(&self) -> io::Result<()> {
+        let ports_ok = self.ports.as_ref().is_none_or(|ports| {
+            !ports.is_empty()
+                && ports
+                    .iter()
+                    .all(|[first, last]| *first != 0 && first <= last)
+        });
+        if !ports_ok {
+            return Err(invalid(
+                &"tunnel.ports must be non-empty [first, last] pairs of ports 1 to 65535",
+            ));
+        }
+        if self.max_per_sandbox == Some(0)
+            || self.max_total == Some(0)
+            || self.idle_seconds == Some(0)
+        {
+            return Err(invalid(
+                &"tunnel.max_per_sandbox, max_total and idle_seconds must be positive",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -169,6 +238,7 @@ impl RunnerConfig {
                 &"admission, max_connections and batch_lines must be positive",
             ));
         }
+        self.tunnel.validate()?;
         if self.launch.default_timeout_seconds > crate::runner::idle::MAX_IDLE_TIMEOUT_SECONDS {
             return Err(invalid(&"default_timeout_seconds must be 0 to 86400"));
         }

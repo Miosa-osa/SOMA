@@ -16,6 +16,7 @@ pub mod route;
 pub mod runner;
 pub mod tenant;
 pub mod terminal;
+pub mod tunnel;
 pub mod wire;
 
 pub use admission::{CREATE_ADMISSION_ENV, CreateAdmission, CreatePermit};
@@ -23,13 +24,14 @@ pub use capability::MissingCapability;
 pub use envelope::{ApiError, ENVELOPE_SCHEMA, Envelope, FailureBody};
 pub use facade::{
     CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
+    TunnelFailure,
 };
 pub use filesystem::{FilesystemBody, FilesystemReport};
 pub use handler::handle;
 pub use http::{
     request::{Method, Request},
     response::Response,
-    server::serve,
+    server::{serve, serve_with_tunnels},
 };
 pub use local::LocalFacade;
 pub use pool::{FacadeLease, FacadePool};

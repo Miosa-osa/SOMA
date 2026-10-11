@@ -19,6 +19,11 @@ impl Runner {
         route: Route<'_>,
         request: &RunnerRequest,
     ) -> Option<RunnerResponse> {
+        // An upgraded connection cannot be handed on: a tunnel to another runner's sandbox is
+        // answered `421`, and the caller reconnects to the runner the answer names.
+        if matches!(route, Route::Tunnel(..)) {
+            return None;
+        }
         let tag = SandboxId::parse(route.sandbox_id()?)?.tag();
         if tag == self.config.host_tag || request.forwarded {
             return None;

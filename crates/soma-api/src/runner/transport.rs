@@ -22,9 +22,10 @@ use crate::runner::{
         TLS_HANDSHAKE_TIMEOUT,
     },
     public_wire,
-    service::{MAX_BODY_BYTES, Runner, RunnerRequest, RunnerResponse},
+    service::{MAX_BODY_BYTES, Runner, RunnerRequest, RunnerResponse, TunnelHandoff},
     tls::CertificateStore,
 };
+use crate::tunnel;
 
 const CONTENT_TYPE: &str = "application/json; charset=utf-8";
 
@@ -163,7 +164,7 @@ where
         .timer(TokioTimer::new())
         .max_concurrent_streams(MAX_STREAMS_PER_CONNECTION)
         .max_header_list_size(MAX_HEADER_BYTES);
-    let connection = builder.serve_connection(io, service);
+    let connection = builder.serve_connection_with_upgrades(io, service);
     tokio::pin!(connection);
     let mut check = tokio::time::interval(IDLE_CHECK);
     loop {
@@ -182,10 +183,17 @@ where
 
 async fn respond(
     runner: &Runner,
-    request: http::Request<Incoming>,
+    mut request: http::Request<Incoming>,
     forwarded: bool,
 ) -> http::Response<JournaledBody> {
     let received = Instant::now();
+    // A tunnel is HTTP/1.1 only: HTTP/2 has no `Upgrade`, so such a request is answered `426`.
+    let upgrade = request.version() == http::Version::HTTP_11
+        && tunnel::asks_for_upgrade(
+            header_text(request.headers(), http::header::CONNECTION),
+            header_text(request.headers(), http::header::UPGRADE),
+        );
+    let on_upgrade = upgrade.then(|| hyper::upgrade::on(&mut request));
     let (parts, body) = request.into_parts();
     let collected = match tokio::time::timeout(
         BODY_READ_TIMEOUT,
@@ -197,7 +205,7 @@ async fn respond(
         Ok(Err(_)) => return encode_hyper(payload_too_large(), None),
         Err(_) => return encode_hyper(request_timeout(), None),
     };
-    let response = runner
+    let mut response = runner
         .handle(RunnerRequest {
             method: parts.method,
             path: parts.uri.path().to_owned(),
@@ -205,9 +213,54 @@ async fn respond(
             body: collected.to_bytes(),
             received,
             forwarded,
+            upgrade,
         })
         .await;
+    if let (Some(handoff), Some(on_upgrade)) = (response.tunnel.take(), on_upgrade) {
+        return switch_protocols(handoff, on_upgrade);
+    }
     encode_hyper(response, Some(runner.journal()))
+}
+
+fn header_text(headers: &http::HeaderMap, name: http::HeaderName) -> Option<&str> {
+    headers.get(name).and_then(|value| value.to_str().ok())
+}
+
+/// Answers `101` and pumps the guest connection over the upgraded one once hyper hands it over.
+///
+/// The pump holds the tunnel's place in the table until it ends, whichever side ends it.
+fn switch_protocols(
+    handoff: TunnelHandoff,
+    on_upgrade: hyper::upgrade::OnUpgrade,
+) -> http::Response<JournaledBody> {
+    tokio::spawn(async move {
+        let TunnelHandoff {
+            guest,
+            slot,
+            idle,
+            touch,
+        } = handoff;
+        if let Ok(upgraded) = on_upgrade.await {
+            tunnel::pump(TokioIo::new(upgraded), guest, idle, &*touch).await;
+        }
+        drop(slot);
+    });
+    let mut response = http::Response::new(JournaledBody {
+        head: None,
+        stream: None,
+        after: None,
+    });
+    *response.status_mut() = http::StatusCode::SWITCHING_PROTOCOLS;
+    let headers = response.headers_mut();
+    headers.insert(
+        http::header::CONNECTION,
+        http::HeaderValue::from_static("upgrade"),
+    );
+    headers.insert(
+        http::header::UPGRADE,
+        http::HeaderValue::from_static(tunnel::UPGRADE_TOKEN),
+    );
+    response
 }
 
 fn encode_hyper(
@@ -272,5 +325,6 @@ pub(crate) fn payload_too_large() -> RunnerResponse {
         body: public_wire::refusal("payload_too_large"),
         stream: None,
         journal: None,
+        tunnel: None,
     }
 }

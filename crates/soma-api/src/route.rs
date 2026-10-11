@@ -76,6 +76,8 @@ pub enum Route {
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
     Terminal(InstanceId, TerminalOperation),
+    /// A raw byte stream to a guest port; served by the connection, not by a handler.
+    Tunnel(InstanceId, u16),
 }
 
 impl Route {
@@ -91,6 +93,7 @@ impl Route {
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
             Self::Terminal(_, _) => "sandbox.terminal",
+            Self::Tunnel(_, _) => "sandbox.tunnel",
         }
     }
 }
@@ -132,6 +135,25 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
                 filesystem_operation(operation)?,
             );
             post_only(request, route)
+        }
+        ["v1", "sandboxes", instance, "tunnel", port] => {
+            let instance_id = path_instance_id(instance)?;
+            let port = port
+                .parse::<u16>()
+                .ok()
+                .filter(|port| *port != 0)
+                .ok_or_else(|| {
+                    ApiError::new(
+                        400,
+                        "invalid_port",
+                        "the tunnel port must be 1 to 65535",
+                        false,
+                    )
+                })?;
+            match request.method {
+                Method::Get => Ok(Route::Tunnel(instance_id, port)),
+                _ => Err(ApiError::method_not_allowed()),
+            }
         }
         ["v1", "sandboxes", instance, "terminal", operation] => {
             let route =

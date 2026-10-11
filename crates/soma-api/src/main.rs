@@ -3,7 +3,8 @@ use std::{env, net::TcpListener, path::PathBuf, process, sync::Arc, time::Durati
 use soma_api::{
     ApiError, CREATE_ADMISSION_ENV, CreateAdmission, FacadePool, LocalFacade, SandboxFacade,
     runner::{self, RunnerConfig},
-    serve,
+    serve_with_tunnels,
+    tunnel::{TunnelPolicy, TunnelTable},
 };
 use soma_local::{BackendSelection, LocalRuntimeConfig};
 
@@ -69,6 +70,13 @@ fn run() -> i32 {
             return 78;
         }
     };
+    let tunnels = match TunnelPolicy::from_env() {
+        Ok(policy) => TunnelTable::new(policy),
+        Err(variable) => {
+            eprintln!("soma-api: {variable} is not usable");
+            return 78;
+        }
+    };
     let Ok(listener) = TcpListener::bind(&options.listen) else {
         eprintln!("soma-api: could not bind {}", options.listen);
         return 74;
@@ -116,7 +124,7 @@ fn run() -> i32 {
         pool.acquire_timeout(POOL_WAIT_TIMEOUT)
             .ok_or_else(runtime_busy)
     };
-    if serve(&listener, open_facade, &admission).is_err() {
+    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels).is_err() {
         eprintln!("soma-api: the listener stopped accepting connections");
         return 74;
     }

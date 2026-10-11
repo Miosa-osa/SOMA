@@ -83,6 +83,8 @@ async fn serve_h3_request(
                     body,
                     received,
                     forwarded: false,
+                    // HTTP/3 has no `Upgrade`; a tunnel needs HTTP/1.1.
+                    upgrade: false,
                 })
                 .await
         }

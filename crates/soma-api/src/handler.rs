@@ -93,6 +93,15 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 &outcome.receipt,
             ))
         }
+        // A tunnel is a connection, not a request and a response: the server hands it to the
+        // tunnel pump before a handler runs, so reaching this arm means the caller used a
+        // framing that cannot carry one.
+        Route::Tunnel(..) => Err(ApiError::new(
+            426,
+            "upgrade_required",
+            "a tunnel needs `Connection: Upgrade` and `Upgrade: soma-tunnel` over HTTP/1.1",
+            false,
+        )),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;

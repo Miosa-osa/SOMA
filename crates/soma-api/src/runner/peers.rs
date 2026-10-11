@@ -116,6 +116,7 @@ impl Peers {
             body: Vec::new(),
             stream: Some(stream),
             journal: None,
+            tunnel: None,
         })
     }
 }

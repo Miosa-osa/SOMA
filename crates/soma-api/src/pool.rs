@@ -172,6 +172,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
     ) -> Result<LifecycleOutcome, ManagedFailure> {
         self.deref_mut().destroy(request)
     }
+
+    fn tunnel(
+        &mut self,
+        instance_id: &soma::InstanceId,
+        port: u16,
+    ) -> Result<std::os::unix::net::UnixStream, soma_local::TunnelFailure> {
+        self.deref_mut().tunnel(instance_id, port)
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use std::{
-    io::BufReader,
+    io::{BufReader, Write},
     net::{TcpListener, TcpStream},
     sync::Arc,
     thread,
@@ -14,6 +14,7 @@ use crate::{
     http::{request::Request, response::Response},
     route::{Route, resolve},
     tenant::{TENANT_HEADER, identify},
+    tunnel::{self, Refusal, TunnelPolicy, TunnelTable},
 };
 
 /// How long one connection may take to send its request or accept its response.
@@ -45,15 +46,39 @@ where
     M: Fn() -> Result<F, ApiError> + Send + Sync + 'static,
     F: SandboxFacade + 'static,
 {
+    serve_with_tunnels(
+        listener,
+        open_facade,
+        admission,
+        &TunnelTable::new(TunnelPolicy::default()),
+    )
+}
+
+/// [`serve`], with the policy and limits guest-port tunnels are held to.
+///
+/// # Errors
+///
+/// Returns the listener failure that ended the loop.
+pub fn serve_with_tunnels<M, F>(
+    listener: &TcpListener,
+    open_facade: M,
+    admission: &CreateAdmission,
+    tunnels: &Arc<TunnelTable>,
+) -> std::io::Result<()>
+where
+    M: Fn() -> Result<F, ApiError> + Send + Sync + 'static,
+    F: SandboxFacade + 'static,
+{
     let open_facade = Arc::new(open_facade);
     for stream in listener.incoming() {
         let stream = stream?;
         let open_facade = Arc::clone(&open_facade);
         let admission = admission.clone();
+        let tunnels = Arc::clone(tunnels);
         // The join handle is dropped on purpose. A connection that outlives the accept loop has
         // nothing left to report to it, and joining here would serialize the whole service.
         drop(thread::spawn(move || {
-            serve_connection(&stream, open_facade.as_ref(), &admission);
+            serve_connection(&stream, open_facade.as_ref(), &admission, &tunnels);
         }));
     }
     Ok(())
@@ -63,8 +88,12 @@ where
 ///
 /// The facade is opened only after the request parses. Opening it first would mean a malformed
 /// request could still cost a state-store handle.
-fn serve_connection<M, F>(stream: &TcpStream, open_facade: &M, admission: &CreateAdmission)
-where
+fn serve_connection<M, F>(
+    stream: &TcpStream,
+    open_facade: &M,
+    admission: &CreateAdmission,
+    tunnels: &Arc<TunnelTable>,
+) where
     M: Fn() -> Result<F, ApiError>,
     F: SandboxFacade,
 {
@@ -84,6 +113,17 @@ where
                 return;
             }
         };
+        if let Ok(Route::Tunnel(instance_id, port)) = resolve(&request) {
+            // A tunnel takes the connection over: nothing else is read from it as HTTP.
+            serve_tunnel(
+                &reader,
+                &request,
+                open_facade,
+                tunnels,
+                (&instance_id, port),
+            );
+            return;
+        }
         let keep_alive = request.keep_alive() && request_index + 1 < MAX_REQUESTS_PER_CONNECTION;
         let response = match admit(&request, admission) {
             Ok(_permit) => match open_facade() {
@@ -120,4 +160,65 @@ fn admit(request: &Request, admission: &CreateAdmission) -> Result<Option<Create
         // should go to another runner now rather than wait for this one.
         Response::new(busy.status(), failure_body("sandbox.create", busy)).with_retry_after(0)
     })
+}
+
+/// Answers a tunnel request: refuses it, or switches the connection to the guest's stream.
+fn serve_tunnel<M, F>(
+    reader: &BufReader<&TcpStream>,
+    request: &Request,
+    open_facade: &M,
+    tunnels: &Arc<TunnelTable>,
+    (instance_id, port): (&soma::InstanceId, u16),
+) where
+    M: Fn() -> Result<F, ApiError>,
+    F: SandboxFacade,
+{
+    let stream: &TcpStream = reader.get_ref();
+    let refuse = |error: ApiError| {
+        let response = Response::new(error.status(), failure_body("sandbox.tunnel", error));
+        let _ignored = response.write_to(&mut &*stream);
+    };
+    if let Err(error) = identify(request.header(TENANT_HEADER)) {
+        return refuse(error);
+    }
+    if !tunnel::asks_for_upgrade(request.header("connection"), request.header("upgrade")) {
+        return refuse(ApiError::new(
+            426,
+            "upgrade_required",
+            "a tunnel needs `Connection: Upgrade` and `Upgrade: soma-tunnel`",
+            false,
+        ));
+    }
+    let slot = match tunnels.admit(instance_id.as_str(), port) {
+        Ok(slot) => slot,
+        Err(refused) => return refuse(Refusal::from(refused).api_error()),
+    };
+    // The guest is dialled before the 101, so a refusal reaches the caller as an HTTP status.
+    let guest = match open_facade() {
+        Ok(mut facade) => facade.tunnel(instance_id, port),
+        Err(error) => return refuse(error),
+    };
+    let guest = match guest {
+        Ok(guest) => guest,
+        Err(failure) => return refuse(Refusal::from(failure).api_error()),
+    };
+    let answer = format!(
+        "HTTP/1.1 101 Switching Protocols\r\nconnection: Upgrade\r\nupgrade: {}\r\n\r\n",
+        tunnel::UPGRADE_TOKEN
+    );
+    let mut writer = stream;
+    if writer.write_all(answer.as_bytes()).is_err() {
+        return;
+    }
+    // Bytes the caller sent behind its request are the stream's first bytes.
+    let early = reader.buffer();
+    if !early.is_empty() && (&guest).write_all(early).is_err() {
+        return;
+    }
+    // A tunnel idles for as long as its user does; the connection timeouts no longer apply.
+    if stream.set_write_timeout(None).is_err() {
+        return;
+    }
+    tunnel::pump_blocking(stream, &guest, tunnels.policy().idle);
+    drop(slot);
 }

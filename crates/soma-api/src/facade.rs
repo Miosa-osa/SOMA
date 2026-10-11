@@ -4,6 +4,10 @@ use soma::{
     ManagedFailure, PtyAnswer, PtyMachineRequest, SandboxEntry, StopMachineRequest, TerminalStatus,
 };
 
+use std::os::unix::net::UnixStream;
+
+pub use soma_local::TunnelFailure;
+
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LifecycleOutcome {
@@ -139,4 +143,21 @@ pub trait SandboxFacade {
         &mut self,
         request: DestroyMachineRequest,
     ) -> Result<LifecycleOutcome, ManagedFailure>;
+
+    /// Opens a connected byte stream to `port` on the guest of one hosted sandbox.
+    ///
+    /// The guest's network is reachable only from inside its namespace, so the stream comes from
+    /// the process that holds the sandbox, through the network broker. A backend with no such
+    /// path reports [`TunnelFailure::Unavailable`] rather than an invented stream.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed tunnel failure.
+    fn tunnel(
+        &mut self,
+        _instance_id: &InstanceId,
+        _port: u16,
+    ) -> Result<UnixStream, TunnelFailure> {
+        Err(TunnelFailure::Unavailable)
+    }
 }
