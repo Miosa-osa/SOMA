@@ -102,7 +102,8 @@ impl KvmBackend {
         let policy = shape.capabilities().network_policy();
         // A request that needs egress is served by the broker or refused. It is never served by
         // the placeholder device, which would report a working network that drops every packet.
-        let mut egress = Egress::claim(self.broker.as_deref(), policy, identity)
+        let has_device = prepared.manifest.device_set().net();
+        let mut egress = Egress::claim(self.broker.as_deref(), policy, identity, has_device)
             .map_err(|kind| self.fail(operation, kind))?;
         let network = Network {
             launch: egress

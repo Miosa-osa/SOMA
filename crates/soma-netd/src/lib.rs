@@ -23,6 +23,7 @@ mod profile;
 mod protected;
 mod protocol;
 mod transfer;
+mod usage;
 
 #[cfg(target_os = "linux")]
 mod activate;
@@ -80,7 +81,7 @@ pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
 #[cfg(target_os = "linux")]
 pub use client::{BrokerClient, ClientError};
 #[cfg(target_os = "linux")]
-pub use connect::ConnectPorts;
+pub use connect::{ConnectPlan, ConnectPorts};
 #[cfg(target_os = "linux")]
 pub use daemon::serve;
 #[cfg(target_os = "linux")]
@@ -89,7 +90,8 @@ pub use listener::{Accepted, ControlListener, IDLE_TIMEOUT, broker_owner};
 pub use namespace::{NetNamespace, Unpinned};
 #[cfg(target_os = "linux")]
 pub use reconcile::{Disposition, ReconcileReport, reconcile};
-#[cfg(target_os = "linux")]
 pub use release::{ReleaseEvidence, StepResult, release, release_record, release_sterile};
 #[cfg(target_os = "linux")]
 pub use transfer::{receive_tap, send_tap, seqpacket_pair};
+#[cfg(target_os = "linux")]
+pub use usage::Usage;

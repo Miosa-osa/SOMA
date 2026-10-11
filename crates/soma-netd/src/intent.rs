@@ -156,6 +156,20 @@ impl NetworkIntent {
         }
     }
 
+    /// Returns the intent a sandbox with no stated network preference is given: public
+    /// destinations through the operator's resolvers, nothing published.
+    ///
+    /// This is what every prepared bundle's ruleset is already rendered for.
+    #[must_use]
+    pub fn default_egress(profile: &NetworkProfile) -> Self {
+        Self {
+            egress: EgressClass::PublicInternet,
+            resolvers: profile.resolvers().to_vec(),
+            publications: Vec::new(),
+            profile: profile.digest(),
+        }
+    }
+
     /// Returns the egress class.
     #[must_use]
     pub const fn egress(&self) -> EgressClass {

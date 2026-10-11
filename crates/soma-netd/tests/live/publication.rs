@@ -31,7 +31,7 @@ const CONNECT: Duration = Duration::from_secs(3);
 /// Runs the whole reachability sequence for one loopback TCP publication.
 pub fn reachable_only_after_activation() {
     let state = tempfile::tempdir().expect("state dir");
-    let mut broker = super::broker(state.path(), 16);
+    let broker = super::broker(state.path(), 16);
     let policy = NetworkPolicy::new(
         EgressPolicy::Denied,
         DnsPolicy::Denied,

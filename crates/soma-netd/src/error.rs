@@ -137,6 +137,7 @@ pub enum Drift {
     HostRulesetMissing,
     ForwardingAlreadyEnabled,
     LinkAlreadyUp,
+    LinkNotRaised,
     PublicationRulesetPresent,
 }
 

@@ -125,6 +125,8 @@ pub struct Ipam {
     generation: CleanupGeneration,
     next: u32,
     limit: u32,
+    /// Indices handed back after a verified release, reused before a fresh one is cut.
+    free: Vec<u32>,
 }
 
 impl Ipam {
@@ -149,6 +151,7 @@ impl Ipam {
             generation,
             next: 0,
             limit,
+            free: Vec::new(),
         })
     }
 
@@ -158,20 +161,35 @@ impl Ipam {
         self.generation
     }
 
-    /// Allocates the next lease pair; indices never repeat inside one generation.
+    /// Allocates a lease pair: a recycled index first, otherwise the next unused one.
     ///
     /// # Errors
     ///
     /// Returns [`Error::PoolExhausted`] when the bounded pool is used up.
     pub fn allocate(&mut self) -> Result<LeasePair, Error> {
-        if self.next >= self.limit {
-            return Err(Error::PoolExhausted);
-        }
-        let index = self.next;
-        self.next += 1;
+        let index = if let Some(index) = self.free.pop() {
+            index
+        } else {
+            if self.next >= self.limit {
+                return Err(Error::PoolExhausted);
+            }
+            let index = self.next;
+            self.next += 1;
+            index
+        };
         let guest = self.leases.lease(index).ok_or(Error::PoolExhausted)?;
         let transit = self.transit.lease(index).ok_or(Error::PoolExhausted)?;
         Ok(LeasePair { guest, transit })
+    }
+
+    /// Hands one index back for reuse.
+    ///
+    /// The caller must only recycle an index whose bundle the broker verified gone, because the
+    /// next holder is given the same addresses.
+    pub fn recycle(&mut self, index: u32) {
+        if index < self.next && !self.free.contains(&index) {
+            self.free.push(index);
+        }
     }
 
     /// Starts a new generation, allowing released indices to be reused.
@@ -187,6 +205,7 @@ impl Ipam {
             .ok_or(Error::InvalidId("generation"))?;
         self.generation = CleanupGeneration::new(next)?;
         self.next = 0;
+        self.free.clear();
         Ok(self.generation)
     }
 }
@@ -267,6 +286,26 @@ mod tests {
             Ipam::new(plan(200), plan(201), generation, 0).expect_err("zero"),
             Error::InvalidProfile("lease limit")
         );
+    }
+
+    #[test]
+    fn a_recycled_index_is_reused_and_a_live_one_is_not_handed_out_twice() {
+        let generation = CleanupGeneration::new(1).expect("nonzero");
+        let mut ipam = Ipam::new(plan(200), plan(201), generation, 2).expect("ipam");
+        let first = ipam.allocate().expect("first");
+        let second = ipam.allocate().expect("second");
+        assert_eq!(ipam.allocate().expect_err("full"), Error::PoolExhausted);
+        ipam.recycle(first.guest.index());
+        // Recycling twice or recycling an index never handed out must not mint a duplicate.
+        ipam.recycle(first.guest.index());
+        ipam.recycle(99);
+        let third = ipam.allocate().expect("recycled");
+        assert_eq!(third.guest.index(), first.guest.index());
+        assert_eq!(
+            ipam.allocate().expect_err("full again"),
+            Error::PoolExhausted
+        );
+        assert_ne!(third.guest.index(), second.guest.index());
     }
 
     #[test]

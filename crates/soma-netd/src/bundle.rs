@@ -8,6 +8,7 @@
 
 use std::{
     path::{Path, PathBuf},
+    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -16,8 +17,8 @@ use soma_guest::{ActivationChallenge, LaunchNetwork};
 use crate::connect::ConnectPorts;
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, DnsPlan, Error,
-    InstanceId, Ipam, Ledger, NetworkIntent, NetworkProfile, OperationId, PortReservation,
-    PublishedPort, RecordOutcome, SandboxRuleset, Step, derive_macs, ingress,
+    InstanceId, Ipam, LeasePair, Ledger, NetworkIntent, NetworkProfile, OperationId,
+    PortReservation, PublishedPort, RecordOutcome, SandboxRuleset, Step, derive_macs, ingress,
     namespace::NetNamespace, nft, release,
 };
 
@@ -53,9 +54,35 @@ pub struct Broker {
     profile: NetworkProfile,
     ns_dir: PathBuf,
     ledger: Ledger,
+    generation: CleanupGeneration,
+    allocator: Mutex<Allocator>,
+    prewarm: NetworkIntent,
+    connect_ports: ConnectPorts,
+}
+
+/// The lease and conntrack-zone counters, behind one lock so concurrent preparation cannot
+/// hand two bundles the same addresses.
+#[derive(Debug)]
+struct Allocator {
     ipam: Ipam,
     next_zone: u16,
-    connect_ports: ConnectPorts,
+    free_zones: Vec<u16>,
+}
+
+impl Allocator {
+    /// Takes one lease pair and one conntrack zone, or neither.
+    fn take(&mut self) -> Result<(LeasePair, ConntrackZone), Error> {
+        let leases = self.ipam.allocate()?;
+        let zone = if let Some(zone) = self.free_zones.pop() {
+            zone
+        } else if let Some(next) = self.next_zone.checked_add(1) {
+            std::mem::replace(&mut self.next_zone, next)
+        } else {
+            self.ipam.recycle(leases.guest.index());
+            return Err(Error::PoolExhausted);
+        };
+        Ok((leases, ConntrackZone::new(zone)?))
+    }
 }
 
 impl Broker {
@@ -78,12 +105,18 @@ impl Broker {
             generation,
             limit,
         )?;
+        let prewarm = NetworkIntent::default_egress(&profile);
         Ok(Self {
             profile,
             ns_dir: state_dir.join("ns"),
             ledger,
-            ipam,
-            next_zone: 1,
+            generation,
+            allocator: Mutex::new(Allocator {
+                ipam,
+                next_zone: 1,
+                free_zones: Vec::new(),
+            }),
+            prewarm,
             connect_ports: ConnectPorts::default(),
         })
     }
@@ -109,7 +142,31 @@ impl Broker {
     /// Returns the current cleanup generation.
     #[must_use]
     pub const fn generation(&self) -> CleanupGeneration {
-        self.ipam.generation()
+        self.generation
+    }
+
+    /// The intent every prepared bundle's ruleset is already rendered for.
+    ///
+    /// A claim whose admitted intent renders to the same ruleset skips the kernel commit that
+    /// otherwise dominates assignment.
+    #[must_use]
+    pub const fn prewarm_intent(&self) -> &NetworkIntent {
+        &self.prewarm
+    }
+
+    /// Hands a verified-released bundle's lease index and conntrack zone back for reuse.
+    ///
+    /// Only a release whose live inspection found nothing owned may call this, because the next
+    /// holder is given the same addresses and zone.
+    pub fn recycle(&self, lease_index: u32, zone: ConntrackZone) {
+        let mut allocator = self
+            .allocator
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        allocator.ipam.recycle(lease_index);
+        if zone.get() < allocator.next_zone && !allocator.free_zones.contains(&zone.get()) {
+            allocator.free_zones.push(zone.get());
+        }
     }
 
     /// Prepares one sterile bundle; any failure tears down what was built.
@@ -117,15 +174,24 @@ impl Broker {
     /// # Errors
     ///
     /// Returns the first typed failure after rollback.
-    pub fn prepare(&mut self, id: BundleId) -> Result<SterileBundle, Error> {
-        let leases = self.ipam.allocate()?;
-        let zone = ConntrackZone::new(self.next_zone)?;
-        self.next_zone = self.next_zone.checked_add(1).ok_or(Error::PoolExhausted)?;
+    pub fn prepare(&self, id: BundleId) -> Result<SterileBundle, Error> {
+        let (leases, zone) = self
+            .allocator
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()?;
         let names = BundleNames::new(&id.short_hex());
         let short = id.short_hex();
-        let namespace = NetNamespace::create(&self.ns_dir, &short)?;
+        let namespace = match NetNamespace::create(&self.ns_dir, &short) {
+            Ok(namespace) => namespace,
+            Err(error) => {
+                // Nothing was built, so the addresses and zone are free again.
+                self.recycle(leases.guest.index(), zone);
+                return Err(error);
+            }
+        };
         match prepare::build(self, &names, &namespace, leases, zone, id) {
-            Ok(tap) => Ok(SterileBundle {
+            Ok((tap, ruleset)) => Ok(SterileBundle {
                 id,
                 generation: self.generation(),
                 names,
@@ -134,11 +200,15 @@ impl Broker {
                 leases,
                 macs: derive_macs(id),
                 zone,
+                ruleset,
             }),
             Err(error) => {
                 drop(namespace);
-                let _ =
+                let torn =
                     release::teardown(&names, zone, &self.ns_dir.join(&short), None, Vec::new());
+                if torn.complete {
+                    self.recycle(leases.guest.index(), zone);
+                }
                 Err(error)
             }
         }
@@ -228,7 +298,13 @@ impl Broker {
             connect_ports: self.connect_ports.ranges(),
         }
         .render();
-        bundle.namespace.within(move || nft::apply(&ruleset))?;
+        // A bundle is prepared with the ruleset for the default intent already committed, so the
+        // common claim has nothing to commit. The kernel commit waits out an RCU grace period,
+        // which is the largest single cost on the request path, so it runs only when this
+        // intent renders to something the namespace does not already hold.
+        if prepare::ruleset_digest(&ruleset) != bundle.ruleset {
+            bundle.namespace.within(move || nft::apply(&ruleset))?;
+        }
         let dns = DnsPlan::from_intent(intent, bundle.leases.guest.host());
         let launch = LaunchNetwork::new(
             record.vsock_cid,

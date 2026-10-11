@@ -15,7 +15,7 @@
 mod intent;
 mod lease;
 
-use soma::{BackendFailureKind, EgressPolicy, NetworkPolicy};
+use soma::{BackendFailureKind, DnsPolicy, EgressPolicy, NetworkPolicy};
 use soma_guest::{ActivationReceipt, LaunchNetwork};
 use soma_kvm::x86_64::NetworkAttachment;
 use soma_netd::ClientError;
@@ -50,16 +50,39 @@ impl Egress {
         configuration: Option<&BrokerConfiguration>,
         policy: &NetworkPolicy,
         identity: LaunchIdentity,
+        has_device: bool,
     ) -> Result<Self, BackendFailureKind> {
-        if matches!(
-            policy.egress(),
-            EgressPolicy::Denied | EgressPolicy::Unspecified
-        ) {
-            return Ok(Self::Declined);
+        match policy.egress() {
+            EgressPolicy::Denied => Ok(Self::Declined),
+            // A request that stated no preference gets the operator default, which is the
+            // public internet, so a sandbox can install packages and reach an API without the
+            // caller asking. Nothing was promised, so a host that cannot serve it degrades to
+            // the placeholder, and the effective network says so: the guest is reported
+            // detached, never connected.
+            EgressPolicy::Unspecified => {
+                let (Some(configuration), true) = (configuration, has_device) else {
+                    return Ok(Self::Declined);
+                };
+                let Some(defaulted) = default_policy(policy) else {
+                    return Ok(Self::Declined);
+                };
+                Ok(Self::lease(configuration, &defaulted, identity).unwrap_or(Self::Declined))
+            }
+            // Saying so is the whole point of a fail-closed network: a host with no broker
+            // cannot serve egress that was asked for, and reporting otherwise would describe a
+            // machine that reaches nothing.
+            _ => {
+                let configuration = configuration.ok_or(BackendFailureKind::Unsupported)?;
+                Self::lease(configuration, policy, identity)
+            }
         }
-        // Saying so is the whole point of a fail-closed network: a host with no broker cannot
-        // serve egress, and reporting otherwise would describe a machine that reaches nothing.
-        let configuration = configuration.ok_or(BackendFailureKind::Unsupported)?;
+    }
+
+    fn lease(
+        configuration: &BrokerConfiguration,
+        policy: &NetworkPolicy,
+        identity: LaunchIdentity,
+    ) -> Result<Self, BackendFailureKind> {
         let intent = configuration
             .admit(policy)
             .ok_or(BackendFailureKind::WorkloadRejected)?;
@@ -94,24 +117,33 @@ impl Egress {
         }
     }
 
-    /// Activates the lease with the receipt the repaired guest session minted.
-    ///
-    /// # Errors
-    ///
-    /// Returns the broker's refusal; the lease is released before the failure is returned, so a
-    /// launch that cannot activate leaves nothing behind.
-    pub(super) fn activate(&mut self, receipt: &ActivationReceipt) -> Result<(), ()> {
-        match self {
-            Self::Declined => Ok(()),
-            Self::Leased(lease) => lease.activate(receipt),
-        }
-    }
-
     /// Dials `port` on the guest from inside its namespace, through the broker.
     pub(super) fn connect_guest(&self, port: u16) -> Result<std::os::fd::OwnedFd, TunnelFailure> {
         match self {
             Self::Declined => Err(TunnelFailure::NoNetwork),
             Self::Leased(lease) => lease.connect_guest(port).map_err(tunnel_failure),
+        }
+    }
+
+    /// How this Instance's activation is to be spent: now, or off the launch path.
+    ///
+    /// A deferred activation returns the broker half as a job the session runs in the
+    /// background; everything that needs the network waits for it. The default is deferred,
+    /// because the broker's answer is the part of a create that grows with concurrency.
+    /// `SOMA_ASYNC_ACTIVATION=0` restores the synchronous exchange, which is how the two are
+    /// compared on a host.
+    pub(super) fn activation(
+        &mut self,
+        receipt: &ActivationReceipt,
+    ) -> Result<soma_vmm::sandbox::Activation, ()> {
+        match self {
+            Self::Declined => Ok(soma_vmm::sandbox::Activation::Done),
+            Self::Leased(lease) if deferred_activation() => Ok(
+                soma_vmm::sandbox::Activation::Deferred(lease.activation_job(receipt)),
+            ),
+            Self::Leased(lease) => lease
+                .activate(receipt)
+                .map(|()| soma_vmm::sandbox::Activation::Done),
         }
     }
 
@@ -122,6 +154,27 @@ impl Egress {
             Self::Leased(lease) => lease.release(),
         }
     }
+}
+
+/// Whether activation runs off the launch path; on unless `SOMA_ASYNC_ACTIVATION` says `0`.
+fn deferred_activation() -> bool {
+    static MODE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| std::env::var("SOMA_ASYNC_ACTIVATION").map_or(true, |value| value != "0"))
+}
+
+/// The policy a request with no stated egress is served: the public internet through the
+/// operator's resolvers, keeping whatever else the request did state.
+fn default_policy(requested: &NetworkPolicy) -> Option<NetworkPolicy> {
+    let dns = match requested.dns() {
+        DnsPolicy::Unspecified => DnsPolicy::System,
+        other => other.clone(),
+    };
+    NetworkPolicy::new(
+        EgressPolicy::PublicInternet,
+        dns,
+        requested.published_ports().to_vec(),
+    )
+    .ok()
 }
 
 /// What a release established about the resources the broker held.
@@ -176,7 +229,8 @@ mod tests {
     fn a_request_for_no_egress_never_reaches_a_broker() {
         let identity = identity();
         for policy in [NetworkPolicy::isolated(), NetworkPolicy::runtime_default()] {
-            let mut egress = Egress::claim(None, &policy, identity).expect("no egress requested");
+            let mut egress =
+                Egress::claim(None, &policy, identity, true).expect("no egress requested");
             assert!(matches!(egress, Egress::Declined));
             assert!(egress.attachment().is_none());
             assert!(egress.pending_activation().is_none());
@@ -198,7 +252,7 @@ mod tests {
         )
         .expect("policy");
         assert_eq!(
-            Egress::claim(None, &policy, identity()).err(),
+            Egress::claim(None, &policy, identity(), true).err(),
             Some(BackendFailureKind::Unsupported)
         );
     }

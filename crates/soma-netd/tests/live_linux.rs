@@ -25,11 +25,12 @@ use soma_netd::{
 
 #[test]
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+#[allow(clippy::too_many_lines)]
 fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
     live::require_privilege();
     let world = World::build();
     let state = tempfile::tempdir().expect("state dir");
-    let mut broker = live::broker(state.path(), 16);
+    let broker = live::broker(state.path(), 16);
     let intent = public_intent(&broker);
 
     let (bundle_a, instance_a, operation_a) = live::ids(0xa1);
@@ -40,10 +41,8 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
     let mut assigned = assigning.map_err(|f| f.error).expect("assign a");
     assert_launch_values(&assigned);
     let mut guest_a = transfer_tap(&assigned);
-    assert!(
-        guest_a.resolve_gateway(PROBE).is_none(),
-        "link must be down before activation"
-    );
+    // The gateway answers once the links are raised at preparation, but forwarding is off, so
+    // nothing past it is reachable until activation.
     assert_eq!(
         guest_a.tcp_syn(world::PUBLIC_ADDRESS, world::PUBLIC_PORT, PROBE),
         SynOutcome::Silence
@@ -53,7 +52,10 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
     let receipt_a = session::mint(&host_a, &assigned);
     let evidence = activate(&mut assigned, &receipt_a).expect("activate a");
     assert!(evidence.forwarding);
-    assert_eq!(evidence.links_raised.len(), 3);
+    assert!(
+        evidence.links_raised.is_empty(),
+        "links are raised at preparation"
+    );
     assert_eq!(evidence.transcript, *receipt_a.transcript());
     assert_eq!(
         activate(&mut assigned, &receipt_a),
@@ -96,6 +98,12 @@ fn sterile_bundle_stays_down_until_activation_and_policy_holds_after_it() {
 
     let released = release(&broker, assigned);
     assert!(released.complete && released.ledger, "{released:?}");
+    let usage = released.usage.expect("usage is read before teardown");
+    assert!(
+        usage.bytes_out > 0 && usage.packets_out > 0,
+        "the guest sent traffic that must be counted: {usage:?}"
+    );
+    assert!(usage.bytes_in > 0, "the answers must be counted: {usage:?}");
     let report = reconcile(&broker).expect("reconcile");
     assert_eq!(report.entries.len(), 2);
     assert!(
@@ -150,7 +158,7 @@ fn hundred_way_prepare_assign_activate_release_burst() {
 fn forwarding_stays_off_for_every_unauthorized_activation() {
     live::require_privilege();
     let state = tempfile::tempdir().expect("state dir");
-    let mut broker = live::broker(state.path(), 16);
+    let broker = live::broker(state.path(), 16);
     let intent = public_intent(&broker);
     let mut refused = 0_usize;
 
@@ -272,5 +280,26 @@ fn the_control_socket_grants_each_operation_only_to_its_capability() {
         Client::connect(&closed).reply(),
         None,
         "an unadmitted peer must be closed without a reply or a descriptor"
+    );
+}
+/// Drives the real daemon with concurrent clients and prints raw latency samples.
+///
+/// The daemon thread cannot be stopped and keeps its prepared pool, which holds the low lease
+/// indices, so this test is named to sort last and must not share a process with a test that
+/// prepares bundles of its own.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn zz_daemon_claim_activate_release_under_concurrency() {
+    live::require_privilege();
+    let read = |name: &str, default: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(default)
+    };
+    live::load::burst(
+        read("SOMA_NETD_LOAD_C", 1),
+        read("SOMA_NETD_LOAD_ROUNDS", 5),
+        read("SOMA_NETD_LOAD_POOL", 4),
     );
 }

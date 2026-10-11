@@ -10,9 +10,11 @@
 //! broker's own secret, delivered to that peer, so the peer can compute the receipt without a
 //! guest session. Nothing here proves that guest repair completed.
 //! Only then does the broker verify the ledger, namespace, links, rulesets, and forwarding
-//! state, raise the links, install the routes, enable forwarding, which is the single step
-//! that makes guest traffic flow, and install the publication table, which is the single step
-//! that makes a published port reachable.
+//! state, enable forwarding, which is the single step that makes guest traffic flow, and
+//! install the publication table, which is the single step that makes a published port
+//! reachable.
+//! The links and routes are raised when the bundle is prepared, not here: they take the
+//! kernel's network configuration lock, and activation is on the path of every create.
 //!
 //! The challenge is taken before any verification, so one challenge authorizes at most one
 //! activation attempt and a replayed receipt can never reach the kernel.
@@ -21,7 +23,7 @@
 
 use soma_guest::{ActivationReceipt, ActivationScope};
 
-use crate::{Assigned, Cidr, Drift, Error, PublishedPort, link, nft, sysctl};
+use crate::{Assigned, Drift, Error, PublishedPort, link, nft, sysctl};
 
 mod publish;
 
@@ -65,10 +67,9 @@ pub fn activate(
     challenge
         .verify(&scope, receipt)
         .map_err(|_| Error::Unauthorized("activation receipt"))?;
-    verify(assigned)?;
-    let bundle = &assigned.bundle;
-    let names = bundle.names.clone();
-    let leases = bundle.leases;
+    // Verification and the forwarding step share one namespace entry: each entry is a thread
+    // and a `setns`, and activation runs on the path of every create.
+    verify_and_forward(assigned)?;
     let mut evidence = ActivationEvidence {
         links_raised: Vec::new(),
         routes: Vec::new(),
@@ -76,32 +77,8 @@ pub fn activate(
         published: Vec::new(),
         transcript: *receipt.transcript(),
     };
-    let inner_names = names.clone();
-    bundle.namespace.within(move || {
-        let socket = link::control_socket()?;
-        link::set_up(&socket, &inner_names.tap, true)?;
-        link::set_up(&socket, &inner_names.sandbox_veth, true)?;
-        link::add_route(
-            &socket,
-            Cidr::V4(std::net::Ipv4Addr::UNSPECIFIED, 0),
-            leases.transit.host(),
-        )
-    })?;
-    evidence.links_raised.push(names.tap.clone());
-    evidence.links_raised.push(names.sandbox_veth.clone());
-    evidence
-        .routes
-        .push(format!("sandbox default via {}", leases.transit.host()));
-    let socket = link::control_socket()?;
-    link::set_up(&socket, &names.host_veth, true)?;
-    evidence.links_raised.push(names.host_veth.clone());
-    link::add_route(&socket, leases.guest.cidr(), leases.transit.guest())?;
-    evidence.routes.push(format!(
-        "host {} via {}",
-        leases.guest.cidr(),
-        leases.transit.guest()
-    ));
-    bundle.namespace.within(|| sysctl::set_forwarding(true))?;
+    // The links and routes were raised when the bundle was prepared, so the one step left that
+    // lets guest traffic flow, forwarding, was taken by the entry above.
     evidence.forwarding = true;
     evidence.published = publish::install(assigned)?;
     assigned.activated = Some(*receipt);
@@ -109,10 +86,19 @@ pub fn activate(
     Ok(evidence)
 }
 
-fn verify(assigned: &Assigned) -> Result<(), Error> {
+fn verify_and_forward(assigned: &Assigned) -> Result<(), Error> {
     let bundle = &assigned.bundle;
     if !bundle.namespace.path().exists() {
         return Err(Error::Drift(Drift::NamespaceMissing));
+    }
+    if !link::list_links()?.contains(&bundle.names.host_veth) {
+        return Err(Error::Drift(Drift::HostVethMissing));
+    }
+    if !nft::table_exists(&bundle.names.host_table)? {
+        return Err(Error::Drift(Drift::HostRulesetMissing));
+    }
+    if nft::table_exists(&bundle.names.publication_table)? {
+        return Err(Error::Drift(Drift::PublicationRulesetPresent));
     }
     let names = bundle.names.clone();
     bundle.namespace.within(move || {
@@ -124,8 +110,8 @@ fn verify(assigned: &Assigned) -> Result<(), Error> {
             return Err(Error::Drift(Drift::VethMissing));
         }
         let socket = link::control_socket()?;
-        if link::is_up(&socket, &names.tap)? || link::is_up(&socket, &names.sandbox_veth)? {
-            return Err(Error::Drift(Drift::LinkAlreadyUp));
+        if !link::is_up(&socket, &names.tap)? || !link::is_up(&socket, &names.sandbox_veth)? {
+            return Err(Error::Drift(Drift::LinkNotRaised));
         }
         if sysctl::forwarding()? {
             return Err(Error::Drift(Drift::ForwardingAlreadyEnabled));
@@ -133,16 +119,9 @@ fn verify(assigned: &Assigned) -> Result<(), Error> {
         if !nft::table_exists(&names.sandbox_table)? {
             return Err(Error::Drift(Drift::RulesetMissing));
         }
-        Ok(())
+        // Everything the host side asserts is checked before this entry: the forwarding write
+        // below is the step that lets traffic flow, so nothing may fail after it.
+        sysctl::set_forwarding(true)
     })?;
-    if !link::list_links()?.contains(&bundle.names.host_veth) {
-        return Err(Error::Drift(Drift::HostVethMissing));
-    }
-    if !nft::table_exists(&bundle.names.host_table)? {
-        return Err(Error::Drift(Drift::HostRulesetMissing));
-    }
-    if nft::table_exists(&bundle.names.publication_table)? {
-        return Err(Error::Drift(Drift::PublicationRulesetPresent));
-    }
     Ok(())
 }

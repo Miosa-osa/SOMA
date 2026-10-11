@@ -69,6 +69,18 @@ pub struct Completed {
     pub stderr: Vec<u8>,
 }
 
+/// The broker half of an activation, run off the launch path.
+pub type ActivationJob = Box<dyn FnOnce() -> Result<(), SessionError> + Send>;
+
+/// How the owner of a session spends the capability the repaired session minted.
+pub enum Activation {
+    /// The broker accepted the receipt before this returned.
+    Done,
+    /// The broker still has to be asked. The session asks it in the background and raises the
+    /// link only after it answers, and every operation that needs the network waits for that.
+    Deferred(ActivationJob),
+}
+
 /// Why a session could not do what was asked.
 ///
 /// The variants name the stage rather than carrying the underlying message, because these cross

@@ -24,6 +24,9 @@ impl Session {
             // collect and no guest left to ask.
             return Err(SessionError::Poisoned);
         }
+        // A guest still waiting for its link is shut down only after the link exchange ends, so
+        // the thread is in its command loop and can answer.
+        self.settle()?;
         self.requests
             .send(Request::Shutdown)
             .map_err(|_| SessionError::Gone)?;
@@ -51,6 +54,12 @@ impl Session {
     /// has been joined, so nothing is left to wait for.
     pub fn abort(mut self) -> Result<Teardown, SessionError> {
         if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        // A destroy that arrives while the activation is still in flight lets it finish first:
+        // the thread cannot answer an abort until the link exchange is over. A failure ends the
+        // session, which releases the machine exactly as an earlier uncertain operation would.
+        if self.settle().is_err() {
             return Err(SessionError::Poisoned);
         }
         self.requests

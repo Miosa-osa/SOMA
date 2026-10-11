@@ -91,7 +91,9 @@ impl KvmBackend {
         // transferred from the session it then drives, exactly as the on-demand arm does.
         let launched = self.clocks.elapsed_ns(operation);
         match claimed.assign(prepared, identity, network, secrets, &mut |receipt| {
-            egress.activate(receipt).map_err(|()| SessionError::Network)
+            egress
+                .activation(receipt)
+                .map_err(|()| SessionError::Network)
         }) {
             Ok(session) => Ok(Started {
                 preparation: PreparationClass::PreparedWorker,
@@ -194,7 +196,9 @@ impl KvmBackend {
         self.register(operation, instance, boot.guest_cid)?;
         let launched = self.clocks.elapsed_ns(operation);
         match Session::launch(boot, &mut |receipt| {
-            egress.activate(receipt).map_err(|()| SessionError::Network)
+            egress
+                .activation(receipt)
+                .map_err(|()| SessionError::Network)
         }) {
             Ok(session) => Ok(Started {
                 preparation: PreparationClass::OnDemand,

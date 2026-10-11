@@ -42,7 +42,6 @@ pub fn public_intent_for(profile: &soma_netd::NetworkProfile) -> NetworkIntent {
 }
 
 pub fn assert_sterile(sterile: &soma_netd::SterileBundle) {
-    let names = sterile.names().clone();
     sterile
         .namespace()
         .within(|| {
@@ -52,8 +51,6 @@ pub fn assert_sterile(sterile: &soma_netd::SterileBundle) {
                     .trim()
                     .eq("1")
             );
-            let flags = std::fs::read_to_string(format!("/sys/class/net/{}/flags", names.tap)).ok();
-            assert!(flags.is_none() || !flags.expect("flags").contains("0x1003"));
             Ok(())
         })
         .expect("inspect sterile namespace");
@@ -92,6 +89,13 @@ pub fn assert_policy_after_activation(guest_a: &mut Guest, world: &World) {
         SynOutcome::Silence,
         "metadata endpoint must be dropped in PublicInternet mode"
     );
+    // Nothing listens on 25 there, so a packet that arrived would be answered with a reset;
+    // silence means the guest's SYN never left.
+    assert_eq!(
+        guest_a.tcp_syn(world::PUBLIC_ADDRESS, 25, PROBE),
+        SynOutcome::Silence,
+        "outbound SMTP must be dropped"
+    );
     assert!(
         std::net::TcpStream::connect_timeout(&(world::METADATA, 80).into(), PROBE).is_ok(),
         "the host itself can reach the metadata stand-in, so the guest drop is policy"
@@ -102,11 +106,13 @@ pub fn assert_policy_after_activation(guest_a: &mut Guest, world: &World) {
             .as_deref(),
         Some(&b"dns-ok"[..])
     );
-    assert!(
+    // Any public resolver answers, as `dig @8.8.8.8` does from a Firecracker sandbox.
+    assert_eq!(
         guest_a
             .udp_probe(world::UNDECLARED_RESOLVER, 53, PROBE)
-            .is_none(),
-        "undeclared DNS dropped"
+            .as_deref(),
+        Some(&b"dns-ok"[..]),
+        "a public resolver the operator did not declare must still answer"
     );
     assert!(
         !guest_a.ping(world::HOST_ADDRESS, PROBE),

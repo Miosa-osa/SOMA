@@ -162,7 +162,10 @@ impl ClaimedMachine {
         secrets: Vec<SecretFile>,
         activate: &mut dyn FnMut(
             &soma_guest::ActivationReceipt,
-        ) -> Result<(), soma_vmm::sandbox::SessionError>,
+        ) -> Result<
+            soma_vmm::sandbox::Activation,
+            soma_vmm::sandbox::SessionError,
+        >,
     ) -> Result<soma_vmm::sandbox::Session, soma_vmm::sandbox::SessionError> {
         match self {
             Self::Pooled(machine) => {

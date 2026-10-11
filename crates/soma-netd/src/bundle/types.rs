@@ -20,6 +20,8 @@ pub struct SterileBundle {
     pub(crate) leases: LeasePair,
     pub(crate) macs: MacPair,
     pub(crate) zone: ConntrackZone,
+    /// The digest of the sandbox ruleset already committed in the namespace.
+    pub(crate) ruleset: [u8; 32],
 }
 
 impl SterileBundle {

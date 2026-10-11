@@ -10,7 +10,7 @@ pub fn hundred_way() {
     use std::time::Instant;
 
     let state = tempfile::tempdir().expect("state dir");
-    let mut broker = broker(state.path(), 128);
+    let broker = broker(state.path(), 128);
     let intent = NetworkIntent::admit(
         &NetworkPolicy::new(EgressPolicy::PublicInternet, DnsPolicy::System, Vec::new())
             .expect("policy"),
