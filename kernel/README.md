@@ -85,9 +85,9 @@ The full config is the artifact; `soma-v1.fragment` documents every intended del
 - `CONFIG_VIRTIO_BLK`, `CONFIG_VIRTIO_NET`, `CONFIG_VIRTIO_VSOCKETS`, and `CONFIG_HW_RANDOM_VIRTIO` are built in.
 - `CONFIG_EROFS_FS=y` without compression support (the Generation profile uses uncompressed EROFS), `CONFIG_EXT4_FS=y`, `CONFIG_OVERLAY_FS=y`, `devtmpfs` with automount, `procfs`, `sysfs`, and `tmpfs`.
 - `CONFIG_MODULES=n`, so the guest cannot load code the Generation did not certify.
-- `CONFIG_NET=y` with IPv4 and IPv6, `CONFIG_NETFILTER=n` because the host profile enforces policy, and no Ethernet, wireless, or Bluetooth drivers.
+- `CONFIG_NET=y` with IPv4 and IPv6, and no Ethernet, wireless, or Bluetooth drivers. Netfilter (iptables and nftables, conntrack, NAT, masquerade), `BRIDGE`, `VETH`, `VXLAN`, `MACVLAN` and `DUMMY` are built in only so Docker inside the guest can create its bridge, publish ports and run compose networks. The host profile still enforces egress policy outside the guest; guest netfilter only shapes traffic between the guest's own containers and its uplink, it does not replace host policy.
 - `CONFIG_SERIAL_8250=y` with one UART and console support for the diagnostic `ttyS0`; `CONFIG_VT=n` and `CONFIG_INPUT=n`.
-- `CONFIG_SECCOMP_FILTER=y`, namespaces, and a minimal cgroup set (`pids`, `memory`, `cpu`, `cpuset`).
+- `CONFIG_SECCOMP_FILTER=y`, namespaces, and the cgroup set Docker needs: `pids`, `memory`, `cpu` with `CFS_BANDWIDTH`, `cpuset`, `blkio` (`BLK_CGROUP`), `freezer`, and the `device` controller. cgroup v2 has no device file interface, so runc attaches a BPF device filter: `BPF_SYSCALL` and `CGROUP_BPF` are on, `BPF_JIT` stays off and no BPF networking is enabled. `CONFIG_KEYS=y` lets container runtimes create session keyrings.
 - `CONFIG_DEVMEM=y` with `CONFIG_STRICT_DEVMEM=n` and `CONFIG_IO_STRICT_DEVMEM=n` because the guest agent reads the SOMA launch page through `/dev/mem`; as a consequence Kconfig drops `CONFIG_EXCLUSIVE_SYSTEM_RAM` and `CONFIG_PAGE_TABLE_CHECK`.
 - No USB, sound, DRM, framebuffer, SCSI, ATA, MD, device mapper, loop, NVMe, RTC, HPET device, watchdog, hotplug memory, or hardware monitoring.
 - `CONFIG_DEBUG_INFO_NONE=y`, no BTF, no ftrace, no kprobes, no profiling, no KUnit, no runtime tests.
@@ -105,3 +105,15 @@ Symbols the fragment cannot disable in Linux 6.12 because Kconfig forces them: `
 - The toolchain is pinned by base-image digest and verified package versions, not by an immutable apt snapshot, so a future rebuild can fail closed if Ubuntu updates gcc-13 or binutils.
 - Reproducibility evidence covers two builds on one host on one date and is recorded in `docs/evidence/`; it is not a cross-host reproducibility claim.
 - No size, boot-time, or restore-time target is claimed.
+
+## Docker support
+
+The fragment carries a Docker block (see "Networking" and "Process isolation" in `soma-v1.fragment`).
+`required-config.txt` pins every Docker symbol, so a future regeneration cannot silently drop one.
+The result was checked with Moby's `contrib/check-config.sh`: every "Generally Necessary" item holds except `CONFIG_NETFILTER_XT_MATCH_IPVS`, which only Swarm ingress uses.
+IPVS, `BTRFS`, `XFRM` (encrypted overlay) and `LOOP` are intentionally absent.
+
+The config change alters the kernel bytes, so the `f1af3a14...` digest recorded in older evidence is the kernel before this block.
+A Generation records the digest of the kernel it was built with.
+This change is configuration only: the kernel has not been rebuilt or booted on KVM from it, so no boot, size or restore claim is made.
+Rebuild with `kernel/build.sh` on a Linux x86_64 host (the case-insensitive filesystem on macOS cannot hold the Linux source tree).
