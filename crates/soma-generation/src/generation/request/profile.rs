@@ -94,9 +94,9 @@ impl CompilerProfile {
         match version {
             1 => Some(Self::v1()),
             2 => Some(Self::v2()),
-            // Version 3 can be compiled but is not admitted by a host until the machine builds
-            // the virtio-mem device its contract states; admitting it earlier would boot a
-            // Generation that promises a device the machine does not have.
+            // Version 3 states the virtio-mem device, and the machine now builds it on every boot
+            // and restore path, so a host admits a Generation built under it.
+            3 => Some(Self::v3()),
             _ => None,
         }
     }

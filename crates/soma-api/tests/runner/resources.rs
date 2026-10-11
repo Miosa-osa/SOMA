@@ -20,6 +20,7 @@ fn outcome(applied: bool) -> ResizeOutcome {
         DimensionState::Unsupported
     };
     ResizeOutcome {
+        host_pid: 0,
         cpu: CpuResize {
             state,
             requested: Some(2),

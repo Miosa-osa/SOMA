@@ -13,9 +13,31 @@ use super::prepared::PreparedGeneration;
 ///
 /// This is the single place the Generation's manifest is read for the size, so the machine
 /// contract version that introduces the declaration changes this function and nothing else.
-pub(super) fn declared_bytes(_prepared: &PreparedGeneration) -> Option<u64> {
-    None
+pub(super) fn declared_bytes(prepared: &PreparedGeneration) -> Option<u64> {
+    ceiling_region(
+        prepared.manifest.machine_contract.version,
+        prepared.manifest.shape.memory_bytes,
+    )
 }
+
+/// The bytes between a machine's boot memory and its contract's ceiling, in whole slots.
+///
+/// Machine contract 3 is the one with the memory device, and it declares the region as all the
+/// room the contract leaves above what the Generation boots with, so a Generation never has to
+/// restate a ceiling the contract already fixes. A contract without the device, or a Generation
+/// that boots at the ceiling and so leaves no whole slot, declares no region.
+fn ceiling_region(contract_version: u16, boot_bytes: u64) -> Option<u64> {
+    let contract = soma_kvm::MachineContract::from_version(contract_version)?;
+    if !contract.has_memory_device() {
+        return None;
+    }
+    let room = contract.max_memory_bytes().checked_sub(boot_bytes)?;
+    let slots = room / SLOT_BYTES;
+    (slots > 0).then(|| slots * SLOT_BYTES)
+}
+
+/// The granularity a region is declared in: one 128 MiB slot, the unit the kernel adds memory in.
+const SLOT_BYTES: u64 = 128 * 1024 * 1024;
 
 /// Places the declared region above the machine's RAM.
 ///
@@ -46,6 +68,29 @@ mod tests {
     use super::*;
 
     const RAM: u64 = 1 << 30;
+
+    #[test]
+    fn contract_three_declares_the_room_above_the_boot_memory_and_older_ones_declare_none() {
+        let gib = 1_u64 << 30;
+        assert_eq!(ceiling_region(1, 2 * gib), None);
+        assert_eq!(ceiling_region(2, 2 * gib), None);
+        assert_eq!(ceiling_region(3, 2 * gib), Some(14 * gib));
+        assert_eq!(
+            ceiling_region(3, 16 * gib),
+            None,
+            "no room above the ceiling"
+        );
+        assert_eq!(
+            ceiling_region(3, 16 * gib - 64 * 1024 * 1024),
+            None,
+            "less than one slot"
+        );
+        assert_eq!(
+            ceiling_region(9, 2 * gib),
+            None,
+            "an unknown contract declares nothing"
+        );
+    }
 
     #[test]
     fn a_generation_without_the_device_has_no_region() {
