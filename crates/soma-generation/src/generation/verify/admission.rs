@@ -2,8 +2,10 @@
 //!
 //! Admission is deliberately not a substitute for content verification. It rechecks the small
 //! content-addressed manifest against the identity and the compiler profile, and it opens every
-//! launch artifact by handle at its exact declared size without re-hashing the bytes. What makes
-//! that safe is the contract around it: only an installer holds write authority over the store,
+//! launch artifact by handle at its exact declared size. A blob is hashed the first time this store
+//! admits it and is then recorded in the store's admission ledger by the stamp the kernel gives it
+//! (device, inode, size, modification and change times); a later admission of a blob with the same
+//! stamp does not read it again. What makes that safe is the contract around it: only an installer holds write authority over the store,
 //! and the handles returned here are the handles launch must consume, so no later path lookup
 //! can substitute launch bytes.
 
@@ -50,7 +52,7 @@ impl InstalledGeneration {
 /// The ready manifest is digest-checked against `id`, decoded as hostile input, and checked
 /// against the compiler profile.
 /// Every launch artifact is opened without following a final symlink and must have the exact
-/// declared size.
+/// declared size; one the store's admission ledger has not seen at its current stamp is hashed.
 /// The returned handles are the handles launch must consume.
 ///
 /// This is not a substitute for [`verify_generation`](super::verify_generation).
@@ -77,7 +79,7 @@ pub fn admit_installed_generation(
         .into_iter()
         .map(|descriptor| {
             let file = store
-                .open_verified_blob(
+                .open_admitted_blob(
                     &descriptor.to_store_descriptor(),
                     descriptor.size,
                     ImportPhase::Publish,

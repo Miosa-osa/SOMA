@@ -12,6 +12,9 @@ use crate::{ImportError, ImportErrorKind, ImportPhase, digest, oci::Descriptor, 
 
 #[cfg(test)]
 mod copy_tests;
+mod ledger;
+#[cfg(test)]
+mod ledger_tests;
 mod staged;
 
 pub(crate) use staged::StagedObject;
@@ -24,8 +27,12 @@ pub(crate) use staged::StagedObject;
 /// post-verification mutation through a retained writable handle and preserving
 /// availability requires exclusive write authority over the whole store root.
 pub(crate) struct Store {
+    version: Dir,
     blobs: Dir,
     temporary: Dir,
+    ledger: ledger::Ledger,
+    /// Blobs this handle has read end to end to check their digest.
+    hashed: std::sync::atomic::AtomicU64,
 }
 
 impl Store {
@@ -35,7 +42,14 @@ impl Store {
         let blob_root = ensure_dir(&version, "blobs")?;
         let blobs = ensure_dir(&blob_root, "sha256")?;
         let temporary = ensure_dir(&version, "tmp")?;
-        Ok(Self { blobs, temporary })
+        let ledger = ledger::Ledger::load(&version);
+        Ok(Self {
+            version,
+            blobs,
+            temporary,
+            ledger,
+            hashed: std::sync::atomic::AtomicU64::new(0),
+        })
     }
 
     pub(crate) fn put_descriptor(
@@ -74,6 +88,42 @@ impl Store {
         let mut options = OpenOptions::new();
         options.read(true).follow(FollowSymlinks::No);
         self.open_blob_with(descriptor, phase, &options)
+    }
+
+    /// Opens a blob whose digest was already checked by an earlier admission, if it is unchanged.
+    ///
+    /// A blob that has the stamp the ledger recorded when its content was last hashed is the same
+    /// bytes and is returned without being read. Any other blob is hashed in full exactly as
+    /// [`Self::open_verified_blob`] does, and its stamp is then recorded for the next admission.
+    pub(crate) fn open_admitted_blob(
+        &self,
+        descriptor: &Descriptor,
+        maximum: u64,
+        phase: ImportPhase,
+    ) -> Result<File, ImportError> {
+        if descriptor.size > maximum {
+            return Err(ImportError::new(phase, ImportErrorKind::LimitExceeded));
+        }
+        let mut file = self.open_blob(descriptor, phase)?;
+        let name = digest::hex(&descriptor.digest);
+        let stamp = file.metadata().ok().and_then(|m| ledger::Stamp::of(&m));
+        if stamp.is_some_and(|stamp| self.ledger.knows(name, stamp)) {
+            file.seek(SeekFrom::Start(0))
+                .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+            return Ok(file);
+        }
+        self.hashed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (actual_digest, actual_size) = digest::reader(&mut file, descriptor.size, phase)?;
+        if actual_digest != descriptor.digest || actual_size != descriptor.size {
+            return Err(ImportError::new(phase, ImportErrorKind::StoreConflict));
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+        if let Some(stamp) = stamp {
+            self.ledger.record(&self.version, name, stamp);
+        }
+        Ok(file)
     }
 
     pub(crate) fn open_verified_blob(
