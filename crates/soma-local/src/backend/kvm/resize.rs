@@ -18,7 +18,7 @@ use crate::{CpuResize, DimensionState, ResizeFailure, ResizeOutcome, ResizeReque
 /// The accounting period every live share is expressed against.
 const PERIOD_US: u64 = 100_000;
 /// Names the delegated cgroup2 subtree live limits are created under for an unjailed host.
-const CGROUP_ROOT: &str = "SOMA_JAIL_CGROUP_ROOT";
+pub(super) const CGROUP_ROOT: &str = "SOMA_JAIL_CGROUP_ROOT";
 
 impl KvmBackend {
     /// Applies `request` to the sandbox this process is driving.
@@ -206,7 +206,7 @@ fn leaf_for(
 /// ever ran with a CPU share would leave an empty directory behind. `remove_dir` on a cgroup succeeds
 /// only when nothing runs in it, so this can never take a leaf from a live machine, and every launch
 /// that makes a leaf clears the finished ones first.
-fn sweep_finished_leaves(root: &std::path::Path) {
+pub(super) fn sweep_finished_leaves(root: &std::path::Path) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };

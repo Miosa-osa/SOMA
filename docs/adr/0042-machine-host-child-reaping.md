@@ -30,3 +30,56 @@ Successful create and destroy cycles no longer leave zombie machine-host process
 Ordinary launch cannot stall on exit collection while the bounded queue accepts ownership.
 Exceptional queue saturation can delay adoption by one reaper drain interval, while reaper loss terminates the affected machine before Launch can report it ready.
 Qualification must inspect the API parent after a completed burst and prove that no exited children remain.
+
+## Addendum 2026-10-12: a claimed machine host leaves the API unit's control group
+
+### Context
+
+This ADR intended that an API restart leaves hosted machines running: the operating system reparents them and durable reconciliation recovers their state.
+The production unit defeats that.
+`soma-api.service` uses `KillMode=mixed` with `TimeoutStopSec=30s`, so a stop or restart sends `SIGTERM` to the main process and then `SIGKILL` to everything left in the unit's control group.
+Every machine host is a child of the API and starts in that group, so a restart kills every hosted sandbox.
+
+Three questions decided the design.
+
+1. Who holds the machine and its guest session?
+   The machine host.
+   An unjailed machine host builds a `KvmBackend` with `Held::Resident`, so the KVM descriptors, the guest memory mapping, the vCPU thread, and the authenticated session all belong to that one process.
+   The API holds none of them.
+2. How does a restarted API reach a machine that is already claimed?
+   By identity, with no in-memory table.
+   A hosted backend addresses the machine through its Instance socket under the hosted directory (`host::channel::connect`, `liveness`, `inspect`, execute, cleanup).
+   A new API process finds a surviving machine the same way the old one did.
+   After it reports `Ready::Launched` the host never uses its standard output or the handoff socket again, so nothing ties it to its parent.
+3. What does the runner do with a recovered sandbox?
+   `recover_sandboxes` lists the durable store and re-adopts each Active or Executing entry whose machine name carries the tenant label the runner wrote at create.
+   An entry without the label was not created through the runner and stays unreachable through it.
+   Its creation time is not recorded, so a recovered sandbox gets the runner's default idle timeout.
+   The listing must succeed for any of this to run, which is why a failed launch's unreadable receipt mattered (SOMA PR #65).
+
+### Decision
+
+A machine host that has received its launch capability moves itself, before it launches the machine, into a leaf of the delegated cgroup subtree named by `SOMA_JAIL_CGROUP_ROOT` (`soma-<instance>-live`).
+That is the leaf a live CPU resize already creates, so a later resize finds it and writes `cpu.max` there.
+The subtree is a sibling of the API unit's control group, so the unit's kill does not reach it.
+The production hosts already set the variable and delegate the subtree (`deploy/soma-api-host`, miosa-compute #2035).
+
+A sterile host that has claimed nothing stays in the unit's group and ends with the unit.
+The API refills its pool on start.
+
+The move is best effort.
+If no subtree is configured, or the move fails, the host still serves its machine and the machine simply does not outlive a unit stop.
+A machine host has no log of its own, so the outcome is observable only from the machine's cgroup path.
+
+### Consequences
+
+- Restarting or upgrading `soma-api` no longer ends claimed sandboxes. The new process finds them by Instance socket, the runner re-adopts the labelled ones, and every other path addresses them by identity.
+- A machine host now outlives its parent for the 30-minute idle ceiling at most when nobody addresses it (`IDLE_CEILING` in the serve loop), so an abandoned machine is still bounded.
+- A stop of the unit is no longer a way to clear all sandboxes. Clearing them is the destroy path or an operator removing the live subtree.
+- Empty `soma-*-live` leaves are swept by the next machine host that creates one, as before; a host that exits cannot remove its own leaf.
+- Without `SOMA_JAIL_CGROUP_ROOT` nothing changes, which keeps development and CI as they were.
+
+### Proof
+
+A scratch API unit on a SOMA host, beside production and with its own port, state root, and cgroup subtree, creates a claimed machine, restarts, and must show: the machine-host pid is unchanged, its cgroup path is the live leaf and not the unit's, execute still works, the list names the instance with `host: live`, and the tenant-labelled instance is recovered by the runner.
+The same sequence against the unmodified binary must show the machine gone.
