@@ -1,3 +1,4 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use soma::{
     DestroyMachineRequest, DirectCommand, ExecuteMachineRequest, ExecutionLimits,
@@ -40,6 +41,11 @@ pub struct RunCommandBody {
     pub arguments: Vec<String>,
     #[serde(default)]
     pub limits: Option<ExecutionLimits>,
+    /// Standard input for the command, base64 encoded, at most [`soma::MAX_STDIN_BYTES`] decoded.
+    ///
+    /// A script longer than one argument may be run as `sh -s` with the script here.
+    #[serde(default)]
+    pub stdin: Option<String>,
     #[serde(default)]
     pub operation_id: Option<OperationId>,
 }
@@ -101,6 +107,27 @@ impl RunCommandBody {
                 "the command must name an absolute executable within the facade's bounds",
             )
         })?;
+        let command = match self.stdin {
+            None => command,
+            Some(encoded) => {
+                let stdin = STANDARD
+                    .decode(encoded)
+                    .map_err(|_| ApiError::invalid("the stdin field is not valid base64"))?;
+                if stdin.len() > soma::MAX_STDIN_BYTES {
+                    return Err(ApiError::new(
+                        413,
+                        "stdin_too_large",
+                        "standard input may be at most 32768 bytes",
+                        false,
+                    ));
+                }
+                let context = soma::CommandContext::new(Vec::new(), None, None, stdin)
+                    .map_err(|_| ApiError::invalid("the standard input is not acceptable"))?;
+                command.with_context(context).map_err(|_| {
+                    ApiError::invalid("the command with this input does not fit one record")
+                })?
+            }
+        };
         let limits = self.limits.unwrap_or_else(default_limits);
         Ok(ExecuteMachineRequest::new(
             operation_id(self.operation_id)?,

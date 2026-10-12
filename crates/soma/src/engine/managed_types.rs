@@ -59,6 +59,12 @@ impl ExecuteMachineRequest {
             limits,
         }
     }
+
+    /// The command this request asks the instance to run.
+    #[must_use]
+    pub const fn command(&self) -> &DirectCommand {
+        &self.command
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

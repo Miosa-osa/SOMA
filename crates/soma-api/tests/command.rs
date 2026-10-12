@@ -149,3 +149,60 @@ fn a_command_exactly_at_the_bound_is_admitted() {
     let (status, _) = call(&mut facade, &identified("POST", &commands_path(), &body));
     assert_eq!(status, 200);
 }
+
+#[test]
+fn a_script_longer_than_one_argument_runs_as_sh_s_with_the_script_on_stdin() {
+    let script = "echo hi\n".repeat(3_000);
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let body = serde_json::json!({
+        "executable": "/bin/sh",
+        "arguments": ["-s"],
+        "stdin": STANDARD.encode(&script),
+    });
+    let (status, _) = call(
+        &mut facade,
+        &identified("POST", &commands_path(), &body.to_string()),
+    );
+
+    assert_eq!(status, 200);
+    assert_eq!(facade.last_stdin, script.as_bytes());
+}
+
+#[test]
+fn standard_input_beyond_its_bound_or_not_base64_is_refused_before_the_engine() {
+    for (body, status, code) in [
+        (
+            serde_json::json!({"executable": "/bin/cat", "stdin": STANDARD.encode(vec![b'x'; soma::MAX_STDIN_BYTES + 1])}),
+            413,
+            "stdin_too_large",
+        ),
+        (
+            serde_json::json!({"executable": "/bin/cat", "stdin": "***"}),
+            400,
+            "invalid_input",
+        ),
+    ] {
+        let mut facade = FakeFacade::new(Mode::Succeed);
+        let (got, answer) = call(
+            &mut facade,
+            &identified("POST", &commands_path(), &body.to_string()),
+        );
+        assert_eq!(
+            (got, answer["error"]["code"].as_str()),
+            (status, Some(code))
+        );
+        assert!(facade.calls.is_empty());
+    }
+
+    // Exactly the bound is carried whole.
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let body = serde_json::json!({"executable": "/bin/cat", "stdin": STANDARD.encode(vec![b'x'; soma::MAX_STDIN_BYTES])});
+    let (status, _) = call(
+        &mut facade,
+        &identified("POST", &commands_path(), &body.to_string()),
+    );
+    assert_eq!(
+        (status, facade.last_stdin.len()),
+        (200, soma::MAX_STDIN_BYTES)
+    );
+}
