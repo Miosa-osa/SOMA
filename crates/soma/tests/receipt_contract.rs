@@ -177,6 +177,39 @@ fn failed_launch_receipt_whose_network_was_never_reached_round_trips() {
 }
 
 #[test]
+fn a_failed_launch_may_not_claim_its_network_was_looked_at_and_unverified() {
+    // Only "never got as far as looking" is exempt. A failed receipt that says every dimension was
+    // `not_verified` claims the engine looked, so it still has to match the request.
+    let (backend, _) = TestBackend::new(Mode::LaunchFailure);
+    let mut engine = Engine::new(backend);
+    let soma::ManagedFailure::Operation(failure) = engine
+        .launch_machine(launch_request())
+        .expect_err("launch fails")
+    else {
+        panic!("a failed launch reports through its operation failure");
+    };
+    let mut json = serde_json::to_value(failure.receipt()).expect("receipt JSON");
+    for dimension in [
+        "attachment",
+        "egress",
+        "dns",
+        "addresses",
+        "published_ports",
+        "port_activation",
+    ] {
+        json["effective_network"][dimension] =
+            serde_json::json!({"state": "unavailable", "value": "not_verified"});
+    }
+    reject(json);
+
+    // One dimension that was reached while the rest were not is not "never reached" either.
+    let mut mixed = serde_json::to_value(failure.receipt()).expect("receipt JSON");
+    mixed["effective_network"]["egress"] =
+        serde_json::json!({"state": "unavailable", "value": "not_verified"});
+    reject(mixed);
+}
+
+#[test]
 fn unreached_network_is_not_accepted_on_a_ready_launch() {
     // Only a failed receipt may say the network was never reached. A launch that reports Ready
     // has to carry observed network evidence.

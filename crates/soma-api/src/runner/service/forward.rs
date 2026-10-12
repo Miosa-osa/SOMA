@@ -94,8 +94,9 @@ impl Runner {
                 // not shown to a tenant; the operator is told it exists.
                 if !listing.unreadable().is_empty() {
                     eprintln!(
-                        "soma-api: runner listing skipped {} unreadable record(s)",
-                        listing.unreadable().len()
+                        "soma-api: runner listing skipped {} unreadable record(s): {}",
+                        listing.unreadable().len(),
+                        super::unreadable_ids(listing.unreadable())
                     );
                 }
                 let entries: Vec<_> = listing

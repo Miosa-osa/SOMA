@@ -63,6 +63,15 @@ pub const MAX_BODY_BYTES: usize = crate::http::request::MAX_BODY_BYTES;
 /// The tenant label a sandbox carries in the state store, so ownership survives a restart.
 const TENANT_LABEL_PREFIX: &str = "t-";
 
+/// The identities of the records a listing could not decode, for the operator's log.
+fn unreadable_ids(records: &[soma::UnreadableRecord]) -> String {
+    records
+        .iter()
+        .map(|record| record.instance_id().as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 /// One request, after the transport has read it, independent of HTTP version.
 #[derive(Clone, Debug)]
 pub struct RunnerRequest {

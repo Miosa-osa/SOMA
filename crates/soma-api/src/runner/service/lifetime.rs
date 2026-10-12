@@ -177,8 +177,9 @@ impl Runner {
             Ok((Ok(listing), _)) => {
                 if !listing.unreadable().is_empty() {
                     eprintln!(
-                        "soma-api: runner recovery skipped {} unreadable record(s)",
-                        listing.unreadable().len()
+                        "soma-api: runner recovery skipped {} unreadable record(s): {}",
+                        listing.unreadable().len(),
+                        super::unreadable_ids(listing.unreadable())
                     );
                 }
                 listing.into_parts().0
