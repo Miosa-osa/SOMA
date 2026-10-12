@@ -45,6 +45,13 @@ impl ExecutionReceipt {
     /// dimension says `not_reached`. `not_verified` is not that claim and is not accepted. That is an honest statement of what the engine saw, so a
     /// failed receipt may carry it. Any other terminal status reports a machine that existed, and
     /// has to carry observed network evidence that matches the request.
+    ///
+    /// The exemption is all or nothing. The engine writes a failed receipt either with every
+    /// network dimension observed (the launch got far enough to look) or with every one
+    /// `not_reached` (it did not), and `EffectiveNetwork::unavailable` is the only constructor of
+    /// the second. A receipt that observed some dimensions and not others is not written today and
+    /// is still rejected here; if a later change starts writing one, it has to extend this rule
+    /// and the decoder together, or the store would again hold a record its own reader refuses.
     fn network_matches_request(&self) -> bool {
         self.effective_network
             .matches_request(self.requested_shape.capabilities().network_policy())
