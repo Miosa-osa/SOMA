@@ -24,9 +24,9 @@ pub use backend::{
 pub use engine::{
     DestroyMachineRequest, Engine, ExecuteMachineRequest, FailurePhase, FileMachineRequest,
     InspectMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
-    MachineInspection, MachineLaunch, MachinePty, MachineStop, ManagedFailure, ManagedStateError,
-    PtyMachineRequest, ReplayEvidence, RunFailure, RunFailureKind, RunOutcome, SandboxEntry,
-    SandboxPhase, StopMachineRequest,
+    MachineInspection, MachineLaunch, MachineListing, MachinePty, MachineStop, ManagedFailure,
+    ManagedStateError, PtyMachineRequest, ReplayEvidence, RunFailure, RunFailureKind, RunOutcome,
+    SandboxEntry, SandboxPhase, StopMachineRequest, UnreadableRecord,
 };
 pub use evidence::{
     AssignedAddress, BackendKind, CleanupDisposition, CleanupEvidence, CleanupMethod,

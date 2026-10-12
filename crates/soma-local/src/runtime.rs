@@ -123,6 +123,18 @@ impl LocalRuntime {
         self.engine.list_machines()
     }
 
+    /// Lists the sandboxes like [`Self::list_machines`], naming a record the store cannot decode
+    /// instead of failing the listing.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure when the store cannot be read at all.
+    pub fn list_machines_reporting_unreadable(
+        &mut self,
+    ) -> Result<soma::MachineListing, ManagedFailure> {
+        self.engine.list_machines_reporting_unreadable()
+    }
+
     /// Inspects one durably managed Machine.
     ///
     /// # Errors

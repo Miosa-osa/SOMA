@@ -88,9 +88,19 @@ impl Runner {
             .map(|instance| instance.as_str().to_owned())
             .collect();
         match self.backend.call(|facade| facade.list()).await {
-            Ok((Ok(entries), call)) => {
+            Ok((Ok(listing), call)) => {
                 timing.call = call;
-                let entries: Vec<_> = entries
+                // A record the store cannot decode has no owner this runner can check, so it is
+                // not shown to a tenant; the operator is told it exists.
+                if !listing.unreadable().is_empty() {
+                    eprintln!(
+                        "soma-api: runner listing skipped {} unreadable record(s)",
+                        listing.unreadable().len()
+                    );
+                }
+                let entries: Vec<_> = listing
+                    .into_parts()
+                    .0
                     .into_iter()
                     .filter(|entry| owned.contains(entry.instance_id().as_str()))
                     .collect();

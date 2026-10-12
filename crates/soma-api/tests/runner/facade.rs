@@ -7,8 +7,7 @@ use std::sync::{
 
 use soma::{
     DestroyMachineRequest, ExecuteMachineRequest, FileMachineRequest, InspectMachineRequest,
-    LaunchMachineRequest, ManagedFailure, PtyMachineRequest, SandboxEntry, StopMachineRequest,
-    TerminalStatus,
+    LaunchMachineRequest, ManagedFailure, PtyMachineRequest, StopMachineRequest, TerminalStatus,
 };
 use soma_api::{
     CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
@@ -104,8 +103,8 @@ impl SandboxFacade for FakeFacade {
         unreachable!("the runner never opens terminals")
     }
 
-    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
-        Ok(Vec::new())
+    fn list(&mut self) -> Result<soma::MachineListing, ManagedFailure> {
+        Ok(soma::MachineListing::default())
     }
 
     fn stop(&mut self, _: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

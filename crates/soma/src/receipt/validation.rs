@@ -25,9 +25,7 @@ impl ExecutionReceipt {
             || !self.terminal_is_consistent()
             || !self.workload_is_consistent()
             || !self.effective_shape.matches_request(&self.requested_shape)
-            || !self
-                .effective_network
-                .matches_request(self.requested_shape.capabilities().network_policy())
+            || !self.network_matches_request()
             || !self.measurement_is_consistent()
         {
             return Err(ReceiptValidationError);
@@ -39,6 +37,19 @@ impl ExecutionReceipt {
             return Err(ReceiptValidationError);
         }
         Ok(())
+    }
+
+    /// Whether the network evidence agrees with what was requested.
+    ///
+    /// A failed operation can stop before the network is observed at all, and then every
+    /// dimension says `not_reached`. That is an honest statement of what the engine saw, so a
+    /// failed receipt may carry it. Any other terminal status reports a machine that existed, and
+    /// has to carry observed network evidence that matches the request.
+    fn network_matches_request(&self) -> bool {
+        self.effective_network
+            .matches_request(self.requested_shape.capabilities().network_policy())
+            || (self.terminal_status == TerminalStatus::Failed
+                && self.effective_network.all_unavailable())
     }
 
     fn allowed_milestones(&self) -> bool {

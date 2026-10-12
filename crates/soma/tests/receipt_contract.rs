@@ -154,6 +154,47 @@ fn mac_receipt_states_observed_only_digest_binding() {
     );
 }
 
+#[test]
+fn failed_launch_receipt_whose_network_was_never_reached_round_trips() {
+    // The durable store reads a terminal record back through this decoder. A failed launch stops
+    // before the network is observed, so every network dimension is `not_reached`; the engine
+    // must not write a receipt that its own reader rejects.
+    let (backend, _) = TestBackend::new(Mode::LaunchFailure);
+    let mut engine = Engine::new(backend);
+
+    let failure = engine
+        .launch_machine(launch_request())
+        .expect_err("launch fails");
+    let soma::ManagedFailure::Operation(failure) = failure else {
+        panic!("a failed launch reports through its operation failure");
+    };
+    let receipt = failure.receipt();
+    assert_eq!(receipt.terminal_status(), &soma::TerminalStatus::Failed);
+
+    let json = serde_json::to_value(receipt).expect("receipt JSON");
+    assert_eq!(json["effective_network"]["egress"]["value"], "not_reached");
+    serde_json::from_value::<ExecutionReceipt>(json).expect("the engine's own reader accepts it");
+}
+
+#[test]
+fn unreached_network_is_not_accepted_on_a_ready_launch() {
+    // Only a failed receipt may say the network was never reached. A launch that reports Ready
+    // has to carry observed network evidence.
+    let mut ready = valid_launch_receipt();
+    for dimension in [
+        "attachment",
+        "egress",
+        "dns",
+        "addresses",
+        "published_ports",
+        "port_activation",
+    ] {
+        ready["effective_network"][dimension] =
+            serde_json::json!({"state": "unavailable", "value": "not_reached"});
+    }
+    reject(ready);
+}
+
 fn valid_run_receipt() -> serde_json::Value {
     let (backend, _) = TestBackend::new(Mode::Happy);
     let mut engine = Engine::new(backend);

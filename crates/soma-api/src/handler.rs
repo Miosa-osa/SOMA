@@ -50,11 +50,11 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     match route {
         Route::CreateSandbox => create(facade, body),
         Route::ListSandboxes => {
-            let entries = facade.list().map_err(|f| managed_error(&f))?;
+            let listing = facade.list().map_err(|f| managed_error(&f))?;
             Ok(success(
                 200,
                 operation,
-                &SandboxListReport::new(&entries),
+                &SandboxListReport::from_listing(&listing),
                 None,
             ))
         }

@@ -1,7 +1,7 @@
 use soma::{
     BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
-    FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineState,
-    ManagedFailure, PtyAnswer, PtyMachineRequest, SandboxEntry, StopMachineRequest, TerminalStatus,
+    FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineListing,
+    MachineState, ManagedFailure, PtyAnswer, PtyMachineRequest, StopMachineRequest, TerminalStatus,
 };
 
 use std::os::unix::net::UnixStream;
@@ -122,10 +122,12 @@ pub trait SandboxFacade {
 
     /// Lists the sandboxes this service's durable state holds that have not been released.
     ///
+    /// A record the store cannot decode is named in the listing rather than failing it.
+    ///
     /// # Errors
     ///
     /// Returns the facade's typed managed failure.
-    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure>;
+    fn list(&mut self) -> Result<MachineListing, ManagedFailure>;
 
     /// Gracefully stops one managed sandbox.
     ///

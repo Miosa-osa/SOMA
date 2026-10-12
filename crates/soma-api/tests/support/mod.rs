@@ -226,9 +226,9 @@ impl SandboxFacade for FakeFacade {
         })
     }
 
-    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
+    fn list(&mut self) -> Result<soma::MachineListing, ManagedFailure> {
         self.record(Call::List)?;
-        Ok(self.sandboxes.clone())
+        Ok(soma::MachineListing::new(self.sandboxes.clone()))
     }
 
     fn stop(&mut self, _request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

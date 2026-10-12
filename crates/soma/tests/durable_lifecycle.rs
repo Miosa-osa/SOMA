@@ -4,6 +4,8 @@ mod support;
 mod concurrency;
 #[path = "durable_lifecycle/fixtures.rs"]
 mod fixtures;
+#[path = "durable_lifecycle/listing.rs"]
+mod listing;
 #[path = "durable_lifecycle/persistence.rs"]
 mod persistence;
 #[path = "durable_lifecycle/recovery.rs"]

@@ -19,7 +19,7 @@ mod run_types;
 
 pub use managed::{ManagedFailure, ManagedStateError, ReplayEvidence};
 pub use managed_file::{FileMachineRequest, MachineFile};
-pub use managed_list::{SandboxEntry, SandboxPhase};
+pub use managed_list::{MachineListing, SandboxEntry, SandboxPhase, UnreadableRecord};
 pub use managed_pty::{MachinePty, PtyMachineRequest};
 pub use managed_types::{
     DestroyMachineRequest, ExecuteMachineRequest, InspectMachineRequest, LaunchMachineRequest,
