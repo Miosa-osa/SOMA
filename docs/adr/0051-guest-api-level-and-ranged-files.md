@@ -44,3 +44,15 @@ So a host must know what the guest can do before it sends a new tag, and no roll
 - A hostile workload cannot forge level 2 on an old guest, because it cannot know the nonce before the host sends it.
 - A host that talks to a guest must keep one probe's worth of state per session.
 - An older worker or host that receives a new facade operation fails to decode it and refuses it, rather than ignoring fields.
+
+## Command size limits
+
+These are deliberate, and a caller that exceeds one gets a named refusal, never an outage.
+
+- The executable and each argument may be at most 4096 bytes (`MAX_FIELD_BYTES` in the guest protocol), and the whole command at most 65459 bytes counted the way the guest codec counts it (one record less its fixed part).
+  A shell command run as `sh -lc <command>` is one argument, so a shell script longer than 4096 bytes is refused.
+- The loopback `commands` route answers `413 command_too_large`, not retryable, and the message states both limits.
+  The public runner already answered `413 RUNNER_COMMAND_TOO_LARGE` with the field and the limit.
+  Before this change the loopback route answered a generic 400, and the control plane turned that into a retryable agent outage.
+- The limit is not raised: a larger argument buys nothing a file or standard input does not, and it would move the jailed road's control packet (16 KiB, hex encoded, so about 8 KiB of command and standard input together) closer to its own bound.
+  Large payloads go on standard input (32 KiB on the resident road, bounded by the packet on the jailed road) or into a file through the file API.

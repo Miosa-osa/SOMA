@@ -106,3 +106,46 @@ fn a_command_against_an_absent_sandbox_reports_the_facade_not_found_code() {
     assert_eq!(facade.calls, vec![Call::Execute]);
     assert_eq!(body["error"]["code"], "machine_not_found");
 }
+
+#[test]
+fn a_command_over_the_size_bounds_is_refused_by_name_and_is_not_retryable() {
+    let limit = soma::DirectCommand::MAX_ARGUMENT_BYTES;
+    for body in [
+        // One argument one byte over.
+        format!(
+            r#"{{"executable":"/bin/sh","arguments":["-lc","{}"]}}"#,
+            "a".repeat(limit + 1)
+        ),
+        // Every argument within its bound but the whole command beyond the record.
+        format!(
+            r#"{{"executable":"/bin/sh","arguments":[{}]}}"#,
+            vec![format!(r#""{}""#, "b".repeat(limit)); 17].join(",")
+        ),
+    ] {
+        let mut facade = FakeFacade::new(Mode::Succeed);
+        let (status, answer) = call(&mut facade, &identified("POST", &commands_path(), &body));
+
+        assert_eq!(status, 413, "{answer}");
+        assert!(facade.calls.is_empty(), "no machine may be asked");
+        assert_eq!(answer["error"]["code"], "command_too_large");
+        assert_eq!(answer["error"]["retryable"], false);
+        let message = answer["error"]["message"].as_str().expect("a message");
+        assert!(
+            message.contains(&limit.to_string())
+                && message.contains(&soma::DirectCommand::MAX_AGGREGATE_BYTES.to_string()),
+            "the message must state the limits the runtime enforces: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_command_exactly_at_the_bound_is_admitted() {
+    let limit = soma::DirectCommand::MAX_ARGUMENT_BYTES;
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let body = format!(
+        r#"{{"executable":"/bin/sh","arguments":["-lc","{}"]}}"#,
+        "a".repeat(limit)
+    );
+    let (status, _) = call(&mut facade, &identified("POST", &commands_path(), &body));
+    assert_eq!(status, 200);
+}
