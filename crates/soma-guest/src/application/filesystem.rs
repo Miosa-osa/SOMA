@@ -122,6 +122,24 @@ pub enum FileRequest {
         /// Whether a directory is removed with its contents.
         recursive: bool,
     },
+    /// Reports the kind, size, permission bits, and modification time of a path.
+    ///
+    /// Unlike [`Self::Exists`] it carries what a caller needs to decide without reading: how big
+    /// the file is, and whether it changed.
+    Stat {
+        /// Absolute guest path.
+        path: Box<[u8]>,
+    },
+    /// Moves `path` to `to` within the guest, replacing a file already at `to`.
+    ///
+    /// The replacement is atomic, which is what lets a caller write a temporary file and publish
+    /// it in one step.
+    Rename {
+        /// Absolute guest path to move.
+        path: Box<[u8]>,
+        /// Absolute guest path to move it to.
+        to: Box<[u8]>,
+    },
 }
 
 impl FileRequest {
@@ -136,7 +154,9 @@ impl FileRequest {
             | Self::Exists { path }
             | Self::Create { path, .. }
             | Self::SetMode { path, .. }
-            | Self::Remove { path, .. } => path,
+            | Self::Remove { path, .. }
+            | Self::Stat { path }
+            | Self::Rename { path, .. } => path,
         }
     }
 }
@@ -156,6 +176,8 @@ impl fmt::Debug for FileRequest {
             Self::Create { .. } => "create",
             Self::SetMode { .. } => "set-mode",
             Self::Remove { .. } => "remove",
+            Self::Stat { .. } => "stat",
+            Self::Rename { .. } => "rename",
         };
         write!(
             formatter,

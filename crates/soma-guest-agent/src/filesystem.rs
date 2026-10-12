@@ -27,9 +27,26 @@ use std::path::PathBuf;
 
 use soma_guest::{FileFailure, FileOutcome, FileRequest, MAX_PATH_BYTES};
 
+/// The guest API level this agent speaks, answered at [`GUEST_API_PROBE`].
+///
+/// Level 1 is the original file protocol. Level 2 adds stat, rename, and ranged operations.
+pub const GUEST_API_LEVEL: u8 = 2;
+
+/// The virtual path a host reads to learn the guest API level.
+///
+/// An agent that predates this answers the read with an ordinary not-found failure, so a host
+/// learns the level without sending any word an old guest would not understand, in any rollout
+/// order.
+pub const GUEST_API_PROBE: &[u8] = b"/.soma/guest-api";
+
 /// Performs one decoded filesystem request and returns the outcome that answers it.
 #[must_use]
 pub fn perform(request: &FileRequest) -> FileOutcome {
+    if let FileRequest::Read { path, offset, .. } = request {
+        if path.as_ref() == GUEST_API_PROBE {
+            return probe(*offset);
+        }
+    }
     let Some(path) = resolve(request.path()) else {
         return FileOutcome::Failed(FileFailure::Failed);
     };
@@ -48,6 +65,21 @@ pub fn perform(request: &FileRequest) -> FileOutcome {
         FileRequest::Create { mode, .. } => mode::create(&path, *mode),
         FileRequest::SetMode { mode, .. } => mode::set(&path, *mode),
         FileRequest::Remove { recursive, .. } => entry::remove(&path, *recursive),
+        FileRequest::Stat { .. } => entry::stat(&path),
+        FileRequest::Rename { to, .. } => match resolve(to) {
+            Some(to) => entry::rename(&path, &to),
+            None => FileOutcome::Failed(FileFailure::Failed),
+        },
+    }
+}
+
+/// Answers a read of the probe path with the level, honouring the offset like a file would.
+fn probe(offset: u64) -> FileOutcome {
+    let text = format!("{GUEST_API_LEVEL}\n").into_bytes();
+    let start = usize::try_from(offset).map_or(text.len(), |offset| offset.min(text.len()));
+    FileOutcome::Read {
+        bytes: text[start..].to_vec().into(),
+        end: true,
     }
 }
 

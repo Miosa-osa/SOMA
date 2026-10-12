@@ -20,6 +20,8 @@ const EXISTS: u8 = 5;
 const REMOVE: u8 = 6;
 const CREATE: u8 = 7;
 const SET_MODE: u8 = 8;
+const STAT: u8 = 9;
+const RENAME: u8 = 10;
 
 impl FileRequest {
     /// Encodes this request as one frame body.
@@ -84,6 +86,15 @@ impl FileRequest {
                 put_field(&mut out, path);
                 out.extend_from_slice(&mode.to_be_bytes());
             }
+            Self::Stat { path } => {
+                out.push(STAT);
+                put_field(&mut out, path);
+            }
+            Self::Rename { path, to } => {
+                out.push(RENAME);
+                put_field(&mut out, path);
+                put_field(&mut out, to);
+            }
         }
         out
     }
@@ -147,6 +158,13 @@ impl FileRequest {
             SET_MODE => Self::SetMode {
                 path: super::read_path(&mut reader)?.into(),
                 mode: read_mode(&mut reader)?,
+            },
+            STAT => Self::Stat {
+                path: super::read_path(&mut reader)?.into(),
+            },
+            RENAME => Self::Rename {
+                path: super::read_path(&mut reader)?.into(),
+                to: super::read_path(&mut reader)?.into(),
             },
             _ => return Err(Error::ApplicationMessageRejected),
         };

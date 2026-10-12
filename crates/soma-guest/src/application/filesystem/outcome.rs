@@ -130,6 +130,17 @@ pub enum FileOutcome {
         /// The kind, or `None` when nothing exists at the path.
         kind: Option<EntryKind>,
     },
+    /// The kind, size, permission bits, and modification time of a path that exists.
+    Stat {
+        /// What the path is.
+        kind: EntryKind,
+        /// Size in bytes; zero for anything that is not a regular file.
+        size: u64,
+        /// Permission bits, within [`super::MAX_FILE_MODE`].
+        mode: u32,
+        /// Modification time in whole seconds since the Unix epoch, zero when unknown.
+        modified: u64,
+    },
     /// The operation completed and has nothing to report.
     Done,
     /// The operation did not happen.
@@ -152,6 +163,7 @@ impl fmt::Debug for FileOutcome {
                 )
             }
             Self::Status { kind } => write!(formatter, "Status {{ {kind:?} }}"),
+            Self::Stat { kind, size, .. } => write!(formatter, "Stat {{ {kind:?}, {size} bytes }}"),
             Self::Done => formatter.write_str("Done"),
             Self::Failed(failure) => write!(formatter, "Failed({failure})"),
         }
@@ -164,6 +176,7 @@ const LISTED: u8 = 3;
 const STATUS: u8 = 4;
 const DONE: u8 = 5;
 const FAILED: u8 = 6;
+const STAT: u8 = 7;
 
 impl FileOutcome {
     /// Encodes this outcome as one frame body.
@@ -196,6 +209,18 @@ impl FileOutcome {
             Self::Status { kind } => {
                 out.push(STATUS);
                 out.push(kind.map_or(0, |kind| kind as u8));
+            }
+            Self::Stat {
+                kind,
+                size,
+                mode,
+                modified,
+            } => {
+                out.push(STAT);
+                out.push(*kind as u8);
+                out.extend_from_slice(&size.to_be_bytes());
+                out.extend_from_slice(&mode.to_be_bytes());
+                out.extend_from_slice(&modified.to_be_bytes());
             }
             Self::Done => out.push(DONE),
             Self::Failed(failure) => {
@@ -249,6 +274,18 @@ impl FileOutcome {
                     value => Some(EntryKind::parse(value)?),
                 },
             },
+            STAT => {
+                let kind = EntryKind::parse(reader.u8()?)?;
+                let size = reader.u64()?;
+                let mode = reader.u32()?;
+                super::check_mode(mode)?;
+                Self::Stat {
+                    kind,
+                    size,
+                    mode,
+                    modified: reader.u64()?,
+                }
+            }
             DONE => Self::Done,
             FAILED => Self::Failed(FileFailure::parse(reader.u8()?)?),
             _ => return Err(Error::ApplicationMessageRejected),
