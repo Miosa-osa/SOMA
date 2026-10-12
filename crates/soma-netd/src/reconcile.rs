@@ -373,21 +373,21 @@ fn namespaces_in_use() -> Result<BTreeSet<(u64, u64)>, Error> {
 /// Removes one bundle's host objects and reports whether all of them are gone afterwards.
 fn remove_unassigned(names: &BundleNames, pin: &Path) -> bool {
     // The veth goes first so nothing can cross the bundle while the rest is removed; deleting the
-    // host side removes its peer in the namespace. The publication table goes before the pin and
-    // the host table last, the order a release uses, so a failure part way leaves the objects a
-    // later pass still recognises by name. Conntrack is not flushed: forwarding stays off until
-    // activation, so an unassigned bundle has carried no connection to forget.
+    // host side removes its peer in the namespace. The pin goes LAST: it is what makes the bundle
+    // ours, so a failure part way leaves the pin, the bundle is still ours at the next start, and
+    // whatever remains is retried. Unpinning earlier would leave a stray veth or table that nothing
+    // of ours could claim again. Conntrack is not flushed: forwarding stays off until activation,
+    // so an unassigned bundle has carried no connection to forget.
     let steps = [
         netlink::delete_link(&names.host_veth).is_ok(),
         nft::delete_table(&names.publication_table).is_ok(),
-        NetNamespace::unpin(pin).is_ok(),
         nft::delete_table(&names.host_table).is_ok(),
     ];
-    steps.iter().all(|ok| *ok)
-        && !pin.exists()
+    let objects_gone = steps.iter().all(|ok| *ok)
         && link::list_links().is_ok_and(|links| !links.contains(&names.host_veth))
         && nft::table_exists(&names.host_table).is_ok_and(|exists| !exists)
-        && nft::table_exists(&names.publication_table).is_ok_and(|exists| !exists)
+        && nft::table_exists(&names.publication_table).is_ok_and(|exists| !exists);
+    objects_gone && NetNamespace::unpin(pin).is_ok() && !pin.exists()
 }
 
 #[cfg(test)]

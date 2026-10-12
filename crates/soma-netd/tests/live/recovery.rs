@@ -432,3 +432,51 @@ fn reaping_a_leaked_pool_finishes_in_a_bounded_time() {
     assert!(ms < 120_000, "reaping {count} bundles took {ms} ms");
     assert_eq!(reap_unassigned(&restarted).expect("again").removed.len(), 0);
 }
+
+/// A bundle some earlier attempt half removed (its veth and table are gone, its pin is not) is
+/// finished by the next reap, because the pin is what keeps it ours.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn a_half_removed_bundle_is_finished_by_the_next_reap() {
+    use std::process::Command;
+
+    use soma_netd::{NetNamespace, reap_unassigned};
+
+    live::require_privilege();
+    let _world = World::build();
+    let state = tempfile::tempdir().expect("state dir");
+    let first = live::broker(state.path(), 16);
+    let (pooled, _, _) = live::ids(0x61);
+    std::mem::forget(first.prepare(pooled).expect("prepare"));
+    let restarted = live::broker(state.path(), 16);
+    let pin = NetNamespace::list(restarted.namespace_dir()).expect("pins");
+    assert_eq!(pin.len(), 1);
+    let id = &pin[0];
+    // Take away the veth and the table by hand, as a removal interrupted before the pin would.
+    assert!(
+        Command::new("ip")
+            .args(["link", "del", &format!("sv{id}")])
+            .status()
+            .expect("ip")
+            .success()
+    );
+    assert!(
+        Command::new("nft")
+            .args(["delete", "table", "inet", &format!("somah_{id}")])
+            .status()
+            .expect("nft")
+            .success()
+    );
+
+    let report = reap_unassigned(&restarted).expect("reap");
+    assert_eq!(report.removed, *pin, "{report:?}");
+    assert!(
+        report.foreign.is_empty() && report.failed.is_empty(),
+        "{report:?}"
+    );
+    assert!(
+        NetNamespace::list(restarted.namespace_dir())
+            .expect("pins")
+            .is_empty()
+    );
+}
