@@ -11,12 +11,14 @@
 //! claimed nothing stays where it is and ends with the unit, which is what an unused pool member
 //! should do.
 //!
-//! Leaving the unit also leaves its accounting, so the leaf takes over what the unit gave the
-//! machine: when the subtree delegates the memory and pids controllers, the leaf is limited to the
-//! unit's own `memory.max` and `pids.max` (a limit the unit does not set is not invented).
+//! Leaving the unit also leaves its accounting. The unit's memory and pids limits are shared by
+//! everything in it, so they follow the machines as a limit on the delegated subtree's root, set
+//! once when the unit starts (`soma-live-cgroup.sh`), never as a copy on each leaf: a copy per
+//! machine would turn one shared cap into one cap each. The leaf only has to be accounted, which it
+//! is when the subtree enables the memory and pids controllers.
 
 use std::{
-    fs::{self, File},
+    fs::File,
     path::{Path, PathBuf},
     thread,
     time::Duration,
@@ -46,14 +48,14 @@ pub(super) enum Joined {
     Failed,
 }
 
-/// Whether the leaf carries the unit's memory and pids limits.
+/// Whether the leaf is accounted for memory and pids.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Accounting {
-    /// The controllers are delegated and every limit the unit sets was copied to the leaf.
-    Carried,
-    /// The memory or pids controller is not delegated here, or a limit could not be written; the
-    /// machine moved, but the unit's limit does not follow it.
-    NotCarried,
+    /// The subtree enables the memory and pids controllers, so the leaf's usage is counted under
+    /// the root's limit.
+    Accounted,
+    /// A controller is not enabled in the subtree; the machine moved but is not counted.
+    Unaccounted,
 }
 
 impl Joined {
@@ -63,11 +65,11 @@ impl Joined {
             Self::NotConfigured => None,
             Self::Failed => Some(LiveCgroup {
                 joined: false,
-                limits_carried: false,
+                accounted: false,
             }),
             Self::Moved(accounting) => Some(LiveCgroup {
                 joined: true,
-                limits_carried: accounting == Accounting::Carried,
+                accounted: accounting == Accounting::Accounted,
             }),
         }
     }
@@ -108,7 +110,6 @@ pub(in crate::backend::kvm) fn under_root_lock<T>(
 }
 
 fn join_under(root: &Path, instance: &InstanceId, pid: u32) -> Joined {
-    let unit = own_cgroup();
     let joined = under_root_lock(root, || {
         sweep_finished_leaves(root);
         let leaf_name = leaf_name(instance);
@@ -128,34 +129,12 @@ fn join_under(root: &Path, instance: &InstanceId, pid: u32) -> Joined {
     if joined != Some(true) {
         return Joined::Failed;
     }
-    let accounting = match unit {
-        Some(unit) if carry_unit_limits(&unit, &root.join(leaf_name(instance))) => {
-            Accounting::Carried
-        }
-        _ => Accounting::NotCarried,
-    };
-    Joined::Moved(accounting)
-}
-
-/// The cgroup directory this process is in, read before it moves.
-fn own_cgroup() -> Option<PathBuf> {
-    let text = fs::read_to_string("/proc/self/cgroup").ok()?;
-    let relative = text.lines().find_map(|line| line.strip_prefix("0::"))?;
-    Some(PathBuf::from("/sys/fs/cgroup").join(relative.trim_start_matches('/')))
-}
-
-/// Copies the unit's `memory.max` and `pids.max` onto the leaf. True when nothing the unit sets was
-/// left behind, including when the unit sets nothing.
-fn carry_unit_limits(unit: &Path, leaf: &Path) -> bool {
-    ["memory.max", "pids.max"].iter().all(|file| {
-        let wanted = fs::read_to_string(unit.join(file)).unwrap_or_default();
-        let wanted = wanted.trim();
-        // An absent or unlimited limit has nothing to carry.
-        if wanted.is_empty() || wanted == "max" {
-            return true;
-        }
-        fs::write(leaf.join(file), wanted).is_ok()
-    })
+    let leaf = root.join(leaf_name(instance));
+    if leaf.join("memory.current").exists() && leaf.join("pids.current").exists() {
+        Joined::Moved(Accounting::Accounted)
+    } else {
+        Joined::Moved(Accounting::Unaccounted)
+    }
 }
 
 #[cfg(test)]
@@ -183,35 +162,14 @@ mod tests {
         assert_eq!(Joined::NotConfigured.report(), None);
         let failed = Joined::Failed.report().expect("reported");
         assert!(!failed.joined);
-        let carried = Joined::Moved(Accounting::Carried)
+        let counted = Joined::Moved(Accounting::Accounted)
             .report()
             .expect("reported");
-        assert!(carried.joined && carried.limits_carried);
-        let bare = Joined::Moved(Accounting::NotCarried)
+        assert!(counted.joined && counted.accounted);
+        let bare = Joined::Moved(Accounting::Unaccounted)
             .report()
             .expect("reported");
-        assert!(bare.joined && !bare.limits_carried);
-    }
-
-    #[test]
-    fn only_limits_the_unit_actually_sets_are_carried() {
-        let unit = tempfile::tempdir().expect("unit");
-        let leaf = tempfile::tempdir().expect("leaf");
-        fs::write(unit.path().join("memory.max"), "max\n").expect("memory.max");
-        fs::write(unit.path().join("pids.max"), "4096\n").expect("pids.max");
-        fs::write(leaf.path().join("pids.max"), "max\n").expect("leaf pids.max");
-        assert!(carry_unit_limits(unit.path(), leaf.path()));
-        assert_eq!(
-            fs::read_to_string(leaf.path().join("pids.max")).expect("read"),
-            "4096"
-        );
-        assert!(
-            !leaf.path().join("memory.max").exists(),
-            "an unlimited unit gives the leaf no memory limit"
-        );
-        // A limit the unit sets that the leaf cannot take is not carried.
-        fs::write(unit.path().join("memory.max"), "1073741824\n").expect("memory.max");
-        assert!(!carry_unit_limits(unit.path(), &leaf.path().join("absent")));
+        assert!(bare.joined && !bare.accounted);
     }
 
     /// The race the lock exists for, on a real cgroup2 root: many hosts creating and joining while

@@ -96,8 +96,8 @@ pub(in crate::backend::kvm) struct Launched {
 pub(in crate::backend::kvm) struct LiveCgroup {
     /// The host is in its own leaf, so it survives a stop of the API unit.
     pub(in crate::backend::kvm) joined: bool,
-    /// The leaf carries the unit's memory and pids limits.
-    pub(in crate::backend::kvm) limits_carried: bool,
+    /// The leaf is accounted for memory and pids, under the subtree root's limit.
+    pub(in crate::backend::kvm) accounted: bool,
 }
 
 /// The one line a host writes to its standard output before it stops using it.

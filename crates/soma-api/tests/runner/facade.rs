@@ -19,6 +19,8 @@ use crate::support::receipt;
 #[derive(Default)]
 pub(crate) struct Engine {
     pub(crate) launches: AtomicUsize,
+    /// The machine name each launch carried, in order.
+    pub(crate) launched_names: Mutex<Vec<Option<String>>>,
     pub(crate) executes: AtomicUsize,
     pub(crate) destroys: AtomicUsize,
     pub(crate) inspects: AtomicUsize,
@@ -63,8 +65,16 @@ impl SandboxFacade for FakeFacade {
         }
     }
 
-    fn launch(&mut self, _: LaunchMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
+    fn launch(
+        &mut self,
+        request: LaunchMachineRequest,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
         self.0.launches.fetch_add(1, Ordering::SeqCst);
+        self.0
+            .launched_names
+            .lock()
+            .expect("names")
+            .push(request.machine_name().map(|name| name.as_str().to_owned()));
         let receipt = receipt();
         Ok(LifecycleOutcome {
             instance_id: receipt.instance_id().clone(),

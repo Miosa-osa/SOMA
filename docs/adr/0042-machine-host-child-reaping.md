@@ -74,24 +74,31 @@ A machine host has no log of its own, so the outcome is observable only from the
 ### Accounting and limits
 
 Leaving the unit's control group also leaves the unit's accounting and any `MemoryMax=` or `TasksMax=` it sets, so a machine would otherwise escape both.
-The delegated subtree must therefore enable the `memory` and `pids` controllers beside `cpu` (`deploy/soma-api-host/soma-live-cgroup.sh` does).
-When the host moves, it reads the unit's `memory.max` and `pids.max` first and writes the same values on its leaf; a limit the unit does not set is not invented.
-These are per-machine copies of the unit's limits, not a shared aggregate: with a `MemoryMax=` on the unit, N surviving machines may together hold N times that figure.
-The production unit sets no `MemoryMax=` and `TasksMax=infinity`, so today the copy is a no-op and the gain is that the controllers account for the machines.
-If a controller is not delegated, or a limit cannot be written, the host still moves and says so (below).
+The delegated subtree therefore enables the `memory` and `pids` controllers beside `cpu`, and carries the unit's limits as limits on the subtree root: `soma-live-cgroup.sh`, which runs before the unit starts, writes the unit's finite `MemoryMax=` and `TasksMax=` to the root's `memory.max` and `pids.max`.
+The limit is on the root and not copied onto each leaf, because the unit's limit is shared by everything in it and a copy per machine would turn one shared cap into one cap each.
+The surviving machines are then bounded together, separately from whatever the unit's remaining processes use.
+The production unit sets no `MemoryMax=` and `TasksMax=infinity`, so today the root is unlimited and the gain is that the machines are counted under one cgroup.
+A host reports whether its leaf is accounted (the controllers are enabled in the subtree), below.
 
 ### Races and visibility
 
 Sweeping removes empty `-live` leaves, and a new leaf is empty until the host moves into it.
 Sweep, create, and move therefore run under one exclusive lock on the subtree's root directory (a cgroup directory cannot hold a lock file), and the create and move retry as well.
 A live CPU resize takes the same lock.
-A machine host has no log, so its launch answer carries `live_cgroup { joined, limits_carried }` when a subtree is configured and the API logs a line when either is false.
+A machine host has no log, so its launch answer carries `live_cgroup { joined, accounted }` when a subtree is configured and the API logs a line when either is false.
 An unconfigured host says nothing.
+
+### Upgrade order
+
+The launch answer is a line the host writes and the API reads, and the answer type refuses unknown fields.
+The API starts a host from its own executable (`std::env::current_exe`, which on Linux is the image the API itself runs), so a newer host never sits under an older API: an older API keeps spawning its own binary until it restarts.
+A host that survived a restart is addressed over the Instance socket, which this change does not alter.
+The new field is written only when a live subtree is configured and is read with a default, so a newer API still reads an answer without it.
 
 ### Who can set the owner label
 
 The runner re-adopts a sandbox because its machine name is `t-<tenant>`.
-The name is set in exactly one place, the runner's create path, from the authenticated tenant; the runner offers no field a caller can use to supply a name.
+The name is set in exactly one place, the runner's create path, from the authenticated tenant. The runner refuses a create body that carries `name` (`RUNNER_UNSUPPORTED_REQUEST`, 400, before the facade is reached), and a runner test (`the_owner_label_comes_from_the_authenticated_tenant_never_from_the_request`) pins that the launch carries the authenticated tenant's label.
 The direct soma-api listens on loopback only, and the control plane's SOMA host commands (`wire_request.ex`) carry no machine name at all.
 So the label cannot be chosen by a tenant.
 A machine launched directly with a `t-` name (as the proof does, on loopback) is recovered as that tenant's; that path is operator-only.
