@@ -23,7 +23,7 @@ use std::process::{Child, Command, Stdio};
 
 use soma_guest::PtySize;
 
-use crate::environment::{ENVIRONMENT, WORKING_DIRECTORY};
+use crate::environment::WORKING_DIRECTORY;
 
 /// The multiplexer every Linux pseudo-terminal is allocated from.
 const MULTIPLEXER: &str = "/dev/ptmx";
@@ -109,7 +109,7 @@ pub(super) fn spawn(slave: &File) -> io::Result<Child> {
     command
         .arg("-i")
         .env_clear()
-        .envs(ENVIRONMENT.iter().copied())
+        .envs(crate::environment::base())
         .env("TERM", TERM)
         .current_dir(WORKING_DIRECTORY)
         .stdin(Stdio::from(slave.try_clone()?))

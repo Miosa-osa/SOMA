@@ -225,3 +225,33 @@ fn a_read_with_nothing_ready_answers_with_an_empty_chunk() {
     );
     assert_eq!(terminal.perform(&PtyRequest::Close), PtyOutcome::Closed);
 }
+
+/// The terminal starts from the same persisted environment a direct command does, and reads it
+/// when the session opens, so a change is seen by the next session with no restart.
+#[test]
+fn a_real_terminal_sees_the_persisted_environment_and_its_update() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use crate::environment::persisted::test_support::point_at;
+
+    let directory = tempfile::tempdir().expect("directory");
+    let path = directory.path().join("identity.env");
+    let _pointed = point_at(&path);
+    let write = |text: &str| {
+        std::fs::write(&path, text).expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).expect("mode");
+    };
+
+    write("SOMA_PERSISTED='first-value'\n");
+    let mut terminal = opened(80, 24);
+    type_line(&mut terminal, "echo marker:$SOMA_PERSISTED:end");
+    let seen = read_until(&mut terminal, "marker:first-value:end");
+    assert!(seen.contains("marker:first-value:end"), "{seen:?}");
+    drop(terminal);
+
+    write("SOMA_PERSISTED='second-value'\n");
+    let mut terminal = opened(80, 24);
+    type_line(&mut terminal, "echo marker:$SOMA_PERSISTED:end");
+    let seen = read_until(&mut terminal, "marker:second-value:end");
+    assert!(seen.contains("marker:second-value:end"), "{seen:?}");
+}
