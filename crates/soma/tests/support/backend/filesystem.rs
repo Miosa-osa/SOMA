@@ -37,6 +37,7 @@ pub(super) fn answer_for(
                 .map(|name| FileEntry {
                     name: name.to_vec(),
                     kind: FileKind::File,
+                    metadata: None,
                 })
                 .collect();
             FileAnswer::Listed {

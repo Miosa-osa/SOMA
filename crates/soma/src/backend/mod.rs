@@ -14,8 +14,8 @@ pub use cleanup::{CleanupObservation, CleanupReason, CleanupRequest, CleanupTime
 pub use execution::{CommandObservation, CommandTimes, ExecutionRequest};
 pub use failure::{BackendFailure, BackendFailureKind};
 pub use file::{
-    FileAnswer, FileEntry, FileKind, FileObservation, FileOperation, FileRefusal, FileRequest,
-    MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, PathRejected, check_guest_path,
+    FileAnswer, FileEntry, FileKind, FileMetadata, FileObservation, FileOperation, FileRefusal,
+    FileRequest, MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, PathRejected, check_guest_path,
 };
 pub use liveness::SandboxLiveness;
 pub use pty::{

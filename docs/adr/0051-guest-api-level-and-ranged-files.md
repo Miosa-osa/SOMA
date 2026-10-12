@@ -28,7 +28,11 @@ So a host must know what the guest can do before it sends a new tag, and no roll
 5. Against a level 1 guest a level 2 operation is answered `Unsupported` before anything is sent.
    The session is untouched and an upgraded guest answers the same request.
 6. Paths (including the rename destination), modes, and range lengths are checked on the host before the wire, so a bad request is a refusal and never a protocol fault.
-7. Both new tag numbers are final and never reused: request `Stat` is 9 and `Rename` is 10, outcome `Stat` is 7.
+7. A level 2 guest also answers `ReadDirectoryDetailed`, a listing with each entry's size, permission bits, and modification time.
+   The worker asks for it whenever the cached level allows and takes the plain listing otherwise.
+   Entries from a level 1 guest carry no metadata, and the API says so (`metadata: "unavailable"`), so a client never reads unknown as zero.
+   The listing stops early, and says more remain, when the next entry would not fit one record.
+8. The new tag numbers are final and never reused: request `Stat` is 9, `Rename` is 10, `ReadDirectoryDetailed` is 11, and outcome `Stat` is 7 and `ListedDetailed` is 8.
 
 ## Consequences
 

@@ -45,6 +45,28 @@ pub(super) fn perform<'a>(
         repaired
     };
     match operation {
+        // A listing asks the guest for sizes and times when it can give them, and otherwise
+        // takes the plain listing, whose entries carry no metadata and say so.
+        soma::FileOperation::ReadDirectory { path } => {
+            let (repaired, level) = repaired
+                .ensure_guest_api(api, || nonce_text(&fresh16()).into_bytes())
+                .map_err(|_| SessionError::File)?;
+            let request = if level.has_ranged_files() {
+                soma_guest::FileRequest::ReadDirectoryDetailed {
+                    path: path.as_slice().into(),
+                    offset: 0,
+                }
+            } else {
+                soma_guest::FileRequest::ReadDirectory {
+                    path: path.as_slice().into(),
+                    offset: 0,
+                }
+            };
+            repaired
+                .file(request)
+                .map(|(session, outcome)| (session, answer_from(outcome)))
+                .map_err(|_| SessionError::File)
+        }
         soma::FileOperation::ReadRange {
             path,
             offset,

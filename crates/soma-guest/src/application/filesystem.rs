@@ -20,7 +20,7 @@ mod outcome;
 #[cfg(test)]
 mod tests;
 
-pub use outcome::{DirectoryEntry, EntryKind, FileFailure, FileOutcome};
+pub use outcome::{DetailedEntry, DirectoryEntry, EntryKind, FileFailure, FileOutcome};
 
 use core::fmt;
 
@@ -130,6 +130,17 @@ pub enum FileRequest {
         /// Absolute guest path.
         path: Box<[u8]>,
     },
+    /// Lists at most [`MAX_ENTRIES`] entries with their size, permission bits, and modification
+    /// time, skipping the first `offset`.
+    ///
+    /// A guest API level 2 request. The listing also stops early, and says more remain, when the
+    /// next entry would not fit in one record.
+    ReadDirectoryDetailed {
+        /// Absolute guest path.
+        path: Box<[u8]>,
+        /// Entries to skip, so a large directory is read across several requests.
+        offset: u32,
+    },
     /// Moves `path` to `to` within the guest, replacing a file already at `to`.
     ///
     /// The replacement is atomic, which is what lets a caller write a temporary file and publish
@@ -151,6 +162,7 @@ impl FileRequest {
             | Self::Write { path, .. }
             | Self::MakeDirectory { path, .. }
             | Self::ReadDirectory { path, .. }
+            | Self::ReadDirectoryDetailed { path, .. }
             | Self::Exists { path }
             | Self::Create { path, .. }
             | Self::SetMode { path, .. }
@@ -172,6 +184,7 @@ impl fmt::Debug for FileRequest {
             Self::Write { .. } => "write",
             Self::MakeDirectory { .. } => "make-directory",
             Self::ReadDirectory { .. } => "read-directory",
+            Self::ReadDirectoryDetailed { .. } => "read-directory-detailed",
             Self::Exists { .. } => "exists",
             Self::Create { .. } => "create",
             Self::SetMode { .. } => "set-mode",

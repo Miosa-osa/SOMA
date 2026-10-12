@@ -3,9 +3,9 @@ use std::io::Cursor;
 
 use soma::{
     BackendFailureKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
-    FileEntry, FileKind, FileMachineRequest, FileOperation, FileRefusal, InspectMachineRequest,
-    LaunchMachineRequest, MachineState, ManagedFailure, ManagedStateError, PtyMachineRequest,
-    SandboxEntry, StopMachineRequest,
+    FileEntry, FileKind, FileMachineRequest, FileMetadata, FileOperation, FileRefusal,
+    InspectMachineRequest, LaunchMachineRequest, MachineState, ManagedFailure, ManagedStateError,
+    PtyMachineRequest, SandboxEntry, StopMachineRequest,
 };
 use soma_api::{
     CommandOutcome, FileOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot,
@@ -305,13 +305,23 @@ fn answer_for(files: &mut BTreeMap<Vec<u8>, Vec<u8>>, operation: &FileOperation)
                 prefix.push(b'/');
             }
             FileAnswer::Listed {
+                // A directory under /legacy/ plays a level 1 guest: names and kinds, no metadata.
                 entries: files
-                    .keys()
-                    .filter_map(|stored| stored.strip_prefix(prefix.as_slice()))
-                    .filter(|name| !name.is_empty() && !name.contains(&b'/'))
-                    .map(|name| FileEntry {
+                    .iter()
+                    .filter_map(|(stored, bytes)| {
+                        stored
+                            .strip_prefix(prefix.as_slice())
+                            .map(|name| (name, bytes))
+                    })
+                    .filter(|(name, _)| !name.is_empty() && !name.contains(&b'/'))
+                    .map(|(name, bytes)| FileEntry {
                         name: name.to_vec(),
                         kind: FileKind::File,
+                        metadata: (!prefix.starts_with(b"/legacy/")).then_some(FileMetadata {
+                            size: bytes.len() as u64,
+                            mode: 0o644,
+                            modified: 1_760_000_000,
+                        }),
                     })
                     .collect(),
                 more: false,

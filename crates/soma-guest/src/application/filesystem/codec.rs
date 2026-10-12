@@ -22,6 +22,7 @@ const CREATE: u8 = 7;
 const SET_MODE: u8 = 8;
 const STAT: u8 = 9;
 const RENAME: u8 = 10;
+const READ_DIRECTORY_DETAILED: u8 = 11;
 
 impl FileRequest {
     /// Encodes this request as one frame body.
@@ -85,6 +86,11 @@ impl FileRequest {
                 out.push(SET_MODE);
                 put_field(&mut out, path);
                 out.extend_from_slice(&mode.to_be_bytes());
+            }
+            Self::ReadDirectoryDetailed { path, offset } => {
+                out.push(READ_DIRECTORY_DETAILED);
+                put_field(&mut out, path);
+                out.extend_from_slice(&offset.to_be_bytes());
             }
             Self::Stat { path } => {
                 out.push(STAT);
@@ -158,6 +164,10 @@ impl FileRequest {
             SET_MODE => Self::SetMode {
                 path: super::read_path(&mut reader)?.into(),
                 mode: read_mode(&mut reader)?,
+            },
+            READ_DIRECTORY_DETAILED => Self::ReadDirectoryDetailed {
+                path: super::read_path(&mut reader)?.into(),
+                offset: reader.u32()?,
             },
             STAT => Self::Stat {
                 path: super::read_path(&mut reader)?.into(),

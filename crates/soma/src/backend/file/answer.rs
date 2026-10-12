@@ -94,6 +94,23 @@ pub struct FileEntry {
     pub name: Vec<u8>,
     /// What the entry is.
     pub kind: FileKind,
+    /// Size, permission bits, and modification time, when the guest offered them.
+    ///
+    /// Absent from a level 1 guest's listing. A caller must read absence as unknown and never as
+    /// zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<FileMetadata>,
+}
+
+/// The facts about an entry that a listing carries beyond its name and kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct FileMetadata {
+    /// Size in bytes; zero for anything that is not a regular file.
+    pub size: u64,
+    /// Permission bits.
+    pub mode: u32,
+    /// Modification time in whole seconds since the Unix epoch, zero when unknown.
+    pub modified: u64,
 }
 
 impl fmt::Debug for FileEntry {

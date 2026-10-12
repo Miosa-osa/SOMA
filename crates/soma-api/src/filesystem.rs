@@ -238,6 +238,15 @@ fn decode(encoded: &str) -> Result<Vec<u8>, ApiError> {
 pub struct EntryReport {
     pub name: OutputBytes,
     pub kind: &'static str,
+    /// Size in bytes, absent when the guest did not offer it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// Permission bits, absent when the guest did not offer them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
+    /// Modification time in seconds since the Unix epoch, absent when the guest did not offer it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
 }
 
 /// What one filesystem operation answered.
@@ -261,6 +270,11 @@ pub struct FilesystemReport {
     /// Whether the directory held more entries than this listing carries.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub more_entries: Option<bool>,
+    /// `"unavailable"` when the guest could not report size, mode, and time for the listing.
+    ///
+    /// A client must read an entry without `size` as unknown, never as zero.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<&'static str>,
     /// Whether the path exists, for the operation that asks exactly that.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exists: Option<bool>,
@@ -292,6 +306,7 @@ impl FilesystemReport {
             byte_length: None,
             entries: None,
             more_entries: None,
+            metadata: None,
             exists: None,
             kind: None,
             size: None,
@@ -305,6 +320,9 @@ impl FilesystemReport {
             FileAnswer::Listed { entries, more } => {
                 report.entries = Some(entries.iter().map(entry).collect());
                 report.more_entries = Some(*more);
+                if entries.iter().any(|entry| entry.metadata.is_none()) {
+                    report.metadata = Some("unavailable");
+                }
             }
             FileAnswer::Status { kind } => {
                 report.exists = Some(kind.is_some());
@@ -336,5 +354,8 @@ fn entry(entry: &FileEntry) -> EntryReport {
     EntryReport {
         name: OutputBytes::new(&entry.name),
         kind: entry.kind.code(),
+        size: entry.metadata.map(|metadata| metadata.size),
+        mode: entry.metadata.map(|metadata| metadata.mode),
+        modified: entry.metadata.map(|metadata| metadata.modified),
     }
 }

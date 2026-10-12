@@ -259,3 +259,29 @@ fn level_two_fields_are_refused_where_the_operation_does_not_use_them() {
         assert_eq!(status, 400, "{operation} {body}");
     }
 }
+
+#[test]
+fn a_listing_carries_size_and_time_and_a_level_one_listing_says_it_cannot() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let encoded = STANDARD.encode(b"hello");
+    for path in ["/workspace/new.txt", "/legacy/old.txt"] {
+        post(
+            &mut facade,
+            "write",
+            &format!(r#"{{"path":"{path}","content":"{encoded}"}}"#),
+        );
+    }
+
+    let (_, listed) = post(&mut facade, "list", r#"{"path":"/workspace"}"#);
+    let entry = &listed["result"]["entries"][0];
+    assert_eq!(entry["size"], 5);
+    assert_eq!(entry["mode"], 0o644);
+    assert_eq!(entry["modified"], 1_760_000_000);
+    assert!(listed["result"]["metadata"].is_null());
+
+    let (_, legacy) = post(&mut facade, "list", r#"{"path":"/legacy"}"#);
+    let entry = &legacy["result"]["entries"][0];
+    assert!(entry["size"].is_null(), "unknown must never read as zero");
+    assert!(entry["modified"].is_null());
+    assert_eq!(legacy["result"]["metadata"], "unavailable");
+}

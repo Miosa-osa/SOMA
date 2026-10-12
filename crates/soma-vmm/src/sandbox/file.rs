@@ -1,9 +1,9 @@
 //! Translation between portable filesystem operations and the guest protocol.
 
-use soma::{FileAnswer, FileEntry, FileKind, FileOperation, FileRefusal};
+use soma::{FileAnswer, FileEntry, FileKind, FileMetadata, FileOperation, FileRefusal};
 use soma_guest::{
-    DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest as GuestFileRequest,
-    RangeRead, WholeFileRead, WholeFileWrite,
+    DetailedEntry, DirectoryEntry, EntryKind, FileFailure, FileOutcome,
+    FileRequest as GuestFileRequest, RangeRead, WholeFileRead, WholeFileWrite,
 };
 
 pub(super) fn answer_from(outcome: FileOutcome) -> FileAnswer {
@@ -14,6 +14,10 @@ pub(super) fn answer_from(outcome: FileOutcome) -> FileAnswer {
         FileOutcome::Written { bytes } => FileAnswer::Written { bytes },
         FileOutcome::Listed { entries, more } => FileAnswer::Listed {
             entries: entries.into_iter().map(entry_from).collect(),
+            more,
+        },
+        FileOutcome::ListedDetailed { entries, more } => FileAnswer::Listed {
+            entries: entries.into_iter().map(detailed_from).collect(),
             more,
         },
         FileOutcome::Status { kind } => FileAnswer::Status {
@@ -58,6 +62,19 @@ fn entry_from(entry: DirectoryEntry) -> FileEntry {
     FileEntry {
         name: entry.name.into_vec(),
         kind: kind_from(entry.kind),
+        metadata: None,
+    }
+}
+
+fn detailed_from(entry: DetailedEntry) -> FileEntry {
+    FileEntry {
+        name: entry.name.into_vec(),
+        kind: kind_from(entry.kind),
+        metadata: Some(FileMetadata {
+            size: entry.size,
+            mode: entry.mode,
+            modified: entry.modified,
+        }),
     }
 }
 

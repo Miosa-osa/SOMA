@@ -167,3 +167,71 @@ fn an_empty_directory_lists_nothing() {
     assert!(entries.is_empty());
     assert!(!more);
 }
+
+#[test]
+fn a_detailed_listing_carries_kind_size_mode_and_time() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = TempDir::new().expect("temporary directory");
+    fs::write(root.path().join("file"), b"12345").expect("seed file");
+    fs::set_permissions(root.path().join("file"), fs::Permissions::from_mode(0o640)).expect("mode");
+    fs::create_dir(root.path().join("dir")).expect("seed directory");
+
+    let FileOutcome::ListedDetailed { mut entries, more } =
+        perform(&FileRequest::ReadDirectoryDetailed {
+            path: at(root.path()),
+            offset: 0,
+        })
+    else {
+        panic!("a detailed listing");
+    };
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    assert!(!more);
+    assert_eq!(entries.len(), 2);
+    assert_eq!(&*entries[0].name, b"dir");
+    assert_eq!(entries[0].kind, EntryKind::Directory);
+    assert_eq!(entries[0].size, 0);
+    assert_eq!(&*entries[1].name, b"file");
+    assert_eq!((entries[1].size, entries[1].mode), (5, 0o640));
+    assert!(entries[1].modified > 1_000_000_000);
+}
+
+#[test]
+fn a_detailed_listing_of_long_names_stops_before_the_record_overflows_and_resumes() {
+    let root = TempDir::new().expect("temporary directory");
+    let total = 400;
+    for index in 0..total {
+        let name = format!("{index:04}{}", "n".repeat(240));
+        fs::write(root.path().join(name), b"").expect("seed file");
+    }
+    let mut seen = 0_usize;
+    let mut pages = 0;
+    loop {
+        let FileOutcome::ListedDetailed { entries, more } =
+            perform(&FileRequest::ReadDirectoryDetailed {
+                path: at(root.path()),
+                offset: u32::try_from(seen).expect("offset"),
+            })
+        else {
+            panic!("a detailed listing");
+        };
+        let encoded = FileOutcome::ListedDetailed {
+            entries: entries.clone(),
+            more,
+        }
+        .encode_body();
+        assert!(
+            encoded.len() < soma_guest::MAX_BODY_SIZE,
+            "{}",
+            encoded.len()
+        );
+        assert!(!entries.is_empty());
+        seen += entries.len();
+        pages += 1;
+        if !more {
+            break;
+        }
+    }
+    assert_eq!(seen, total);
+    assert!(pages > 1, "400 long names do not fit one record");
+}

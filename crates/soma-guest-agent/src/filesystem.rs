@@ -66,6 +66,9 @@ pub fn perform(request: &FileRequest) -> FileOutcome {
         } => contents::write(&path, *offset, *create, *shorten, bytes),
         FileRequest::MakeDirectory { parents, .. } => directory::make(&path, *parents),
         FileRequest::ReadDirectory { offset, .. } => directory::list(&path, *offset),
+        FileRequest::ReadDirectoryDetailed { offset, .. } => {
+            directory::list_detailed(&path, *offset)
+        }
         FileRequest::Exists { .. } => entry::status(&path),
         FileRequest::Create { mode, .. } => mode::create(&path, *mode),
         FileRequest::SetMode { mode, .. } => mode::set(&path, *mode),

@@ -14,8 +14,8 @@ pub use command::{
 };
 pub(crate) use filesystem::check_path;
 pub use filesystem::{
-    DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES, MAX_ENTRIES,
-    MAX_FILE_MODE, MAX_PATH_BYTES,
+    DetailedEntry, DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest,
+    MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_FILE_MODE, MAX_PATH_BYTES,
 };
 pub use guest::GuestMessage;
 pub use host::HostMessage;

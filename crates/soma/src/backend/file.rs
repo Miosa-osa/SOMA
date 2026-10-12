@@ -15,7 +15,7 @@
 
 mod answer;
 
-pub use answer::{FileAnswer, FileEntry, FileKind, FileObservation, FileRefusal};
+pub use answer::{FileAnswer, FileEntry, FileKind, FileMetadata, FileObservation, FileRefusal};
 
 use core::fmt;
 
