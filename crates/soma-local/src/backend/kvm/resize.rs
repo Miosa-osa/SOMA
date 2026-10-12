@@ -192,11 +192,31 @@ fn leaf_for(
     if jailed {
         return CgroupLeaf::open_existing(root, &name).map_err(|_| "jail_leaf_missing");
     }
+    sweep_finished_leaves(root);
     let leaf = CgroupLeaf::create_cpu_only(root, &format!("{name}-live"))
         .map_err(|_| "cpu_controller_not_delegated")?;
     leaf.attach(std::process::id())
         .map_err(|_| "cannot_join_cpu_leaf")?;
     Ok(leaf)
+}
+
+/// Removes the live-share leaves of machines that have ended.
+///
+/// A machine host joins its own leaf and exits without being able to remove it, so every sandbox that
+/// ever ran with a CPU share would leave an empty directory behind. `remove_dir` on a cgroup succeeds
+/// only when nothing runs in it, so this can never take a leaf from a live machine, and every launch
+/// that makes a leaf clears the finished ones first.
+fn sweep_finished_leaves(root: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("soma-") && name.ends_with("-live") {
+            let _ignored = std::fs::remove_dir(entry.path());
+        }
+    }
 }
 
 fn report(
@@ -218,6 +238,29 @@ fn report(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finished_leaves_are_swept_and_live_ones_and_other_names_are_kept() {
+        let root = std::env::temp_dir().join(format!("soma-sweep-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("soma-aaa-live")).expect("finished leaf");
+        std::fs::create_dir_all(root.join("soma-bbb-live")).expect("busy leaf");
+        std::fs::write(root.join("soma-bbb-live").join("cgroup.procs"), "1\n").expect("member");
+        std::fs::create_dir_all(root.join("other")).expect("other");
+        sweep_finished_leaves(&root);
+        assert!(
+            !root.join("soma-aaa-live").exists(),
+            "an empty leaf is removed"
+        );
+        assert!(
+            root.join("soma-bbb-live").exists(),
+            "a leaf with a member stays"
+        );
+        assert!(
+            root.join("other").exists(),
+            "a directory that is not a live leaf stays"
+        );
+        std::fs::remove_dir_all(&root).expect("clean up");
+    }
 
     #[test]
     fn a_machine_can_be_given_between_one_vcpu_and_the_count_it_booted_with() {
