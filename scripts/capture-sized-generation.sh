@@ -5,7 +5,7 @@
 # Usage (run as root on a host of the target CPU class, from the directory that holds the inputs):
 #   capture-sized-generation.sh <G10|G20|G40> <reference-suffix> <work-dir>
 #
-# <work-dir> holds: in/{prepare_generation,capture_snapshot,vmlinux-soma-v1,config-x86_64-soma-v1,soma-guest-agent.pinned}
+# <work-dir> holds: fs-tools/ (or set FS_TOOLS), in/{prepare_generation,capture_snapshot,vmlinux-soma-v1,config-x86_64-soma-v1,soma-guest-agent.pinned}
 # and oci/ (the image as an OCI layout). The entry is written to <work-dir>/store/ref-<sha256 of the reference>.
 #
 # The flags below are what the customer-facing sized Generations carry. Leaving SOMA_PREPARE_NETWORK or
@@ -17,6 +17,7 @@ set -euo pipefail
 NAME="${1:?G10|G20|G40}"
 SUFFIX="${2:?reference suffix, e.g. b2 (a new image needs a new reference: the reference is bound into the entry)}"
 W="$(cd "${3:?work dir}" && pwd -P)"
+FS_TOOLS="${FS_TOOLS:-${W}/fs-tools}"   # the pinned erofs and e2fsprogs tools (build-fs-tools.sh)
 
 case "${NAME}" in
     G10) DISK=10240 ;;
@@ -34,7 +35,7 @@ echo "start $(date -u +%T) ${REF} entry=${ENTRY}"
 SOMA_PREPARE_VCPUS=8 SOMA_PREPARE_NETWORK=public_internet SOMA_PREPARE_CEILING_MIB=16384 \
     ionice -c3 nice -n19 "${W}/in/prepare_generation" "${REF}" "${W}/oci" \
     "${W}/in/vmlinux-soma-v1" "${W}/in/config-x86_64-soma-v1" "${W}/in/soma-guest-agent.pinned" \
-    /srv/soma/fs-tools/erofs /srv/soma/fs-tools/e2fsprogs "${ENTRY}" 2048 "${DISK}"
+    "${FS_TOOLS}/erofs" "${FS_TOOLS}/e2fsprogs" "${ENTRY}" 2048 "${DISK}"
 echo "prepared $(date -u +%T)"
 ionice -c3 nice -n19 "${W}/in/capture_snapshot" "${ENTRY}" 2048 2>&1 | tail -5 | cut -c1-200
 echo "captured $(date -u +%T)"
