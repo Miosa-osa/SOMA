@@ -34,16 +34,9 @@ pub(super) fn perform<'a>(
         return Ok((repaired, FileAnswer::Refused(FileRefusal::Failed)));
     }
     let repaired = if needs_ranged_files(operation) {
-        let (repaired, level) = if let Some(level) = *api {
-            (repaired, level)
-        } else {
-            let nonce = nonce_text(&fresh16());
-            let (repaired, level) = repaired
-                .probe_guest_api(nonce.as_bytes())
-                .map_err(|_| SessionError::File)?;
-            *api = Some(level);
-            (repaired, level)
-        };
+        let (repaired, level) = repaired
+            .ensure_guest_api(api, || nonce_text(&fresh16()).into_bytes())
+            .map_err(|_| SessionError::File)?;
         if !level.has_ranged_files() {
             return Ok((repaired, FileAnswer::Refused(FileRefusal::Unsupported)));
         }

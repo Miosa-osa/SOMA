@@ -114,6 +114,29 @@ impl<I: HostControlIo> RepairedHostControl<I> {
         Ok((self, api))
     }
 
+    /// Returns the guest's API level, probing at most once per session.
+    ///
+    /// `cache` is the session's memory of the answer. When it is empty, `nonce` is called for a
+    /// fresh nonce, the probe runs, and the answer is stored; when it is full, nothing is sent.
+    /// A host should call this before its first level 2 request and never send one to a guest
+    /// whose level lacks [`GuestApi::has_ranged_files`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted File error after poisoning the transport exactly once.
+    pub fn ensure_guest_api(
+        self,
+        cache: &mut Option<GuestApi>,
+        nonce: impl FnOnce() -> Vec<u8>,
+    ) -> Result<(Self, GuestApi), ControlError> {
+        if let Some(level) = *cache {
+            return Ok((self, level));
+        }
+        let (session, level) = self.probe_guest_api(&nonce())?;
+        *cache = Some(level);
+        Ok((session, level))
+    }
+
     /// Reads at most `length` bytes of a file from `offset`, refusing a range over `maximum`.
     ///
     /// # Errors
