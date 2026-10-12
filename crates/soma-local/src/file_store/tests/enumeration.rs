@@ -4,6 +4,7 @@ use soma::{StateStore, StateStoreFailureKind};
 
 use super::{FileStateStore, TempRoot, instance, record};
 use crate::file_store::MACHINE_HOST_DIRECTORY;
+use crate::prewarm::PERSISTED_FILE;
 
 #[test]
 fn a_hosted_root_with_no_records_lists_nothing() {
@@ -39,6 +40,35 @@ fn any_other_stray_name_is_still_a_corruption() {
 
     assert_eq!(
         store.list().expect_err("a stray name").kind(),
+        StateStoreFailureKind::Corrupt
+    );
+}
+
+#[test]
+fn the_persisted_prewarm_set_is_not_a_corruption() {
+    let root = TempRoot::new("prewarm-file");
+    let mut store = FileStateStore::open(root.path()).expect("open state store");
+    store
+        .create(&instance(), record(b"active"))
+        .expect("create state");
+    fs::write(root.path().join(PERSISTED_FILE), b"{}").expect("the persisted set");
+    fs::write(root.path().join(format!("{PERSISTED_FILE}.tmp")), b"{}")
+        .expect("its temporary file");
+
+    assert_eq!(store.list().expect("listed"), vec![instance()]);
+}
+
+#[test]
+fn a_link_or_directory_under_the_prewarm_name_is_still_a_corruption() {
+    let root = TempRoot::new("prewarm-link");
+    let mut store = FileStateStore::open(root.path()).expect("open state store");
+    fs::create_dir_all(root.path().join(PERSISTED_FILE)).expect("a directory by that name");
+
+    assert_eq!(
+        store
+            .list()
+            .expect_err("a directory is not the file")
+            .kind(),
         StateStoreFailureKind::Corrupt
     );
 }

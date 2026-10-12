@@ -52,3 +52,6 @@ The pool planner needs to set how many machines are prepared for each shape, rea
 - `uncovered_demand` carries `boot_memory_mib` and `targetable`: a target can only name the Generation's boot memory, and demand is keyed by that memory in the hosted-machine path.
 - A store that cannot be read, or an entry that is linked, ambiguous or damaged, is `prewarm_store_unavailable` (503) with the reason, not `unknown_reference`.
 - `handle` (the sandbox handler) answers 404 for the prewarm routes; only the connection path serves them.
+- The persisted set lives in the state root beside the records, and the state store's enumeration skips it (and its temporary file) by name.
+  Enumeration treats every other stray entry as corruption and fails the whole `LIST`, so a file the store did not know about would have made `LIST` fail with `state_store_failure` on any host with a persisted set.
+  A link or directory under that name is still corruption.

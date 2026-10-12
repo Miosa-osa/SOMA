@@ -6,9 +6,9 @@
 //! is still not in it, so the honest description is "the identities that existed while this ran",
 //! and the caller reads each record back under its own lock before reporting anything about it.
 //!
-//! A name that is not an Instance identity and is not one of the root's two known directories (the
-//! store's locks, and the hosted machines' sockets) is a corruption rather than something to
-//! skip. Skipping it would make a store somebody wrote a stray file into report a smaller set of
+//! A name that is not an Instance identity and is not one of the root's known entries (the store's
+//! locks, the hosted machines' sockets, and the persisted prewarm set with its temporary file) is a
+//! corruption rather than something to skip. Skipping it would make a store somebody wrote a stray file into report a smaller set of
 //! sandboxes than it holds, silently.
 
 use std::{fs, path::Path};
@@ -19,6 +19,7 @@ use super::{
     failure::{corrupt, unavailable},
     layout::{LOCK_DIRECTORY, MACHINE_HOST_DIRECTORY},
 };
+use crate::prewarm::PERSISTED_FILE;
 
 pub(super) fn instance_identities(root: &Path) -> Result<Vec<InstanceId>, StateStoreFailure> {
     let mut identities = Vec::new();
@@ -32,6 +33,14 @@ pub(super) fn instance_identities(root: &Path) -> Result<Vec<InstanceId>, StateS
             continue;
         }
         let file_type = entry.file_type().map_err(|_| unavailable())?;
+        // The desired prewarm set lives beside the records (ADR 0052). It is a plain file, written
+        // through a temporary name, and is not a record; a link by either name is still a stray.
+        if name == PERSISTED_FILE || name.strip_suffix(".tmp") == Some(PERSISTED_FILE) {
+            if file_type.is_file() {
+                continue;
+            }
+            return Err(corrupt());
+        }
         if file_type.is_symlink() || !file_type.is_dir() {
             return Err(corrupt());
         }
