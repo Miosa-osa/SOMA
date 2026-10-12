@@ -55,11 +55,12 @@ pub(super) fn serve_machine(
     let instance = request.instance_id.clone();
     // Claimed: leave the API unit's control group, so stopping or restarting the API does not kill
     // this machine. The Instance socket is already bound, so a restarted API finds it by identity.
-    let _joined = super::live_cgroup::join(&instance);
-    let launched = match launch(&mut backend, request, prepared) {
+    let joined = super::live_cgroup::join(&instance);
+    let mut launched = match launch(&mut backend, request, prepared) {
         Ok(launched) => launched,
         Err(kind) => return refuse(kind),
     };
+    launched.live_cgroup = joined.report();
     if channel::write_line(&mut io::stdout(), &Ready::Launched(launched)).is_err() {
         // The client is gone and will never address this Instance, so the machine it asked for
         // must not outlive the answer it never received.

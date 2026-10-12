@@ -71,12 +71,38 @@ The move is best effort.
 If no subtree is configured, or the move fails, the host still serves its machine and the machine simply does not outlive a unit stop.
 A machine host has no log of its own, so the outcome is observable only from the machine's cgroup path.
 
+### Accounting and limits
+
+Leaving the unit's control group also leaves the unit's accounting and any `MemoryMax=` or `TasksMax=` it sets, so a machine would otherwise escape both.
+The delegated subtree must therefore enable the `memory` and `pids` controllers beside `cpu` (`deploy/soma-api-host/soma-live-cgroup.sh` does).
+When the host moves, it reads the unit's `memory.max` and `pids.max` first and writes the same values on its leaf; a limit the unit does not set is not invented.
+These are per-machine copies of the unit's limits, not a shared aggregate: with a `MemoryMax=` on the unit, N surviving machines may together hold N times that figure.
+The production unit sets no `MemoryMax=` and `TasksMax=infinity`, so today the copy is a no-op and the gain is that the controllers account for the machines.
+If a controller is not delegated, or a limit cannot be written, the host still moves and says so (below).
+
+### Races and visibility
+
+Sweeping removes empty `-live` leaves, and a new leaf is empty until the host moves into it.
+Sweep, create, and move therefore run under one exclusive lock on the subtree's root directory (a cgroup directory cannot hold a lock file), and the create and move retry as well.
+A live CPU resize takes the same lock.
+A machine host has no log, so its launch answer carries `live_cgroup { joined, limits_carried }` when a subtree is configured and the API logs a line when either is false.
+An unconfigured host says nothing.
+
+### Who can set the owner label
+
+The runner re-adopts a sandbox because its machine name is `t-<tenant>`.
+The name is set in exactly one place, the runner's create path, from the authenticated tenant; the runner offers no field a caller can use to supply a name.
+The direct soma-api listens on loopback only, and the control plane's SOMA host commands (`wire_request.ex`) carry no machine name at all.
+So the label cannot be chosen by a tenant.
+A machine launched directly with a `t-` name (as the proof does, on loopback) is recovered as that tenant's; that path is operator-only.
+
 ### Consequences
 
 - Restarting or upgrading `soma-api` no longer ends claimed sandboxes. The new process finds them by Instance socket, the runner re-adopts the labelled ones, and every other path addresses them by identity.
-- A machine host now outlives its parent for the 30-minute idle ceiling at most when nobody addresses it (`IDLE_CEILING` in the serve loop), so an abandoned machine is still bounded.
+- A machine host now outlives its parent for the 30-minute idle ceiling at most when nobody addresses it (a liveness probe connects and drops without counting as activity) (`IDLE_CEILING` in the serve loop), so an abandoned machine is still bounded.
 - A stop of the unit is no longer a way to clear all sandboxes. Clearing them is the destroy path or an operator removing the live subtree.
-- Empty `soma-*-live` leaves are swept by the next machine host that creates one, as before; a host that exits cannot remove its own leaf.
+- Empty `soma-*-live` leaves are swept by the next machine host that creates one and when the unit starts; after a destroy storm with no later launch they persist, harmlessly, until then.
+- Sandboxes not created through the runner (no label) survive a restart too, for up to the idle ceiling, untracked by the runner meanwhile.
 - Without `SOMA_JAIL_CGROUP_ROOT` nothing changes, which keeps development and CI as they were.
 
 ### Proof
