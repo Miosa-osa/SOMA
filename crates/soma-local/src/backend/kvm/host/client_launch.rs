@@ -36,7 +36,7 @@ pub(in crate::backend::kvm) fn launch(
     }
     // A request the Generation can never give is refused before a prepared machine is claimed, so
     // it neither consumes a machine nor counts as demand for the shape.
-    if !crate::backend::kvm::lifecycle::request_fits(prepared, shape) {
+    if !crate::backend::kvm::fit::request_fits(prepared, shape) {
         return Err(BackendFailureKind::WorkloadRejected);
     }
     // Counted from the claim to the answer, which is the stretch in which a burst's launches

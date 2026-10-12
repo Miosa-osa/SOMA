@@ -3,6 +3,7 @@ mod claim;
 mod dispatch;
 mod evidence;
 mod file;
+mod fit;
 mod held;
 mod host;
 mod hotplug;

@@ -53,6 +53,10 @@ pub struct TargetStatus {
 pub struct UncoveredDemand {
     pub reference: String,
     pub memory_mib: u64,
+    /// The memory the Generation boots with, which is the only memory a target can name for it.
+    pub boot_memory_mib: u64,
+    /// Whether a target could serve this demand: its memory is the Generation's boot memory.
+    pub targetable: bool,
     pub claimed_primed: u64,
     pub claimed_miss: u64,
 }
@@ -96,6 +100,8 @@ pub enum PrewarmError {
     Unsupported,
     /// The set was valid but could not be persisted.
     Unpersisted(String),
+    /// The prepared store could not be read, or an entry in it is linked, ambiguous or damaged.
+    StoreUnavailable(String),
 }
 
 impl PrewarmError {
@@ -108,6 +114,7 @@ impl PrewarmError {
             Self::BudgetExceeded { .. } => "prewarm_budget_exceeded",
             Self::Unsupported => "prewarm_unsupported",
             Self::Unpersisted(_) => "prewarm_not_persisted",
+            Self::StoreUnavailable(_) => "prewarm_store_unavailable",
         }
     }
 }

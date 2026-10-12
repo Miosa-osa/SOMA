@@ -43,3 +43,12 @@ The pool planner needs to set how many machines are prepared for each shape, rea
   A machine leaves the pool under the lock that the shrink scans under, so it belongs to exactly one of them: a claim that wins owns a whole live machine, and one that loses finds none and builds its own, which the readback counts as a miss.
   A claimed or mid-claim machine is never terminated.
   `a_claim_racing_a_shrink_wins_a_live_machine_or_gets_a_miss` races claimers against a shrink and checks every machine is accounted for once.
+- A set replaces everything, including the unprimed spares: with a persisted set the pool keeps primed machines for its targets and no spare processes.
+  A host that ran with spares and no `SOMA_PREWARM_REFERENCE` loses them at the first set, by design.
+- A persisted set is built in the background after start, so launches in the first moments can miss until the refill catches up; the readback shows it.
+  Only the environment's single shape is prepared before traffic.
+- A shape that cannot be built records the reason of the step that failed and backs off (5 s, doubling to 60 s) while the other shapes are built.
+  A machine whose build finishes after the set changed is kept only if the set still wants it, checked under the pool's locks, so a shrink is never undone by a late build.
+- `uncovered_demand` carries `boot_memory_mib` and `targetable`: a target can only name the Generation's boot memory, and demand is keyed by that memory in the hosted-machine path.
+- A store that cannot be read, or an entry that is linked, ambiguous or damaged, is `prewarm_store_unavailable` (503) with the reason, not `unknown_reference`.
+- `handle` (the sandbox handler) answers 404 for the prewarm routes; only the connection path serves them.
