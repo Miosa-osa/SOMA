@@ -172,6 +172,7 @@ fn execute_request_bytes(request: &Execute) -> usize {
         .fold(request.program().as_bytes().len(), |total, argument| {
             total.saturating_add(argument.as_bytes().len())
         })
+        .saturating_add(request.context().byte_len())
 }
 
 fn output_limit(request: &Execute) -> usize {

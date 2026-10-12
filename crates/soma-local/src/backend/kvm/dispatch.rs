@@ -91,17 +91,9 @@ impl KvmBackend {
             .and_then(|command| parts.context.apply(command))
             .map_err(|_| BackendFailureKind::WorkloadRejected)
             .and_then(|command| self.execute_resident(&instance, command)),
-            Some(directory) => host::execute(
-                &directory,
-                &instance,
-                parts.program,
-                parts.arguments,
-                parts.timeout_ms,
-                parts.max_output_bytes,
-                parts.context,
-            )
-            .map(|executed| (executed.status, executed.stdout, executed.stderr))
-            .map_err(|failure| self.host_kind(failure, &instance)),
+            Some(directory) => host::execute(&directory, &instance, parts)
+                .map(|executed| (executed.status, executed.stdout, executed.stderr))
+                .map_err(|failure| self.host_kind(failure, &instance)),
         };
         let (status, stdout, stderr) = outcome.map_err(|kind| self.fail(operation, kind))?;
         let finished = self.clocks.elapsed_ns(operation);

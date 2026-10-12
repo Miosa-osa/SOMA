@@ -73,12 +73,12 @@ pub(super) fn effective_network(egress: &Egress, policy: &NetworkPolicy) -> Effe
 ///
 /// The lowering happens on the side that was asked, whether or not the machine is in this
 /// process, so a request no guest could accept is refused before any other process is addressed.
-pub(super) struct CommandParts {
-    pub(super) program: Vec<u8>,
-    pub(super) arguments: Vec<Vec<u8>>,
-    pub(super) timeout_ms: u32,
-    pub(super) max_output_bytes: u64,
-    pub(super) context: WireContext,
+pub(in crate::backend::kvm) struct CommandParts {
+    pub(in crate::backend::kvm) program: Vec<u8>,
+    pub(in crate::backend::kvm) arguments: Vec<Vec<u8>>,
+    pub(in crate::backend::kvm) timeout_ms: u32,
+    pub(in crate::backend::kvm) max_output_bytes: u64,
+    pub(in crate::backend::kvm) context: WireContext,
 }
 
 /// The environment, working directory, user, and standard input of one command, in the form that
@@ -228,7 +228,7 @@ mod context_tests {
     #[test]
     fn an_empty_context_leaves_the_command_as_built() {
         let applied = WireContext::default().apply(command()).expect("applies");
-        assert!(applied == command());
+        assert_eq!(applied, command());
         assert!(applied.environment().is_empty() && applied.stdin().is_empty());
     }
 

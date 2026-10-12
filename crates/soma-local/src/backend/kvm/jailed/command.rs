@@ -15,7 +15,8 @@ use soma_vmm::control::{
 };
 use soma_vmm::sandbox::Completed;
 use soma_vmm::{
-    Argument, Execute, ExecutionLimits, OperationId, OutputBytes, Program, TimeoutMillis,
+    Argument, Execute, ExecuteContext, ExecutionLimits, OperationId, OutputBytes, Program,
+    TimeoutMillis,
 };
 
 use super::outcome;
@@ -89,7 +90,20 @@ impl Jailed {
                 .map_err(rejected)?,
             limits,
         )
-        .map(Request::Execute)
+        .map(|execute| {
+            Request::Execute(
+                execute.with_context(ExecuteContext {
+                    environment: command
+                        .environment()
+                        .iter()
+                        .map(|(name, value)| (name.to_vec(), value.to_vec()))
+                        .collect(),
+                    working_directory: command.working_directory().map(<[u8]>::to_vec),
+                    user: command.user().map(<[u8]>::to_vec),
+                    stdin: command.stdin().to_vec(),
+                }),
+            )
+        })
         .map_err(rejected)?;
         // One control packet is one datagram, and a datagram longer than the worker's receive
         // buffer is truncated by the kernel rather than refused. The program and every argument

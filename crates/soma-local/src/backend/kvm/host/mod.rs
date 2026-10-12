@@ -46,7 +46,7 @@ pub(crate) use tunnel::open_tunnel;
 pub(in crate::backend::kvm) use wire::Launched;
 use wire::{Answer, Call};
 
-use super::evidence::WireContext;
+use super::evidence::CommandParts;
 
 /// Who holds the machines this Backend launches.
 pub(super) enum Role {
@@ -95,12 +95,15 @@ pub(super) enum HostFailure {
 pub(super) fn execute(
     directory: &Path,
     instance: &InstanceId,
-    program: Vec<u8>,
-    arguments: Vec<Vec<u8>>,
-    timeout_ms: u32,
-    max_output_bytes: u64,
-    context: WireContext,
+    parts: CommandParts,
 ) -> Result<Executed, HostFailure> {
+    let CommandParts {
+        program,
+        arguments,
+        timeout_ms,
+        max_output_bytes,
+        context,
+    } = parts;
     let call = if context.is_empty() {
         Call::Execute {
             instance_id: instance.clone(),

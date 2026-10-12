@@ -193,6 +193,13 @@ impl Platform for KvmPlatform {
             limits.timeout().get(),
             limits.output().get(),
         )
+        .and_then(|command| {
+            if execute.context().is_empty() {
+                Ok(command)
+            } else {
+                command.with_context(execute.context().to_guest())
+            }
+        })
         .map_err(|_| PlatformFailure::new(Recovery::DoNotRetry))?;
         let deadline = Duration::from_millis(u64::from(limits.timeout().get())) + COMMAND_SLACK;
         let completed = session

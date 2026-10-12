@@ -25,10 +25,13 @@ That is the only reason the control plane could not give a SOMA sandbox the same
    The verdict on a context is the guest constructor's: `GuestCommand::with_context` runs in the runner's admission step, before a machine is asked, so a context the guest would refuse is a 400 or 413 and never costs the sandbox.
    `env` decodes in sorted key order, so one body is always one environment.
    Standard input is not exposed on the runner in this change.
-4. The KVM backend lowers the context into the guest command.
-   A command without a context crosses to a resident host as the existing `Execute` call.
-   A command with a context crosses as a new `ExecuteInContext` call.
-   A host built before this change does not name that variant and refuses the line, where an optional field on `Execute` would have been ignored and the command run without its environment.
+4. The KVM backend lowers the context into the guest command on every road a command takes:
+   - A machine held in the calling process builds the guest command with the context.
+   - A resident machine host receives a command without a context as the existing `Execute` call and a command with one as a new `ExecuteInContext` call.
+   - A jailed worker receives a command without a context as the existing `execute` control word and a command with one as a new `execute_in` word, whose fields are `x`-prefixed hexadecimal so an empty value is still a token.
+     The worker decodes it through the guest constructor, so a packet that decodes is one the guest carries.
+   A host or worker built before this change does not name the new variant or word and refuses it, where an optional field on the old form would have been ignored and the command run without its environment.
+   The jailed control packet is one 16 KiB datagram, so a context too large to fit it is refused as a rejected workload before any worker is addressed.
 5. The Docker and macOS backends refuse a command that carries a context with `Unsupported`.
    Running it without the context would be a different command.
 

@@ -4,16 +4,16 @@
 //! a request that decodes is always one the Machine may be asked to perform.
 
 use crate::{
-    Argument, ContractVersion, DeclaredDevices, DiskBytes, Execute, ExecutionLimits, Generation,
-    GenerationId, HotplugBytes, InstanceId, Launch, MachineSpec, MemoryBytes, OperationId,
-    OutputBytes, Program, Stop, TimeoutMillis, VcpuCount,
+    Argument, ContractVersion, DeclaredDevices, DiskBytes, Execute, ExecuteContext,
+    ExecutionLimits, Generation, GenerationId, HotplugBytes, InstanceId, Launch, MachineSpec,
+    MemoryBytes, OperationId, OutputBytes, Program, Stop, TimeoutMillis, VcpuCount,
 };
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use super::super::PtyRequest;
 use super::super::{
     ControlError,
-    field::{bytes, identifier, number},
+    field::{bytes, identifier, number, untagged},
     window::{OutputStream, OutputWindow},
 };
 use super::Request;
@@ -133,6 +133,80 @@ pub(super) fn decode_execute<'a>(
     let limits = ExecutionLimits::new(timeout, output);
     Execute::new(operation, instance, program, arguments, limits)
         .map(Request::Execute)
+        .map_err(|_| ControlError::InvalidValue("arguments"))
+}
+
+/// The most arguments and environment pairs a packet may name, checked before any is read so a
+/// hostile count cannot make the decoder allocate for fields the packet does not carry.
+const MAX_ARGUMENT_COUNT: usize = 4_096;
+const MAX_ENVIRONMENT_COUNT: usize = 64;
+
+pub(super) fn decode_execute_in<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<Request, ControlError> {
+    let operation = OperationId::new(identifier(tokens.next(), "operation")?)
+        .map_err(|_| ControlError::InvalidValue("operation"))?;
+    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    let timeout = TimeoutMillis::new(number(tokens.next(), "timeout")?)
+        .map_err(|_| ControlError::InvalidValue("timeout"))?;
+    let output = OutputBytes::new(number(tokens.next(), "output")?)
+        .map_err(|_| ControlError::InvalidValue("output"))?;
+    let program = Program::new(untagged(tokens.next(), "program")?)
+        .map_err(|_| ControlError::InvalidValue("program"))?;
+    let argument_count: usize = number(tokens.next(), "argument count")?;
+    if argument_count > MAX_ARGUMENT_COUNT {
+        return Err(ControlError::InvalidValue("argument count"));
+    }
+    let mut arguments = Vec::with_capacity(argument_count.min(64));
+    for _ in 0..argument_count {
+        arguments.push(
+            Argument::new(untagged(tokens.next(), "argument")?)
+                .map_err(|_| ControlError::InvalidValue("argument"))?,
+        );
+    }
+    let environment_count: usize = number(tokens.next(), "environment count")?;
+    if environment_count > MAX_ENVIRONMENT_COUNT {
+        return Err(ControlError::InvalidValue("environment count"));
+    }
+    let mut environment = Vec::with_capacity(environment_count);
+    for _ in 0..environment_count {
+        environment.push((
+            untagged(tokens.next(), "environment name")?,
+            untagged(tokens.next(), "environment value")?,
+        ));
+    }
+    let mut optional = |field: &'static str| match tokens.next() {
+        Some("-") => Ok(None),
+        token => untagged(token, field).map(Some),
+    };
+    let working_directory = optional("working directory")?;
+    let user = optional("user")?;
+    let stdin = untagged(tokens.next(), "stdin")?;
+    end(tokens)?;
+    let context = ExecuteContext {
+        environment,
+        working_directory,
+        user,
+        stdin,
+    };
+    // A request that decodes is one the machine may be asked to run, so the guest's own bounds
+    // are applied here rather than discovered when the command is built.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    soma_guest::GuestCommand::new(
+        program.as_bytes().to_vec(),
+        arguments
+            .iter()
+            .map(|argument| argument.as_bytes().to_vec())
+            .collect(),
+        timeout.get(),
+        output.get(),
+    )
+    .and_then(|command| command.with_context(context.to_guest()))
+    .map_err(|_| ControlError::InvalidValue("context"))?;
+    let limits = ExecutionLimits::new(timeout, output);
+    Execute::new(operation, instance, program, arguments, limits)
+        .map(|execute| Request::Execute(execute.with_context(context)))
         .map_err(|_| ControlError::InvalidValue("arguments"))
 }
 
