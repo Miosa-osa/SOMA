@@ -16,6 +16,7 @@
 mod bootstrap;
 pub(super) mod channel;
 mod client_launch;
+mod live_cgroup;
 mod reaper;
 mod serve;
 mod sterile;
