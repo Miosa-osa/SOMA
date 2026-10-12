@@ -251,3 +251,105 @@ fn a_bundle_with_a_process_inside_its_namespace_is_not_reaped() {
     let released = reap_unassigned(&restarted).expect("reap after");
     assert_eq!(released.removed, pin, "{released:?}");
 }
+
+/// A ledger that cannot be read proves nothing about ownership, so nothing is removed.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn an_unreadable_ledger_removes_nothing() {
+    use soma_netd::{NetNamespace, reap_unassigned};
+
+    live::require_privilege();
+    let _world = World::build();
+    let state = tempfile::tempdir().expect("state dir");
+    let first = live::broker(state.path(), 16);
+    let (pooled, _, _) = live::ids(0x41);
+    std::mem::forget(first.prepare(pooled).expect("prepare"));
+    let restarted = live::broker(state.path(), 16);
+    // An assignment record whose content does not decode.
+    std::fs::write(
+        state
+            .path()
+            .join("ledger")
+            .join("00000000000000000000000000000001-00000001.assigned"),
+        b"x",
+    )
+    .expect("plant a corrupt entry");
+
+    assert!(
+        reap_unassigned(&restarted).is_err(),
+        "a ledger that cannot be read must stop the reap"
+    );
+    assert_eq!(
+        NetNamespace::list(restarted.namespace_dir())
+            .expect("pins")
+            .len(),
+        1,
+        "the unowned bundle is still there"
+    );
+    std::fs::remove_file(
+        state
+            .path()
+            .join("ledger")
+            .join("00000000000000000000000000000001-00000001.assigned"),
+    )
+    .expect("remove the corrupt entry");
+    let released = reap_unassigned(&restarted).expect("reap once the ledger reads");
+    assert_eq!(released.removed.len(), 1, "{released:?}");
+}
+
+/// A link or table that carries the broker's naming but has no pin in this broker's directory may
+/// belong to another broker, and is reported, never removed.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn another_brokers_link_and_table_survive_the_reap() {
+    use std::process::Command;
+
+    use soma_netd::reap_unassigned;
+
+    live::require_privilege();
+    let _world = World::build();
+    let state = tempfile::tempdir().expect("state dir");
+    let broker = live::broker(state.path(), 16);
+    let run = |program: &str, arguments: &[&str]| {
+        let status = Command::new(program)
+            .args(arguments)
+            .status()
+            .expect(program);
+        assert!(status.success(), "{program} {arguments:?}");
+    };
+    run(
+        "ip",
+        &[
+            "link",
+            "add",
+            "svfeed0001",
+            "type",
+            "veth",
+            "peer",
+            "name",
+            "svfeed0002",
+        ],
+    );
+    run("nft", &["add", "table", "inet", "somah_feed0001"]);
+
+    let report = reap_unassigned(&broker).expect("reap");
+    let linked = Command::new("ip")
+        .args(["link", "show", "svfeed0001"])
+        .status()
+        .expect("ip")
+        .success();
+    let tabled = Command::new("nft")
+        .args(["list", "table", "inet", "somah_feed0001"])
+        .status()
+        .expect("nft")
+        .success();
+    run("ip", &["link", "del", "svfeed0001"]);
+    run("nft", &["delete", "table", "inet", "somah_feed0001"]);
+    assert!(report.removed.is_empty(), "{report:?}");
+    assert_eq!(
+        report.foreign,
+        ["feed0001", "feed0002"],
+        "both ends of the other broker's veth are reported, none removed: {report:?}"
+    );
+    assert!(linked && tabled, "the other broker's objects were removed");
+}

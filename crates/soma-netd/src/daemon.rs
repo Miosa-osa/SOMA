@@ -62,7 +62,7 @@ use delivery::deliver;
 
 use crate::{
     Accepted, Assigned, Broker, BundleId, Capability, CleanupGeneration, ControlAuthority,
-    ControlListener, Error, InstanceId, MAX_FRAME, OperationId, PeerIdentity, Reply, Request,
+    ControlListener, Error, InstanceId, MAX_FRAME, OperationId, PeerIdentity, Reply, Request, Step,
     SterileBundle, activate, error_code, reconcile, release, release_record,
 };
 
@@ -355,14 +355,18 @@ pub fn serve(
         traffic: Traffic::new(),
         teardowns: Permits::new(MAX_TEARDOWNS),
     };
+    // One broker per state root. A second process would see the first one's live pool as unowned
+    // and reap it, and would unlink the first one's control socket.
+    let _only_broker = InstanceLock::acquire(state_root(&state.broker)?)?;
     // The pool a previous process prepared has no ledger owner; remove it before building a new one.
     // A failure here must not stop egress brokering, so it is reported and the daemon starts anyway.
     match crate::reconcile::reap_unassigned(&state.broker) {
         Ok(report) => eprintln!(
-            "soma-netd: start reaped {} unassigned bundle(s); {} in use, {} failed",
+            "soma-netd: start reaped {} unassigned bundle(s); in use [{}]; failed [{}]; foreign [{}]",
             report.removed.len(),
-            report.in_use.len(),
-            report.failed.len()
+            report.in_use.join(","),
+            report.failed.join(","),
+            report.foreign.join(",")
         ),
         Err(error) => eprintln!("soma-netd: start could not reap unassigned bundles: {error}"),
     }
@@ -585,5 +589,54 @@ fn log_release(record: &crate::AssignmentRecord, evidence: &crate::ReleaseEviden
     }
     if !evidence.complete {
         eprintln!("soma-netd: release incomplete: {evidence:?}");
+    }
+}
+
+/// The directory that holds this broker's ledger and namespace pins.
+fn state_root(broker: &Broker) -> Result<&std::path::Path, Error> {
+    broker.namespace_dir().parent().ok_or(Error::Kernel {
+        step: Step::LedgerOpen,
+        errno: libc::EINVAL,
+    })
+}
+
+/// An exclusive advisory lock on a broker's state root, held for the life of the process.
+struct InstanceLock {
+    _file: std::fs::File,
+}
+
+impl InstanceLock {
+    fn acquire(root: &std::path::Path) -> Result<Self, Error> {
+        use std::os::fd::AsRawFd as _;
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(root.join("netd.lock"))
+            .map_err(|error| Error::io(Step::LedgerOpen, &error))?;
+        // SAFETY: `flock` takes a valid descriptor and an operation flag only.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(Error::Kernel {
+                step: Step::LedgerOpen,
+                errno: std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
+            });
+        }
+        Ok(Self { _file: file })
+    }
+}
+
+#[cfg(test)]
+mod instance_lock_tests {
+    use super::InstanceLock;
+
+    #[test]
+    fn a_second_broker_on_the_same_state_root_is_refused() {
+        let root = tempfile::tempdir().expect("state root");
+        let first = InstanceLock::acquire(root.path()).expect("first broker");
+        assert!(
+            InstanceLock::acquire(root.path()).is_err(),
+            "the lock is exclusive"
+        );
+        drop(first);
+        InstanceLock::acquire(root.path()).expect("released when the first ends");
     }
 }

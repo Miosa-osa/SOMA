@@ -140,23 +140,31 @@ pub struct ReapReport {
     pub removed: Vec<String>,
     /// Bundle names left alone because a process still has their network namespace open.
     pub in_use: Vec<String>,
-    /// Bundle names where a removal step failed or an object remained afterwards.
+    /// Bundle names where a removal step failed, an object remained afterwards, or the pin could
+    /// not be inspected. Nothing is removed for a pin that could not be inspected.
     pub failed: Vec<String>,
+    /// Names seen in the kernel with the broker's naming but with no namespace pin in this
+    /// broker's directory. They may belong to another broker, so they are reported and never
+    /// touched.
+    pub foreign: Vec<String>,
 }
 
 /// Removes the sterile bundles a previous broker process prepared and never assigned.
 ///
 /// A broker prepares a pool of sterile bundles in memory and records a bundle in the ledger only
 /// when it is assigned. When the process ends, the pool it held has no ledger owner and no holder,
-/// and every start prepares a fresh pool beside it, so each restart leaked one pool. This runs
+/// and every start prepared a fresh pool beside it, so each restart leaked one pool. This runs
 /// once at start, before the new pool is built.
 ///
 /// A bundle is touched only when all of these hold:
 ///
-/// - its name is exactly eight lowercase hex digits, the broker's own naming;
+/// - it has a namespace pin in this broker's own pin directory, which is what makes it ours:
+///   links and tables are host-wide, so a name seen only there is never enough;
+/// - the pin's name is exactly eight lowercase hex digits, the broker's own naming;
 /// - no ledger record, assigned or released, names it (so it was never assigned, or its release
 ///   is already accounted for elsewhere);
-/// - no process has its network namespace open, so no machine can be attached to it.
+/// - no process has its network namespace open, so no machine can be attached to it, and the pin
+///   could be inspected to find that out.
 ///
 /// If the ledger or `/proc` cannot be read the function returns the error and removes nothing.
 ///
@@ -165,54 +173,86 @@ pub struct ReapReport {
 /// Returns a ledger read failure, a kernel listing failure, or a failure to inspect `/proc`.
 pub fn reap_unassigned(broker: &Broker) -> Result<ReapReport, Error> {
     let report = reconcile(broker)?;
-    let mut ids = unowned_ids(&report);
-    let mut outcome = ReapReport::default();
-    if ids.is_empty() {
+    let (ours, foreign) = split_by_pin(&report);
+    let mut outcome = ReapReport {
+        foreign: foreign.into_iter().collect(),
+        ..ReapReport::default()
+    };
+    if ours.is_empty() {
         return Ok(outcome);
     }
     let in_use = namespaces_in_use()?;
-    while let Some(id) = ids.pop_first() {
+    for id in ours {
         let pin = broker.namespace_dir().join(&id);
-        if pin_in_use(&pin, &in_use) {
-            outcome.in_use.push(id);
-            continue;
-        }
-        if remove_unassigned(&BundleNames::new(&id), &pin) {
-            outcome.removed.push(id);
-        } else {
-            outcome.failed.push(id);
+        match pin_state(fs::metadata(&pin), &in_use) {
+            PinState::InUse => outcome.in_use.push(id),
+            PinState::Gone => {}
+            PinState::Unreadable => outcome.failed.push(id),
+            PinState::Free => {
+                if remove_unassigned(&BundleNames::new(&id), &pin) {
+                    outcome.removed.push(id);
+                } else {
+                    outcome.failed.push(id);
+                }
+            }
         }
     }
     Ok(outcome)
 }
 
-/// The bundle names that appear in the kernel without a ledger owner, in the broker's naming.
-fn unowned_ids(report: &ReconcileReport) -> BTreeSet<String> {
-    let eight_hex = |text: &str| {
-        text.len() == 8
-            && text
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    };
-    let mut ids = BTreeSet::new();
-    for name in &report.unowned_namespaces {
-        if eight_hex(name) {
-            ids.insert(name.clone());
-        }
-    }
+fn eight_hex(text: &str) -> bool {
+    text.len() == 8
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Splits the names the kernel shows without a ledger owner into those with a pin in our own
+/// directory (ours to reap) and those seen only as a host-wide link or table (never touched).
+fn split_by_pin(report: &ReconcileReport) -> (BTreeSet<String>, BTreeSet<String>) {
+    let ours: BTreeSet<String> = report
+        .unowned_namespaces
+        .iter()
+        .filter(|name| eight_hex(name))
+        .cloned()
+        .collect();
+    let mut foreign = BTreeSet::new();
     for name in &report.unowned_links {
         if let Some(rest) = name.strip_prefix("sv").filter(|rest| eight_hex(rest)) {
-            ids.insert(rest.to_owned());
+            foreign.insert(rest.to_owned());
         }
     }
     for name in &report.unowned_tables {
         for prefix in ["somah_", "somap_", "soma_"] {
             if let Some(rest) = name.strip_prefix(prefix).filter(|rest| eight_hex(rest)) {
-                ids.insert(rest.to_owned());
+                foreign.insert(rest.to_owned());
             }
         }
     }
-    ids
+    let foreign = foreign.difference(&ours).cloned().collect();
+    (ours, foreign)
+}
+
+/// What inspecting one pin concluded.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PinState {
+    /// A process has the namespace open.
+    InUse,
+    /// The pin is there and nothing has it open.
+    Free,
+    /// The pin disappeared between the listing and now, so there is nothing to remove.
+    Gone,
+    /// The pin could not be inspected; it is left alone.
+    Unreadable,
+}
+
+fn pin_state(metadata: std::io::Result<fs::Metadata>, used: &BTreeSet<(u64, u64)>) -> PinState {
+    match metadata {
+        Ok(meta) if used.contains(&(meta.dev(), meta.ino())) => PinState::InUse,
+        Ok(_) => PinState::Free,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => PinState::Gone,
+        Err(_) => PinState::Unreadable,
+    }
 }
 
 /// The `(device, inode)` of the network namespace of every process.
@@ -241,15 +281,13 @@ fn namespaces_in_use() -> Result<BTreeSet<(u64, u64)>, Error> {
     Ok(used)
 }
 
-fn pin_in_use(pin: &Path, used: &BTreeSet<(u64, u64)>) -> bool {
-    fs::metadata(pin).is_ok_and(|meta| used.contains(&(meta.dev(), meta.ino())))
-}
-
 /// Removes one bundle's host objects and reports whether all of them are gone afterwards.
 fn remove_unassigned(names: &BundleNames, pin: &Path) -> bool {
-    // The veth goes first so nothing can cross the bundle while the rest is removed. Deleting the
-    // host side removes its peer in the namespace. Conntrack is not flushed: forwarding stays off
-    // until activation, so an unassigned bundle has carried no connection to forget.
+    // The veth goes first so nothing can cross the bundle while the rest is removed; deleting the
+    // host side removes its peer in the namespace. The publication table goes before the pin and
+    // the host table last, the order a release uses, so a failure part way leaves the objects a
+    // later pass still recognises by name. Conntrack is not flushed: forwarding stays off until
+    // activation, so an unassigned bundle has carried no connection to forget.
     let steps = [
         netlink::delete_link(&names.host_veth).is_ok(),
         nft::delete_table(&names.publication_table).is_ok(),
@@ -268,7 +306,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unowned_ids_takes_only_the_brokers_own_eight_hex_names() {
+    fn only_a_pin_in_our_directory_makes_a_bundle_ours() {
         let report = ReconcileReport {
             unowned_namespaces: vec![
                 "0037835f".to_owned(),
@@ -277,6 +315,7 @@ mod tests {
             ],
             unowned_links: vec![
                 "sv00a9afa0".to_owned(),
+                "sv0037835f".to_owned(),
                 "svXYZ".to_owned(),
                 "eth0".to_owned(),
             ],
@@ -288,8 +327,35 @@ mod tests {
             ],
             ..ReconcileReport::default()
         };
-        let ids: Vec<_> = unowned_ids(&report).into_iter().collect();
-        assert_eq!(ids, ["0037835f", "00a9afa0", "deadbeef"]);
+        let (ours, foreign) = split_by_pin(&report);
+        assert_eq!(ours.into_iter().collect::<Vec<_>>(), ["0037835f"]);
+        assert_eq!(
+            foreign.into_iter().collect::<Vec<_>>(),
+            ["00a9afa0", "deadbeef"],
+            "a link or table with no pin of ours is reported, never reaped"
+        );
+    }
+
+    #[test]
+    fn a_pin_that_cannot_be_inspected_is_left_alone() {
+        use std::io::{Error as IoError, ErrorKind};
+        let used = BTreeSet::new();
+        assert_eq!(
+            pin_state(Err(IoError::from(ErrorKind::PermissionDenied)), &used),
+            PinState::Unreadable
+        );
+        assert_eq!(
+            pin_state(Err(IoError::from(ErrorKind::Other)), &used),
+            PinState::Unreadable
+        );
+        assert_eq!(
+            pin_state(Err(IoError::from(ErrorKind::NotFound)), &used),
+            PinState::Gone
+        );
+        let here = fs::metadata("/proc/self/ns/net").expect("own namespace");
+        let mut used = BTreeSet::new();
+        used.insert((here.dev(), here.ino()));
+        assert_eq!(pin_state(Ok(here), &used), PinState::InUse);
     }
 
     #[test]
