@@ -28,6 +28,9 @@ use crate::backend::kvm::prepared::PreparedGeneration;
 
 /// Refill begins after the first command should have completed, so maintenance cannot inflate TTI.
 const REFILL_DELAY: Duration = Duration::from_millis(250);
+/// How long a pass that built nothing waits before the next, so a shape that cannot be built is
+/// retried slowly instead of spinning. The failure is in the readback meanwhile.
+const FAILED_REFILL_DELAY: Duration = Duration::from_secs(5);
 
 pub(super) struct SterileHost {
     pub(super) child: Child,
@@ -440,9 +443,12 @@ fn schedule_refill() {
         .name("soma-sterile-refill".to_owned())
         .spawn(|| {
             thread::sleep(REFILL_DELAY);
-            refill();
+            let progressed = refill();
             pool().replenishing.store(false, Ordering::Release);
             if next_missing().is_some() {
+                if !progressed {
+                    thread::sleep(FAILED_REFILL_DELAY);
+                }
                 schedule_refill();
             }
         });
@@ -487,10 +493,12 @@ fn next_missing() -> Option<Missing> {
     (spares < desired.generic).then_some(Missing::Spare)
 }
 
-fn refill() {
+/// Builds what is missing, one machine at a time; false when the pass built nothing.
+fn refill() -> bool {
+    let mut progressed = false;
     loop {
         let Some(missing) = next_missing() else {
-            return;
+            return progressed;
         };
         let built = match &missing {
             Missing::Primed(plan, _) => spawn(Some(plan.as_ref())),
@@ -498,6 +506,7 @@ fn refill() {
         };
         match (missing, built) {
             (Missing::Primed(_, key), Ok(host)) => {
+                progressed = true;
                 note_target(key.as_ref(), None);
                 pool()
                     .available
@@ -505,18 +514,21 @@ fn refill() {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .push(host);
             }
-            (Missing::Spare, Ok(host)) => pool()
-                .available
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(host),
+            (Missing::Spare, Ok(host)) => {
+                progressed = true;
+                pool()
+                    .available
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(host);
+            }
             (Missing::Primed(_, key), Err(failure)) => {
                 // Stop this pass, so a shape that cannot be built does not spin; the readback
                 // carries the reason and the next claim or change schedules another pass.
                 note_target(key.as_ref(), Some(format!("{failure:?}")));
-                return;
+                return progressed;
             }
-            (Missing::Spare, Err(_)) => return,
+            (Missing::Spare, Err(_)) => return progressed,
         }
     }
 }
