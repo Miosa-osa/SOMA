@@ -158,3 +158,96 @@ fn an_incomplete_release_keeps_its_operation_identity_reserved() {
     assert_eq!(client.reply(), Some(Reply::Released { complete: true }));
     drop(world);
 }
+
+/// A restart reaps the pool the previous process prepared and never assigned, however many
+/// restarts there are, and leaves a bundle the ledger owns alone.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn restarts_reap_the_unassigned_pool_and_keep_assigned_bundles() {
+    use soma_netd::{Disposition, NetNamespace, reap_unassigned, reconcile};
+
+    live::require_privilege();
+    let _world = World::build();
+    let state = tempfile::tempdir().expect("state dir");
+    let first = live::broker(state.path(), 16);
+    let intent = super::checks::public_intent(&first);
+    let (bundle, instance, operation) = live::ids(0xa1);
+    let sterile = first.prepare(bundle).expect("prepare the assigned bundle");
+    let assigned = first
+        .assign(sterile, instance, operation, &intent, (5, broker_owner()))
+        .map_err(|failure| failure.error)
+        .expect("assign");
+
+    for restart in 0..3_u8 {
+        // The process that prepared this pool ends without releasing it.
+        for seed in 0..4_u8 {
+            let (pooled, _, _) = live::ids(0x10 + restart * 8 + seed);
+            std::mem::forget(first.prepare(pooled).expect("prepare pool bundle"));
+        }
+        let restarted = live::broker(state.path(), 16);
+        let before = reconcile(&restarted).expect("reconcile before");
+        assert_eq!(before.unowned_namespaces.len(), 4, "{before:?}");
+
+        let report = reap_unassigned(&restarted).expect("reap");
+        assert_eq!(report.removed.len(), 4, "{report:?}");
+        assert!(
+            report.in_use.is_empty() && report.failed.is_empty(),
+            "{report:?}"
+        );
+        let after = reconcile(&restarted).expect("reconcile after");
+        assert_eq!(after.unowned(), 0, "{after:?}");
+        assert_eq!(after.entries.len(), 1);
+        assert_eq!(after.entries[0].2, Disposition::Consistent);
+        assert_eq!(
+            NetNamespace::list(restarted.namespace_dir())
+                .expect("pins")
+                .len(),
+            1,
+            "only the ledger's bundle keeps a pin"
+        );
+        assert_eq!(
+            reap_unassigned(&restarted)
+                .expect("second reap")
+                .removed
+                .len(),
+            0,
+            "reaping is idempotent"
+        );
+    }
+    let released = soma_netd::release(&first, assigned);
+    assert!(released.complete, "{released:?}");
+}
+
+/// A bundle whose namespace a process still has open is never reaped.
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn a_bundle_with_a_process_inside_its_namespace_is_not_reaped() {
+    use soma_netd::{NetNamespace, reap_unassigned};
+
+    live::require_privilege();
+    let _world = World::build();
+    let state = tempfile::tempdir().expect("state dir");
+    let first = live::broker(state.path(), 16);
+    let (pooled, _, _) = live::ids(0x31);
+    std::mem::forget(first.prepare(pooled).expect("prepare"));
+    let restarted = live::broker(state.path(), 16);
+    let pin = NetNamespace::list(restarted.namespace_dir()).expect("pins");
+    assert_eq!(pin.len(), 1);
+    let path = restarted.namespace_dir().join(&pin[0]);
+    let mut holder = std::process::Command::new("nsenter")
+        .arg(format!("--net={}", path.display()))
+        .args(["sleep", "60"])
+        .spawn()
+        .expect("nsenter holds the namespace");
+    std::thread::sleep(std::time::Duration::from_millis(500));
+
+    let held = reap_unassigned(&restarted).expect("reap while held");
+    assert_eq!(held.in_use, pin, "{held:?}");
+    assert!(held.removed.is_empty(), "{held:?}");
+    assert!(path.exists(), "the held bundle keeps its pin");
+
+    holder.kill().expect("stop the holder");
+    holder.wait().expect("reap the holder");
+    let released = reap_unassigned(&restarted).expect("reap after");
+    assert_eq!(released.removed, pin, "{released:?}");
+}

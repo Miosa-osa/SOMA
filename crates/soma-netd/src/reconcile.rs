@@ -4,9 +4,11 @@
 //! should own; kernel objects carrying SOMA names without a ledger owner are reported but never
 //! removed, because ownership must be proven before cleanup.
 
+use std::{collections::BTreeSet, fs, os::unix::fs::MetadataExt, path::Path};
+
 use crate::{
-    Broker, BundleId, BundleNames, CleanupGeneration, Drift, Error, link, namespace::NetNamespace,
-    nft,
+    Broker, BundleId, BundleNames, CleanupGeneration, Drift, Error, Step, link,
+    namespace::NetNamespace, netlink, nft,
 };
 
 /// The disposition of one ledger entry.
@@ -131,9 +133,164 @@ pub fn reconcile(broker: &Broker) -> Result<ReconcileReport, Error> {
     Ok(report)
 }
 
+/// What [`reap_unassigned`] did with the kernel objects of bundles no ledger record owns.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReapReport {
+    /// Bundle names whose objects were all removed and verified absent.
+    pub removed: Vec<String>,
+    /// Bundle names left alone because a process still has their network namespace open.
+    pub in_use: Vec<String>,
+    /// Bundle names where a removal step failed or an object remained afterwards.
+    pub failed: Vec<String>,
+}
+
+/// Removes the sterile bundles a previous broker process prepared and never assigned.
+///
+/// A broker prepares a pool of sterile bundles in memory and records a bundle in the ledger only
+/// when it is assigned. When the process ends, the pool it held has no ledger owner and no holder,
+/// and every start prepares a fresh pool beside it, so each restart leaked one pool. This runs
+/// once at start, before the new pool is built.
+///
+/// A bundle is touched only when all of these hold:
+///
+/// - its name is exactly eight lowercase hex digits, the broker's own naming;
+/// - no ledger record, assigned or released, names it (so it was never assigned, or its release
+///   is already accounted for elsewhere);
+/// - no process has its network namespace open, so no machine can be attached to it.
+///
+/// If the ledger or `/proc` cannot be read the function returns the error and removes nothing.
+///
+/// # Errors
+///
+/// Returns a ledger read failure, a kernel listing failure, or a failure to inspect `/proc`.
+pub fn reap_unassigned(broker: &Broker) -> Result<ReapReport, Error> {
+    let report = reconcile(broker)?;
+    let mut ids = unowned_ids(&report);
+    let mut outcome = ReapReport::default();
+    if ids.is_empty() {
+        return Ok(outcome);
+    }
+    let in_use = namespaces_in_use()?;
+    while let Some(id) = ids.pop_first() {
+        let pin = broker.namespace_dir().join(&id);
+        if pin_in_use(&pin, &in_use) {
+            outcome.in_use.push(id);
+            continue;
+        }
+        if remove_unassigned(&BundleNames::new(&id), &pin) {
+            outcome.removed.push(id);
+        } else {
+            outcome.failed.push(id);
+        }
+    }
+    Ok(outcome)
+}
+
+/// The bundle names that appear in the kernel without a ledger owner, in the broker's naming.
+fn unowned_ids(report: &ReconcileReport) -> BTreeSet<String> {
+    let eight_hex = |text: &str| {
+        text.len() == 8
+            && text
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    };
+    let mut ids = BTreeSet::new();
+    for name in &report.unowned_namespaces {
+        if eight_hex(name) {
+            ids.insert(name.clone());
+        }
+    }
+    for name in &report.unowned_links {
+        if let Some(rest) = name.strip_prefix("sv").filter(|rest| eight_hex(rest)) {
+            ids.insert(rest.to_owned());
+        }
+    }
+    for name in &report.unowned_tables {
+        for prefix in ["somah_", "somap_", "soma_"] {
+            if let Some(rest) = name.strip_prefix(prefix).filter(|rest| eight_hex(rest)) {
+                ids.insert(rest.to_owned());
+            }
+        }
+    }
+    ids
+}
+
+/// The `(device, inode)` of the network namespace of every process.
+fn namespaces_in_use() -> Result<BTreeSet<(u64, u64)>, Error> {
+    let mut used = BTreeSet::new();
+    for entry in fs::read_dir("/proc").map_err(|error| Error::io(Step::OpenNamespace, &error))? {
+        let entry = entry.map_err(|error| Error::io(Step::OpenNamespace, &error))?;
+        if !entry
+            .file_name()
+            .to_string_lossy()
+            .bytes()
+            .all(|b| b.is_ascii_digit())
+        {
+            continue;
+        }
+        // A process that exits while this runs has no namespace to protect; a process whose
+        // namespace cannot be read is not skipped silently.
+        match fs::metadata(entry.path().join("ns/net")) {
+            Ok(meta) => {
+                used.insert((meta.dev(), meta.ino()));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(Error::io(Step::OpenNamespace, &error)),
+        }
+    }
+    Ok(used)
+}
+
+fn pin_in_use(pin: &Path, used: &BTreeSet<(u64, u64)>) -> bool {
+    fs::metadata(pin).is_ok_and(|meta| used.contains(&(meta.dev(), meta.ino())))
+}
+
+/// Removes one bundle's host objects and reports whether all of them are gone afterwards.
+fn remove_unassigned(names: &BundleNames, pin: &Path) -> bool {
+    // The veth goes first so nothing can cross the bundle while the rest is removed. Deleting the
+    // host side removes its peer in the namespace. Conntrack is not flushed: forwarding stays off
+    // until activation, so an unassigned bundle has carried no connection to forget.
+    let steps = [
+        netlink::delete_link(&names.host_veth).is_ok(),
+        nft::delete_table(&names.publication_table).is_ok(),
+        NetNamespace::unpin(pin).is_ok(),
+        nft::delete_table(&names.host_table).is_ok(),
+    ];
+    steps.iter().all(|ok| *ok)
+        && !pin.exists()
+        && link::list_links().is_ok_and(|links| !links.contains(&names.host_veth))
+        && nft::table_exists(&names.host_table).is_ok_and(|exists| !exists)
+        && nft::table_exists(&names.publication_table).is_ok_and(|exists| !exists)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unowned_ids_takes_only_the_brokers_own_eight_hex_names() {
+        let report = ReconcileReport {
+            unowned_namespaces: vec![
+                "0037835f".to_owned(),
+                "keep-me".to_owned(),
+                "0037835F".to_owned(),
+            ],
+            unowned_links: vec![
+                "sv00a9afa0".to_owned(),
+                "svXYZ".to_owned(),
+                "eth0".to_owned(),
+            ],
+            unowned_tables: vec![
+                "somah_0037835f".to_owned(),
+                "somap_deadbeef".to_owned(),
+                "miosa_fleet_dist".to_owned(),
+                "somah_toolongname".to_owned(),
+            ],
+            ..ReconcileReport::default()
+        };
+        let ids: Vec<_> = unowned_ids(&report).into_iter().collect();
+        assert_eq!(ids, ["0037835f", "00a9afa0", "deadbeef"]);
+    }
 
     #[test]
     fn counts_partition_dispositions() {

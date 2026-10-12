@@ -89,7 +89,7 @@ pub use listener::{Accepted, ControlListener, IDLE_TIMEOUT, broker_owner};
 #[cfg(target_os = "linux")]
 pub use namespace::{NetNamespace, Unpinned};
 #[cfg(target_os = "linux")]
-pub use reconcile::{Disposition, ReconcileReport, reconcile};
+pub use reconcile::{Disposition, ReapReport, ReconcileReport, reap_unassigned, reconcile};
 pub use release::{ReleaseEvidence, StepResult, release, release_record, release_sterile};
 #[cfg(target_os = "linux")]
 pub use transfer::{receive_tap, send_tap, seqpacket_pair};
