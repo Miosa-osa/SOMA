@@ -164,3 +164,74 @@ fn the_request_the_supervisor_sends_decodes_as_a_streaming_request() {
     ));
     let _ = OperationId::new([1; 16]);
 }
+
+fn command_with_stdin(bytes: usize) -> GuestCommand {
+    GuestCommand::new(b"/bin/cat".to_vec(), Vec::new(), 1_000, 64)
+        .and_then(|command| {
+            command.with_context(soma_guest::CommandContext {
+                stdin: vec![b'x'; bytes],
+                ..soma_guest::CommandContext::default()
+            })
+        })
+        .expect("a command the guest protocol itself admits")
+}
+
+/// Standard input travels hex encoded inside one control packet, so the packet, not the guest
+/// protocol, is what bounds it on the jailed road. A request the packet cannot carry is refused
+/// by name before any worker is addressed, instead of being cut short by the kernel or hanging.
+#[test]
+fn stdin_the_control_packet_cannot_carry_is_refused_before_a_worker_is_addressed() {
+    for stdin in [8 * 1024, 16 * 1024, 32 * 1024] {
+        for streaming in [false, true] {
+            let (supervisor, far) = ControlSocket::pair().expect("pair");
+            let mut jailed = Jailed::for_test(supervisor);
+            let started = std::time::Instant::now();
+            let failure = if streaming {
+                jailed
+                    .execute_streaming(&command_with_stdin(stdin), &mut |_, _| panic!("no chunk"))
+                    .err()
+            } else {
+                jailed.execute(&command_with_stdin(stdin)).err()
+            };
+            assert_eq!(
+                failure,
+                Some(BackendFailureKind::WorkloadRejected),
+                "{stdin} {streaming}"
+            );
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(1),
+                "the refusal must not wait"
+            );
+            assert!(
+                !jailed.poisoned,
+                "a refusal made before the wire leaves the handle usable"
+            );
+            // Nothing was sent: the worker end sees the supervisor close without a request.
+            drop(jailed);
+            let socket = ControlSocket::adopt(far);
+            assert!(
+                socket
+                    .receive(
+                        soma_vmm::control::MAX_REQUEST_BYTES,
+                        std::time::Duration::from_millis(200)
+                    )
+                    .is_err(),
+                "a worker was addressed with a request the packet cannot carry"
+            );
+        }
+    }
+}
+
+#[test]
+fn stdin_that_fits_the_packet_is_sent_whole() {
+    let (supervisor, far) = ControlSocket::pair().expect("pair");
+    let mut jailed = Jailed::for_test(supervisor);
+    let worker = worker(far, vec![executed(0, 0)]);
+    let _ = jailed.execute_streaming(&command_with_stdin(7 * 1024), &mut |_, _| {});
+    let request = worker.join().expect("worker");
+    assert!(request.starts_with("execute_stream "), "{}", &request[..24]);
+    assert!(
+        request.len() > 14 * 1024,
+        "the whole standard input travelled hex encoded"
+    );
+}
