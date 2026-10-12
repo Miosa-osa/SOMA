@@ -8,8 +8,8 @@
 //!
 //! A name that is not an Instance identity and is not one of the root's known entries (the store's
 //! locks, the hosted machines' sockets, and the persisted prewarm set with its temporary file) is a
-//! corruption rather than something to skip. Skipping it would make a store somebody wrote a stray file into report a smaller set of
-//! sandboxes than it holds, silently.
+//! corruption rather than something to skip. Skipping it would make a store somebody wrote a stray
+//! file into report a smaller set of sandboxes than it holds, silently.
 
 use std::{fs, path::Path};
 
