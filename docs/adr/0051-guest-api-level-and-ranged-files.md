@@ -56,3 +56,12 @@ These are deliberate, and a caller that exceeds one gets a named refusal, never 
   Before this change the loopback route answered a generic 400, and the control plane turned that into a retryable agent outage.
 - The limit is not raised: a larger argument buys nothing a file or standard input does not, and it would move the jailed road's control packet (16 KiB, hex encoded, so about 8 KiB of command and standard input together) closer to its own bound.
   Large payloads go on standard input (32 KiB on the resident road, bounded by the packet on the jailed road) or into a file through the file API.
+
+## Long scripts
+
+A shell command longer than one argument is not a dead end for the control plane.
+The loopback `commands` route accepts `stdin` (base64, at most 32768 bytes decoded, `413 stdin_too_large` past it), and the control plane sends a command of 4097 to 32768 bytes as a short wrapper in `sh -lc` with the script on standard input.
+The wrapper reads all of standard input into a private (mode 0600) file, runs it with `sh`, removes the file, and exits with the script's status.
+Reading it all first means the script's own standard input is at end of file, never its remaining lines, which is what a command run directly sees.
+Past 32768 bytes the control plane answers `422 COMMAND_TOO_LARGE`, not retryable, with that limit.
+The limit on standard input is the guest protocol's (`MAX_STDIN_BYTES`); the jailed road's 16 KiB control packet bounds it lower there, and a request the packet cannot carry is refused by name.
