@@ -216,6 +216,8 @@ impl CreateParams {
 pub(super) struct ExecParams {
     pub(super) command: String,
     pub(super) timeout_ms: u64,
+    /// The environment, working directory and user the command runs with. Empty by default.
+    pub(super) context: soma::CommandContext,
 }
 
 impl ExecParams {
@@ -225,9 +227,7 @@ impl ExecParams {
             Some(Value::String(command)) if !command.is_empty() => command.clone(),
             _ => return Err(PlatformError::missing_command()),
         };
-        if !params.get("cwd").is_none_or(Value::is_null) {
-            return Err(PlatformError::unsupported("a working directory (`cwd`)"));
-        }
+        let context = exec_context(&params)?;
         let timeout_ms = match params.get("timeout") {
             None | Some(Value::Null) => DEFAULT_EXEC_TIMEOUT_MS,
             Some(value) => value
@@ -239,8 +239,52 @@ impl ExecParams {
         Ok(Self {
             command,
             timeout_ms,
+            context,
         })
     }
+}
+
+/// The context an exec body names: `cwd`, `env` and `user`, each optional and null-tolerant.
+///
+/// `env` is a JSON object of string values, applied in the sorted order the object decodes to,
+/// so one body always means one environment. Every bound is the guest protocol's own, checked
+/// again against the guest constructor before a machine is asked.
+fn exec_context(
+    params: &serde_json::Map<String, Value>,
+) -> Result<soma::CommandContext, PlatformError> {
+    let text = |name: &str| match params.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(PlatformError::invalid_param(
+            name,
+            &format!("`{name}` must be a string"),
+        )),
+    };
+    let environment = match params.get("env") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Object(variables)) => variables
+            .iter()
+            .map(|(name, value)| match value {
+                Value::String(value) => Ok((name.clone(), value.clone())),
+                _ => Err(PlatformError::invalid_param(
+                    "env",
+                    "every `env` value must be a string",
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => {
+            return Err(PlatformError::invalid_param(
+                "env",
+                "`env` must be an object of string values",
+            ));
+        }
+    };
+    soma::CommandContext::new(environment, text("cwd")?, text("user")?, Vec::new()).map_err(|_| {
+        PlatformError::invalid_param(
+            "env",
+            "the environment, working directory or user is outside the exec contract",
+        )
+    })
 }
 
 /// Refuses a top-level create field the platform does not define, naming it in the answer.

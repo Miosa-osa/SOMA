@@ -42,11 +42,13 @@ pub use machine_name::MachineName;
 pub use output::{CapturedOutput, ObservedOutput, OutputMetadata, StreamMetadata};
 pub use receipt::{ExecutionReceipt, ReceiptValidationError};
 pub use request::{
-    Capabilities, DirectCommand, DnsPolicy, EgressPolicy, ExecutionLimits, GuestAddressIntent,
-    HostBind, HostPort, Ipv4AddressIntent, Ipv6AddressIntent, MAX_DNS_SERVERS,
-    MAX_PORT_PUBLICATIONS, MachineShape, NetworkPolicy, NetworkProfileId, NetworkProfileSelector,
-    OciDigest, OciImage, OciPlatform, PortPublication, ProfileRevision, ProxyPolicy,
-    ProxyProfileId, ProxyProfileSelector, RunRequest, TransportProtocol, ValidationError,
+    Capabilities, CommandContext, DirectCommand, DnsPolicy, EgressPolicy, ExecutionLimits,
+    GuestAddressIntent, HostBind, HostPort, Ipv4AddressIntent, Ipv6AddressIntent,
+    MAX_CONTEXT_FIELD_BYTES, MAX_DNS_SERVERS, MAX_ENVIRONMENT, MAX_PORT_PUBLICATIONS,
+    MAX_STDIN_BYTES, MAX_USER_BYTES, MachineShape, NetworkPolicy, NetworkProfileId,
+    NetworkProfileSelector, OciDigest, OciImage, OciPlatform, PortPublication, ProfileRevision,
+    ProxyPolicy, ProxyProfileId, ProxyProfileSelector, RunRequest, TransportProtocol,
+    ValidationError,
 };
 pub use state_store::{
     MAX_STATE_RECORD_BYTES, MemoryStateStore, StateRecord, StateRevision, StateStore,

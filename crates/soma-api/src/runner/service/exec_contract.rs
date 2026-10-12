@@ -73,7 +73,28 @@ impl Refusal {
 /// same constructor the guest protocol enforces, so nothing this admits can be refused later. The
 /// checks written out before it exist only to name the part that was too large, because that
 /// constructor answers one error for every refusal.
+#[cfg(test)]
 pub(super) fn admit(program: &str, arguments: &[&str], timeout_millis: u64) -> Result<(), Refusal> {
+    admit_in(
+        program,
+        arguments,
+        timeout_millis,
+        &soma::CommandContext::default(),
+    )
+}
+
+/// [`admit`] for a command that also carries an environment, working directory or user.
+///
+/// The verdict is still the guest constructor's: the context is attached with
+/// [`soma_guest::GuestCommand::with_context`], so a context the guest would refuse, or one that
+/// makes the whole command overflow a message, is refused here and not after the machine has
+/// been asked.
+pub(super) fn admit_in(
+    program: &str,
+    arguments: &[&str],
+    timeout_millis: u64,
+    context: &soma::CommandContext,
+) -> Result<(), Refusal> {
     // The plan only ever yields an absolute program, and the guest execs an absolute path only, so
     // this arm is a guard on that rather than a case a caller can reach.
     if program.is_empty()
@@ -116,6 +137,18 @@ pub(super) fn admit(program: &str, arguments: &[&str], timeout_millis: u64) -> R
             actual_millis: timeout_millis,
         });
     };
+    let guest_context = soma_guest::CommandContext {
+        environment: context
+            .environment()
+            .iter()
+            .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
+            .collect(),
+        working_directory: context
+            .working_directory()
+            .map(|path| path.as_bytes().to_vec()),
+        user: context.user().map(|user| user.as_bytes().to_vec()),
+        stdin: context.stdin().to_vec(),
+    };
     match soma_guest::GuestCommand::new(
         program.as_bytes().to_vec(),
         arguments
@@ -124,13 +157,15 @@ pub(super) fn admit(program: &str, arguments: &[&str], timeout_millis: u64) -> R
             .collect(),
         timeout,
         soma::ExecutionLimits::DEFAULT_MAX_OUTPUT_BYTES,
-    ) {
+    )
+    .and_then(|command| command.with_context(guest_context))
+    {
         Ok(_) => Ok(()),
         // Everything else the constructor refuses was checked above, so what is left is the
         // command's own total: the fields fit one at a time but not together.
         Err(_) => Err(Refusal::TooLargeTogether {
             limit: MAX_BODY_SIZE,
-            actual: encoded_body_bytes(program, arguments),
+            actual: encoded_body_bytes(program, arguments).saturating_add(context_bytes(context)),
         }),
     }
 }
@@ -146,6 +181,26 @@ fn encoded_body_bytes(program: &str, arguments: &[&str]) -> usize {
     FIXED_BODY_SIZE
         .saturating_add(program.len())
         .saturating_add(arguments)
+}
+
+/// The body bytes a context adds, counted the way the guest codec counts them.
+fn context_bytes(context: &soma::CommandContext) -> usize {
+    let field = |bytes: usize| 2_usize.saturating_add(bytes);
+    context
+        .environment()
+        .iter()
+        .fold(0_usize, |total, (name, value)| {
+            total
+                .saturating_add(field(name.len()))
+                .saturating_add(field(value.len()))
+        })
+        .saturating_add(
+            context
+                .working_directory()
+                .map_or(0, |path| field(path.len())),
+        )
+        .saturating_add(context.user().map_or(0, |user| field(user.len())))
+        .saturating_add(context.stdin().len())
 }
 
 /// The answer for a command the runtime's exec contract will not carry.

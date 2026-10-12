@@ -105,6 +105,20 @@ pub(super) enum Call {
         timeout_ms: u32,
         max_output_bytes: u64,
     },
+    /// Run one command that carries an environment, working directory, user, or standard input.
+    ///
+    /// A separate variant rather than optional fields on `Execute`: a host built before contexts
+    /// existed ignores a field it does not know and would run the command without the
+    /// environment the caller asked for, while it refuses a variant it does not know. A command
+    /// with no context is still sent as `Execute`, so an older host keeps serving it.
+    ExecuteInContext {
+        instance_id: InstanceId,
+        program: Vec<u8>,
+        arguments: Vec<Vec<u8>>,
+        timeout_ms: u32,
+        max_output_bytes: u64,
+        context: crate::backend::kvm::evidence::WireContext,
+    },
     /// Perform one bounded filesystem operation inside the machine this host holds.
     ///
     /// The portable operation crosses as itself rather than as a guest protocol body, because
@@ -227,5 +241,52 @@ impl From<Refusal> for BackendFailureKind {
             Refusal::OutputLimit => Self::OutputLimit,
             Refusal::CleanupFailure => Self::CleanupFailure,
         }
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::Call;
+    use crate::backend::kvm::evidence::WireContext;
+
+    #[test]
+    fn a_context_crosses_the_host_channel_as_its_own_call() {
+        let context = WireContext {
+            environment: vec![(b"A".to_vec(), b"1".to_vec())],
+            working_directory: Some(b"/work".to_vec()),
+            user: None,
+            stdin: b"in".to_vec(),
+        };
+        let call = Call::ExecuteInContext {
+            instance_id: soma::InstanceId::new("22222222222222222222222222222222").expect("id"),
+            program: b"/bin/true".to_vec(),
+            arguments: Vec::new(),
+            timeout_ms: 1_000,
+            max_output_bytes: 1_024,
+            context: context.clone(),
+        };
+        let line = serde_json::to_string(&call).expect("encodes");
+        assert!(line.contains("execute_in_context"));
+        match serde_json::from_str::<Call>(&line).expect("decodes") {
+            Call::ExecuteInContext { context: got, .. } => assert!(got == context),
+            _ => panic!("the call changed variant on the way"),
+        }
+    }
+
+    /// A host built before contexts existed names no such variant, so it refuses the line
+    /// instead of running the command without the environment the caller asked for. This is the
+    /// property the separate variant exists to keep: the plain `Execute` shape never gains a
+    /// field an old host would ignore.
+    #[test]
+    fn the_plain_execute_call_carries_no_context_field() {
+        let call = Call::Execute {
+            instance_id: soma::InstanceId::new("22222222222222222222222222222222").expect("id"),
+            program: b"/bin/true".to_vec(),
+            arguments: Vec::new(),
+            timeout_ms: 1_000,
+            max_output_bytes: 1_024,
+        };
+        let line = serde_json::to_string(&call).expect("encodes");
+        assert!(!line.contains("context") && !line.contains("environment"));
     }
 }

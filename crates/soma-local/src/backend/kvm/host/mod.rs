@@ -46,6 +46,8 @@ pub(crate) use tunnel::open_tunnel;
 pub(in crate::backend::kvm) use wire::Launched;
 use wire::{Answer, Call};
 
+use super::evidence::WireContext;
+
 /// Who holds the machines this Backend launches.
 pub(super) enum Role {
     /// This process does, for as long as it runs. That is the one-shot lifecycle `soma run`
@@ -97,13 +99,25 @@ pub(super) fn execute(
     arguments: Vec<Vec<u8>>,
     timeout_ms: u32,
     max_output_bytes: u64,
+    context: WireContext,
 ) -> Result<Executed, HostFailure> {
-    let call = Call::Execute {
-        instance_id: instance.clone(),
-        program,
-        arguments,
-        timeout_ms,
-        max_output_bytes,
+    let call = if context.is_empty() {
+        Call::Execute {
+            instance_id: instance.clone(),
+            program,
+            arguments,
+            timeout_ms,
+            max_output_bytes,
+        }
+    } else {
+        Call::ExecuteInContext {
+            instance_id: instance.clone(),
+            program,
+            arguments,
+            timeout_ms,
+            max_output_bytes,
+            context,
+        }
     };
     match ask(directory, instance, &call, EXECUTE_CEILING)? {
         Answer::Executed {

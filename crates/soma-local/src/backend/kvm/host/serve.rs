@@ -173,6 +173,28 @@ fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
                 Err(kind) => Answer::Refused(kind.into()),
             }
         }
+        Call::ExecuteInContext {
+            instance_id,
+            program,
+            arguments,
+            timeout_ms,
+            max_output_bytes,
+            context,
+        } => {
+            let Ok(command) = GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
+                .and_then(|command| context.apply(command))
+            else {
+                return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
+            };
+            match backend.execute_resident(&instance_id, command) {
+                Ok((status, stdout, stderr)) => Answer::Executed {
+                    status,
+                    stdout,
+                    stderr,
+                },
+                Err(kind) => Answer::Refused(kind.into()),
+            }
+        }
         Call::File {
             instance_id,
             operation,
