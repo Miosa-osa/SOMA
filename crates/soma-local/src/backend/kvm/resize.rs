@@ -192,12 +192,17 @@ fn leaf_for(
     if jailed {
         return CgroupLeaf::open_existing(root, &name).map_err(|_| "jail_leaf_missing");
     }
-    sweep_finished_leaves(root);
-    let leaf = CgroupLeaf::create_cpu_only(root, &format!("{name}-live"))
-        .map_err(|_| "cpu_controller_not_delegated")?;
-    leaf.attach(std::process::id())
-        .map_err(|_| "cannot_join_cpu_leaf")?;
-    Ok(leaf)
+    // Sweeping removes empty leaves and a new leaf is empty until the move, so the three happen
+    // under the one lock every claimed host uses.
+    super::host::under_root_lock(root, || {
+        sweep_finished_leaves(root);
+        let leaf = CgroupLeaf::create_cpu_only(root, &format!("{name}-live"))
+            .map_err(|_| "cpu_controller_not_delegated")?;
+        leaf.attach(std::process::id())
+            .map_err(|_| "cannot_join_cpu_leaf")?;
+        Ok(leaf)
+    })
+    .unwrap_or(Err("cannot_lock_cpu_subtree"))
 }
 
 /// Removes the live-share leaves of machines that have ended.

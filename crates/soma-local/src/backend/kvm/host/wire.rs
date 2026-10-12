@@ -84,6 +84,20 @@ pub(in crate::backend::kvm) struct Launched {
     pub(in crate::backend::kvm) network: EffectiveNetwork,
     /// When the machine existed, in nanoseconds after its launch was admitted.
     pub(in crate::backend::kvm) at_ns: u64,
+    /// Whether the host left the API unit's control group, when a live subtree is configured.
+    ///
+    /// Absent from the line when none is, so a host built before this field still reads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::backend::kvm) live_cgroup: Option<LiveCgroup>,
+}
+
+/// What a claimed host reports about leaving its unit's control group.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(in crate::backend::kvm) struct LiveCgroup {
+    /// The host is in its own leaf, so it survives a stop of the API unit.
+    pub(in crate::backend::kvm) joined: bool,
+    /// The leaf carries the unit's memory and pids limits.
+    pub(in crate::backend::kvm) limits_carried: bool,
 }
 
 /// The one line a host writes to its standard output before it stops using it.

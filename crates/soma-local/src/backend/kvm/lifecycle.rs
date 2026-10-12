@@ -191,6 +191,7 @@ impl KvmBackend {
             vcpus: shape.vcpu_count(),
             network: observed,
             at_ns: launched,
+            live_cgroup: None,
         })
     }
 
