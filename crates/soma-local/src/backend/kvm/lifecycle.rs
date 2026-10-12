@@ -23,9 +23,9 @@ use soma_vmm::sandbox::Network;
 use super::{
     KvmBackend, claim,
     evidence::{command_status, effective_network},
+    fit,
     held::Held,
     host::Launched,
-    hotplug,
     identity::LaunchIdentity,
     network::{Egress, Released},
     prepared::PreparedGeneration,
@@ -312,13 +312,7 @@ impl KvmBackend {
     /// the Generation's own boot size and grown to the request, which needs the memory device
     /// and a machine that is not jailed.
     fn admits(&self, prepared: &PreparedGeneration, shape: &MachineShape) -> bool {
-        let booted = &prepared.manifest.shape;
-        let boot_mib = booted.memory_bytes / (1024 * 1024);
-        let vcpus = shape.vcpu_count() >= 1 && shape.vcpu_count() <= booted.vcpu_count;
-        let memory = shape.memory_mib() == boot_mib
-            || (shape.memory_mib() > boot_mib
-                && self.jail.is_none()
-                && hotplug::room_for(prepared, shape.memory_mib()));
-        vcpus && memory
+        fit::request_fits(prepared, shape)
+            && (self.jail.is_none() || shape.memory_mib() == fit::boot_mib_of(prepared))
     }
 }

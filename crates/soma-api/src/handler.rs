@@ -1,3 +1,5 @@
+mod prewarm;
+
 use serde::{Serialize, de::DeserializeOwned};
 use soma::ExecutionReceipt;
 
@@ -18,6 +20,8 @@ use crate::{
     terminal::{TerminalBody, TerminalReport},
     wire::{ControlBody, CreateSandboxBody, RunCommandBody},
 };
+
+pub use prewarm::handle_prewarm;
 
 /// Serves one request against the sandbox facade.
 ///
@@ -104,6 +108,9 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             false,
         )),
         Route::Resources(instance_id, change) => resources(facade, &instance_id, change, body),
+        // Served by the connection before a facade is opened, through `handle_prewarm`. This
+        // function serves sandboxes, so only that one path can change what is prepared.
+        Route::Prewarm(_) => Err(ApiError::not_found()),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;

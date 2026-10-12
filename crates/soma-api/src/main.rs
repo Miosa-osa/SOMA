@@ -93,7 +93,7 @@ fn run() -> i32 {
     if matches!(
         options.backend,
         BackendSelection::Auto | BackendSelection::Kvm
-    ) && soma_local::prewarm_machine_hosts(options.workers).is_err()
+    ) && soma_local::start_prewarm(config.state_root(), options.workers).is_err()
     {
         eprintln!("soma-api: sterile machine hosts could not be prepared");
         return 69;

@@ -28,7 +28,7 @@ pub use facade::{
     SandboxFacade, SandboxSnapshot, TerminalOutcome, TunnelFailure,
 };
 pub use filesystem::{FilesystemBody, FilesystemReport};
-pub use handler::handle;
+pub use handler::{handle, handle_prewarm};
 pub use http::{
     request::{Method, Request},
     response::Response,
