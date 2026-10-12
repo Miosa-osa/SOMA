@@ -39,7 +39,9 @@ pub use evidence::{
 };
 pub use identity::{GenerationId, InstanceId, OperationId, RequestFingerprint};
 pub use machine_name::MachineName;
-pub use output::{CapturedOutput, ObservedOutput, OutputMetadata, StreamMetadata};
+pub use output::{
+    CapturedOutput, ObservedOutput, OutputChannel, OutputMetadata, OutputSink, StreamMetadata,
+};
 pub use receipt::{ExecutionReceipt, ReceiptValidationError};
 pub use request::{
     Capabilities, CommandContext, DirectCommand, DnsPolicy, EgressPolicy, ExecutionLimits,

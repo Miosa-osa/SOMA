@@ -22,6 +22,11 @@ pub enum Request {
     RaiseLink,
     /// Run one bounded command over the authenticated session.
     Execute(GuestCommand),
+    /// Run one bounded command and report each output chunk as it arrives.
+    ///
+    /// Every chunk is a [`Response::Output`] on the same channel as the final
+    /// [`Response::Executed`], so a reply can never be attributed to the wrong command.
+    ExecuteStreaming(GuestCommand),
     /// Perform one bounded filesystem operation over the authenticated session.
     File(soma::FileOperation),
     /// Perform one bounded terminal operation over the authenticated session.
@@ -53,6 +58,8 @@ pub enum Response {
     Minted(Box<ActivationReceipt>),
     /// The sandbox reached an authenticated Ready.
     Ready,
+    /// One authenticated chunk of a streaming command's output, before the command ended.
+    Output(soma_guest::OutputSource, Vec<u8>),
     /// One command completed with its typed terminal status.
     Executed(Box<Completed>),
     /// One filesystem operation was performed and the guest answered it.

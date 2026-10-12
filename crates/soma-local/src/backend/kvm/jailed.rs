@@ -216,6 +216,32 @@ impl Jailed {
         disposition.is_released()
     }
 
+    /// A handle over a control socket whose far end a test plays, with no jail behind it.
+    #[cfg(test)]
+    pub(super) fn for_test(socket: soma_jail::ControlSocket) -> Self {
+        Self {
+            handle: None,
+            control: control::Control::adopt(socket),
+            instance: VmmInstanceId::new([2; 16]).expect("instance"),
+            attestation: ProbeReport {
+                pid: 1,
+                uid: 0,
+                euid: 0,
+                gid: 0,
+                egid: 0,
+                table_sealed: true,
+                first_bad_slot: None,
+                root: soma_jail::RootView {
+                    entries: 0,
+                    writable: false,
+                    proc_visible: false,
+                    sys_visible: false,
+                },
+            },
+            poisoned: false,
+        }
+    }
+
     pub(super) fn poison(&mut self, kind: BackendFailureKind) -> BackendFailureKind {
         self.poisoned = true;
         kind
@@ -228,3 +254,6 @@ impl Drop for Jailed {
         let _ignored = self.reconcile();
     }
 }
+
+#[cfg(test)]
+mod streaming_tests;

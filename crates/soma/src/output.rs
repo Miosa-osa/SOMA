@@ -26,6 +26,16 @@ impl ObservedOutput {
         }
     }
 
+    #[must_use]
+    pub fn stdout(&self) -> &[u8] {
+        &self.stdout
+    }
+
+    #[must_use]
+    pub fn stderr(&self) -> &[u8] {
+        &self.stderr
+    }
+
     pub(crate) fn into_parts(self) -> (Vec<u8>, u64, Vec<u8>, u64) {
         (
             self.stdout,
@@ -45,6 +55,37 @@ impl fmt::Debug for ObservedOutput {
             .field("stderr_bytes", &self.stderr.len())
             .field("stderr_observed_bytes", &self.stderr_observed_bytes)
             .finish()
+    }
+}
+
+/// Which of a running command's two streams a chunk came from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputChannel {
+    Stdout,
+    Stderr,
+}
+
+/// Receives each chunk of a running command's output as the backend observes it.
+///
+/// A chunk is delivered at most once and in the order the backend saw it within its stream. The
+/// sink runs on the thread driving the command, so it must not block.
+pub type OutputSink<'a> = &'a mut dyn FnMut(OutputChannel, &[u8]);
+
+/// The largest chunk the default replay delivers, equal to the guest protocol's own.
+const REPLAY_CHUNK_BYTES: usize = 4_096;
+
+impl ObservedOutput {
+    /// Delivers the retained output to `sink`, stdout then stderr, in bounded chunks.
+    ///
+    /// This is what a backend that cannot stream does after the command ended: the caller still
+    /// receives chunks, only late. It is never presented as incremental.
+    pub fn replay(&self, sink: OutputSink<'_>) {
+        for chunk in self.stdout.chunks(REPLAY_CHUNK_BYTES) {
+            sink(OutputChannel::Stdout, chunk);
+        }
+        for chunk in self.stderr.chunks(REPLAY_CHUNK_BYTES) {
+            sink(OutputChannel::Stderr, chunk);
+        }
     }
 }
 

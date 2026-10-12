@@ -41,6 +41,18 @@ impl PlatformExecution {
         }
     }
 
+    /// Hands the retained output to `sink`, stdout first, in chunks no larger than the guest
+    /// protocol's own.
+    pub(crate) fn replay(&self, sink: &mut dyn FnMut(crate::control::OutputStream, &[u8])) {
+        const CHUNK: usize = 4_096;
+        for chunk in self.stdout.chunks(CHUNK) {
+            sink(crate::control::OutputStream::Stdout, chunk);
+        }
+        for chunk in self.stderr.chunks(CHUNK) {
+            sink(crate::control::OutputStream::Stderr, chunk);
+        }
+    }
+
     pub(crate) fn into_parts(self) -> (ExitStatus, Vec<u8>, Vec<u8>) {
         (self.status, self.stdout, self.stderr)
     }

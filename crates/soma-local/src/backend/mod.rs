@@ -204,6 +204,25 @@ impl Backend for LocalBackend {
         }
     }
 
+    fn execute_streaming(
+        &mut self,
+        request: ExecutionRequest<'_>,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandObservation, BackendFailure> {
+        match self {
+            // Only the KVM backend observes output while the guest produces it. The others
+            // answer a streaming request the way every backend does by default: run the command
+            // to its end, then deliver what it retained.
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.execute_streaming(request, sink),
+            _ => {
+                let observation = self.execute(request)?;
+                observation.output().replay(sink);
+                Ok(observation)
+            }
+        }
+    }
+
     fn file(&mut self, request: FileRequest<'_>) -> Result<FileObservation, BackendFailure> {
         match self {
             // Neither of these holds a machine a later process can address, so a filesystem call

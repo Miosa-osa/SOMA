@@ -16,6 +16,8 @@ pub enum Reply<'a> {
     Failure(&'a Failure),
     /// One bounded window of a completed command's output.
     Output(&'a [u8]),
+    /// One chunk of a streaming command's output, sent before the command has ended.
+    Chunk(super::OutputStream, &'a [u8]),
     /// One bounded terminal answer.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Pty(&'a soma::PtyAnswer),
@@ -70,6 +72,7 @@ impl Reply<'_> {
                 milestones(failure.milestones()),
             ),
             Self::Output(bytes) => format!("output {}", hex(bytes)),
+            Self::Chunk(stream, bytes) => format!("chunk {} {}", stream.token(), hex(bytes)),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Pty(answer) => format!(
                 "pty {}",

@@ -143,7 +143,7 @@ const MAX_ENVIRONMENT_COUNT: usize = 64;
 
 pub(super) fn decode_execute_in<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<Request, ControlError> {
+) -> Result<Execute, ControlError> {
     let operation = OperationId::new(identifier(tokens.next(), "operation")?)
         .map_err(|_| ControlError::InvalidValue("operation"))?;
     let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
@@ -206,7 +206,7 @@ pub(super) fn decode_execute_in<'a>(
     .map_err(|_| ControlError::InvalidValue("context"))?;
     let limits = ExecutionLimits::new(timeout, output);
     Execute::new(operation, instance, program, arguments, limits)
-        .map(|execute| Request::Execute(execute.with_context(context)))
+        .map(|execute| execute.with_context(context))
         .map_err(|_| ControlError::InvalidValue("arguments"))
 }
 

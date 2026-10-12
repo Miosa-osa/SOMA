@@ -45,6 +45,41 @@ impl Session {
         }
     }
 
+    /// Runs one bounded command like [`Self::execute`], and calls `on_output` with each
+    /// authenticated chunk while the command is still running.
+    ///
+    /// `deadline` bounds the whole command, not the gap between two chunks, so a command that
+    /// prints forever is still ended. The callback runs on the calling thread between two
+    /// receives and must not block.
+    ///
+    /// # Errors
+    ///
+    /// Returns the terminal session failure under the conditions [`Self::execute`] does.
+    pub fn execute_streaming(
+        &mut self,
+        command: GuestCommand,
+        deadline: Duration,
+        mut on_output: impl FnMut(soma_guest::OutputSource, &[u8]),
+    ) -> Result<Completed, SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        self.settle()?;
+        self.requests
+            .send(Request::ExecuteStreaming(command))
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        let end = std::time::Instant::now() + deadline;
+        loop {
+            let remaining = end.saturating_duration_since(std::time::Instant::now());
+            match self.await_response(remaining) {
+                Ok(Response::Output(source, bytes)) => on_output(source, &bytes),
+                Ok(Response::Executed(completed)) => return Ok(*completed),
+                Ok(Response::Failed(error)) | Err(error) => return Err(self.poison(error)),
+                Ok(_) => return Err(self.poison(SessionError::Execute)),
+            }
+        }
+    }
+
     /// Performs one bounded filesystem operation and returns the guest's answer.
     ///
     /// A filesystem operation is bounded by the session's own file deadline rather than the

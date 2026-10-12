@@ -77,6 +77,17 @@ fn perform(
             Ok(executed) => control.send(&Reply::Executed(&executed).encode()),
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
+        Request::ExecuteStreaming(execute) => {
+            // Every chunk is its own reply packet, sent while the command runs; the one final
+            // reply that ends the request follows them.
+            let outcome = machine.execute_streaming(execute, &mut |stream, bytes| {
+                control.send(&Reply::Chunk(stream, bytes).encode());
+            });
+            match outcome {
+                Ok(executed) => control.send(&Reply::Executed(&executed).encode()),
+                Err(failure) => control.send(&Reply::Failure(&failure).encode()),
+            }
+        }
         Request::Stop(stop) => match machine.stop(stop) {
             Ok(stopped) => {
                 control.send(&Reply::Stopped(&stopped).encode());

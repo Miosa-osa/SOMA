@@ -119,6 +119,20 @@ pub(super) enum Call {
         max_output_bytes: u64,
         context: crate::backend::kvm::evidence::WireContext,
     },
+    /// Run one command and answer with its output as it is produced.
+    ///
+    /// The one call that gets more than one line back: any number of [`Answer::Chunk`] lines,
+    /// then exactly one `Executed` or `Refused`. A host built before this call does not name the
+    /// variant and refuses the line, so a streaming caller never gets a command that ran
+    /// without being asked to.
+    ExecuteStreaming {
+        instance_id: InstanceId,
+        program: Vec<u8>,
+        arguments: Vec<Vec<u8>>,
+        timeout_ms: u32,
+        max_output_bytes: u64,
+        context: crate::backend::kvm::evidence::WireContext,
+    },
     /// Perform one bounded filesystem operation inside the machine this host holds.
     ///
     /// The portable operation crosses as itself rather than as a guest protocol body, because
@@ -164,6 +178,32 @@ pub(super) enum Call {
     Shutdown,
 }
 
+/// Which stream of a running command a chunk belongs to.
+#[derive(Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(in crate::backend::kvm) enum Channel {
+    Stdout,
+    Stderr,
+}
+
+impl From<soma::OutputChannel> for Channel {
+    fn from(channel: soma::OutputChannel) -> Self {
+        match channel {
+            soma::OutputChannel::Stdout => Self::Stdout,
+            soma::OutputChannel::Stderr => Self::Stderr,
+        }
+    }
+}
+
+impl From<Channel> for soma::OutputChannel {
+    fn from(channel: Channel) -> Self {
+        match channel {
+            Channel::Stdout => Self::Stdout,
+            Channel::Stderr => Self::Stderr,
+        }
+    }
+}
+
 /// What the host answers.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -172,6 +212,20 @@ pub(super) enum Answer {
         status: CommandStatus,
         stdout: Vec<u8>,
         stderr: Vec<u8>,
+    },
+    /// One chunk of a streaming command's output, before the command has ended.
+    Chunk {
+        channel: Channel,
+        bytes: Vec<u8>,
+    },
+    /// The end of a streaming command, naming how many bytes crossed on each stream.
+    ///
+    /// The bytes themselves already arrived as chunks, so repeating them here would double the
+    /// largest line either side reads.
+    StreamEnded {
+        status: CommandStatus,
+        stdout_bytes: u64,
+        stderr_bytes: u64,
     },
     FileAnswered {
         answer: FileAnswer,

@@ -26,6 +26,13 @@ pub enum Request {
     Attest,
     Launch(Launch),
     Execute(Execute),
+    /// Run one command and send each output chunk back as it arrives, then the final reply.
+    ///
+    /// This is the one request that gets more than one reply: any number of
+    /// [`Reply::Chunk`](super::Reply::Chunk) packets, then exactly one `executed` or `failure`.
+    /// It is a word of its own, so a worker that predates it refuses the packet and sends one
+    /// `rejected` reply, which the supervisor reads as the command having never run.
+    ExecuteStreaming(Execute),
     /// Read one bounded window of a completed command's output.
     ///
     /// A reply packet cannot carry sixteen mebibytes, so the output an Execute produced stays
@@ -57,6 +64,7 @@ impl Request {
             Self::Attest => "attest".to_owned(),
             Self::Launch(launch) => encode_launch(launch),
             Self::Execute(execute) => encode_execute(execute),
+            Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
                 "output {} {} {} {}",
                 hex(window.operation_id().as_bytes()),
@@ -103,7 +111,8 @@ impl Request {
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "pty" => decode::decode_pty(&mut tokens),
             "execute" => decode_execute(&mut tokens),
-            "execute_in" => decode::decode_execute_in(&mut tokens),
+            "execute_in" => decode::decode_execute_in(&mut tokens).map(Self::Execute),
+            "execute_stream" => decode::decode_execute_in(&mut tokens).map(Self::ExecuteStreaming),
             "stop" => decode_stop(&mut tokens),
             _ => Err(ControlError::UnknownRequest),
         }
@@ -135,7 +144,7 @@ fn encode_launch(launch: &Launch) -> String {
 
 fn encode_execute(execute: &Execute) -> String {
     if !execute.context().is_empty() {
-        return encode_execute_in(execute);
+        return encode_execute_in("execute_in", execute);
     }
     let limits = execute.limits();
     let mut text = format!(
@@ -162,11 +171,11 @@ fn encode_execute(execute: &Execute) -> String {
 /// Layout: operation, instance, timeout, output, program, argument count and arguments,
 /// environment count and name/value pairs, working directory, user, standard input. Every byte
 /// string is `x`-prefixed hexadecimal, and an absent directory or user is `-`.
-fn encode_execute_in(execute: &Execute) -> String {
+fn encode_execute_in(word: &str, execute: &Execute) -> String {
     let limits = execute.limits();
     let context = execute.context();
     let mut text = format!(
-        "execute_in {} {} {} {} {} {}",
+        "{word} {} {} {} {} {} {}",
         hex(execute.operation_id().as_bytes()),
         hex(execute.instance_id().as_bytes()),
         limits.timeout().get(),
@@ -471,5 +480,46 @@ mod tests {
     fn debug_never_prints_a_value() {
         let shown = format!("{:?}", execute().with_context(context()));
         assert!(!shown.contains("two words") && !shown.contains("SECRETSTDIN"));
+    }
+    #[test]
+    fn a_streaming_request_is_a_word_of_its_own_and_round_trips() {
+        let plain = Request::ExecuteStreaming(execute());
+        let text = plain.encode();
+        assert!(text.starts_with("execute_stream "));
+        assert_eq!(Request::decode(&text).expect("decodes"), plain);
+
+        let with_context = Request::ExecuteStreaming(execute().with_context(context()));
+        assert_eq!(
+            Request::decode(&with_context.encode()).expect("decodes"),
+            with_context
+        );
+        // The same fields under the buffered word are a different request.
+        let buffered = text.replacen("execute_stream", "execute_in", 1);
+        assert_eq!(
+            Request::decode(&buffered).expect("decodes"),
+            Request::Execute(execute())
+        );
+    }
+
+    #[test]
+    fn a_chunk_reply_round_trips_through_the_supervisors_decoder() {
+        use crate::control::{Outcome, Reply};
+
+        for (stream, bytes) in [
+            (OutputStream::Stdout, b"hello \x00 \xff".to_vec()),
+            (OutputStream::Stderr, vec![0_u8; 4096]),
+        ] {
+            let text = Reply::Chunk(stream, &bytes).encode();
+            assert_eq!(Outcome::decode(&text), Ok(Outcome::Chunk(stream, bytes)));
+        }
+        for bad in [
+            "chunk",
+            "chunk stdout",
+            "chunk sideways 00",
+            "chunk stdout zz",
+            "chunk stdout 00 00",
+        ] {
+            assert!(Outcome::decode(bad).is_err(), "{bad}");
+        }
     }
 }

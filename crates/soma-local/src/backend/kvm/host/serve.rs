@@ -117,6 +117,26 @@ fn answer_until_released(
             activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
             continue;
         }
+        if let Call::ExecuteStreaming {
+            instance_id,
+            program,
+            arguments,
+            timeout_ms,
+            max_output_bytes,
+            context,
+        } = call
+        {
+            let answer = stream_command(
+                backend,
+                &mut stream,
+                &instance_id,
+                (program, arguments, timeout_ms, max_output_bytes),
+                &context,
+            );
+            let _ignored = channel::write_line(&mut stream, &answer);
+            activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
+            continue;
+        }
         if let Call::Cleanup {
             instance_id,
             forced,
@@ -143,6 +163,46 @@ fn answer_until_released(
     let _ignored = backend.cleanup_resident(instance, Force::Immediately);
     held::finish_released();
     RELEASED
+}
+
+/// Runs one streaming command, writing each chunk to the caller's connection as it arrives, and
+/// returns the one final answer.
+///
+/// A caller that stops reading cannot abort the guest exchange half way, so the failed write is
+/// remembered, further chunks are dropped, and the command still ends and is recorded.
+fn stream_command(
+    backend: &mut KvmBackend,
+    stream: &mut UnixStream,
+    instance_id: &InstanceId,
+    (program, arguments, timeout_ms, max_output_bytes): (Vec<u8>, Vec<Vec<u8>>, u32, u64),
+    context: &crate::backend::kvm::evidence::WireContext,
+) -> Answer {
+    let Ok(command) = GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
+        .and_then(|command| context.clone().apply(command))
+    else {
+        return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
+    };
+    let mut caller_gone = false;
+    let mut sink = |channel: soma::OutputChannel, bytes: &[u8]| {
+        if caller_gone {
+            return;
+        }
+        let chunk = Answer::Chunk {
+            channel: channel.into(),
+            bytes: bytes.to_vec(),
+        };
+        if channel::write_line(stream, &chunk).is_err() {
+            caller_gone = true;
+        }
+    };
+    match backend.execute_resident_streaming(instance_id, command, &mut sink) {
+        Ok((status, stdout, stderr)) => Answer::StreamEnded {
+            status,
+            stdout_bytes: stdout.len() as u64,
+            stderr_bytes: stderr.len() as u64,
+        },
+        Err(kind) => Answer::Refused(kind.into()),
+    }
 }
 
 fn receive(stream: &mut UnixStream) -> Option<Call> {
@@ -222,9 +282,10 @@ fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             Ok(outcome) => Answer::Resized(outcome),
             Err(failure) => Answer::ResizeRefused(failure),
         },
-        Call::Cleanup { .. } | Call::Shutdown | Call::Tunnel { .. } => {
-            Answer::Refused(BackendFailureKind::Unsupported.into())
-        }
+        Call::Cleanup { .. }
+        | Call::Shutdown
+        | Call::Tunnel { .. }
+        | Call::ExecuteStreaming { .. } => Answer::Refused(BackendFailureKind::Unsupported.into()),
     }
 }
 

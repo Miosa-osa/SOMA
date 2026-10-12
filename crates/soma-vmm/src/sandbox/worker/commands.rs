@@ -58,6 +58,34 @@ pub(super) fn serve_commands(
                     })))
                     .map_err(|_| SessionError::Gone)?;
             }
+            Request::ExecuteStreaming(command) => {
+                let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
+                // A closed response channel cannot abort the guest exchange half way, so the
+                // loss is remembered and reported once the exchange has ended cleanly.
+                let mut owner_gone = false;
+                let (next, outcome) = repaired
+                    .execute_streaming(operation, command, |source, bytes| {
+                        if responses
+                            .send(Response::Output(source, bytes.to_vec()))
+                            .is_err()
+                        {
+                            owner_gone = true;
+                        }
+                    })
+                    .map_err(|_| SessionError::Execute)?;
+                repaired = next;
+                machine.mark(Milestone::Execute);
+                if owner_gone {
+                    return Err(SessionError::Gone);
+                }
+                responses
+                    .send(Response::Executed(Box::new(Completed {
+                        status: outcome.status(),
+                        stdout: outcome.stdout().to_vec(),
+                        stderr: outcome.stderr().to_vec(),
+                    })))
+                    .map_err(|_| SessionError::Gone)?;
+            }
             Request::SetRequestedMemory(bytes) => {
                 let outcome = memory::apply(&memory::device_of(machine), bytes);
                 responses
