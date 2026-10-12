@@ -1,6 +1,6 @@
 use soma::{
     DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileMachineRequest,
-    InspectMachineRequest, LaunchMachineRequest, ManagedFailure, PtyMachineRequest, SandboxEntry,
+    InspectMachineRequest, LaunchMachineRequest, MachineListing, ManagedFailure, PtyMachineRequest,
     StopMachineRequest,
 };
 use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
@@ -92,8 +92,8 @@ impl SandboxFacade for LocalFacade {
         })
     }
 
-    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
-        self.runtime.list_machines()
+    fn list(&mut self) -> Result<MachineListing, ManagedFailure> {
+        self.runtime.list_machines_reporting_unreadable()
     }
 
     fn stop(&mut self, request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

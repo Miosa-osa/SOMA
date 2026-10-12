@@ -127,6 +127,20 @@ impl EffectiveNetwork {
             && requested_activation_matches(&self.port_activation, requested.published_ports())
     }
 
+    /// Whether every dimension says the network was never reached.
+    ///
+    /// Narrower than [`Self::all_unavailable`]: `not_verified` means the engine looked and could
+    /// not confirm, which is not the same claim as never getting as far as looking.
+    pub(crate) fn all_not_reached(&self) -> bool {
+        const NOT_REACHED: ObservationUnavailable = ObservationUnavailable::NotReached;
+        matches!(self.attachment, Observation::Unavailable(NOT_REACHED))
+            && matches!(self.egress, Observation::Unavailable(NOT_REACHED))
+            && matches!(self.dns, Observation::Unavailable(NOT_REACHED))
+            && matches!(self.addresses, Observation::Unavailable(NOT_REACHED))
+            && matches!(self.published_ports, Observation::Unavailable(NOT_REACHED))
+            && matches!(self.port_activation, Observation::Unavailable(NOT_REACHED))
+    }
+
     pub(crate) fn all_unavailable(&self) -> bool {
         matches!(self.attachment, Observation::Unavailable(_))
             && matches!(self.egress, Observation::Unavailable(_))

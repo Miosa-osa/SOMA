@@ -6,7 +6,7 @@ use std::{
 
 use soma::{
     DestroyMachineRequest, ExecuteMachineRequest, FileMachineRequest, InspectMachineRequest,
-    LaunchMachineRequest, ManagedFailure, PtyMachineRequest, SandboxEntry, StopMachineRequest,
+    LaunchMachineRequest, MachineListing, ManagedFailure, PtyMachineRequest, StopMachineRequest,
 };
 
 use crate::facade::{
@@ -158,7 +158,7 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().terminal(request)
     }
 
-    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
+    fn list(&mut self) -> Result<MachineListing, ManagedFailure> {
         self.deref_mut().list()
     }
 

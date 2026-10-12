@@ -46,6 +46,17 @@ pub struct SandboxListEntry {
 pub struct SandboxListReport {
     pub sandboxes: Vec<SandboxListEntry>,
     pub count: usize,
+    /// Records the store holds but could not decode, named so that their absence from
+    /// `sandboxes` is not taken for the absence of the sandboxes. Omitted when there are none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub unreadable: Vec<UnreadableListEntry>,
+}
+
+/// One record a listing could not decode.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct UnreadableListEntry {
+    pub instance_id: InstanceId,
+    pub reason: &'static str,
 }
 
 impl SandboxListReport {
@@ -65,7 +76,34 @@ impl SandboxListReport {
         Self {
             count: sandboxes.len(),
             sandboxes,
+            unreadable: Vec::new(),
         }
+    }
+
+    /// Builds the document from a listing, naming the records it could not decode.
+    #[must_use]
+    pub fn from_listing(listing: &soma::MachineListing) -> Self {
+        let mut report = Self::new(listing.entries());
+        report.unreadable = listing
+            .unreadable()
+            .iter()
+            .map(|record| UnreadableListEntry {
+                instance_id: record.instance_id().clone(),
+                reason: unreadable_reason(record.kind()),
+            })
+            .collect();
+        report
+    }
+}
+
+const fn unreadable_reason(kind: soma::StateStoreFailureKind) -> &'static str {
+    match kind {
+        soma::StateStoreFailureKind::InvalidRecord => "invalid_record",
+        soma::StateStoreFailureKind::Corrupt => "corrupt",
+        soma::StateStoreFailureKind::UnsupportedVersion => "unsupported_version",
+        soma::StateStoreFailureKind::Conflict => "conflict",
+        soma::StateStoreFailureKind::Unavailable => "unavailable",
+        soma::StateStoreFailureKind::CapacityExceeded => "capacity_exceeded",
     }
 }
 

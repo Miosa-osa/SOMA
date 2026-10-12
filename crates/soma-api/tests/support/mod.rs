@@ -69,6 +69,8 @@ pub struct FakeFacade {
     session: Option<Session>,
     /// What an enumeration answers with.
     sandboxes: Vec<SandboxEntry>,
+    /// Records an enumeration found but could not decode.
+    unreadable: Vec<soma::UnreadableRecord>,
     /// Why a tunnel is refused; `None` connects it to an echoing guest.
     tunnel_failure: Option<TunnelFailure>,
     /// What a resize answers; `None` is a backend that cannot resize.
@@ -85,6 +87,7 @@ impl FakeFacade {
             files: BTreeMap::new(),
             session: None,
             sandboxes: Vec::new(),
+            unreadable: Vec::new(),
             tunnel_failure: None,
             resize_outcome: None,
         }
@@ -108,6 +111,13 @@ impl FakeFacade {
     #[must_use]
     pub fn holding(mut self, sandboxes: Vec<SandboxEntry>) -> Self {
         self.sandboxes = sandboxes;
+        self
+    }
+
+    /// A facade whose enumeration also names records the store could not decode.
+    #[must_use]
+    pub fn with_unreadable(mut self, unreadable: Vec<soma::UnreadableRecord>) -> Self {
+        self.unreadable = unreadable;
         self
     }
 
@@ -226,9 +236,12 @@ impl SandboxFacade for FakeFacade {
         })
     }
 
-    fn list(&mut self) -> Result<Vec<SandboxEntry>, ManagedFailure> {
+    fn list(&mut self) -> Result<soma::MachineListing, ManagedFailure> {
         self.record(Call::List)?;
-        Ok(self.sandboxes.clone())
+        Ok(soma::MachineListing::with_unreadable(
+            self.sandboxes.clone(),
+            self.unreadable.clone(),
+        ))
     }
 
     fn stop(&mut self, _request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

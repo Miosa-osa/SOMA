@@ -31,6 +31,48 @@ fn listing_sandboxes_reports_durable_state_and_host_liveness_separately() {
 }
 
 #[test]
+fn a_record_the_store_could_not_decode_is_named_in_the_listing_not_dropped() {
+    let readable = SandboxEntry::new(
+        InstanceId::new(FIXTURE_INSTANCE_ID).expect("fixture identity is canonical"),
+        SandboxPhase::Active,
+        BackendKind::LinuxKvm,
+        None,
+        SandboxLiveness::Live,
+    );
+    let broken = soma::UnreadableRecord::new(
+        InstanceId::new("33333333333333333333333333333333").expect("identity"),
+        soma::StateStoreFailureKind::Corrupt,
+    );
+    let mut facade = FakeFacade::new(Mode::Succeed)
+        .holding(vec![readable])
+        .with_unreadable(vec![broken]);
+
+    let (status, body) = call(&mut facade, &identified("GET", "/v1/sandboxes", ""));
+
+    assert_eq!(status, 200);
+    assert_eq!(body["result"]["count"], 1, "the readable sandbox is listed");
+    assert_eq!(
+        body["result"]["unreadable"],
+        serde_json::json!([{
+            "instance_id": "33333333333333333333333333333333",
+            "reason": "corrupt"
+        }])
+    );
+}
+
+#[test]
+fn a_listing_with_nothing_unreadable_has_no_unreadable_field() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+
+    let (_, body) = call(&mut facade, &identified("GET", "/v1/sandboxes", ""));
+
+    assert!(
+        body["result"].get("unreadable").is_none(),
+        "the document is unchanged when every record reads: {body}"
+    );
+}
+
+#[test]
 fn an_empty_listing_is_an_explicit_successful_collection() {
     let mut facade = FakeFacade::new(Mode::Succeed);
     let request = identified("GET", "/v1/sandboxes", "");

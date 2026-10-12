@@ -174,7 +174,16 @@ impl Runner {
     /// is not in the listing, so a recovered sandbox gets a fresh default lifetime.
     pub async fn recover_sandboxes(&self) {
         let entries = match self.backend.call(|facade| facade.list()).await {
-            Ok((Ok(entries), _)) => entries,
+            Ok((Ok(listing), _)) => {
+                if !listing.unreadable().is_empty() {
+                    eprintln!(
+                        "soma-api: runner recovery skipped {} unreadable record(s): {}",
+                        listing.unreadable().len(),
+                        super::unreadable_ids(listing.unreadable())
+                    );
+                }
+                listing.into_parts().0
+            }
             Ok((Err(failure), _)) => {
                 eprintln!(
                     "soma-api: runner could not list sandboxes to recover their owners: {}",
