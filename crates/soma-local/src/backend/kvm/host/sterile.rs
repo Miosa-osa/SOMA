@@ -366,15 +366,36 @@ fn take(wanted: &PrimedKey) -> Option<SterileHost> {
 }
 
 fn spawn(plan: Option<&PrewarmPlan>) -> Result<SterileHost, BackendFailureKind> {
-    let executable = std::env::current_exe().map_err(|_| BackendFailureKind::Unavailable)?;
-    let (handoff, child_input) = UnixStream::pair().map_err(|_| BackendFailureKind::Unavailable)?;
+    spawn_explained(plan).map_err(|failure| failure.kind)
+}
+
+/// Why a machine host could not be built: the typed kind a launch maps, and the step that failed.
+struct SpawnFailure {
+    kind: BackendFailureKind,
+    reason: String,
+}
+
+impl SpawnFailure {
+    fn at(step: &str) -> Self {
+        Self {
+            kind: BackendFailureKind::Unavailable,
+            reason: step.to_owned(),
+        }
+    }
+}
+
+fn spawn_explained(plan: Option<&PrewarmPlan>) -> Result<SterileHost, SpawnFailure> {
+    let executable = std::env::current_exe()
+        .map_err(|_| SpawnFailure::at("the running executable is unknown"))?;
+    let (handoff, child_input) =
+        UnixStream::pair().map_err(|_| SpawnFailure::at("no socket pair for the machine host"))?;
     let child = Command::new(executable)
         .arg("machine-host")
         .stdin(Stdio::from(OwnedFd::from(child_input)))
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|_| BackendFailureKind::Unavailable)?;
+        .map_err(|_| SpawnFailure::at("the machine host process could not be started"))?;
     let mut host = SterileHost {
         child,
         handoff,
@@ -395,17 +416,18 @@ fn terminate(child: &mut Child) {
     let _ = child.wait();
 }
 
-fn prime(host: &mut SterileHost, plan: &PrewarmPlan) -> Result<(), BackendFailureKind> {
+fn prime(host: &mut SterileHost, plan: &PrewarmPlan) -> Result<(), SpawnFailure> {
     let (manifest, artifacts) = plan
         .prepared
         .handoff()
-        .map_err(|_| BackendFailureKind::Unavailable)?;
+        .map_err(|_| SpawnFailure::at("the prepared Generation could not be opened for handoff"))?;
     let borrowed = artifacts
         .iter()
         .map(std::fs::File::as_fd)
         .collect::<Vec<_>>();
-    soma_supervise::send_descriptors(host.handoff.as_fd(), &borrowed)
-        .map_err(|_| BackendFailureKind::Unavailable)?;
+    soma_supervise::send_descriptors(host.handoff.as_fd(), &borrowed).map_err(|_| {
+        SpawnFailure::at("the machine host did not accept the artifact descriptors")
+    })?;
     channel::write_line(
         &mut host.handoff,
         &InitialWire::Prewarm(PrewarmWire {
@@ -415,18 +437,28 @@ fn prime(host: &mut SterileHost, plan: &PrewarmPlan) -> Result<(), BackendFailur
             memory_mib: plan.memory_mib,
         }),
     )
-    .map_err(|()| BackendFailureKind::Unavailable)?;
+    .map_err(|()| SpawnFailure::at("the machine host did not accept the prewarm request"))?;
     let output = host
         .child
         .stdout
         .take()
-        .ok_or(BackendFailureKind::Unavailable)?;
+        .ok_or_else(|| SpawnFailure::at("the machine host has no output channel"))?;
     let mut output = BufReader::new(output);
-    if !matches!(
-        channel::read_line(&mut output),
-        Some(PrewarmReady::Prepared)
-    ) {
-        return Err(BackendFailureKind::Unavailable);
+    match channel::read_line(&mut output) {
+        Some(PrewarmReady::Prepared) => {}
+        Some(PrewarmReady::Refused) => {
+            return Err(SpawnFailure::at(
+                "the machine host refused to restore this Generation at this memory",
+            ));
+        }
+        None => {
+            // No answer: say whether the process is gone, and how, because that is the evidence.
+            let reason = match host.child.try_wait() {
+                Ok(Some(status)) => format!("the machine host exited before answering ({status})"),
+                _ => "the machine host closed its channel without answering".to_owned(),
+            };
+            return Err(SpawnFailure::at(&reason));
+        }
     }
     host.output = Some(output);
     host.primed = Some(PrimedKey {
@@ -508,8 +540,8 @@ fn refill() -> bool {
             return progressed;
         };
         let built = match &missing {
-            Missing::Primed(plan, _) => spawn(Some(plan.as_ref())),
-            Missing::Spare => spawn(None),
+            Missing::Primed(plan, _) => spawn_explained(Some(plan.as_ref())),
+            Missing::Spare => spawn_explained(None),
         };
         match (missing, built) {
             (Missing::Primed(_, key), Ok(host)) => {
@@ -532,7 +564,7 @@ fn refill() -> bool {
             (Missing::Primed(_, key), Err(failure)) => {
                 // Stop this pass, so a shape that cannot be built does not spin; the readback
                 // carries the reason and the next claim or change schedules another pass.
-                note_target(key.as_ref(), Some(format!("{failure:?}")));
+                note_target(key.as_ref(), Some(failure.reason));
                 return progressed;
             }
             (Missing::Spare, Err(_)) => return progressed,
