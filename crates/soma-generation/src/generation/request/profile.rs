@@ -29,6 +29,13 @@ const LARGE_WRITABLE_CLASS_BYTES: u64 = 20 * GIB;
 /// does not list can be compiled under a narrowed profile but never certified or admitted.
 const DEFAULT_WRITABLE_CLASS_BYTES: u64 = 10 * GIB;
 
+/// The writable class the version 3 xl sandbox is defined at, in bytes.
+///
+/// The large shape's catalog contract declares forty gigabytes of writable storage and launch
+/// refuses a storage size that differs from the manifest, so the version 3 profile names that
+/// class too. Version 1 and 2 profiles stay as they were.
+const XL_WRITABLE_CLASS_BYTES: u64 = 40 * GIB;
+
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
 /// The block a hotplug region is a whole number of: virtio-mem's plug granularity in this
@@ -98,6 +105,7 @@ impl CompilerProfile {
                 4 * GIB,
                 DEFAULT_WRITABLE_CLASS_BYTES,
                 LARGE_WRITABLE_CLASS_BYTES,
+                XL_WRITABLE_CLASS_BYTES,
             ],
             ..Self::v2()
         }
