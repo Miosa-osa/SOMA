@@ -375,13 +375,24 @@ pub fn serve(
         scope.spawn(|| {
             let report = plan.execute(&state.broker, crate::reconcile::MAX_REAP_PER_START);
             eprintln!(
-                "soma-netd: start reaped {} unassigned bundle(s); in use [{}]; failed [{}]; foreign [{}]; deferred {}",
+                "soma-netd: start reaped {} unassigned bundle(s); in use [{}]; failed [{}]; deferred {}",
                 report.removed.len(),
                 report.in_use.join(","),
                 report.failed.join(","),
-                report.foreign.join(","),
                 report.deferred.len()
             );
+            if !report.foreign.is_empty() {
+                eprintln!(
+                    "soma-netd: WARN: kernel objects with the broker's naming and no pin of ours were left alone (another broker, or a bundle whose pin is gone): [{}]",
+                    report.foreign.join(",")
+                );
+            }
+            if !report.failed.is_empty() {
+                eprintln!(
+                    "soma-netd: WARN: could not fully remove [{}]; they keep their pin and are retried at the next start",
+                    report.failed.join(",")
+                );
+            }
         });
         for _ in 0..PREPARE_WORKERS {
             scope.spawn(|| prepare_worker(&state));
@@ -615,38 +626,84 @@ struct InstanceLock {
     _file: std::fs::File,
 }
 
+/// How long a starting broker waits for a previous one to release the state root.
+///
+/// A stop completes before a start under systemd, but a process that outlives its stop (for
+/// instance one still tearing down) would otherwise make the new one fail at once and crash-loop.
+/// The wait is bounded so a genuinely second broker still fails, and the wait is logged.
+const LOCK_WAIT: Duration = Duration::from_secs(30);
+
 impl InstanceLock {
     fn acquire(root: &std::path::Path) -> Result<Self, Error> {
-        use std::os::fd::AsRawFd as _;
+        Self::acquire_within(root, LOCK_WAIT)
+    }
+
+    fn acquire_within(root: &std::path::Path, wait: Duration) -> Result<Self, Error> {
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(root.join("netd.lock"))
             .map_err(|error| Error::io(Step::LedgerOpen, &error))?;
-        // SAFETY: `flock` takes a valid descriptor and an operation flag only.
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err(Error::Kernel {
-                step: Step::LedgerOpen,
-                errno: std::io::Error::last_os_error().raw_os_error().unwrap_or(0),
-            });
+        let deadline = std::time::Instant::now() + wait;
+        let mut announced = false;
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(std::fs::TryLockError::WouldBlock) => {
+                    if std::time::Instant::now() >= deadline {
+                        return Err(Error::Kernel {
+                            step: Step::LedgerOpen,
+                            errno: libc::EWOULDBLOCK,
+                        });
+                    }
+                    if !announced {
+                        eprintln!(
+                            "soma-netd: another broker holds {}; waiting up to {} s for it to exit",
+                            root.join("netd.lock").display(),
+                            wait.as_secs()
+                        );
+                        announced = true;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                Err(std::fs::TryLockError::Error(error)) => {
+                    return Err(Error::io(Step::LedgerOpen, &error));
+                }
+            }
         }
-        Ok(Self { _file: file })
     }
 }
 
 #[cfg(test)]
 mod instance_lock_tests {
+    use std::time::Duration;
+
     use super::InstanceLock;
 
     #[test]
-    fn a_second_broker_on_the_same_state_root_is_refused() {
+    fn a_second_broker_on_the_same_state_root_is_refused_after_a_bounded_wait() {
         let root = tempfile::tempdir().expect("state root");
         let first = InstanceLock::acquire(root.path()).expect("first broker");
+        let started = std::time::Instant::now();
         assert!(
-            InstanceLock::acquire(root.path()).is_err(),
+            InstanceLock::acquire_within(root.path(), Duration::from_millis(300)).is_err(),
             "the lock is exclusive"
         );
+        assert!(started.elapsed() >= Duration::from_millis(300), "it waited");
         drop(first);
         InstanceLock::acquire(root.path()).expect("released when the first ends");
+    }
+
+    #[test]
+    fn a_broker_that_is_still_exiting_does_not_crash_loop_its_successor() {
+        let root = tempfile::tempdir().expect("state root");
+        let old = InstanceLock::acquire(root.path()).expect("the old broker");
+        let releasing = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            drop(old);
+        });
+        InstanceLock::acquire_within(root.path(), Duration::from_secs(5))
+            .expect("the new broker gets the lock once the old one is gone");
+        releasing.join().expect("old broker thread");
     }
 }
