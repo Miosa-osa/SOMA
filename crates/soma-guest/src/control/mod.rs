@@ -57,7 +57,7 @@ pub use error::{ControlError, ControlFailureClass, ControlStage};
 pub const CONTROL_VSOCK_PORT: u32 = 0x534f_4d41;
 pub use guest::GuestControl;
 pub use host::{
-    GUEST_API_PROBE_PREFIX, GuestApi, HostControl, MAX_PROBE_NONCE_BYTES, RangeRead,
+    GUEST_API_PROBE_PREFIX, GuestApi, HostControl, MAX_PROBE_NONCE_BYTES, RangeRead, RangeWrite,
     RepairedHostControl, SecretPlacement, SecretStage, WholeFileRead, WholeFileWrite,
 };
 pub use io::{ControlIo, HostControlIo};

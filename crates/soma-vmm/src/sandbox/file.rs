@@ -3,7 +3,7 @@
 use soma::{FileAnswer, FileEntry, FileKind, FileOperation, FileRefusal};
 use soma_guest::{
     DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest as GuestFileRequest,
-    WholeFileRead, WholeFileWrite,
+    RangeRead, WholeFileRead, WholeFileWrite,
 };
 
 pub(super) fn answer_from(outcome: FileOutcome) -> FileAnswer {
@@ -18,6 +18,17 @@ pub(super) fn answer_from(outcome: FileOutcome) -> FileAnswer {
         },
         FileOutcome::Status { kind } => FileAnswer::Status {
             kind: kind.map(kind_from),
+        },
+        FileOutcome::Stat {
+            kind,
+            size,
+            mode,
+            modified,
+        } => FileAnswer::Stat {
+            kind: kind_from(kind),
+            size,
+            mode,
+            modified,
         },
         FileOutcome::Done => FileAnswer::Done,
         FileOutcome::Failed(failure) => FileAnswer::Refused(refusal_from(failure)),
@@ -67,7 +78,64 @@ pub(super) fn single_request(operation: &FileOperation) -> Option<GuestFileReque
             path: path.as_slice().into(),
             recursive: *recursive,
         }),
-        FileOperation::Read { .. } | FileOperation::Write { .. } => None,
+        FileOperation::Stat { path } => Some(GuestFileRequest::Stat {
+            path: path.as_slice().into(),
+        }),
+        FileOperation::Rename { path, to } => Some(GuestFileRequest::Rename {
+            path: path.as_slice().into(),
+            to: to.as_slice().into(),
+        }),
+        FileOperation::SetMode { path, mode } => Some(GuestFileRequest::SetMode {
+            path: path.as_slice().into(),
+            mode: *mode,
+        }),
+        FileOperation::Read { .. }
+        | FileOperation::Write { .. }
+        | FileOperation::ReadRange { .. }
+        | FileOperation::WriteRange { .. } => None,
+    }
+}
+
+/// Whether the guest must speak API level 2 to answer this operation.
+pub(super) const fn needs_ranged_files(operation: &FileOperation) -> bool {
+    matches!(
+        operation,
+        FileOperation::Stat { .. }
+            | FileOperation::Rename { .. }
+            | FileOperation::SetMode { .. }
+            | FileOperation::ReadRange { .. }
+            | FileOperation::WriteRange { .. }
+    )
+}
+
+/// Refuses an operation the guest protocol would reject while decoding.
+///
+/// A guest rejecting a malformed body ends the session, so the shape rules are checked here and
+/// the caller gets a refusal instead of losing its sandbox.
+pub(super) fn admissible(operation: &FileOperation) -> bool {
+    let paths = std::iter::once(operation.path()).chain(match operation {
+        FileOperation::Rename { to, .. } => Some(to.as_slice()),
+        _ => None,
+    });
+    for path in paths {
+        if soma::check_guest_path(path).is_err() {
+            return false;
+        }
+    }
+    match operation {
+        FileOperation::SetMode { mode, .. } => *mode <= soma_guest::MAX_FILE_MODE,
+        FileOperation::ReadRange { length, .. } => {
+            usize::try_from(*length).is_ok_and(|length| length <= soma::MAX_FILE_BYTES)
+        }
+        _ => true,
+    }
+}
+
+pub(super) fn range_answer(read: RangeRead) -> FileAnswer {
+    match read {
+        RangeRead::Bytes { bytes, end } => FileAnswer::Range { bytes, end },
+        RangeRead::TooLarge => FileAnswer::Refused(FileRefusal::TooLarge),
+        RangeRead::Failed(failure) => FileAnswer::Refused(refusal_from(failure)),
     }
 }
 

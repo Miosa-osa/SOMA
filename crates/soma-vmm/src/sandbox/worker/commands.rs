@@ -31,6 +31,10 @@ pub(super) fn serve_commands(
         .send(Response::Ready)
         .map_err(|_| SessionError::Gone)?;
 
+    // What the guest answered to the API level probe, learned lazily by the first level 2 file
+    // operation and kept for the life of this session.
+    let mut guest_api: Option<soma_guest::GuestApi> = None;
+
     // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
     // shut down exactly as an explicit shutdown would.
     while let Ok(request) = requests.recv() {
@@ -99,7 +103,8 @@ pub(super) fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::File(operation) => {
-                let (next, answer) = files::perform(repaired, &operation, soma::MAX_FILE_BYTES)?;
+                let (next, answer) =
+                    files::perform(repaired, &operation, soma::MAX_FILE_BYTES, &mut guest_api)?;
                 repaired = next;
                 responses
                     .send(Response::FileAnswered(Box::new(answer)))

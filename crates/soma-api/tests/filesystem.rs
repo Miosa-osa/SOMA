@@ -184,3 +184,78 @@ fn content_beyond_the_transfer_bound_is_refused_before_the_engine() {
     assert!(facade.calls.is_empty());
     assert_eq!(body["error"]["code"], "content_too_large");
 }
+
+#[test]
+fn stat_rename_ranges_and_chmod_reach_the_engine_and_report_their_documents() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let encoded = STANDARD.encode(b"0123456789");
+    post(
+        &mut facade,
+        "write",
+        &format!(r#"{{"path":"/etc/miosa/.env.tmp","content":"{encoded}"}}"#),
+    );
+
+    let (status, stat) = post(&mut facade, "stat", r#"{"path":"/etc/miosa/.env.tmp"}"#);
+    assert_eq!(status, 200);
+    assert_eq!(stat["result"]["size"], 10);
+    assert_eq!(stat["result"]["kind"], "file");
+
+    let (status, renamed) = post(
+        &mut facade,
+        "rename",
+        r#"{"path":"/etc/miosa/.env.tmp","to":"/etc/miosa/identity.env"}"#,
+    );
+    assert_eq!(status, 200);
+    assert!(renamed["result"]["refusal"].is_null());
+    let (_, gone) = post(&mut facade, "exists", r#"{"path":"/etc/miosa/.env.tmp"}"#);
+    assert_eq!(gone["result"]["exists"], false);
+
+    let (status, range) = post(
+        &mut facade,
+        "read_range",
+        r#"{"path":"/etc/miosa/identity.env","offset":2,"length":4}"#,
+    );
+    assert_eq!(status, 200);
+    assert_eq!(range["result"]["content"]["byte_length"], 4);
+    assert_eq!(range["result"]["end_of_file"], false);
+
+    let patch = STANDARD.encode(b"AB");
+    let (status, _) = post(
+        &mut facade,
+        "write_range",
+        &format!(
+            r#"{{"path":"/etc/miosa/identity.env","offset":8,"content":"{patch}","shorten":true}}"#
+        ),
+    );
+    assert_eq!(status, 200);
+    let (_, whole) = post(&mut facade, "stat", r#"{"path":"/etc/miosa/identity.env"}"#);
+    assert_eq!(whole["result"]["size"], 10);
+
+    let (status, chmod) = post(
+        &mut facade,
+        "chmod",
+        r#"{"path":"/etc/miosa/identity.env","mode":384}"#,
+    );
+    assert_eq!(status, 200);
+    assert!(chmod["result"]["refusal"].is_null());
+}
+
+#[test]
+fn level_two_fields_are_refused_where_the_operation_does_not_use_them() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    for (operation, body) in [
+        ("read", r#"{"path":"/f","offset":1}"#),
+        ("stat", r#"{"path":"/f","to":"/g"}"#),
+        ("rename", r#"{"path":"/f"}"#),
+        ("rename", r#"{"path":"/f","to":"relative"}"#),
+        ("chmod", r#"{"path":"/f"}"#),
+        ("chmod", r#"{"path":"/f","mode":2048}"#),
+        ("read_range", r#"{"path":"/f"}"#),
+        ("read_range", r#"{"path":"/f","length":4194305}"#),
+        ("write_range", r#"{"path":"/f"}"#),
+        ("write_range", r#"{"path":"/f","content":"","length":1}"#),
+    ] {
+        let (status, _) = post(&mut facade, operation, body);
+        assert_eq!(status, 400, "{operation} {body}");
+    }
+}

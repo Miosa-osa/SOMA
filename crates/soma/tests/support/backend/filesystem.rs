@@ -54,5 +54,81 @@ pub(super) fn answer_for(
                 FileAnswer::Refused(FileRefusal::NotFound)
             }
         }
+        FileOperation::Stat { .. }
+        | FileOperation::Rename { .. }
+        | FileOperation::SetMode { .. }
+        | FileOperation::ReadRange { .. }
+        | FileOperation::WriteRange { .. } => level_two_answer(files, operation),
+    }
+}
+
+/// The in-memory answer to the guest API level 2 operations.
+fn level_two_answer(
+    files: &mut BTreeMap<Vec<u8>, Vec<u8>>,
+    operation: &FileOperation,
+) -> FileAnswer {
+    match operation {
+        FileOperation::Stat { path } => {
+            files
+                .get(path)
+                .map_or(FileAnswer::Refused(FileRefusal::NotFound), |bytes| {
+                    FileAnswer::Stat {
+                        kind: FileKind::File,
+                        size: bytes.len() as u64,
+                        mode: 0o644,
+                        modified: 0,
+                    }
+                })
+        }
+        FileOperation::Rename { path, to } => match files.remove(path) {
+            Some(bytes) => {
+                files.insert(to.clone(), bytes);
+                FileAnswer::Done
+            }
+            None => FileAnswer::Refused(FileRefusal::NotFound),
+        },
+        FileOperation::SetMode { path, .. } => {
+            if files.contains_key(path) {
+                FileAnswer::Done
+            } else {
+                FileAnswer::Refused(FileRefusal::NotFound)
+            }
+        }
+        FileOperation::ReadRange {
+            path,
+            offset,
+            length,
+        } => files
+            .get(path)
+            .map_or(FileAnswer::Refused(FileRefusal::NotFound), |bytes| {
+                let start = usize::try_from(*offset).map_or(bytes.len(), |o| o.min(bytes.len()));
+                let stop = start.saturating_add(*length as usize).min(bytes.len());
+                FileAnswer::Range {
+                    bytes: bytes[start..stop].to_vec(),
+                    end: stop == bytes.len(),
+                }
+            }),
+        FileOperation::WriteRange {
+            path,
+            offset,
+            create,
+            shorten,
+            bytes,
+        } => {
+            if !create && !files.contains_key(path) {
+                return FileAnswer::Refused(FileRefusal::NotFound);
+            }
+            let file = files.entry(path.clone()).or_default();
+            let start = usize::try_from(*offset).unwrap_or(usize::MAX);
+            let stop = start + bytes.len();
+            if file.len() < stop || *shorten {
+                file.resize(stop, 0);
+            }
+            file[start..stop].copy_from_slice(bytes);
+            FileAnswer::Written {
+                bytes: bytes.len() as u64,
+            }
+        }
+        _ => unreachable!("the caller routes only level 2 operations here"),
     }
 }

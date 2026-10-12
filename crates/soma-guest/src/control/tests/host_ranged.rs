@@ -5,7 +5,7 @@ use crate::{
     HostMessage, MAX_CHUNK_BYTES,
 };
 
-use super::super::{RangeRead, WholeFileWrite};
+use super::super::{RangeRead, RangeWrite, WholeFileWrite};
 use super::host_file::repaired_host;
 
 /// Answers the one probe read the host sends with `answer`, and returns the path it read.
@@ -127,7 +127,16 @@ fn a_range_over_the_bound_is_refused_before_anything_is_sent() {
     assert_eq!(outcome, RangeRead::TooLarge);
     let (host, _raw, _observed) = repaired_host();
     let (_host, outcome) = host
-        .write_range(b"/f", 0, true, false, &[0; 11], 10)
+        .write_range(
+            RangeWrite {
+                path: b"/f",
+                offset: 0,
+                create: true,
+                shorten: false,
+                bytes: &[0; 11],
+            },
+            10,
+        )
         .expect("refusal");
     assert_eq!(outcome, WholeFileWrite::TooLarge);
     assert_eq!(observed.poison(), 0);
@@ -157,7 +166,16 @@ fn a_range_write_creates_only_first_and_shortens_only_last_and_only_when_asked()
         let total = MAX_CHUNK_BYTES + 3;
         let (host, mut raw, observed) = repaired_host();
         let host_thread = thread::spawn(move || {
-            host.write_range(b"/f", 40, true, shorten, &vec![1; total], total)
+            host.write_range(
+                RangeWrite {
+                    path: b"/f",
+                    offset: 40,
+                    create: true,
+                    shorten,
+                    bytes: &vec![1; total],
+                },
+                total,
+            )
         });
         let mut records = Vec::new();
         loop {

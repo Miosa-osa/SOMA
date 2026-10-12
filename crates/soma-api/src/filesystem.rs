@@ -32,6 +32,24 @@ pub struct FilesystemBody {
     /// Whether a remove may take a directory's contents with it.
     #[serde(default)]
     pub recursive: Option<bool>,
+    /// The destination of a rename.
+    #[serde(default)]
+    pub to: Option<String>,
+    /// Where a ranged read or write starts.
+    #[serde(default)]
+    pub offset: Option<u64>,
+    /// How many bytes a ranged read asks for.
+    #[serde(default)]
+    pub length: Option<u32>,
+    /// The permission bits a chmod applies.
+    #[serde(default)]
+    pub mode: Option<u32>,
+    /// Whether a ranged write creates a missing file.
+    #[serde(default)]
+    pub create: Option<bool>,
+    /// Whether a ranged write ends the file where it ends.
+    #[serde(default)]
+    pub shorten: Option<bool>,
     #[serde(default)]
     pub operation_id: Option<OperationId>,
 }
@@ -50,9 +68,15 @@ impl FilesystemBody {
         instance_id: InstanceId,
         operation: FilesystemOperation,
     ) -> Result<FileMachineRequest, ApiError> {
-        let path = self.path.into_bytes();
+        self.refuse_unused_fields(operation)?;
+        let path = self.path.clone().into_bytes();
         soma::check_guest_path(&path).map_err(|rejected| ApiError::invalid(rejected.message()))?;
         let operation = match operation {
+            FilesystemOperation::Stat
+            | FilesystemOperation::Rename
+            | FilesystemOperation::Chmod
+            | FilesystemOperation::ReadRange
+            | FilesystemOperation::WriteRange => self.level_two(operation, path)?,
             FilesystemOperation::Write => {
                 let encoded = self
                     .content
@@ -78,9 +102,7 @@ impl FilesystemBody {
                     FilesystemOperation::List => FileOperation::ReadDirectory { path },
                     FilesystemOperation::MakeDirectory => FileOperation::MakeDirectory { path },
                     FilesystemOperation::Exists => FileOperation::Exists { path },
-                    FilesystemOperation::Write | FilesystemOperation::Remove => {
-                        unreachable!("both are decided above")
-                    }
+                    _ => unreachable!("all are decided above"),
                 }
             }
         };
@@ -89,6 +111,94 @@ impl FilesystemBody {
             instance_id,
             operation,
         ))
+    }
+}
+
+impl FilesystemBody {
+    /// Builds a guest API level 2 operation: stat, rename, chmod, and the ranged transfers.
+    fn level_two(
+        &self,
+        operation: FilesystemOperation,
+        path: Vec<u8>,
+    ) -> Result<FileOperation, ApiError> {
+        refuse_recursive(self.recursive.is_some())?;
+        if operation != FilesystemOperation::WriteRange {
+            refuse_content(self.content.is_some())?;
+        }
+        Ok(match operation {
+            FilesystemOperation::Rename => {
+                let to = self
+                    .to
+                    .clone()
+                    .ok_or_else(|| ApiError::invalid("a rename must name its destination"))?
+                    .into_bytes();
+                soma::check_guest_path(&to)
+                    .map_err(|rejected| ApiError::invalid(rejected.message()))?;
+                FileOperation::Rename { path, to }
+            }
+            FilesystemOperation::Chmod => {
+                let mode = self
+                    .mode
+                    .ok_or_else(|| ApiError::invalid("a chmod must carry the mode"))?;
+                if mode > 0o777 {
+                    return Err(ApiError::invalid("the mode must be within 0o777"));
+                }
+                FileOperation::SetMode { path, mode }
+            }
+            FilesystemOperation::ReadRange => {
+                let length = self
+                    .length
+                    .ok_or_else(|| ApiError::invalid("a ranged read must carry a length"))?;
+                if usize::try_from(length).map_or(true, |length| length > soma::MAX_FILE_BYTES) {
+                    return Err(ApiError::invalid("the length exceeds one transfer"));
+                }
+                FileOperation::ReadRange {
+                    path,
+                    offset: self.offset.unwrap_or(0),
+                    length,
+                }
+            }
+            FilesystemOperation::WriteRange => {
+                let encoded = self.content.as_deref().ok_or_else(|| {
+                    ApiError::invalid("a ranged write must carry the content to write")
+                })?;
+                FileOperation::WriteRange {
+                    path,
+                    offset: self.offset.unwrap_or(0),
+                    create: self.create.unwrap_or(false),
+                    shorten: self.shorten.unwrap_or(false),
+                    bytes: decode(encoded)?,
+                }
+            }
+            _ => FileOperation::Stat { path },
+        })
+    }
+
+    /// Refuses a field the named operation does not use, so a mistyped call is told so.
+    fn refuse_unused_fields(&self, operation: FilesystemOperation) -> Result<(), ApiError> {
+        use FilesystemOperation as Op;
+        let allowed = |field: &str| match field {
+            "to" => operation == Op::Rename,
+            "offset" => matches!(operation, Op::ReadRange | Op::WriteRange),
+            "length" => operation == Op::ReadRange,
+            "mode" => operation == Op::Chmod,
+            "create" | "shorten" => operation == Op::WriteRange,
+            _ => false,
+        };
+        let present = [
+            ("to", self.to.is_some()),
+            ("offset", self.offset.is_some()),
+            ("length", self.length.is_some()),
+            ("mode", self.mode.is_some()),
+            ("create", self.create.is_some()),
+            ("shorten", self.shorten.is_some()),
+        ];
+        if present.iter().any(|(field, set)| *set && !allowed(field)) {
+            return Err(ApiError::invalid(
+                "this operation does not take one of the fields supplied",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -156,6 +266,18 @@ pub struct FilesystemReport {
     pub exists: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<&'static str>,
+    /// Size in bytes, for a stat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// Permission bits, for a stat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u32>,
+    /// Modification time in seconds since the Unix epoch, for a stat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified: Option<u64>,
+    /// Whether a ranged read reached the end of the file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_of_file: Option<bool>,
 }
 
 impl FilesystemReport {
@@ -172,6 +294,10 @@ impl FilesystemReport {
             more_entries: None,
             exists: None,
             kind: None,
+            size: None,
+            mode: None,
+            modified: None,
+            end_of_file: None,
         };
         match answer {
             FileAnswer::Read { bytes } => report.content = Some(OutputBytes::new(bytes)),
@@ -183,6 +309,21 @@ impl FilesystemReport {
             FileAnswer::Status { kind } => {
                 report.exists = Some(kind.is_some());
                 report.kind = kind.map(FileKind::code);
+            }
+            FileAnswer::Range { bytes, end } => {
+                report.content = Some(OutputBytes::new(bytes));
+                report.end_of_file = Some(*end);
+            }
+            FileAnswer::Stat {
+                kind,
+                size,
+                mode,
+                modified,
+            } => {
+                report.kind = Some(kind.code());
+                report.size = Some(*size);
+                report.mode = Some(*mode);
+                report.modified = Some(*modified);
             }
             FileAnswer::Done => {}
             FileAnswer::Refused(refusal) => report.refusal = Some(FileRefusal::code(*refusal)),

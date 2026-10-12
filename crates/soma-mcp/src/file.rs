@@ -215,7 +215,9 @@ impl FileResult {
             kind: None,
         };
         match &self.answer {
-            FileAnswer::Read { bytes } => body.content = Some(encoded(bytes)),
+            FileAnswer::Read { bytes } | FileAnswer::Range { bytes, .. } => {
+                body.content = Some(encoded(bytes));
+            }
             FileAnswer::Written { bytes } => body.byte_length = Some(*bytes),
             FileAnswer::Listed { entries, more } => {
                 body.entries = Some(
@@ -232,6 +234,10 @@ impl FileResult {
             FileAnswer::Status { kind } => {
                 body.exists = Some(kind.is_some());
                 body.kind = kind.map(FileKind::code);
+            }
+            FileAnswer::Stat { kind, size, .. } => {
+                body.byte_length = Some(*size);
+                let _ = kind;
             }
             FileAnswer::Done => {}
             FileAnswer::Refused(refusal) => body.refusal = Some(FileRefusal::code(*refusal)),

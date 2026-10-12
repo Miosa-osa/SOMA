@@ -47,10 +47,10 @@ const MAX_NONCE_BYTES: usize = soma_guest::MAX_PROBE_NONCE_BYTES;
 /// Performs one decoded filesystem request and returns the outcome that answers it.
 #[must_use]
 pub fn perform(request: &FileRequest) -> FileOutcome {
-    if let FileRequest::Read { path, offset, .. } = request {
-        if let Some(nonce) = path.strip_prefix(GUEST_API_PROBE_PREFIX) {
-            return probe(nonce, *offset);
-        }
+    if let FileRequest::Read { path, offset, .. } = request
+        && let Some(nonce) = path.strip_prefix(GUEST_API_PROBE_PREFIX)
+    {
+        return probe(nonce, *offset);
     }
     let Some(path) = resolve(request.path()) else {
         return FileOutcome::Failed(FileFailure::Failed);

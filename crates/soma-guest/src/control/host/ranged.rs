@@ -37,6 +37,21 @@ impl GuestApi {
     }
 }
 
+/// One ranged write: where it goes and what it carries.
+#[derive(Clone, Copy)]
+pub struct RangeWrite<'a> {
+    /// Absolute guest path.
+    pub path: &'a [u8],
+    /// Byte offset to write at.
+    pub offset: u64,
+    /// Whether a missing file is created.
+    pub create: bool,
+    /// Whether the file ends where this write ends.
+    pub shorten: bool,
+    /// The bytes to write.
+    pub bytes: &'a [u8],
+}
+
 /// The result of reading a byte range.
 #[derive(Clone, Eq, PartialEq)]
 pub enum RangeRead {
@@ -173,13 +188,16 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     /// the guest answers a write with anything but the exact count of bytes it was handed.
     pub fn write_range(
         mut self,
-        path: &[u8],
-        offset: u64,
-        create: bool,
-        shorten: bool,
-        bytes: &[u8],
+        write: RangeWrite<'_>,
         maximum: usize,
     ) -> Result<(Self, WholeFileWrite), ControlError> {
+        let RangeWrite {
+            path,
+            offset,
+            create,
+            shorten,
+            bytes,
+        } = write;
         if bytes.len() > maximum {
             return Ok((self, WholeFileWrite::TooLarge));
         }

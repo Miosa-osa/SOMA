@@ -20,6 +20,16 @@ pub enum FilesystemOperation {
     Exists,
     Remove,
     MakeDirectory,
+    /// Guest API level 2: kind, size, mode, and modification time.
+    Stat,
+    /// Guest API level 2: atomic move.
+    Rename,
+    /// Guest API level 2: a byte range of a file.
+    ReadRange,
+    /// Guest API level 2: a byte range written into a file.
+    WriteRange,
+    /// Guest API level 2: permission bits.
+    Chmod,
 }
 
 impl FilesystemOperation {
@@ -33,6 +43,11 @@ impl FilesystemOperation {
             Self::Exists => "exists",
             Self::Remove => "remove",
             Self::MakeDirectory => "mkdir",
+            Self::Stat => "stat",
+            Self::Rename => "rename",
+            Self::ReadRange => "read_range",
+            Self::WriteRange => "write_range",
+            Self::Chmod => "chmod",
         }
     }
 }
@@ -192,6 +207,11 @@ fn filesystem_operation(operation: &str) -> Result<FilesystemOperation, ApiError
         "exists" => Ok(FilesystemOperation::Exists),
         "remove" => Ok(FilesystemOperation::Remove),
         "mkdir" => Ok(FilesystemOperation::MakeDirectory),
+        "stat" => Ok(FilesystemOperation::Stat),
+        "rename" => Ok(FilesystemOperation::Rename),
+        "read_range" => Ok(FilesystemOperation::ReadRange),
+        "write_range" => Ok(FilesystemOperation::WriteRange),
+        "chmod" => Ok(FilesystemOperation::Chmod),
         _ => Err(ApiError::not_found()),
     }
 }

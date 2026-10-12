@@ -232,10 +232,10 @@ mod streaming {
             let mut reader = BufReader::new(stream.try_clone().expect("clone"));
             let call = channel::read_line::<Call>(&mut reader).expect("a call");
             for (index, answer) in answers.into_iter().enumerate() {
-                if index == 1 {
-                    if let Some(gate) = &gate {
-                        let _ = gate.recv();
-                    }
+                if index == 1
+                    && let Some(gate) = &gate
+                {
+                    let _ = gate.recv();
                 }
                 channel::write_line(&mut stream, &answer).expect("write");
             }

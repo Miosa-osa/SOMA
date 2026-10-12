@@ -82,9 +82,10 @@ fn crlf_line_endings_are_read_as_lf() {
 
 #[test]
 fn the_variable_count_and_value_length_are_bounded() {
-    let many: String = (0..MAX_VARIABLES + 10)
+    let many = (0..MAX_VARIABLES + 10)
         .map(|index| format!("V{index}='x'\n"))
-        .collect();
+        .collect::<Vec<_>>()
+        .concat();
     assert_eq!(pairs(many.as_bytes()).len(), MAX_VARIABLES);
     let long = format!("A='{}'\n", "x".repeat(4097));
     assert!(pairs(long.as_bytes()).is_empty());
