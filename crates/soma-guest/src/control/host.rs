@@ -18,6 +18,7 @@ mod file;
 mod network;
 mod operation;
 mod pty;
+mod ranged;
 mod secret;
 mod whole_file;
 
@@ -25,6 +26,7 @@ use operation::fresh_operation;
 
 pub use secret::{SecretPlacement, SecretStage};
 
+pub use ranged::{GUEST_API_PROBE_PREFIX, GuestApi, MAX_PROBE_NONCE_BYTES, RangeRead};
 pub use whole_file::{WholeFileRead, WholeFileWrite};
 
 /// Host owner of one authenticated pre-repair guest-control session.

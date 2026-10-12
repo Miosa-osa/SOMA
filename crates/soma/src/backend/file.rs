@@ -141,6 +141,57 @@ pub enum FileOperation {
         /// Whether a directory is removed with its contents.
         recursive: bool,
     },
+    /// Reports kind, size, permission bits, and modification time of `path`.
+    ///
+    /// Needs guest API level 2; an older guest answers [`FileRefusal::Unsupported`].
+    Stat {
+        /// Absolute guest path.
+        path: Vec<u8>,
+    },
+    /// Moves `path` to `to`, atomically replacing a file already at `to`.
+    ///
+    /// Needs guest API level 2.
+    Rename {
+        /// Absolute guest path to move.
+        path: Vec<u8>,
+        /// Absolute guest path to move it to.
+        to: Vec<u8>,
+    },
+    /// Reads at most `length` bytes of `path` from `offset`, for at most [`MAX_FILE_BYTES`].
+    ///
+    /// Needs guest API level 2.
+    ReadRange {
+        /// Absolute guest path.
+        path: Vec<u8>,
+        /// Byte offset to read from.
+        offset: u64,
+        /// Most bytes to return, at most [`MAX_FILE_BYTES`].
+        length: u32,
+    },
+    /// Writes `bytes` into `path` at `offset`, for at most [`MAX_FILE_BYTES`].
+    ///
+    /// Needs guest API level 2.
+    WriteRange {
+        /// Absolute guest path.
+        path: Vec<u8>,
+        /// Byte offset to write at.
+        offset: u64,
+        /// Whether a missing file is created.
+        create: bool,
+        /// Whether the file ends where this write ends.
+        shorten: bool,
+        /// The bytes to write.
+        bytes: Vec<u8>,
+    },
+    /// Sets the permission bits of an existing path, within `0o777`.
+    ///
+    /// Needs guest API level 2.
+    SetMode {
+        /// Absolute guest path.
+        path: Vec<u8>,
+        /// The permission bits to apply.
+        mode: u32,
+    },
 }
 
 impl FileOperation {
@@ -153,7 +204,12 @@ impl FileOperation {
             | Self::MakeDirectory { path }
             | Self::ReadDirectory { path }
             | Self::Exists { path }
-            | Self::Remove { path, .. } => path,
+            | Self::Remove { path, .. }
+            | Self::Stat { path }
+            | Self::Rename { path, .. }
+            | Self::ReadRange { path, .. }
+            | Self::WriteRange { path, .. }
+            | Self::SetMode { path, .. } => path,
         }
     }
 
@@ -167,6 +223,11 @@ impl FileOperation {
             Self::ReadDirectory { .. } => "list",
             Self::Exists { .. } => "exists",
             Self::Remove { .. } => "remove",
+            Self::Stat { .. } => "stat",
+            Self::Rename { .. } => "rename",
+            Self::ReadRange { .. } => "read_range",
+            Self::WriteRange { .. } => "write_range",
+            Self::SetMode { .. } => "chmod",
         }
     }
 }
@@ -185,7 +246,10 @@ impl fmt::Debug for FileOperation {
             self.path().len()
         )?;
         match self {
-            Self::Write { bytes, .. } => write!(formatter, ", contents: {} bytes }}", bytes.len()),
+            Self::Write { bytes, .. } | Self::WriteRange { bytes, .. } => {
+                write!(formatter, ", contents: {} bytes }}", bytes.len())
+            }
+            Self::Rename { to, .. } => write!(formatter, ", to: {} bytes }}", to.len()),
             Self::Remove { recursive, .. } => write!(formatter, ", recursive: {recursive} }}"),
             _ => formatter.write_str(" }"),
         }

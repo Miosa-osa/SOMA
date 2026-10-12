@@ -33,6 +33,11 @@ pub enum FileRefusal {
     TooLarge,
     /// The guest could not complete the operation for any other reason.
     Failed,
+    /// The guest's API level does not offer this operation.
+    ///
+    /// Like [`Self::TooLarge`] this is a refusal and not a failure: nothing was sent, the session
+    /// is intact, and an upgraded guest will answer the same request.
+    Unsupported,
 }
 
 impl fmt::Display for FileRefusal {
@@ -53,6 +58,7 @@ impl FileRefusal {
             Self::NotEmpty => "not_empty",
             Self::TooLarge => "too_large",
             Self::Failed => "failed",
+            Self::Unsupported => "unsupported",
         }
     }
 }
@@ -128,6 +134,24 @@ pub enum FileAnswer {
         /// The kind, or `None` when nothing exists at the path.
         kind: Option<FileKind>,
     },
+    /// The bytes of a ranged read, with whether the file ended within them.
+    Range {
+        /// The bytes, which may be shorter than the request asked for.
+        bytes: Vec<u8>,
+        /// Whether the read reached the end of the file.
+        end: bool,
+    },
+    /// What a path is, how big, its permission bits, and when it last changed.
+    Stat {
+        /// What the path is.
+        kind: FileKind,
+        /// Size in bytes; zero for anything that is not a regular file.
+        size: u64,
+        /// Permission bits.
+        mode: u32,
+        /// Modification time in whole seconds since the Unix epoch, zero when unknown.
+        modified: u64,
+    },
     /// The operation completed and has nothing to report.
     Done,
     /// The operation did not happen.
@@ -148,6 +172,10 @@ impl fmt::Debug for FileAnswer {
                 )
             }
             Self::Status { kind } => write!(formatter, "Status {{ {kind:?} }}"),
+            Self::Range { bytes, end } => {
+                write!(formatter, "Range {{ {} bytes, end: {end} }}", bytes.len())
+            }
+            Self::Stat { kind, size, .. } => write!(formatter, "Stat {{ {kind:?}, {size} bytes }}"),
             Self::Done => formatter.write_str("Done"),
             Self::Refused(refusal) => write!(formatter, "Refused({refusal})"),
         }

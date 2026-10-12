@@ -39,10 +39,10 @@ pub const GUEST_API_LEVEL: u8 = 2;
 /// an older agent answers the read with an ordinary failure (or file bytes that lack the nonce
 /// echo), so no rollout order makes the host send a word the guest would not understand.
 /// The probe is answered from memory and never touches the disk.
-pub const GUEST_API_PROBE_PREFIX: &[u8] = b"/.soma/guest-api/";
+pub use soma_guest::GUEST_API_PROBE_PREFIX;
 
 /// Longest nonce the probe accepts.
-const MAX_NONCE_BYTES: usize = 64;
+const MAX_NONCE_BYTES: usize = soma_guest::MAX_PROBE_NONCE_BYTES;
 
 /// Performs one decoded filesystem request and returns the outcome that answers it.
 #[must_use]
