@@ -48,3 +48,12 @@ impl ExecuteOutcome {
         &self.stderr
     }
 }
+
+/// Which stream of a running command a chunk of output came from.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputSource {
+    /// The command's standard output.
+    Stdout,
+    /// The command's standard error.
+    Stderr,
+}

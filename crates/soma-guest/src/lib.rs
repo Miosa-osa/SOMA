@@ -61,8 +61,8 @@ pub use capture_warm::{
 };
 pub use control::{
     CONTROL_VSOCK_PORT, ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome,
-    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl, SecretPlacement,
-    SecretStage, WholeFileRead, WholeFileWrite,
+    GuestControl, GuestRequest, HostControl, HostControlIo, OutputSource, RepairedHostControl,
+    SecretPlacement, SecretStage, WholeFileRead, WholeFileWrite,
 };
 pub use error::Error;
 pub(crate) use handshake::{

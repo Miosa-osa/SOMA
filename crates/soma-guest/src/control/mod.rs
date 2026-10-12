@@ -60,7 +60,7 @@ pub use host::{
     HostControl, RepairedHostControl, SecretPlacement, SecretStage, WholeFileRead, WholeFileWrite,
 };
 pub use io::{ControlIo, HostControlIo};
-pub use outcome::ExecuteOutcome;
+pub use outcome::{ExecuteOutcome, OutputSource};
 pub use request::GuestRequest;
 
 #[cfg(test)]
