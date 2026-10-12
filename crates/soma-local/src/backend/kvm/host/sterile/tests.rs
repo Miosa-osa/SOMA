@@ -276,3 +276,33 @@ fn admit_keeps_a_machine_only_while_the_set_wants_it() {
         terminate(&mut host.child);
     }
 }
+
+/// A claim takes a machine primed for its shape before an unprimed spare, whichever was added last,
+/// and never one primed for another shape.
+#[test]
+fn a_claim_prefers_a_primed_machine_over_a_spare() {
+    let _serial = fresh();
+    {
+        let mut available = locked(&pool().available);
+        available.push(host(Some(key("node:22"))));
+        available.push(host(None));
+        available.push(host(Some(key("other:1"))));
+    }
+    let first = take(&key("node:22")).expect("a machine");
+    assert!(
+        first.primed == Some(key("node:22")),
+        "the primed one, not the spare"
+    );
+    let second = take(&key("node:22")).expect("the spare");
+    assert!(second.primed.is_none());
+    assert!(
+        take(&key("node:22")).is_none(),
+        "the other shape's machine is not taken"
+    );
+    for mut left in [first, second] {
+        terminate(&mut left.child);
+    }
+    for mut host in std::mem::take(&mut *locked(&pool().available)) {
+        terminate(&mut host.child);
+    }
+}

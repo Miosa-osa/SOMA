@@ -251,8 +251,11 @@ pub(super) fn claim(
 /// that loses finds none and builds its own. A machine is never terminated while claimed.
 fn take(wanted: &PrimedKey) -> Option<SterileHost> {
     let mut available = locked(&pool().available);
-    available
+    // A machine primed for this shape first, so the hit counter stays honest when primed machines
+    // and unprimed spares coexist; a spare only when none is primed for it.
+    let index = available
         .iter()
-        .rposition(|host| host.primed.as_ref().is_none_or(|key| key == wanted))
-        .map(|index| available.swap_remove(index))
+        .rposition(|host| host.primed.as_ref() == Some(wanted))
+        .or_else(|| available.iter().rposition(|host| host.primed.is_none()))?;
+    Some(available.swap_remove(index))
 }
