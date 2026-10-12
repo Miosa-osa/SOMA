@@ -358,21 +358,31 @@ pub fn serve(
     // One broker per state root. A second process would see the first one's live pool as unowned
     // and reap it, and would unlink the first one's control socket.
     let _only_broker = InstanceLock::acquire(state_root(&state.broker)?)?;
-    // The pool a previous process prepared has no ledger owner; remove it before building a new one.
-    // A failure here must not stop egress brokering, so it is reported and the daemon starts anyway.
-    match crate::reconcile::reap_unassigned(&state.broker) {
-        Ok(report) => eprintln!(
-            "soma-netd: start reaped {} unassigned bundle(s); in use [{}]; failed [{}]; foreign [{}]",
-            report.removed.len(),
-            report.in_use.join(","),
-            report.failed.join(","),
-            report.foreign.join(",")
-        ),
-        Err(error) => eprintln!("soma-netd: start could not reap unassigned bundles: {error}"),
-    }
+    // The pool a previous process prepared has no ledger owner. What to remove is decided now,
+    // before this process builds any bundle, so removal can run beside the listener without being
+    // able to name one of its own. A failure to decide must not stop egress brokering, so it is
+    // reported and the daemon starts anyway.
+    let plan = match crate::reconcile::reap_plan(&state.broker) {
+        Ok(plan) => plan,
+        Err(error) => {
+            eprintln!("soma-netd: start could not plan a reap of unassigned bundles: {error}");
+            crate::reconcile::ReapPlan::default()
+        }
+    };
     let listener = ControlListener::bind(socket, authority)?;
     let live = AtomicUsize::new(0);
     std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let report = plan.execute(&state.broker, crate::reconcile::MAX_REAP_PER_START);
+            eprintln!(
+                "soma-netd: start reaped {} unassigned bundle(s); in use [{}]; failed [{}]; foreign [{}]; deferred {}",
+                report.removed.len(),
+                report.in_use.join(","),
+                report.failed.join(","),
+                report.foreign.join(","),
+                report.deferred.len()
+            );
+        });
         for _ in 0..PREPARE_WORKERS {
             scope.spawn(|| prepare_worker(&state));
         }

@@ -1,8 +1,10 @@
 //! Reconciliation of the durable ledger against kernel reality.
 //!
 //! Every ledger entry is compared with the namespace pin, the host veth, and the host table it
-//! should own; kernel objects carrying SOMA names without a ledger owner are reported but never
-//! removed, because ownership must be proven before cleanup.
+//! should own. [`reconcile`] only reports: kernel objects carrying SOMA names without a ledger
+//! owner are listed and never removed by it, because ownership must be proven before cleanup.
+//! [`reap_unassigned`] is the one place that removes them, and only for a bundle that has a pin in
+//! this broker's own directory, is named by no ledger record, and is held by no process.
 
 use std::{collections::BTreeSet, fs, os::unix::fs::MetadataExt, path::Path};
 
@@ -140,6 +142,8 @@ pub struct ReapReport {
     pub removed: Vec<String>,
     /// Bundle names left alone because a process still has their network namespace open.
     pub in_use: Vec<String>,
+    /// Bundle names planned for removal beyond [`MAX_REAP_PER_START`]; the next start takes them.
+    pub deferred: Vec<String>,
     /// Bundle names where a removal step failed, an object remained afterwards, or the pin could
     /// not be inspected. Nothing is removed for a pin that could not be inspected.
     pub failed: Vec<String>,
@@ -172,32 +176,117 @@ pub struct ReapReport {
 ///
 /// Returns a ledger read failure, a kernel listing failure, or a failure to inspect `/proc`.
 pub fn reap_unassigned(broker: &Broker) -> Result<ReapReport, Error> {
+    Ok(reap_plan(broker)?.execute(broker, usize::MAX))
+}
+
+/// The most bundles one start removes. A larger backlog is finished by the next start, so a start
+/// is never held up by a pool left behind by many restarts.
+pub const MAX_REAP_PER_START: usize = 1024;
+
+/// What a start decided to reap, computed before any removal.
+///
+/// The decision is taken once, before the new pool exists, so removal can run beside the
+/// listener without ever being able to name a bundle this process built.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReapPlan {
+    free: Vec<String>,
+    outcome: ReapReport,
+}
+
+impl ReapPlan {
+    /// The bundles that will be removed.
+    #[must_use]
+    pub fn candidates(&self) -> &[String] {
+        &self.free
+    }
+
+    /// Removes up to `limit` of the planned bundles and returns the full report, including what
+    /// the plan already knew (in use, unreadable, foreign) and what was deferred past `limit`.
+    #[must_use]
+    pub fn execute(self, broker: &Broker, limit: usize) -> ReapReport {
+        let Self { free, mut outcome } = self;
+        for (index, id) in free.into_iter().enumerate() {
+            if index >= limit {
+                outcome.deferred.push(id);
+                continue;
+            }
+            let pin = broker.namespace_dir().join(&id);
+            if remove_unassigned(&BundleNames::new(&id), &pin) {
+                outcome.removed.push(id);
+            } else {
+                outcome.failed.push(id);
+            }
+        }
+        outcome
+    }
+}
+
+/// Decides which unassigned bundles to reap, without removing anything.
+///
+/// # Errors
+///
+/// Returns a ledger read failure, a kernel listing failure, a `/proc` that does not show every
+/// process, or a failure to inspect `/proc`. In each case nothing is planned.
+pub fn reap_plan(broker: &Broker) -> Result<ReapPlan, Error> {
     let report = reconcile(broker)?;
     let (ours, foreign) = split_by_pin(&report);
-    let mut outcome = ReapReport {
-        foreign: foreign.into_iter().collect(),
-        ..ReapReport::default()
+    let mut plan = ReapPlan {
+        outcome: ReapReport {
+            foreign: foreign.into_iter().collect(),
+            ..ReapReport::default()
+        },
+        ..ReapPlan::default()
     };
     if ours.is_empty() {
-        return Ok(outcome);
+        return Ok(plan);
     }
+    // Whether a process holds a namespace is learned from /proc, so a /proc that hides other
+    // processes would make every bundle look free.
+    require_complete_proc()?;
     let in_use = namespaces_in_use()?;
     for id in ours {
         let pin = broker.namespace_dir().join(&id);
         match pin_state(fs::metadata(&pin), &in_use) {
-            PinState::InUse => outcome.in_use.push(id),
+            PinState::InUse => plan.outcome.in_use.push(id),
             PinState::Gone => {}
-            PinState::Unreadable => outcome.failed.push(id),
-            PinState::Free => {
-                if remove_unassigned(&BundleNames::new(&id), &pin) {
-                    outcome.removed.push(id);
-                } else {
-                    outcome.failed.push(id);
-                }
-            }
+            PinState::Unreadable => plan.outcome.failed.push(id),
+            PinState::Free => plan.free.push(id),
         }
     }
-    Ok(outcome)
+    Ok(plan)
+}
+
+/// Fails unless `/proc` shows every process.
+///
+/// `hidepid=1`, `hidepid=2` (also spelt `noaccess` and `invisible`), and a unit's `ProtectProc=`
+/// all remove other processes from the listing without an error, which would make a held
+/// namespace look unheld.
+fn require_complete_proc() -> Result<(), Error> {
+    let mounts = fs::read_to_string("/proc/self/mountinfo")
+        .map_err(|error| Error::io(Step::OpenNamespace, &error))?;
+    if proc_hides_processes(&mounts) {
+        return Err(Error::Kernel {
+            step: Step::OpenNamespace,
+            errno: libc::EPERM,
+        });
+    }
+    Ok(())
+}
+
+/// Whether the `/proc` mount in `mountinfo` carries a `hidepid` setting that hides processes.
+fn proc_hides_processes(mountinfo: &str) -> bool {
+    mountinfo.lines().any(|line| {
+        let fields: Vec<&str> = line.split(' ').collect();
+        let Some(dash) = fields.iter().position(|field| *field == "-") else {
+            return false;
+        };
+        let is_proc = fields.get(4) == Some(&"/proc") && fields.get(dash + 1) == Some(&"proc");
+        is_proc
+            && line
+                .split([' ', ','])
+                .filter_map(|option| option.strip_prefix("hidepid="))
+                .any(|value| !matches!(value, "0" | "off"))
+    })
 }
 
 fn eight_hex(text: &str) -> bool {
@@ -356,6 +445,20 @@ mod tests {
         let mut used = BTreeSet::new();
         used.insert((here.dev(), here.ino()));
         assert_eq!(pin_state(Ok(here), &used), PinState::InUse);
+    }
+
+    #[test]
+    fn a_proc_that_hides_processes_is_detected() {
+        let plain = "26 25 0:5 / /proc rw,nosuid - proc proc rw\n";
+        let hidden = "26 25 0:5 / /proc rw,nosuid,hidepid=2,gid=100 - proc proc rw\n";
+        let named = "26 25 0:5 / /proc rw,nosuid - proc proc rw,hidepid=invisible\n";
+        let off = "26 25 0:5 / /proc rw,nosuid - proc proc rw,hidepid=off\n";
+        let other = "30 25 0:40 / /srv rw - xfs /dev/x rw,hidepid=2\n";
+        assert!(!proc_hides_processes(plain));
+        assert!(proc_hides_processes(hidden));
+        assert!(proc_hides_processes(named));
+        assert!(!proc_hides_processes(off));
+        assert!(!proc_hides_processes(other), "only the /proc mount counts");
     }
 
     #[test]
