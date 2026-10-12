@@ -39,3 +39,7 @@ The pool planner needs to set how many machines are prepared for each shape, rea
 - Machines are built one at a time in the background; a large increase converges over time and the readback shows the progress, which the planner must poll instead of assuming.
 - An older soma-api has no route; a caller learns that from the 404 and from the control plane's capability check before it sends anything.
 - Prewarm changes no sandbox that is already running.
+- Shrinking kills only unclaimed machines.
+  A machine leaves the pool under the lock that the shrink scans under, so it belongs to exactly one of them: a claim that wins owns a whole live machine, and one that loses finds none and builds its own, which the readback counts as a miss.
+  A claimed or mid-claim machine is never terminated.
+  `a_claim_racing_a_shrink_wins_a_live_machine_or_gets_a_miss` races claimers against a shrink and checks every machine is accounted for once.

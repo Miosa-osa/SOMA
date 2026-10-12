@@ -326,16 +326,7 @@ pub(super) fn claim(
         generation_id: prepared.id.clone(),
         memory_mib,
     };
-    let claimed = {
-        let mut available = pool()
-            .available
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        available
-            .iter()
-            .rposition(|host| host.primed.as_ref().is_none_or(|key| key == &wanted))
-            .map(|index| available.swap_remove(index))
-    };
+    let claimed = take(&wanted);
     // The machine the launch found is what the planner reads: a primed one is a hit, anything
     // else (an unprimed spare, or none at all) means nothing was prepared for this shape.
     {
@@ -356,6 +347,22 @@ pub(super) fn claim(
     let claimed = claimed.map_or_else(|| spawn(None), Ok)?;
     schedule_refill();
     Ok(claimed)
+}
+
+/// Removes a machine for the shape from the pool, primed for it or an unprimed spare.
+///
+/// The machine leaves the pool under the same lock that `retire_surplus` scans under, so every
+/// machine is owned by exactly one of them: a claim that wins owns a whole live machine, and one
+/// that loses finds none and builds its own. A machine is never terminated while claimed.
+fn take(wanted: &PrimedKey) -> Option<SterileHost> {
+    let mut available = pool()
+        .available
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    available
+        .iter()
+        .rposition(|host| host.primed.as_ref().is_none_or(|key| key == wanted))
+        .map(|index| available.swap_remove(index))
 }
 
 fn spawn(plan: Option<&PrewarmPlan>) -> Result<SterileHost, BackendFailureKind> {
@@ -552,4 +559,100 @@ fn pool() -> &'static Pool {
         desired: Mutex::new(Desired::default()),
         replenishing: AtomicBool::new(false),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Stdio;
+    use std::sync::{Arc, Barrier};
+
+    fn key() -> PrimedKey {
+        PrimedKey {
+            reference: "node:22".to_owned(),
+            generation_id: soma::GenerationId::new(format!("sha256:{}", "ab".repeat(32)))
+                .expect("a canonical generation id"),
+            memory_mib: 2048,
+        }
+    }
+
+    /// A live stand-in process: it is alive until something kills it.
+    fn host(primed: Option<PrimedKey>) -> SterileHost {
+        let (handoff, _peer) = UnixStream::pair().expect("a socket pair");
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+            .expect("sleep starts");
+        SterileHost {
+            child,
+            handoff,
+            output: None,
+            primed,
+        }
+    }
+
+    /// A claim racing a shrink either wins a whole live machine or finds none and builds its own.
+    /// Every machine is accounted for exactly once, and a claimed one is never terminated.
+    #[test]
+    fn a_claim_racing_a_shrink_wins_a_live_machine_or_gets_a_miss() {
+        const MACHINES: usize = 24;
+        const CLAIMERS: usize = 6;
+        for _round in 0..20 {
+            // Nothing is desired, so a shrink retires every prepared machine.
+            pool()
+                .available
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .extend((0..MACHINES).map(|_| host(Some(key()))));
+
+            let start = Arc::new(Barrier::new(CLAIMERS + 1));
+            let claimers: Vec<_> = (0..CLAIMERS)
+                .map(|_| {
+                    let start = Arc::clone(&start);
+                    thread::spawn(move || {
+                        start.wait();
+                        let mut won = Vec::new();
+                        let mut missed = 0_usize;
+                        for _ in 0..MACHINES {
+                            match take(&key()) {
+                                Some(host) => won.push(host),
+                                None => missed += 1,
+                            }
+                        }
+                        (won, missed)
+                    })
+                })
+                .collect();
+            let retirer = {
+                let start = Arc::clone(&start);
+                thread::spawn(move || {
+                    start.wait();
+                    retire_surplus();
+                })
+            };
+
+            retirer.join().expect("the retirer finishes");
+            let mut claimed = 0;
+            for claimer in claimers {
+                let (won, _missed) = claimer.join().expect("a claimer finishes");
+                for mut host in won {
+                    assert!(
+                        host.child.try_wait().expect("a status").is_none(),
+                        "a claimed machine was terminated under its claimer"
+                    );
+                    claimed += 1;
+                    terminate(&mut host.child);
+                }
+            }
+            let left = pool()
+                .available
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len();
+            assert_eq!(left, 0, "a retired or claimed machine stayed in the pool");
+            assert!(claimed <= MACHINES, "a machine was handed out twice");
+        }
+    }
 }
