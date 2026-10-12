@@ -32,19 +32,24 @@ use soma_guest::{FileFailure, FileOutcome, FileRequest, MAX_PATH_BYTES};
 /// Level 1 is the original file protocol. Level 2 adds stat, rename, and ranged operations.
 pub const GUEST_API_LEVEL: u8 = 2;
 
-/// The virtual path a host reads to learn the guest API level.
+/// The virtual directory a host reads `<prefix><nonce>` under to learn the guest API level.
 ///
-/// An agent that predates this answers the read with an ordinary not-found failure, so a host
-/// learns the level without sending any word an old guest would not understand, in any rollout
-/// order.
-pub const GUEST_API_PROBE: &[u8] = b"/.soma/guest-api";
+/// The host picks a fresh random nonce per session and accepts only an answer that echoes it.
+/// A file a tenant planted at a fixed path can therefore never pass for the agent's answer, and
+/// an older agent answers the read with an ordinary failure (or file bytes that lack the nonce
+/// echo), so no rollout order makes the host send a word the guest would not understand.
+/// The probe is answered from memory and never touches the disk.
+pub const GUEST_API_PROBE_PREFIX: &[u8] = b"/.soma/guest-api/";
+
+/// Longest nonce the probe accepts.
+const MAX_NONCE_BYTES: usize = 64;
 
 /// Performs one decoded filesystem request and returns the outcome that answers it.
 #[must_use]
 pub fn perform(request: &FileRequest) -> FileOutcome {
     if let FileRequest::Read { path, offset, .. } = request {
-        if path.as_ref() == GUEST_API_PROBE {
-            return probe(*offset);
+        if let Some(nonce) = path.strip_prefix(GUEST_API_PROBE_PREFIX) {
+            return probe(nonce, *offset);
         }
     }
     let Some(path) = resolve(request.path()) else {
@@ -73,16 +78,23 @@ pub fn perform(request: &FileRequest) -> FileOutcome {
     }
 }
 
-/// Answers a read of the probe path with the level, honouring the offset like a file would.
-fn probe(offset: u64) -> FileOutcome {
-    let text = format!("{GUEST_API_LEVEL}\n").into_bytes();
+/// Answers a read of the probe path with the level and the nonce, honouring the offset.
+fn probe(nonce: &[u8], offset: u64) -> FileOutcome {
+    if nonce.is_empty()
+        || nonce.len() > MAX_NONCE_BYTES
+        || !nonce.iter().all(u8::is_ascii_alphanumeric)
+    {
+        return FileOutcome::Failed(FileFailure::NotFound);
+    }
+    let mut text = format!("{GUEST_API_LEVEL} ").into_bytes();
+    text.extend_from_slice(nonce);
+    text.push(b'\n');
     let start = usize::try_from(offset).map_or(text.len(), |offset| offset.min(text.len()));
     FileOutcome::Read {
         bytes: text[start..].to_vec().into(),
         end: true,
     }
 }
-
 /// Turns request bytes into a guest path, refusing what the protocol does not carry.
 ///
 /// The decoder already applied these bounds, so this only ever rejects a request built inside

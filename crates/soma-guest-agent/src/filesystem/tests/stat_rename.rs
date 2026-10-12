@@ -7,7 +7,7 @@ use soma_guest::{EntryKind, FileFailure, FileOutcome, FileRequest};
 use tempfile::TempDir;
 
 use super::{at, perform, read};
-use crate::filesystem::{GUEST_API_LEVEL, GUEST_API_PROBE};
+use crate::filesystem::{GUEST_API_LEVEL, GUEST_API_PROBE_PREFIX};
 
 #[test]
 fn stat_reports_kind_size_and_mode() {
@@ -99,21 +99,36 @@ fn rename_reports_missing_source_and_kind_mismatch() {
     );
 }
 
+fn probe_path(nonce: &str) -> std::path::PathBuf {
+    let prefix = std::str::from_utf8(GUEST_API_PROBE_PREFIX).expect("text");
+    std::path::PathBuf::from(format!("{prefix}{nonce}"))
+}
+
 #[test]
-fn the_probe_path_answers_the_level_and_honours_the_offset() {
-    let path = std::path::Path::new(std::str::from_utf8(GUEST_API_PROBE).expect("text"));
+fn the_probe_echoes_the_nonce_with_the_level_and_honours_the_offset() {
     assert_eq!(
-        read(path, 0, 16),
+        read(&probe_path("abc123"), 0, 64),
         FileOutcome::Read {
-            bytes: format!("{GUEST_API_LEVEL}\n").into_bytes().into(),
+            bytes: format!("{GUEST_API_LEVEL} abc123\n").into_bytes().into(),
             end: true
         }
     );
     assert_eq!(
-        read(path, 99, 16),
+        read(&probe_path("abc123"), 99, 64),
         FileOutcome::Read {
             bytes: Box::default(),
             end: true
         }
     );
+}
+
+#[test]
+fn a_probe_without_a_usable_nonce_is_refused_and_never_reads_the_disk() {
+    for nonce in ["", "a/b", "a b", &"x".repeat(65)] {
+        assert_eq!(
+            read(&probe_path(nonce), 0, 64),
+            FileOutcome::Failed(FileFailure::NotFound),
+            "{nonce:?}"
+        );
+    }
 }
