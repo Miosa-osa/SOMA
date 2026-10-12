@@ -34,6 +34,12 @@ impl LaunchMachineRequest {
         self.machine_name = Some(machine_name);
         self
     }
+
+    /// The optional metadata name the launch carries.
+    #[must_use]
+    pub const fn machine_name(&self) -> Option<&MachineName> {
+        self.machine_name.as_ref()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

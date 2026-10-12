@@ -64,3 +64,42 @@ async fn a_create_names_an_unknown_field_instead_of_ignoring_it() {
     assert_eq!(allowed.status, 201, "{}", allowed.text);
     assert_eq!(engine.launches.load(Ordering::SeqCst), 2);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_owner_label_comes_from_the_authenticated_tenant_never_from_the_request() {
+    // The runner re-adopts a sandbox after a restart because its machine name is `t-<tenant>`, so a
+    // caller who could choose that name could claim another tenant's sandbox.
+    let (control_plane, state) = start_control_plane().await;
+    let engine = Arc::new(Engine::default());
+    let journal = scratch("label");
+    let handle = start_runner(config(control_plane, &journal, 900), opener(&engine)).await;
+    let address = handle.address;
+    eventually("the feed connection", || !state.connections().is_empty()).await;
+    snapshot(&state, 1);
+
+    let created = create_when_ready(address, "").await;
+    assert_eq!(created.status, 201, "{}", created.text);
+    let names = engine.launched_names.lock().expect("names").clone();
+    assert_eq!(
+        names,
+        [Some(format!("t-{}", crate::support::TENANT))],
+        "the launch carries the authenticated tenant's label"
+    );
+
+    // A request that tries to name the machine is refused before it reaches the facade.
+    let asked = h2(
+        address,
+        "POST",
+        "/api/v1/sandboxes",
+        Some(TOKEN),
+        r#"{"name":"t-someone-elses-tenant"}"#,
+    )
+    .await;
+    assert_eq!(asked.status, 400, "{}", asked.text);
+    assert_eq!(asked.body["error"]["code"], "RUNNER_UNSUPPORTED_REQUEST");
+    assert_eq!(
+        engine.launches.load(Ordering::SeqCst),
+        1,
+        "a refused create never launches"
+    );
+}

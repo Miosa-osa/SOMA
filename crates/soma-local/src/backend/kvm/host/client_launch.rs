@@ -128,8 +128,8 @@ fn report_unsurvivable(launched: &Launched) {
         Some(report) if !report.joined => eprintln!(
             "soma-api: a machine host could not leave the unit's control group; that sandbox will not survive a restart of the API"
         ),
-        Some(report) if !report.limits_carried => eprintln!(
-            "soma-api: a machine host left the unit's control group without the unit's memory or pids limits (controllers not delegated?)"
+        Some(report) if !report.accounted => eprintln!(
+            "soma-api: a machine host left the unit's control group but the memory or pids controller is not enabled in the live subtree, so it is not accounted"
         ),
         _ => {}
     }
