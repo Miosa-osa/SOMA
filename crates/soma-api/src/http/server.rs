@@ -10,7 +10,7 @@ use crate::{
     admission::{CreateAdmission, CreatePermit},
     envelope::{ApiError, failure_body},
     facade::SandboxFacade,
-    handler::handle,
+    handler::{handle, handle_prewarm},
     http::{request::Request, response::Response},
     route::{Route, resolve},
     tenant::{TENANT_HEADER, identify},
@@ -125,12 +125,17 @@ fn serve_connection<M, F>(
             return;
         }
         let keep_alive = request.keep_alive() && request_index + 1 < MAX_REQUESTS_PER_CONNECTION;
-        let response = match admit(&request, admission) {
-            Ok(_permit) => match open_facade() {
-                Ok(mut facade) => handle(&mut facade, &request),
-                Err(error) => Response::new(error.status(), failure_body("request", error)),
-            },
-            Err(busy) => busy,
+        let response = if matches!(resolve(&request), Ok(Route::Prewarm(_))) {
+            // Needs no facade: see the route's documentation.
+            handle_prewarm(&request)
+        } else {
+            match admit(&request, admission) {
+                Ok(_permit) => match open_facade() {
+                    Ok(mut facade) => handle(&mut facade, &request),
+                    Err(error) => Response::new(error.status(), failure_body("request", error)),
+                },
+                Err(busy) => busy,
+            }
         };
         let written = if keep_alive {
             response.write_keep_alive_to(&mut &*stream)

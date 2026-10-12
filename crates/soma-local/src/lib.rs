@@ -5,6 +5,7 @@ mod backend;
 mod config;
 mod error;
 mod file_store;
+mod prewarm;
 mod resize;
 mod runtime;
 mod tunnel;
@@ -13,6 +14,10 @@ mod tunnel;
 mod test_support;
 
 pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
+pub use prewarm::{
+    MAX_TARGET_COUNT, MAX_TARGETS, PrewarmError, PrewarmStatus, PrewarmTarget, Source,
+    TargetStatus, UncoveredDemand,
+};
 pub use resize::{
     CpuResize, DimensionState, MemoryResize, ResizeFailure, ResizeOutcome, ResizeRequest,
 };
@@ -50,6 +55,79 @@ pub fn prewarm_machine_hosts(target: usize) -> Result<(), LocalFailure> {
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 pub const fn prewarm_machine_hosts(_target: usize) -> Result<(), LocalFailure> {
     Ok(())
+}
+
+/// Prepares the pool of machines before a hosted KVM service accepts traffic.
+///
+/// A persisted prewarm set under `state_root` wins over the environment's single shape; without
+/// one the environment applies as it always did, and `workers` is the number of spares.
+///
+/// # Errors
+///
+/// Returns a backend-unavailable failure when the bounded process set cannot be created.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub fn start_prewarm(state_root: &std::path::Path, workers: usize) -> Result<(), LocalFailure> {
+    backend::start_prewarm(state_root, workers)
+        .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))
+}
+
+/// Non-KVM targets prepare nothing.
+///
+/// # Errors
+///
+/// This target-gated compatibility implementation cannot fail.
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+pub const fn start_prewarm(
+    _state_root: &std::path::Path,
+    _workers: usize,
+) -> Result<(), LocalFailure> {
+    Ok(())
+}
+
+/// Replaces the desired prewarm set, whole or not at all, and reads it back.
+///
+/// # Errors
+///
+/// Returns the named refusal: an unknown reference, an invalid or over-budget set, or a set that
+/// could not be persisted.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub fn set_prewarm_targets(targets: &[PrewarmTarget]) -> Result<PrewarmStatus, PrewarmError> {
+    backend::set_prewarm_targets(targets)
+}
+
+/// Non-KVM targets prepare nothing, so a set is refused.
+///
+/// # Errors
+///
+/// Always [`PrewarmError::Unsupported`].
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+pub const fn set_prewarm_targets(
+    _targets: &[PrewarmTarget],
+) -> Result<PrewarmStatus, PrewarmError> {
+    Err(PrewarmError::Unsupported)
+}
+
+/// The desired prewarm set and what exists.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[must_use]
+pub fn prewarm_status() -> PrewarmStatus {
+    backend::prewarm_status()
+}
+
+/// Non-KVM targets have nothing prepared.
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[must_use]
+pub const fn prewarm_status() -> PrewarmStatus {
+    PrewarmStatus {
+        source: Source::EnvDefault,
+        persisted_error: None,
+        budget_mib: 0,
+        committed_mib: 0,
+        unprimed_target: 0,
+        unprimed_prepared: 0,
+        targets: Vec::new(),
+        uncovered_demand: Vec::new(),
+    }
 }
 
 /// A durable machine host is a Linux `x86_64` capability, and no other target can serve one.

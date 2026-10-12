@@ -80,6 +80,11 @@ pub enum Route {
     Tunnel(InstanceId, u16),
     /// `GET` reads, `PATCH` changes, what a running sandbox has.
     Resources(InstanceId, bool),
+    /// `GET` reads the desired prewarm set and what exists, `PUT` replaces the set (ADR 0052).
+    ///
+    /// Served by the connection, not by a handler: it needs no sandbox facade, so a burst that
+    /// holds every facade cannot also block a caller trying to change what is prepared.
+    Prewarm(bool),
 }
 
 impl Route {
@@ -98,6 +103,8 @@ impl Route {
             Self::Tunnel(_, _) => "sandbox.tunnel",
             Self::Resources(_, false) => "sandbox.resources",
             Self::Resources(_, true) => "sandbox.resize",
+            Self::Prewarm(false) => "prewarm.status",
+            Self::Prewarm(true) => "prewarm.set",
         }
     }
 }
@@ -114,6 +121,11 @@ impl Route {
 pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     let segments = request.segments();
     match segments.as_slice() {
+        ["v1", "prewarm"] => match request.method {
+            Method::Get => Ok(Route::Prewarm(false)),
+            Method::Put => Ok(Route::Prewarm(true)),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),

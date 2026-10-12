@@ -17,6 +17,7 @@ mod resize;
 mod resolve;
 mod runtime;
 mod start;
+mod targets;
 
 use std::{path::PathBuf, time::Duration};
 
@@ -35,6 +36,9 @@ use runtime::Ownership;
 use soma_vmm::sandbox::Session;
 
 pub(crate) use host::host_machine;
+pub(crate) use targets::{
+    set as set_prewarm_targets, start as start_prewarm, status as prewarm_status,
+};
 
 /// Names how many sterile machines this host keeps prepared per Generation.
 ///
