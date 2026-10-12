@@ -355,6 +355,17 @@ pub fn serve(
         traffic: Traffic::new(),
         teardowns: Permits::new(MAX_TEARDOWNS),
     };
+    // The pool a previous process prepared has no ledger owner; remove it before building a new one.
+    // A failure here must not stop egress brokering, so it is reported and the daemon starts anyway.
+    match crate::reconcile::reap_unassigned(&state.broker) {
+        Ok(report) => eprintln!(
+            "soma-netd: start reaped {} unassigned bundle(s); {} in use, {} failed",
+            report.removed.len(),
+            report.in_use.len(),
+            report.failed.len()
+        ),
+        Err(error) => eprintln!("soma-netd: start could not reap unassigned bundles: {error}"),
+    }
     let listener = ControlListener::bind(socket, authority)?;
     let live = AtomicUsize::new(0);
     std::thread::scope(|scope| {
