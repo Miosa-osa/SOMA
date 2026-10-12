@@ -279,10 +279,26 @@ fn exec_context(
             ));
         }
     };
-    soma::CommandContext::new(environment, text("cwd")?, text("user")?, Vec::new()).map_err(|_| {
+    let stdin = match (text("stdin")?, text("stdin_base64")?) {
+        (Some(_), Some(_)) => {
+            return Err(PlatformError::invalid_param(
+                "stdin",
+                "send `stdin` or `stdin_base64`, not both",
+            ));
+        }
+        (Some(text), None) => text.into_bytes(),
+        (None, Some(encoded)) => {
+            use base64::{Engine as _, engine::general_purpose::STANDARD};
+            STANDARD.decode(encoded).map_err(|_| {
+                PlatformError::invalid_param("stdin_base64", "`stdin_base64` is not base64")
+            })?
+        }
+        (None, None) => Vec::new(),
+    };
+    soma::CommandContext::new(environment, text("cwd")?, text("user")?, stdin).map_err(|_| {
         PlatformError::invalid_param(
             "env",
-            "the environment, working directory or user is outside the exec contract",
+            "the environment, working directory, user or standard input is outside the exec contract",
         )
     })
 }

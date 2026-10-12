@@ -227,6 +227,31 @@ fn exec_context_fields_are_parsed_and_bounded() {
 }
 
 #[test]
+fn exec_standard_input_arrives_as_text_or_base64_and_is_bounded() {
+    let text = ExecParams::parse(br#"{"command":"cat","stdin":"hello\n"}"#).expect("accepted");
+    assert_eq!(text.context.stdin(), b"hello\n");
+    let binary =
+        ExecParams::parse(br#"{"command":"cat","stdin_base64":"AP8="}"#).expect("accepted");
+    assert_eq!(binary.context.stdin(), [0_u8, 255]);
+
+    let both = br#"{"command":"cat","stdin":"a","stdin_base64":"YQ=="}"#;
+    let not_base64 = br#"{"command":"cat","stdin_base64":"!!!"}"#;
+    let not_text = br#"{"command":"cat","stdin":7}"#;
+    let over = format!(
+        r#"{{"command":"cat","stdin":"{}"}}"#,
+        "x".repeat(32 * 1024 + 1)
+    );
+    for body in [&both[..], not_base64, not_text, over.as_bytes()] {
+        assert_eq!(
+            ExecParams::parse(body).map_err(|error| error.code),
+            Err("INVALID_PARAM")
+        );
+    }
+    let at_bound = format!(r#"{{"command":"cat","stdin":"{}"}}"#, "x".repeat(32 * 1024));
+    assert!(ExecParams::parse(at_bound.as_bytes()).is_ok());
+}
+
+#[test]
 fn a_create_field_the_platform_does_not_define_is_refused_by_name() {
     let error = CreateParams::parse(
         br#"{"size":"xs","runtime_profil":"soma"}"#,

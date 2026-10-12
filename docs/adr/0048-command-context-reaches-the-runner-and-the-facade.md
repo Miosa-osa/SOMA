@@ -24,7 +24,8 @@ That is the only reason the control plane could not give a SOMA sandbox the same
 3. The runner's exec body accepts `cwd`, `env` (an object of string values) and `user`.
    The verdict on a context is the guest constructor's: `GuestCommand::with_context` runs in the runner's admission step, before a machine is asked, so a context the guest would refuse is a 400 or 413 and never costs the sandbox.
    `env` decodes in sorted key order, so one body is always one environment.
-   Standard input is not exposed on the runner in this change.
+   `stdin` (UTF-8 text) or `stdin_base64` carries up to 32 KiB of standard input; sending both is refused.
+   A jailed worker's control packet is 16 KiB, so standard input past about 7 KiB is refused as a rejected workload on that road.
 4. The KVM backend lowers the context into the guest command on every road a command takes:
    - A machine held in the calling process builds the guest command with the context.
    - A resident machine host receives a command without a context as the existing `Execute` call and a command with one as a new `ExecuteInContext` call.
