@@ -1,4 +1,4 @@
-# ADR 0049: A durable data volume that outlives its Instance
+# ADR 0053: A durable data volume that outlives its Instance
 
 - Status: Proposed
 - Date: 2026-10-12
