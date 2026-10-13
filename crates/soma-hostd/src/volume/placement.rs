@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 pub const RECORD_DIR_ENV: &str = "SOMA_HOSTD_RECORD_DIR";
 /// The default durable record root, on persistent disk and never under `/run`.
 pub const DEFAULT_RECORD_DIR: &str = "/var/lib/soma/hostd/records";
+/// The default root holding one directory per volume, on the host's encrypted data mount.
+pub const DEFAULT_VOLUME_DIR: &str = "/srv/soma/volumes";
 
 /// Returns the record root for one configured value, or the default when it is absent or blank.
 #[must_use]

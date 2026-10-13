@@ -12,6 +12,7 @@ use std::{
 };
 
 use soma_hostd::{
+    DirectoryVolumes,
     client::{ClientError, HostClient},
     daemon,
 };
@@ -20,12 +21,13 @@ use super::TestRuntime;
 
 const PATIENCE: Duration = Duration::from_secs(5);
 
-/// Serves `runtime` on `socket` and returns once the socket accepts connections.
-pub fn daemon_on(runtime: &Arc<TestRuntime>, socket: &Path) {
+/// Serves `runtime` and its volume store on `socket`, and returns once the socket accepts.
+pub fn daemon_on(runtime: &Arc<TestRuntime>, volumes: &Arc<DirectoryVolumes>, socket: &Path) {
     let served = Arc::clone(runtime);
+    let store = Arc::clone(volumes);
     let path = socket.to_path_buf();
     thread::spawn(move || {
-        let _ = daemon::serve(&served, &path);
+        let _ = daemon::serve(&served, store.as_ref(), &path);
     });
     let deadline = Instant::now() + PATIENCE;
     while Instant::now() < deadline && !socket.exists() {

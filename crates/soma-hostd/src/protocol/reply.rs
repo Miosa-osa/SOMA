@@ -1,7 +1,7 @@
 //! Daemon reply frames.
 
 use super::{ProtocolError, array};
-use crate::{InstanceId, LeaseGeneration, MAX_LISTED, WorkerId};
+use crate::{InstanceId, LeaseGeneration, MAX_LISTED, VolumeId, WorkerId};
 
 /// One daemon reply.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,6 +79,25 @@ pub enum Reply {
         worker: WorkerId,
         /// Whether teardown and release both reported completion.
         complete: bool,
+    },
+    /// A volume is bound to its Instance; `state` and `repair` are the stable codes of the volume
+    /// and repair vocabularies, and `exit_code` is the repair tool's own result.
+    VolumeAttached {
+        /// The volume.
+        volume: VolumeId,
+        /// The volume state code.
+        state: u8,
+        /// The repair outcome code.
+        repair: u8,
+        /// The repair exit code, carried as its own byte.
+        exit_code: i8,
+    },
+    /// A volume is released from its Instance and keeps its file.
+    VolumeDetached {
+        /// The volume.
+        volume: VolumeId,
+        /// The volume state code.
+        state: u8,
     },
     /// A typed failure code from [`crate::failure_code`].
     Failed(u16),
@@ -160,6 +179,21 @@ impl Reply {
                 out.extend_from_slice(&[9, u8::from(*complete)]);
                 out.extend_from_slice(worker.as_bytes());
             }
+            Self::VolumeAttached {
+                volume,
+                state,
+                repair,
+                exit_code,
+            } => {
+                out.push(10);
+                out.extend_from_slice(volume.as_bytes());
+                out.extend_from_slice(&[*state, *repair, exit_code.cast_unsigned()]);
+            }
+            Self::VolumeDetached { volume, state } => {
+                out.push(11);
+                out.extend_from_slice(volume.as_bytes());
+                out.extend_from_slice(&[*state]);
+            }
             Self::Failed(code) => {
                 out.push(0xff);
                 out.extend_from_slice(&code.to_be_bytes());
@@ -217,6 +251,16 @@ impl Reply {
             (Some(9), 18) if bytes[1] <= 1 => Ok(Self::Destroyed {
                 complete: bytes[1] == 1,
                 worker: worker(&bytes[2..18])?,
+            }),
+            (Some(10), 20) => Ok(Self::VolumeAttached {
+                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
+                state: bytes[17],
+                repair: bytes[18],
+                exit_code: bytes[19].cast_signed(),
+            }),
+            (Some(11), 18) => Ok(Self::VolumeDetached {
+                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
+                state: bytes[17],
             }),
             (Some(0xff), 3) => Ok(Self::Failed(u16::from_be_bytes([bytes[1], bytes[2]]))),
             _ => Err(ProtocolError("reply")),

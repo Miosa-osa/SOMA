@@ -30,6 +30,7 @@ mod linux {
         socket: PathBuf,
         ledger: PathBuf,
         records: PathBuf,
+        volumes: PathBuf,
         launcher: Option<String>,
         generation: Option<[u8; 32]>,
         network_profile: Option<[u8; 32]>,
@@ -50,6 +51,7 @@ mod linux {
             socket: PathBuf::from("/run/soma-hostd/allocator.sock"),
             ledger: PathBuf::from("/run/soma-hostd/ledger"),
             records: volume::record_dir(std::env::var(volume::RECORD_DIR_ENV).ok().as_deref()),
+            volumes: PathBuf::from(volume::DEFAULT_VOLUME_DIR),
             launcher: None,
             generation: None,
             network_profile: None,
@@ -86,6 +88,7 @@ mod linux {
                 "--socket" => config.socket = PathBuf::from(value()?),
                 "--ledger" => config.ledger = PathBuf::from(value()?),
                 "--records" => config.records = PathBuf::from(value()?),
+                "--volumes" => config.volumes = PathBuf::from(value()?),
                 "--launcher" => config.launcher = Some(value()?),
                 "--generation" => config.generation = Some(hex32(&value()?, &flag)?),
                 "--host-threads" => config.host.threads = Some(number(&value()?, &flag)?),
@@ -207,8 +210,18 @@ mod linux {
             .replenish_blocking()
             .map_err(|error| error.to_string())?;
         eprintln!("soma-hostd: prepared {built} workers with the in-process development launcher");
+        // The volume store is the reference bookkeeping store. Its offline repair is the
+        // `VolumeRepair` seam; the real `e2fsck` implementation lands with the host-side jail
+        // launcher, and until then the in-process development launcher is the only one this
+        // daemon starts with, so no volume is ever bound to a real machine here.
+        let volumes = volume::DirectoryVolumes::open(
+            &config.volumes,
+            &config.records,
+            Box::new(volume::CleanRepair),
+        )
+        .map_err(|error| format!("volume store: {error}"))?;
         let runtime = Arc::new(Runtime::new(pool));
-        daemon::serve(&runtime, &config.socket).map_err(|error| error.to_string())
+        daemon::serve(&runtime, &volumes, &config.socket).map_err(|error| error.to_string())
     }
 
     fn hex32(text: &str, flag: &str) -> Result<[u8; 32], String> {

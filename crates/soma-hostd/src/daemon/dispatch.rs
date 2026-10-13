@@ -8,14 +8,15 @@ use std::{sync::Arc, time::Duration};
 use soma_guest::LaunchNetwork;
 
 use crate::{
-    AssignmentIntent, Claim, ClaimOutcome, FailureCode, LaunchFrame, Pool, Reply, Request,
-    ResourceBroker, Runtime, WorkerLauncher, claim_failure_code, failure_code,
-    lifecycle_failure_code, transfer_failure_code,
+    AssignmentIntent, AttachRequest, Claim, ClaimOutcome, DetachRequest, FailureCode, LaunchFrame,
+    Pool, Reply, Request, ResourceBroker, Runtime, VolumeStore, WorkerLauncher, claim_failure_code,
+    failure_code, lifecycle_failure_code, transfer_failure_code, volume_failure_code,
 };
 
 /// Applies one request to the Host Runtime.
-pub fn handle<L: WorkerLauncher, R: ResourceBroker>(
+pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
     runtime: &Arc<Runtime<L, R>>,
+    volumes: &V,
     request: Request,
 ) -> Reply {
     let pool = runtime.pool();
@@ -58,6 +59,35 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker>(
         Request::Get { instance } => super::lifecycle::get(runtime, instance),
         Request::List { after } => super::lifecycle::list(runtime, after),
         Request::Destroy { instance } => super::lifecycle::destroy(runtime, instance),
+        Request::VolumeAttach(frame) => match volumes.attach(&AttachRequest {
+            operation: frame.operation,
+            instance: frame.instance,
+            volume: frame.volume,
+            fingerprint: frame.fingerprint,
+            size_class_gib: frame.size_class_gib,
+            generation: frame.generation,
+            tenant: frame.tenant,
+        }) {
+            Ok(outcome) => Reply::VolumeAttached {
+                volume: outcome.volume,
+                state: outcome.state.code(),
+                repair: outcome.repair.map_or(0, |receipt| receipt.outcome.code()),
+                exit_code: outcome.repair.map_or(0, |receipt| receipt.exit_code),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
+        Request::VolumeDetach(frame) => match volumes.detach(&DetachRequest {
+            operation: frame.operation,
+            instance: frame.instance,
+            volume: frame.volume,
+            fingerprint: frame.fingerprint,
+        }) {
+            Ok(outcome) => Reply::VolumeDetached {
+                volume: outcome.volume,
+                state: outcome.state.code(),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
     }
 }
 

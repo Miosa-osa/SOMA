@@ -20,7 +20,8 @@ pub mod store;
 
 pub use error::VolumeError;
 pub use placement::{
-    DEFAULT_RECORD_DIR, RECORD_DIR_ENV, on_volatile_mount, record_dir, refuse_volatile,
+    DEFAULT_RECORD_DIR, DEFAULT_VOLUME_DIR, RECORD_DIR_ENV, on_volatile_mount, record_dir,
+    refuse_volatile,
 };
 pub use rebuild::{RebuildReport, StoppedVolume, rebuild};
 pub use record::{

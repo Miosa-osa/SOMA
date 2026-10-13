@@ -9,14 +9,27 @@ mod request;
 use std::fmt;
 
 pub use reply::Reply;
-pub use request::{LaunchFrame, Request};
+pub use request::{AttachFrame, DetachFrame, LaunchFrame, Request};
 
 use soma_netd::MAX_ENCODED_INTENT;
 
+use crate::volume::MAX_TENANT_BYTES;
 use crate::{ClaimError, InstanceError, LifecycleError, TransferFailure, VolumeError};
 
+/// The largest launch frame: discriminant, operation, instance, CID, deadline, launch material,
+/// and an encoded network intent.
+const LAUNCH_FRAME_MAX: usize = 1 + 16 + 16 + 4 + 8 + 32 + MAX_ENCODED_INTENT;
+
+/// The largest volume frame: discriminant, operation, instance, volume, fingerprint, size class,
+/// generation, and a bounded tenant label.
+pub const MAX_VOLUME_FRAME: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_BYTES;
+
 /// The largest request or reply frame.
-pub const MAX_FRAME: usize = 1 + 16 + 16 + 4 + 8 + 32 + MAX_ENCODED_INTENT;
+pub const MAX_FRAME: usize = if MAX_VOLUME_FRAME > LAUNCH_FRAME_MAX {
+    MAX_VOLUME_FRAME
+} else {
+    LAUNCH_FRAME_MAX
+};
 
 const CLAIM_HEADER: usize = 1 + 16 + 16 + 4 + 8 + 32;
 
