@@ -183,6 +183,16 @@ fn a_start_that_names_its_volume_binds_that_file_and_no_other() {
         attachment.id, [0x55_u8; 16],
         "the id the ready signal reports is the host's, decoded from hexadecimal"
     );
+    // The start answer carries the volume and this start's repair: the control plane persists
+    // the id and reads it back on the next reattach.
+    assert_eq!(
+        body["result"]["volume"]["volume_id"],
+        volume.to_ascii_lowercase()
+    );
+    assert_eq!(body["result"]["volume"]["state"], "attached");
+    assert_eq!(body["result"]["volume"]["device"], "vdc");
+    assert_eq!(body["result"]["fsck"]["ran"], true);
+    assert_eq!(body["result"]["fsck"]["tool"], "e2fsck");
 }
 
 #[test]
@@ -190,7 +200,7 @@ fn a_start_that_names_no_volume_binds_none_and_asks_the_host_nothing() {
     let mut facade = FakeFacade::new(Mode::Succeed);
     let request = identified("POST", "/v1/sandboxes", r#"{"image":"node:22"}"#);
 
-    let (status, _body) = call(&mut facade, &request);
+    let (status, body) = call(&mut facade, &request);
 
     assert_eq!(status, 201);
     assert!(
@@ -198,6 +208,10 @@ fn a_start_that_names_no_volume_binds_none_and_asks_the_host_nothing() {
         "a launch that names no volume must not ask the host for one"
     );
     assert!(facade.launched_volume.is_none());
+    // A sandbox with no durable volume says so by carrying no volume and a null repair, rather
+    // than by omitting the member.
+    assert!(body["result"]["volume"].is_null());
+    assert!(body["result"]["fsck"].is_null());
 }
 
 #[test]

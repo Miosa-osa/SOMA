@@ -3,6 +3,7 @@ use serde::{Serialize, Serializer, ser::SerializeStruct as _};
 use soma::{BackendKind, CommandStatus, InstanceId, MachineState, TerminalStatus};
 
 use crate::envelope::ApiError;
+use crate::volumes::FsckReport;
 
 /// A lifecycle transition result.
 ///
@@ -12,6 +13,43 @@ use crate::envelope::ApiError;
 pub struct SandboxReport {
     pub instance_id: InstanceId,
     pub state: &'static str,
+    /// The durable volume this sandbox is running with, when its Generation declares one.
+    ///
+    /// It is what the control plane persists: the id it sends back on a start is how the next
+    /// machine is bound to the same file rather than to a fresh one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume: Option<VolumeReady>,
+    /// The offline repair this start ran, absent when the sandbox has no durable volume.
+    ///
+    /// The field stays present and null for a sandbox without one, because an absent member and
+    /// a member that says the repair did not run are different statements.
+    pub fsck: Option<FsckReport>,
+}
+
+impl SandboxReport {
+    /// The report of a sandbox with no durable volume, which is what every route but a create
+    /// that bound one answers with.
+    #[must_use]
+    pub const fn new(instance_id: InstanceId, state: &'static str) -> Self {
+        Self {
+            instance_id,
+            state,
+            volume: None,
+            fsck: None,
+        }
+    }
+}
+
+/// The volume a sandbox is running with, in the shape a start reports it.
+///
+/// The mount is not lazy: the guest verifies the device and binds the persistent paths inside its
+/// early-init sequence, before it can report that it is running, so a start that answers with a
+/// volume answers after the guest's own data is visible rather than before.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct VolumeReady {
+    pub volume_id: String,
+    pub state: &'static str,
+    pub device: &'static str,
 }
 
 /// An observed sandbox, reusing the facade's own state and backend enums as the wire values.
