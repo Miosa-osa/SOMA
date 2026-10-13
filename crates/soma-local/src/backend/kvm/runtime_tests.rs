@@ -16,10 +16,11 @@ use std::{
 
 use soma::{InstanceId, OperationId};
 use soma_hostd::{
-    Admission, CpuClass, CpuInventory, ExhaustedBehavior, GenerationId, HostProfile, Limits,
-    MachineShape, MeasuredOverhead, MemoryClass, MemoryInventory, MemoryShape, NetworkInventory,
-    OperatorLimits, OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey,
-    ProcessInventory, Runtime, SingleNode, StorageInventory, ValidShape, WorkloadClass,
+    Admission, CleanRepair, CpuClass, CpuInventory, DirectoryVolumes, ExhaustedBehavior,
+    GenerationId, HostProfile, Limits, MachineShape, MeasuredOverhead, MemoryClass,
+    MemoryInventory, MemoryShape, NetworkInventory, OperatorLimits, OvercommitPolicy,
+    OverlayIdentity, Pool, PoolAdmission, PoolKey, ProcessInventory, Runtime, SingleNode,
+    StorageInventory, ValidShape, WorkloadClass,
     client::ClientError,
     daemon,
     testing::{InProcessBroker, InProcessLauncher, ProcessTable},
@@ -152,10 +153,18 @@ impl Host {
             .expect("pool"),
         );
         pool.replenish_blocking().expect("replenish");
+        // The daemon serves the volume seam too (ADR 0053 Step A); this host has no volume
+        // to serve, so the store is the reference one on its own directory.
+        let volumes = DirectoryVolumes::open(
+            &directory.path().join("volumes"),
+            &directory.path().join("volume-records"),
+            Box::new(CleanRepair),
+        )
+        .expect("volume store");
         let runtime = Arc::new(Runtime::new(pool));
         let served = socket.clone();
         thread::spawn(move || {
-            let _ignored = daemon::serve(&runtime, &served);
+            let _ignored = daemon::serve(&runtime, &volumes, &served);
         });
         await_socket(&socket);
         Self {
