@@ -1,25 +1,28 @@
 mod prewarm;
 mod support;
+mod volume;
 mod volumes;
 use support::{control_body, optional_body, parse, refuse, success};
+use volume::binding as volume_binding;
 
 use soma::ExecutionReceipt;
 
 use crate::{
     capability::MissingCapability,
     envelope::{ApiError, Envelope, failure_body_with_result, render},
-    facade::{SandboxFacade, VolumeFailure},
+    facade::SandboxFacade,
     failure::managed_error,
     filesystem::{FilesystemBody, FilesystemReport},
     http::{request::Request, response::Response},
     report::{
         CommandReport, InspectionReport, OutputBytes, SandboxListReport, SandboxReport,
-        command_status,
+        VolumeReady, command_status,
     },
     resources::{ResourcesBody, ResourcesReport, nothing_applied, remember, replayed},
     route::{FilesystemOperation, Route, TerminalOperation, resolve},
     tenant::{TENANT_HEADER, identify},
     terminal::{TerminalBody, TerminalReport},
+    volumes::VOLUME_DEVICE,
     wire::{CreateSandboxBody, RunCommandBody},
 };
 
@@ -256,9 +259,20 @@ fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Resp
     // A start that names its volume binds that file and no other: the host resolves it from the
     // volume this Instance owns, and a disagreement between the two is refused rather than
     // resolved by guessing which is right.
-    let request = match named_volume.as_deref() {
-        Some(named) => request.with_volume(volume_binding(facade, &instance_id, named)?),
-        None => request,
+    let (request, volume, fsck) = match named_volume.as_deref() {
+        Some(named) => {
+            let (attachment, fsck) = volume_binding(facade, &instance_id, named)?;
+            (
+                request.with_volume(attachment),
+                Some(VolumeReady {
+                    volume_id: named.to_ascii_lowercase(),
+                    state: "attached",
+                    device: VOLUME_DEVICE,
+                }),
+                Some(fsck),
+            )
+        }
+        None => (request, None, None),
     };
     // Refused before a machine is built rather than answered 201 with an identity that dies
     // with this connection. A caller that keeps the identity and returns is the whole point of
@@ -276,37 +290,12 @@ fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Resp
             &SandboxReport {
                 instance_id: outcome.instance_id,
                 state: "ready",
+                volume,
+                fsck,
             },
             Some(&outcome.receipt),
         )),
     ))
-}
-
-/// The volume attachment one start binds, from the volume the host has for this Instance.
-///
-/// # Errors
-///
-/// Returns the host's typed refusal, or a conflict when the caller named a volume the host does
-/// not have attached to this Instance.
-fn volume_binding<F: SandboxFacade + ?Sized>(
-    facade: &mut F,
-    instance: &soma::InstanceId,
-    named: &str,
-) -> Result<soma::VolumeAttachment, ApiError> {
-    let binding = facade
-        .volume_binding(instance.as_str())
-        .map_err(VolumeFailure::refusal)?;
-    if !binding.volume.eq_ignore_ascii_case(named) {
-        return Err(ApiError::new(
-            409,
-            "volume_instance_mismatch",
-            "the volume named is not the one attached to this Instance",
-            false,
-        ));
-    }
-    let id = soma_hostd::VolumeId::from_hex(&binding.volume)
-        .map_err(|_| ApiError::invalid("the host reported a volume identity it cannot carry"))?;
-    Ok(soma::VolumeAttachment::new(*id.as_bytes(), binding.path))
 }
 
 fn lifecycle(
@@ -318,10 +307,7 @@ fn lifecycle(
     success(
         200,
         operation,
-        &SandboxReport {
-            instance_id: instance_id.clone(),
-            state,
-        },
+        &SandboxReport::new(instance_id.clone(), state),
         Some(receipt),
     )
 }
