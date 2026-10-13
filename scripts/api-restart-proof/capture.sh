@@ -53,6 +53,38 @@ capture_state_roots() {
     printf '%s\n' "${HOME:-/root}/.local/state/SOMA/v1/machines" "/root/.local/state/SOMA/v1/machines"
 }
 
+# Every leaf of the delegated subtree, with its members, once for the run.
+#
+# A machine that a cgroup killed leaves no socket to look at, and the leaf it was in is where the
+# answer is: which leaves existed, which of them still hold a process, and whether the subtree has a
+# cgroup.kill at all. The unit's own cgroup is listed beside it, because a host that stayed there and
+# a host that moved are two different failures.
+capture_subtree() {
+    local root leaf members
+    root="$(unit_environment SOMA_JAIL_CGROUP_ROOT)"
+    if [[ -z "${root}" ]]; then
+        record "capture subtree: the unit delegates no live subtree"
+        return
+    fi
+    {
+        printf 'live subtree %s (delegated by %s)\n' "${root}" "${UNIT}"
+        printf 'subtree_control=%s\n' "$(cat "${root}/cgroup.subtree_control" 2>/dev/null || printf unreadable)"
+        printf 'cgroup.kill=%s\n' "$([[ -e "${root}/cgroup.kill" ]] && printf present || printf absent)"
+        printf '%s\n' '-- leaves and their members:'
+        for leaf in "${root}"/soma-*-live; do
+            [[ -d "${leaf}" ]] || continue
+            members="$(cgroup_members "${leaf}/cgroup.procs")"
+            printf '%s members=%s pids=%s\n' "${leaf}" "${members}" \
+                "$(tr '\n' ',' <"${leaf}/cgroup.procs" 2>/dev/null | sed 's/,$//')"
+        done
+        printf '%s\n' "-- the unit's own cgroup:"
+        printf 'path /sys/fs/cgroup%s members=%s\n' \
+            "$(systemctl show "${UNIT}" -p ControlGroup --value)" \
+            "$(cgroup_members "/sys/fs/cgroup$(systemctl show "${UNIT}" -p ControlGroup --value)/cgroup.procs")"
+    } >"${EVIDENCE}/capture-subtree.txt"
+    record "capture subtree: $(grep -c 'members=' "${EVIDENCE}/capture-subtree.txt") line(s) with a member count"
+}
+
 # Which leaf of the delegated subtree holds this instance, and how many, one file for the run.
 capture_cgroup() {
     local instance="$1" root leaf members
@@ -102,6 +134,9 @@ capture_machine() {
         ss -x -a -p 2>/dev/null | grep -F "${socket}" || printf '(none)\n'
         if [[ -n "${pid}" ]]; then
             printf 'host pid %s\n' "${pid}"
+            # Where that process actually sits. A constructed leaf path says where a host should be;
+            # this says where it is, which is the only version a cgroup kill can be judged against.
+            printf 'host cgroup %s\n' "$(cat "/proc/${pid}/cgroup" 2>/dev/null || printf unreadable)"
             printf '%s' '-- wchan: '
             cat "/proc/${pid}/wchan" 2>/dev/null || printf 'unreadable'
             printf '\n'
@@ -117,6 +152,7 @@ capture_machines() {
     # The cgroup state is the same for every machine, so it is written once for the run; only the
     # instances that failed, or all of them under SOMA_PROOF_KEEP=1, get their own socket capture.
     # `created` is the caller's array and shellcheck cannot see across the source boundary.
+    capture_subtree
     # shellcheck disable=SC2154
     for instance in "${created[@]}"; do
         capture_cgroup "${instance}"
