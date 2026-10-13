@@ -210,14 +210,15 @@ mod linux {
             .replenish_blocking()
             .map_err(|error| error.to_string())?;
         eprintln!("soma-hostd: prepared {built} workers with the in-process development launcher");
-        // The volume store is the reference bookkeeping store. Its offline repair is the
-        // `VolumeRepair` seam; the real `e2fsck` implementation lands with the host-side jail
-        // launcher, and until then the in-process development launcher is the only one this
-        // daemon starts with, so no volume is ever bound to a real machine here.
+        // The volume store is the reference bookkeeping store, and its offline filesystem work
+        // is the real ext4 one: a created volume is made with the ext4 maker and repaired with
+        // `e2fsck` under the automatic policy. Both tools must be on this host's PATH, because a
+        // store that cannot check a volume must refuse the attach rather than serve unchecked
+        // bytes to the guest. `CleanRepair` remains for tests and for a host that has no volumes.
         let volumes = volume::DirectoryVolumes::open(
             &config.volumes,
             &config.records,
-            Box::new(volume::CleanRepair),
+            Box::new(volume::Ext4::from_path()),
         )
         .map_err(|error| format!("volume store: {error}"))?;
         let runtime = Arc::new(Runtime::new(pool));

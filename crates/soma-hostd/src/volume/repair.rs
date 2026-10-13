@@ -13,12 +13,48 @@ use crate::VolumeId;
 
 /// The fsck tool a Step A repair runs.
 pub const REPAIR_TOOL: &str = "e2fsck";
+/// The tool a Step A volume is created with.
+pub const FORMAT_TOOL: &str = "mkfs.ext4";
 
-/// The offline repair a store runs on a volume file before any machine may hold it.
+/// Why a volume file could not be created.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CreateError {
+    /// The path already holds data, so making a filesystem there would destroy it.
+    Occupied,
+    /// The requested size is not one a filesystem can be created with.
+    Size(u64),
+    /// The tool could not be run, or it refused the file; the value is its exit code, or -1.
+    Tool(i32),
+}
+
+impl fmt::Display for CreateError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Occupied => write!(formatter, "the volume path already holds data"),
+            Self::Size(bytes) => write!(formatter, "a volume of {bytes} bytes cannot be created"),
+            Self::Tool(code) => write!(formatter, "{FORMAT_TOOL} exited {code}"),
+        }
+    }
+}
+
+/// The offline filesystem operations a store runs on a detached volume file.
 ///
-/// It is a seam because the real implementation invokes `e2fsck` on a detached ext4 file, which
-/// needs a real file and a real host, while a test needs a deterministic answer.
+/// It is a seam because the real implementation invokes the two ext4 tools on a detached file,
+/// which needs a real file and a real host, while a test needs a deterministic answer.
 pub trait VolumeRepair {
+    /// Creates the volume's filesystem, for a volume that does not have one yet.
+    ///
+    /// A store calls this exactly once, when it creates a volume, before any repair runs, so the
+    /// repair never sees a path that does not exist. The default does nothing, which is what a
+    /// policy double and a store that never creates want.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CreateError::Occupied`] rather than formatting a path that already holds data.
+    fn create(&self, _volume: VolumeId, _file: &Path, _size_bytes: u64) -> Result<(), CreateError> {
+        Ok(())
+    }
+
     /// Repairs one volume file and returns the receipt, whatever the outcome.
     fn repair(&self, volume: VolumeId, file: &Path) -> RepairReceipt;
 }
