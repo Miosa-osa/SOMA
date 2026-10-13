@@ -4,10 +4,7 @@ use crate::snapshot::{
     device_state::{DeviceKind, tests as device_fixtures},
     manifest::{
         Architecture, HostCapability, Manifest, PageSize, SCHEMA_VERSION,
-        tests::{
-            MEMORY_BYTES, sample_manifest, sample_manifest_with_mem,
-            sample_manifest_with_memory_slots,
-        },
+        tests::{MEMORY_BYTES, sample_manifest, sample_manifest_with_memory_slots},
     },
     section::{Section, SectionRole},
 };
@@ -30,14 +27,19 @@ pub(crate) fn matching_host() -> HostProfile {
         vcpu_count: 1,
         memory_bytes: MEMORY_BYTES,
         guest_protocol_version: header.guest_protocol_version,
-        devices: DeviceKind::ALL.map(|kind| {
-            let spare = matches!(kind, DeviceKind::Mem | DeviceKind::VolumeBlock);
-            (!spare).then(|| DeviceExpectation {
-                kind,
-                negotiated_features: device_fixtures::features_for(kind),
-                queue_limits: device_fixtures::queue_limits_for(kind),
+        // Six entries: the slots every machine has. The volume's seventh entry belongs to a
+        // machine that declared one.
+        devices: DeviceKind::ALL
+            .iter()
+            .take(6)
+            .map(|kind| {
+                (*kind != DeviceKind::Mem).then(|| DeviceExpectation {
+                    kind: *kind,
+                    negotiated_features: device_fixtures::features_for(*kind),
+                    queue_limits: device_fixtures::queue_limits_for(*kind),
+                })
             })
-        }),
+            .collect(),
     }
 }
 
@@ -323,29 +325,4 @@ fn a_malformed_hotplug_record_is_refused() {
         Err(Incompatibility::MalformedHotplug(_))
     ));
 }
-
-#[test]
-fn the_memory_slot_is_required_exactly_when_the_host_declares_it() {
-    let with = sample_manifest_with_mem();
-    let without = sample_manifest();
-    let mut host = matching_host();
-    // The common case: neither side has a memory device.
-    assert_eq!(check(&host, &without), Ok(()));
-    // The machine was captured resizable and this host builds a fixed-size one: refused, because
-    // the captured driver negotiated a device this machine would not have.
-    assert_eq!(
-        check(&host, &with),
-        Err(Incompatibility::UnexpectedSection(SectionRole::Device5))
-    );
-    // The host declares the device and the snapshot has none: refused the other way.
-    host.devices[5] = Some(DeviceExpectation {
-        kind: DeviceKind::Mem,
-        negotiated_features: device_fixtures::features_for(DeviceKind::Mem),
-        queue_limits: device_fixtures::queue_limits_for(DeviceKind::Mem),
-    });
-    assert_eq!(
-        check(&host, &without),
-        Err(Incompatibility::MissingSection(SectionRole::Device5))
-    );
-    assert_eq!(check(&host, &with), Ok(()));
-}
+mod volume;

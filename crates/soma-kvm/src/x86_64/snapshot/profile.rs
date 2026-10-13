@@ -237,7 +237,17 @@ pub(in crate::x86_64) fn host_profile(
         .map(|(capability, _)| *capability)
         .collect();
     let (_, cpu_template) = cpu_template(kvm, cpuid::GuestMachine::new(contract, vcpus))?;
-    let expectations = Slot::ALL.map(|slot| devices.has(slot).then(|| expectation(slot, contract)));
+    // One entry per slot this machine has: the six every machine has, plus the durable volume
+    // when the Generation declares one. A machine without a volume therefore carries the same
+    // six-entry profile it carried before the volume slot existed.
+    let mut expectations: Vec<Option<DeviceExpectation>> = Slot::ALL
+        .iter()
+        .take(Slot::ALL.len() - 1)
+        .map(|slot| devices.has(*slot).then(|| expectation(*slot, contract)))
+        .collect();
+    if devices.volume() {
+        expectations.push(Some(expectation(Slot::Volume, contract)));
+    }
     Ok(HostProfile {
         schema_version: SCHEMA_VERSION,
         architecture: Architecture::X86_64,
