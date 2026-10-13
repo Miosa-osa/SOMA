@@ -16,6 +16,15 @@
 # one. The state root and the subtree are read from the unit, because neither is a variable a
 # proof run from a shell inherits: one is a command-line flag and the other is an Environment entry.
 
+# How many processes one cgroup file lists, 0 when it is not there.
+cgroup_members() {
+    local count="0"
+    if [[ -r "$1" ]]; then
+        count="$(wc -l < "$1" | tr -d ' ')"
+    fi
+    printf '%s' "${count}"
+}
+
 # One `--flag value` off the unit's own command line, which is where a host keeps its state root.
 unit_flag() {
     systemctl show "${UNIT}" -p ExecStart --value 2>/dev/null \
@@ -53,7 +62,7 @@ capture_cgroup() {
         return
     fi
     leaf="${root}/soma-${instance}-live"
-    members="$(cat "${leaf}/cgroup.procs" 2>/dev/null | wc -l | tr -d ' ')"
+    members="$(cgroup_members "${leaf}/cgroup.procs")"
     {
         printf 'instance %s\n' "${instance}"
         printf 'live subtree %s (delegated by %s)\n' "${root}" "${UNIT}"
@@ -61,7 +70,7 @@ capture_cgroup() {
             "$([[ -d "${leaf}" ]] && printf present || printf absent)" \
             "$([[ -d "${leaf}" ]] && printf yes || printf no)" "${members}"
         printf 'unit cgroup members: %s\n' \
-            "$(cat "/sys/fs/cgroup$(systemctl show "${UNIT}" -p ControlGroup --value)/cgroup.procs" 2>/dev/null | wc -l | tr -d ' ')"
+            "$(cgroup_members "/sys/fs/cgroup$(systemctl show "${UNIT}" -p ControlGroup --value)/cgroup.procs")"
     } >>"${EVIDENCE}/capture-cgroups.txt"
     record "capture ${instance}: leaf ${leaf} members=${members}"
 }
