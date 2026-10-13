@@ -120,8 +120,13 @@ impl PrewarmError {
 }
 
 /// The persisted form of the desired set.
+///
+/// Behind the same gate as its only reader and writer,
+/// `backend::kvm::targets::persist`, so the ARM64 client that has no KVM backend does not carry
+/// an unused type.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) struct PersistedTargets {
     pub(crate) version: u32,
     pub(crate) targets: Vec<PrewarmTarget>,
