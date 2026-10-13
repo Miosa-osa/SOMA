@@ -90,7 +90,7 @@ impl CompilerProfile {
     /// Returns compiler profile version 3: version 2's machine plus a virtio-mem device.
     ///
     /// The kernel it builds must pass the live-resize rules
-    /// ([`crate::kernel_config::KernelConfigProfile::LiveResize`]), and the manifest binds
+    /// ([`crate::generation::kernel_config::LIVE_RESIZE_POLICY_VERSION`]), and the manifest binds
     /// machine contract version 3, so a host that does not implement it refuses the Generation
     /// and every version 1 and 2 Generation verifies exactly as before.
     #[must_use]
