@@ -16,6 +16,7 @@
 mod bootstrap;
 pub(super) mod channel;
 mod client_launch;
+mod live_cgroup;
 mod reaper;
 mod serve;
 mod sterile;
@@ -40,6 +41,7 @@ use soma::{
 
 pub(crate) use bootstrap::host_machine;
 pub(super) use client_launch::launch;
+pub(in crate::backend::kvm) use live_cgroup::under_root_lock;
 pub(crate) use sterile::{
     PrewarmPlan, TargetPlan, install_sets, prewarm as prewarm_machine_hosts, snapshot,
 };

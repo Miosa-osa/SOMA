@@ -18,7 +18,7 @@ use crate::{CpuResize, DimensionState, ResizeFailure, ResizeOutcome, ResizeReque
 /// The accounting period every live share is expressed against.
 const PERIOD_US: u64 = 100_000;
 /// Names the delegated cgroup2 subtree live limits are created under for an unjailed host.
-const CGROUP_ROOT: &str = "SOMA_JAIL_CGROUP_ROOT";
+pub(super) const CGROUP_ROOT: &str = "SOMA_JAIL_CGROUP_ROOT";
 
 impl KvmBackend {
     /// Applies `request` to the sandbox this process is driving.
@@ -192,12 +192,17 @@ fn leaf_for(
     if jailed {
         return CgroupLeaf::open_existing(root, &name).map_err(|_| "jail_leaf_missing");
     }
-    sweep_finished_leaves(root);
-    let leaf = CgroupLeaf::create_cpu_only(root, &format!("{name}-live"))
-        .map_err(|_| "cpu_controller_not_delegated")?;
-    leaf.attach(std::process::id())
-        .map_err(|_| "cannot_join_cpu_leaf")?;
-    Ok(leaf)
+    // Sweeping removes empty leaves and a new leaf is empty until the move, so the three happen
+    // under the one lock every claimed host uses.
+    super::host::under_root_lock(root, || {
+        sweep_finished_leaves(root);
+        let leaf = CgroupLeaf::create_cpu_only(root, &format!("{name}-live"))
+            .map_err(|_| "cpu_controller_not_delegated")?;
+        leaf.attach(std::process::id())
+            .map_err(|_| "cannot_join_cpu_leaf")?;
+        Ok(leaf)
+    })
+    .unwrap_or(Err("cannot_lock_cpu_subtree"))
 }
 
 /// Removes the live-share leaves of machines that have ended.
@@ -206,7 +211,7 @@ fn leaf_for(
 /// ever ran with a CPU share would leave an empty directory behind. `remove_dir` on a cgroup succeeds
 /// only when nothing runs in it, so this can never take a leaf from a live machine, and every launch
 /// that makes a leaf clears the finished ones first.
-fn sweep_finished_leaves(root: &std::path::Path) {
+pub(super) fn sweep_finished_leaves(root: &std::path::Path) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
     };
