@@ -1,5 +1,4 @@
 //! The host profile's own tests: the device contract, the per-slot expectations and the CPU template.
-use super::*;
 
 use super::*;
 use crate::snapshot::device_state::DeviceKind;

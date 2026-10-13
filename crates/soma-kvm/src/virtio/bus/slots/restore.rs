@@ -1,9 +1,5 @@
 //! The transport and device restore helpers of the bus, split out to hold their file inside
 //! the source budget.
-#[expect(
-    clippy::wildcard_imports,
-    reason = "this module is its parent's body moved wholesale; naming every import would obscure it"
-)]
 use super::*;
 
 pub(super) fn restore_optional<D: VirtioDevice, M: GuestMemory + ?Sized>(

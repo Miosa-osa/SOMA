@@ -1,8 +1,4 @@
 //! The sterile restore entry point, split out to hold its file inside the source budget.
-#[expect(
-    clippy::wildcard_imports,
-    reason = "this module is its parent's body moved wholesale; naming every import would obscure it"
-)]
 use super::*;
 
 /// Restores one machine that holds no Instance authority yet.

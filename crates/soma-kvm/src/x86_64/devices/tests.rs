@@ -1,5 +1,4 @@
 //! The device builders' own tests: geometry, identity, role checks and the volume slot.
-use super::*;
 
 use super::*;
 use crate::virtio::{Slot, VIRTIO_BLK_F_RO};
