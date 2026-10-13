@@ -10,6 +10,7 @@
 //! It owns no guest device logic and no host path outside the record root.
 
 pub mod error;
+pub mod ext4;
 pub mod placement;
 pub mod rebuild;
 pub mod record;
@@ -19,6 +20,7 @@ pub mod sidecar;
 pub mod store;
 
 pub use error::VolumeError;
+pub use ext4::{Ext4, outcome_from_exit};
 pub use placement::{
     DEFAULT_RECORD_DIR, DEFAULT_VOLUME_DIR, RECORD_DIR_ENV, on_volatile_mount, record_dir,
     refuse_volatile,
@@ -27,7 +29,9 @@ pub use rebuild::{RebuildReport, StoppedVolume, rebuild};
 pub use record::{
     VOLUME_RECORD_LEN, VOLUME_RECORD_MAGIC, VOLUME_RECORD_VERSION, VolumeRecord, VolumeRecordKind,
 };
-pub use repair::{REPAIR_TOOL, RepairOutcome, RepairReceipt, VolumeRepair};
+pub use repair::{
+    CreateError, FORMAT_TOOL, REPAIR_TOOL, RepairOutcome, RepairReceipt, VolumeRepair,
+};
 pub use service::{
     AttachOutcome, AttachRequest, DetachOutcome, DetachRequest, VOLUME_DEVICE, VolumeStore,
 };
