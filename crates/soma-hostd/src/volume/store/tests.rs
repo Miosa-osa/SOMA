@@ -265,4 +265,5 @@ fn a_refused_create_is_a_typed_refusal_and_leaves_no_attached_volume() {
     }
 }
 
+mod binding;
 mod encryption;

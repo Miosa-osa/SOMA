@@ -96,6 +96,16 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+        Request::VolumeOpen { instance } => match volumes.binding(instance) {
+            Ok(binding) => Reply::VolumeOpened {
+                volume: binding.volume,
+                size_class_gib: binding.size_class_gib,
+                repair: binding.repair.outcome.code(),
+                exit_code: binding.repair.exit_code,
+                path: binding.path.to_string_lossy().into_owned(),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
         Request::VolumeRead { volume } => match volumes.inspect(volume) {
             Ok(sidecar) => Reply::VolumeInspected {
                 volume: sidecar.volume,

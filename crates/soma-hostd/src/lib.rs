@@ -88,6 +88,7 @@ pub use pool::{
 };
 pub use volume::{
     AttachOutcome, AttachRequest, CleanRepair, DetachOutcome, DetachRequest, DirectoryVolumes,
-    RebuildReport, RepairOutcome, RepairReceipt, SidecarError, StoppedVolume, VolumeError,
-    VolumeRecord, VolumeRecordKind, VolumeRepair, VolumeSidecar, VolumeState, VolumeStore, rebuild,
+    RebuildReport, RepairOutcome, RepairReceipt, SidecarError, StoppedVolume, VolumeBinding,
+    VolumeError, VolumeRecord, VolumeRecordKind, VolumeRepair, VolumeSidecar, VolumeState,
+    VolumeStore, rebuild,
 };
