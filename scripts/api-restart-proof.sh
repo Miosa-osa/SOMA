@@ -2,18 +2,19 @@
 #
 # Proves that a machine hosted by soma-api survives a restart of soma-api.
 #
-# ADR 0042's addendum, and SOMA PR #67, claim that a claimed machine host leaves the soma-api unit's
-# control group, so a stop or restart of the unit no longer SIGKILLs the machines it is serving. A
-# manual scratch-unit run in a pull request body is not a gate test: the contract says a capability
-# is advertised only after an end-to-end proof on the shipped binary. This is that proof, scripted,
-# reproducible, and leaving evidence files.
+# ADR 0042's addendum claims that a claimed machine host leaves the soma-api unit's control group,
+# so a stop or restart of the unit no longer SIGKILLs the machines it is serving, and a scratch-unit
+# run in a pull request body is not a gate test. This is that proof, scripted and leaving evidence.
 #
 # What it does, in order:
 #   1. creates N machines through the host's own soma-api, at a real Generation and a real shape;
 #   2. runs a command on every one, so "it answered before the restart" is recorded too;
 #   3. restarts the soma-api unit;
-#   4. waits for the API to answer again;
-#   5. runs a command on every machine again, and fails if any one of them is gone or refuses.
+#   4. waits for the API to answer again, on the record-only prewarm route (api-restart-proof/
+#      readiness.sh says why that route and not a per-instance one);
+#   5. runs a command on every machine again, and fails if any one of them is gone or refuses;
+#   6. captures the socket and the host process of anything that failed (api-restart-proof/
+#      capture.sh), so "the machine is gone" can be told apart from "it is behind a queue".
 #
 # It destroys the machines at the end unless SOMA_PROOF_KEEP=1.
 #
@@ -21,18 +22,26 @@
 #   scripts/api-restart-proof.sh [--machines N] [--evidence-dir DIR]
 #
 # Environment:
-#   SOMA_PROOF_MACHINES   number of machines to host (default 8)
-#   SOMA_PROOF_IMAGE      a Generation reference; defaults to the first one in the store
-#   SOMA_PROOF_SHAPE      "vcpu memory_mib storage_mib" (default "8 2048 10240")
-#   SOMA_PROOF_EVIDENCE   evidence directory (default /var/lib/soma-api-restart-proof/<utc stamp>)
-#   SOMA_PROOF_KEEP       1 to leave the machines running
-#   SOMA_API_UNIT         unit to restart (default soma-api.service)
-#   SOMA_API_ENV          env file holding SOMA_GENERATION_STORE (default /etc/soma/api.env)
+#   SOMA_PROOF_MACHINES         number of machines to host (default 8)
+#   SOMA_PROOF_IMAGE            a Generation reference; defaults to the first one in the store
+#   SOMA_PROOF_SHAPE            "vcpu memory_mib storage_mib" (default "8 2048 10240")
+#   SOMA_PROOF_EVIDENCE         evidence directory (default /var/lib/soma-api-restart-proof/<stamp>)
+#   SOMA_PROOF_KEEP             1 to leave the machines running, and to capture every machine
+#   SOMA_API_UNIT               unit to restart (default soma-api.service)
+#   SOMA_API_ENV                env file holding SOMA_GENERATION_STORE (default /etc/soma/api.env)
+#   SOMA_PROOF_STATE_ROOT       the runtime state root, when the unit sets one; capture.sh reads
+#                               <state root>/machines/<instance>.sock from it
+#   SOMA_PROOF_COMMAND_TIMEOUT  client ceiling for one command (default 360)
+#   SOMA_PROOF_PROBE_TIMEOUT    client ceiling for one readiness probe (default 150)
+#   SOMA_PROOF_READY_TIMEOUT    window in which the API must answer again (default 120)
 #
 # Run it on the host, as root, after a soma-api start and while the Generation store is admitted.
 # This is a disruptive proof: it restarts the service the host is serving from.
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+readonly SCRIPT_DIR
 
 MACHINES="${SOMA_PROOF_MACHINES:-8}"
 readonly UNIT="${SOMA_API_UNIT:-soma-api.service}"
@@ -42,8 +51,14 @@ readonly KEEP="${SOMA_PROOF_KEEP:-0}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 readonly STAMP
 EVIDENCE="${SOMA_PROOF_EVIDENCE:-/var/lib/soma-api-restart-proof/${STAMP}}"
-readonly COMMAND_TIMEOUT="${SOMA_PROOF_COMMAND_TIMEOUT:-90}"
+# A client ceiling has to outlast the ceiling the API puts on the same round trip, or a slow but
+# legitimate answer is recorded as a client timeout and read as a machine that stopped answering:
+# `crates/soma-local/src/backend/kvm/host/mod.rs` allows 330 s for an execute (360 here) and 120 s
+# for a control call (one readiness probe gets 150).
+readonly COMMAND_TIMEOUT="${SOMA_PROOF_COMMAND_TIMEOUT:-360}"
+readonly PROBE_TIMEOUT="${SOMA_PROOF_PROBE_TIMEOUT:-150}"
 readonly READY_TIMEOUT="${SOMA_PROOF_READY_TIMEOUT:-120}"
+readonly STATE_ROOT="${SOMA_PROOF_STATE_ROOT:-}"
 
 IMAGE="${SOMA_PROOF_IMAGE:-}"
 
@@ -55,8 +70,16 @@ stamp() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { printf '%s %s\n' "$(stamp)" "$1"; }
 record() { printf '%s %s\n' "$(stamp)" "$1" >>"${EVIDENCE}/proof.log"; }
 
+# Both helpers read this script's constants and `record`; neither runs anything until it is called.
+# shellcheck source=scripts/api-restart-proof/readiness.sh
+source "${SCRIPT_DIR}/api-restart-proof/readiness.sh"
+# shellcheck source=scripts/api-restart-proof/capture.sh
+source "${SCRIPT_DIR}/api-restart-proof/capture.sh"
+
 usage() {
-    sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    # Prints the header comment itself, so the options are documented in exactly one place. The
+    # range ends at the first line that is not a comment and drops it, so the header can grow.
+    sed -n '3,/^[^#]/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' | sed '$d'
 }
 
 for argument in "$@"; do
@@ -217,17 +240,10 @@ record "restart end $(systemctl show "${UNIT}" -p MainPID --value)"
 
 # ---------------------------------------------------------------- 4. the API answers again
 
-deadline=$(( SECONDS + READY_TIMEOUT ))
 ready=0
-while (( SECONDS < deadline )); do
-    if [[ "$(curl -sS -m 5 -o /dev/null -w '%{http_code}' -H "x-soma-tenant: ${TENANT}" \
-        "http://${URL}/v1/sandboxes/${created[0]}" 2>/dev/null || true)" == "200" ]]; then
-        ready=1
-        break
-    fi
-    sleep 2
-done
-record "api ready after restart: ${ready} (waited ${SECONDS}s of ${READY_TIMEOUT}s)"
+if await_api_ready; then
+    ready=1
+fi
 if (( ready == 0 )); then
     say "the API did not answer within ${READY_TIMEOUT}s; the machines cannot be checked"
     failures=$((failures + 1))
@@ -253,6 +269,10 @@ for instance in "${created[@]}"; do
     fi
 done
 say "after the restart: ${survivors}/${#created[@]} answered"
+
+# ---------------------------------------------------------------- 5b. what a failure was
+
+capture_machines
 
 # ---------------------------------------------------------------- 6. release the machines
 
