@@ -14,7 +14,10 @@ use super::super::{
     error::{CompileError, CompileErrorKind, CompilePhase},
     tree_decoder::TreeBounds,
 };
-use super::{CompilerProfile, GIB, MIB, ProfileLimits};
+use super::{
+    super::manifest::{PersistenceBinding, STEP_A_PERSISTENCE_PATHS},
+    CompilerProfile, GIB, MIB, ProfileLimits,
+};
 
 /// The writable class the version 2 machine is defined at, in bytes.
 ///
@@ -35,6 +38,13 @@ const DEFAULT_WRITABLE_CLASS_BYTES: u64 = 10 * GIB;
 /// refuses a storage size that differs from the manifest, so the version 3 profile names that
 /// class too. Version 1 and 2 profiles stay as they were.
 const XL_WRITABLE_CLASS_BYTES: u64 = 40 * GIB;
+
+/// The first compiler policy that declares the durable data volume: version 4.
+///
+/// It is the first policy that does not change the machine. Version 3's machine already has the
+/// `vdc` slot in its device vocabulary, so version 4 declares the volume in the Generation's
+/// device contract, binds the same machine contract as version 3, and writes manifest group 17.
+pub const PERSISTENCE_POLICY_VERSION: u16 = 4;
 
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
@@ -68,6 +78,9 @@ impl CompilerProfile {
             handshake_protocol_version: 1,
             machine_contract: MachineContract::V1,
             hotplug_bytes: 0,
+            // Every profile before the persistence policy builds a Generation with no durable
+            // volume, which is what makes those Generations byte for byte the ones they were.
+            persistence: PersistenceBinding::default(),
         }
     }
 
@@ -111,6 +124,28 @@ impl CompilerProfile {
         }
     }
 
+    /// Returns compiler profile version 4: version 3's machine plus the durable data volume.
+    ///
+    /// The volume is declared by the Generation rather than by a new machine contract, so this
+    /// profile binds contract version 3 and the persistence binding is what makes the difference:
+    /// the manifest carries group 17, the device set declares slot 6, and the command line names
+    /// `vdc`. A host that does not implement the volume slot refuses the Generation, and every
+    /// version 1, 2, and 3 Generation verifies exactly as before.
+    #[must_use]
+    pub fn v4() -> Self {
+        Self {
+            policy_version: PERSISTENCE_POLICY_VERSION,
+            persistence: PersistenceBinding {
+                enabled: true,
+                paths: STEP_A_PERSISTENCE_PATHS
+                    .iter()
+                    .map(|path| (*path).to_owned())
+                    .collect(),
+            },
+            ..Self::v3()
+        }
+    }
+
     /// This profile with a different hotplug region: the ceiling minus the boot memory.
     ///
     /// Only a profile whose machine has the memory device admits a non-zero region; `validate`
@@ -137,7 +172,22 @@ impl CompilerProfile {
             // Version 3 states the virtio-mem device, and the machine now builds it on every boot
             // and restore path, so a host admits a Generation built under it.
             3 => Some(Self::v3()),
+            PERSISTENCE_POLICY_VERSION => Some(Self::v4()),
             _ => None,
+        }
+    }
+
+    /// Whether this profile's machine is the one its policy version defines.
+    ///
+    /// Versions 1 to 3 each define their own machine, so the version and the contract agree
+    /// exactly. Version 4 is the first policy that adds a device without changing the machine:
+    /// it declares the durable volume in the Generation's device contract and binds version 3's
+    /// machine contract, so the equality is stated as the rule it is rather than as a comparison
+    /// a later device-only policy would have to break.
+    fn machine_is_policy(&self) -> bool {
+        match self.policy_version {
+            PERSISTENCE_POLICY_VERSION => self.machine_contract == MachineContract::V3,
+            version => self.machine_contract.version() == version,
         }
     }
 
@@ -178,7 +228,7 @@ impl CompilerProfile {
         let limits_declared = ProfileLimits::for_version(self.policy_version).is_some();
         if zero
             || !limits_declared
-            || self.machine_contract.version() != self.policy_version
+            || !self.machine_is_policy()
             || !self.hotplug_valid()
             || !capacities_valid
             || self.guest_agent_provenance.len() > 256
