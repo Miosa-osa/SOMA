@@ -15,7 +15,7 @@ use super::super::{
     tree_decoder::TreeBounds,
 };
 use super::{
-    super::manifest::{PersistenceBinding, STEP_A_PERSISTENCE_PATHS},
+    super::manifest::{DEFAULT_VOLUME_CLASS_GIB, PersistenceBinding, STEP_A_PERSISTENCE_PATHS},
     CompilerProfile, GIB, MIB, ProfileLimits,
 };
 
@@ -137,6 +137,9 @@ impl CompilerProfile {
             policy_version: PERSISTENCE_POLICY_VERSION,
             persistence: PersistenceBinding {
                 enabled: true,
+                // The class is the volume device's capacity, fixed here so a capture, a restore,
+                // and every launch of this Generation agree about the file behind the device.
+                size_class_gib: DEFAULT_VOLUME_CLASS_GIB,
                 paths: STEP_A_PERSISTENCE_PATHS
                     .iter()
                     .map(|path| (*path).to_owned())

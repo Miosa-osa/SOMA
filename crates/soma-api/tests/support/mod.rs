@@ -81,6 +81,10 @@ pub struct FakeFacade {
     pub volume_calls: Vec<String>,
     /// The volume attachment the last launch carried.
     pub launched_volume: Option<soma::VolumeAttachment>,
+    /// The volume the host answers that this Instance owns.
+    pub owned: Option<soma_api::volumes::OwnedVolume>,
+    /// Every volume operation the routes asked for, by name.
+    pub volume_operations: Vec<&'static str>,
 }
 
 impl FakeFacade {
@@ -99,7 +103,19 @@ impl FakeFacade {
             binding: None,
             volume_calls: Vec::new(),
             launched_volume: None,
+            owned: None,
+            volume_operations: Vec::new(),
         }
+    }
+
+    /// A facade whose host answers that this Instance owns this volume, in this state.
+    #[must_use]
+    pub fn with_owned_volume(mut self, volume: &str, state: &'static str) -> Self {
+        self.owned = Some(soma_api::volumes::OwnedVolume {
+            volume: volume.to_owned(),
+            state,
+        });
+        self
     }
 
     /// A facade whose host daemon has this volume attached to the Instance it is asked about.

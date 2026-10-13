@@ -24,9 +24,7 @@ fn a_binding_opens_the_volume_attached_to_its_instance_and_reports_this_starts_r
     // Nothing is attached yet, so there is nothing a machine may be given.
     assert_eq!(
         volumes.binding(instance(1)).err(),
-        Some(VolumeError::Missing(
-            "no volume is attached to this Instance"
-        ))
+        Some(VolumeError::Missing("no volume belongs to this Instance"))
     );
 
     volumes.attach(&attach(1, 1, 1, 10)).expect("attach");
@@ -42,12 +40,20 @@ fn a_binding_opens_the_volume_attached_to_its_instance_and_reports_this_starts_r
         "a start repairs the detached file before any machine holds it"
     );
 
-    // A detached volume is not handed to a machine: the stop is what makes it a file again.
+    // A stop leaves the volume detached, and a start is what reattaches it: the binding accepts
+    // a detached volume this Instance owns and says attached before any machine exists.
     volumes.detach(&detach(1, 1, 2)).expect("detach");
-    assert!(matches!(
-        volumes.binding(instance(1)),
-        Err(VolumeError::Missing(_))
-    ));
+    assert_eq!(
+        volumes.inspect(volume(1)).expect("exists").state,
+        VolumeState::Detached
+    );
+    let reattached = volumes.binding(instance(1)).expect("reattaches");
+    assert_eq!(reattached.volume, volume(1));
+    assert_eq!(
+        volumes.inspect(volume(1)).expect("exists").state,
+        VolumeState::Attached,
+        "a start reattaches the volume it resolved"
+    );
 }
 
 #[test]
@@ -86,9 +92,7 @@ fn a_binding_names_the_volume_of_its_own_instance_and_no_other() {
     assert!(volumes.binding(instance(7)).is_ok());
     assert_eq!(
         volumes.binding(instance(8)).err(),
-        Some(VolumeError::Missing(
-            "no volume is attached to this Instance"
-        ))
+        Some(VolumeError::Missing("no volume belongs to this Instance"))
     );
 }
 

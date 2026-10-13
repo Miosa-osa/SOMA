@@ -59,3 +59,44 @@ fn a_persistent_generation_declares_the_volume_slot_and_names_it() {
 }
 
 mod pinned;
+
+#[test]
+fn the_persistence_group_carries_the_class_the_volume_is_created_at() {
+    use super::{DEFAULT_VOLUME_CLASS_GIB, VOLUME_CLASSES_GIB, is_volume_class};
+
+    let manifest = fixture::profile_v4();
+    assert!(manifest.persistence.enabled);
+    assert_eq!(
+        manifest.persistence.size_class_gib,
+        DEFAULT_VOLUME_CLASS_GIB
+    );
+    let bytes = encode_manifest(&manifest).expect("encodes");
+    let decoded = decode_manifest(&bytes).expect("decodes");
+    assert_eq!(
+        decoded.persistence.size_class_gib, DEFAULT_VOLUME_CLASS_GIB,
+        "the class a capture, a restore, and every launch agree about survives the codec"
+    );
+
+    // Every class the contract fixes is a class the group may carry, and one it does not is
+    // refused in both directions rather than written and read back as something else.
+    for class in VOLUME_CLASSES_GIB {
+        let mut candidate = manifest.clone();
+        candidate.persistence.size_class_gib = class;
+        assert!(is_volume_class(class));
+        assert_eq!(
+            decode_manifest(&encode_manifest(&candidate).expect("encodes"))
+                .expect("decodes")
+                .persistence
+                .size_class_gib,
+            class
+        );
+    }
+    for refused in [0, 1, 11, 64] {
+        let mut candidate = manifest.clone();
+        candidate.persistence.size_class_gib = refused;
+        assert!(
+            encode_manifest(&candidate).is_err(),
+            "a class the contract does not fix is refused, not written"
+        );
+    }
+}

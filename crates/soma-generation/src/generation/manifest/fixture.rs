@@ -6,9 +6,10 @@ use soma::{NetworkPolicy, OciPlatform};
 use soma_kvm::DeviceSet;
 
 use super::{
-    GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MachineShapeBinding,
-    OverlayBinding, OverlayTemplate, PersistenceBinding, RepairBinding, RootBinding,
-    STEP_A_PERSISTENCE_PATHS, SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
+    DEFAULT_VOLUME_CLASS_GIB, GenerationManifest, GuestAgentBinding, InitramfsBinding,
+    KernelBinding, MachineShapeBinding, OverlayBinding, OverlayTemplate, PersistenceBinding,
+    RepairBinding, RootBinding, STEP_A_PERSISTENCE_PATHS, SnapshotBinding, SourceBinding,
+    TemplateBinding, TreeBinding,
 };
 use crate::generation::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
@@ -174,6 +175,7 @@ pub(crate) fn profile_v4() -> GenerationManifest {
         contracts::kernel_command_line_for(devices, 3).expect("machine contract 3 has a line");
     manifest.device_contract = contracts::device_contract_v1(devices);
     manifest.persistence = PersistenceBinding {
+        size_class_gib: DEFAULT_VOLUME_CLASS_GIB,
         enabled: true,
         paths: STEP_A_PERSISTENCE_PATHS
             .iter()

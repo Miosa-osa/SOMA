@@ -53,6 +53,7 @@ fn the_v4_profile_declares_the_durable_volume_over_version_threes_machine() {
         profile.persistence,
         PersistenceBinding {
             enabled: true,
+            size_class_gib: super::super::manifest::DEFAULT_VOLUME_CLASS_GIB,
             paths: STEP_A_PERSISTENCE_PATHS
                 .iter()
                 .map(|path| (*path).to_owned())

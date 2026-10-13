@@ -16,7 +16,7 @@ use soma_hostd::{
     OperationId as HostOperation, Reply, Request, RequestFingerprint, VolumeId as HostVolume,
 };
 
-pub use binding::VolumeBinding;
+pub use binding::{OwnedVolume, VolumeBinding};
 use refusal::state_name;
 
 mod binding;

@@ -113,6 +113,14 @@ pub enum Request {
         /// The Instance.
         instance: InstanceId,
     },
+    /// Read which volume one Instance owns, without touching its state.
+    ///
+    /// A stop needs the identity of the volume it is detaching, and reading it must not attach
+    /// one to find out.
+    VolumeOwned {
+        /// The Instance.
+        instance: InstanceId,
+    },
 }
 
 impl Request {
@@ -176,6 +184,10 @@ impl Request {
                 out.push(13);
                 out.extend_from_slice(instance.as_bytes());
             }
+            Self::VolumeOwned { instance } => {
+                out.push(14);
+                out.extend_from_slice(instance.as_bytes());
+            }
         }
         out
     }
@@ -217,6 +229,9 @@ impl Request {
                 volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
             }),
             (13, 17) => Ok(Self::VolumeOpen {
+                instance: instance()?,
+            }),
+            (14, 17) => Ok(Self::VolumeOwned {
                 instance: instance()?,
             }),
             _ => Err(ProtocolError("request")),

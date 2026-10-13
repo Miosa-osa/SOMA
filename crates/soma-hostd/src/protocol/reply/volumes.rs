@@ -65,6 +65,11 @@ pub(super) fn encode_volume(out: &mut Vec<u8>, reply: &Reply) {
             out.extend_from_slice(&u16::try_from(taken).map_or([0, 0], u16::to_be_bytes));
             out.extend_from_slice(&field);
         }
+        Reply::VolumeOwned { volume, state } => {
+            out.push(15);
+            out.extend_from_slice(volume.as_bytes());
+            out.extend_from_slice(&[*state]);
+        }
         // The caller matches the volume variants before it reaches here.
         _ => {}
     }
@@ -92,6 +97,10 @@ pub(super) fn decode_volume(bytes: &[u8]) -> Result<Reply, ProtocolError> {
             volume: volume(&bytes[1..17])?,
             state: bytes[17],
             size_class_gib: u32::from_be_bytes(array(&bytes[18..22])),
+        }),
+        18 if bytes[0] == 15 => Ok(Reply::VolumeOwned {
+            volume: volume(&bytes[1..17])?,
+            state: bytes[17],
         }),
         OPENED_FRAME_LEN if bytes[0] == 14 => {
             let length_at = OPENED_FRAME_LEN - MAX_VOLUME_PATH_BYTES - 2;

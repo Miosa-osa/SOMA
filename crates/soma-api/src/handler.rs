@@ -84,13 +84,22 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             ))
         }
         Route::StopSandbox(instance_id) => {
-            let request = control_body(body)?.into_stop(instance_id)?;
+            let request = control_body(body)?.into_stop(instance_id.clone())?;
+            let stop = request.operation_id().clone();
             let outcome = facade.stop(request).map_err(|f| managed_error(&f))?;
-            Ok(lifecycle(
+            // The stop released the volume the sandbox was running with, and its answer says so:
+            // the state a stopped sandbox's data is in is part of what a stop reports.
+            let volume = volume::detach_for_stop(facade, &instance_id, &stop)?;
+            Ok(success(
+                200,
                 operation,
-                "stopped",
-                &outcome.instance_id,
-                &outcome.receipt,
+                &SandboxReport {
+                    instance_id: outcome.instance_id,
+                    state: "stopped",
+                    volume,
+                    fsck: None,
+                },
+                Some(&outcome.receipt),
             ))
         }
         Route::DestroySandbox(instance_id) => {

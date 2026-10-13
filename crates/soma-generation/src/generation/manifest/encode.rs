@@ -1,7 +1,7 @@
 use super::{
     CANDIDATE_MAGIC, GenerationManifest, MAGIC, MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE,
     MAX_MANIFEST_BYTES, MAX_PERSISTENCE_PATHS, MAX_SHORT_STRING, MAX_TEMPLATES, OverlayBinding,
-    PersistenceBinding, RootBinding, SnapshotBinding, TemplateBinding,
+    PersistenceBinding, RootBinding, SnapshotBinding, TemplateBinding, is_volume_class,
 };
 use crate::generation::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
@@ -187,13 +187,17 @@ impl Encoder {
 
     fn persistence(&mut self, binding: &PersistenceBinding) -> Result<(), CompileError> {
         self.u8(17)?;
-        if !binding.enabled && !binding.paths.is_empty() {
+        if !binding.enabled && (!binding.paths.is_empty() || binding.size_class_gib != 0) {
+            return Err(invalid());
+        }
+        if binding.enabled && !is_volume_class(binding.size_class_gib) {
             return Err(invalid());
         }
         if binding.paths.len() > MAX_PERSISTENCE_PATHS {
             return Err(limit());
         }
         self.u8(u8::from(binding.enabled))?;
+        self.u16(u16::try_from(binding.size_class_gib).map_err(|_| limit())?)?;
         self.u8(u8::try_from(binding.paths.len()).map_err(|_| limit())?)?;
         for path in &binding.paths {
             self.short_string(path.as_bytes())?;
