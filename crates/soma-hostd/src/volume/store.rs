@@ -18,6 +18,7 @@ use std::{
 use crate::{OperationId, RequestFingerprint, VolumeId};
 
 use super::error::VolumeError;
+use super::keyring::{HostKeyring, VolumeKeys};
 use super::record::{VolumeRecord, VolumeRecordKind, now_nanos};
 use super::repair::{RepairOutcome, RepairReceipt, VolumeRepair};
 use super::service::{
@@ -35,6 +36,8 @@ pub struct DirectoryVolumes {
     root: PathBuf,
     records: PathBuf,
     repairs: Box<dyn VolumeRepair + Send + Sync>,
+    /// The per-volume data keys, sealed under this host's master key.
+    keys: Box<dyn VolumeKeys + Send + Sync>,
     /// Whether this host's volume root is on its encrypted data mount.
     ///
     /// A host without one must not hold a persistent volume, because the file would sit on
@@ -99,10 +102,20 @@ impl DirectoryVolumes {
             root: root.to_path_buf(),
             records: records.to_path_buf(),
             repairs,
+            // The host's own keyring reads the master key from the encrypted mount and records
+            // each sealed volume key under the durable record root.
+            keys: Box::new(HostKeyring::from_env(records)),
             encrypted,
             state: Mutex::new(state),
             operations: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    /// This store with a different keyring, for a caller that states where keys come from.
+    #[must_use]
+    pub fn with_keys(mut self, keys: Box<dyn VolumeKeys + Send + Sync>) -> Self {
+        self.keys = keys;
+        self
     }
 
     /// The directory holding one volume's file and sidecar.

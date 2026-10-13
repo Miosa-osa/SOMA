@@ -2,6 +2,7 @@ use super::*;
 
 use std::sync::{Arc, Mutex};
 
+use crate::volume::keyring::HostKeyring;
 use crate::volume::repair::CreateError;
 use crate::{GenerationId, InstanceId};
 
@@ -44,13 +45,7 @@ fn detach(volume_byte: u8, instance_byte: u8, operation_byte: u8) -> DetachReque
 
 fn store() -> (tempfile::TempDir, DirectoryVolumes) {
     let directory = tempfile::tempdir().expect("temp dir");
-    let volumes = DirectoryVolumes::open_uncertified(
-        &directory.path().join("volumes"),
-        &directory.path().join("records"),
-        Box::new(CleanRepair),
-        true,
-    )
-    .expect("opens");
+    let volumes = with_repairs(&directory, Box::new(CleanRepair));
     (directory, volumes)
 }
 
@@ -203,13 +198,15 @@ fn with_repairs(
     directory: &tempfile::TempDir,
     repairs: Box<dyn VolumeRepair + Send + Sync>,
 ) -> DirectoryVolumes {
-    DirectoryVolumes::open_uncertified(
-        &directory.path().join("volumes"),
-        &directory.path().join("records"),
-        repairs,
-        true,
-    )
-    .expect("opens")
+    let records = directory.path().join("records");
+    // The host key lives in this test's directory rather than on an encrypted mount, so a store
+    // test exercises the key lifecycle without needing a host key of its own.
+    DirectoryVolumes::open_uncertified(&directory.path().join("volumes"), &records, repairs, true)
+        .expect("opens")
+        .with_keys(Box::new(HostKeyring::at(
+            directory.path().join("volume-master.key"),
+            &records,
+        )))
 }
 
 #[test]
@@ -266,3 +263,4 @@ fn a_refused_create_is_a_typed_refusal_and_leaves_no_attached_volume() {
 }
 
 mod encryption;
+mod keyring;
