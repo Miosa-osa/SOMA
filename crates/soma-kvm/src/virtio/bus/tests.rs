@@ -114,7 +114,8 @@ virtio_mmio.device=4K@0xd0004000:9:4"
     assert_eq!(Slot::from_gpa(0xd000_4fff), Some((Slot::Rng, 0xfff)));
     assert_eq!(Slot::from_gpa(0xd000_5000), Some((Slot::Mem, 0)));
     assert_eq!(Slot::from_gpa(0xd000_5fff), Some((Slot::Mem, 0xfff)));
-    assert_eq!(Slot::from_gpa(0xd000_6000), None);
+    assert_eq!(Slot::from_gpa(0xd000_6000), Some((Slot::Volume, 0)));
+    assert_eq!(Slot::from_gpa(0xd000_7000), None);
     assert_eq!(Slot::from_gpa(u64::MAX), None);
     assert_eq!(Slot::from_gpa(0), None);
     assert_eq!(Slot::Vsock.end(), 0xd000_3fff);
