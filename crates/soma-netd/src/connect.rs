@@ -89,7 +89,7 @@ impl Broker {
     ///
     /// Returns [`Error::InvalidState`] for a bundle that is not activated,
     /// [`Error::Unauthorized`] for a port outside the allowlist, or the kernel failure at
-    /// [`Step::Connect`] when the guest does not answer within [`CONNECT_DEADLINE`].
+    /// [`Step::Connect`] when the guest does not answer within `CONNECT_DEADLINE` (2 s).
     pub fn connect_guest(&self, assigned: &Assigned, port: u16) -> Result<OwnedFd, Error> {
         self.connect_plan(assigned, port)?.dial()
     }

@@ -423,7 +423,7 @@ impl Clock {
 
 /// Pumps bytes between `client` and `guest` until both directions end, one errors, or `idle`
 /// passes with no bytes moving. `touch` is called while bytes move, at most every
-/// [`TOUCH_EVERY`], so a busy tunnel keeps its sandbox from idling out.
+/// `TOUCH_EVERY` (15 s), so a busy tunnel keeps its sandbox from idling out.
 pub async fn pump<C>(client: C, guest: tokio::net::UnixStream, idle: Duration, touch: impl Fn())
 where
     C: AsyncRead + AsyncWrite + Unpin,

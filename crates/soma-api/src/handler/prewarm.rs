@@ -12,7 +12,7 @@ use super::{
 
 /// Serves a prewarm request without a sandbox facade.
 ///
-/// Identity is established first, as in [`handle`]. The connection calls this before it opens a
+/// Identity is established first, as in [`crate::handler::handle`]. The connection calls this before it opens a
 /// facade, so a burst that holds every facade cannot also block a change to what is prepared.
 #[must_use]
 pub fn handle_prewarm(request: &Request) -> Response {
