@@ -6,7 +6,7 @@
 )]
 use super::*;
 
-fn restore_optional<D: VirtioDevice, M: GuestMemory + ?Sized>(
+pub(super) fn restore_optional<D: VirtioDevice, M: GuestMemory + ?Sized>(
     slot: Slot,
     device: Option<D>,
     snapshot: Option<&SlotSnapshot>,
@@ -18,7 +18,7 @@ fn restore_optional<D: VirtioDevice, M: GuestMemory + ?Sized>(
     }
 }
 
-fn apply_device<D: VirtioDevice>(
+pub(super) fn apply_device<D: VirtioDevice>(
     slot: Slot,
     device: &mut D,
     snapshot: &SlotSnapshot,
@@ -28,7 +28,7 @@ fn apply_device<D: VirtioDevice>(
         .map_err(|error| SlotRestoreError::Device { slot, error })
 }
 
-fn restore_transport<D: VirtioDevice, M: GuestMemory + ?Sized>(
+pub(super) fn restore_transport<D: VirtioDevice, M: GuestMemory + ?Sized>(
     slot: Slot,
     device: D,
     snapshot: &SlotSnapshot,
