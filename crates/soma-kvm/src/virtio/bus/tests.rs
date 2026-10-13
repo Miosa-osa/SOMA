@@ -102,11 +102,11 @@ fn table_matches_the_device_surface_and_command_line_exactly() {
 virtio_mmio.device=4K@0xd0004000:9:4"
     );
     let gsis: Vec<u32> = Slot::ALL.iter().map(|slot| slot.gsi()).collect();
-    assert_eq!(gsis, vec![5, 6, 7, 8, 9, 10]);
+    assert_eq!(gsis, vec![5, 6, 7, 8, 9, 10, 11]);
     let ids: Vec<u32> = Slot::ALL.iter().map(|slot| slot.device_id()).collect();
-    assert_eq!(ids, vec![2, 2, 1, 19, 4, 24]);
+    assert_eq!(ids, vec![2, 2, 1, 19, 4, 24, 2]);
     let queues: Vec<u16> = Slot::ALL.iter().map(|slot| slot.queue_count()).collect();
-    assert_eq!(queues, vec![1, 1, 2, 3, 1, 1]);
+    assert_eq!(queues, vec![1, 1, 2, 3, 1, 1, 1]);
     assert_eq!(Slot::from_gpa(0xcfff_ffff), None);
     assert_eq!(Slot::from_gpa(0xd000_0000), Some((Slot::Root, 0)));
     assert_eq!(Slot::from_gpa(0xd000_0fff), Some((Slot::Root, 0xfff)));

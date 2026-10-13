@@ -45,7 +45,7 @@ fn builds_the_five_slots_with_fixed_geometry_and_identity() {
     assert_eq!(bus.vsock().device().guest_cid(), 3);
     assert_eq!(bus.net().unwrap().device().mac(), identity().guest_mac);
     assert!(!bus.net().unwrap().device().link_up());
-    assert_eq!(Slot::ALL.len(), 6);
+    assert_eq!(Slot::ALL.len(), 7);
     assert!(bus.mem().is_none());
 }
 

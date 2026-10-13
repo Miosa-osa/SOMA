@@ -42,9 +42,10 @@ impl DeviceSpecific {
     /// Returns [`DeviceStateError::SpecificMismatch`] or [`DeviceStateError::InvalidField`].
     pub fn validate_for(&self, kind: DeviceKind) -> Result<(), DeviceStateError> {
         match (kind, self) {
-            (DeviceKind::RootBlock | DeviceKind::OverlayBlock, Self::Block(block)) => {
-                block.validate()
-            }
+            (
+                DeviceKind::RootBlock | DeviceKind::OverlayBlock | DeviceKind::VolumeBlock,
+                Self::Block(block),
+            ) => block.validate(),
             (DeviceKind::Net, Self::Net { .. })
             | (DeviceKind::Vsock, Self::Vsock { .. })
             | (DeviceKind::Rng, Self::Rng) => Ok(()),

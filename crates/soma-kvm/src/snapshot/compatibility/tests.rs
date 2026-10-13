@@ -31,7 +31,8 @@ pub(crate) fn matching_host() -> HostProfile {
         memory_bytes: MEMORY_BYTES,
         guest_protocol_version: header.guest_protocol_version,
         devices: DeviceKind::ALL.map(|kind| {
-            (kind != DeviceKind::Mem).then(|| DeviceExpectation {
+            let spare = matches!(kind, DeviceKind::Mem | DeviceKind::VolumeBlock);
+            (!spare).then(|| DeviceExpectation {
                 kind,
                 negotiated_features: device_fixtures::features_for(kind),
                 queue_limits: device_fixtures::queue_limits_for(kind),
@@ -234,8 +235,7 @@ fn the_vcpu_section_set_must_match_the_certified_count() {
         check(&matching_host(), &surplus),
         Err(Incompatibility::UnexpectedSection(SectionRole::Vcpu1))
     );
-    // And a header that certifies two processors refuses a manifest carrying only one, because
-    // the second processor would resume with no state at all.
+    // And a header that certifies two processors refuses a manifest carrying only one, because the second processor would resume with no state at all.
     let mut header = manifest.header().clone();
     header.vcpu_count = 2;
     let short = Manifest::new(header, manifest.sections().to_vec()).unwrap();
