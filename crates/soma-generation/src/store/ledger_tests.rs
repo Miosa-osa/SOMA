@@ -56,7 +56,7 @@ fn a_blob_changed_after_it_was_recorded_is_hashed_again_and_refused() {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
     }
     std::thread::sleep(std::time::Duration::from_millis(25));
-    std::fs::write(&path, b"a launch artifacX").unwrap();
+    std::fs::write(&path, b"a launch artifact, changed").unwrap();
     let restarted = super::Store::open(&root).unwrap();
     assert_eq!(
         admit(&restarted, &descriptor),
