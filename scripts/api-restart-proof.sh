@@ -13,8 +13,8 @@
 #   4. waits for the API to answer again, on the record-only prewarm route (api-restart-proof/
 #      readiness.sh says why that route and not a per-instance one);
 #   5. runs a command on every machine again, and fails if any one of them is gone or refuses;
-#   6. captures the socket and the host process of anything that failed (api-restart-proof/
-#      capture.sh), so "the machine is gone" can be told apart from "it is behind a queue".
+#   6. captures the socket, the host process and the control group of what failed (api-restart-proof/
+#      capture.sh), so "gone", "behind a queue" and "killed by a cgroup" are told apart.
 #
 # It destroys the machines at the end unless SOMA_PROOF_KEEP=1.
 #
