@@ -36,6 +36,10 @@ impl BlockDevice {
             role,
             transfer,
             backend,
+            // A durable volume is born on its placeholder: the Generation declares the device
+            // against the capacity its Instance's file will have, and no capture or restore may
+            // read tenant data through it. The Instance's own file arrives only through `attach`.
+            placeholder: matches!(role, BlockRole::DurableVolume),
             blk_size,
             capacity_sectors: capacity_bytes / SECTOR_SIZE,
             serial,

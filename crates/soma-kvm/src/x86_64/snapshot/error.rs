@@ -66,6 +66,11 @@ pub enum SnapshotError {
     DeviceState(DeviceStateError),
     /// The canonical device state does not reproduce the live device state.
     DeviceStateNotCanonical(Slot),
+    /// A capture would publish a durable volume that is not backed by its placeholder.
+    ///
+    /// A snapshot carries device state, never tenant data, so the volume must still be the
+    /// placeholder the Generation declared when the manifest is written.
+    VolumeNotPlaceholder,
     /// A restored slot was rejected.
     SlotRestore(SlotRestoreError),
     /// The manifest could not be built or decoded.
@@ -114,6 +119,12 @@ impl fmt::Display for SnapshotError {
         match self {
             Self::Machine(error) => write!(formatter, "{error}"),
             Self::NotQuiescent(reason) => write!(formatter, "not quiescent: {reason}"),
+            Self::VolumeNotPlaceholder => {
+                write!(
+                    formatter,
+                    "the durable volume is not backed by its placeholder"
+                )
+            }
             Self::CaptureOrder(error) => write!(formatter, "{error}"),
             Self::RestoreOrder(error) => write!(formatter, "{error}"),
             Self::Readiness(refusal) => write!(formatter, "{refusal}"),

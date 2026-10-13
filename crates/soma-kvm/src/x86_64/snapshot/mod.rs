@@ -15,6 +15,8 @@ mod artifacts;
 mod artifacts_tests;
 mod capture;
 mod device;
+#[cfg(test)]
+mod device_tests;
 mod error;
 mod installation;
 mod marker;

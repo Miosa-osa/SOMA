@@ -6,13 +6,12 @@
 
 mod attachment;
 pub mod backend;
+mod config;
 mod construct;
 mod execute;
 pub mod request;
 pub mod state;
 mod transfer;
-
-use std::fmt;
 
 use crate::virtio::device::{
     ActivateError, ConfigAccessError, DeviceStateError, VIRTIO_F_VERSION_1, VirtioDevice,
@@ -84,29 +83,7 @@ impl BlockRole {
     }
 }
 
-/// Why a block device could not be constructed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BlockConfigError {
-    /// The backend's writability disagrees with the role.
-    RoleMismatch,
-    /// The logical block size is not a power of two in `512..=4096`.
-    InvalidBlockSize { blk_size: u32 },
-    /// The capacity is zero or not a multiple of the block size.
-    InvalidCapacity { capacity_bytes: u64 },
-    /// An attached store does not have the shape the device was built for.
-    ///
-    /// The guest has already been told the device's capacity, so a store of a different size
-    /// cannot be substituted for the one the device was built against.
-    AttachedShapeDiffers,
-}
-
-impl fmt::Display for BlockConfigError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "block device rejected: {self:?}")
-    }
-}
-
-impl std::error::Error for BlockConfigError {}
+pub use self::config::BlockConfigError;
 
 /// Saturating counters; never guest bytes.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -122,6 +99,13 @@ pub struct BlockDevice {
     role: BlockRole,
     transfer: TransferShape,
     backend: Box<dyn BlockBackend + Send>,
+    /// Whether this device is still backed by the placeholder it was built on.
+    ///
+    /// A durable volume is born on its placeholder, so neither the capture that declares the
+    /// device nor the restore that rebuilds it ever reads tenant data through it; the Instance's
+    /// own file arrives only through [`BlockDevice::attach`]. Every other role serves the store
+    /// it was built with from the moment it exists, so this is always false for them.
+    placeholder: bool,
     blk_size: u32,
     capacity_sectors: u64,
     serial: [u8; BLOCK_SERIAL_LEN],
@@ -150,6 +134,14 @@ impl BlockDevice {
     #[must_use]
     pub const fn capacity_sectors(&self) -> u64 {
         self.capacity_sectors
+    }
+
+    /// Whether this device is still backed by the placeholder it was built on.
+    ///
+    /// Only a durable volume ever is; every other role serves its store from construction.
+    #[must_use]
+    pub const fn is_placeholder(&self) -> bool {
+        self.placeholder
     }
 
     #[must_use]
@@ -284,6 +276,8 @@ impl VirtioDevice for BlockDevice {
 mod hostile_tests;
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod placeholder_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

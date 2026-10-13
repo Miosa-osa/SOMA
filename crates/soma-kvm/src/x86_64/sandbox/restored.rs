@@ -51,24 +51,29 @@ pub struct NetworkAttachment {
 }
 
 impl SandboxMachine {
-    /// Gives a machine built without them the private disk head and context identifier.
+    /// Gives a machine built without them the private disk head, the durable volume, and the
+    /// context identifier.
     ///
     /// A prepared worker is restored before any Instance exists, so it is built against a
-    /// declared overlay shape and the identifier the snapshot was captured holding. Both are
-    /// per-Instance authority the prepared worker protocol transfers when the worker is claimed,
-    /// and this is where that transfer lands in the machine.
+    /// declared overlay shape, a declared volume shape, and the identifier the snapshot was
+    /// captured holding. All three are per-Instance authority the prepared worker protocol
+    /// transfers when the worker is claimed, and this is where that transfer lands in the
+    /// machine. The volume's file is the one resource that must arrive here: a durable volume is
+    /// built on a placeholder, and a machine that ran without this swap would give the guest an
+    /// empty disk where its data belongs, so a declared volume with no file is refused.
     ///
     /// It is safe to do this to an already restored device because the vCPU has not been started:
-    /// nothing in the guest has read the identifier or touched the disk since the restore, so
-    /// neither substitution can be observed as a change.
+    /// nothing in the guest has read the identifier or touched either disk since the restore, so
+    /// no substitution can be observed as a change.
     ///
     /// # Errors
     ///
-    /// Fails when the head does not have the shape the device was built for, or when the
-    /// identifier is not one a guest may hold.
+    /// Fails when a disk does not have the shape the device was built for, when the volume slot
+    /// and the assigned file disagree, or when the identifier is not one a guest may hold.
     pub(in crate::x86_64) fn assign_instance_resources(
         &self,
         overlay: Option<std::fs::File>,
+        volume: Option<std::fs::File>,
         guest_cid: u32,
         network: Option<NetworkAttachment>,
     ) -> Result<(), MachineError> {
@@ -77,26 +82,53 @@ impl SandboxMachine {
         // held, so assignment cannot expose a half-updated device set.
         VsockDevice::validate_guest_cid(u64::from(guest_cid))
             .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
-        let backend = overlay
+        let head = overlay
             .map(|overlay| FileBackend::new(overlay, false))
+            .transpose()
+            .map_err(|error| MachineError::io(Phase::Devices, &error))?;
+        let data = volume
+            .map(|volume| FileBackend::new(volume, false))
             .transpose()
             .map_err(|error| MachineError::io(Phase::Devices, &error))?;
         let mut bus = self.shared.lock();
         // A head for a machine with no overlay slot, or a slot with no head to fill it, is a
         // caller that thinks this is a different machine than it is; neither is resolved by
         // going ahead with whichever half was supplied.
-        match (bus.overlay_mut(), backend) {
-            (Some(overlay), Some(backend)) => overlay
-                .device_mut()
-                .attach(Box::new(backend))
-                .map_err(|error| {
-                    MachineError::new(Phase::Devices, MachineErrorKind::Block(error))
-                })?,
+        match (bus.overlay_mut(), head) {
+            (Some(overlay), Some(head)) => {
+                overlay
+                    .device_mut()
+                    .attach(Box::new(head))
+                    .map_err(|error| {
+                        MachineError::new(Phase::Devices, MachineErrorKind::Block(error))
+                    })?;
+            }
             (None, None) => {}
             _ => {
                 return Err(MachineError::invalid(
                     Phase::Devices,
                     "the machine's overlay slot and the assigned head disagree",
+                ));
+            }
+        }
+        // The same rule for the durable volume, and this is the one place the Instance's own
+        // file is bound over the placeholder the device was built on. A declared volume with no
+        // file, or a file for a machine that has no volume slot, is a caller that thinks this is
+        // a different machine than it is, and the guest must not be allowed to run on either.
+        match (bus.volume_mut(), data) {
+            (Some(volume), Some(data)) => {
+                volume
+                    .device_mut()
+                    .attach(Box::new(data))
+                    .map_err(|error| {
+                        MachineError::new(Phase::Devices, MachineErrorKind::Block(error))
+                    })?;
+            }
+            (None, None) => {}
+            _ => {
+                return Err(MachineError::invalid(
+                    Phase::Devices,
+                    "the machine's volume slot and the assigned volume disagree",
                 ));
             }
         }

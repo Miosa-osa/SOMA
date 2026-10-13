@@ -162,7 +162,10 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         verify_artifacts,
         hotplug,
     })?
-    .assign(overlay, guest_cid, network)
+    // The durable volume's file rides the same transfer as the head once the host-side volume
+    // store supplies it; until that wiring lands the volume is absent, and a persistent
+    // Generation then refuses to start rather than run its guest on the placeholder.
+    .assign(overlay, None, guest_cid, network)
 }
 
 mod sterile_entry;

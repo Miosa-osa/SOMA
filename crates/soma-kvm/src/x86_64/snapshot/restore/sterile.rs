@@ -82,10 +82,12 @@ impl Sterile {
     ///
     /// # Errors
     ///
-    /// Returns a typed failure for an invalid private head, CID, or readiness secret.
+    /// Returns a typed failure for an invalid private head, an absent or misshapen durable
+    /// volume, an invalid CID, or a readiness secret that cannot be sampled.
     pub fn assign(
         self,
         overlay: Option<File>,
+        volume: Option<File>,
         guest_cid: u32,
         network: Option<NetworkAttachment>,
     ) -> Result<Restored, SnapshotError> {
@@ -94,7 +96,7 @@ impl Sterile {
             facts,
             sequence,
         } = self;
-        machine.assign_instance_resources(overlay, guest_cid, network)?;
+        machine.assign_instance_resources(overlay, volume, guest_cid, network)?;
         let readiness = readiness::sample_challenge()?;
         Ok(Restored {
             machine,

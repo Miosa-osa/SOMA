@@ -150,7 +150,10 @@ fn assign(
     // rather than returning a half-assigned one to anybody. The leased frame path is installed
     // in the same step, because it is this Instance's authority and not the pool's: a prepared
     // machine that already held a TAP would be holding one tenant's network.
-    let Ok(mut restored) = sterile.assign(overlay, guest_cid, attachment) else {
+    // The durable volume's file rides the same transfer as the head once the host-side volume
+    // store supplies it; until that wiring lands the volume is absent, and a persistent
+    // Generation then refuses to start rather than run its guest on the placeholder.
+    let Ok(mut restored) = sterile.assign(overlay, None, guest_cid, attachment) else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));
         return;
     };
