@@ -10,8 +10,8 @@ use super::{
     kernel::{ELF_PVH_CONTRACT_VERSION, VerifiedKernel},
     manifest::{
         GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding,
-        MachineShapeBinding, OverlayBinding, OverlayTemplate, PersistenceBinding, RepairBinding,
-        RootBinding, SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
+        MachineShapeBinding, OverlayBinding, OverlayTemplate, RepairBinding, RootBinding,
+        SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
     },
     overlay::{self, OverlayEvidence},
     publish::publish_candidate,
@@ -236,9 +236,9 @@ impl ManifestParts<'_> {
                 workload_probe: template.startup().workload_probe().map(<[u8]>::to_vec),
                 ttl_seconds: template.lifetime().ttl_seconds(),
             },
-            // Step A persistence is declared by the compiler profile that writes policy 4; a
-            // profile below it builds a Generation with no durable volume.
-            persistence: PersistenceBinding::default(),
+            // Step A persistence comes from the profile: only the profile that writes policy 4
+            // enables it, and every profile below it builds a Generation with no durable volume.
+            persistence: profile.persistence.clone(),
         })
     }
 }

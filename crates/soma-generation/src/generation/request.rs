@@ -2,7 +2,7 @@ use std::{fmt, path::Path, time::Duration};
 
 use soma_kvm::MachineContract;
 
-use super::{template::TemplateRevision, tree_decoder::TreeBounds};
+use super::{manifest::PersistenceBinding, template::TemplateRevision, tree_decoder::TreeBounds};
 use crate::NormalizedRootfs;
 
 mod limits;
@@ -58,6 +58,11 @@ pub struct CompilerProfile {
     /// memory it boots with. Zero for every profile before the live-resize one, whose machine
     /// has no memory device; positive and block-aligned for one that has.
     pub hotplug_bytes: u64,
+    /// The durable data volume this profile's Generations declare, and the paths it carries.
+    ///
+    /// Only the policy that writes manifest group 17 sets it; every earlier profile leaves it
+    /// disabled, so every Generation those profiles build is byte for byte the one it was.
+    pub persistence: PersistenceBinding,
 }
 
 /// Directories holding the pinned external tools.
