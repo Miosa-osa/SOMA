@@ -60,7 +60,7 @@ jobs:
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
 
       - name: Install checksum-verified Rust security tools
-        uses: taiki-e/install-action@37f7c5781271959fb65b6b35224e28652ff2b63d # v2.87.0
+        uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
         with:
           fallback: none
           tool: cargo-audit@0.22.2,cargo-deny@0.20.2,zizmor@1.29.0
