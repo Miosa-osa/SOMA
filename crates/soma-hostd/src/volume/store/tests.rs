@@ -145,16 +145,13 @@ fn a_destroy_removes_the_volume_and_a_later_inspect_is_missing() {
 #[test]
 fn a_reopened_store_rebuilds_the_volume_from_its_sidecar() {
     let directory = tempfile::tempdir().expect("temp dir");
-    let root = directory.path().join("volumes");
-    let records = directory.path().join("records");
     {
-        let volumes =
-            DirectoryVolumes::open_uncertified(&root, &records, Box::new(CleanRepair), true)
-                .expect("opens");
+        let volumes = with_repairs(&directory, Box::new(CleanRepair));
         volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
     }
-    let reopened = DirectoryVolumes::open_uncertified(&root, &records, Box::new(CleanRepair), true)
-        .expect("opens");
+    // The reopened store is built the same way, so it reads the same host key this test's
+    // directory holds rather than looking for one on a host the test does not have.
+    let reopened = with_repairs(&directory, Box::new(CleanRepair));
     let sidecar = reopened.inspect(volume(1)).expect("exists");
     assert_eq!(sidecar.state, VolumeState::Attached);
     assert_eq!(sidecar.tenant, "tenant-alpha");

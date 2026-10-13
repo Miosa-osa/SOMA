@@ -150,6 +150,9 @@ impl BlockDevice {
     /// The detached builders leave a durable volume marked as still on its placeholder; a device
     /// built over a real file, as a cold boot's is, is serving it from the first instruction, so
     /// it is not a placeholder and `attach` refuses to replace what it already serves.
+    /// The machine builders that pass a real volume file are `x86_64`'s, so a build for another
+    /// architecture has no caller and this is compiled out rather than left as dead code.
+    #[cfg(any(target_arch = "x86_64", test))]
     #[must_use]
     pub(crate) fn into_serving(mut self) -> Self {
         self.placeholder = false;
