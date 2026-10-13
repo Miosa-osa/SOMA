@@ -188,6 +188,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
     ) -> Result<std::os::unix::net::UnixStream, soma_local::TunnelFailure> {
         self.deref_mut().tunnel(instance_id, port)
     }
+
+    fn volume(
+        &mut self,
+        operation: crate::volumes::VolumeOperation,
+        body: &crate::volumes::VolumeBody,
+    ) -> Result<crate::volumes::VolumeReport, crate::volumes::VolumeFailure> {
+        self.deref_mut().volume(operation, body)
+    }
 }
 
 #[cfg(test)]

@@ -9,8 +9,9 @@ use soma_guest::LaunchNetwork;
 
 use crate::{
     AssignmentIntent, AttachRequest, Claim, ClaimOutcome, DetachRequest, FailureCode, LaunchFrame,
-    Pool, Reply, Request, ResourceBroker, Runtime, VolumeStore, WorkerLauncher, claim_failure_code,
-    failure_code, lifecycle_failure_code, transfer_failure_code, volume_failure_code,
+    Pool, Reply, Request, ResourceBroker, Runtime, VolumeState, VolumeStore, WorkerLauncher,
+    claim_failure_code, failure_code, lifecycle_failure_code, transfer_failure_code,
+    volume_failure_code,
 };
 
 /// Applies one request to the Host Runtime.
@@ -85,6 +86,21 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             Ok(outcome) => Reply::VolumeDetached {
                 volume: outcome.volume,
                 state: outcome.state.code(),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
+        Request::VolumeDestroy(frame) => match volumes.destroy(frame.volume) {
+            Ok(()) => Reply::VolumeDestroyed {
+                volume: frame.volume,
+                state: VolumeState::Deleting.code(),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
+        Request::VolumeRead { volume } => match volumes.inspect(volume) {
+            Ok(sidecar) => Reply::VolumeInspected {
+                volume: sidecar.volume,
+                state: sidecar.state.code(),
+                size_class_gib: sidecar.size_class_gib,
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },

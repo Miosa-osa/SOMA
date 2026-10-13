@@ -47,9 +47,9 @@ fn requests_round_trip_and_reject_hostile_frames() {
         assert!(Request::decode(&extended).is_err());
     }
     assert_eq!(Request::decode(&[]), Err(ProtocolError("frame length")));
-    // 9 and 10 are the volume requests, so 11 is the first discriminant this build refuses.
+    // 9 through 12 are the volume requests, so 13 is the first discriminant this build refuses.
     assert_eq!(Request::decode(&[9]), Err(ProtocolError("volume attach")));
-    assert_eq!(Request::decode(&[11]), Err(ProtocolError("request")));
+    assert_eq!(Request::decode(&[13]), Err(ProtocolError("request")));
     assert!(Request::decode(&[2; 17]).is_ok());
     let mut zero_worker = [0; 17];
     zero_worker[0] = 2;

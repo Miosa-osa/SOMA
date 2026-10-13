@@ -40,9 +40,9 @@ pub use instance::{
     InstanceError, InstanceView, Launched, MAX_LISTED, Page, Runtime, TerminalReceipt,
 };
 pub use protocol::{
-    FailureCode, LaunchFrame, MAX_FRAME, ProtocolError, Reply, Request, claim_failure_code,
-    failure_code, instance_failure_code, lifecycle_failure_code, transfer_failure_code,
-    volume_failure_code,
+    AttachFrame, DetachFrame, FailureCode, LaunchFrame, MAX_FRAME, ProtocolError, Reply, Request,
+    claim_failure_code, failure_code, instance_failure_code, lifecycle_failure_code,
+    transfer_failure_code, volume_failure_code,
 };
 
 pub use admission::{

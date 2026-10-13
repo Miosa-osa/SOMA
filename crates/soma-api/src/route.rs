@@ -3,6 +3,7 @@ use soma::InstanceId;
 use crate::{
     envelope::ApiError,
     http::request::{Method, Request},
+    volumes::VolumeOperation,
     wire::path_instance_id,
 };
 
@@ -85,6 +86,10 @@ pub enum Route {
     /// Served by the connection, not by a handler: it needs no sandbox facade, so a burst that
     /// holds every facade cannot also block a caller trying to change what is prepared.
     Prewarm(bool),
+    /// One durable data volume operation (ADR 0053 Step A).
+    ///
+    /// The read carries its volume id on the path and no body; the others carry a body and no id.
+    Volume(VolumeOperation, Option<String>),
 }
 
 impl Route {
@@ -105,6 +110,7 @@ impl Route {
             Self::Resources(_, true) => "sandbox.resize",
             Self::Prewarm(false) => "prewarm.status",
             Self::Prewarm(true) => "prewarm.set",
+            Self::Volume(operation, _) => operation.name(),
         }
     }
 }
@@ -184,6 +190,21 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
                 Route::Terminal(path_instance_id(instance)?, terminal_operation(operation)?);
             post_only(request, route)
         }
+        // The named volume operations come before the bare id, so `attach` is an operation and
+        // never read as a volume identity.
+        ["v1", "volumes", "attach"] => {
+            post_only(request, Route::Volume(VolumeOperation::Attach, None))
+        }
+        ["v1", "volumes", "detach"] => {
+            post_only(request, Route::Volume(VolumeOperation::Detach, None))
+        }
+        ["v1", "volumes", "destroy"] => {
+            post_only(request, Route::Volume(VolumeOperation::Destroy, None))
+        }
+        ["v1", "volumes", id] => match request.method {
+            Method::Get => Ok(Route::Volume(VolumeOperation::Read, Some((*id).to_owned()))),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         _ => Err(ApiError::not_found()),
     }
 }

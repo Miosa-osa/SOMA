@@ -1,4 +1,5 @@
 mod prewarm;
+mod volumes;
 
 use serde::{Serialize, de::DeserializeOwned};
 use soma::ExecutionReceipt;
@@ -125,6 +126,9 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 },
                 Some(&outcome.receipt),
             ))
+        }
+        Route::Volume(volume_operation, path_volume) => {
+            volumes::serve(facade, volume_operation, path_volume, body)
         }
     }
 }
@@ -285,7 +289,7 @@ fn lifecycle(
     )
 }
 
-fn success<T: Serialize>(
+pub(super) fn success<T: Serialize>(
     status: u16,
     operation: &'static str,
     result: &T,

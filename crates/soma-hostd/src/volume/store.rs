@@ -255,7 +255,9 @@ impl VolumeStore for DirectoryVolumes {
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
         if !state.contains_key(&volume) {
-            return Err(VolumeError::Missing("no sidecar names this volume"));
+            // Destroying a volume that is already gone reaches the same terminal state, so a
+            // replay after a lost answer succeeds rather than reporting a volume nobody owns.
+            return Ok(());
         }
         self.transition(VolumeRecordKind::DestroyBegin, volume)?;
         let directory = self.directory(volume);

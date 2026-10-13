@@ -209,6 +209,13 @@ pub enum Request {
     VolumeAttach(AttachFrame),
     /// Detach the durable data volume from one Instance, keeping its file.
     VolumeDetach(DetachFrame),
+    /// Destroy the durable data volume, unlinking its file and its data key.
+    VolumeDestroy(DetachFrame),
+    /// Read one volume's sidecar projection back; it carries no request body.
+    VolumeRead {
+        /// The volume.
+        volume: VolumeId,
+    },
 }
 
 impl Request {
@@ -260,6 +267,14 @@ impl Request {
                 out.push(10);
                 frame.encode_into(&mut out);
             }
+            Self::VolumeDestroy(frame) => {
+                out.push(11);
+                frame.encode_into(&mut out);
+            }
+            Self::VolumeRead { volume } => {
+                out.push(12);
+                out.extend_from_slice(volume.as_bytes());
+            }
         }
         out
     }
@@ -296,6 +311,10 @@ impl Request {
             }),
             (9, _) => AttachFrame::decode(bytes).map(Self::VolumeAttach),
             (10, _) => DetachFrame::decode(bytes).map(Self::VolumeDetach),
+            (11, _) => DetachFrame::decode(bytes).map(Self::VolumeDestroy),
+            (12, 17) => Ok(Self::VolumeRead {
+                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
+            }),
             _ => Err(ProtocolError("request")),
         }
     }

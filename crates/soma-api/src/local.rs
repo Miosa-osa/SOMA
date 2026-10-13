@@ -7,7 +7,9 @@ use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
 use crate::facade::{
     CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
+    VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
 };
+use crate::volumes::VolumeClient;
 
 /// The production facade: a durable local runtime, driven exactly as the CLI drives it.
 ///
@@ -16,6 +18,7 @@ use crate::facade::{
 /// cross-process serialization point and sharing a runtime would add a second, weaker one.
 pub struct LocalFacade {
     runtime: LocalRuntime,
+    volumes: VolumeClient,
 }
 
 impl LocalFacade {
@@ -28,6 +31,7 @@ impl LocalFacade {
     pub fn open(config: LocalRuntimeConfig) -> Result<Self, LocalFailure> {
         Ok(Self {
             runtime: LocalRuntime::open(config)?,
+            volumes: VolumeClient::from_env(),
         })
     }
 }
@@ -123,6 +127,16 @@ impl SandboxFacade for LocalFacade {
         port: u16,
     ) -> Result<std::os::unix::net::UnixStream, soma_local::TunnelFailure> {
         self.runtime.tunnel_machine(instance_id, port)
+    }
+
+    /// The volume store lives in the host daemon, so this forwards to the control socket and
+    /// reports the missing capability when no socket is configured.
+    fn volume(
+        &mut self,
+        operation: VolumeOperation,
+        body: &VolumeBody,
+    ) -> Result<VolumeReport, VolumeFailure> {
+        self.volumes.call(operation, body)
     }
 }
 
