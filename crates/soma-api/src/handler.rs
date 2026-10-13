@@ -3,12 +3,11 @@ mod support;
 mod volumes;
 use support::{control_body, optional_body, parse, refuse, success};
 
-use serde::{Serialize, de::DeserializeOwned};
 use soma::ExecutionReceipt;
 
 use crate::{
     capability::MissingCapability,
-    envelope::{ApiError, Envelope, failure_body, failure_body_with_result, render},
+    envelope::{ApiError, Envelope, failure_body_with_result, render},
     facade::SandboxFacade,
     failure::managed_error,
     filesystem::{FilesystemBody, FilesystemReport},
@@ -21,7 +20,7 @@ use crate::{
     route::{FilesystemOperation, Route, TerminalOperation, resolve},
     tenant::{TENANT_HEADER, identify},
     terminal::{TerminalBody, TerminalReport},
-    wire::{ControlBody, CreateSandboxBody, RunCommandBody},
+    wire::{CreateSandboxBody, RunCommandBody},
 };
 
 pub use prewarm::handle_prewarm;
