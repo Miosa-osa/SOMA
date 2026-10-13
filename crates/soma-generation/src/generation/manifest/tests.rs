@@ -40,3 +40,20 @@ fn a_policy_below_four_never_writes_the_group() {
         encode_manifest(&manifest).expect("encodes")
     );
 }
+
+#[test]
+fn a_persistent_generation_declares_the_volume_slot_and_names_it() {
+    let manifest = fixture::profile_v4();
+    assert!(manifest.device_set().volume());
+    let line = String::from_utf8(manifest.command_line.clone()).expect("utf8");
+    assert!(line.contains("soma.volume=/dev/vdc"));
+    // The volume page follows the memory device's, so no earlier slot's address moved.
+    assert!(line.contains("4K@0xd0006000:11:6"));
+
+    // A Generation below policy 4 never declares the slot and never names the device.
+    let below = fixture::profile_v3();
+    assert!(!below.device_set().volume());
+    let line = String::from_utf8(below.command_line.clone()).expect("utf8");
+    assert!(!line.contains("soma.volume="));
+    assert!(!line.contains("0xd0006000"));
+}

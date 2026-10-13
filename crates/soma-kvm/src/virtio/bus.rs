@@ -1,4 +1,4 @@
-//! The MMIO bus: checked interval dispatch over the six fixed transports.
+//! The MMIO bus: checked interval dispatch over the seven fixed transports.
 //!
 //! The bus owns the transports and routes reads, writes, notifications,
 //! inbound delivery, and snapshot records by slot. It performs no KVM call;
@@ -28,6 +28,7 @@ pub use table::{DeviceSet, FIRST_GSI, MMIO_WINDOW_BASE, SLOT_COUNT, Slot, kernel
 pub struct BusDevices {
     pub root: BlockDevice,
     pub overlay: Option<BlockDevice>,
+    pub volume: Option<BlockDevice>,
     pub net: Option<NetDevice>,
     pub vsock: VsockDevice,
     pub rng: RngDevice,
@@ -38,7 +39,9 @@ impl BusDevices {
     /// The set these models make up.
     #[must_use]
     pub const fn device_set(&self) -> DeviceSet {
-        DeviceSet::new(self.overlay.is_some(), self.net.is_some()).with_mem(self.mem.is_some())
+        DeviceSet::new(self.overlay.is_some(), self.net.is_some())
+            .with_mem(self.mem.is_some())
+            .with_volume(self.volume.is_some())
     }
 }
 
@@ -46,6 +49,7 @@ impl BusDevices {
 pub struct MmioBus {
     root: MmioTransport<BlockDevice>,
     overlay: Option<MmioTransport<BlockDevice>>,
+    volume: Option<MmioTransport<BlockDevice>>,
     net: Option<MmioTransport<NetDevice>>,
     vsock: MmioTransport<VsockDevice>,
     rng: MmioTransport<RngDevice>,
@@ -75,6 +79,7 @@ macro_rules! with_slot {
                 Some($body)
             }
             Slot::Mem => $bus.mem.as_mut().map(|$t| $body),
+            Slot::Volume => $bus.volume.as_mut().map(|$t| $body),
         }
     };
 }
@@ -90,11 +95,18 @@ impl MmioBus {
         if let Some(overlay) = &devices.overlay {
             check_role(Slot::Overlay, overlay, BlockRole::PrivateOverlay)?;
         }
+        if let Some(volume) = &devices.volume {
+            check_role(Slot::Volume, volume, BlockRole::DurableVolume)?;
+        }
         Ok(Self {
             root: transport(Slot::Root, devices.root)?,
             overlay: devices
                 .overlay
                 .map(|device| transport(Slot::Overlay, device))
+                .transpose()?,
+            volume: devices
+                .volume
+                .map(|device| transport(Slot::Volume, device))
                 .transpose()?,
             net: devices
                 .net
@@ -112,7 +124,9 @@ impl MmioBus {
     /// Which optional slots this bus actually carries.
     #[must_use]
     pub const fn device_set(&self) -> DeviceSet {
-        DeviceSet::new(self.overlay.is_some(), self.net.is_some()).with_mem(self.mem.is_some())
+        DeviceSet::new(self.overlay.is_some(), self.net.is_some())
+            .with_mem(self.mem.is_some())
+            .with_volume(self.volume.is_some())
     }
 
     /// Reads from a transport register or configuration byte range.
@@ -166,6 +180,10 @@ impl MmioBus {
             Slot::Vsock => self.vsock.interrupt_status(),
             Slot::Rng => self.rng.interrupt_status(),
             Slot::Mem => self.mem.as_ref().map_or(0, MmioTransport::interrupt_status),
+            Slot::Volume => self
+                .volume
+                .as_ref()
+                .map_or(0, MmioTransport::interrupt_status),
         }
     }
 
@@ -221,6 +239,17 @@ impl MmioBus {
     /// The private overlay, so a claimed worker can be given the disk head it was built without.
     pub const fn overlay_mut(&mut self) -> Option<&mut MmioTransport<BlockDevice>> {
         self.overlay.as_mut()
+    }
+
+    /// The durable data volume of ADR 0053 Step A, present only on a persistent Generation.
+    #[must_use]
+    pub const fn volume(&self) -> Option<&MmioTransport<BlockDevice>> {
+        self.volume.as_ref()
+    }
+
+    /// The durable data volume, so a launch can bind the real file over the placeholder.
+    pub const fn volume_mut(&mut self) -> Option<&mut MmioTransport<BlockDevice>> {
+        self.volume.as_mut()
     }
 
     #[must_use]

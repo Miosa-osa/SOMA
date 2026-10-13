@@ -15,7 +15,7 @@ use crate::virtio::transport::registers::{MMIO_PAGE_SIZE, REG_QUEUE_NOTIFY};
 /// First byte of the MMIO window; above the 3 GiB RAM ceiling.
 pub const MMIO_WINDOW_BASE: u64 = 0xd000_0000;
 /// Number of device slots.
-pub const SLOT_COUNT: usize = 6;
+pub const SLOT_COUNT: usize = 7;
 /// GSI of slot 0; slots use consecutive edge-triggered routes.
 pub const FIRST_GSI: u32 = 5;
 
@@ -34,6 +34,9 @@ pub enum Slot {
     Rng = 4,
     /// Memory device, present only on a machine declared resizable.
     Mem = 5,
+    /// Durable data volume, present only on a Generation compiled under policy 4 that
+    /// declares persistence. Its page follows the memory device's, so no earlier slot moves.
+    Volume = 6,
 }
 
 impl Slot {
@@ -45,6 +48,7 @@ impl Slot {
         Self::Vsock,
         Self::Rng,
         Self::Mem,
+        Self::Volume,
     ];
 
     /// Table index.
@@ -81,7 +85,7 @@ impl Slot {
     #[must_use]
     pub const fn device_id(self) -> u32 {
         match self {
-            Self::Root | Self::Overlay => 2,
+            Self::Root | Self::Overlay | Self::Volume => 2,
             Self::Net => 1,
             Self::Vsock => 19,
             Self::Rng => 4,
@@ -93,7 +97,7 @@ impl Slot {
     #[must_use]
     pub const fn queue_count(self) -> u16 {
         match self {
-            Self::Root | Self::Overlay | Self::Rng | Self::Mem => 1,
+            Self::Root | Self::Overlay | Self::Rng | Self::Mem | Self::Volume => 1,
             Self::Net => 2,
             Self::Vsock => 3,
         }
@@ -127,10 +131,15 @@ impl Slot {
 /// there is no channel in or out, and without entropy a restored guest wakes with the
 /// snapshot's stale generator state shared by every other Instance of that snapshot.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the four optional devices are four independent capabilities, not a state machine"
+)]
 pub struct DeviceSet {
     overlay: bool,
     net: bool,
     mem: bool,
+    volume: bool,
 }
 
 impl DeviceSet {
@@ -143,6 +152,7 @@ impl DeviceSet {
         overlay: true,
         net: true,
         mem: false,
+        volume: false,
     };
 
     /// Every slot present, the memory device included.
@@ -150,6 +160,7 @@ impl DeviceSet {
         overlay: true,
         net: true,
         mem: true,
+        volume: false,
     };
 
     /// The set a Generation gets from what it declared, without a memory device.
@@ -159,6 +170,7 @@ impl DeviceSet {
             overlay,
             net,
             mem: false,
+            volume: false,
         }
     }
 
@@ -166,6 +178,22 @@ impl DeviceSet {
     #[must_use]
     pub const fn with_mem(self, mem: bool) -> Self {
         Self { mem, ..self }
+    }
+
+    /// This set with the durable data volume declared or not.
+    ///
+    /// It is asked for by the same rule the memory device uses: only a Generation compiled
+    /// under policy 4 that declares persistence carries it, so every earlier Generation keeps
+    /// its device set, its command line and its contract digest byte for byte.
+    #[must_use]
+    pub const fn with_volume(self, volume: bool) -> Self {
+        Self { volume, ..self }
+    }
+
+    /// Whether this machine has the durable data volume.
+    #[must_use]
+    pub const fn volume(self) -> bool {
+        self.volume
     }
 
     /// Whether this machine can be resized while it runs.
@@ -194,6 +222,7 @@ impl DeviceSet {
             Slot::Overlay => self.overlay,
             Slot::Net => self.net,
             Slot::Mem => self.mem,
+            Slot::Volume => self.volume,
         }
     }
 

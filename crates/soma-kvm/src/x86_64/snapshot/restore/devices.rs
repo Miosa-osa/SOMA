@@ -41,6 +41,10 @@ pub(super) struct Identity {
 pub(super) struct Declared {
     /// The private overlay head's capacity, when the Generation declared writable storage.
     pub(super) overlay_capacity_bytes: Option<u64>,
+    /// The durable volume's capacity, when the Generation declared persistence. At capture and
+    /// restore this is the placeholder's zero length, which is what the device is declared
+    /// with and what a snapshot reproduces; the real file is bound at launch.
+    pub(super) volume_capacity_bytes: Option<u64>,
     /// The devices the Generation declared.
     pub(super) set: DeviceSet,
     /// The machine contract the Generation was built under.
@@ -56,6 +60,7 @@ pub(super) fn recreate_devices(
 ) -> Result<MmioBus, SnapshotError> {
     let Declared {
         overlay_capacity_bytes,
+        volume_capacity_bytes,
         set,
         contract,
     } = declared;
@@ -77,7 +82,10 @@ pub(super) fn recreate_devices(
     // prepared worker and a direct restore cannot reach different device state.
     let devices = machine_devices::build_devices_detached_overlay(
         root,
-        overlay_capacity_bytes,
+        machine_devices::DetachedCapacities {
+            overlay: overlay_capacity_bytes,
+            volume: volume_capacity_bytes,
+        },
         DeviceIdentity {
             guest_cid: captured_cid,
             guest_mac: identity.mac,

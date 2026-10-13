@@ -85,7 +85,11 @@ pub(super) fn boot_for(
             Source::Restore {
                 objects,
                 hypervisor: Hypervisor::Device,
-                disks: SandboxDisks { root, overlay },
+                disks: SandboxDisks {
+                    root,
+                    overlay,
+                    volume: None,
+                },
                 devices,
                 memory_bytes: memory_mib * MIB,
                 vcpus,

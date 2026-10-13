@@ -28,6 +28,9 @@ pub struct SterileRequest {
     /// The capacity the private head will have when one is attached, or `None` for a Generation
     /// that declared no writable storage and so will never be given one.
     pub overlay_capacity_bytes: Option<u64>,
+    /// The capacity the durable volume device is declared with, or `None` for a Generation
+    /// that declared no persistence and so has no volume slot at all.
+    pub volume_capacity_bytes: Option<u64>,
     /// The optional devices this Generation declared.
     pub devices: crate::virtio::DeviceSet,
     /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.

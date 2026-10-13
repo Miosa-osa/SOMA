@@ -42,9 +42,10 @@ impl DeviceSpecific {
     /// Returns [`DeviceStateError::SpecificMismatch`] or [`DeviceStateError::InvalidField`].
     pub fn validate_for(&self, kind: DeviceKind) -> Result<(), DeviceStateError> {
         match (kind, self) {
-            (DeviceKind::RootBlock | DeviceKind::OverlayBlock, Self::Block(block)) => {
-                block.validate()
-            }
+            (
+                DeviceKind::RootBlock | DeviceKind::OverlayBlock | DeviceKind::VolumeBlock,
+                Self::Block(block),
+            ) => block.validate(),
             (DeviceKind::Net, Self::Net { .. })
             | (DeviceKind::Vsock, Self::Vsock { .. })
             | (DeviceKind::Rng, Self::Rng) => Ok(()),
@@ -93,11 +94,13 @@ impl DeviceSpecific {
         kind: DeviceKind,
     ) -> Result<Self, DeviceStateError> {
         Ok(match kind {
-            DeviceKind::RootBlock | DeviceKind::OverlayBlock => Self::Block(BlockState {
-                capacity_sectors: reader.u64()?,
-                block_size: reader.u32()?,
-                image_digest: Digest::from_bytes(reader.array()?),
-            }),
+            DeviceKind::RootBlock | DeviceKind::OverlayBlock | DeviceKind::VolumeBlock => {
+                Self::Block(BlockState {
+                    capacity_sectors: reader.u64()?,
+                    block_size: reader.u32()?,
+                    image_digest: Digest::from_bytes(reader.array()?),
+                })
+            }
             DeviceKind::Net => Self::Net {
                 mac: reader.array()?,
                 link_up: reader.presence()?,

@@ -228,6 +228,7 @@ fn attempt(
         disks: SandboxDisks {
             root: fixture.root(),
             overlay: Some(head),
+            volume: None,
         },
         devices: fixture.devices(),
         guest_cid: 30,

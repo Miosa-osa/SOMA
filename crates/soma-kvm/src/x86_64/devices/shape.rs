@@ -14,6 +14,7 @@ use crate::virtio::{BLOCK_SERIAL_LEN, BlockDevice, BlockRole, FileBackend, Trans
 pub const BLOCK_SIZE: u32 = 4096;
 pub(super) const ROOT_SERIAL: &[u8] = b"soma-root";
 pub(super) const OVERLAY_SERIAL: &[u8] = b"soma-overlay";
+pub(super) const VOLUME_SERIAL: &[u8] = b"soma-volume";
 
 /// The transfer shape the block devices of a machine contract advertise.
 ///
@@ -39,6 +40,13 @@ pub struct SandboxDisks {
     /// root read-only and never composes an `OverlayFS`, so there is no head to clone and the
     /// largest and most variable cost on the launch path is not paid at all.
     pub overlay: Option<File>,
+    /// The durable data volume of ADR 0053 Step A, opened read-write, when the Generation
+    /// declares persistence.
+    ///
+    /// At capture and at restore this is the zero-length placeholder the device is declared
+    /// with; the launch binds the Instance's own volume file over it, so a snapshot never
+    /// carries tenant data.
+    pub volume: Option<File>,
 }
 
 /// Non-secret device identity assigned to one Instance.

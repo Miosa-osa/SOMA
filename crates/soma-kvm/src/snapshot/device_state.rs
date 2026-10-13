@@ -21,7 +21,7 @@ use super::{
     wire::{Reader, Writer},
 };
 
-pub const DEVICE_COUNT: u8 = 6;
+pub const DEVICE_COUNT: u8 = 7;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeviceKind {
@@ -31,16 +31,18 @@ pub enum DeviceKind {
     Vsock,
     Rng,
     Mem,
+    VolumeBlock,
 }
 
 impl DeviceKind {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::RootBlock,
         Self::OverlayBlock,
         Self::Net,
         Self::Vsock,
         Self::Rng,
         Self::Mem,
+        Self::VolumeBlock,
     ];
 
     #[must_use]
@@ -52,6 +54,7 @@ impl DeviceKind {
             Self::Vsock => 3,
             Self::Rng => 4,
             Self::Mem => 5,
+            Self::VolumeBlock => 6,
         }
     }
 
@@ -64,6 +67,7 @@ impl DeviceKind {
             3 => Some(Self::Vsock),
             4 => Some(Self::Rng),
             5 => Some(Self::Mem),
+            6 => Some(Self::VolumeBlock),
             _ => None,
         }
     }
@@ -72,7 +76,7 @@ impl DeviceKind {
     #[must_use]
     pub const fn queue_count(self) -> usize {
         match self {
-            Self::RootBlock | Self::OverlayBlock | Self::Rng | Self::Mem => 1,
+            Self::RootBlock | Self::OverlayBlock | Self::Rng | Self::Mem | Self::VolumeBlock => 1,
             Self::Net => 2,
             Self::Vsock => 3,
         }

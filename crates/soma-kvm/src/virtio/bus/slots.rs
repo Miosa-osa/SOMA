@@ -99,6 +99,10 @@ impl MmioBus {
                 Some(device) => service_queue(device, mem, queue, budget),
                 None => Ok(ServiceReport::default()),
             },
+            (Slot::Volume, _) => match self.volume.as_mut() {
+                Some(device) => service_queue(device, mem, queue, budget),
+                None => Ok(ServiceReport::default()),
+            },
         }
     }
 
@@ -124,7 +128,9 @@ impl MmioBus {
                 report.completed = report.completed.saturating_add(events.completed);
                 Ok(report)
             }
-            Slot::Root | Slot::Overlay | Slot::Rng | Slot::Mem => Ok(ServiceReport::default()),
+            Slot::Root | Slot::Overlay | Slot::Rng | Slot::Mem | Slot::Volume => {
+                Ok(ServiceReport::default())
+            }
         }
     }
 
@@ -221,6 +227,7 @@ impl MmioBus {
         let BusDevices {
             mut root,
             mut overlay,
+            mut volume,
             mut net,
             mut vsock,
             mut rng,
@@ -235,11 +242,15 @@ impl MmioBus {
             });
         };
         let overlay_record = record(Slot::Overlay);
+        let volume_record = record(Slot::Volume);
         let net_record = record(Slot::Net);
         let mem_record = record(Slot::Mem);
         apply_device(Slot::Root, &mut root, root_record)?;
         if let (Some(device), Some(record)) = (overlay.as_mut(), overlay_record) {
             apply_device(Slot::Overlay, device, record)?;
+        }
+        if let (Some(device), Some(record)) = (volume.as_mut(), volume_record) {
+            apply_device(Slot::Volume, device, record)?;
         }
         if let (Some(device), Some(record)) = (net.as_mut(), net_record) {
             apply_device(Slot::Net, device, record)?;
@@ -252,6 +263,7 @@ impl MmioBus {
         Ok(Self {
             root: restore_transport(Slot::Root, root, root_record, mem)?,
             overlay: restore_optional(Slot::Overlay, overlay, overlay_record, mem)?,
+            volume: restore_optional(Slot::Volume, volume, volume_record, mem)?,
             net: restore_optional(Slot::Net, net, net_record, mem)?,
             vsock: restore_transport(Slot::Vsock, vsock, vsock_record, mem)?,
             rng: restore_transport(Slot::Rng, rng, rng_record, mem)?,
@@ -260,34 +272,5 @@ impl MmioBus {
     }
 }
 
-fn restore_optional<D: VirtioDevice, M: GuestMemory + ?Sized>(
-    slot: Slot,
-    device: Option<D>,
-    snapshot: Option<&SlotSnapshot>,
-    mem: &M,
-) -> Result<Option<MmioTransport<D>>, SlotRestoreError> {
-    match (device, snapshot) {
-        (Some(device), Some(snapshot)) => restore_transport(slot, device, snapshot, mem).map(Some),
-        _ => Ok(None),
-    }
-}
-
-fn apply_device<D: VirtioDevice>(
-    slot: Slot,
-    device: &mut D,
-    snapshot: &SlotSnapshot,
-) -> Result<(), SlotRestoreError> {
-    device
-        .restore_state(&snapshot.device)
-        .map_err(|error| SlotRestoreError::Device { slot, error })
-}
-
-fn restore_transport<D: VirtioDevice, M: GuestMemory + ?Sized>(
-    slot: Slot,
-    device: D,
-    snapshot: &SlotSnapshot,
-    mem: &M,
-) -> Result<MmioTransport<D>, SlotRestoreError> {
-    MmioTransport::restore(device, &snapshot.transport, mem)
-        .map_err(|error| SlotRestoreError::Transport { slot, error })
-}
+mod restore;
+use restore::{apply_device, restore_optional, restore_transport};
