@@ -5,6 +5,8 @@
 //! policy testable without a kernel, and a second adapter can carry the same semantics without
 //! speaking this socket.
 
+use std::path::PathBuf;
+
 use crate::{GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId};
 
 use super::error::VolumeError;
@@ -59,6 +61,23 @@ pub struct AttachOutcome {
     pub repair: Option<RepairReceipt>,
 }
 
+/// What a start needs to bind one Instance's volume to the machine that will serve it.
+///
+/// The path is the host's own, derived from the store root and the volume the Instance owns, so a
+/// caller cannot name a file of its choosing. The repair is this start's receipt: the volume is
+/// checked on the host, offline, under the volume lock, before any machine holds it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VolumeBinding {
+    /// The volume bound to the Instance.
+    pub volume: VolumeId,
+    /// The file the machine binds over its placeholder.
+    pub path: PathBuf,
+    /// The disk class the volume was created with.
+    pub size_class_gib: u32,
+    /// The repair this start ran on the detached file.
+    pub repair: RepairReceipt,
+}
+
 /// The outcome of one detach.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DetachOutcome {
@@ -85,6 +104,18 @@ pub trait VolumeStore {
     ///
     /// Returns [`VolumeError`] for a missing volume or a changed intent under a replay.
     fn detach(&self, request: &DetachRequest) -> Result<DetachOutcome, VolumeError>;
+
+    /// Opens the volume attached to one Instance, repairing it for the start that asked.
+    ///
+    /// It is the start's half of the volume lifecycle: the file is checked offline before any
+    /// machine holds it, and a volume that is not attached to this Instance is refused rather
+    /// than handed to a machine that would write it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VolumeError::Missing`] when no attached volume names this Instance, and the
+    /// repair refusals [`VolumeError`] already carries.
+    fn binding(&self, instance: InstanceId) -> Result<VolumeBinding, VolumeError>;
 
     /// Destroys the volume file and its data key.
     ///

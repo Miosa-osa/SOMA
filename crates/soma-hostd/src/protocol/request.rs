@@ -105,6 +105,14 @@ pub enum Request {
         /// The volume.
         volume: VolumeId,
     },
+    /// Open the volume attached to one Instance for the start that is binding a machine to it.
+    ///
+    /// The Instance is named rather than the volume, because the caller of a start knows which
+    /// Instance it is starting and not which volume the host gave it.
+    VolumeOpen {
+        /// The Instance.
+        instance: InstanceId,
+    },
 }
 
 impl Request {
@@ -164,6 +172,10 @@ impl Request {
                 out.push(12);
                 out.extend_from_slice(volume.as_bytes());
             }
+            Self::VolumeOpen { instance } => {
+                out.push(13);
+                out.extend_from_slice(instance.as_bytes());
+            }
         }
         out
     }
@@ -203,6 +215,9 @@ impl Request {
             (11, _) => DetachFrame::decode(bytes).map(Self::VolumeDestroy),
             (12, 17) => Ok(Self::VolumeRead {
                 volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
+            }),
+            (13, 17) => Ok(Self::VolumeOpen {
+                instance: instance()?,
             }),
             _ => Err(ProtocolError("request")),
         }

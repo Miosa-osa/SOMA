@@ -16,8 +16,10 @@ use soma_hostd::{
     OperationId as HostOperation, Reply, Request, RequestFingerprint, VolumeId as HostVolume,
 };
 
+pub use binding::VolumeBinding;
 use refusal::state_name;
 
+mod binding;
 mod refusal;
 #[cfg(test)]
 mod tests;
@@ -70,11 +72,11 @@ pub struct VolumeBody {
     pub tenant: Option<String>,
 }
 
-/// The repair receipt one attach carries.
+/// The repair receipt one attach or one start carries.
 ///
 /// The durable receipt's own identifier is host-side and is not on the wire yet, so it is null
 /// rather than invented.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct FsckReport {
     pub ran: bool,
     pub repaired: bool,

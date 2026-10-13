@@ -11,11 +11,22 @@ use super::{
     AttachOutcome, AttachRequest, DetachOutcome, DetachRequest, DirectoryVolumes, VOLUME_DEVICE,
     VolumeError, VolumeRecordKind, VolumeSidecar, VolumeState, VolumeStore, fs, now_nanos,
 };
-use crate::VolumeId;
 use crate::volume::repair::{CreateError, RepairOutcome};
+use crate::volume::service::VolumeBinding;
+use crate::{InstanceId, VolumeId};
 
 /// Bytes in one GiB, the unit a volume's class is stated in.
 const GIB: u64 = 1 << 30;
+
+/// The refusal one unusable repair produces, shared by the attach and the start paths.
+fn refusal(outcome: RepairOutcome) -> VolumeError {
+    match outcome {
+        RepairOutcome::Refused => {
+            VolumeError::RepairRefused("the volume needs a repair beyond the policy")
+        }
+        _ => VolumeError::FsckFailed("the offline repair could not make the volume consistent"),
+    }
+}
 
 impl VolumeStore for DirectoryVolumes {
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
@@ -58,14 +69,7 @@ impl VolumeStore for DirectoryVolumes {
         }
         let receipt = self.repairs.repair(request.volume, &file);
         if !receipt.is_usable() {
-            return Err(match receipt.outcome {
-                RepairOutcome::Refused => {
-                    VolumeError::RepairRefused("the volume needs a repair beyond the policy")
-                }
-                _ => VolumeError::FsckFailed(
-                    "the offline repair could not make the volume consistent",
-                ),
-            });
+            return Err(refusal(receipt.outcome));
         }
         self.transition(VolumeRecordKind::AttachBegin, request.volume)?;
         self.write_sidecar(&sidecar)?;
@@ -76,6 +80,39 @@ impl VolumeStore for DirectoryVolumes {
             device: VOLUME_DEVICE,
             state: VolumeState::Attached,
             repair: Some(receipt),
+        })
+    }
+
+    fn binding(&self, instance: InstanceId) -> Result<VolumeBinding, VolumeError> {
+        // The same rule as an attach: a host whose root is not on its encrypted data mount never
+        // hands a tenant's bytes to a machine.
+        if !self.encrypted {
+            return Err(VolumeError::Encryption(
+                "the volume root is not on this host's encrypted data mount",
+            ));
+        }
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| VolumeError::Ledger("state lock"))?;
+        let sidecar = state
+            .values()
+            .find(|sidecar| sidecar.instance == instance && sidecar.state == VolumeState::Attached)
+            .ok_or(VolumeError::Missing(
+                "no volume is attached to this Instance",
+            ))?;
+        let file = self.file(sidecar.volume);
+        // The repair runs here rather than in the guest, on a file no machine holds yet: this is
+        // the one place a start can check the filesystem without racing a running guest.
+        let repair = self.repairs.repair(sidecar.volume, &file);
+        if !repair.is_usable() {
+            return Err(refusal(repair.outcome));
+        }
+        Ok(VolumeBinding {
+            volume: sidecar.volume,
+            path: file,
+            size_class_gib: sidecar.size_class_gib,
+            repair,
         })
     }
 

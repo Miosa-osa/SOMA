@@ -18,9 +18,7 @@ pub enum Reply {
         /// CID, generation, MAC, address, prefix, gateway, resolver, time sample.
         launch: [u8; 35],
     },
-    /// The operation already holds this worker, but this process did not deliver its launch
-    /// page and cannot repeat it; the client releases the worker and launches again under a
-    /// fresh operation.
+    /// The operation holds this worker but its launch page was never delivered; release and retry.
     Replayed {
         /// The worker.
         worker: WorkerId,
@@ -50,8 +48,7 @@ pub enum Reply {
         /// Retained.
         retained: u32,
     },
-    /// One Instance was launched and is now owned by the Host Runtime; the launch-page
-    /// network values follow in the same order a claim reports them.
+    /// One Instance is launched and owned by the Runtime; launch-page values follow in order.
     Launched {
         /// The worker serving the Instance.
         worker: WorkerId,
@@ -83,8 +80,7 @@ pub enum Reply {
         /// Whether teardown and release both reported completion.
         complete: bool,
     },
-    /// A volume is bound to its Instance; `state` and `repair` are the stable codes of the volume
-    /// and repair vocabularies, and `exit_code` is the repair tool's own result.
+    /// A volume is bound to its Instance; `state` and `repair` are stable vocabulary codes.
     VolumeAttached {
         /// The volume.
         volume: VolumeId,
@@ -117,6 +113,19 @@ pub enum Reply {
         state: u8,
         /// The disk class in GiB.
         size_class_gib: u32,
+    },
+    /// The volume bound to an Instance, with the file to bind and this start's repair.
+    VolumeOpened {
+        /// The volume.
+        volume: VolumeId,
+        /// The disk class in GiB.
+        size_class_gib: u32,
+        /// The repair outcome code.
+        repair: u8,
+        /// The repair exit code, carried as its own byte.
+        exit_code: i8,
+        /// The host's path to the volume file.
+        path: String,
     },
     /// A typed failure code from [`crate::failure_code`].
     Failed(u16),
@@ -201,7 +210,8 @@ impl Reply {
             Self::VolumeAttached { .. }
             | Self::VolumeDetached { .. }
             | Self::VolumeDestroyed { .. }
-            | Self::VolumeInspected { .. } => encode_volume(&mut out, self),
+            | Self::VolumeInspected { .. }
+            | Self::VolumeOpened { .. } => encode_volume(&mut out, self),
             Self::Failed(code) => {
                 out.push(0xff);
                 out.extend_from_slice(&code.to_be_bytes());
@@ -260,7 +270,7 @@ impl Reply {
                 complete: bytes[1] == 1,
                 worker: worker(&bytes[2..18])?,
             }),
-            (Some(10..=13), _) => decode_volume(bytes),
+            (Some(10..=14), _) => decode_volume(bytes),
             (Some(0xff), 3) => Ok(Self::Failed(u16::from_be_bytes([bytes[1], bytes[2]]))),
             _ => Err(ProtocolError("reply")),
         }

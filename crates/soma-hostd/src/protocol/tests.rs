@@ -230,3 +230,41 @@ fn a_volume_attach_and_detach_round_trip_and_reject_a_bad_label() {
         "a non-zero pad byte is a malformed label"
     );
 }
+
+#[test]
+fn a_volume_open_round_trips_and_its_path_padding_is_refused() {
+    let open = Request::VolumeOpen {
+        instance: InstanceId::new([7; 16]).expect("nonzero"),
+    };
+    let encoded = open.encode();
+    assert_eq!(encoded.len(), 17);
+    assert_eq!(Request::decode(&encoded).expect("decodes"), open);
+
+    let opened = Reply::VolumeOpened {
+        volume: VolumeId::new([3; 16]).expect("nonzero"),
+        size_class_gib: 10,
+        repair: 1,
+        exit_code: 0,
+        path: "/srv/soma/volumes/03/volume.img".to_owned(),
+    };
+    let encoded = opened.encode();
+    assert!(encoded.len() <= MAX_FRAME);
+    assert_eq!(Reply::decode(&encoded).expect("decodes"), opened);
+
+    // A path whose padding is not zero is refused rather than read as a longer path.
+    let mut hostile = Reply::VolumeOpened {
+        volume: VolumeId::new([3; 16]).expect("nonzero"),
+        size_class_gib: 10,
+        repair: 1,
+        exit_code: 0,
+        path: "ab".to_owned(),
+    }
+    .encode();
+    let last = hostile.len() - 1;
+    hostile[last] = 0x7f;
+    assert_eq!(
+        Reply::decode(&hostile),
+        Err(ProtocolError("volume path")),
+        "a non-zero pad byte is a malformed path"
+    );
+}
