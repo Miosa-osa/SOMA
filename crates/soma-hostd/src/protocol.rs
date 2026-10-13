@@ -13,7 +13,7 @@ pub use request::{LaunchFrame, Request};
 
 use soma_netd::MAX_ENCODED_INTENT;
 
-use crate::{ClaimError, InstanceError, LifecycleError, TransferFailure};
+use crate::{ClaimError, InstanceError, LifecycleError, TransferFailure, VolumeError};
 
 /// The largest request or reply frame.
 pub const MAX_FRAME: usize = 1 + 16 + 16 + 4 + 8 + 32 + MAX_ENCODED_INTENT;
@@ -63,6 +63,18 @@ pub enum FailureCode {
     Capacity = 12,
     /// The operation's worker was destroyed; its Launch did not succeed.
     Terminated = 13,
+    /// The volume id names no sidecar and no file.
+    VolumeMissing = 14,
+    /// The volume is already attached to a different Instance, or a delete is in progress.
+    VolumeBusy = 15,
+    /// The offline repair could not make the volume consistent.
+    VolumeFsckFailed = 16,
+    /// The volume needs a repair the automatic policy refuses to make.
+    VolumeRepairRefused = 17,
+    /// The data key could not be unsealed, or the host has no encrypted data mount.
+    VolumeEncryption = 18,
+    /// The requested class is below the volume's own, or its geometry disagrees with the sidecar.
+    VolumeGeometry = 19,
 }
 
 impl FailureCode {
@@ -87,8 +99,29 @@ impl FailureCode {
             11 => Some(Self::Invariant),
             12 => Some(Self::Capacity),
             13 => Some(Self::Terminated),
+            14 => Some(Self::VolumeMissing),
+            15 => Some(Self::VolumeBusy),
+            16 => Some(Self::VolumeFsckFailed),
+            17 => Some(Self::VolumeRepairRefused),
+            18 => Some(Self::VolumeEncryption),
+            19 => Some(Self::VolumeGeometry),
             _ => None,
         }
+    }
+}
+
+/// Maps a volume refusal onto its code.
+#[must_use]
+pub const fn volume_failure_code(error: &VolumeError) -> FailureCode {
+    match error {
+        VolumeError::Missing(_) => FailureCode::VolumeMissing,
+        VolumeError::Busy(_) => FailureCode::VolumeBusy,
+        VolumeError::FsckFailed(_) => FailureCode::VolumeFsckFailed,
+        VolumeError::RepairRefused(_) => FailureCode::VolumeRepairRefused,
+        VolumeError::Encryption(_) => FailureCode::VolumeEncryption,
+        VolumeError::Geometry(_) => FailureCode::VolumeGeometry,
+        VolumeError::ChangedIntent => FailureCode::Conflict,
+        VolumeError::Ledger(_) => FailureCode::Ledger,
     }
 }
 

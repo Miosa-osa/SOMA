@@ -5,7 +5,7 @@ use std::fs;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::{BootFailure, BootStep, Declared, OVERLAY_DEVICE, ROOT_DEVICE};
+use super::{BootFailure, BootStep, Declared, OVERLAY_DEVICE, ROOT_DEVICE, VOLUME_DEVICE};
 
 const DEVICE_POLL: Duration = Duration::from_millis(5);
 
@@ -22,7 +22,7 @@ pub(super) fn wait_for_devices(deadline: Instant, declared: Declared) -> Result<
         if names == expected && present(declared) {
             return Ok(());
         }
-        if names.len() > expected.len() || Instant::now() >= deadline {
+        if names.len() > declared.block_devices() || Instant::now() >= deadline {
             return Err(BootFailure {
                 step: BootStep::Devices,
                 errno: libc::ETIMEDOUT,
@@ -34,13 +34,15 @@ pub(super) fn wait_for_devices(deadline: Instant, declared: Declared) -> Result<
 
 /// Whether every declared device node is a block device.
 fn present(declared: Declared) -> bool {
-    is_block_device(ROOT_DEVICE) && (!declared.overlay || is_block_device(OVERLAY_DEVICE))
+    is_block_device(ROOT_DEVICE)
+        && (!declared.overlay || is_block_device(OVERLAY_DEVICE))
+        && (!declared.volume || is_block_device(VOLUME_DEVICE))
 }
 
 /// The names of the guest's virtio block devices under `/sys/block`.
 ///
-/// Only `vd`-prefixed names count. The machine contract names its virtio block devices `vda` and
-/// `vdb`, and a kernel also carrying a compressed swap device or a loop device is not a machine
+/// Only `vd`-prefixed names count. The machine contract names its virtio block devices `vda`,
+/// `vdb` and `vdc`, and a kernel also carrying a compressed swap device or a loop device is not a machine
 /// with an extra disk: `zram0` and `loop0` are kernel-internal block devices, not virtio ones.
 /// Counting them would refuse to boot a tuned guest the moment the kernel registered its own
 /// device. Measured 2026-10-08: a kernel built with `CONFIG_ZRAM=y` adds `zram0` at boot, which
@@ -53,12 +55,20 @@ fn block_device_names() -> std::io::Result<BTreeSet<String>> {
         .collect())
 }
 
+/// The exact device names this machine was built with.
+///
+/// It is built from the declared flags rather than from a count, because a machine can carry the
+/// volume without the overlay and then the second device is `vdc`, which a count could not name.
 fn expected_block_devices(declared: Declared) -> BTreeSet<String> {
-    ["vda", "vdb"]
-        .iter()
-        .take(declared.block_devices())
-        .map(|name| (*name).to_owned())
-        .collect()
+    let mut names = BTreeSet::new();
+    names.insert("vda".to_owned());
+    if declared.overlay {
+        names.insert("vdb".to_owned());
+    }
+    if declared.volume {
+        names.insert("vdc".to_owned());
+    }
+    names
 }
 
 fn is_block_device(path: &str) -> bool {
@@ -77,6 +87,7 @@ mod tests {
         let writable = Declared {
             overlay: true,
             net: true,
+            volume: false,
         };
         assert_eq!(expected_block_devices(writable).len(), 2);
         assert_eq!(expected_block_devices(Declared::default()).len(), 1);
@@ -85,5 +96,29 @@ mod tests {
             "the immutable root is never optional"
         );
         assert!(!is_block_device("/proc/self/exe"));
+    }
+
+    #[test]
+    fn a_declared_volume_names_vdc_even_without_an_overlay() {
+        let with_volume = Declared {
+            overlay: true,
+            net: false,
+            volume: true,
+        };
+        let names = expected_block_devices(with_volume);
+        assert_eq!(names.len(), 3);
+        assert!(names.contains("vda") && names.contains("vdb") && names.contains("vdc"));
+
+        // The volume without the overlay is a two-device machine whose second device is vdc, not
+        // vdb, which is why the set is built from the flags rather than from a count.
+        let volume_only = Declared {
+            overlay: false,
+            net: false,
+            volume: true,
+        };
+        let names = expected_block_devices(volume_only);
+        assert_eq!(names.len(), 2);
+        assert!(names.contains("vdc") && !names.contains("vdb"));
+        assert_eq!(volume_only.block_devices(), 2);
     }
 }

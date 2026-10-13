@@ -161,6 +161,12 @@ fn every_failure_code_survives_the_wire_and_an_unknown_one_is_not_invented() {
         FailureCode::Invariant,
         FailureCode::Capacity,
         FailureCode::Terminated,
+        FailureCode::VolumeMissing,
+        FailureCode::VolumeBusy,
+        FailureCode::VolumeFsckFailed,
+        FailureCode::VolumeRepairRefused,
+        FailureCode::VolumeEncryption,
+        FailureCode::VolumeGeometry,
     ] {
         assert_eq!(
             FailureCode::from_wire(failure_code(code)),
@@ -173,5 +179,5 @@ fn every_failure_code_survives_the_wire_and_an_unknown_one_is_not_invented() {
         None,
         "a code this build does not know stays a number rather than a refusal it does know"
     );
-    assert_eq!(FailureCode::from_wire(14), None);
+    assert_eq!(FailureCode::from_wire(20), None);
 }

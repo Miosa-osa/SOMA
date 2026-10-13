@@ -42,6 +42,7 @@ pub use instance::{
 pub use protocol::{
     FailureCode, LaunchFrame, MAX_FRAME, ProtocolError, Reply, Request, claim_failure_code,
     failure_code, instance_failure_code, lifecycle_failure_code, transfer_failure_code,
+    volume_failure_code,
 };
 
 pub use admission::{
@@ -86,6 +87,7 @@ pub use pool::{
     },
 };
 pub use volume::{
-    RebuildReport, SidecarError, StoppedVolume, VolumeRecord, VolumeRecordKind, VolumeSidecar,
-    VolumeState, rebuild,
+    AttachOutcome, AttachRequest, CleanRepair, DetachOutcome, DetachRequest, DirectoryVolumes,
+    RebuildReport, RepairOutcome, RepairReceipt, SidecarError, StoppedVolume, VolumeError,
+    VolumeRecord, VolumeRecordKind, VolumeRepair, VolumeSidecar, VolumeState, VolumeStore, rebuild,
 };

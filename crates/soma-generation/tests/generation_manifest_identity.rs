@@ -160,6 +160,52 @@ fn manifest_round_trips_through_the_hostile_decoder() {
 }
 
 #[test]
+fn policy_four_declares_the_durable_volume_and_earlier_policies_do_not() {
+    // A policy below 4 does not write the group, so enabling it in memory cannot change the id
+    // and every Generation certified before Step A keeps the identity it was certified with.
+    let mut below = sample();
+    below.persistence.enabled = true;
+    below.persistence.paths = vec!["/workspace".to_owned()];
+    assert_eq!(
+        derive_generation_id(&encode_manifest(&below).unwrap()),
+        derive_generation_id(&encode_manifest(&sample()).unwrap()),
+        "a policy below 4 must not write the persistence group"
+    );
+
+    // Policy 4 writes it, so the field round-trips and changes the identity.
+    let mut four = sample();
+    four.compiler_policy_version = 4;
+    four.persistence.enabled = true;
+    four.persistence.paths = [
+        "/home/sandbox",
+        "/workspace",
+        "/var/lib/docker",
+        "/opt/user",
+    ]
+    .iter()
+    .map(|path| (*path).to_owned())
+    .collect();
+    let bytes = encode_manifest(&four).unwrap();
+    let decoded = decode_manifest(&bytes).unwrap();
+    assert_eq!(decoded, four);
+    assert_eq!(decoded.persistence_paths().len(), 4);
+    assert_ne!(
+        derive_generation_id(&bytes),
+        derive_generation_id(&encode_manifest(&sample()).unwrap())
+    );
+
+    // A truncated policy-4 manifest is refused rather than read as a shorter valid one.
+    let mut truncated = bytes.clone();
+    truncated.pop();
+    assert!(decode_manifest(&truncated).is_err());
+
+    // A disabled binding that names a path is refused rather than reinterpreted.
+    let mut invalid = four.clone();
+    invalid.persistence.enabled = false;
+    assert!(encode_manifest(&invalid).is_err());
+}
+
+#[test]
 fn every_bound_field_changes_the_generation_id() {
     let baseline = derive_generation_id(&encode_manifest(&sample()).unwrap());
     let mut mutations = artifact_mutations();

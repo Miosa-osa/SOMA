@@ -11,9 +11,14 @@ mod decode;
 mod encode;
 #[cfg(test)]
 pub(crate) mod fixture;
+mod persistence;
+#[cfg(test)]
+mod tests;
 
 pub use decode::{decode_candidate, decode_manifest};
 pub use encode::{encode_candidate, encode_manifest};
+pub(crate) use persistence::MAX_PERSISTENCE_PATHS;
+pub use persistence::{PersistenceBinding, STEP_A_PERSISTENCE_PATHS};
 
 /// The `SOMAGEN` manifest schema version produced and accepted by this module.
 pub const MANIFEST_SCHEMA_VERSION: u16 = 2;
@@ -223,6 +228,8 @@ pub struct GenerationManifest {
     pub repair: RepairBinding,
     /// Group 16.
     pub template: TemplateBinding,
+    /// Group 17: the durable data volume, written from compiler policy 4.
+    pub persistence: PersistenceBinding,
 }
 
 impl GenerationManifest {
@@ -241,6 +248,19 @@ impl GenerationManifest {
         )
         // Machine contract 3 is the one that has the memory device, whatever else is declared.
         .with_mem(self.machine_contract.version >= 3)
+    }
+
+    /// The persistent path set this Generation declares, or an empty slice when it declares none.
+    ///
+    /// The `vdc` device the volume is bound to is declared when this slice is non-empty, so the
+    /// control plane scopes `filesystem.persist` to exactly these paths rather than to the disk.
+    #[must_use]
+    pub fn persistence_paths(&self) -> &[String] {
+        if self.persistence.enabled {
+            &self.persistence.paths
+        } else {
+            &[]
+        }
     }
 
     /// Returns every artifact descriptor in manifest order.

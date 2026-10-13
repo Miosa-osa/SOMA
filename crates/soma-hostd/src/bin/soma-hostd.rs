@@ -17,6 +17,7 @@ mod linux {
         MemoryClass, MemoryShape, OverlayIdentity, Pool, PoolAdmission, PoolKey, Runtime,
         SingleNode, WorkloadClass, daemon,
         testing::{InProcessBroker, InProcessLauncher, ProcessTable},
+        volume,
     };
 
     mod host;
@@ -28,6 +29,7 @@ mod linux {
     struct Config {
         socket: PathBuf,
         ledger: PathBuf,
+        records: PathBuf,
         launcher: Option<String>,
         generation: Option<[u8; 32]>,
         network_profile: Option<[u8; 32]>,
@@ -47,6 +49,7 @@ mod linux {
         let mut config = Config {
             socket: PathBuf::from("/run/soma-hostd/allocator.sock"),
             ledger: PathBuf::from("/run/soma-hostd/ledger"),
+            records: volume::record_dir(std::env::var(volume::RECORD_DIR_ENV).ok().as_deref()),
             launcher: None,
             generation: None,
             network_profile: None,
@@ -82,6 +85,7 @@ mod linux {
             match flag.as_str() {
                 "--socket" => config.socket = PathBuf::from(value()?),
                 "--ledger" => config.ledger = PathBuf::from(value()?),
+                "--records" => config.records = PathBuf::from(value()?),
                 "--launcher" => config.launcher = Some(value()?),
                 "--generation" => config.generation = Some(hex32(&value()?, &flag)?),
                 "--host-threads" => config.host.threads = Some(number(&value()?, &flag)?),
@@ -153,6 +157,14 @@ mod linux {
 
     pub fn run() -> Result<(), String> {
         let config = parse()?;
+        // A write-ahead record on a mount a reboot erases cannot recover a reboot, so the record
+        // root is checked before anything else starts.
+        volume::refuse_volatile(&config.records).map_err(|error| {
+            format!(
+                "record root {} is unusable: {error}",
+                config.records.display()
+            )
+        })?;
         match config.launcher.as_deref() {
             Some("in-process") => {}
             Some(other) => {

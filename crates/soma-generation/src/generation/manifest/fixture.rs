@@ -7,8 +7,8 @@ use soma_kvm::DeviceSet;
 
 use super::{
     GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MachineShapeBinding,
-    OverlayBinding, OverlayTemplate, RepairBinding, RootBinding, SnapshotBinding, SourceBinding,
-    TemplateBinding, TreeBinding,
+    OverlayBinding, OverlayTemplate, PersistenceBinding, RepairBinding, RootBinding,
+    STEP_A_PERSISTENCE_PATHS, SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
 };
 use crate::generation::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
@@ -120,6 +120,7 @@ pub(crate) fn profile_v1() -> GenerationManifest {
             workload_probe: None,
             ttl_seconds: 3600,
         },
+        persistence: PersistenceBinding::default(),
     }
 }
 
@@ -158,6 +159,21 @@ pub(crate) fn profile_v3() -> GenerationManifest {
     manifest.shape.memory_slot_layout_version =
         contracts::memory_slot_layout_version(manifest.shape.memory_bytes);
     manifest.shape.hotplug_bytes = 1024 * MIB;
+    manifest
+}
+
+/// A manifest that satisfies every profile v4 compatibility rule: the version 3 fixture under
+/// policy version 4, which is the first policy that writes the durable data volume group.
+pub(crate) fn profile_v4() -> GenerationManifest {
+    let mut manifest = profile_v3();
+    manifest.compiler_policy_version = 4;
+    manifest.persistence = PersistenceBinding {
+        enabled: true,
+        paths: STEP_A_PERSISTENCE_PATHS
+            .iter()
+            .map(|path| (*path).to_owned())
+            .collect(),
+    };
     manifest
 }
 

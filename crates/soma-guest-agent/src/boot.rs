@@ -34,6 +34,9 @@ pub use self::declared::Declared;
 pub const ROOT_DEVICE: &str = "/dev/vda";
 /// Second virtio-blk device: the Instance-private ext4 overlay head, when there is one.
 pub const OVERLAY_DEVICE: &str = "/dev/vdb";
+/// Third virtio-blk device: the per-Instance durable data volume of ADR 0053 Step A, when the
+/// Generation declares persistence.
+pub const VOLUME_DEVICE: &str = "/dev/vdc";
 /// Upper bound for the complete early-init sequence.
 pub const BOOT_BUDGET: Duration = Duration::from_secs(10);
 

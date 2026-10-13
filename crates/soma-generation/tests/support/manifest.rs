@@ -5,8 +5,8 @@ use soma_generation::{
     ArtifactDescriptor, ArtifactRole, Sha256Digest, contracts,
     generation_manifest::{
         GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding,
-        MachineShapeBinding, OverlayBinding, OverlayTemplate, RepairBinding, RootBinding,
-        SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
+        MachineShapeBinding, OverlayBinding, OverlayTemplate, PersistenceBinding, RepairBinding,
+        RootBinding, SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
     },
     template::{NetworkPolicyClass, network_policy_digest},
 };
@@ -103,5 +103,6 @@ pub fn sample() -> GenerationManifest {
             workload_probe: None,
             ttl_seconds: 600,
         },
+        persistence: PersistenceBinding::default(),
     }
 }
