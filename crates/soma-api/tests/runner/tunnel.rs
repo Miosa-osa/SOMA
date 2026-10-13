@@ -191,16 +191,12 @@ async fn refusals_are_statuses_before_any_upgrade() {
         "",
     )
     .await;
-    // HTTP/2 forbids the Connection header outright, so it may be refused even before the
-    // route; either way no upgrade happened.
+    // HTTP/2 forbids the Connection header, so it may be refused before the route anyway.
     assert!(matches!(over_h2.status, 426 | 400), "{}", over_h2.status);
 
-    // Unknown sandbox, another host's sandbox (never forwarded), bad ids and ports. The unknown
-    // id rewrites the last character to a digit the real id does not already end with, because a
-    // real id that ends in `0` would otherwise be the unknown one and the sandbox's own tunnel
-    // would upgrade, which is the flake this spelling removes.
-    let head = &id[..id.len() - 1];
-    let unknown = format!("{head}{}", if id.ends_with('0') { '1' } else { '0' });
+    // Unknown sandbox, another host's, bad ids and ports; the last character is rewritten.
+    let suffix = if id.ends_with('0') { "1" } else { "0" };
+    let unknown = format!("{}{suffix}", &id[..id.len() - 1]);
     let (_s, head, _) = open(address, &upgrade_request(&unknown, "9223", Some(TOKEN))).await;
     assert_eq!(status(&head), "404", "{head}");
     let elsewhere = format!("4{}", &id[1..]);

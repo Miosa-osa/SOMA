@@ -1,5 +1,8 @@
 //! Daemon reply frames.
 
+mod volumes;
+use volumes::{decode_volume, encode_volume};
+
 use super::{ProtocolError, array};
 use crate::{InstanceId, LeaseGeneration, MAX_LISTED, VolumeId, WorkerId};
 
@@ -257,66 +260,10 @@ impl Reply {
                 complete: bytes[1] == 1,
                 worker: worker(&bytes[2..18])?,
             }),
-            (Some(10), 20) => Ok(Self::VolumeAttached {
-                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
-                state: bytes[17],
-                repair: bytes[18],
-                exit_code: bytes[19].cast_signed(),
-            }),
-            (Some(11), 18) => Ok(Self::VolumeDetached {
-                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
-                state: bytes[17],
-            }),
-            (Some(12), 18) => Ok(Self::VolumeDestroyed {
-                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
-                state: bytes[17],
-            }),
-            (Some(13), 22) => Ok(Self::VolumeInspected {
-                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
-                state: bytes[17],
-                size_class_gib: u32::from_be_bytes(array(&bytes[18..22])),
-            }),
+            (Some(10..=13), _) => decode_volume(bytes),
             (Some(0xff), 3) => Ok(Self::Failed(u16::from_be_bytes([bytes[1], bytes[2]]))),
             _ => Err(ProtocolError("reply")),
         }
-    }
-}
-
-/// Encodes one volume reply, whose body is a discriminant, a volume, and at most five more bytes.
-fn encode_volume(out: &mut Vec<u8>, reply: &Reply) {
-    match reply {
-        Reply::VolumeAttached {
-            volume,
-            state,
-            repair,
-            exit_code,
-        } => {
-            out.push(10);
-            out.extend_from_slice(volume.as_bytes());
-            out.extend_from_slice(&[*state, *repair, exit_code.cast_unsigned()]);
-        }
-        Reply::VolumeDetached { volume, state } => {
-            out.push(11);
-            out.extend_from_slice(volume.as_bytes());
-            out.extend_from_slice(&[*state]);
-        }
-        Reply::VolumeDestroyed { volume, state } => {
-            out.push(12);
-            out.extend_from_slice(volume.as_bytes());
-            out.extend_from_slice(&[*state]);
-        }
-        Reply::VolumeInspected {
-            volume,
-            state,
-            size_class_gib,
-        } => {
-            out.push(13);
-            out.extend_from_slice(volume.as_bytes());
-            out.push(*state);
-            out.extend_from_slice(&size_class_gib.to_be_bytes());
-        }
-        // Every caller matches the volume variants before it reaches here.
-        _ => {}
     }
 }
 
