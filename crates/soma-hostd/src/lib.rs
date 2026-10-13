@@ -25,6 +25,7 @@ pub mod ids;
 pub mod instance;
 pub mod pool;
 pub mod protocol;
+pub mod volume;
 
 #[cfg(unix)]
 pub mod testing;
@@ -52,7 +53,7 @@ pub use admission::{
 };
 pub use ids::{
     GenerationId, HostProfileDigest, IdError, InstanceId, LaunchMaterialHandle, LeaseGeneration,
-    OperationId, RequestFingerprint, WorkerId,
+    OperationId, RequestFingerprint, VolumeId, WorkerId,
 };
 pub use pool::{
     Pool, PoolError, WorkerView,
@@ -83,4 +84,8 @@ pub use pool::{
         Disposition, StepAck, TransferEvidence, TransferFailure, TransferFault, TransferFrame,
         TransferStep,
     },
+};
+pub use volume::{
+    RebuildReport, SidecarError, StoppedVolume, VolumeRecord, VolumeRecordKind, VolumeSidecar,
+    VolumeState, rebuild,
 };

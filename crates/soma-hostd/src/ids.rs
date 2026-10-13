@@ -81,6 +81,7 @@ macro_rules! fixed_id {
 fixed_id!(WorkerId, "worker", 16);
 fixed_id!(InstanceId, "instance", 16);
 fixed_id!(OperationId, "operation", 16);
+fixed_id!(VolumeId, "volume", 16);
 fixed_id!(GenerationId, "generation", 32);
 fixed_id!(HostProfileDigest, "host-profile", 32);
 fixed_id!(RequestFingerprint, "fingerprint", 32);
