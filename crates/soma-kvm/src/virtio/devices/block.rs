@@ -62,6 +62,8 @@ pub enum BlockRole {
     ImmutableRoot,
     /// Slot 1: private writable ext4 overlay.
     PrivateOverlay,
+    /// Slot 6: the durable data volume of ADR 0053 Step A, writable but not ephemeral.
+    DurableVolume,
 }
 
 impl BlockRole {
@@ -70,7 +72,9 @@ impl BlockRole {
     pub const fn features(self, transfer: TransferShape) -> u64 {
         let role = match self {
             Self::ImmutableRoot => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_RO | VIRTIO_BLK_F_BLK_SIZE,
-            Self::PrivateOverlay => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_FLUSH,
+            Self::PrivateOverlay | Self::DurableVolume => {
+                VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_FLUSH
+            }
         };
         role | transfer.features()
     }

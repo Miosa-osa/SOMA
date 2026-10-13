@@ -78,12 +78,13 @@ pub(super) fn drain<M: GuestMemory + ?Sized>(
 /// The receive and event queues are excluded on purpose: the driver posts empty buffers into
 /// them in advance and the device fills them only when the host has something to deliver, so a
 /// nonzero count there is ordinary posted capacity that restore carries forward unchanged.
-const GUEST_DRIVEN: [(Slot, u16); 5] = [
+const GUEST_DRIVEN: [(Slot, u16); 6] = [
     (Slot::Root, 0),
     (Slot::Overlay, 0),
     (Slot::Net, crate::virtio::NET_TX_QUEUE),
     (Slot::Rng, 0),
     (Slot::Mem, 0),
+    (Slot::Volume, 0),
 ];
 
 /// Proves that no guest-driven queue holds a head the device has not taken.

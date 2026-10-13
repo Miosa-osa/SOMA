@@ -48,6 +48,11 @@ pub(super) fn specific(bus: &MmioBus, slot: Slot, image: Digest) -> Option<Devic
             block_size: bus.overlay()?.device().blk_size(),
             image_digest: image,
         }),
+        Slot::Volume => DeviceSpecific::Block(CanonicalBlock {
+            capacity_sectors: bus.volume()?.device().capacity_sectors(),
+            block_size: bus.volume()?.device().blk_size(),
+            image_digest: image,
+        }),
         Slot::Net => DeviceSpecific::Net {
             mac: bus.net()?.device().mac(),
             link_up: bus.net()?.device().link_up(),

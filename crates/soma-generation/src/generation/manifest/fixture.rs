@@ -167,6 +167,12 @@ pub(crate) fn profile_v3() -> GenerationManifest {
 pub(crate) fn profile_v4() -> GenerationManifest {
     let mut manifest = profile_v3();
     manifest.compiler_policy_version = 4;
+    // A persistent Generation declares the volume slot, so its command line and device contract
+    // are composed with it: the manifest binds the line the machine will actually boot with.
+    let devices = DEVICES.with_mem(true).with_volume(true);
+    manifest.command_line =
+        contracts::kernel_command_line_for(devices, 3).expect("machine contract 3 has a line");
+    manifest.device_contract = contracts::device_contract_v1(devices);
     manifest.persistence = PersistenceBinding {
         enabled: true,
         paths: STEP_A_PERSISTENCE_PATHS

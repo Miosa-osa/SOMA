@@ -136,6 +136,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             root: open_artifact(&store, &manifest.root.descriptor)
                 .map_err(|error| format!("root: {error:?}"))?,
             overlay: head.as_ref().map(File::try_clone).transpose()?,
+            volume: None,
         },
         identity: DeviceIdentity {
             guest_cid: CAPTURE_CID,

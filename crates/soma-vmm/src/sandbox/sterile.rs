@@ -99,6 +99,7 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         // not the preparation path.
         verify_artifacts: false,
         hotplug,
+        volume_capacity_bytes: None,
     });
     let Ok(sterile) = sterile else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));

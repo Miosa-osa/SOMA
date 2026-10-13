@@ -48,6 +48,7 @@ impl BlockState {
         raw[13] = match self.role {
             BlockRole::ImmutableRoot => 0,
             BlockRole::PrivateOverlay => 1,
+            BlockRole::DurableVolume => 2,
         };
         raw[14..18].copy_from_slice(&self.blk_size.to_le_bytes());
         raw[18..26].copy_from_slice(&self.capacity_sectors.to_le_bytes());
@@ -66,6 +67,7 @@ impl BlockState {
         let role = match raw[13] {
             0 => BlockRole::ImmutableRoot,
             1 => BlockRole::PrivateOverlay,
+            2 => BlockRole::DurableVolume,
             _ => return Err(DeviceStateError::Malformed),
         };
         let mut serial = [0u8; BLOCK_SERIAL_LEN];

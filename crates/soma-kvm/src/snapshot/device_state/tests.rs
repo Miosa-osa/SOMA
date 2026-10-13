@@ -35,7 +35,9 @@ fn transport() -> TransportState {
 pub(crate) fn features_for(kind: DeviceKind) -> u64 {
     match kind {
         DeviceKind::RootBlock => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_RO | VIRTIO_BLK_F_BLK_SIZE,
-        DeviceKind::OverlayBlock => VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_FLUSH,
+        DeviceKind::OverlayBlock | DeviceKind::VolumeBlock => {
+            VIRTIO_F_VERSION_1 | VIRTIO_BLK_F_BLK_SIZE | VIRTIO_BLK_F_FLUSH
+        }
         DeviceKind::Net => VIRTIO_F_VERSION_1 | VIRTIO_NET_F_MAC,
         DeviceKind::Vsock | DeviceKind::Rng | DeviceKind::Mem => VIRTIO_F_VERSION_1,
     }
@@ -43,7 +45,7 @@ pub(crate) fn features_for(kind: DeviceKind) -> u64 {
 
 pub(crate) fn queue_limits_for(kind: DeviceKind) -> [u16; 3] {
     match kind {
-        DeviceKind::RootBlock | DeviceKind::OverlayBlock => [256, 0, 0],
+        DeviceKind::RootBlock | DeviceKind::OverlayBlock | DeviceKind::VolumeBlock => [256, 0, 0],
         DeviceKind::Net => [256, 256, 0],
         DeviceKind::Vsock => [256, 256, 64],
         DeviceKind::Rng => [64, 0, 0],
@@ -57,11 +59,13 @@ pub(crate) fn sample(kind: DeviceKind) -> DeviceState {
         .map(|limit| queue(*limit))
         .collect();
     let specific = match kind {
-        DeviceKind::RootBlock | DeviceKind::OverlayBlock => DeviceSpecific::Block(BlockState {
-            capacity_sectors: 1 << 20,
-            block_size: 4096,
-            image_digest: Digest::of(&[kind.slot()]),
-        }),
+        DeviceKind::RootBlock | DeviceKind::OverlayBlock | DeviceKind::VolumeBlock => {
+            DeviceSpecific::Block(BlockState {
+                capacity_sectors: 1 << 20,
+                block_size: 4096,
+                image_digest: Digest::of(&[kind.slot()]),
+            })
+        }
         DeviceKind::Net => DeviceSpecific::Net {
             mac: [0x02, 0, 0, 0, 0, 1],
             link_up: false,

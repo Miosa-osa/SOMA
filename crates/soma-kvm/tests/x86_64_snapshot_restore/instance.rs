@@ -81,6 +81,7 @@ pub fn run_workload<W: Workload>(
         disks: SandboxDisks {
             root: fixture.root(),
             overlay: Some(head),
+            volume: None,
         },
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,

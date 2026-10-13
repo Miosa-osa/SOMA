@@ -123,11 +123,27 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         network,
         hotplug,
     } = request;
-    let SandboxDisks { root, overlay } = disks;
+    let SandboxDisks {
+        root,
+        overlay,
+        volume,
+    } = disks;
     let overlay_capacity_bytes = overlay
         .as_ref()
         .map(|overlay| {
             overlay
+                .metadata()
+                .map(|metadata| metadata.len())
+                .map_err(|error| SnapshotError::io(Artifact::Overlay, "metadata", &error))
+        })
+        .transpose()?;
+    // The volume device is declared with the placeholder's capacity, exactly as the overlay
+    // is declared with the head's: the Instance's own file is bound at launch, so a snapshot
+    // never carries tenant data.
+    let volume_capacity_bytes = volume
+        .as_ref()
+        .map(|volume| {
+            volume
                 .metadata()
                 .map(|metadata| metadata.len())
                 .map_err(|error| SnapshotError::io(Artifact::Overlay, "metadata", &error))
@@ -138,6 +154,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         hypervisor,
         root,
         overlay_capacity_bytes,
+        volume_capacity_bytes,
         devices,
         memory_bytes,
         vcpus,
@@ -161,6 +178,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         hypervisor,
         root,
         overlay_capacity_bytes,
+        volume_capacity_bytes,
         devices,
         memory_bytes,
         vcpus,
@@ -229,6 +247,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         &Identity { mac, captured_cid },
         devices::Declared {
             overlay_capacity_bytes,
+            volume_capacity_bytes,
             set: devices,
             contract,
         },

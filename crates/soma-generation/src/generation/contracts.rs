@@ -112,7 +112,7 @@ const DEVICE_CONTRACT_TRAILER: &str =
 const DEVICE_CONTRACT_TRAILER_WITH_MEM: &str =
     "excluded=pci,pcie,msi,msix,iommu,packed-ring,vhost,console,balloon,fs,scsi\n";
 /// One line per slot, in table order; a Generation states only the slots it has.
-const DEVICE_CONTRACT_SLOTS: [&str; 6] = [
+const DEVICE_CONTRACT_SLOTS: [&str; 7] = [
     "slot0 mmio=0xd0000000-0xd0000fff gsi=5 device=block id=2 role=immutable-root \
 queues=request:256\n",
     "slot1 mmio=0xd0001000-0xd0001fff gsi=6 device=block id=2 role=writable-overlay \
@@ -122,6 +122,8 @@ queues=request:256\n",
 queues=receive:256,transmit:256,event:64\n",
     "slot4 mmio=0xd0004000-0xd0004fff gsi=9 device=entropy id=4 queues=request:64\n",
     "slot5 mmio=0xd0005000-0xd0005fff gsi=10 device=mem id=24 queues=request:16\n",
+    "slot6 mmio=0xd0006000-0xd0006fff gsi=11 device=block id=2 role=durable-volume \
+queues=request:256\n",
 ];
 
 /// The canonical machine-readable statement of the device contract for one device set.

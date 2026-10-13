@@ -248,6 +248,9 @@ impl GenerationManifest {
         )
         // Machine contract 3 is the one that has the memory device, whatever else is declared.
         .with_mem(self.machine_contract.version >= 3)
+        // The volume follows the persistence binding, which only policy 4 can set, so this is
+        // false for every Generation compiled before Step A and its device set does not move.
+        .with_volume(self.persistence.enabled)
     }
 
     /// The persistent path set this Generation declares, or an empty slice when it declares none.

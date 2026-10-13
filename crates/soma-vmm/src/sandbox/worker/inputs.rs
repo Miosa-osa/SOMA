@@ -54,7 +54,11 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
     SandboxConfig {
         kernel,
         initramfs,
-        disks: SandboxDisks { root, overlay },
+        disks: SandboxDisks {
+            root,
+            overlay,
+            volume: None,
+        },
         identity: DeviceIdentity {
             guest_cid,
             guest_mac: GUEST_MAC,

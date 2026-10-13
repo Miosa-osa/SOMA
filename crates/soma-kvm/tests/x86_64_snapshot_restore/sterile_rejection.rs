@@ -19,6 +19,7 @@ fn sterile(fixture: &fixture::Fixture) -> soma_kvm::x86_64::Sterile {
         contract: MachineContract::V1,
         verify_artifacts: false,
         hotplug: None,
+        volume_capacity_bytes: None,
     })
     .expect("a sterile machine restores without an Instance")
 }

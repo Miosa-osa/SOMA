@@ -4,6 +4,8 @@
 mod mem_slot;
 #[path = "tests/optional.rs"]
 mod optional;
+#[path = "tests/volume.rs"]
+mod volume;
 
 use super::slots::{SlotRestoreError, SlotSnapshot};
 use super::*;
@@ -48,6 +50,7 @@ fn devices(mac: [u8; 6]) -> BusDevices {
     BusDevices {
         root: block(BlockRole::ImmutableRoot),
         overlay: Some(block(BlockRole::PrivateOverlay)),
+        volume: None,
         net: Some(NetDevice::new(Box::new(LoopbackBackend::default()), mac)),
         vsock: VsockDevice::new(CID).expect("vsock"),
         rng: RngDevice::new(Box::new(CounterEntropy::default())),

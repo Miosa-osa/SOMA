@@ -141,6 +141,11 @@ pub(in crate::x86_64) fn expectation(slot: Slot, contract: MachineContract) -> D
         Slot::Vsock => (DeviceKind::Vsock, VSOCK_FEATURES, &VSOCK_QUEUE_MAX),
         Slot::Rng => (DeviceKind::Rng, RNG_FEATURES, &RNG_QUEUE_MAX),
         Slot::Mem => (DeviceKind::Mem, MEM_FEATURES, &MEM_QUEUE_MAX),
+        Slot::Volume => (
+            DeviceKind::VolumeBlock,
+            BlockRole::DurableVolume.features(transfer),
+            &BLOCK_QUEUE_MAX,
+        ),
     };
     for (limit, value) in queue_limits.iter_mut().zip(limits) {
         *limit = *value;

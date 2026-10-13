@@ -53,6 +53,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
             disks: SandboxDisks {
                 root: fixture.root(),
                 overlay: Some(head),
+                volume: None,
             },
             devices: fixture.devices(),
             guest_cid: cid,
@@ -82,6 +83,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
             devices: fixture.devices(),
             verify_artifacts: false,
             hotplug: None,
+            volume_capacity_bytes: None,
         })
         .expect("a sterile machine restores without an Instance");
         let (path, head) = fixture.private_head(&format!("prepared-{iteration}"));
@@ -133,6 +135,7 @@ fn sterile() -> Sterile {
         devices: fixture.devices(),
         verify_artifacts: false,
         hotplug: None,
+        volume_capacity_bytes: None,
     })
     .expect("a sterile machine restores without an Instance")
 }

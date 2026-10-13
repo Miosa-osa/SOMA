@@ -31,12 +31,27 @@ pub(crate) type Hotplug = Option<(u64, u64, Box<dyn RegionBacking + Send>)>;
 
 pub(crate) use shape::block_transfer;
 pub use shape::{BLOCK_SIZE, DeviceIdentity, SandboxDisks};
-use shape::{OVERLAY_SERIAL, ROOT_SERIAL, block, serial};
+use shape::{OVERLAY_SERIAL, ROOT_SERIAL, VOLUME_SERIAL, block, serial};
 
 /// The bus shared between the vCPU thread, the device thread, and the control channel.
 ///
 /// The condition variable is signalled after every device-thread pass and by the vCPU thread
 /// when it stops, so a control-channel waiter never sleeps past a state change.
+/// The optional block devices, grouped so a builder takes one argument for both.
+struct OptionalBlocks {
+    overlay: Option<BlockDevice>,
+    volume: Option<BlockDevice>,
+}
+
+/// The capacity each optional block device is declared with, when it is declared at all.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DetachedCapacities {
+    /// The private head's capacity, or `None` for a Generation with no writable storage.
+    pub(crate) overlay: Option<u64>,
+    /// The durable volume's capacity, or `None` for a Generation with no persistence.
+    pub(crate) volume: Option<u64>,
+}
+
 pub(crate) struct SharedBus {
     bus: Mutex<MmioBus>,
     changed: Condvar,
@@ -99,7 +114,25 @@ pub(crate) fn build_devices(
         (false, None) => None,
         _ => return Err(overlay_disagreement()),
     };
-    build_around_overlay(disks.root, overlay, identity, devices, contract, hotplug)
+    let volume = match (devices.volume(), disks.volume) {
+        (true, Some(file)) => Some(block(
+            BlockRole::DurableVolume,
+            file,
+            false,
+            VOLUME_SERIAL,
+            block_transfer(contract),
+        )?),
+        (false, None) => None,
+        _ => return Err(volume_disagreement()),
+    };
+    build_around_overlay(
+        disks.root,
+        OptionalBlocks { overlay, volume },
+        identity,
+        devices,
+        contract,
+        hotplug,
+    )
 }
 
 /// Builds the declared device models with the private overlay declared rather than held.
@@ -115,12 +148,16 @@ pub(crate) fn build_devices(
 /// Returns the typed device failure, exactly as [`build_devices`] does.
 pub(crate) fn build_devices_detached_overlay(
     root: File,
-    overlay_capacity_bytes: Option<u64>,
+    capacities: DetachedCapacities,
     identity: DeviceIdentity,
     devices: DeviceSet,
     contract: MachineContract,
     hotplug: Hotplug,
 ) -> Result<BusDevices, MachineError> {
+    let DetachedCapacities {
+        overlay: overlay_capacity_bytes,
+        volume: volume_capacity_bytes,
+    } = capacities;
     let overlay = match (devices.overlay(), overlay_capacity_bytes) {
         (true, Some(capacity)) => Some(
             BlockDevice::new(
@@ -135,7 +172,32 @@ pub(crate) fn build_devices_detached_overlay(
         (false, None) => None,
         _ => return Err(overlay_disagreement()),
     };
-    build_around_overlay(root, overlay, identity, devices, contract, hotplug)
+    // The volume device is built exactly as the overlay is: declared against the capacity it
+    // will have, with the backing attached later. ADR 0053 requires the volume to be present
+    // in the captured device state backed by a placeholder, so the restore reproduces this
+    // device and the launch binds the Instance's own file over it.
+    let volume = match (devices.volume(), volume_capacity_bytes) {
+        (true, Some(capacity)) => Some(
+            BlockDevice::new(
+                BlockRole::DurableVolume,
+                Box::new(Detached::new(capacity, false)),
+                BLOCK_SIZE,
+                serial(VOLUME_SERIAL),
+                block_transfer(contract),
+            )
+            .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Block(error)))?,
+        ),
+        (false, None) => None,
+        _ => return Err(volume_disagreement()),
+    };
+    build_around_overlay(
+        root,
+        OptionalBlocks { overlay, volume },
+        identity,
+        devices,
+        contract,
+        hotplug,
+    )
 }
 
 /// A caller that names a device set and hands over resources for a different one has two
@@ -145,6 +207,12 @@ fn overlay_disagreement() -> MachineError {
     MachineError::invalid(Phase::Devices, "the device set and the overlay disagree")
 }
 
+/// The same disagreement for the durable volume: a caller that names a device set with a
+/// volume and hands over no resource for one has two different ideas about the machine.
+fn volume_disagreement() -> MachineError {
+    MachineError::invalid(Phase::Devices, "the device set and the volume disagree")
+}
+
 /// The devices that are the same however the overlay was obtained.
 ///
 /// The memory device is built from the hotplug region the machine placed, its guest address and
@@ -152,7 +220,7 @@ fn overlay_disagreement() -> MachineError {
 /// to the machine and not to the device table.
 fn build_around_overlay(
     root: File,
-    overlay: Option<BlockDevice>,
+    blocks: OptionalBlocks,
     identity: DeviceIdentity,
     devices: DeviceSet,
     contract: MachineContract,
@@ -174,6 +242,7 @@ fn build_around_overlay(
             })
         })
         .transpose()?;
+    let OptionalBlocks { overlay, volume } = blocks;
     let root = block(
         BlockRole::ImmutableRoot,
         root,
@@ -192,6 +261,7 @@ fn build_around_overlay(
     Ok(BusDevices {
         root,
         overlay,
+        volume,
         net,
         vsock,
         rng,
@@ -221,6 +291,7 @@ mod tests {
         SandboxDisks {
             root: image(64 * 4096),
             overlay: Some(image(64 * 1024 * 1024)),
+            volume: None,
         }
     }
 
@@ -297,6 +368,7 @@ mod tests {
         let disks = SandboxDisks {
             root: image(64 * 4096),
             overlay: None,
+            volume: None,
         };
         let bus = build_bus(
             disks,
@@ -327,6 +399,7 @@ mod tests {
         let disks = SandboxDisks {
             root: image(64 * 4096),
             overlay: None,
+            volume: None,
         };
         let Err(error) = build_bus(
             disks,
@@ -359,6 +432,7 @@ mod tests {
         let disks = SandboxDisks {
             root: image(4096 + 512),
             overlay: Some(image(64 * 1024 * 1024)),
+            volume: None,
         };
         let Err(error) = build_bus(
             disks,

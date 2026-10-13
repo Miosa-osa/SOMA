@@ -24,6 +24,8 @@ pub(crate) const GENERATION_LOWER: &str = "soma.lower=/dev/vda";
 pub(crate) const GENERATION_UPPER: &str = "soma.upper=/dev/vdb";
 /// The network interface, named only by a Generation that declared a network device.
 pub(crate) const GENERATION_NET: &str = "soma.net=eth0";
+/// The declaration naming the durable data volume, for a Generation that carries one.
+pub(crate) const GENERATION_VOLUME: &str = "soma.volume=/dev/vdc";
 /// The kernel argument that carries the challenge nonce to the guest.
 ///
 /// Gated with the machine tree that composes diagnostic boots: on client
@@ -95,6 +97,9 @@ pub fn compose_generation_for(devices: DeviceSet, contract: MachineContract) -> 
     }
     if devices.net() {
         arguments.push(GENERATION_NET.to_owned());
+    }
+    if devices.volume() {
+        arguments.push(GENERATION_VOLUME.to_owned());
     }
     arguments.join(" ")
 }
