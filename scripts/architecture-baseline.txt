@@ -19,7 +19,6 @@
 ./crates/soma-kvm/src/snapshot/compatibility/tests.rs 351
 ./crates/soma-kvm/src/snapshot/section.rs 301
 ./crates/soma-kvm/src/x86_64/devices.rs 380
-./crates/soma-kvm/src/x86_64/sandbox.rs 346
 ./crates/soma-kvm/src/x86_64/snapshot/profile.rs 301
 ./crates/soma-kvm/src/x86_64/snapshot/restore.rs 303
 ./crates/soma-local/src/backend/kvm/host/sterile/tests.rs 308

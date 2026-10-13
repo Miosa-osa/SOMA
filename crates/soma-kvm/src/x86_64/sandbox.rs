@@ -13,6 +13,7 @@ mod memory;
 mod network;
 mod pause;
 pub(in crate::x86_64) mod restored;
+mod start;
 mod teardown;
 
 use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
@@ -36,11 +37,10 @@ use super::{
     exits::ExitLedger,
     launch_page::LaunchPageSlot,
     loader::{self, INITRAMFS_LIMIT, KERNEL_IMAGE_LIMIT},
-    mmio::MmioDispatch,
-    ports::{PortBus, PortBusHandle},
-    serial::{SERIAL_GSI, Serial},
+    ports::PortBusHandle,
+    serial::SERIAL_GSI,
     timing::Stopwatch,
-    watchdog::{CANCELLATION_GRACE, RunContext, RunReport, VcpuRun},
+    watchdog::{RunContext, RunReport, VcpuRun},
 };
 
 struct Prepared {
@@ -236,88 +236,6 @@ impl SandboxMachine {
     #[must_use]
     pub fn hotplug_region(&self) -> Option<crate::memory_layout::HotplugRegion> {
         self.machine.ram.hotplug().map(|ram| ram.region())
-    }
-
-    /// Starts the device thread and one dedicated thread per vCPU.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed failure; a machine that fails to start is still fully reclaimable.
-    pub fn start(&mut self) -> Result<(), MachineError> {
-        let Stage::Prepared(prepared) = std::mem::replace(&mut self.stage, Stage::Stopped) else {
-            return Err(MachineError::invalid(Phase::Run, "sandbox already started"));
-        };
-        let Prepared {
-            vcpus,
-            serial_line,
-            irq,
-            notify,
-        } = prepared;
-        // Each worker gets its own duplicated notify descriptors.
-        let mut kicks = Vec::with_capacity(vcpus.len());
-        for _ in 0..vcpus.len() {
-            kicks.push(notify.kicks()?);
-        }
-        // An Instance with an assigned bundle has its TAP attached before this point, so the
-        // device thread can watch it from its first wakeup.
-        let event_loop = EventLoop::spawn(
-            Arc::clone(&self.shared),
-            self.machine.ram.shared(),
-            notify,
-            irq,
-            self.host_work
-                .try_clone()
-                .map_err(|error| MachineError::io(Phase::EventLoop, &error))?,
-            self.net_backend_fd(),
-        )
-        .map_err(|error| MachineError::io(Phase::EventLoop, &error))?;
-        self.clock.lap(Phase::EventLoop);
-        self.mark(Milestone::EventLoop);
-        let ports = PortBusHandle::new(PortBus::new(Serial::with_tap(
-            Some(serial_line),
-            self.console.clone(),
-        )));
-        // RunStart is stamped BEFORE any vCPU thread exists: the timing contract reads
-        // "armed <= entered", and every thread this loop spawns stamps FirstRunEntered on its
-        // own way into KVM_RUN. Stamping after a spawn returns loses that order on a small
-        // host - a 2-core machine was observed entering the guest 3.6us before the spawning
-        // thread got to the mark.
-        self.mark(Milestone::RunStart);
-        let context = match RunContext::acquire() {
-            Ok(context) => context,
-            Err(error) => {
-                let _ignored = event_loop.stop();
-                return Err(error);
-            }
-        };
-        let mut runs = Vec::with_capacity(vcpus.len());
-        for (vcpu, kicks) in vcpus.into_iter().zip(kicks) {
-            let dispatch = MmioDispatch::new(
-                Arc::clone(&self.shared),
-                self.machine.ram.shared(),
-                kicks,
-                Arc::clone(&self.finished),
-            );
-            match VcpuRun::start(&context, vcpu, &ports, Some(dispatch), None, &self.exits) {
-                Ok(run) => runs.push(run),
-                Err(report) => {
-                    for run in runs {
-                        let _ignored = run.pause(CANCELLATION_GRACE);
-                    }
-                    let _ignored = event_loop.stop();
-                    return Err(report.result.err().unwrap_or_else(|| {
-                        MachineError::invalid(Phase::Run, "vCPU failed to start")
-                    }));
-                }
-            }
-        }
-        self.ports = Some(ports);
-        self.stage = Stage::Running(Running {
-            context,
-            vcpus: runs,
-            event_loop,
-        });
-        Ok(())
     }
 
     /// The byte channel over the guest's control connection.

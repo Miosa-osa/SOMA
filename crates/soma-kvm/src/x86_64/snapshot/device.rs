@@ -76,13 +76,25 @@ pub(super) fn specific(bus: &MmioBus, slot: Slot, image: Digest) -> Option<Devic
 /// # Errors
 ///
 /// Returns [`SnapshotError::FeatureNegotiation`] when the driver negotiated anything other
-/// than this implementation's allowlist, or the canonical validation failure.
+/// than this implementation's allowlist, [`SnapshotError::VolumeNotPlaceholder`] when a durable
+/// volume is no longer backed by its placeholder, or the canonical validation failure.
 pub(super) fn canonical(
+    bus: &MmioBus,
     slot: Slot,
     live: &SlotSnapshot,
     specific: DeviceSpecific,
     contract: MachineContract,
 ) -> Result<DeviceState, SnapshotError> {
+    // A capture publishes device state and never tenant data, so a durable volume must still be
+    // the placeholder the Generation declared it with. A device that already holds the
+    // Instance's own file would make this manifest describe a machine no restore can rebuild.
+    if matches!(slot, Slot::Volume)
+        && bus
+            .volume()
+            .is_some_and(|volume| !volume.device().is_placeholder())
+    {
+        return Err(SnapshotError::VolumeNotPlaceholder);
+    }
     let expectation = profile::expectation(slot, contract);
     if live.transport.driver_features != expectation.negotiated_features {
         return Err(SnapshotError::FeatureNegotiation {

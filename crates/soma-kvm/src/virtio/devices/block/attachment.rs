@@ -5,7 +5,7 @@
 //! replacement is checked against the shape the guest was already told, because a device that
 //! changed its own capacity underneath a running guest would be lying about itself.
 
-use super::{BlockBackend, BlockConfigError, BlockDevice, SECTOR_SIZE};
+use super::{BlockBackend, BlockConfigError, BlockDevice, BlockRole, SECTOR_SIZE};
 
 impl BlockDevice {
     /// Puts the real store behind a device that was built against a declared shape.
@@ -30,7 +30,14 @@ impl BlockDevice {
         if backend.capacity_bytes() != self.capacity_sectors * SECTOR_SIZE {
             return Err(BlockConfigError::AttachedShapeDiffers);
         }
+        // A durable volume takes exactly one swap. A second one would replace a store a guest
+        // may already have written to, and a volume that is no longer on its placeholder was not
+        // built by this path, so neither swap is one this device may make.
+        if self.role == BlockRole::DurableVolume && !self.placeholder {
+            return Err(BlockConfigError::AlreadyAttached);
+        }
         self.backend = backend;
+        self.placeholder = false;
         Ok(())
     }
 }
