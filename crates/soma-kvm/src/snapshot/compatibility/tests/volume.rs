@@ -2,6 +2,7 @@
 //! inside the source budget.
 
 use super::*;
+use crate::snapshot::device_state::MAX_QUEUES;
 use crate::snapshot::manifest::tests::sample_manifest_with_mem;
 
 #[test]
@@ -57,4 +58,40 @@ fn the_memory_slot_is_required_exactly_when_the_host_declares_it() {
         Err(Incompatibility::MissingSection(SectionRole::Device5))
     );
     assert_eq!(check(&host, &with), Ok(()));
+}
+
+/// One pinned expectation: the kind, the negotiated features, and the queue limits.
+type PinnedExpectation = (DeviceKind, u64, [u16; MAX_QUEUES]);
+
+/// The expectation list of a machine that declares no durable volume, captured by running this
+/// fixture at the trunk commit `cf471022ec`, the last one before the volume slot existed.
+///
+/// Six entries, positional, with the optional memory device absent at slot 5.
+const PRE_VOLUME_PROFILE: [Option<PinnedExpectation>; 6] = [
+    Some((DeviceKind::RootBlock, 4_294_967_392, [256, 0, 0])),
+    Some((DeviceKind::OverlayBlock, 4_294_967_872, [256, 0, 0])),
+    Some((DeviceKind::Net, 4_294_967_328, [256, 256, 0])),
+    Some((DeviceKind::Vsock, 4_294_967_296, [256, 256, 64])),
+    Some((DeviceKind::Rng, 4_294_967_296, [64, 0, 0])),
+    None,
+];
+
+#[test]
+fn the_six_slot_profile_is_the_one_captured_before_the_volume_slot_existed() {
+    let host = matching_host();
+    assert_eq!(host.devices.len(), PRE_VOLUME_PROFILE.len());
+    for (index, (actual, expected)) in host.devices.iter().zip(PRE_VOLUME_PROFILE).enumerate() {
+        match expected {
+            Some((kind, negotiated_features, queue_limits)) => {
+                let actual = actual.unwrap_or_else(|| panic!("slot {index} is absent"));
+                assert_eq!(actual.kind, kind, "slot {index} kind");
+                assert_eq!(
+                    actual.negotiated_features, negotiated_features,
+                    "slot {index} features"
+                );
+                assert_eq!(actual.queue_limits, queue_limits, "slot {index} queues");
+            }
+            None => assert!(actual.is_none(), "slot {index} must stay absent"),
+        }
+    }
 }
