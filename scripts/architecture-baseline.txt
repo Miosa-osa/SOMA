@@ -1,0 +1,38 @@
+# Files already over the 300-line budget in scripts/check-architecture.sh.
+# One line per file: <path> <ceiling>. The ceiling is the highest line count this
+# file is allowed to reach. A file that is not listed must stay at or below 300, and a
+# listed file must not grow past its ceiling. Remove a row once its file is split.
+#
+# Split debt: crates/soma-netd/src/daemon.rs, crates/soma-netd/src/reconcile.rs and
+# crates/soma-netd/tests/live/recovery.rs are recorded at their post-PR-66 counts.
+#
+./crates/soma-api/src/handler.rs 330
+./crates/soma-api/src/runner/config.rs 348
+./crates/soma-api/src/runner/sandboxes.rs 310
+./crates/soma-api/src/runner/service/flow_tests.rs 301
+./crates/soma-api/src/runner/transport.rs 330
+./crates/soma-api/src/tunnel.rs 491
+./crates/soma-api/tests/runner/tunnel.rs 319
+./crates/soma-api/tests/support/mod.rs 378
+./crates/soma-generation/src/generation/contracts.rs 343
+./crates/soma-generation/src/store.rs 307
+./crates/soma-kvm/src/snapshot/compatibility/tests.rs 351
+./crates/soma-kvm/src/snapshot/section.rs 301
+./crates/soma-kvm/src/x86_64/devices.rs 380
+./crates/soma-kvm/src/x86_64/sandbox.rs 346
+./crates/soma-kvm/src/x86_64/snapshot/profile.rs 301
+./crates/soma-kvm/src/x86_64/snapshot/restore.rs 303
+./crates/soma-local/src/backend/kvm/host/sterile/tests.rs 308
+./crates/soma-local/src/backend/kvm/lifecycle.rs 319
+./crates/soma-local/src/backend/kvm/network/lease.rs 339
+./crates/soma-local/src/backend/kvm/resize/memory.rs 598
+./crates/soma-netd/src/bundle.rs 346
+./crates/soma-netd/src/daemon.rs 709
+./crates/soma-netd/src/firewall/tests.rs 320
+./crates/soma-netd/src/ipam.rs 327
+./crates/soma-netd/src/ledger.rs 323
+./crates/soma-netd/src/reconcile.rs 482
+./crates/soma-netd/tests/live/recovery.rs 482
+./crates/soma-netd/tests/live_linux.rs 305
+./crates/soma-vmm/src/control/request.rs 315
+./crates/soma/src/engine/managed_list.rs 306
