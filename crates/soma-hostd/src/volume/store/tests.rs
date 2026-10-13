@@ -44,10 +44,11 @@ fn detach(volume_byte: u8, instance_byte: u8, operation_byte: u8) -> DetachReque
 
 fn store() -> (tempfile::TempDir, DirectoryVolumes) {
     let directory = tempfile::tempdir().expect("temp dir");
-    let volumes = DirectoryVolumes::open(
+    let volumes = DirectoryVolumes::open_uncertified(
         &directory.path().join("volumes"),
         &directory.path().join("records"),
         Box::new(CleanRepair),
+        true,
     )
     .expect("opens");
     (directory, volumes)
@@ -153,10 +154,12 @@ fn a_reopened_store_rebuilds_the_volume_from_its_sidecar() {
     let records = directory.path().join("records");
     {
         let volumes =
-            DirectoryVolumes::open(&root, &records, Box::new(CleanRepair)).expect("opens");
+            DirectoryVolumes::open_uncertified(&root, &records, Box::new(CleanRepair), true)
+                .expect("opens");
         volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
     }
-    let reopened = DirectoryVolumes::open(&root, &records, Box::new(CleanRepair)).expect("opens");
+    let reopened = DirectoryVolumes::open_uncertified(&root, &records, Box::new(CleanRepair), true)
+        .expect("opens");
     let sidecar = reopened.inspect(volume(1)).expect("exists");
     assert_eq!(sidecar.state, VolumeState::Attached);
     assert_eq!(sidecar.tenant, "tenant-alpha");
@@ -200,10 +203,11 @@ fn with_repairs(
     directory: &tempfile::TempDir,
     repairs: Box<dyn VolumeRepair + Send + Sync>,
 ) -> DirectoryVolumes {
-    DirectoryVolumes::open(
+    DirectoryVolumes::open_uncertified(
         &directory.path().join("volumes"),
         &directory.path().join("records"),
         repairs,
+        true,
     )
     .expect("opens")
 }
@@ -260,3 +264,5 @@ fn a_refused_create_is_a_typed_refusal_and_leaves_no_attached_volume() {
         );
     }
 }
+
+mod encryption;

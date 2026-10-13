@@ -16,6 +16,19 @@ pub const RECORD_DIR_ENV: &str = "SOMA_HOSTD_RECORD_DIR";
 pub const DEFAULT_RECORD_DIR: &str = "/var/lib/soma/hostd/records";
 /// The default root holding one directory per volume, on the host's encrypted data mount.
 pub const DEFAULT_VOLUME_DIR: &str = "/srv/soma/volumes";
+/// The environment variable that names this host's encrypted data mount.
+pub const ENCRYPTED_MOUNT_ENV: &str = "SOMA_HOSTD_ENCRYPTED_MOUNT";
+/// The encrypted data mount the reference Step A host carries, which is a LUKS volume.
+pub const DEFAULT_ENCRYPTED_MOUNT: &str = "miosa-enc";
+
+/// Returns the encrypted data mount name for one configured value, or the default when absent.
+#[must_use]
+pub fn encrypted_mount_name(configured: Option<&str>) -> String {
+    configured
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(DEFAULT_ENCRYPTED_MOUNT)
+        .to_owned()
+}
 
 /// Returns the record root for one configured value, or the default when it is absent or blank.
 #[must_use]
@@ -25,19 +38,21 @@ pub fn record_dir(configured: Option<&str>) -> PathBuf {
         .map_or_else(|| PathBuf::from(DEFAULT_RECORD_DIR), PathBuf::from)
 }
 
-/// Whether a mount table puts `directory` on `tmpfs` or `ramfs`.
+/// One mount table row: the device, the mount point, and the filesystem.
+type MountRow<'a> = (&'a str, &'a str, &'a str);
+
+/// The mount the kernel resolves `directory` to, as its device, mount point, and filesystem.
 ///
 /// The longest mount point that is a prefix of the directory decides, which is how the kernel
 /// resolves a mount, so a durable root that itself sits under a volatile parent is still seen as
 /// volatile. Mount fields are not unescaped, so a mount point containing spaces is read as two
 /// fields; no platform mount point contains one, and a wrong reading can only fail the way the
-/// check already fails, by calling a durable directory volatile.
-#[must_use]
-pub fn on_volatile_mount(mounts: &str, directory: &Path) -> bool {
-    let mut best: Option<(usize, &str)> = None;
+/// checks already fail, by calling a directory something it is not.
+fn resolved_mount<'a>(mounts: &'a str, directory: &Path) -> Option<MountRow<'a>> {
+    let mut best: Option<(usize, MountRow<'a>)> = None;
     for line in mounts.lines() {
         let mut fields = line.split_whitespace();
-        let (Some(_device), Some(mount), Some(filesystem)) =
+        let (Some(device), Some(mount), Some(filesystem)) =
             (fields.next(), fields.next(), fields.next())
         else {
             continue;
@@ -46,14 +61,32 @@ pub fn on_volatile_mount(mounts: &str, directory: &Path) -> bool {
         if directory.starts_with(mount_path) {
             let depth = mount_path.components().count();
             if best.is_none_or(|(current, _)| depth > current) {
-                best = Some((depth, filesystem));
+                best = Some((depth, (device, mount, filesystem)));
             }
         }
     }
+    best.map(|(_, found)| found)
+}
+
+/// Whether a mount table puts `directory` on `tmpfs` or `ramfs`.
+#[must_use]
+pub fn on_volatile_mount(mounts: &str, directory: &Path) -> bool {
     matches!(
-        best.map(|(_, filesystem)| filesystem),
+        resolved_mount(mounts, directory).map(|(_, _, filesystem)| filesystem),
         Some("tmpfs" | "ramfs")
     )
+}
+
+/// Whether a mount table puts `directory` on the named encrypted data mount.
+///
+/// A LUKS volume is presented by the kernel as a device-mapper target, so the mount this
+/// directory resolves to must name `/dev/mapper/<name>`. What is checked is the mapping's name
+/// and not its type: a host that maps something other than `dm-crypt` under that name passes,
+/// which is why the name is this host's own configured mount rather than any mapper device.
+#[must_use]
+pub fn on_encrypted_mount(mounts: &str, directory: &Path, name: &str) -> bool {
+    let mapper = format!("/dev/mapper/{name}");
+    resolved_mount(mounts, directory).is_some_and(|(device, _, _)| device == mapper)
 }
 
 /// Refuses a record directory on `tmpfs` or `ramfs`, where a reboot would erase unshipped records.
@@ -74,6 +107,33 @@ pub fn refuse_volatile(directory: &Path) -> io::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Whether this host's volume root is on its encrypted data mount.
+///
+/// # Errors
+///
+/// Returns the read error when the mount table cannot be read.
+#[cfg(target_os = "linux")]
+pub fn root_is_encrypted(directory: &Path, name: &str) -> io::Result<bool> {
+    let mounts = std::fs::read_to_string("/proc/self/mounts")?;
+    let resolved = std::fs::canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
+    Ok(on_encrypted_mount(&mounts, &resolved, name))
+}
+
+/// The non-Linux build is not the host runtime and has no mount table, so it cannot certify one.
+///
+/// # Errors
+///
+/// This build never returns an error; the signature matches the Linux check.
+#[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "matches the Linux check, which can fail to read the mount table"
+)]
+pub fn root_is_encrypted(directory: &Path, name: &str) -> io::Result<bool> {
+    let _ = (directory, name);
+    Ok(false)
 }
 
 /// The non-Linux build has no mount table to consult, so the check cannot refuse.
@@ -147,6 +207,58 @@ tmpfs /var/lib/soma/hostd/scratch tmpfs rw,size=1024k 0 0
             MOUNTS,
             Path::new("/var/lib/soma/volumes")
         ));
+    }
+
+    #[test]
+    fn only_the_named_data_mapper_is_an_encrypted_root() {
+        const ENCRYPTED: &str = "\
+sysfs /sys sysfs rw,nosuid 0 0
+/dev/nvme0n1p2 / ext4 rw,relatime 0 0
+/dev/mapper/miosa-enc /srv/soma ext4 rw,relatime 0 0
+";
+        assert!(on_encrypted_mount(
+            ENCRYPTED,
+            Path::new("/srv/soma/volumes"),
+            "miosa-enc"
+        ));
+        // A raw partition is refused, however it is formatted, and so is a mapper under another
+        // name: the mount has to be this host's own encrypted data mount.
+        assert!(!on_encrypted_mount(
+            MOUNTS,
+            Path::new("/var/lib/soma/volumes"),
+            "miosa-enc"
+        ));
+        assert!(!on_encrypted_mount(
+            ENCRYPTED,
+            Path::new("/srv/soma/volumes"),
+            "another-volume"
+        ));
+    }
+
+    #[test]
+    fn the_longest_mount_point_decides_for_encryption_too() {
+        const NESTED: &str = "\
+/dev/mapper/miosa-enc /srv/soma ext4 rw,relatime 0 0
+/dev/nvme0n1p3 /srv/soma/plain ext4 rw,relatime 0 0
+";
+        assert!(on_encrypted_mount(
+            NESTED,
+            Path::new("/srv/soma/volumes"),
+            "miosa-enc"
+        ));
+        assert!(!on_encrypted_mount(
+            NESTED,
+            Path::new("/srv/soma/plain/volumes"),
+            "miosa-enc"
+        ));
+    }
+
+    #[test]
+    fn a_blank_or_absent_mount_name_selects_the_reference_host_mount() {
+        assert_eq!(DEFAULT_ENCRYPTED_MOUNT, "miosa-enc");
+        assert_eq!(encrypted_mount_name(None), "miosa-enc");
+        assert_eq!(encrypted_mount_name(Some("  ")), "miosa-enc");
+        assert_eq!(encrypted_mount_name(Some("data-crypt")), "data-crypt");
     }
 
     #[test]

@@ -35,6 +35,11 @@ pub struct DirectoryVolumes {
     root: PathBuf,
     records: PathBuf,
     repairs: Box<dyn VolumeRepair + Send + Sync>,
+    /// Whether this host's volume root is on its encrypted data mount.
+    ///
+    /// A host without one must not hold a persistent volume, because the file would sit on
+    /// unencrypted disk: an attach is refused rather than a tenant's bytes written.
+    encrypted: bool,
     state: Mutex<BTreeMap<VolumeId, VolumeSidecar>>,
     operations: Mutex<BTreeMap<OperationId, RequestFingerprint>>,
 }
@@ -42,14 +47,42 @@ pub struct DirectoryVolumes {
 impl DirectoryVolumes {
     /// Opens or creates a store rooted at `root` with its records under `records`.
     ///
+    /// The root must be on this host's encrypted data mount, which is what the attach path
+    /// certifies before it writes a tenant's bytes; a host without one refuses every attach
+    /// rather than serving a volume from unencrypted disk.
+    ///
     /// # Errors
     ///
-    /// Returns the underlying [`io::Error`] when a directory cannot be created or a sidecar
-    /// cannot be read.
+    /// Returns the underlying [`io::Error`] when a directory cannot be created, a sidecar cannot
+    /// be read, or the mount table cannot be read to certify the root.
     pub fn open(
         root: &Path,
         records: &Path,
         repairs: Box<dyn VolumeRepair + Send + Sync>,
+    ) -> io::Result<Self> {
+        let name = super::placement::encrypted_mount_name(
+            std::env::var(super::placement::ENCRYPTED_MOUNT_ENV)
+                .ok()
+                .as_deref(),
+        );
+        let encrypted = super::placement::root_is_encrypted(root, &name)?;
+        Self::open_uncertified(root, records, repairs, encrypted)
+    }
+
+    /// Opens the store without consulting the mount table, for a caller that states the root.
+    ///
+    /// It is the seam the mount rule is tested through, and the constructor a caller that is not
+    /// the host runtime names; a production host reaches [`Self::open`], which certifies the
+    /// mount rather than trusting the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns the underlying [`io::Error`] exactly as [`Self::open`] does.
+    pub fn open_uncertified(
+        root: &Path,
+        records: &Path,
+        repairs: Box<dyn VolumeRepair + Send + Sync>,
+        encrypted: bool,
     ) -> io::Result<Self> {
         fs::create_dir_all(root)?;
         fs::create_dir_all(records)?;
@@ -66,6 +99,7 @@ impl DirectoryVolumes {
             root: root.to_path_buf(),
             records: records.to_path_buf(),
             repairs,
+            encrypted,
             state: Mutex::new(state),
             operations: Mutex::new(BTreeMap::new()),
         })

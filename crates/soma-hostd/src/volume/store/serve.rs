@@ -20,6 +20,13 @@ const GIB: u64 = 1 << 30;
 impl VolumeStore for DirectoryVolumes {
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
         self.check_operation(request.operation, request.fingerprint)?;
+        // A host whose volume root is not on its encrypted data mount refuses the attach before
+        // anything is created, so a tenant's bytes are never written to unencrypted disk.
+        if !self.encrypted {
+            return Err(VolumeError::Encryption(
+                "the volume root is not on this host's encrypted data mount",
+            ));
+        }
         let mut state = self
             .state
             .lock()
