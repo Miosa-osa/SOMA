@@ -1499,6 +1499,7 @@ dependencies = [
  "sha2",
  "soma",
  "soma-guest",
+ "soma-hostd",
  "soma-local",
  "tokio",
  "tokio-rustls",

@@ -1,7 +1,10 @@
 //! Daemon reply frames.
 
+mod volumes;
+use volumes::{decode_volume, encode_volume};
+
 use super::{ProtocolError, array};
-use crate::{InstanceId, LeaseGeneration, MAX_LISTED, WorkerId};
+use crate::{InstanceId, LeaseGeneration, MAX_LISTED, VolumeId, WorkerId};
 
 /// One daemon reply.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -79,6 +82,41 @@ pub enum Reply {
         worker: WorkerId,
         /// Whether teardown and release both reported completion.
         complete: bool,
+    },
+    /// A volume is bound to its Instance; `state` and `repair` are the stable codes of the volume
+    /// and repair vocabularies, and `exit_code` is the repair tool's own result.
+    VolumeAttached {
+        /// The volume.
+        volume: VolumeId,
+        /// The volume state code.
+        state: u8,
+        /// The repair outcome code.
+        repair: u8,
+        /// The repair exit code, carried as its own byte.
+        exit_code: i8,
+    },
+    /// A volume is released from its Instance and keeps its file.
+    VolumeDetached {
+        /// The volume.
+        volume: VolumeId,
+        /// The volume state code.
+        state: u8,
+    },
+    /// A volume is destroyed; its file and its data key are gone.
+    VolumeDestroyed {
+        /// The volume.
+        volume: VolumeId,
+        /// The terminal state code.
+        state: u8,
+    },
+    /// One volume's sidecar projection.
+    VolumeInspected {
+        /// The volume.
+        volume: VolumeId,
+        /// The volume state code.
+        state: u8,
+        /// The disk class in GiB.
+        size_class_gib: u32,
     },
     /// A typed failure code from [`crate::failure_code`].
     Failed(u16),
@@ -160,6 +198,10 @@ impl Reply {
                 out.extend_from_slice(&[9, u8::from(*complete)]);
                 out.extend_from_slice(worker.as_bytes());
             }
+            Self::VolumeAttached { .. }
+            | Self::VolumeDetached { .. }
+            | Self::VolumeDestroyed { .. }
+            | Self::VolumeInspected { .. } => encode_volume(&mut out, self),
             Self::Failed(code) => {
                 out.push(0xff);
                 out.extend_from_slice(&code.to_be_bytes());
@@ -218,6 +260,7 @@ impl Reply {
                 complete: bytes[1] == 1,
                 worker: worker(&bytes[2..18])?,
             }),
+            (Some(10..=13), _) => decode_volume(bytes),
             (Some(0xff), 3) => Ok(Self::Failed(u16::from_be_bytes([bytes[1], bytes[2]]))),
             _ => Err(ProtocolError("reply")),
         }

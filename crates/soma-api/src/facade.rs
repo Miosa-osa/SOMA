@@ -8,6 +8,8 @@ use std::os::unix::net::UnixStream;
 
 pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
 
+pub use crate::volumes::{VolumeBody, VolumeFailure, VolumeOperation, VolumeReport};
+
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LifecycleOutcome {
@@ -176,5 +178,22 @@ pub trait SandboxFacade {
         _request: ResizeRequest,
     ) -> Result<ResizeOutcome, ResizeFailure> {
         Err(ResizeFailure::Unavailable)
+    }
+
+    /// Performs one durable data volume operation through the host daemon.
+    ///
+    /// The volume store lives inside `soma-hostd` (ADR 0053 Step A), so a backend with no host
+    /// control socket configured reports the missing capability rather than an invented answer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed volume failure: the missing capability when no socket is configured,
+    /// the daemon's stable refusal, or a transport failure.
+    fn volume(
+        &mut self,
+        _operation: VolumeOperation,
+        _body: &VolumeBody,
+    ) -> Result<VolumeReport, VolumeFailure> {
+        Err(VolumeFailure::Unconfigured)
     }
 }

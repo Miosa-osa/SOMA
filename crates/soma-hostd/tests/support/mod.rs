@@ -5,11 +5,12 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use soma_hostd::{
-    Admission, AssignmentIntent, CpuClass, CpuInventory, ExhaustedBehavior, GenerationId,
-    HostProfile, InstanceId, LaunchFrame, LaunchMaterialHandle, Limits, MachineShape,
-    MeasuredOverhead, MemoryClass, MemoryInventory, MemoryShape, NetworkInventory, OperationId,
-    OperatorLimits, OvercommitPolicy, OverlayIdentity, Pool, PoolAdmission, PoolKey,
-    ProcessInventory, Request, Runtime, SingleNode, StorageInventory, ValidShape, WorkloadClass,
+    Admission, AssignmentIntent, CleanRepair, CpuClass, CpuInventory, DirectoryVolumes,
+    ExhaustedBehavior, GenerationId, HostProfile, InstanceId, LaunchFrame, LaunchMaterialHandle,
+    Limits, MachineShape, MeasuredOverhead, MemoryClass, MemoryInventory, MemoryShape,
+    NetworkInventory, OperationId, OperatorLimits, OvercommitPolicy, OverlayIdentity, Pool,
+    PoolAdmission, PoolKey, ProcessInventory, Request, Runtime, SingleNode, StorageInventory,
+    ValidShape, WorkloadClass,
     testing::{InProcessBroker, InProcessLauncher, ProcessTable},
 };
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
@@ -37,6 +38,7 @@ pub struct Harness {
     pub pool: Arc<TestPool>,
     pub runtime: Arc<TestRuntime>,
     pub admission: Arc<Admission>,
+    pub volumes: Arc<DirectoryVolumes>,
 }
 
 /// A host large enough that the pool bounds, not capacity, gate the policy tests.
@@ -158,12 +160,21 @@ pub fn harness(limits: Limits) -> Harness {
     let admission = admission();
     let pool = open_with(dir.path(), &table, limits, &admission);
     let runtime = Arc::new(Runtime::new(Arc::clone(&pool)));
+    let volumes = Arc::new(
+        DirectoryVolumes::open(
+            &dir.path().join("volumes"),
+            &dir.path().join("volume-records"),
+            Box::new(CleanRepair),
+        )
+        .expect("volume store"),
+    );
     Harness {
         dir,
         table,
         pool,
         runtime,
         admission,
+        volumes,
     }
 }
 

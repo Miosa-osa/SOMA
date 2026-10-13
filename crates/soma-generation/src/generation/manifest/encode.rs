@@ -1,7 +1,7 @@
 use super::{
     CANDIDATE_MAGIC, GenerationManifest, MAGIC, MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE,
-    MAX_MANIFEST_BYTES, MAX_SHORT_STRING, MAX_TEMPLATES, OverlayBinding, RootBinding,
-    SnapshotBinding, TemplateBinding,
+    MAX_MANIFEST_BYTES, MAX_PERSISTENCE_PATHS, MAX_SHORT_STRING, MAX_TEMPLATES, OverlayBinding,
+    PersistenceBinding, RootBinding, SnapshotBinding, TemplateBinding,
 };
 use crate::generation::{
     artifacts::{ArtifactDescriptor, ArtifactRole, Sha256Digest},
@@ -120,6 +120,11 @@ fn encode_with(manifest: &GenerationManifest, magic: [u8; 8]) -> Result<Vec<u8>,
     encoder.u16(manifest.repair.policy_version)?;
     encoder.digest(&manifest.repair.readiness_command_digest)?;
     encoder.template(&manifest.template)?;
+    // Written only from policy 4, so every earlier Generation encodes to the bytes it always did
+    // and keeps the identity it was certified with.
+    if manifest.compiler_policy_version >= 4 {
+        encoder.persistence(&manifest.persistence)?;
+    }
     Ok(encoder.bytes)
 }
 
@@ -178,6 +183,22 @@ impl Encoder {
             None => self.u8(0)?,
         }
         self.u64(template.ttl_seconds)
+    }
+
+    fn persistence(&mut self, binding: &PersistenceBinding) -> Result<(), CompileError> {
+        self.u8(17)?;
+        if !binding.enabled && !binding.paths.is_empty() {
+            return Err(invalid());
+        }
+        if binding.paths.len() > MAX_PERSISTENCE_PATHS {
+            return Err(limit());
+        }
+        self.u8(u8::from(binding.enabled))?;
+        self.u8(u8::try_from(binding.paths.len()).map_err(|_| limit())?)?;
+        for path in &binding.paths {
+            self.short_string(path.as_bytes())?;
+        }
+        Ok(())
     }
 
     fn contract(&mut self, tag: u8, binding: &ContractBinding) -> Result<(), CompileError> {

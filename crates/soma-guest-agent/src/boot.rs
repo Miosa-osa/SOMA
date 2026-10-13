@@ -27,6 +27,7 @@ mod devices;
 mod docker;
 mod superblock;
 mod upper;
+mod volume;
 
 pub use self::declared::Declared;
 
@@ -34,6 +35,9 @@ pub use self::declared::Declared;
 pub const ROOT_DEVICE: &str = "/dev/vda";
 /// Second virtio-blk device: the Instance-private ext4 overlay head, when there is one.
 pub const OVERLAY_DEVICE: &str = "/dev/vdb";
+/// Third virtio-blk device: the per-Instance durable data volume of ADR 0053 Step A, when the
+/// Generation declares persistence.
+pub const VOLUME_DEVICE: &str = "/dev/vdc";
 /// Upper bound for the complete early-init sequence.
 pub const BOOT_BUDGET: Duration = Duration::from_secs(10);
 
@@ -66,6 +70,12 @@ pub enum BootStep {
     UpperDirectories,
     /// Mount `OverlayFS` over the composed directories.
     Overlay,
+    /// Verify the ext4 superblock of the durable data volume.
+    VolumeIdentity,
+    /// Mount the durable data volume.
+    VolumeMount,
+    /// Bind the persistent paths from the volume into the composed root.
+    VolumeBind,
     /// Move `/dev`, `/proc`, and `/sys` into the root.
     MoveMounts,
     /// Move the root over `/` and enter it.
@@ -139,13 +149,20 @@ pub fn early_init(deadline: Instant) -> Result<Declared, BootFailure> {
     }
     let root = if declared.overlay {
         upper::compose()?;
-        if engine {
+        // A declared volume owns `/var/lib/docker`, so the engine's data root is bound from the
+        // durable device below rather than from the ephemeral head.
+        if engine && !declared.volume {
             docker::bind_data_root(upper::UPPER_MOUNT, ROOT_MOUNT);
         }
         ROOT_MOUNT
     } else {
         LOWER_MOUNT
     };
+    // The volume is composed before the pseudo filesystems move and the root is entered, so its
+    // binds are inside the root the guest ends up in rather than on the way it left.
+    if declared.volume {
+        volume::compose(root)?;
+    }
     move_mounts(root)?;
     switch_root(root)?;
     Ok(declared)

@@ -1,7 +1,10 @@
 use soma_netd::{EgressClass, NetworkIntent, ProfileDigest};
 
 use super::*;
-use crate::{InstanceId, LaunchMaterialHandle, LeaseGeneration, MAX_LISTED, OperationId, WorkerId};
+use crate::{
+    GenerationId, InstanceId, LaunchMaterialHandle, LeaseGeneration, MAX_LISTED, OperationId,
+    RequestFingerprint, VolumeId, WorkerId,
+};
 
 #[test]
 fn requests_round_trip_and_reject_hostile_frames() {
@@ -44,7 +47,9 @@ fn requests_round_trip_and_reject_hostile_frames() {
         assert!(Request::decode(&extended).is_err());
     }
     assert_eq!(Request::decode(&[]), Err(ProtocolError("frame length")));
-    assert_eq!(Request::decode(&[9]), Err(ProtocolError("request")));
+    // 9 through 12 are the volume requests, so 13 is the first discriminant this build refuses.
+    assert_eq!(Request::decode(&[9]), Err(ProtocolError("volume attach")));
+    assert_eq!(Request::decode(&[13]), Err(ProtocolError("request")));
     assert!(Request::decode(&[2; 17]).is_ok());
     let mut zero_worker = [0; 17];
     zero_worker[0] = 2;
@@ -161,6 +166,12 @@ fn every_failure_code_survives_the_wire_and_an_unknown_one_is_not_invented() {
         FailureCode::Invariant,
         FailureCode::Capacity,
         FailureCode::Terminated,
+        FailureCode::VolumeMissing,
+        FailureCode::VolumeBusy,
+        FailureCode::VolumeFsckFailed,
+        FailureCode::VolumeRepairRefused,
+        FailureCode::VolumeEncryption,
+        FailureCode::VolumeGeometry,
     ] {
         assert_eq!(
             FailureCode::from_wire(failure_code(code)),
@@ -173,5 +184,49 @@ fn every_failure_code_survives_the_wire_and_an_unknown_one_is_not_invented() {
         None,
         "a code this build does not know stays a number rather than a refusal it does know"
     );
-    assert_eq!(FailureCode::from_wire(14), None);
+    assert_eq!(FailureCode::from_wire(20), None);
+}
+
+#[test]
+fn a_volume_attach_and_detach_round_trip_and_reject_a_bad_label() {
+    let attach = Request::VolumeAttach(AttachFrame {
+        operation: OperationId::new([1; 16]).expect("nonzero"),
+        instance: InstanceId::new([2; 16]).expect("nonzero"),
+        volume: VolumeId::new([3; 16]).expect("nonzero"),
+        fingerprint: RequestFingerprint::new([4; 32]).expect("nonzero"),
+        size_class_gib: 10,
+        generation: GenerationId::new([5; 32]).expect("nonzero"),
+        tenant: "tenant-alpha".to_owned(),
+    });
+    let encoded = attach.encode();
+    assert!(encoded.len() <= MAX_FRAME);
+    assert_eq!(Request::decode(&encoded).expect("decodes"), attach);
+
+    let detach = Request::VolumeDetach(DetachFrame {
+        operation: OperationId::new([1; 16]).expect("nonzero"),
+        instance: InstanceId::new([2; 16]).expect("nonzero"),
+        volume: VolumeId::new([3; 16]).expect("nonzero"),
+        fingerprint: RequestFingerprint::new([4; 32]).expect("nonzero"),
+    });
+    let encoded = detach.encode();
+    assert_eq!(Request::decode(&encoded).expect("decodes"), detach);
+
+    // A label whose padding is not zero is refused rather than read as a longer label.
+    let mut hostile = Request::VolumeAttach(AttachFrame {
+        operation: OperationId::new([1; 16]).expect("nonzero"),
+        instance: InstanceId::new([2; 16]).expect("nonzero"),
+        volume: VolumeId::new([3; 16]).expect("nonzero"),
+        fingerprint: RequestFingerprint::new([4; 32]).expect("nonzero"),
+        size_class_gib: 10,
+        generation: GenerationId::new([5; 32]).expect("nonzero"),
+        tenant: "ab".to_owned(),
+    })
+    .encode();
+    let last = hostile.len() - 1;
+    hostile[last] = 0x7f;
+    assert_eq!(
+        Request::decode(&hostile),
+        Err(ProtocolError("tenant")),
+        "a non-zero pad byte is a malformed label"
+    );
 }

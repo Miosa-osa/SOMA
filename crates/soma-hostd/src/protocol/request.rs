@@ -5,10 +5,14 @@
 //! the lifecycle contract of ADR 0031: they name an Instance, never a worker, so a client can
 //! address a Machine it did not create and could not name a host resource if it tried.
 
+mod volumes;
+
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
-use crate::{InstanceId, LaunchMaterialHandle, OperationId, WorkerId};
+use crate::{InstanceId, LaunchMaterialHandle, OperationId, VolumeId, WorkerId};
+
+pub use volumes::{AttachFrame, DetachFrame};
 
 /// Everything one Launch or Claim binds to.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -28,7 +32,7 @@ pub struct LaunchFrame {
 }
 
 impl LaunchFrame {
-    fn encode_into(&self, out: &mut Vec<u8>) {
+    pub(super) fn encode_into(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(self.operation.as_bytes());
         out.extend_from_slice(self.instance.as_bytes());
         out.extend_from_slice(&self.vsock_cid.to_be_bytes());
@@ -37,7 +41,7 @@ impl LaunchFrame {
         out.extend_from_slice(&self.intent.encode());
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
+    pub(super) fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         if bytes.len() <= CLAIM_HEADER {
             return Err(ProtocolError("request"));
         }
@@ -90,6 +94,17 @@ pub enum Request {
         /// The Instance.
         instance: InstanceId,
     },
+    /// Attach the durable data volume to one Instance, creating it on the first attach.
+    VolumeAttach(AttachFrame),
+    /// Detach the durable data volume from one Instance, keeping its file.
+    VolumeDetach(DetachFrame),
+    /// Destroy the durable data volume, unlinking its file and its data key.
+    VolumeDestroy(DetachFrame),
+    /// Read one volume's sidecar projection back; it carries no request body.
+    VolumeRead {
+        /// The volume.
+        volume: VolumeId,
+    },
 }
 
 impl Request {
@@ -133,6 +148,22 @@ impl Request {
                 out.push(8);
                 out.extend_from_slice(instance.as_bytes());
             }
+            Self::VolumeAttach(frame) => {
+                out.push(9);
+                frame.encode_into(&mut out);
+            }
+            Self::VolumeDetach(frame) => {
+                out.push(10);
+                frame.encode_into(&mut out);
+            }
+            Self::VolumeDestroy(frame) => {
+                out.push(11);
+                frame.encode_into(&mut out);
+            }
+            Self::VolumeRead { volume } => {
+                out.push(12);
+                out.extend_from_slice(volume.as_bytes());
+            }
         }
         out
     }
@@ -166,6 +197,12 @@ impl Request {
             }),
             (8, 17) => Ok(Self::Destroy {
                 instance: instance()?,
+            }),
+            (9, _) => AttachFrame::decode(bytes).map(Self::VolumeAttach),
+            (10, _) => DetachFrame::decode(bytes).map(Self::VolumeDetach),
+            (11, _) => DetachFrame::decode(bytes).map(Self::VolumeDestroy),
+            (12, 17) => Ok(Self::VolumeRead {
+                volume: VolumeId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("volume"))?,
             }),
             _ => Err(ProtocolError("request")),
         }

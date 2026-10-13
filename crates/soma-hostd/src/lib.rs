@@ -25,6 +25,7 @@ pub mod ids;
 pub mod instance;
 pub mod pool;
 pub mod protocol;
+pub mod volume;
 
 #[cfg(unix)]
 pub mod testing;
@@ -39,8 +40,9 @@ pub use instance::{
     InstanceError, InstanceView, Launched, MAX_LISTED, Page, Runtime, TerminalReceipt,
 };
 pub use protocol::{
-    FailureCode, LaunchFrame, MAX_FRAME, ProtocolError, Reply, Request, claim_failure_code,
-    failure_code, instance_failure_code, lifecycle_failure_code, transfer_failure_code,
+    AttachFrame, DetachFrame, FailureCode, LaunchFrame, MAX_FRAME, ProtocolError, Reply, Request,
+    claim_failure_code, failure_code, instance_failure_code, lifecycle_failure_code,
+    transfer_failure_code, volume_failure_code,
 };
 
 pub use admission::{
@@ -52,7 +54,7 @@ pub use admission::{
 };
 pub use ids::{
     GenerationId, HostProfileDigest, IdError, InstanceId, LaunchMaterialHandle, LeaseGeneration,
-    OperationId, RequestFingerprint, WorkerId,
+    OperationId, RequestFingerprint, VolumeId, WorkerId,
 };
 pub use pool::{
     Pool, PoolError, WorkerView,
@@ -83,4 +85,9 @@ pub use pool::{
         Disposition, StepAck, TransferEvidence, TransferFailure, TransferFault, TransferFrame,
         TransferStep,
     },
+};
+pub use volume::{
+    AttachOutcome, AttachRequest, CleanRepair, DetachOutcome, DetachRequest, DirectoryVolumes,
+    RebuildReport, RepairOutcome, RepairReceipt, SidecarError, StoppedVolume, VolumeError,
+    VolumeRecord, VolumeRecordKind, VolumeRepair, VolumeSidecar, VolumeState, VolumeStore, rebuild,
 };

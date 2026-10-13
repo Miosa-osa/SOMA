@@ -15,6 +15,8 @@ pub enum IdError {
     Zero(&'static str),
     /// A lease generation would exceed the packed range.
     GenerationExhausted,
+    /// A hexadecimal text was the wrong length or held a non-hexadecimal character.
+    Hex(&'static str),
 }
 
 impl fmt::Display for IdError {
@@ -22,6 +24,7 @@ impl fmt::Display for IdError {
         match self {
             Self::Zero(label) => write!(formatter, "{label} identity is all zero"),
             Self::GenerationExhausted => formatter.write_str("lease generation exhausted"),
+            Self::Hex(label) => write!(formatter, "{label} identity is not hexadecimal"),
         }
     }
 }
@@ -54,6 +57,24 @@ macro_rules! fixed_id {
                 &self.0
             }
 
+            /// Parses the identity from its lowercase or uppercase hexadecimal form.
+            ///
+            /// # Errors
+            ///
+            /// Returns [`IdError::Hex`] for a text of the wrong length or with a character that
+            /// is not hexadecimal, and [`IdError::Zero`] for the all-zero value.
+            pub fn from_hex(text: &str) -> Result<Self, IdError> {
+                if text.len() != $len * 2 {
+                    return Err(IdError::Hex($label));
+                }
+                let mut bytes = [0_u8; $len];
+                for (index, slot) in bytes.iter_mut().enumerate() {
+                    *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
+                        .map_err(|_| IdError::Hex($label))?;
+                }
+                Self::new(bytes)
+            }
+
             /// Returns the identity as lowercase hexadecimal.
             #[must_use]
             pub fn hex(&self) -> String {
@@ -81,6 +102,7 @@ macro_rules! fixed_id {
 fixed_id!(WorkerId, "worker", 16);
 fixed_id!(InstanceId, "instance", 16);
 fixed_id!(OperationId, "operation", 16);
+fixed_id!(VolumeId, "volume", 16);
 fixed_id!(GenerationId, "generation", 32);
 fixed_id!(HostProfileDigest, "host-profile", 32);
 fixed_id!(RequestFingerprint, "fingerprint", 32);
@@ -176,6 +198,22 @@ mod tests {
         assert_eq!(
             LeaseGeneration::new(1 << 56),
             Err(IdError::GenerationExhausted)
+        );
+    }
+
+    #[test]
+    fn identities_parse_from_hexadecimal_and_refuse_anything_else() {
+        let id = VolumeId::new([0xab; 16]).expect("nonzero");
+        assert_eq!(VolumeId::from_hex(&id.hex()), Ok(id));
+        assert_eq!(VolumeId::from_hex(&id.hex().to_uppercase()), Ok(id));
+        assert_eq!(VolumeId::from_hex("ab"), Err(IdError::Hex("volume")));
+        assert_eq!(
+            VolumeId::from_hex(&"zz".repeat(16)),
+            Err(IdError::Hex("volume"))
+        );
+        assert_eq!(
+            VolumeId::from_hex(&"0".repeat(32)),
+            Err(IdError::Zero("volume"))
         );
     }
 }

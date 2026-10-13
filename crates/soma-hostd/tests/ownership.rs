@@ -25,7 +25,7 @@ fn an_instance_outlives_the_client_that_created_it() {
     let harness = harness(limits(2, 6));
     harness.pool.replenish_blocking().expect("replenish");
     let socket = harness.dir.path().join("hostd.sock");
-    daemon_on(&harness.runtime, &socket);
+    daemon_on(&harness.runtime, &harness.volumes, &socket);
 
     let creator = connect(&socket);
     let Registration::Live {
@@ -74,7 +74,7 @@ fn a_destroy_from_a_second_client_is_terminal_and_idempotent() {
     let harness = harness(limits(2, 6));
     harness.pool.replenish_blocking().expect("replenish");
     let socket = harness.dir.path().join("hostd.sock");
-    daemon_on(&harness.runtime, &socket);
+    daemon_on(&harness.runtime, &harness.volumes, &socket);
 
     let creator = connect(&socket);
     let frame = launch_frame(&intent(13));

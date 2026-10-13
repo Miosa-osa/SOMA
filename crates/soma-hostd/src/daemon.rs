@@ -33,7 +33,8 @@ use std::{
 };
 
 use crate::{
-    FailureCode, MAX_FRAME, Reply, Request, ResourceBroker, Runtime, WorkerLauncher, failure_code,
+    FailureCode, MAX_FRAME, Reply, Request, ResourceBroker, Runtime, VolumeStore, WorkerLauncher,
+    failure_code,
 };
 
 /// Why the daemon could not serve.
@@ -70,8 +71,9 @@ impl std::error::Error for DaemonError {}
 /// # Errors
 ///
 /// Returns the listener failure.
-pub fn serve<L: WorkerLauncher, R: ResourceBroker>(
+pub fn serve<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
     runtime: &Arc<Runtime<L, R>>,
+    volumes: &V,
     socket: &Path,
 ) -> Result<(), DaemonError> {
     let listener = listen(socket)?;
@@ -91,12 +93,13 @@ pub fn serve<L: WorkerLauncher, R: ResourceBroker>(
         }
         // SAFETY: `raw` is a freshly accepted descriptor owned by nothing else.
         let connection = unsafe { OwnedFd::from_raw_fd(raw) };
-        serve_connection(runtime, &connection);
+        serve_connection(runtime, volumes, &connection);
     }
 }
 
-fn serve_connection<L: WorkerLauncher, R: ResourceBroker>(
+fn serve_connection<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
     runtime: &Arc<Runtime<L, R>>,
+    volumes: &V,
     connection: &OwnedFd,
 ) {
     let mut frame = [0_u8; MAX_FRAME + 1];
@@ -114,7 +117,7 @@ fn serve_connection<L: WorkerLauncher, R: ResourceBroker>(
             return;
         }
         let reply = match Request::decode(&frame[..received as usize]) {
-            Ok(request) => handle(runtime, request),
+            Ok(request) => handle(runtime, volumes, request),
             Err(_) => Reply::Failed(failure_code(FailureCode::Protocol)),
         };
         let bytes = reply.encode();

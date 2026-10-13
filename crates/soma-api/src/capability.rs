@@ -21,6 +21,10 @@ pub enum MissingCapability {
     /// one runtime per connection, so a created sandbox identity would name a Machine that is
     /// gone before the caller can address it again.
     DurableMachineHosting,
+    /// No host control socket is configured, so the durable data volume of ADR 0053 Step A has
+    /// no daemon to reach. The volume store lives inside `soma-hostd`, and without a socket this
+    /// service can neither create a volume nor read one back.
+    DurableVolumes,
 }
 
 impl MissingCapability {
@@ -48,6 +52,10 @@ impl MissingCapability {
                 "this backend hosts a machine inside the process that launched it, and this \
                  service opens one runtime per connection, so the sandbox identity a create \
                  would return could not be addressed by any later request"
+            }
+            Self::DurableVolumes => {
+                "no host control socket is configured, so the durable data volume of ADR 0053 \
+                 Step A has no daemon to reach"
             }
         }
     }

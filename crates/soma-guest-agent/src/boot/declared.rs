@@ -13,6 +13,8 @@ use std::fs;
 pub const UPPER_ARGUMENT: &str = "soma.upper=";
 /// The command-line argument naming the network interface.
 pub const NET_ARGUMENT: &str = "soma.net=";
+/// The command-line argument naming the durable data volume.
+pub const VOLUME_ARGUMENT: &str = "soma.volume=";
 
 const CMDLINE: &str = "/proc/cmdline";
 
@@ -23,6 +25,8 @@ pub struct Declared {
     pub overlay: bool,
     /// Whether the machine has a network device to repair.
     pub net: bool,
+    /// Whether the machine has a durable data volume at `/dev/vdc`.
+    pub volume: bool,
 }
 
 impl Declared {
@@ -42,14 +46,26 @@ impl Declared {
         for argument in line.split_ascii_whitespace() {
             declared.overlay |= argument.starts_with(UPPER_ARGUMENT);
             declared.net |= argument.starts_with(NET_ARGUMENT);
+            declared.volume |= argument.starts_with(VOLUME_ARGUMENT);
         }
         declared
     }
 
     /// How many virtio block devices this machine has.
+    ///
+    /// The root is never optional, so the count is one plus each optional device that was
+    /// declared. It is a count rather than a set because the wait compares the guest's actual
+    /// `/sys/block` set against the declared one and a count cannot name an order.
     #[must_use]
     pub const fn block_devices(self) -> usize {
-        if self.overlay { 2 } else { 1 }
+        let mut count = 1;
+        if self.overlay {
+            count += 1;
+        }
+        if self.volume {
+            count += 1;
+        }
+        count
     }
 }
 
@@ -66,10 +82,25 @@ mod tests {
             declared,
             Declared {
                 overlay: true,
-                net: true
+                net: true,
+                volume: false
             }
         );
         assert_eq!(declared.block_devices(), 2);
+    }
+
+    #[test]
+    fn a_volume_is_declared_only_by_its_own_argument() {
+        let declared =
+            Declared::parse("soma.lower=/dev/vda soma.upper=/dev/vdb soma.volume=/dev/vdc");
+        assert!(declared.volume);
+        assert_eq!(declared.block_devices(), 3);
+        // A line that carries the volume but no overlay is three minus the overlay, and the
+        // volume still counts.
+        let volume_only = Declared::parse("soma.lower=/dev/vda soma.volume=/dev/vdc");
+        assert!(volume_only.volume);
+        assert!(!volume_only.overlay);
+        assert_eq!(volume_only.block_devices(), 2);
     }
 
     #[test]
@@ -79,7 +110,8 @@ mod tests {
             declared,
             Declared {
                 overlay: false,
-                net: false
+                net: false,
+                volume: false
             }
         );
         assert_eq!(declared.block_devices(), 1);

@@ -18,6 +18,7 @@ pub mod runner;
 pub mod tenant;
 pub mod terminal;
 pub mod tunnel;
+pub mod volumes;
 pub mod wire;
 
 pub use admission::{CREATE_ADMISSION_ENV, CreateAdmission, CreatePermit};
@@ -39,3 +40,7 @@ pub use pool::{FacadeLease, FacadePool};
 pub use route::{FilesystemOperation, Route, TerminalOperation};
 pub use tenant::{TENANT_HEADER, TenantId};
 pub use terminal::{TerminalBody, TerminalReport};
+pub use volumes::{
+    HOSTD_SOCKET_ENV, VOLUME_DEVICE, VolumeBody, VolumeClient, VolumeFailure, VolumeOperation,
+    VolumeReport, socket_from,
+};
