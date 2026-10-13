@@ -126,12 +126,7 @@ queues=receive:256,transmit:256,event:64\n",
 queues=request:256\n",
 ];
 
-/// The canonical machine-readable statement of the device contract for one device set.
-///
-/// The five slots are the maximum, not the minimum: a Generation that declared no writable
-/// storage states no overlay slot and one that declared no egress states no network slot. The
-/// statement therefore says which machine this Generation is, and its digest is what refuses a
-/// snapshot of a different one.
+/// The canonical device-contract statement of one device set; its digest refuses any other machine.
 #[must_use]
 pub fn device_contract_statement(devices: DeviceSet) -> Vec<u8> {
     let mut statement = String::from(DEVICE_CONTRACT_HEADER);
