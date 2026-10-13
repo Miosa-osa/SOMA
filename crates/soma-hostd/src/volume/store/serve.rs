@@ -44,7 +44,7 @@ impl VolumeStore for DirectoryVolumes {
             .map_err(|_| VolumeError::Ledger("state lock"))?;
         Self::admit(state.get(&request.volume), request)?;
         let existing = state.get(&request.volume);
-        let sidecar = VolumeSidecar {
+        let mut sidecar = VolumeSidecar {
             volume: request.volume,
             instance: request.instance,
             generation: request.generation,
@@ -58,6 +58,15 @@ impl VolumeStore for DirectoryVolumes {
         let file = self.file(request.volume);
         if existing.is_none() {
             self.transition(VolumeRecordKind::CreateBegin, request.volume)?;
+            // The data key is sealed and recorded before the sidecar names it, so a volume never
+            // exists without the key whose destruction is what proves its destruction.
+            let sealed = self.keys.seal(request.volume).map_err(|_| {
+                VolumeError::Encryption("the volume's data key could not be sealed")
+            })?;
+            self.keys.record(request.volume, &sealed).map_err(|_| {
+                VolumeError::Encryption("the volume's data key could not be recorded")
+            })?;
+            sidecar.dek_id = sealed.dek_id;
             self.write_sidecar(&VolumeSidecar {
                 state: VolumeState::Detached,
                 ..sidecar.clone()
@@ -159,6 +168,11 @@ impl VolumeStore for DirectoryVolumes {
         self.transition(VolumeRecordKind::DestroyBegin, volume)?;
         let directory = self.directory(volume);
         fs::remove_dir_all(&directory).map_err(|_| VolumeError::Ledger("volume unlink"))?;
+        // The file and the key go together: a volume whose key is gone cannot be read back, which
+        // is the erasure a host can actually prove about its medium.
+        self.keys
+            .destroy(volume)
+            .map_err(|_| VolumeError::Encryption("the volume's data key could not be destroyed"))?;
         self.transition(VolumeRecordKind::DestroyEnd, volume)?;
         state.remove(&volume);
         Ok(())
