@@ -13,7 +13,7 @@ pub use reason::Incompatibility;
 
 use super::{
     Digest,
-    device_state::{DEVICE_COUNT, DeviceKind, DeviceState, MAX_QUEUES},
+    device_state::{DeviceKind, DeviceState, MAX_QUEUES},
     hotplug,
     kvm_state::VmState,
     manifest::{Architecture, HostCapability, Manifest, PageSize, SCHEMA_VERSION},
@@ -43,8 +43,13 @@ pub struct HostProfile {
     pub vcpu_count: u16,
     pub memory_bytes: u64,
     pub guest_protocol_version: u16,
-    /// What this host expects of each slot, or `None` where its Generation declared no device.
-    pub devices: [Option<DeviceExpectation>; DEVICE_COUNT as usize],
+    /// What this host expects of each slot it has, or `None` where its Generation declared no
+    /// device.
+    ///
+    /// A machine with no durable volume carries the six slots every machine has; a persistent
+    /// Generation carries a seventh for its volume. The length is the machine's, not a constant,
+    /// so a machine without a volume is the same profile it always was.
+    pub devices: Vec<Option<DeviceExpectation>>,
 }
 
 /// Checks the constant-size header, then the VM layout, then every device slot.
@@ -60,12 +65,10 @@ pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibil
     check_header(host, manifest)?;
     check_vcpu_sections(host, manifest)?;
     check_vm_layout(manifest)?;
-    for slot in 0..DEVICE_COUNT {
-        if host
-            .devices
-            .get(usize::from(slot))
-            .is_some_and(Option::is_some)
-        {
+    for (index, expectation) in host.devices.iter().enumerate() {
+        let slot =
+            u8::try_from(index).map_err(|_| Incompatibility::NoExpectationForSlot(u8::MAX))?;
+        if expectation.is_some() {
             check_device(host, manifest, slot)?;
         } else if let Some(role) =
             device_role(slot).filter(|role| manifest.section(*role).is_some())
