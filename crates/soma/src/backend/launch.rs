@@ -1,6 +1,6 @@
 use crate::{
     BackendKind, DigestBinding, EffectiveNetwork, EffectiveShape, InstanceId, IsolationClass,
-    MachineShape, OperationId, PreparationClass, WorkloadIdentity,
+    MachineShape, OperationId, PreparationClass, VolumeAttachment, WorkloadIdentity,
 };
 
 #[derive(Clone, Copy)]
@@ -10,6 +10,7 @@ pub struct LaunchRequest<'a, P> {
     workload: &'a WorkloadIdentity,
     prepared: &'a P,
     shape: &'a MachineShape,
+    volume: Option<&'a VolumeAttachment>,
 }
 
 impl<'a, P> LaunchRequest<'a, P> {
@@ -26,7 +27,21 @@ impl<'a, P> LaunchRequest<'a, P> {
             workload,
             prepared,
             shape,
+            volume: None,
         }
+    }
+
+    /// This request with the durable volume the machine must bind before the guest runs.
+    #[must_use]
+    pub const fn with_volume(mut self, volume: Option<&'a VolumeAttachment>) -> Self {
+        self.volume = volume;
+        self
+    }
+
+    /// The durable volume this launch binds, when it binds one.
+    #[must_use]
+    pub const fn volume(&self) -> Option<&'a VolumeAttachment> {
+        self.volume
     }
 
     #[must_use]

@@ -98,13 +98,18 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             LaunchAdmission::Replay(receipt) => return Ok(MachineLaunch { receipt: *receipt }),
         };
 
-        let observation = self.backend.launch(crate::LaunchRequest::new(
-            &request.operation_id,
-            &request.instance_id,
-            &workload,
-            &prepared,
-            &request.shape,
-        ));
+        let observation = self.backend.launch(
+            crate::LaunchRequest::new(
+                &request.operation_id,
+                &request.instance_id,
+                &workload,
+                &prepared,
+                &request.shape,
+            )
+            // The volume the host resolved for this Instance: a machine whose Generation
+            // declares one refuses to run without it.
+            .with_volume(request.volume.as_ref()),
+        );
         let launch = match observation {
             Ok(observation) => validate_launch(
                 observation,
