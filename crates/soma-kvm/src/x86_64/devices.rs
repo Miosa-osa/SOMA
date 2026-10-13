@@ -115,13 +115,19 @@ pub(crate) fn build_devices(
         _ => return Err(overlay_disagreement()),
     };
     let volume = match (devices.volume(), disks.volume) {
-        (true, Some(file)) => Some(block(
-            BlockRole::DurableVolume,
-            file,
-            false,
-            VOLUME_SERIAL,
-            block_transfer(contract),
-        )?),
+        (true, Some(file)) => Some(
+            block(
+                BlockRole::DurableVolume,
+                file,
+                false,
+                VOLUME_SERIAL,
+                block_transfer(contract),
+            )?
+            // A cold boot is given the file the machine will write, so its volume device serves
+            // that file rather than standing on a placeholder: there is no swap to wait for, and
+            // a second store must not replace what the guest is already writing.
+            .into_serving(),
+        ),
         (false, None) => None,
         _ => return Err(volume_disagreement()),
     };

@@ -29,6 +29,10 @@ pub enum Source {
         /// Where this machine's `/dev/kvm` handle comes from.
         hypervisor: Hypervisor,
         disks: SandboxDisks,
+        /// This Instance's durable volume, absent when its Generation declares none.
+        ///
+        /// The path is the host's own, named by the volume store after it certified the file.
+        volume: Option<soma::VolumeAttachment>,
         /// The optional devices the Generation declared, which the snapshot must agree with.
         devices: DeviceSet,
         memory_bytes: u64,

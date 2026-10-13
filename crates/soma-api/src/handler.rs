@@ -8,7 +8,7 @@ use soma::ExecutionReceipt;
 use crate::{
     capability::MissingCapability,
     envelope::{ApiError, Envelope, failure_body_with_result, render},
-    facade::SandboxFacade,
+    facade::{SandboxFacade, VolumeFailure},
     failure::managed_error,
     filesystem::{FilesystemBody, FilesystemReport},
     http::{request::Request, response::Response},
@@ -250,7 +250,16 @@ fn terminal<F: SandboxFacade + ?Sized>(
 }
 
 fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Response, ApiError> {
-    let (_, request) = parse::<CreateSandboxBody>(body)?.into_facade()?;
+    let body = parse::<CreateSandboxBody>(body)?;
+    let named_volume = body.volume_id.clone();
+    let (instance_id, request) = body.into_facade()?;
+    // A start that names its volume binds that file and no other: the host resolves it from the
+    // volume this Instance owns, and a disagreement between the two is refused rather than
+    // resolved by guessing which is right.
+    let request = match named_volume.as_deref() {
+        Some(named) => request.with_volume(volume_binding(facade, &instance_id, named)?),
+        None => request,
+    };
     // Refused before a machine is built rather than answered 201 with an identity that dies
     // with this connection. A caller that keeps the identity and returns is the whole point of
     // the create route, and there would be nothing here for it to return to.
@@ -271,6 +280,33 @@ fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Resp
             Some(&outcome.receipt),
         )),
     ))
+}
+
+/// The volume attachment one start binds, from the volume the host has for this Instance.
+///
+/// # Errors
+///
+/// Returns the host's typed refusal, or a conflict when the caller named a volume the host does
+/// not have attached to this Instance.
+fn volume_binding<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance: &soma::InstanceId,
+    named: &str,
+) -> Result<soma::VolumeAttachment, ApiError> {
+    let binding = facade
+        .volume_binding(instance.as_str())
+        .map_err(VolumeFailure::refusal)?;
+    if !binding.volume.eq_ignore_ascii_case(named) {
+        return Err(ApiError::new(
+            409,
+            "volume_instance_mismatch",
+            "the volume named is not the one attached to this Instance",
+            false,
+        ));
+    }
+    let id = soma_hostd::VolumeId::from_hex(&binding.volume)
+        .map_err(|_| ApiError::invalid("the host reported a volume identity it cannot carry"))?;
+    Ok(soma::VolumeAttachment::new(*id.as_bytes(), binding.path))
 }
 
 fn lifecycle(

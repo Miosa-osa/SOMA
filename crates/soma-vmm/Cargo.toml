@@ -24,3 +24,6 @@ serde_json = "=1.0.151"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 serde_json = "=1.0.151"
+# Already in the lockfile for the host daemon and the machine tests; a volume test needs a file
+# the launch can open and one it cannot.
+tempfile = "=3.27.0"

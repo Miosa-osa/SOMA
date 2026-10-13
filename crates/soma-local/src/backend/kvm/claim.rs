@@ -83,6 +83,7 @@ pub(super) fn assignment_for(
     network: Network,
     secrets: Vec<SecretFile>,
     prepared_overlay: Option<std::fs::File>,
+    volume: Option<soma::VolumeAttachment>,
 ) -> Result<Assignment, BackendFailureKind> {
     let instance = InstanceId::new(hex(identity.instance))
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
@@ -107,6 +108,7 @@ pub(super) fn assignment_for(
     };
     Ok(Assignment {
         overlay,
+        volume,
         generation: generation_bytes(&prepared.id)?,
         instance: identity.instance,
         operation: identity.operation,
@@ -155,12 +157,17 @@ pub(super) enum ClaimedMachine {
 
 impl ClaimedMachine {
     /// Assigns one fresh Instance to either source without exposing their ownership difference.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one Instance's authority: splitting it would let a caller pass half of it"
+    )]
     pub(super) fn assign(
         self,
         prepared: &PreparedGeneration,
         identity: LaunchIdentity,
         network: Network,
         secrets: Vec<SecretFile>,
+        volume: Option<soma::VolumeAttachment>,
         activate: &mut dyn FnMut(
             &soma_guest::ActivationReceipt,
         ) -> Result<
@@ -170,7 +177,7 @@ impl ClaimedMachine {
     ) -> Result<soma_vmm::sandbox::Session, soma_vmm::sandbox::SessionError> {
         match self {
             Self::Pooled(machine) => {
-                let assignment = assignment_for(prepared, identity, network, secrets, None)
+                let assignment = assignment_for(prepared, identity, network, secrets, None, volume)
                     .map_err(|_| soma_vmm::sandbox::SessionError::Create)?;
                 machine.assign(assignment, activate)
             }
@@ -178,8 +185,9 @@ impl ClaimedMachine {
                 mut session,
                 overlay,
             } => {
-                let assignment = assignment_for(prepared, identity, network, secrets, overlay)
-                    .map_err(|_| soma_vmm::sandbox::SessionError::Create)?;
+                let assignment =
+                    assignment_for(prepared, identity, network, secrets, overlay, volume)
+                        .map_err(|_| soma_vmm::sandbox::SessionError::Create)?;
                 session.assign(assignment, activate)?;
                 Ok(session)
             }

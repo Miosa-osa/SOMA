@@ -152,6 +152,11 @@ impl Platform for KvmPlatform {
         };
         let assignment = Assignment {
             overlay,
+            // A jailed machine is given no volume yet: the jail's descriptor table carries the
+            // head, and a volume reaches a machine over the resident path. A Generation that
+            // declares one therefore refuses to start inside a jail rather than serve an empty
+            // disk, which is the fail-closed direction until the jail carries it.
+            volume: None,
             generation: *launch.generation().id().as_bytes(),
             instance,
             operation: *launch.operation_id().as_bytes(),

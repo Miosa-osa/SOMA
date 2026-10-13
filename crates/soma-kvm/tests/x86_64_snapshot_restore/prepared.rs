@@ -47,6 +47,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
         let (path, head) = fixture.private_head(&format!("on-demand-{iteration}"));
         let started = Instant::now();
         let restored = restore(RestoreRequest {
+            volume: None,
             objects: soma_kvm::x86_64::SnapshotObjects::open(&fixture.paths.clone())
                 .expect("snapshot objects"),
             hypervisor: soma_kvm::x86_64::Hypervisor::Device,

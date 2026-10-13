@@ -72,6 +72,7 @@ impl KvmBackend {
         instance: &InstanceId,
         prepared: &PreparedGeneration,
         shape: &MachineShape,
+        volume: Option<soma::VolumeAttachment>,
     ) -> Result<Launched, BackendFailure> {
         // This Backend owns at most one sandbox. Assigning over a live one would drop its
         // Session, and dropping a Session shuts the guest down, so launching B would silently
@@ -80,8 +81,7 @@ impl KvmBackend {
             return Err(self.fail(operation, BackendFailureKind::ResourceConflict));
         }
         // A request the machine cannot give is refused rather than served by a machine that is
-        // not the shape the caller asked for. The bounds come from the Generation, which is what
-        // the machine is actually built with.
+        // not the shape asked for; the bounds come from the Generation it is built with.
         let booted_vcpus = prepared.manifest.shape.vcpu_count;
         let boot_mib = prepared.manifest.shape.memory_bytes / (1024 * 1024);
         if !self.admits(prepared, shape) {
@@ -122,11 +122,10 @@ impl KvmBackend {
         };
         let observed = effective_network(&egress, policy);
         // Preparation is registered before the claim, so this Launch may find nothing prepared
-        // and the next one for the same Generation finds a machine that is already restored.
-        // An empty pool is not a failure and is never reported as a prepared launch: the Launch
-        // restores its own machine on the path below and says so.
-        // A machine prepared inside this process is exactly the unjailed thing the split
-        // removes, so a host that jails its machines never claims one.
+        // and the next one for the same Generation finds a machine already restored. An empty
+        // pool is not a failure and is never reported as a prepared launch. A machine prepared
+        // inside this process is the unjailed thing the split removes, so a host that jails its
+        // machines never claims one.
         let claimed = if self.jail.is_some() {
             None
         } else {
@@ -143,11 +142,9 @@ impl KvmBackend {
                 claim::prepare_and_claim(&self.machines, prepared, boot_mib)
             }
         };
-        // No secret reaches this Backend yet. The portable Launch request carries a Template's
-        // secret references, not their values, and the host side that resolves a reference into
-        // a value is the credential mediator of the second delivery mode, which does not exist.
-        // The placement itself is wired, so a launch given a secret it cannot place fails here
-        // rather than running without it.
+        // No secret reaches this Backend yet: the portable request carries a Template's secret
+        // references, not values, and the host side that resolves one does not exist. The
+        // placement is wired, so a launch given a secret it cannot place fails here.
         let launching = Launching {
             instance,
             prepared,
@@ -156,6 +153,9 @@ impl KvmBackend {
             storage_mib: shape.storage_mib(),
             network,
             secrets: Vec::new(),
+            // The volume the host resolved, when the Generation declares one; a machine given
+            // none refuses to start rather than serve an empty disk.
+            volume,
         };
         let Started {
             preparation,

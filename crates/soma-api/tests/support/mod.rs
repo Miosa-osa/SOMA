@@ -75,6 +75,12 @@ pub struct FakeFacade {
     tunnel_failure: Option<TunnelFailure>,
     /// What a resize answers; `None` is a backend that cannot resize.
     resize_outcome: Option<soma_api::ResizeOutcome>,
+    /// What the host daemon answers when a start asks for the volume of an Instance.
+    binding: Option<soma_api::volumes::VolumeBinding>,
+    /// Every Instance whose volume a start asked about.
+    pub volume_calls: Vec<String>,
+    /// The volume attachment the last launch carried.
+    pub launched_volume: Option<soma::VolumeAttachment>,
 }
 
 impl FakeFacade {
@@ -90,7 +96,22 @@ impl FakeFacade {
             unreadable: Vec::new(),
             tunnel_failure: None,
             resize_outcome: None,
+            binding: None,
+            volume_calls: Vec::new(),
+            launched_volume: None,
         }
+    }
+
+    /// A facade whose host daemon has this volume attached to the Instance it is asked about.
+    #[must_use]
+    pub fn with_volume_binding(mut self, volume: &str, path: &str) -> Self {
+        self.binding = Some(soma_api::volumes::VolumeBinding {
+            volume: volume.to_owned(),
+            path: std::path::PathBuf::from(path),
+            size_class_gib: 10,
+            fsck: soma_api::volumes::FsckReport::from_codes(1, 0),
+        });
+        self
     }
 
     /// A facade whose sandboxes resize with `outcome`.
@@ -145,114 +166,6 @@ impl FakeFacade {
             instance_id: receipt.instance_id().clone(),
             receipt,
         })
-    }
-}
-
-impl SandboxFacade for FakeFacade {
-    fn hosts_addressable_sandboxes(&self) -> bool {
-        self.hosts_addressable_sandboxes
-    }
-
-    fn resize(
-        &mut self,
-        _instance_id: &soma::InstanceId,
-        request: soma_api::ResizeRequest,
-    ) -> Result<soma_api::ResizeOutcome, soma_api::ResizeFailure> {
-        self.calls.push(Call::Resize(request));
-        match (&self.mode, &self.resize_outcome) {
-            (Mode::NotFound, _) => Err(soma_api::ResizeFailure::NotFound),
-            (_, Some(outcome)) => Ok(outcome.clone()),
-            (_, None) => Err(soma_api::ResizeFailure::Unavailable),
-        }
-    }
-
-    fn tunnel(
-        &mut self,
-        _instance_id: &soma::InstanceId,
-        port: u16,
-    ) -> Result<std::os::unix::net::UnixStream, TunnelFailure> {
-        self.calls.push(Call::Tunnel(port));
-        self.tunnel_failure
-            .map_or_else(|| Ok(echo_guest(port)), Err)
-    }
-
-    fn launch(
-        &mut self,
-        _request: LaunchMachineRequest,
-    ) -> Result<LifecycleOutcome, ManagedFailure> {
-        self.lifecycle(Call::Launch)
-    }
-
-    fn inspect(
-        &mut self,
-        _request: InspectMachineRequest,
-    ) -> Result<SandboxSnapshot, ManagedFailure> {
-        self.record(Call::Inspect)?;
-        let receipt = receipt();
-        Ok(SandboxSnapshot {
-            instance_id: receipt.instance_id().clone(),
-            state: MachineState::Ready,
-            backend: receipt.backend(),
-            receipt,
-        })
-    }
-
-    fn execute(
-        &mut self,
-        _request: ExecuteMachineRequest,
-    ) -> Result<CommandOutcome, ManagedFailure> {
-        self.record(Call::Execute)?;
-        let receipt = receipt();
-        Ok(CommandOutcome {
-            instance_id: receipt.instance_id().clone(),
-            status: *receipt.terminal_status(),
-            stdout: b"v22.23.2\n".to_vec(),
-            stderr: Vec::new(),
-            receipt,
-        })
-    }
-
-    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
-        self.record(Call::File)?;
-        let operation = request.operation().clone();
-        let answer = answer_for(&mut self.files, &operation);
-        Ok(FileOutcome {
-            instance_id: soma::InstanceId::new(FIXTURE_INSTANCE_ID)
-                .expect("the fixture instance id is canonical"),
-            operation: operation.name(),
-            answer,
-        })
-    }
-
-    fn terminal(&mut self, request: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {
-        self.record(Call::Terminal)?;
-        let operation = request.operation().clone();
-        let answer = terminal::answer_for(&mut self.session, &operation);
-        Ok(TerminalOutcome {
-            instance_id: soma::InstanceId::new(FIXTURE_INSTANCE_ID)
-                .expect("the fixture instance id is canonical"),
-            operation: operation.name(),
-            answer,
-        })
-    }
-
-    fn list(&mut self) -> Result<soma::MachineListing, ManagedFailure> {
-        self.record(Call::List)?;
-        Ok(soma::MachineListing::with_unreadable(
-            self.sandboxes.clone(),
-            self.unreadable.clone(),
-        ))
-    }
-
-    fn stop(&mut self, _request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
-        self.lifecycle(Call::Stop)
-    }
-
-    fn destroy(
-        &mut self,
-        _request: DestroyMachineRequest,
-    ) -> Result<LifecycleOutcome, ManagedFailure> {
-        self.lifecycle(Call::Destroy)
     }
 }
 
@@ -376,3 +289,5 @@ pub fn echo_guest(port: u16) -> std::os::unix::net::UnixStream {
     });
     service
 }
+
+mod impls;

@@ -7,7 +7,7 @@ use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
 use crate::facade::{
     CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
-    VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
+    VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
 };
 use crate::volumes::VolumeClient;
 
@@ -131,6 +131,10 @@ impl SandboxFacade for LocalFacade {
 
     /// The volume store lives in the host daemon, so this forwards to the control socket and
     /// reports the missing capability when no socket is configured.
+    fn volume_binding(&mut self, instance: &str) -> Result<VolumeBinding, VolumeFailure> {
+        self.volumes.binding(instance)
+    }
+
     fn volume(
         &mut self,
         operation: VolumeOperation,

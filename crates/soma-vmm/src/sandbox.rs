@@ -29,6 +29,7 @@ mod session;
 mod source;
 mod sterile;
 mod timeline;
+mod volume;
 mod worker;
 
 pub use identity::{

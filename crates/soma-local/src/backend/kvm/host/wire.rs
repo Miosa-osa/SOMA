@@ -50,6 +50,15 @@ pub(super) enum PrewarmReady {
 pub(super) struct LaunchWire {
     /// Address the child binds only after it receives the complete launch capability.
     pub(super) socket: PathBuf,
+    /// The durable volume this Instance binds, when its Generation declares one.
+    ///
+    /// The path is the host's own, named by the volume store after it certified the file's
+    /// mount, the volume's state, and this start's repair. It is written only when set, so a
+    /// host that predates the volume still reads every launch, and a host that predates it
+    /// reads a frame carrying one as unknown rather than ignoring it, which is the refusal this
+    /// machine wants: a launch it cannot bind must not run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) volume: Option<soma::VolumeAttachment>,
     pub(super) operation_id: OperationId,
     pub(super) instance_id: InstanceId,
     /// The image reference the client resolved.

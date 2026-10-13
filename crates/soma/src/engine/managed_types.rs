@@ -20,7 +20,7 @@ pub struct LaunchMachineRequest {
 /// file, and a launch that carries no attachment is a launch whose Generation declares no
 /// volume: a machine that declares one refuses to run without it rather than serve an empty
 /// disk where the data belongs.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct VolumeAttachment {
     /// The volume identity, as the launch receipt reports it.
     pub id: [u8; 16],

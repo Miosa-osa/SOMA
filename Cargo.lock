@@ -1699,6 +1699,7 @@ dependencies = [
  "soma-guest",
  "soma-jail",
  "soma-kvm",
+ "tempfile",
 ]
 
 [[package]]

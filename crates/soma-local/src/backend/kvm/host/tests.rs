@@ -148,6 +148,7 @@ fn a_directory_too_deep_to_name_a_socket_in_is_not_addressable() {
 
 fn launch_wire(skip_warm: bool) -> LaunchWire {
     LaunchWire {
+        volume: None,
         socket: "/run/soma/one.sock".into(),
         operation_id: OperationId::new(ONE).expect("operation"),
         instance_id: instance(TWO),

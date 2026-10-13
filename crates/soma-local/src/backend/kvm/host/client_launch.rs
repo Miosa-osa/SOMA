@@ -21,6 +21,7 @@ struct LaunchContext<'a> {
     instance_id: &'a InstanceId,
     socket: PathBuf,
     skip_warm: bool,
+    volume: Option<&'a soma::VolumeAttachment>,
 }
 
 /// Claims the host that will hold one machine, and returns what its launch established.
@@ -30,6 +31,7 @@ pub(in crate::backend::kvm) fn launch(
     instance_id: &InstanceId,
     prepared: &PreparedGeneration,
     shape: &MachineShape,
+    volume: Option<&soma::VolumeAttachment>,
 ) -> Result<Launched, BackendFailureKind> {
     if !channel::addressable(directory) {
         return Err(BackendFailureKind::Unsupported);
@@ -58,6 +60,7 @@ pub(in crate::backend::kvm) fn launch(
         instance_id,
         socket,
         skip_warm: in_flight.skip_warm(),
+        volume,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
         Ok(launched) => {
@@ -82,6 +85,9 @@ fn handshake(
 ) -> Result<Launched, BackendFailureKind> {
     let request = LaunchWire {
         socket: context.socket,
+        // The volume's host path, certified by the store before the launch was admitted; the
+        // file itself never crosses this wire.
+        volume: context.volume.cloned(),
         operation_id: context.operation_id.clone(),
         instance_id: context.instance_id.clone(),
         reference: prepared.reference.clone(),
