@@ -155,10 +155,11 @@ impl Host {
         pool.replenish_blocking().expect("replenish");
         // The daemon serves the volume seam too (ADR 0053 Step A); this host has no volume
         // to serve, so the store is the reference one on its own directory.
-        let volumes = DirectoryVolumes::open(
+        let volumes = DirectoryVolumes::open_uncertified(
             &directory.path().join("volumes"),
             &directory.path().join("volume-records"),
             Box::new(CleanRepair),
+            true,
         )
         .expect("volume store");
         let runtime = Arc::new(Runtime::new(pool));

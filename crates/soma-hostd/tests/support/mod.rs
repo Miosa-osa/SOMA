@@ -161,10 +161,11 @@ pub fn harness(limits: Limits) -> Harness {
     let pool = open_with(dir.path(), &table, limits, &admission);
     let runtime = Arc::new(Runtime::new(Arc::clone(&pool)));
     let volumes = Arc::new(
-        DirectoryVolumes::open(
+        DirectoryVolumes::open_uncertified(
             &dir.path().join("volumes"),
             &dir.path().join("volume-records"),
             Box::new(CleanRepair),
+            true,
         )
         .expect("volume store"),
     );
