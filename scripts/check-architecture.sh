@@ -47,6 +47,28 @@ is_source_file() {
     esac
 }
 
+# The budget is a ratchet. Files already over it when the baseline was written are listed
+# with the highest count they may reach; everything else must stay at or below the budget.
+# The baseline never grows: a file is split and its row is removed, or the check fails.
+readonly BASELINE_FILE="${REPO_ROOT}/scripts/architecture-baseline.txt"
+if [[ ! -f "${BASELINE_FILE}" ]]; then
+    printf '%s is missing; without it every authored source file must have at most %s lines\n' \
+        "${BASELINE_FILE}" "${MAX_SOURCE_LINES}" >&2
+    exit 1
+fi
+
+declare -A BASELINE=()
+while read -r baseline_path baseline_ceiling || [[ -n "${baseline_path}" ]]; do
+    case "${baseline_path}" in
+        ''|'#'*) continue ;;
+    esac
+    if [[ ! "${baseline_ceiling}" =~ ^[0-9]+$ ]]; then
+        printf '%s: %s has no numeric ceiling\n' "${BASELINE_FILE}" "${baseline_path}" >&2
+        exit 1
+    fi
+    BASELINE["${baseline_path}"]="${baseline_ceiling}"
+done < "${BASELINE_FILE}"
+
 while IFS= read -r -d '' file; do
     if is_exempt_path "$file"; then
         continue
@@ -55,9 +77,16 @@ while IFS= read -r -d '' file; do
     if [[ "$file" != "./Cargo.lock" ]] && is_source_file "$file"; then
         line_count="$(awk 'END { print NR }' "$file")"
         if (( line_count > MAX_SOURCE_LINES )); then
-            printf '%s has %s lines; authored source files must have at most %s\n' \
-                "$file" "$line_count" "$MAX_SOURCE_LINES" >&2
-            failed=1
+            ceiling="${BASELINE[$file]:-}"
+            if [[ -z "${ceiling}" ]]; then
+                printf '%s has %s lines; it is over the %s-line budget and is not on the baseline\n' \
+                    "$file" "$line_count" "$MAX_SOURCE_LINES" >&2
+                failed=1
+            elif (( line_count > ceiling )); then
+                printf '%s has %s lines; it is on the baseline with a ceiling of %s\n' \
+                    "$file" "$line_count" "$ceiling" >&2
+                failed=1
+            fi
         fi
     fi
 
