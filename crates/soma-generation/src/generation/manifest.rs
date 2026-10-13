@@ -18,7 +18,10 @@ mod tests;
 pub use decode::{decode_candidate, decode_manifest};
 pub use encode::{encode_candidate, encode_manifest};
 pub(crate) use persistence::MAX_PERSISTENCE_PATHS;
-pub use persistence::{PersistenceBinding, STEP_A_PERSISTENCE_PATHS};
+pub use persistence::{
+    DEFAULT_VOLUME_CLASS_GIB, PersistenceBinding, STEP_A_PERSISTENCE_PATHS, VOLUME_CLASSES_GIB,
+    is_volume_class,
+};
 
 /// The `SOMAGEN` manifest schema version produced and accepted by this module.
 pub const MANIFEST_SCHEMA_VERSION: u16 = 2;

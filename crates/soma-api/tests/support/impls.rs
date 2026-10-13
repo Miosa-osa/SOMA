@@ -4,6 +4,7 @@
 //! module may read them, so the split costs nothing but a `use`.
 
 use super::*;
+use soma_api::volumes::{VolumeBody, VolumeFailure, VolumeOperation, VolumeReport};
 
 impl SandboxFacade for FakeFacade {
     fn hosts_addressable_sandboxes(&self) -> bool {
@@ -49,6 +50,32 @@ impl SandboxFacade for FakeFacade {
         self.binding
             .clone()
             .ok_or(soma_api::volumes::VolumeFailure::Refused(14))
+    }
+
+    fn volume_owned(
+        &mut self,
+        _instance: &str,
+    ) -> Result<Option<soma_api::volumes::OwnedVolume>, soma_api::volumes::VolumeFailure> {
+        Ok(self.owned.clone())
+    }
+
+    fn volume(
+        &mut self,
+        operation: VolumeOperation,
+        _body: &VolumeBody,
+    ) -> Result<VolumeReport, VolumeFailure> {
+        self.volume_operations.push(operation.name());
+        Ok(VolumeReport {
+            volume_id: self
+                .owned
+                .as_ref()
+                .map_or_else(String::new, |owned| owned.volume.clone()),
+            operation: operation.name(),
+            device: "vdc",
+            state: "detached",
+            ready: true,
+            fsck: None,
+        })
     }
 
     fn inspect(

@@ -147,6 +147,13 @@ impl DestroyMachineRequest {
 }
 
 impl StopMachineRequest {
+    /// The operation this stop belongs to, which is the idempotency key a stop also carries to
+    /// the volume transactions it drives.
+    #[must_use]
+    pub const fn operation_id(&self) -> &OperationId {
+        &self.operation_id
+    }
+
     #[must_use]
     pub const fn new(operation_id: OperationId, instance_id: InstanceId) -> Self {
         Self {

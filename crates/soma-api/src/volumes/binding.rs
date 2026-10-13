@@ -7,7 +7,16 @@ use std::path::PathBuf;
 
 use soma_hostd::{InstanceId as HostInstance, Reply, Request};
 
-use super::{FsckReport, VolumeClient, VolumeFailure, exchange};
+use super::{FsckReport, VolumeClient, VolumeFailure, exchange, refusal};
+
+/// The volume one Instance owns, as a read rather than a start.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OwnedVolume {
+    /// The volume.
+    pub volume: String,
+    /// The state it is in, as the vocabulary names it.
+    pub state: &'static str,
+}
 
 /// One Instance's volume, opened for the start that is binding a machine to it.
 ///
@@ -75,6 +84,32 @@ impl VolumeClient {
             }),
             Reply::Failed(code) => Err(VolumeFailure::Refused(code)),
             _ => Err(VolumeFailure::Malformed),
+        }
+    }
+
+    /// Reads which volume one Instance owns, without attaching one to find out.
+    ///
+    /// A stop needs the identity of the volume it is detaching, and a read must not change the
+    /// state it is reporting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VolumeFailure::Unconfigured`] when no socket is set, and the daemon's own
+    /// refusal or a transport failure otherwise. A host that serves no volumes answers `None`
+    /// rather than a refusal, because a sandbox without one is an ordinary sandbox.
+    pub fn owned(&self, instance: &str) -> Result<Option<OwnedVolume>, VolumeFailure> {
+        let Some(socket) = self.socket.as_deref() else {
+            return Ok(None);
+        };
+        let instance = HostInstance::from_hex(instance).map_err(|_| VolumeFailure::Malformed)?;
+        match exchange(socket, &Request::VolumeOwned { instance }) {
+            Ok(Reply::VolumeOwned { volume, state }) => Ok(Some(OwnedVolume {
+                volume: volume.hex(),
+                state: refusal::state_name(state),
+            })),
+            Ok(Reply::Failed(code)) => Err(VolumeFailure::Refused(code)),
+            Ok(_) => Err(VolumeFailure::Malformed),
+            Err(error) => Err(error),
         }
     }
 }

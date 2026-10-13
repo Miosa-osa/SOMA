@@ -8,7 +8,9 @@ use std::os::unix::net::UnixStream;
 
 pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
 
-pub use crate::volumes::{VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport};
+pub use crate::volumes::{
+    OwnedVolume, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
+};
 
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -195,6 +197,18 @@ pub trait SandboxFacade {
         _body: &VolumeBody,
     ) -> Result<VolumeReport, VolumeFailure> {
         Err(VolumeFailure::Unconfigured)
+    }
+
+    /// Reads which volume one Instance owns, for a stop that must detach it.
+    ///
+    /// The default answers that this host serves no volumes, which is what a service with no
+    /// host control socket has to say rather than a refusal.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed volume failure the host daemon refused with.
+    fn volume_owned(&mut self, _instance: &str) -> Result<Option<OwnedVolume>, VolumeFailure> {
+        Ok(None)
     }
 
     /// Opens the volume attached to one Instance, for the launch that binds a machine to it.

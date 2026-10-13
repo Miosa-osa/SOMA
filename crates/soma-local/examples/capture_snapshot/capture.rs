@@ -36,6 +36,29 @@ fn published_candidate(bytes: &[u8]) -> Result<PublishedCandidate, Box<dyn Error
     Ok(candidate)
 }
 
+/// The sparse placeholder a persistent Generation is captured with, or none for one without.
+///
+/// The file's length is the class the manifest fixes, because that length is the capacity the
+/// device is declared with and therefore what the captured device state records. Nothing is
+/// written into it: the captured machine mounts it as an empty ext4 filesystem at most, and a
+/// launch binds the Instance's own file over it before the guest ever runs.
+fn declared_volume(
+    manifest: &soma_generation::GenerationManifest,
+    entry: &Path,
+) -> Result<Option<File>, Box<dyn Error>> {
+    if !manifest.persistence.enabled {
+        return Ok(None);
+    }
+    let path = entry.join("capture-volume.img");
+    let bytes = u64::from(manifest.persistence.size_class_gib) * GIB;
+    let file = File::create(&path)?;
+    file.set_len(bytes)?;
+    Ok(Some(file))
+}
+
+/// Bytes in one gibibyte.
+const GIB: u64 = 1024 * MIB;
+
 /// The machine contract the Candidate declares, resolved or refused.
 ///
 /// The source machine is built as exactly the machine the Candidate names: a multi-vCPU
@@ -129,6 +152,11 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
 
     let contract = declared_contract(&manifest)?;
     let hotplug = declared_hotplug(devices, memory_mib * MIB, manifest.shape.hotplug_bytes)?;
+    // A Generation that declares a durable volume is captured with the device it declares: the
+    // machine gets a sparse file of the class the manifest fixes, so the captured device state
+    // carries the capacity every launch and restore of this Generation will agree with. The file
+    // is scratch inside this capture's own directory and never a tenant's data.
+    let volume = declared_volume(&manifest, entry)?;
     let config = SandboxConfig {
         kernel,
         initramfs,
@@ -136,7 +164,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             root: open_artifact(&store, &manifest.root.descriptor)
                 .map_err(|error| format!("root: {error:?}"))?,
             overlay: head.as_ref().map(File::try_clone).transpose()?,
-            volume: None,
+            volume: volume.as_ref().map(File::try_clone).transpose()?,
         },
         identity: DeviceIdentity {
             guest_cid: CAPTURE_CID,

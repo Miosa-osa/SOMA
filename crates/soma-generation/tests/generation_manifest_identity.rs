@@ -2,7 +2,10 @@ mod support;
 
 use soma_generation::{
     ArtifactRole, derive_generation_id,
-    generation_manifest::{GenerationManifest, SnapshotBinding, decode_manifest, encode_manifest},
+    generation_manifest::{
+        DEFAULT_VOLUME_CLASS_GIB, GenerationManifest, SnapshotBinding, decode_manifest,
+        encode_manifest,
+    },
     template::NetworkPolicyClass,
 };
 use support::manifest::{descriptor, digest, sample};
@@ -176,6 +179,9 @@ fn policy_four_declares_the_durable_volume_and_earlier_policies_do_not() {
     let mut four = sample();
     four.compiler_policy_version = 4;
     four.persistence.enabled = true;
+    // The class is part of the group: a capture, a restore, and every launch of this Generation
+    // declare the volume device with it rather than each being told again.
+    four.persistence.size_class_gib = DEFAULT_VOLUME_CLASS_GIB;
     four.persistence.paths = [
         "/home/sandbox",
         "/workspace",

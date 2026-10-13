@@ -2,10 +2,9 @@ use soma::OciPlatform;
 
 use super::{
     CANDIDATE_MAGIC, GenerationManifest, GuestAgentBinding, InitramfsBinding, KernelBinding, MAGIC,
-    MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE, MAX_MANIFEST_BYTES, MAX_PERSISTENCE_PATHS,
-    MAX_SHORT_STRING, MAX_TEMPLATES, MachineShapeBinding, OverlayBinding, OverlayTemplate,
-    PersistenceBinding, RepairBinding, RootBinding, SnapshotBinding, SourceBinding,
-    TemplateBinding, TreeBinding,
+    MANIFEST_SCHEMA_VERSION, MAX_COMMAND_LINE, MAX_MANIFEST_BYTES, MAX_SHORT_STRING, MAX_TEMPLATES,
+    MachineShapeBinding, OverlayBinding, OverlayTemplate, PersistenceBinding, RepairBinding,
+    RootBinding, SnapshotBinding, SourceBinding, TemplateBinding, TreeBinding,
 };
 use crate::generation::{
     artifacts::{ArtifactRole, Sha256Digest},
@@ -135,6 +134,7 @@ fn decode_with(bytes: &[u8], magic: [u8; 8]) -> Result<GenerationManifest, Compi
     })
 }
 
+mod persistence;
 mod primitives;
 
 pub(super) struct Decoder<'a> {
@@ -232,27 +232,6 @@ impl Decoder<'_> {
             }),
             _ => Err(invalid()),
         }
-    }
-
-    fn persistence(&mut self) -> Result<PersistenceBinding, CompileError> {
-        self.tag(17)?;
-        let enabled = match self.u8()? {
-            0 => false,
-            1 => true,
-            _ => return Err(invalid()),
-        };
-        let count = usize::from(self.u8()?);
-        if count > MAX_PERSISTENCE_PATHS {
-            return Err(invalid());
-        }
-        let mut paths = Vec::with_capacity(count);
-        for _ in 0..count {
-            paths.push(self.short_string()?);
-        }
-        if !enabled && !paths.is_empty() {
-            return Err(invalid());
-        }
-        Ok(PersistenceBinding { enabled, paths })
     }
 
     fn template(&mut self) -> Result<TemplateBinding, CompileError> {

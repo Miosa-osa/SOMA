@@ -238,3 +238,46 @@ fn a_start_that_names_a_volume_the_host_does_not_have_is_refused_rather_than_gue
         "a refused launch must not reach the machine"
     );
 }
+
+#[test]
+fn stopping_a_sandbox_with_a_volume_releases_it_and_says_so() {
+    let mut facade = FakeFacade::new(Mode::Succeed).with_owned_volume(&"5".repeat(32), "attached");
+    let request = identified(
+        "POST",
+        &format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}/stop"),
+        "{}",
+    );
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 200);
+    assert_eq!(body["result"]["state"], "stopped");
+    // A stop is a clean detach followed by destroying the machine, and the answer reports the
+    // state the disk is left in rather than only that the sandbox stopped.
+    assert_eq!(facade.volume_operations, vec!["volume.detach"]);
+    assert_eq!(
+        body["result"]["volume"]["volume_id"],
+        "5".repeat(32),
+        "the stop reports the volume it released"
+    );
+    assert_eq!(body["result"]["volume"]["state"], "detached");
+    assert_eq!(body["result"]["volume"]["device"], "vdc");
+    assert!(body["result"]["fsck"].is_null());
+}
+
+#[test]
+fn stopping_a_sandbox_with_no_volume_asks_the_host_for_nothing() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let request = identified(
+        "POST",
+        &format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}/stop"),
+        "{}",
+    );
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 200);
+    assert_eq!(body["result"]["state"], "stopped");
+    assert!(facade.volume_operations.is_empty());
+    assert!(body["result"]["volume"].is_null());
+}

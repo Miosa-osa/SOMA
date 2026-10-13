@@ -15,6 +15,10 @@ use crate::{
 };
 
 /// Applies one request to the Host Runtime.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one request in and one reply out: the dispatch is a table, and splitting it would scatter one contract"
+)]
 pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
     runtime: &Arc<Runtime<L, R>>,
     volumes: &V,
@@ -106,11 +110,18 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+        Request::VolumeOwned { instance } => match volumes.owned(instance) {
+            Ok(owned) => Reply::VolumeOwned {
+                volume: owned.volume,
+                state: owned.state.code(),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
         Request::VolumeRead { volume } => match volumes.inspect(volume) {
-            Ok(sidecar) => Reply::VolumeInspected {
-                volume: sidecar.volume,
-                state: sidecar.state.code(),
-                size_class_gib: sidecar.size_class_gib,
+            Ok(read) => Reply::VolumeInspected {
+                volume: read.volume,
+                state: read.state.code(),
+                size_class_gib: read.size_class_gib,
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },

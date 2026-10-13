@@ -117,6 +117,15 @@ pub trait VolumeStore {
     /// repair refusals [`VolumeError`] already carries.
     fn binding(&self, instance: InstanceId) -> Result<VolumeBinding, VolumeError>;
 
+    /// Reads the volume one Instance owns, without touching its state.
+    ///
+    /// A stop needs to know which volume it is detaching and must not attach one to find out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VolumeError::Missing`] when no volume belongs to this Instance.
+    fn owned(&self, instance: InstanceId) -> Result<VolumeSidecar, VolumeError>;
+
     /// Destroys the volume file and its data key.
     ///
     /// # Errors

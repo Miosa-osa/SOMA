@@ -100,16 +100,18 @@ impl VolumeStore for DirectoryVolumes {
                 "the volume root is not on this host's encrypted data mount",
             ));
         }
-        let state = self
+        let mut state = self
             .state
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
+        // A start resolves the volume this Instance owns, detached or already attached: a stop
+        // leaves it detached, and a start is what reattaches it. A volume a delete is in progress
+        // on is not one a machine may be given.
         let sidecar = state
             .values()
-            .find(|sidecar| sidecar.instance == instance && sidecar.state == VolumeState::Attached)
-            .ok_or(VolumeError::Missing(
-                "no volume is attached to this Instance",
-            ))?;
+            .find(|sidecar| sidecar.instance == instance && sidecar.state != VolumeState::Deleting)
+            .cloned()
+            .ok_or(VolumeError::Missing("no volume belongs to this Instance"))?;
         let file = self.file(sidecar.volume);
         // The repair runs here rather than in the guest, on a file no machine holds yet: this is
         // the one place a start can check the filesystem without racing a running guest.
@@ -117,12 +119,36 @@ impl VolumeStore for DirectoryVolumes {
         if !repair.is_usable() {
             return Err(refusal(repair.outcome));
         }
+        // The start reattaches: the sidecar says attached before the machine exists, so a start
+        // interrupted between here and a running guest leaves a volume the next start finds and
+        // attaches again, rather than one no Instance owns.
+        let attached = VolumeSidecar {
+            state: VolumeState::Attached,
+            last_transition_nanos: now_nanos(),
+            ..sidecar.clone()
+        };
+        self.transition(VolumeRecordKind::AttachBegin, sidecar.volume)?;
+        self.write_sidecar(&attached)?;
+        self.transition(VolumeRecordKind::AttachEnd, sidecar.volume)?;
+        state.insert(sidecar.volume, attached);
         Ok(VolumeBinding {
             volume: sidecar.volume,
             path: file,
             size_class_gib: sidecar.size_class_gib,
             repair,
         })
+    }
+
+    fn owned(&self, instance: InstanceId) -> Result<VolumeSidecar, VolumeError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| VolumeError::Ledger("state lock"))?;
+        state
+            .values()
+            .find(|sidecar| sidecar.instance == instance)
+            .cloned()
+            .ok_or(VolumeError::Missing("no volume belongs to this Instance"))
     }
 
     fn detach(&self, request: &DetachRequest) -> Result<DetachOutcome, VolumeError> {
