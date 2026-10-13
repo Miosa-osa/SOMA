@@ -23,6 +23,11 @@
 //! hotplug region as the ceiling minus the boot memory, and it must be above the boot memory.
 //! Without it the Generation is built with no memory device and cannot be resized in memory.
 //!
+//! `SOMA_PREPARE_PERSISTENCE=1` declares the durable data volume: it targets compiler profile
+//! version 4, whose manifest carries the persistence group and the class the volume is created
+//! at, so a capture of this Generation declares the device and every launch of it binds a file
+//! of the same class. Nothing about a shape implies it, so it is a setting rather than a rule.
+//!
 //! Usage:
 //!
 //! ```text
@@ -72,13 +77,18 @@ struct Args {
 ///
 /// A shape above one vCPU or three gigabytes is the version 2 machine, which is the same rule
 /// the compiler's own tests apply, so a Generation built here is the machine its profile names.
+/// A ceiling makes it the live-resize machine, and `SOMA_PREPARE_PERSISTENCE` makes it the
+/// persistent one, because a Generation that declares a durable volume is not a machine a shape
+/// implies: it is a policy a caller has to ask for.
 fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>> {
     let mut shape = MachineShape::new(args.vcpus, args.memory_mib, args.storage_mib)?;
     if args.network {
         shape = shape.with_capabilities(Capabilities::isolated().with_network_access());
     }
     // A ceiling makes this the live-resize machine; the build derives its hotplug region from it.
-    let profile = if args.inputs.ceiling_mib.is_some() {
+    let profile = if persistence_requested()? {
+        CompilerProfile::v4()
+    } else if args.inputs.ceiling_mib.is_some() {
         CompilerProfile::v3()
     } else if args.vcpus > 1 || args.memory_mib > V2_MEMORY_MIB {
         CompilerProfile::v2()
@@ -86,6 +96,26 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
         CompilerProfile::v1()
     };
     Ok((shape, profile))
+}
+
+/// Whether this invocation builds the persistent policy, from `SOMA_PREPARE_PERSISTENCE`.
+///
+/// It is a setting rather than a shape rule because nothing about a machine implies a durable
+/// volume: the caller has to say that this Generation carries one, and the class it carries is
+/// the profile's own, so a capture and every launch of it agree without being told again.
+pub(crate) fn persistence_requested() -> Result<bool, String> {
+    persistence_from(std::env::var("SOMA_PREPARE_PERSISTENCE").as_deref().ok())
+}
+
+/// The same reading of one configured value, so the rule is testable without the environment.
+pub(crate) fn persistence_from(configured: Option<&str>) -> Result<bool, String> {
+    match configured {
+        None | Some("" | "0" | "false") => Ok(false),
+        Some("1" | "true") => Ok(true),
+        Some(other) => Err(format!(
+            "SOMA_PREPARE_PERSISTENCE must be 1 or 0, got {other:?}"
+        )),
+    }
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -190,5 +220,23 @@ fn main() {
     if let Err(error) = run(&args) {
         eprintln!("prepare failed: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::persistence_from;
+
+    #[test]
+    fn the_persistence_policy_is_asked_for_rather_than_implied() {
+        // Absent, blank, and the two false spellings are all "no"; the two true spellings are
+        // "yes"; anything else is refused rather than read as one of them.
+        for value in [None, Some(""), Some("0"), Some("false")] {
+            assert_eq!(persistence_from(value), Ok(false), "value {value:?}");
+        }
+        for value in [Some("1"), Some("true")] {
+            assert_eq!(persistence_from(value), Ok(true), "value {value:?}");
+        }
+        assert!(persistence_from(Some("yes")).is_err());
     }
 }
