@@ -14,7 +14,7 @@ const ATTACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_
 /// The fixed length of one volume detach frame.
 const DETACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32;
 
-/// Everything one Launch or Claim binds to.
+/// One volume attach: bind the volume to an Instance, creating it on the first attach.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttachFrame {
     /// The operation, which is the idempotency key.

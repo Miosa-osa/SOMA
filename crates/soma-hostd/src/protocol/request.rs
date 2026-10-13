@@ -17,6 +17,8 @@ use crate::{
 
 pub use volumes::{AttachFrame, DetachFrame};
 
+/// Everything one Launch or Claim binds to.
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LaunchFrame {
     /// The operation.
     pub operation: OperationId,
