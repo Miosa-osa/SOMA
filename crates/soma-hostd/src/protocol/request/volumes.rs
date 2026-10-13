@@ -7,7 +7,7 @@
 use crate::volume::MAX_TENANT_BYTES;
 use crate::{GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId};
 
-use super::{ProtocolError, array};
+use super::super::{ProtocolError, array};
 
 /// The fixed length of one volume attach frame.
 const ATTACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_BYTES;
@@ -15,52 +15,6 @@ const ATTACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_
 const DETACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32;
 
 /// Everything one Launch or Claim binds to.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LaunchFrame {
-    /// The operation.
-    pub operation: OperationId,
-    /// The Instance.
-    pub instance: InstanceId,
-    /// The vsock CID.
-    pub vsock_cid: u32,
-    /// Nanoseconds the Instance may live.
-    pub deadline_nanos: u64,
-    /// The sealed launch material.
-    pub launch_material: LaunchMaterialHandle,
-    /// The admitted network intent.
-    pub intent: NetworkIntent,
-}
-
-impl LaunchFrame {
-    fn encode_into(&self, out: &mut Vec<u8>) {
-        out.extend_from_slice(self.operation.as_bytes());
-        out.extend_from_slice(self.instance.as_bytes());
-        out.extend_from_slice(&self.vsock_cid.to_be_bytes());
-        out.extend_from_slice(&self.deadline_nanos.to_be_bytes());
-        out.extend_from_slice(self.launch_material.as_bytes());
-        out.extend_from_slice(&self.intent.encode());
-    }
-
-    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
-        if bytes.len() <= CLAIM_HEADER {
-            return Err(ProtocolError("request"));
-        }
-        Ok(Self {
-            operation: OperationId::new(array(&bytes[1..17]))
-                .map_err(|_| ProtocolError("operation"))?,
-            instance: InstanceId::new(array(&bytes[17..33]))
-                .map_err(|_| ProtocolError("instance"))?,
-            vsock_cid: u32::from_be_bytes(array(&bytes[33..37])),
-            deadline_nanos: u64::from_be_bytes(array(&bytes[37..45])),
-            launch_material: LaunchMaterialHandle::new(array(&bytes[45..77]))
-                .map_err(|_| ProtocolError("launch material"))?,
-            intent: NetworkIntent::decode(&bytes[CLAIM_HEADER..])
-                .map_err(|_| ProtocolError("intent"))?,
-        })
-    }
-}
-
-/// One volume attach: bind the volume to an Instance, creating it on the first attach.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttachFrame {
     /// The operation, which is the idempotency key.
@@ -80,7 +34,7 @@ pub struct AttachFrame {
 }
 
 impl AttachFrame {
-    fn encode_into(&self, out: &mut Vec<u8>) {
+    pub(super) fn encode_into(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(self.operation.as_bytes());
         out.extend_from_slice(self.instance.as_bytes());
         out.extend_from_slice(self.volume.as_bytes());
@@ -97,7 +51,7 @@ impl AttachFrame {
         out.extend_from_slice(&field);
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
+    pub(super) fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         if bytes.len() != ATTACH_FRAME_LEN {
             return Err(ProtocolError("volume attach"));
         }
@@ -143,14 +97,14 @@ pub struct DetachFrame {
 }
 
 impl DetachFrame {
-    fn encode_into(&self, out: &mut Vec<u8>) {
+    pub(super) fn encode_into(&self, out: &mut Vec<u8>) {
         out.extend_from_slice(self.operation.as_bytes());
         out.extend_from_slice(self.instance.as_bytes());
         out.extend_from_slice(self.volume.as_bytes());
         out.extend_from_slice(self.fingerprint.as_bytes());
     }
 
-    fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
+    pub(super) fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
         if bytes.len() != DETACH_FRAME_LEN {
             return Err(ProtocolError("volume detach"));
         }

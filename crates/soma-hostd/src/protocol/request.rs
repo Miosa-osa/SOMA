@@ -10,13 +10,59 @@ mod volumes;
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
-use crate::volume::MAX_TENANT_BYTES;
 use crate::{
     GenerationId, InstanceId, LaunchMaterialHandle, OperationId, RequestFingerprint, VolumeId,
     WorkerId,
 };
 
-pub(super) use volumes::{AttachFrame, DetachFrame};
+pub use volumes::{AttachFrame, DetachFrame};
+
+pub struct LaunchFrame {
+    /// The operation.
+    pub operation: OperationId,
+    /// The Instance.
+    pub instance: InstanceId,
+    /// The vsock CID.
+    pub vsock_cid: u32,
+    /// Nanoseconds the Instance may live.
+    pub deadline_nanos: u64,
+    /// The sealed launch material.
+    pub launch_material: LaunchMaterialHandle,
+    /// The admitted network intent.
+    pub intent: NetworkIntent,
+}
+
+impl LaunchFrame {
+    pub(super) fn encode_into(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(self.operation.as_bytes());
+        out.extend_from_slice(self.instance.as_bytes());
+        out.extend_from_slice(&self.vsock_cid.to_be_bytes());
+        out.extend_from_slice(&self.deadline_nanos.to_be_bytes());
+        out.extend_from_slice(self.launch_material.as_bytes());
+        out.extend_from_slice(&self.intent.encode());
+    }
+
+    pub(super) fn decode(bytes: &[u8]) -> Result<Self, ProtocolError> {
+        if bytes.len() <= CLAIM_HEADER {
+            return Err(ProtocolError("request"));
+        }
+        Ok(Self {
+            operation: OperationId::new(array(&bytes[1..17]))
+                .map_err(|_| ProtocolError("operation"))?,
+            instance: InstanceId::new(array(&bytes[17..33]))
+                .map_err(|_| ProtocolError("instance"))?,
+            vsock_cid: u32::from_be_bytes(array(&bytes[33..37])),
+            deadline_nanos: u64::from_be_bytes(array(&bytes[37..45])),
+            launch_material: LaunchMaterialHandle::new(array(&bytes[45..77]))
+                .map_err(|_| ProtocolError("launch material"))?,
+            intent: NetworkIntent::decode(&bytes[CLAIM_HEADER..])
+                .map_err(|_| ProtocolError("intent"))?,
+        })
+    }
+}
+
+/// One volume attach: bind the volume to an Instance, creating it on the first attach.
+#[derive(Clone, Debug, Eq, PartialEq)]
 
 /// One client request.
 #[derive(Clone, Debug, Eq, PartialEq)]
