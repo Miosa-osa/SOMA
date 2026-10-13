@@ -10,10 +10,7 @@ mod volumes;
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
-use crate::{
-    GenerationId, InstanceId, LaunchMaterialHandle, OperationId, RequestFingerprint, VolumeId,
-    WorkerId,
-};
+use crate::{InstanceId, LaunchMaterialHandle, OperationId, VolumeId, WorkerId};
 
 pub use volumes::{AttachFrame, DetachFrame};
 
@@ -62,9 +59,6 @@ impl LaunchFrame {
         })
     }
 }
-
-/// One volume attach: bind the volume to an Instance, creating it on the first attach.
-#[derive(Clone, Debug, Eq, PartialEq)]
 
 /// One client request.
 #[derive(Clone, Debug, Eq, PartialEq)]
