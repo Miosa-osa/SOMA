@@ -57,3 +57,5 @@ fn a_persistent_generation_declares_the_volume_slot_and_names_it() {
     assert!(!line.contains("soma.volume="));
     assert!(!line.contains("0xd0006000"));
 }
+
+mod pinned;
