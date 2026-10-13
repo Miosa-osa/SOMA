@@ -96,13 +96,23 @@ record "api url ${URL}"
 # and each carries the reference the control plane sends.
 generation_reference() {
     if [[ -n "${IMAGE}" ]]; then printf '%s' "${IMAGE}"; return; fi
-    local store entry
+    local store entry ref wanted
+    local fallback=""
     store="$(awk -F= '/^SOMA_GENERATION_STORE=/{print $2}' "${API_ENV}" 2>/dev/null || true)"
     [[ -n "${store}" ]] || die "set SOMA_PROOF_IMAGE, or SOMA_GENERATION_STORE in ${API_ENV}"
-    for entry in "${store}"/*; do
-        if [[ -f "${entry}/reference" ]]; then cat "${entry}/reference"; return; fi
+    # The store keeps one directory per captured Generation and their names are not in age order:
+    # host-10's oldest entry still names the legacy "node:22" image, which the runner refuses with
+    # workload_rejected. Take the entry whose class matches the shape being launched, and only ever
+    # a soma-default generation.
+    wanted="soma-default:G$(( DISK / 1024 ))"
+    for entry in "${store}"/ref-*/; do
+        ref="$(cat "${entry}/reference" 2>/dev/null || true)"
+        [[ "${ref}" == soma-default:* ]] || continue
+        [[ "${ref}" == "${wanted}"* ]] && { printf '%s' "${ref}"; return; }
+        [[ -z "${fallback}" ]] && fallback="${ref}"
     done
-    die "no Generation with a reference under ${store}"
+    [[ -n "${fallback}" ]] || die "no soma-default Generation under ${store}"
+    printf '%s' "${fallback}"
 }
 REFERENCE="$(generation_reference)"
 record "generation reference ${REFERENCE}"
@@ -129,7 +139,11 @@ try:
     report = json.loads(sys.stdin.read())
 except ValueError:
     sys.exit(0)
-stdout = report.get("stdout") or {}
+# The reply is an envelope: the command report is under result, not at the top level.
+result = report.get("result") if isinstance(report, dict) else None
+if not isinstance(result, dict):
+    result = report if isinstance(report, dict) else {}
+stdout = result.get("stdout") or {}
 if isinstance(stdout, dict) and stdout.get("encoding") == "base64":
     sys.stdout.write(base64.b64decode(stdout.get("data", "")).decode("utf-8", "replace"))
 ' <<<"$1"
