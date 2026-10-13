@@ -75,6 +75,7 @@ pub fn run_workload<W: Workload>(
     let (head_path, head) = fixture.private_head(name);
     let started = Instant::now();
     let mut restored = restore(RestoreRequest {
+        volume: None,
         objects: soma_kvm::x86_64::SnapshotObjects::open(&fixture.paths.clone())
             .expect("snapshot objects"),
         hypervisor: soma_kvm::x86_64::Hypervisor::Device,

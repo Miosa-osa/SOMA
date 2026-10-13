@@ -44,6 +44,8 @@ pub(super) struct Launching<'a> {
     pub(super) storage_mib: u64,
     pub(super) network: Network,
     pub(super) secrets: Vec<SecretFile>,
+    /// This Instance's durable volume, absent when its Generation declares none.
+    pub(super) volume: Option<soma::VolumeAttachment>,
 }
 
 pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> BackendFailureKind {
@@ -85,16 +87,24 @@ impl KvmBackend {
             storage_mib: _,
             network,
             secrets,
+            volume,
         } = launching;
         self.register(operation, instance, identity.guest_cid)?;
         // The machine already exists, so this stamp separates the fresh authority this Launch
         // transferred from the session it then drives, exactly as the on-demand arm does.
         let launched = self.clocks.elapsed_ns(operation);
-        match claimed.assign(prepared, identity, network, secrets, &mut |receipt| {
-            egress
-                .activation(receipt)
-                .map_err(|()| SessionError::Network)
-        }) {
+        match claimed.assign(
+            prepared,
+            identity,
+            network,
+            secrets,
+            volume,
+            &mut |receipt| {
+                egress
+                    .activation(receipt)
+                    .map_err(|()| SessionError::Network)
+            },
+        ) {
             Ok(session) => Ok(Started {
                 preparation: PreparationClass::PreparedWorker,
                 held: Held::Resident(session),
@@ -136,10 +146,16 @@ impl KvmBackend {
             storage_mib,
             network,
             secrets,
+            volume,
         } = launching;
         // A jailed machine is given no frame path and no secret, so a request that needs either
         // is refused rather than served by a machine that silently has neither.
         if network.attachment.is_some() || network.activation.is_some() || !secrets.is_empty() {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        }
+        // A jail's descriptor table carries the head and not a volume, so a Generation that
+        // declares one is refused here rather than started with an empty disk.
+        if volume.is_some() {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
         // Only a Generation with a captured machine can be restored from descriptors; a cold
@@ -190,8 +206,9 @@ impl KvmBackend {
             storage_mib: _,
             network,
             secrets,
+            volume,
         } = launching;
-        let boot = boot_for(prepared, memory_mib, identity, network, secrets)
+        let boot = boot_for(prepared, memory_mib, identity, network, secrets, volume)
             .map_err(|kind| self.fail(operation, kind))?;
         self.register(operation, instance, boot.guest_cid)?;
         let launched = self.clocks.elapsed_ns(operation);

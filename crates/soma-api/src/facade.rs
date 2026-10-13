@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 
 pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
 
-pub use crate::volumes::{VolumeBody, VolumeFailure, VolumeOperation, VolumeReport};
+pub use crate::volumes::{VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport};
 
 /// One managed lifecycle transition, carrying the receipt that proves it happened.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,6 +194,18 @@ pub trait SandboxFacade {
         _operation: VolumeOperation,
         _body: &VolumeBody,
     ) -> Result<VolumeReport, VolumeFailure> {
+        Err(VolumeFailure::Unconfigured)
+    }
+
+    /// Opens the volume attached to one Instance, for the launch that binds a machine to it.
+    ///
+    /// The default reports the missing capability, because a service with no host control socket
+    /// serves no volume and a launch that needs one must be refused rather than served without.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed volume failure the host daemon refused with.
+    fn volume_binding(&mut self, _instance: &str) -> Result<VolumeBinding, VolumeFailure> {
         Err(VolumeFailure::Unconfigured)
     }
 }

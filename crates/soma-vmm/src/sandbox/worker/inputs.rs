@@ -25,6 +25,11 @@ pub struct ColdBootInputs {
     pub root: std::fs::File,
     /// The Instance-private head, or `None` for a Generation with no writable storage.
     pub overlay: Option<std::fs::File>,
+    /// The Instance's durable volume file, or `None` for a Generation that declares none.
+    ///
+    /// A cold boot writes it from the first instruction, so it is the file rather than a
+    /// placeholder: there is no swap to wait for.
+    pub volume: Option<std::fs::File>,
     pub ram_bytes: u64,
     pub guest_cid: u32,
     /// The vCPU count the Generation declared; one thread runs each.
@@ -44,6 +49,7 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         initramfs,
         root,
         overlay,
+        volume,
         ram_bytes,
         guest_cid,
         vcpus,
@@ -57,7 +63,7 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
         disks: SandboxDisks {
             root,
             overlay,
-            volume: None,
+            volume,
         },
         identity: DeviceIdentity {
             guest_cid,

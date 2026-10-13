@@ -91,6 +91,7 @@ fn launch(
             &request.instance_id,
             found,
             &request.shape,
+            request.volume.clone(),
         )
         .map_err(|failure| failure.kind())
 }

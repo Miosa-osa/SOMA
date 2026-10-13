@@ -25,6 +25,7 @@ pub(super) fn boot_for(
     identity: LaunchIdentity,
     network: Network,
     secrets: Vec<SecretFile>,
+    volume: Option<soma::VolumeAttachment>,
 ) -> Result<Boot, BackendFailureKind> {
     let instance = &InstanceId::new(hex(identity.instance))
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
@@ -63,9 +64,8 @@ pub(super) fn boot_for(
     } else {
         None
     };
-    // A prepared entry may carry a snapshot taken once for the whole Generation. When it does,
-    // this launch resumes that machine instead of booting a kernel, which is the difference
-    // between hundreds of milliseconds and tens on the request path.
+    // A prepared entry may carry a snapshot taken once for the whole Generation: this launch
+    // then resumes that machine instead of booting a kernel.
     let guest_cid = identity.guest_cid;
     let source = if let SnapshotBinding::Captured {
         memory,
@@ -75,13 +75,15 @@ pub(super) fn boot_for(
     } = manifest.snapshot
     {
         {
-            // The restore clones its own head from the snapshot's sterile overlay template, not
-            // from the Candidate's, because the captured machine has already written to it.
+            // The restore clones its head from the snapshot's sterile overlay template.
             let overlay = devices
                 .overlay()
                 .then(|| open(&snapshot_overlay).and_then(|file| private_head_from(file, instance)))
                 .transpose()?;
             let objects = SnapshotObjects::adopt(open(&state)?, open(&memory)?, None);
+            // The volume device is declared from the Instance's own file, which the launch
+            // opened: there is no placeholder artifact to carry, because a file the store
+            // certified already states the class the guest is told.
             Source::Restore {
                 objects,
                 hypervisor: Hypervisor::Device,
@@ -90,6 +92,7 @@ pub(super) fn boot_for(
                     overlay,
                     volume: None,
                 },
+                volume,
                 devices,
                 memory_bytes: memory_mib * MIB,
                 vcpus,
@@ -109,6 +112,7 @@ pub(super) fn boot_for(
                 initramfs,
                 root,
                 overlay,
+                volume: open_volume(volume.as_ref())?,
                 ram_bytes: memory_mib * MIB,
                 guest_cid,
                 devices,
@@ -127,6 +131,25 @@ pub(super) fn boot_for(
         network,
         secrets,
     })
+}
+
+/// Opens the volume file a cold boot writes, from the path the store certified.
+///
+/// A cold boot writes its volume from the first instruction, so it is given the file itself
+/// rather than a placeholder to swap later. A file that cannot be opened is a refusal: a
+/// machine that declares a volume must not run with an empty disk.
+fn open_volume(
+    volume: Option<&soma::VolumeAttachment>,
+) -> Result<Option<std::fs::File>, BackendFailureKind> {
+    match volume {
+        Some(attachment) => std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&attachment.path)
+            .map(Some)
+            .map_err(|_| BackendFailureKind::Unavailable),
+        None => Ok(None),
+    }
 }
 
 /// The Instance identity as the lowercase hexadecimal its portable form is written in.

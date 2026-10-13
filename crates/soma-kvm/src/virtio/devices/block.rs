@@ -138,10 +138,22 @@ impl BlockDevice {
 
     /// Whether this device is still backed by the placeholder it was built on.
     ///
-    /// Only a durable volume ever is; every other role serves its store from construction.
+    /// A durable volume is born on its placeholder, so a capture or a restore never reads tenant
+    /// data through it; a device built over the file it will serve is not one.
     #[must_use]
     pub const fn is_placeholder(&self) -> bool {
         self.placeholder
+    }
+
+    /// This device as one serving the file it was built over.
+    ///
+    /// The detached builders leave a durable volume marked as still on its placeholder; a device
+    /// built over a real file, as a cold boot's is, is serving it from the first instruction, so
+    /// it is not a placeholder and `attach` refuses to replace what it already serves.
+    #[must_use]
+    pub(crate) fn into_serving(mut self) -> Self {
+        self.placeholder = false;
+        self
     }
 
     #[must_use]

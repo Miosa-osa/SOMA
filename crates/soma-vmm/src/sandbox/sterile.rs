@@ -54,6 +54,12 @@ pub struct SterileSpec {
 pub struct Assignment {
     /// This Instance's private writable head, absent on a machine built with no overlay device.
     pub overlay: Option<File>,
+    /// This Instance's durable volume, absent on a machine whose Generation declares none.
+    ///
+    /// The id is what the ready signal reports; the path is the host's own, named by the volume
+    /// store after it certified the file, and it is opened here rather than sent as a descriptor
+    /// so nothing about the file crosses the worker wire.
+    pub volume: Option<soma::VolumeAttachment>,
     /// The Generation the launch material is bound to.
     pub generation: [u8; 32],
     /// The Instance identity.
@@ -129,6 +135,7 @@ fn assign(
 ) {
     let Assignment {
         overlay,
+        volume,
         generation,
         instance,
         operation,
@@ -150,10 +157,22 @@ fn assign(
     // rather than returning a half-assigned one to anybody. The leased frame path is installed
     // in the same step, because it is this Instance's authority and not the pool's: a prepared
     // machine that already held a TAP would be holding one tenant's network.
-    // The durable volume's file rides the same transfer as the head once the host-side volume
-    // store supplies it; until that wiring lands the volume is absent, and a persistent
-    // Generation then refuses to start rather than run its guest on the placeholder.
-    let Ok(mut restored) = sterile.assign(overlay, None, guest_cid, attachment) else {
+    // The volume is opened here, from the path the store certified, and it rides the same
+    // transfer as the head. A file that cannot be opened is a refusal rather than a launch: the
+    // worker is destroyed, and a machine whose Generation declares a volume never runs without
+    // one, because an empty disk where a customer's data belongs is worse than a failed start.
+    let data = match volume
+        .as_ref()
+        .map(|attachment| super::volume::open(&attachment.path))
+    {
+        Some(Ok(file)) => Some(file),
+        Some(Err(_)) => {
+            let _ignored = responses.send(Response::Failed(SessionError::Create));
+            return;
+        }
+        None => None,
+    };
+    let Ok(mut restored) = sterile.assign(overlay, data, guest_cid, attachment) else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));
         return;
     };

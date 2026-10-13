@@ -56,16 +56,31 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             objects,
             hypervisor,
             disks,
+            volume,
             devices,
             memory_bytes,
             vcpus,
             contract,
             hotplug,
         } => {
+            // The volume is opened from the path the store certified, and a file that cannot be
+            // opened refuses the launch rather than serving an empty disk.
+            let data = match volume
+                .as_ref()
+                .map(|attachment| super::super::volume::open(&attachment.path))
+            {
+                Some(Ok(file)) => Some(file),
+                Some(Err(_)) => {
+                    let _ignored = responses.send(Response::Failed(SessionError::Create));
+                    return;
+                }
+                None => None,
+            };
             let restored = restore(RestoreRequest {
                 objects,
                 hypervisor,
                 disks,
+                volume: data,
                 devices,
                 guest_cid,
                 memory_bytes,

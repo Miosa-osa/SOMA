@@ -223,6 +223,7 @@ fn attempt(
 ) -> Result<(), SnapshotError> {
     let (head_path, head) = fixture.private_head("tamper-head");
     let outcome = restore(RestoreRequest {
+        volume: None,
         objects: soma_kvm::x86_64::SnapshotObjects::open(&paths.clone()).expect("snapshot objects"),
         hypervisor: soma_kvm::x86_64::Hypervisor::Device,
         disks: SandboxDisks {

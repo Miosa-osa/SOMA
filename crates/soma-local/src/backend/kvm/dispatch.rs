@@ -35,15 +35,20 @@ impl KvmBackend {
             .downcast_ref::<PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
         let launched = match self.hosted_directory() {
-            None => {
-                self.launch_resident(operation, request.instance_id(), prepared, request.shape())?
-            }
+            None => self.launch_resident(
+                operation,
+                request.instance_id(),
+                prepared,
+                request.shape(),
+                request.volume().cloned(),
+            )?,
             Some(directory) => host::launch(
                 &directory,
                 operation,
                 request.instance_id(),
                 prepared,
                 request.shape(),
+                request.volume(),
             )
             .map_err(|kind| self.fail(operation, kind))?,
         };

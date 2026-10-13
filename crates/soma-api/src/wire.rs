@@ -17,6 +17,13 @@ use crate::envelope::ApiError;
 #[serde(deny_unknown_fields)]
 pub struct CreateSandboxBody {
     pub image: String,
+    /// The durable volume this start must bind, when the caller knows it.
+    ///
+    /// A first launch names none and the host creates the volume; a start of a stopped sandbox
+    /// names the volume it persisted, so the machine is built over exactly that file and the
+    /// launch is refused when the host disagrees about which volume this Instance owns.
+    #[serde(default)]
+    pub volume_id: Option<String>,
     #[serde(default)]
     pub shape: Option<MachineShape>,
     #[serde(default)]

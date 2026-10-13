@@ -153,3 +153,74 @@ fn a_state_conflict_answers_conflict_with_the_facade_conflict_code() {
     assert_eq!(status, 409);
     assert_eq!(body["error"]["code"], "state_conflict");
 }
+
+#[test]
+fn a_start_that_names_its_volume_binds_that_file_and_no_other() {
+    let volume = "5".repeat(32);
+    let mut facade = FakeFacade::new(Mode::Succeed)
+        .with_volume_binding(&volume, "/srv/soma/volumes/05/volume.img");
+    // The Instance identity is named so the host is asked about the same one the launch is for.
+    let request = identified(
+        "POST",
+        "/v1/sandboxes",
+        &format!(
+            r#"{{"image":"node:22","instance_id":"{FIXTURE_INSTANCE_ID}","volume_id":"{volume}"}}"#
+        ),
+    );
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 201);
+    assert_eq!(body["status"], "ok");
+    // The host is asked about this Instance, and the launch carries the file it named.
+    assert_eq!(facade.volume_calls, vec![FIXTURE_INSTANCE_ID.to_owned()]);
+    let attachment = facade.launched_volume.expect("the launch binds a volume");
+    assert_eq!(
+        attachment.path,
+        std::path::PathBuf::from("/srv/soma/volumes/05/volume.img")
+    );
+    assert_eq!(
+        attachment.id, [0x55_u8; 16],
+        "the id the ready signal reports is the host's, decoded from hexadecimal"
+    );
+}
+
+#[test]
+fn a_start_that_names_no_volume_binds_none_and_asks_the_host_nothing() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let request = identified("POST", "/v1/sandboxes", r#"{"image":"node:22"}"#);
+
+    let (status, _body) = call(&mut facade, &request);
+
+    assert_eq!(status, 201);
+    assert!(
+        facade.volume_calls.is_empty(),
+        "a launch that names no volume must not ask the host for one"
+    );
+    assert!(facade.launched_volume.is_none());
+}
+
+#[test]
+fn a_start_that_names_a_volume_the_host_does_not_have_is_refused_rather_than_guessed() {
+    // The host has a different volume attached to this Instance, which is the two sides
+    // disagreeing about ownership; guessing either way writes the wrong disk.
+    let mut facade = FakeFacade::new(Mode::Succeed)
+        .with_volume_binding(&"6".repeat(32), "/srv/soma/volumes/06/volume.img");
+    let request = identified(
+        "POST",
+        "/v1/sandboxes",
+        &format!(
+            r#"{{"image":"node:22","instance_id":"{FIXTURE_INSTANCE_ID}","volume_id":"{}"}}"#,
+            "5".repeat(32)
+        ),
+    );
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 409);
+    assert_eq!(body["error"]["code"], "volume_instance_mismatch");
+    assert!(
+        facade.launched_volume.is_none(),
+        "a refused launch must not reach the machine"
+    );
+}

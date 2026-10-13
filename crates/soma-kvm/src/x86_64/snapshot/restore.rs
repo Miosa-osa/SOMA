@@ -61,7 +61,17 @@ pub struct RestoreRequest {
     pub hypervisor: Hypervisor,
     /// The immutable root and, when the Generation declared writable storage, the
     /// Instance-private overlay head cloned from `overlay.raw`.
+    ///
+    /// A durable volume's entry here is the *placeholder* the device is declared against: its
+    /// length is the capacity the guest is told, and it carries no tenant data.
     pub disks: SandboxDisks,
+    /// The Instance's own durable volume file, opened by the caller from the path the host's
+    /// volume store certified, or `None` for a Generation that declares no volume.
+    ///
+    /// It is bound over the placeholder before the guest runs, so a snapshot never carries
+    /// tenant data and a machine that never received the file refuses to start rather than
+    /// serve an empty disk.
+    pub volume: Option<std::fs::File>,
     /// The optional devices this Generation declared; a snapshot of a different set is refused.
     pub devices: DeviceSet,
     /// The fresh vsock context identifier this Instance is assigned.
@@ -114,6 +124,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         objects,
         hypervisor,
         disks,
+        volume,
         devices,
         guest_cid,
         memory_bytes,
@@ -126,7 +137,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     let SandboxDisks {
         root,
         overlay,
-        volume,
+        volume: disks_placeholder,
     } = disks;
     let overlay_capacity_bytes = overlay
         .as_ref()
@@ -137,14 +148,15 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
                 .map_err(|error| SnapshotError::io(Artifact::Overlay, "metadata", &error))
         })
         .transpose()?;
-    // The volume device is declared with the placeholder's capacity, exactly as the overlay
-    // is declared with the head's: the Instance's own file is bound at launch, so a snapshot
-    // never carries tenant data.
+    // The volume device is declared with the capacity of whichever file the caller supplied:
+    // the Instance's own volume, when the launch has one, or the placeholder whose length
+    // declares the class. Either way the guest is told the class the Generation fixed, and the
+    // file the launch opened is what it writes, so a snapshot never carries tenant data.
     let volume_capacity_bytes = volume
         .as_ref()
-        .map(|volume| {
-            volume
-                .metadata()
+        .or(disks_placeholder.as_ref())
+        .map(|file| {
+            file.metadata()
                 .map(|metadata| metadata.len())
                 .map_err(|error| SnapshotError::io(Artifact::Overlay, "metadata", &error))
         })
@@ -162,10 +174,9 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         verify_artifacts,
         hotplug,
     })?
-    // The durable volume's file rides the same transfer as the head once the host-side volume
-    // store supplies it; until that wiring lands the volume is absent, and a persistent
-    // Generation then refuses to start rather than run its guest on the placeholder.
-    .assign(overlay, None, guest_cid, network)
+    // The Instance's own volume file arrives with the head: the placeholder declared the device
+    // and this is what the guest writes, bound over the placeholder before it runs.
+    .assign(overlay, volume, guest_cid, network)
 }
 
 mod sterile_entry;
