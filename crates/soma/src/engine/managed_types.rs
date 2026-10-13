@@ -10,6 +10,33 @@ pub struct LaunchMachineRequest {
     pub(super) image: OciImage,
     pub(super) shape: crate::MachineShape,
     pub(super) machine_name: Option<MachineName>,
+    pub(super) volume: Option<VolumeAttachment>,
+}
+
+/// The durable volume one Instance's machine binds, as the host resolved it.
+///
+/// The id is what the ready signal reports back to the control plane; the path is the host's
+/// own, derived by the volume store from the volume this Instance owns. A caller never names a
+/// file, and a launch that carries no attachment is a launch whose Generation declares no
+/// volume: a machine that declares one refuses to run without it rather than serve an empty
+/// disk where the data belongs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VolumeAttachment {
+    /// The volume identity, as the launch receipt reports it.
+    pub id: [u8; 16],
+    /// The host's path to the volume file.
+    pub path: std::path::PathBuf,
+}
+
+impl VolumeAttachment {
+    /// One attachment, as the volume store answered for this Instance.
+    #[must_use]
+    pub fn new(id: [u8; 16], path: impl Into<std::path::PathBuf>) -> Self {
+        Self {
+            id,
+            path: path.into(),
+        }
+    }
 }
 
 impl LaunchMachineRequest {
@@ -26,7 +53,21 @@ impl LaunchMachineRequest {
             image,
             shape,
             machine_name: None,
+            volume: None,
         }
+    }
+
+    /// This request with the durable volume the Instance's machine must bind.
+    #[must_use]
+    pub fn with_volume(mut self, volume: VolumeAttachment) -> Self {
+        self.volume = Some(volume);
+        self
+    }
+
+    /// The durable volume this launch binds, when it binds one.
+    #[must_use]
+    pub const fn volume(&self) -> Option<&VolumeAttachment> {
+        self.volume.as_ref()
     }
 
     #[must_use]

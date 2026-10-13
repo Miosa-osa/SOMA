@@ -24,7 +24,7 @@ pub use managed_pty::{MachinePty, PtyMachineRequest};
 pub use managed_types::{
     DestroyMachineRequest, ExecuteMachineRequest, InspectMachineRequest, LaunchMachineRequest,
     MachineDestroy, MachineExecution, MachineInspection, MachineLaunch, MachineStop,
-    StopMachineRequest,
+    StopMachineRequest, VolumeAttachment,
 };
 pub use run_types::{FailurePhase, RunFailure, RunFailureKind, RunOutcome};
 
