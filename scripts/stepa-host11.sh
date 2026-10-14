@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #
-# Every variable in this file is expanded HERE, on the client, on purpose: the strings that reach
-# the jump host and the host are built from local values. The single-quoted remote strings are
-# deliberate for the same reason.
+# Every local variable is expanded HERE, on the client, on purpose: the strings that reach the jump
+# host and the host are built from local values. A command substitution meant for the target host is
+# written \$( ) here and reaches it as $( ), because the two ssh helpers quote the command for the
+# jump host's shell: without that quoting a $( ) in the text is expanded on the JUMP host, against
+# the jump host's own filesystem, and never reaches the target at all.
 # shellcheck disable=SC2029,SC2016
 #
 # Runs the ADR 0053 Step A gate sequence and files its evidence under tasks/soma-speed/reports/ in
@@ -99,9 +101,18 @@ fi
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 EVIDENCE="${REPORT_DIR}/stepa-host11-${STAMP}"
 
-# The jump host carries every host command; two ssh hops, one command each.
-on_host() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} $1"; }
-on_build() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} $1"; }
+# The jump host carries every host command; two ssh hops, one command each. The command is quoted
+# with `printf %q` so the jump host's shell passes it through verbatim: an unquoted $( ) in the text
+# would be expanded there, on the jump host and against the jump host's filesystem, and the target
+# would never see it.
+on_host() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} $(printf '%q' "$1")"; }
+on_build() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} $(printf '%q' "$1")"; }
+# One value out of the API's effective environment, which is the unit, its drop-ins and any
+# EnvironmentFile. That is not a file on disk: host-11 has no /etc/soma/api.env at all, and reading
+# one there is how the entry delivery used to fail.
+api_env() {
+    on_host "systemctl show soma-api -p Environment --value | tr ' ' '\n' | sed -n 's/^$1=//p'" | tr -d '\r' | head -1
+}
 # One HTTP call to the host's own soma-api, with the JSON body on stdin.
 api() {
     local method="$1" path="$2"
@@ -122,10 +133,20 @@ on_host "grep -l cgroup.kill /etc/systemd/system/soma-api.service.d/*.conf 2>/de
     || die "an installed drop-in kills the machine subtree on a stop: SOMA #2146 is not applied on ${HOST}"
 on_host "systemctl is-active --quiet soma-hostd.service" || die "soma-hostd is not running"
 on_host "test -S /run/soma-hostd/allocator.sock" || die "soma-hostd has no control socket"
-on_host "test \"\$(stat -c %s /srv/miosa-enc/soma/volume-master.key)\" = 32" || die "the host key is missing or not 32 bytes"
+# The key path is the host's own: the installer writes it into hostd.env from the encrypted data
+# mount it detects, and no fleet host carries the reference /srv/miosa-enc.
+KEY_FILE="$(on_host "sed -n 's/^SOMA_HOSTD_VOLUME_KEY_FILE=//p' /etc/soma/hostd.env" | tr -d '\r' | head -1)"
+[[ -n "${KEY_FILE}" ]] || die "${HOST} has no SOMA_HOSTD_VOLUME_KEY_FILE in /etc/soma/hostd.env"
+on_host "test \"\$(stat -c %s ${KEY_FILE})\" = 32" || die "the host key at ${KEY_FILE} is missing or not 32 bytes"
 on_host "systemctl show soma-api -p Environment --value | grep -q SOMA_HOSTD_SOCKET" \
     || die "the API has no SOMA_HOSTD_SOCKET in its environment: restart soma-api first"
 say "preflight ok"
+
+# The store the API reads Generations from, asked of the API's own environment rather than of a file
+# that may not exist.
+STORE="$(api_env SOMA_GENERATION_STORE)"
+[[ -n "${STORE}" ]] || die "the API has no SOMA_GENERATION_STORE in its environment"
+ENTRY="ref-$(printf %s "${REFERENCE}" | shasum -a 256 | cut -d' ' -f1)"
 
 # ---------------------------------------------------------------- 1. recapture
 
@@ -143,7 +164,7 @@ if [[ "${SKIP_RECAPTURE}" == 0 ]]; then
     on_build "test -x ${BUILD_TREE}/step-a-src/target/x86_64-unknown-linux-musl/release/soma-guest-agent" \
         || die "no static guest agent on ${BUILD} (run scripts/build-guest-agent.sh)"
     say "recapturing a persistent Generation as ${REFERENCE} on ${BUILD}"
-    on_host "test ! -e \$(awk -F= '/^SOMA_GENERATION_STORE=/{print \$2}' /etc/soma/api.env)/ref-\$(printf %s '${REFERENCE}' | sha256sum | cut -d' ' -f1)" \
+    on_host "test ! -e ${STORE}/${ENTRY}" \
         || die "${HOST}'s store already holds ${REFERENCE}; pick another --reference"
     on_build "test -d ${BUILD_TREE}/step-a-src" \
         || die "no ${BUILD_TREE}/step-a-src on ${BUILD}: the recapture needs the build tree"
@@ -157,21 +178,20 @@ fi
 # ---------------------------------------------------------------- 2. deliver the entry
 
 say "delivering the entry to ${HOST}'s store"
-ENTRY="ref-$(printf %s "${REFERENCE}" | shasum -a 256 | cut -d' ' -f1)"
-STORE_REF="$(on_host "cat \$(awk -F= '/^SOMA_GENERATION_STORE=/{print \$2}' /etc/soma/api.env)/${ENTRY}/reference 2>/dev/null" | tr -d '\r')"
+STORE_REF="$(on_host "cat ${STORE}/${ENTRY}/reference 2>/dev/null" | tr -d '\r')"
 if [[ "${STORE_REF}" != "${REFERENCE}" ]]; then
     ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} 'tar --sparse -C /srv/soma/stepa-prepared -cf - ${ENTRY}'" \
         | ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} 'mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}'" \
         || die "could not carry ${ENTRY} to ${HOST}"
     on_host "bash ${INPUT}/install-host.sh generations" || die "install-host.sh generations refused"
 fi
-on_host "test -f \$(awk -F= '/^SOMA_GENERATION_STORE=/{print \$2}' /etc/soma/api.env)/${ENTRY}/reference" \
+on_host "test -f ${STORE}/${ENTRY}/reference" \
     || die "${ENTRY} is not in ${HOST}'s store"
 say "the store holds ${REFERENCE}"
 
 # ---------------------------------------------------------------- 3. attach and create
 
-GENERATION="$(on_host "cat \$(awk -F= '/^SOMA_GENERATION_STORE=/{print \$2}' /etc/soma/api.env)/${ENTRY}/generation.id" | tr -d '\r')"
+GENERATION="$(on_host "cat ${STORE}/${ENTRY}/generation.id" | tr -d '\r')"
 [[ "${GENERATION}" =~ ^[0-9a-f]{64}$ ]] || die "could not read the Generation id (got '${GENERATION}')"
 [[ -n "${VOLUME}" ]] || VOLUME="$(on_host 'openssl rand -hex 16' | tr -d '\r')"
 [[ -n "${INSTANCE}" ]] || INSTANCE="$(on_host 'uuidgen | tr -d - | tr "A-F" "a-f"' | tr -d '\r')"
