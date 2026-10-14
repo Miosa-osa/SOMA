@@ -27,7 +27,7 @@ pub fn daemon_on(runtime: &Arc<TestRuntime>, volumes: &Arc<DirectoryVolumes>, so
     let store = Arc::clone(volumes);
     let path = socket.to_path_buf();
     thread::spawn(move || {
-        let _ = daemon::serve(&served, store.as_ref(), &path);
+        let _ = daemon::serve(&served, &store, &path);
     });
     let deadline = Instant::now() + PATIENCE;
     while Instant::now() < deadline && !socket.exists() {

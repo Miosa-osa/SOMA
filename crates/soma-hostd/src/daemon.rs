@@ -29,7 +29,11 @@ use std::{
         unix::ffi::OsStrExt,
     },
     path::Path,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
 };
 
 use crate::{
@@ -66,17 +70,34 @@ impl fmt::Display for DaemonError {
 
 impl std::error::Error for DaemonError {}
 
+/// The most connections this daemon serves at once.
+///
+/// A client holds its connection for as long as it lives and a Host holds one client per machine
+/// it owns, so the ceiling has to clear a whole machine-host set rather than the handful a
+/// request-and-reply client would need.
+const MAXIMUM_CONNECTIONS: usize = 1024;
+
 /// Serves `runtime` on `socket` until the listener fails.
+///
+/// Each connection is served on its own thread, because a connection is served for as long as its
+/// client lives: serving one on the accept loop would hold the daemon away from every client
+/// behind it.
 ///
 /// # Errors
 ///
 /// Returns the listener failure.
-pub fn serve<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
+pub fn serve<L, R, V>(
     runtime: &Arc<Runtime<L, R>>,
-    volumes: &V,
+    volumes: &Arc<V>,
     socket: &Path,
-) -> Result<(), DaemonError> {
+) -> Result<(), DaemonError>
+where
+    L: WorkerLauncher + Send + Sync + 'static,
+    R: ResourceBroker + Send + Sync + 'static,
+    V: VolumeStore + Send + Sync + 'static,
+{
     let listener = listen(socket)?;
+    let open = Arc::new(AtomicUsize::new(0));
     loop {
         // SAFETY: `accept4` only reads the listener descriptor; null address arguments are
         // permitted.
@@ -93,7 +114,24 @@ pub fn serve<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
         }
         // SAFETY: `raw` is a freshly accepted descriptor owned by nothing else.
         let connection = unsafe { OwnedFd::from_raw_fd(raw) };
-        serve_connection(runtime, volumes, &connection);
+        // One above the ceiling closes as it is accepted, which the client reads as a closed
+        // connection rather than as a daemon that never answers.
+        if open.fetch_add(1, Ordering::AcqRel) >= MAXIMUM_CONNECTIONS {
+            open.fetch_sub(1, Ordering::AcqRel);
+            continue;
+        }
+        let runtime = Arc::clone(runtime);
+        let volumes = Arc::clone(volumes);
+        let serving = Arc::clone(&open);
+        let served = thread::Builder::new()
+            .name(String::from("soma-hostd-connection"))
+            .spawn(move || {
+                serve_connection(&runtime, volumes.as_ref(), &connection);
+                serving.fetch_sub(1, Ordering::AcqRel);
+            });
+        if served.is_err() {
+            open.fetch_sub(1, Ordering::AcqRel);
+        }
     }
 }
 
