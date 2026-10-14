@@ -10,6 +10,9 @@ use crate::generation::{
 };
 use crate::{ImportPhase, normalize::TREE_MEDIA_TYPE, oci::Descriptor, store::Store};
 
+/// The largest tree manifest this decoder reads.
+const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
+
 /// The bounded, verified machine inputs read before any formatter runs.
 pub(super) struct MachineArtifacts {
     pub(super) kernel_bytes: Vec<u8>,
@@ -90,11 +93,7 @@ pub(super) fn read_tree(
         platform: None,
     };
     let mut file = store
-        .open_verified_blob(
-            &descriptor,
-            super::MAX_TREE_MANIFEST_BYTES,
-            ImportPhase::Publish,
-        )
+        .open_verified_blob(&descriptor, MAX_TREE_MANIFEST_BYTES, ImportPhase::Publish)
         .map_err(|error| CompileError::from_import(CompilePhase::ResolveInputs, error))?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)

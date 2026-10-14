@@ -33,7 +33,7 @@ const MEMORY_PAGE_BYTES: u64 = 4096;
 /// # Errors
 ///
 /// Returns one typed redacted rejection for the first violated invariant.
-pub(super) fn require_machine(
+pub(crate) fn require_machine(
     manifest: &GenerationManifest,
     profile: &CompilerProfile,
 ) -> Result<(), CompileError> {

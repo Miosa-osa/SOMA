@@ -22,11 +22,11 @@ use crate::{ImportPhase, store::Store};
 
 mod inputs;
 mod staging;
+#[cfg(test)]
+mod tests;
 
 use inputs::{MachineArtifacts, read_tree};
 use staging::Staging;
-
-const MAX_TREE_MANIFEST_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Typed state for the compiler phases that have no implementation yet.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

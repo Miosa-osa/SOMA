@@ -150,10 +150,12 @@ pub(crate) fn profile_v2() -> GenerationManifest {
 pub(crate) fn profile_v3() -> GenerationManifest {
     let mut manifest = profile_v2();
     manifest.compiler_policy_version = 3;
-    let devices = DEVICES.with_mem(true);
+    manifest.machine_contract = contracts::machine_contract_v3();
+    // The machine contract decides the memory device, so the set is derived after it is set: the
+    // fixture takes the same set the compiler and the verifier take, the manifest's own.
+    let devices = manifest.device_set();
     manifest.command_line = contracts::kernel_command_line_for(devices, 3)
         .expect("machine contract version 3 has a command line");
-    manifest.machine_contract = contracts::machine_contract_v3();
     manifest.device_contract = contracts::device_contract_v1(devices);
     // Eight gigabytes at boot and a gigabyte it can grow by: within the contract's ceiling.
     manifest.shape.memory_bytes = 8 * 1024 * MIB;
@@ -168,12 +170,6 @@ pub(crate) fn profile_v3() -> GenerationManifest {
 pub(crate) fn profile_v4() -> GenerationManifest {
     let mut manifest = profile_v3();
     manifest.compiler_policy_version = 4;
-    // A persistent Generation declares the volume slot, so its command line and device contract
-    // are composed with it: the manifest binds the line the machine will actually boot with.
-    let devices = DEVICES.with_mem(true).with_volume(true);
-    manifest.command_line =
-        contracts::kernel_command_line_for(devices, 3).expect("machine contract 3 has a line");
-    manifest.device_contract = contracts::device_contract_v1(devices);
     manifest.persistence = PersistenceBinding {
         size_class_gib: DEFAULT_VOLUME_CLASS_GIB,
         enabled: true,
@@ -182,6 +178,14 @@ pub(crate) fn profile_v4() -> GenerationManifest {
             .map(|path| (*path).to_owned())
             .collect(),
     };
+    // The persistence binding comes first: it is what puts the volume in the set the command line
+    // and the device contract are composed from, so the fixture derives both from the manifest's
+    // own fields exactly as the compiler does, and a manifest that could not verify against its
+    // own device set cannot be built here either.
+    let devices = manifest.device_set();
+    manifest.command_line =
+        contracts::kernel_command_line_for(devices, 3).expect("machine contract 3 has a line");
+    manifest.device_contract = contracts::device_contract_v1(devices);
     manifest
 }
 
