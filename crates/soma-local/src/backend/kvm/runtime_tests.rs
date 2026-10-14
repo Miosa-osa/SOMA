@@ -165,7 +165,7 @@ impl Host {
         let runtime = Arc::new(Runtime::new(pool));
         let served = socket.clone();
         thread::spawn(move || {
-            let _ignored = daemon::serve(&runtime, &volumes, &served);
+            let _ignored = daemon::serve(&runtime, &Arc::new(volumes), &served);
         });
         await_socket(&socket);
         Self {
