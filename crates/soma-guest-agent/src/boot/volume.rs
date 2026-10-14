@@ -40,7 +40,7 @@ const MS_LAZYTIME: libc::c_ulong = 1 << 25;
 ///
 /// Returns the first failed step; the caller reports it and powers off.
 pub(super) fn compose(root: &str) -> Result<(), BootFailure> {
-    match classify_identity(read_superblock(VOLUME_DEVICE), ext4_superblock_ok) {
+    match classify_identity(&read_superblock(VOLUME_DEVICE), ext4_superblock_ok) {
         Identity::Filesystem => {}
         // A capture attaches the placeholder, which has no capacity to read. The device is in the
         // Generation's manifest and carries nothing, so there is nothing to mount, and skipping it
