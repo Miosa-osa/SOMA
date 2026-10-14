@@ -83,6 +83,7 @@ pub fn run_workload<W: Workload>(
             root: fixture.root(),
             overlay: Some(head),
             volume: None,
+            volume_placeholder: false,
         },
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,
@@ -143,14 +144,8 @@ pub fn run_workload<W: Workload>(
         evidence.serial.len(),
         log.display()
     );
-    for line in console
-        .lines()
-        .rev()
-        .take(12)
-        .collect::<Vec<_>>()
-        .iter()
-        .rev()
-    {
+    let tail: Vec<&str> = console.lines().rev().take(12).collect();
+    for line in tail.iter().rev() {
         eprintln!("  | {line}");
     }
     let (output, session_transcript) = match outcome {

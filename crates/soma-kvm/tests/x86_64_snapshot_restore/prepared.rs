@@ -55,6 +55,7 @@ fn preparing_a_machine_ahead_of_demand_removes_it_from_the_request_path() {
                 root: fixture.root(),
                 overlay: Some(head),
                 volume: None,
+                volume_placeholder: false,
             },
             devices: fixture.devices(),
             guest_cid: cid,

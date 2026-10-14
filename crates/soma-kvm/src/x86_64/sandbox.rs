@@ -87,6 +87,13 @@ pub struct SandboxMachine {
     cmdline: String,
     entry: u64,
     initramfs: Option<(u64, u64)>,
+    /// Whether this machine exists to be captured rather than to serve a guest.
+    ///
+    /// A capture's machine is built over the placeholder its Generation declares, and the run
+    /// check that protects a serving guest from an empty disk is skipped for it: the guest sees a
+    /// device with no capacity and skips the volume steps, so nothing is mounted and the snapshot
+    /// holds no cached state from the volume.
+    capture: bool,
 }
 
 impl SandboxMachine {
@@ -97,6 +104,7 @@ impl SandboxMachine {
     ///
     /// Returns the typed phase failure; everything created before it is released in reverse.
     pub fn create(config: SandboxConfig) -> Result<Self, MachineError> {
+        let capture = config.disks.volume_placeholder;
         if !config.contract.accepts_vcpus(config.vcpus) {
             return Err(MachineError::invalid(
                 Phase::CreateVcpu,
@@ -194,6 +202,7 @@ impl SandboxMachine {
             cmdline: loaded.cmdline,
             entry: loaded.entry,
             initramfs: loaded.initramfs,
+            capture,
         })
     }
 

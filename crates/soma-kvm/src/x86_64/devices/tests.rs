@@ -21,6 +21,7 @@ fn full_disks() -> SandboxDisks {
         root: image(64 * 4096),
         overlay: Some(image(64 * 1024 * 1024)),
         volume: None,
+        volume_placeholder: false,
     }
 }
 
@@ -47,6 +48,71 @@ fn builds_the_five_slots_with_fixed_geometry_and_identity() {
     assert!(!bus.net().unwrap().device().link_up());
     assert_eq!(Slot::ALL.len(), 7);
     assert!(bus.mem().is_none());
+}
+
+#[test]
+fn a_capture_attaches_a_placeholder_the_device_stands_on() {
+    // A capture hands over a scratch file of the class the Generation declares and marks it as the
+    // placeholder. The device has to stand on it: the snapshot guard refuses a machine whose
+    // volume already holds the Instance's own file, because a capture publishes device state and
+    // never tenant data, and the guest must see a disk with nothing on it.
+    let mut disks = full_disks();
+    disks.volume = Some(image(10240 * 1024 * 1024));
+    disks.volume_placeholder = true;
+    let bus = build_bus(
+        disks,
+        identity(),
+        DeviceSet::FULL.with_volume(true),
+        MachineContract::V1,
+        None,
+    )
+    .unwrap();
+    assert!(
+        bus.volume()
+            .expect("the volume slot")
+            .device()
+            .is_placeholder()
+    );
+}
+
+#[test]
+fn a_launch_attaches_the_instances_volume_and_the_device_serves_it() {
+    // A launch is handed the Instance's own file, so there is no placeholder to stand on and no
+    // swap to wait for: the guest writes the file it was given.
+    let mut disks = full_disks();
+    disks.volume = Some(image(10240 * 1024 * 1024));
+    let bus = build_bus(
+        disks,
+        identity(),
+        DeviceSet::FULL.with_volume(true),
+        MachineContract::V1,
+        None,
+    )
+    .unwrap();
+    assert!(
+        !bus.volume()
+            .expect("the volume slot")
+            .device()
+            .is_placeholder()
+    );
+}
+
+#[test]
+fn a_volume_device_over_a_zero_length_file_is_refused() {
+    // Why the placeholder carries the class's length and a flag rather than being zero length: a
+    // block device with no capacity cannot be built at all, so a zero-length file is not a device
+    // a capture could attach.
+    let mut disks = full_disks();
+    disks.volume = Some(image(0));
+    disks.volume_placeholder = true;
+    let refused = build_bus(
+        disks,
+        identity(),
+        DeviceSet::FULL.with_volume(true),
+        MachineContract::V1,
+        None,
+    );
+    assert!(refused.is_err());
 }
 
 fn region() -> (u64, u64, Box<dyn RegionBacking + Send>) {
@@ -98,6 +164,7 @@ fn builds_only_the_declared_devices() {
         root: image(64 * 4096),
         overlay: None,
         volume: None,
+        volume_placeholder: false,
     };
     let bus = build_bus(
         disks,
@@ -129,6 +196,7 @@ fn refuses_a_head_the_declared_set_has_no_slot_for() {
         root: image(64 * 4096),
         overlay: None,
         volume: None,
+        volume_placeholder: false,
     };
     let Err(error) = build_bus(
         disks,
@@ -162,6 +230,7 @@ fn rejects_a_reserved_cid_and_an_unaligned_root() {
         root: image(4096 + 512),
         overlay: Some(image(64 * 1024 * 1024)),
         volume: None,
+        volume_placeholder: false,
     };
     let Err(error) = build_bus(
         disks,
