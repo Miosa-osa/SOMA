@@ -185,8 +185,10 @@ say "delivering the entry to ${HOST}'s store"
 # that has to tolerate the miss.
 STORE_REF="$(on_host "cat ${STORE}/${ENTRY}/reference 2>/dev/null || true" | tr -d '\r')"
 if [[ "${STORE_REF}" != "${REFERENCE}" ]]; then
-    ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} 'tar --sparse -C /srv/soma/stepa-prepared -cf - ${ENTRY}'" \
-        | ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} 'rm -rf ${INPUT}/generations/${SET} && mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}'" \
+    # The carry runs ON the jump host, so the bytes go host to host over the fleet's own links. Run
+    # from here instead and every byte crosses the workstation twice: a 30 GiB sparse entry measured
+    # at about 26 MB/min that way, which is hours rather than minutes.
+    ssh "${JUMP}" "sudo -n bash -c 'ssh -o BatchMode=yes root@${BUILD} \"tar --sparse -C /srv/soma/stepa-prepared -cf - ${ENTRY}\" | ssh -o BatchMode=yes root@${HOST} \"rm -rf ${INPUT}/generations/${SET} && mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}\"'" \
         || die "could not carry ${ENTRY} to ${HOST}"
     # The installer verifies every file against the manifest beside the set, the same one
     # push-to-host.sh writes; a hand-carried entry has to carry it too or the step refuses.
