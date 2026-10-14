@@ -6,7 +6,7 @@ use super::{
     artifacts::Sha256Digest,
     contracts,
     error::{CompileError, CompileErrorKind, CompilePhase},
-    request::ProfileLimits,
+    request::{CompilerProfile, ProfileLimits},
 };
 
 mod network;
@@ -286,6 +286,12 @@ impl TemplateRevision {
         )
         // Compiler policy 3 is the one whose machine has the memory device.
         .with_mem(self.profile_version >= 3)
+        // The durable volume follows the same rule: the profile version decides it, so a revision
+        // and every manifest compiled from it declare one device set.
+        .with_volume(
+            CompilerProfile::from_policy_version(self.profile_version)
+                .is_some_and(|profile| profile.persistence.enabled),
+        )
     }
 }
 

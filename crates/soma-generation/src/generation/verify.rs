@@ -13,7 +13,7 @@
 mod admission;
 mod content;
 mod incompatibility;
-mod machine;
+pub(crate) mod machine;
 mod profile;
 #[cfg(test)]
 mod tests;
