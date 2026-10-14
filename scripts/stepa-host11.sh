@@ -54,7 +54,6 @@ INPUT="${SOMA_INPUT:-/srv/miosa/soma-any-size-install}"
 URL="${SOMA_GATE_URL:-127.0.0.1:18787}"
 TENANT="${SOMA_GATE_TENANT:-step-a-cert}"
 REFERENCE="${SOMA_GATE_REFERENCE:-soma-default:G10-stepa}"
-SET="${SOMA_GATE_SET:-stepa-G10}"
 TOOLS="${SOMA_GATE_TOOLS:-/srv/soma/stepa-tools}"
 SHAPE_MIB=2048
 SHAPE_DISK=10240
@@ -186,11 +185,11 @@ if [[ "${STORE_REF}" != "${REFERENCE}" ]]; then
     # The carry runs ON the jump host, so the bytes go host to host. Driven from here every byte
     # crosses the workstation twice: measured at about 26 MB/min that way, hours rather than minutes.
     # Compressed on the wire: an entry measures 41 GB of real data here, minutes compressed.
-    ssh "${JUMP}" "sudo -n bash -c 'ssh -o BatchMode=yes root@${BUILD} \"tar --sparse -C /srv/soma/stepa-prepared -czf - ${ENTRY}\" | ssh -o BatchMode=yes root@${HOST} \"rm -rf ${INPUT}/generations/${SET} && mkdir -p ${INPUT}/generations/${SET} && tar -xzf - -C ${INPUT}/generations/${SET}\"'" \
+    ssh "${JUMP}" "sudo -n bash -c 'ssh -o BatchMode=yes root@${BUILD} \"tar --sparse -C /srv/soma/stepa-prepared -czf - ${ENTRY}\" | ssh -o BatchMode=yes root@${HOST} \"rm -rf ${INPUT}/generations/${ENTRY} && mkdir -p ${INPUT}/generations && tar -xzf - -C ${INPUT}/generations\"'" \
         || die "could not carry ${ENTRY} to ${HOST}"
     # The installer verifies every file against the manifest beside the set, the same one
     # push-to-host.sh writes; a hand-carried entry has to carry it too or the step refuses.
-    on_host "cd ${INPUT}/generations/${SET}/${ENTRY} && find . -type f -print0 | sort -z | xargs -0 sha256sum > ${INPUT}/generations/${SET}.sha256" \
+    on_host "cd ${INPUT}/generations/${ENTRY} && find . -type f -print0 | sort -z | xargs -0 sha256sum > ${INPUT}/generations/${ENTRY}.sha256" \
         || die "could not write the manifest for ${ENTRY} on ${HOST}"
     on_host "bash ${INPUT}/install-host.sh generations" || die "install-host.sh generations refused"
 fi
