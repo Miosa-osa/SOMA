@@ -230,6 +230,7 @@ fn attempt(
             root: fixture.root(),
             overlay: Some(head),
             volume: None,
+            volume_placeholder: false,
         },
         devices: fixture.devices(),
         guest_cid: 30,

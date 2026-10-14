@@ -64,6 +64,8 @@ pub fn config(inputs: ColdBootInputs) -> SandboxConfig {
             root,
             overlay,
             volume,
+            // A worker is handed the Instance's own volume, never a capture's placeholder.
+            volume_placeholder: false,
         },
         identity: DeviceIdentity {
             guest_cid,

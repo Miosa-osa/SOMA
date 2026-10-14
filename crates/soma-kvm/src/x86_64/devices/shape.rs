@@ -43,10 +43,17 @@ pub struct SandboxDisks {
     /// The durable data volume of ADR 0053 Step A, opened read-write, when the Generation
     /// declares persistence.
     ///
-    /// At capture and at restore this is the zero-length placeholder the device is declared
-    /// with; the launch binds the Instance's own volume file over it, so a snapshot never
-    /// carries tenant data.
+    /// A capture attaches the scratch file the device is declared with, marked as the
+    /// placeholder; a launch binds the Instance's own volume file and leaves this false, so the
+    /// device serves that file from the first instruction and no snapshot carries tenant data.
     pub volume: Option<File>,
+    /// Whether `volume` is the capture's placeholder rather than an Instance's own volume.
+    ///
+    /// A placeholder cannot be a zero-length file, because a block device with no capacity is
+    /// refused when it is built. It is a file of the class the Generation declares whose device
+    /// stands on it: the guest sees a disk with nothing on it, and the next attach binds the
+    /// Instance's own file over it.
+    pub volume_placeholder: bool,
 }
 
 /// Non-secret device identity assigned to one Instance.

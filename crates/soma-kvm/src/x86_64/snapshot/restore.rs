@@ -138,6 +138,9 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         root,
         overlay,
         volume: disks_placeholder,
+        // This arm holds the placeholder; the Instance's own volume arrives with the head and is
+        // assigned over it, so the flag is the capture path's business and not this one's.
+        volume_placeholder: _,
     } = disks;
     let overlay_capacity_bytes = overlay
         .as_ref()

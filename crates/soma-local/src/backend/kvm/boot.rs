@@ -91,6 +91,7 @@ pub(super) fn boot_for(
                     root,
                     overlay,
                     volume: None,
+                    volume_placeholder: false,
                 },
                 volume,
                 devices,

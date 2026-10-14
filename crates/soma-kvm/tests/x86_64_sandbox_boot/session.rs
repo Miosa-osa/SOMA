@@ -218,6 +218,7 @@ pub fn config(
             root,
             overlay,
             volume: None,
+volume_placeholder: false,
         },
         identity: DeviceIdentity {
             guest_cid: GUEST_CID,

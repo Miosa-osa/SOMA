@@ -83,6 +83,7 @@ pub fn run_workload<W: Workload>(
             root: fixture.root(),
             overlay: Some(head),
             volume: None,
+            volume_placeholder: false,
         },
         guest_cid: cid,
         memory_bytes: fixture.ram_bytes,

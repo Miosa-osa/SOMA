@@ -115,19 +115,28 @@ pub(crate) fn build_devices(
         _ => return Err(overlay_disagreement()),
     };
     let volume = match (devices.volume(), disks.volume) {
-        (true, Some(file)) => Some(
-            block(
+        (true, Some(file)) => {
+            let device = block(
                 BlockRole::DurableVolume,
                 file,
                 false,
                 VOLUME_SERIAL,
                 block_transfer(contract),
-            )?
-            // A cold boot is given the file the machine will write, so its volume device serves
-            // that file rather than standing on a placeholder: there is no swap to wait for, and
-            // a second store must not replace what the guest is already writing.
-            .into_serving(),
-        ),
+            )?;
+            // A capture attaches the scratch file its device is declared with and marks it as the
+            // placeholder, so the device stands on it: the guest sees a disk with nothing on it,
+            // the snapshot guard accepts the machine because no tenant data is behind the device,
+            // and the next attach binds the Instance's own file over it.
+            //
+            // A launch is given the file the machine will write, so its device serves that file
+            // from the first instruction: there is no swap to wait for, and a second store must
+            // not replace what the guest is already writing.
+            Some(if disks.volume_placeholder {
+                device
+            } else {
+                device.into_serving()
+            })
+        }
         (false, None) => None,
         _ => return Err(volume_disagreement()),
     };

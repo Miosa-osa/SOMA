@@ -165,6 +165,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
                 .map_err(|error| format!("root: {error:?}"))?,
             overlay: head.as_ref().map(File::try_clone).transpose()?,
             volume: volume.as_ref().map(File::try_clone).transpose()?,
+            volume_placeholder: true,
         },
         identity: DeviceIdentity {
             guest_cid: CAPTURE_CID,
