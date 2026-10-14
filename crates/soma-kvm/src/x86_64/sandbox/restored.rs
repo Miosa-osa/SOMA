@@ -177,6 +177,9 @@ impl SandboxMachine {
             cmdline: parts.cmdline,
             entry: 0,
             initramfs: None,
+            // A restore is not a capture: its volume arrives with the head and is assigned over
+            // the placeholder before the guest runs.
+            capture: false,
         })
     }
 }
