@@ -28,6 +28,7 @@
 # Usage:
 #   scripts/stepa-host11.sh [--gate N] [--skip-recapture] [--reference REF] [--report-dir DIR]
 #                           [--instance ID] [--volume ID] [--build-host NAME]
+#                           [--image-source skopeo-SOURCE] [--image-archive PATH]
 #
 # The sequence refuses, rather than guessing: a reference the store already holds (two entries
 # under one reference make `prepared::find` report Ambiguous, and then nothing resolves), a tenant
@@ -39,6 +40,14 @@ JUMP="${SOMA_JUMP:-compute}"
 HOST="${SOMA_GATE_HOST:-miosa-host-11.fleet.miosa.internal}"
 BUILD="${SOMA_BUILD_HOST:-miosa-host-10.fleet.miosa.internal}"
 BUILD_TREE="${SOMA_BUILD_TREE:-/srv/miosa/build/soma-persist}"
+# The reference names the ENTRY, not an image to pull, so the recapture needs the image it is built
+# from named separately. It is exported with `docker save` rather than read from the docker daemon
+# through skopeo: skopeo 1.13.3 speaks client API 1.41 and Docker 29 refuses anything below 1.44
+# ("client version 1.41 is too old"), while a docker archive needs no daemon API at all.
+IMAGE_NAME="${SOMA_GATE_IMAGE_NAME:-soma-browser-default:2}"
+IMAGE_ARCHIVE="${SOMA_GATE_IMAGE_ARCHIVE:-${BUILD_TREE}/soma-browser-default-2.tar}"
+IMAGE_SOURCE="${SOMA_GATE_IMAGE_SOURCE:-}"
+FS_TOOLS="${SOMA_GATE_FS_TOOLS:-/srv/soma/fs-tools}"
 INPUT="${SOMA_INPUT:-/srv/miosa/soma-any-size-install}"
 URL="${SOMA_GATE_URL:-127.0.0.1:18787}"
 TENANT="${SOMA_GATE_TENANT:-step-a-cert}"
@@ -71,6 +80,8 @@ while [[ $# -gt 0 ]]; do
         --instance) INSTANCE="${2:-}"; shift 2 ;;
         --volume) VOLUME="${2:-}"; shift 2 ;;
         --build-host) BUILD="${2:-}"; shift 2 ;;
+        --image-source) IMAGE_SOURCE="${2:-}"; shift 2 ;;
+        --image-archive) IMAGE_ARCHIVE="${2:-}"; shift 2 ;;
         -h|--help) sed -n '8,36p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac
@@ -103,8 +114,12 @@ say "preflight on ${HOST}"
 on_host "test -f ${INPUT}/install-host.sh" || die "no ${INPUT}/install-host.sh: push the bundle first"
 on_host "grep -q '^cmd_hostd()' ${INPUT}/install-host.sh" \
     || die "the installed bundle predates SOMA #2154: it has no hostd step, so there is no volume store"
-on_host "grep -q cgroup.kill ${INPUT}/install-host.sh && exit 1 || exit 0" \
-    || die "the installed bundle predates SOMA #2146: its drop-in kills the machine subtree on a stop"
+# The installed drop-in is what can kill a machine, not the installer's text: the installer names
+# cgroup.kill in the assertion that checks for it, so grepping the script refuses a correct bundle.
+on_host "test -f /etc/systemd/system/soma-api.service.d/60-soma-live-cgroup.conf" \
+    || die "no soma-live drop-in on ${HOST}: the cgroup step has not run there"
+on_host "grep -l cgroup.kill /etc/systemd/system/soma-api.service.d/*.conf 2>/dev/null && exit 1 || exit 0" \
+    || die "an installed drop-in kills the machine subtree on a stop: SOMA #2146 is not applied on ${HOST}"
 on_host "systemctl is-active --quiet soma-hostd.service" || die "soma-hostd is not running"
 on_host "test -S /run/soma-hostd/allocator.sock" || die "soma-hostd has no control socket"
 on_host "test \"\$(stat -c %s /srv/miosa-enc/soma/volume-master.key)\" = 32" || die "the host key is missing or not 32 bytes"
@@ -115,12 +130,24 @@ say "preflight ok"
 # ---------------------------------------------------------------- 1. recapture
 
 if [[ "${SKIP_RECAPTURE}" == 0 ]]; then
+    say "recapture prerequisites on ${BUILD}"
+    if [[ -z "${IMAGE_SOURCE}" ]]; then
+        on_build "test -s ${IMAGE_ARCHIVE}" || on_build "docker save ${IMAGE_NAME} -o ${IMAGE_ARCHIVE}" \
+            || die "${BUILD} carries no ${IMAGE_NAME} to export (docker save failed there)"
+        IMAGE_SOURCE="docker-archive:${IMAGE_ARCHIVE}"
+    fi
+    on_build "ls ${BUILD_TREE}/step-a-src/kernel/out/vmlinux-* >/dev/null 2>&1" \
+        || die "no built kernel under ${BUILD_TREE}/step-a-src/kernel/out on ${BUILD} (run kernel/build.sh)"
+    on_build "test -d ${FS_TOOLS}/erofs && test -d ${FS_TOOLS}/e2fsprogs" \
+        || die "no filesystem tools in ${FS_TOOLS} on ${BUILD} (run scripts/build-fs-tools.sh)"
+    on_build "test -x ${BUILD_TREE}/step-a-src/target/x86_64-unknown-linux-musl/release/soma-guest-agent" \
+        || die "no static guest agent on ${BUILD} (run scripts/build-guest-agent.sh)"
     say "recapturing a persistent Generation as ${REFERENCE} on ${BUILD}"
     on_host "test ! -e \$(awk -F= '/^SOMA_GENERATION_STORE=/{print \$2}' /etc/soma/api.env)/ref-\$(printf %s '${REFERENCE}' | sha256sum | cut -d' ' -f1)" \
         || die "${HOST}'s store already holds ${REFERENCE}; pick another --reference"
     on_build "test -d ${BUILD_TREE}/step-a-src" \
         || die "no ${BUILD_TREE}/step-a-src on ${BUILD}: the recapture needs the build tree"
-    on_build "cd ${BUILD_TREE}/step-a-src && SOMA_PREPARE_PERSISTENCE=1 scripts/prepare-generation.sh ${REFERENCE} /srv/soma/stepa-prepared /srv/soma/fs-tools ${SHAPE_MIB} ${SHAPE_DISK}" \
+    on_build "cd ${BUILD_TREE}/step-a-src && SOMA_PREPARE_PERSISTENCE=1 SOMA_IMAGE_SOURCE=${IMAGE_SOURCE} scripts/prepare-generation.sh ${REFERENCE} /srv/soma/stepa-prepared ${FS_TOOLS} ${SHAPE_MIB} ${SHAPE_DISK}" \
         || die "the recapture failed; the tool's output above is the reason"
     on_build "cd ${BUILD_TREE}/step-a-src && ./target/release/examples/capture_snapshot /srv/soma/stepa-prepared/ref-\$(printf %s '${REFERENCE}' | sha256sum | cut -d' ' -f1) ${SHAPE_MIB}" \
         || die "the capture failed; a Generation with no snapshot refuses to launch"
