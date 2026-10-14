@@ -12,7 +12,7 @@ use std::fs;
 
 use crate::mounts;
 
-use super::superblock::{classify_identity, ext4_superblock_ok, read_superblock, Identity};
+use super::superblock::{Identity, classify_identity, ext4_superblock_ok, read_superblock};
 use super::{BootFailure, BootStep, VOLUME_DEVICE, failure};
 
 /// Where the durable volume is mounted for the composed root to bind from.
@@ -51,7 +51,7 @@ pub(super) fn compose(root: &str) -> Result<(), BootFailure> {
             return Err(BootFailure {
                 step: BootStep::VolumeIdentity,
                 errno,
-            })
+            });
         }
     }
     fs::create_dir_all(VOLUME_MOUNT).map_err(|error| failure(BootStep::VolumeMount, &error))?;

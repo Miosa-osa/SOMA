@@ -39,7 +39,8 @@ pub(super) enum Identity {
 /// Reads the superblock of one block device, or the errno that stopped the read.
 pub(super) fn read_superblock(device: &str) -> Result<[u8; SUPERBLOCK_SIZE], i32> {
     let mut file = fs::File::open(device).map_err(errno_of)?;
-    file.seek(SeekFrom::Start(SUPERBLOCK_OFFSET)).map_err(errno_of)?;
+    file.seek(SeekFrom::Start(SUPERBLOCK_OFFSET))
+        .map_err(errno_of)?;
     let mut superblock = [0; SUPERBLOCK_SIZE];
     file.read_exact(&mut superblock).map_err(errno_of)?;
     Ok(superblock)
