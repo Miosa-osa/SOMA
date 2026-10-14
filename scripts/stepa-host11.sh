@@ -107,11 +107,13 @@ EVIDENCE="${REPORT_DIR}/stepa-host11-${STAMP}"
 # would never see it.
 on_host() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} $(printf '%q' "$1")"; }
 on_build() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} $(printf '%q' "$1")"; }
-# One value out of the API's effective environment, which is the unit, its drop-ins and any
-# EnvironmentFile. That is not a file on disk: host-11 has no /etc/soma/api.env at all, and reading
-# one there is how the entry delivery used to fail.
+# One value out of the API's effective environment: the running process's own, which is the unit's
+# Environment= lines, its drop-ins and its EnvironmentFile together. `systemctl show -p Environment`
+# alone omits the EnvironmentFile, which is where the fleet keeps SOMA_GENERATION_STORE, and a read
+# of /etc/soma/api.env assumes one exists.
 api_env() {
-    on_host "systemctl show soma-api -p Environment --value | tr ' ' '\n' | sed -n 's/^$1=//p'" | tr -d '\r' | head -1
+    on_host "p=\$(systemctl show soma-api -p MainPID --value); tr '\0' '\n' < /proc/\${p}/environ | sed -n 's/^$1=//p'" \
+        | tr -d '\r' | head -1
 }
 # One HTTP call to the host's own soma-api, with the JSON body on stdin.
 api() {
