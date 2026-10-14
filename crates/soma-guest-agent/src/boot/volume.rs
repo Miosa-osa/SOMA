@@ -12,7 +12,7 @@ use std::fs;
 
 use crate::mounts;
 
-use super::superblock::{ext4_superblock_ok, verify_superblock};
+use super::superblock::{Identity, classify_identity, ext4_superblock_ok, read_superblock};
 use super::{BootFailure, BootStep, VOLUME_DEVICE, failure};
 
 /// Where the durable volume is mounted for the composed root to bind from.
@@ -40,7 +40,20 @@ const MS_LAZYTIME: libc::c_ulong = 1 << 25;
 ///
 /// Returns the first failed step; the caller reports it and powers off.
 pub(super) fn compose(root: &str) -> Result<(), BootFailure> {
-    verify_superblock(BootStep::VolumeIdentity, VOLUME_DEVICE, ext4_superblock_ok)?;
+    match classify_identity(&read_superblock(VOLUME_DEVICE), ext4_superblock_ok) {
+        Identity::Filesystem => {}
+        // A capture attaches the placeholder, which has no capacity to read. The device is in the
+        // Generation's manifest and carries nothing, so there is nothing to mount, and skipping it
+        // is what keeps a snapshot free of cached state from the volume: the invariant that lets a
+        // later start bind a real file to the same device.
+        Identity::Placeholder => return Ok(()),
+        Identity::Refused(errno) => {
+            return Err(BootFailure {
+                step: BootStep::VolumeIdentity,
+                errno,
+            });
+        }
+    }
     fs::create_dir_all(VOLUME_MOUNT).map_err(|error| failure(BootStep::VolumeMount, &error))?;
     mounts::mount(
         VOLUME_DEVICE,
