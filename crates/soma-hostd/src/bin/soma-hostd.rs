@@ -222,7 +222,8 @@ mod linux {
         )
         .map_err(|error| format!("volume store: {error}"))?;
         let runtime = Arc::new(Runtime::new(pool));
-        daemon::serve(&runtime, &volumes, &config.socket).map_err(|error| error.to_string())
+        daemon::serve(&runtime, &Arc::new(volumes), &config.socket)
+            .map_err(|error| error.to_string())
     }
 
     fn hex32(text: &str, flag: &str) -> Result<[u8; 32], String> {
