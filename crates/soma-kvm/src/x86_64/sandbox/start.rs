@@ -30,12 +30,12 @@ impl SandboxMachine {
         // a placeholder, and the Instance's own file is bound over it before the guest may run.
         // A machine that reached this point still holding the placeholder would give the guest
         // an empty disk where its data belongs, so it is refused and left fully reclaimable.
-        if self
+        let placeholder = self
             .shared
             .lock()
             .volume()
-            .is_some_and(|volume| volume.device().is_placeholder())
-        {
+            .is_some_and(|volume| volume.device().is_placeholder());
+        if refuses_placeholder_volume(self.capture, placeholder) {
             return Err(MachineError::new(
                 Phase::Devices,
                 MachineErrorKind::Block(BlockConfigError::PlaceholderSwapMissing),
@@ -115,5 +115,36 @@ impl SandboxMachine {
             event_loop,
         });
         Ok(())
+    }
+}
+
+/// Whether a machine that reached the run still holding its placeholder must be refused.
+///
+/// A serving guest must never read an empty disk where its files belong, so a launch's machine is
+/// refused. A capture's machine is not a serving guest: the guest sees a device with no capacity
+/// and skips the volume steps, so nothing is mounted and the snapshot holds no cached state from
+/// the volume, which is exactly the invariant that lets the volume stay a placeholder here.
+const fn refuses_placeholder_volume(capture: bool, placeholder: bool) -> bool {
+    !capture && placeholder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::refuses_placeholder_volume;
+
+    #[test]
+    fn a_serving_start_refuses_a_volume_still_on_its_placeholder() {
+        assert!(refuses_placeholder_volume(false, true));
+    }
+
+    #[test]
+    fn a_capture_start_accepts_the_placeholder_it_will_publish() {
+        assert!(!refuses_placeholder_volume(true, true));
+    }
+
+    #[test]
+    fn a_start_with_a_bound_volume_is_allowed_either_way() {
+        assert!(!refuses_placeholder_volume(false, false));
+        assert!(!refuses_placeholder_volume(true, false));
     }
 }
