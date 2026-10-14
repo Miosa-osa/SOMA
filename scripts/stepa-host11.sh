@@ -183,8 +183,12 @@ say "delivering the entry to ${HOST}'s store"
 STORE_REF="$(on_host "cat ${STORE}/${ENTRY}/reference 2>/dev/null" | tr -d '\r')"
 if [[ "${STORE_REF}" != "${REFERENCE}" ]]; then
     ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} 'tar --sparse -C /srv/soma/stepa-prepared -cf - ${ENTRY}'" \
-        | ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} 'mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}'" \
+        | ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} 'rm -rf ${INPUT}/generations/${SET} && mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}'" \
         || die "could not carry ${ENTRY} to ${HOST}"
+    # The installer verifies every file against the manifest beside the set, the same one
+    # push-to-host.sh writes; a hand-carried entry has to carry it too or the step refuses.
+    on_host "cd ${INPUT}/generations/${SET}/${ENTRY} && find . -type f -print0 | sort -z | xargs -0 sha256sum > ${INPUT}/generations/${SET}.sha256" \
+        || die "could not write the manifest for ${ENTRY} on ${HOST}"
     on_host "bash ${INPUT}/install-host.sh generations" || die "install-host.sh generations refused"
 fi
 on_host "test -f ${STORE}/${ENTRY}/reference" \
