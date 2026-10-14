@@ -103,8 +103,12 @@ say "preflight on ${HOST}"
 on_host "test -f ${INPUT}/install-host.sh" || die "no ${INPUT}/install-host.sh: push the bundle first"
 on_host "grep -q '^cmd_hostd()' ${INPUT}/install-host.sh" \
     || die "the installed bundle predates SOMA #2154: it has no hostd step, so there is no volume store"
-on_host "grep -q cgroup.kill ${INPUT}/install-host.sh && exit 1 || exit 0" \
-    || die "the installed bundle predates SOMA #2146: its drop-in kills the machine subtree on a stop"
+# The installed drop-in is what can kill a machine, not the installer's text: the installer names
+# cgroup.kill in the assertion that checks for it, so grepping the script refuses a correct bundle.
+on_host "test -f /etc/systemd/system/soma-api.service.d/60-soma-live-cgroup.conf" \
+    || die "no soma-live drop-in on ${HOST}: the cgroup step has not run there"
+on_host "grep -l cgroup.kill /etc/systemd/system/soma-api.service.d/*.conf 2>/dev/null && exit 1 || exit 0" \
+    || die "an installed drop-in kills the machine subtree on a stop: SOMA #2146 is not applied on ${HOST}"
 on_host "systemctl is-active --quiet soma-hostd.service" || die "soma-hostd is not running"
 on_host "test -S /run/soma-hostd/allocator.sock" || die "soma-hostd has no control socket"
 on_host "test \"\$(stat -c %s /srv/miosa-enc/soma/volume-master.key)\" = 32" || die "the host key is missing or not 32 bytes"
