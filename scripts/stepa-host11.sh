@@ -180,7 +180,10 @@ fi
 # ---------------------------------------------------------------- 2. deliver the entry
 
 say "delivering the entry to ${HOST}'s store"
-STORE_REF="$(on_host "cat ${STORE}/${ENTRY}/reference 2>/dev/null" | tr -d '\r')"
+# The probe is meant to miss on a host that does not hold the entry yet, and a command
+# substitution that fails takes the whole script down under `set -e`: the remote command is the one
+# that has to tolerate the miss.
+STORE_REF="$(on_host "cat ${STORE}/${ENTRY}/reference 2>/dev/null || true" | tr -d '\r')"
 if [[ "${STORE_REF}" != "${REFERENCE}" ]]; then
     ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} 'tar --sparse -C /srv/soma/stepa-prepared -cf - ${ENTRY}'" \
         | ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} 'rm -rf ${INPUT}/generations/${SET} && mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}'" \
@@ -197,7 +200,7 @@ say "the store holds ${REFERENCE}"
 
 # ---------------------------------------------------------------- 3. attach and create
 
-GENERATION="$(on_host "cat ${STORE}/${ENTRY}/generation.id" | tr -d '\r')"
+GENERATION="$(on_host "cat ${STORE}/${ENTRY}/generation.id 2>/dev/null || true" | tr -d '\r')"
 [[ "${GENERATION}" =~ ^[0-9a-f]{64}$ ]] || die "could not read the Generation id (got '${GENERATION}')"
 [[ -n "${VOLUME}" ]] || VOLUME="$(on_host 'openssl rand -hex 16' | tr -d '\r')"
 [[ -n "${INSTANCE}" ]] || INSTANCE="$(on_host 'uuidgen | tr -d - | tr "A-F" "a-f"' | tr -d '\r')"
