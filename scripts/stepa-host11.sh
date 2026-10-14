@@ -107,10 +107,9 @@ EVIDENCE="${REPORT_DIR}/stepa-host11-${STAMP}"
 # would never see it.
 on_host() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} $(printf '%q' "$1")"; }
 on_build() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} $(printf '%q' "$1")"; }
-# One value out of the API's effective environment: the running process's own, which is the unit's
-# Environment= lines, its drop-ins and its EnvironmentFile together. `systemctl show -p Environment`
-# alone omits the EnvironmentFile, which is where the fleet keeps SOMA_GENERATION_STORE, and a read
-# of /etc/soma/api.env assumes one exists.
+# One value out of the API's effective environment: the running process's own, which is the unit,
+# its drop-ins and its EnvironmentFile together. `systemctl show -p Environment` omits the file,
+# where the fleet keeps SOMA_GENERATION_STORE, and reading /etc/soma/api.env assumes one exists.
 api_env() {
     on_host "p=\$(systemctl show soma-api -p MainPID --value); tr '\0' '\n' < /proc/\${p}/environ | sed -n 's/^$1=//p'" \
         | tr -d '\r' | head -1
@@ -180,14 +179,12 @@ fi
 # ---------------------------------------------------------------- 2. deliver the entry
 
 say "delivering the entry to ${HOST}'s store"
-# The probe is meant to miss on a host that does not hold the entry yet, and a command
-# substitution that fails takes the whole script down under `set -e`: the remote command is the one
-# that has to tolerate the miss.
+# The probe is meant to miss on a host without the entry, and under `set -e` a command substitution
+# that fails ends the script with no message: the remote command is the one that tolerates the miss.
 STORE_REF="$(on_host "cat ${STORE}/${ENTRY}/reference 2>/dev/null || true" | tr -d '\r')"
 if [[ "${STORE_REF}" != "${REFERENCE}" ]]; then
-    # The carry runs ON the jump host, so the bytes go host to host over the fleet's own links. Run
-    # from here instead and every byte crosses the workstation twice: a 30 GiB sparse entry measured
-    # at about 26 MB/min that way, which is hours rather than minutes.
+    # The carry runs ON the jump host, so the bytes go host to host. Driven from here every byte
+    # crosses the workstation twice: measured at about 26 MB/min that way, hours rather than minutes.
     ssh "${JUMP}" "sudo -n bash -c 'ssh -o BatchMode=yes root@${BUILD} \"tar --sparse -C /srv/soma/stepa-prepared -cf - ${ENTRY}\" | ssh -o BatchMode=yes root@${HOST} \"rm -rf ${INPUT}/generations/${SET} && mkdir -p ${INPUT}/generations/${SET} && tar -xf - -C ${INPUT}/generations/${SET}\"'" \
         || die "could not carry ${ENTRY} to ${HOST}"
     # The installer verifies every file against the manifest beside the set, the same one
