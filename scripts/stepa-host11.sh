@@ -104,8 +104,7 @@ EVIDENCE="${REPORT_DIR}/stepa-host11-${STAMP}"
 # would never see it.
 on_host() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${HOST} $(printf '%q' "$1")"; }
 on_build() { ssh "${JUMP}" "sudo -n ssh -o BatchMode=yes root@${BUILD} $(printf '%q' "$1")"; }
-# One value out of the API's effective environment: the running process's own, which is the unit,
-# its drop-ins and its EnvironmentFile together. `systemctl show -p Environment` omits the file.
+# One value out of the API's effective environment: its running process's own (unit, drop-ins and EnvironmentFile together).
 api_env() {
     on_host "p=\$(systemctl show soma-api -p MainPID --value); tr '\0' '\n' < /proc/\${p}/environ | sed -n 's/^$1=//p'" \
         | tr -d '\r' | head -1
@@ -200,6 +199,8 @@ say "the store holds ${REFERENCE}"
 # ---------------------------------------------------------------- 3. attach and create
 
 GENERATION="$(on_host "cat ${STORE}/${ENTRY}/generation.id 2>/dev/null || true" | tr -d '\r')"
+# The entry publishes the identity with its algorithm, and the API parses a bare 64-hex one.
+GENERATION="${GENERATION#sha256:}"
 [[ "${GENERATION}" =~ ^[0-9a-f]{64}$ ]] || die "could not read the Generation id (got '${GENERATION}')"
 [[ -n "${VOLUME}" ]] || VOLUME="$(on_host 'openssl rand -hex 16' | tr -d '\r')"
 [[ -n "${INSTANCE}" ]] || INSTANCE="$(on_host 'uuidgen | tr -d - | tr "A-F" "a-f"' | tr -d '\r')"
