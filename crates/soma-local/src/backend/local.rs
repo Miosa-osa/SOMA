@@ -1,0 +1,219 @@
+//! The selected local backend, and the portable Backend it implements.
+
+use std::{any::Any, path::PathBuf};
+
+use soma::{
+    Backend, BackendFailure, BackendFailureKind, BackendKind, CleanupObservation, CleanupRequest,
+    CommandObservation, ExecutionRequest, FileObservation, FileRequest, InspectionObservation,
+    InspectionRequest, InstanceId, LaunchObservation, LaunchRequest, PtyObservation, PtyRequest,
+    ResolutionObservation, ResolutionRequest, SandboxLiveness,
+};
+
+use crate::{LocalFailure, LocalFailureKind};
+
+use super::BackendSelection;
+use super::docker;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::kvm;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use super::macos;
+use super::selection::resolve_selection;
+
+pub(crate) enum LocalBackend {
+    Docker(docker::DockerBackend),
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    Macos(macos::MacBackend),
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Kvm(Box<kvm::KvmBackend>),
+}
+
+type PreparedWorkload = Box<dyn Any + Send>;
+
+impl LocalBackend {
+    /// Opens one local backend.
+    ///
+    /// `host_directory` is where machines that must outlive this process are addressed. Only a
+    /// caller performing the managed Machine lifecycle supplies one; a one-shot run does not,
+    /// and keeps its machine in its own process.
+    pub(crate) fn open(
+        selection: BackendSelection,
+        explicit_runtime: Option<PathBuf>,
+        host_directory: Option<PathBuf>,
+    ) -> Result<(Self, BackendSelection), LocalFailure> {
+        let resolved = resolve_selection(selection)?;
+        match resolved {
+            BackendSelection::Docker => {
+                drop(host_directory);
+                docker::DockerBackend::open()
+                    .map(|backend| (Self::Docker(backend), resolved))
+                    .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))
+            }
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            BackendSelection::Macos => {
+                drop(host_directory);
+                macos::MacBackend::open(explicit_runtime)
+                    .map(|backend| (Self::Macos(backend), resolved))
+                    .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))
+            }
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            BackendSelection::Kvm => {
+                drop(explicit_runtime);
+                kvm::KvmBackend::open(host_directory)
+                    .map(|backend| (Self::Kvm(Box::new(backend)), resolved))
+            }
+            _ => {
+                drop(explicit_runtime);
+                drop(host_directory);
+                Err(LocalFailure::new(LocalFailureKind::UnsupportedTarget))
+            }
+        }
+    }
+}
+
+impl Backend for LocalBackend {
+    type PreparedWorkload = PreparedWorkload;
+
+    fn kind(&self) -> BackendKind {
+        match self {
+            Self::Docker(_) => docker::DockerBackend::kind(),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(_) => macos::MacBackend::kind(),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(_) => kvm::KvmBackend::kind(),
+        }
+    }
+
+    fn resolve(
+        &mut self,
+        request: ResolutionRequest<'_>,
+    ) -> Result<ResolutionObservation<Self::PreparedWorkload>, BackendFailure> {
+        match self {
+            Self::Docker(backend) => backend.resolve(request),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => backend.resolve_box(request),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.resolve(request),
+        }
+    }
+
+    fn launch(
+        &mut self,
+        request: LaunchRequest<'_, Self::PreparedWorkload>,
+    ) -> Result<LaunchObservation, BackendFailure> {
+        match self {
+            Self::Docker(backend) => backend.launch(&request),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => backend.launch_box(&request),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.launch(&request),
+        }
+    }
+
+    fn execute(
+        &mut self,
+        request: ExecutionRequest<'_>,
+    ) -> Result<CommandObservation, BackendFailure> {
+        // Only the KVM backend delivers a command's environment, working directory, user, and
+        // standard input. The others would run the command without them, which is a different
+        // command, so they refuse it.
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        let delivers_context = matches!(self, Self::Kvm(_));
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        let delivers_context = false;
+        if !request.command().context().is_empty() && !delivers_context {
+            return Err(BackendFailure::new(BackendFailureKind::Unsupported, 0));
+        }
+        match self {
+            Self::Docker(backend) => Ok(backend.execute(request)),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => backend.execute(request),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.execute(request),
+        }
+    }
+
+    fn execute_streaming(
+        &mut self,
+        request: ExecutionRequest<'_>,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandObservation, BackendFailure> {
+        match self {
+            // Only the KVM backend observes output while the guest produces it. The others
+            // answer a streaming request the way every backend does by default: run the command
+            // to its end, then deliver what it retained.
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.execute_streaming(request, sink),
+            _ => {
+                let observation = self.execute(request)?;
+                observation.output().replay(sink);
+                Ok(observation)
+            }
+        }
+    }
+
+    fn file(&mut self, request: FileRequest<'_>) -> Result<FileObservation, BackendFailure> {
+        match self {
+            // Neither of these holds a machine a later process can address, so a filesystem call
+            // has nothing to reach and says so rather than answering about a machine that is gone.
+            Self::Docker(_) => Err(docker::DockerBackend::unsupported(request.operation_id())),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => Err(backend.unsupported(request.operation_id())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.file(request),
+        }
+    }
+
+    fn pty(&mut self, request: PtyRequest<'_>) -> Result<PtyObservation, BackendFailure> {
+        match self {
+            // Neither of these reaches a guest session a later process can address, so a
+            // terminal call has nothing to open and says so rather than answering about a
+            // session that does not exist.
+            Self::Docker(_) => Err(docker::DockerBackend::unsupported(request.operation_id())),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => Err(backend.unsupported(request.operation_id())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.pty(request),
+        }
+    }
+
+    fn liveness(&mut self, instance_id: &InstanceId) -> SandboxLiveness {
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        let _ = instance_id;
+        match self {
+            // Docker registers the container with a daemon this process does not own, and this
+            // backend has no probe for it that is cheaper or more certain than an inspection, so
+            // it makes no claim here.
+            Self::Docker(_) => SandboxLiveness::Unknown,
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(_) => SandboxLiveness::Unknown,
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.liveness(instance_id),
+        }
+    }
+
+    fn inspect(
+        &mut self,
+        request: InspectionRequest<'_>,
+    ) -> Result<InspectionObservation, BackendFailure> {
+        match self {
+            Self::Docker(backend) => backend.inspect(request),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => backend.inspect(request),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.inspect(request),
+        }
+    }
+
+    fn cleanup(
+        &mut self,
+        request: CleanupRequest<'_>,
+    ) -> Result<CleanupObservation, BackendFailure> {
+        match self {
+            Self::Docker(backend) => Ok(backend.cleanup(request)),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(backend) => backend.cleanup(request),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.cleanup(request),
+        }
+    }
+}

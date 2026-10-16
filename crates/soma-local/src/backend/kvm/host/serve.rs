@@ -9,8 +9,10 @@
 //! that vanished, a host that was told to shut down, and a listener that failed all leave the
 //! same thing behind: no machine, no overlay head, no lease, and no socket.
 
+mod requests;
+
 use std::{
-    io::{self, BufReader},
+    io,
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
     sync::{
@@ -109,7 +111,7 @@ fn answer_until_released(
         let Ok(mut stream) = accepted else {
             break;
         };
-        let Some(call) = receive(&mut stream) else {
+        let Some(call) = requests::receive(&mut stream) else {
             continue;
         };
         if matches!(call, Call::Shutdown) {
@@ -147,7 +149,7 @@ fn answer_until_released(
             forced,
         } = &call
         {
-            let answer = release(backend, instance_id, force_for(*forced));
+            let answer = requests::release(backend, instance_id, requests::force_for(*forced));
             let released = matches!(answer, Answer::Cleaned { .. });
             let _ignored = channel::write_line(&mut stream, &answer);
             if released {
@@ -159,7 +161,7 @@ fn answer_until_released(
             }
             continue;
         }
-        let answer = perform(backend, call);
+        let answer = requests::perform(backend, call);
         let _ignored = channel::write_line(&mut stream, &answer);
         activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
     }
@@ -206,105 +208,6 @@ fn stream_command(
             stdout_bytes: stdout.len() as u64,
             stderr_bytes: stderr.len() as u64,
         },
-        Err(kind) => Answer::Refused(kind.into()),
-    }
-}
-
-fn receive(stream: &mut UnixStream) -> Option<Call> {
-    stream.set_read_timeout(Some(REQUEST_CEILING)).ok()?;
-    let mut reader = BufReader::new(stream.try_clone().ok()?);
-    channel::read_line::<Call>(&mut reader)
-}
-
-fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
-    match call {
-        Call::Execute {
-            instance_id,
-            program,
-            arguments,
-            timeout_ms,
-            max_output_bytes,
-        } => {
-            let Ok(command) = GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
-            else {
-                return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
-            };
-            match backend.execute_resident(&instance_id, command) {
-                Ok((status, stdout, stderr)) => Answer::Executed {
-                    status,
-                    stdout,
-                    stderr,
-                },
-                Err(kind) => Answer::Refused(kind.into()),
-            }
-        }
-        Call::ExecuteInContext {
-            instance_id,
-            program,
-            arguments,
-            timeout_ms,
-            max_output_bytes,
-            context,
-        } => {
-            let Ok(command) = GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
-                .and_then(|command| context.apply(command))
-            else {
-                return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
-            };
-            match backend.execute_resident(&instance_id, command) {
-                Ok((status, stdout, stderr)) => Answer::Executed {
-                    status,
-                    stdout,
-                    stderr,
-                },
-                Err(kind) => Answer::Refused(kind.into()),
-            }
-        }
-        Call::File {
-            instance_id,
-            operation,
-        } => match backend.file_resident(&instance_id, &operation) {
-            Ok(answer) => Answer::FileAnswered { answer },
-            Err(kind) => Answer::Refused(kind.into()),
-        },
-        Call::Pty {
-            instance_id,
-            operation,
-        } => match backend.pty_resident(&instance_id, &operation) {
-            Ok(answer) => Answer::PtyAnswered { answer },
-            Err(kind) => Answer::Refused(kind.into()),
-        },
-        Call::Inspect { instance_id } => match backend.inspect_resident(&instance_id) {
-            Ok((state, network)) => Answer::Inspected { state, network },
-            Err(kind) => Answer::Refused(kind.into()),
-        },
-        // Both terminal calls are decided by the loop rather than here, because each ends the
-        // process and only one of them answers first.
-        Call::Resize {
-            instance_id,
-            request,
-        } => match backend.resize_resident(&instance_id, request) {
-            Ok(outcome) => Answer::Resized(outcome),
-            Err(failure) => Answer::ResizeRefused(failure),
-        },
-        Call::Cleanup { .. }
-        | Call::Shutdown
-        | Call::Tunnel { .. }
-        | Call::ExecuteStreaming { .. } => Answer::Refused(BackendFailureKind::Unsupported.into()),
-    }
-}
-
-const fn force_for(forced: bool) -> Force {
-    if forced {
-        Force::Immediately
-    } else {
-        Force::OnlyIfTheGuestWillNotLeave
-    }
-}
-
-fn release(backend: &mut KvmBackend, instance: &InstanceId, force: Force) -> Answer {
-    match backend.cleanup_resident(instance, force) {
-        Ok(evidence) => Answer::Cleaned { evidence },
         Err(kind) => Answer::Refused(kind.into()),
     }
 }
