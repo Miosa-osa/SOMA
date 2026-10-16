@@ -9,10 +9,11 @@ use std::{
 use soma::{MAX_STATE_RECORD_BYTES, StateRecord, StateRevision, StateStoreFailure};
 
 use super::{
+    barrier::SyncBarrier,
     failure::{capacity_exceeded, conflict, corrupt, unavailable},
     filesystem::{
         reject_unsafe_existing_file, require_single_link, require_single_link_metadata,
-        set_create_file_mode, set_file_permissions, sync_directory,
+        set_create_file_mode, set_file_permissions, sync_record, sync_root,
     },
     layout::{is_valid_temp_name, parse_revision_name, revision_path_from_directory},
 };
@@ -87,9 +88,14 @@ pub(super) fn commit_revision(
     directory: &Path,
     revision: StateRevision,
     record: &StateRecord,
+    barrier: &SyncBarrier,
 ) -> Result<(), StateStoreFailure> {
     let target = revision_path_from_directory(directory, revision);
     let temp = create_temp(directory, record)?;
+    // The record's bytes must be durable before anything can publish them, so a
+    // crash cannot leave a link pointing at a record that was never written.
+    // Group commit puts one sync behind every writer that arrived with this one.
+    barrier.commit(|| sync_record(directory, &temp))?;
     match fs::hard_link(&temp, &target) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -108,7 +114,9 @@ pub(super) fn commit_revision(
     // proves it. A second directory commit would therefore buy no state that is not already
     // recovered, and it is the most expensive syscall on this path.
     fs::remove_file(&temp).map_err(|_| unavailable())?;
-    sync_directory(directory)?;
+    // The link is what publishes the record, so this write is not durable until
+    // that link is. One sync per batch covers every writer that arrived with it.
+    barrier.commit(|| sync_root(directory))?;
     require_single_link(&target)?;
     Ok(())
 }
@@ -126,11 +134,9 @@ fn create_temp(directory: &Path, record: &StateRecord) -> Result<PathBuf, StateS
                 file.write_all(record.as_bytes())
                     .map_err(|_| unavailable())?;
                 set_file_permissions(&file)?;
-                // The record's bytes and its length are what a later read needs; the inode was
-                // journalled with the exclusive create that made it, and its mode came from
-                // that same create. `sync_all` would additionally commit the timestamps, which
-                // nothing here reads.
-                file.sync_data().map_err(|_| unavailable())?;
+                // No sync here: `commit_revision` makes these bytes durable through the
+                // barrier before the link can publish them, which is a stronger place for it
+                // because one sync then covers every writer in the batch.
                 return Ok(path);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
