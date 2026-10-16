@@ -89,8 +89,8 @@ async fn agent_can_probe_a_backend_through_mcp() {
 struct VersionClient(ProtocolVersion);
 
 impl ClientHandler for VersionClient {
-    fn get_info(&self) -> rmcp::model::ClientConfig {
-        rmcp::model::ClientConfig::new(
+    fn get_info(&self) -> rmcp::model::ClientInfo {
+        rmcp::model::ClientInfo::new(
             rmcp::model::ClientCapabilities::default(),
             rmcp::model::Implementation::new("soma-mcp-test", "1"),
         )
