@@ -15,7 +15,7 @@ name = "soma-vmm"
 path = "src/bin/soma-vmm/main.rs"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-libc = "=0.2.189"
+libc = "=0.2.190"
 soma = { path = "../soma", version = "=1.0.0-alpha.1" }
 soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
 soma-jail = { path = "../soma-jail", version = "=1.0.0-alpha.1" }

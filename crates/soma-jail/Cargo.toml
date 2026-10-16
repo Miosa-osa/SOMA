@@ -15,7 +15,7 @@ name = "jail-probe"
 path = "src/bin/jail-probe.rs"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
-libc = "=0.2.189"
+libc = "=0.2.190"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 kvm-bindings = "=0.14.1"
