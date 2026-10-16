@@ -18,6 +18,23 @@ impl Machine {
     /// Returns a typed [`Failure`] when the Instance is not Ready, identity does not match, the
     /// operation conflicts, or authenticated execution fails.
     pub fn execute(&mut self, request: Execute) -> Result<Executed, Failure> {
+        self.execute_streaming(request, &mut |_, _| {})
+    }
+
+    /// Executes one command like [`Self::execute`], and reports each output chunk to `sink` as
+    /// the platform produces it.
+    ///
+    /// A request that replays a retained receipt runs nothing, so it reports no chunks; the
+    /// caller reads the retained output by window, exactly as it would after `execute`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed [`Failure`] `execute` does.
+    pub fn execute_streaming(
+        &mut self,
+        request: Execute,
+        sink: &mut dyn FnMut(OutputStream, &[u8]),
+    ) -> Result<Executed, Failure> {
         match self.operations.replay_execute(&request) {
             Ok(Some(outcome)) => return outcome,
             Err(_) => return Err(operation_conflict()),
@@ -28,7 +45,7 @@ impl Machine {
             .ensure_execute_capacity(&request)
             .map_err(|_| operation_capacity_exceeded())?;
 
-        let outcome = self.perform_execute(&request);
+        let outcome = self.perform_execute(&request, sink);
         self.operations.record_execute(request, outcome.clone());
         outcome
     }
@@ -50,9 +67,13 @@ impl Machine {
         bytes.get(start..end)
     }
 
-    fn perform_execute(&mut self, request: &Execute) -> Result<Executed, Failure> {
+    fn perform_execute(
+        &mut self,
+        request: &Execute,
+        sink: &mut dyn FnMut(OutputStream, &[u8]),
+    ) -> Result<Executed, Failure> {
         let guest = self.guest.as_mut().ok_or_else(lifecycle_failure)?;
-        let outcome = match self.platform.execute(request, guest) {
+        let outcome = match self.platform.execute_streaming(request, guest, sink) {
             Ok(outcome) => outcome,
             Err(failure) => {
                 self.state = State::Failed;

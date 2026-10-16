@@ -78,6 +78,22 @@ impl SandboxFacade for LocalFacade {
         })
     }
 
+    fn execute_streaming(
+        &mut self,
+        request: ExecuteMachineRequest,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandOutcome, ManagedFailure> {
+        let outcome = self.runtime.execute_machine_streaming(request, sink)?;
+        let receipt = outcome.receipt();
+        Ok(CommandOutcome {
+            instance_id: receipt.instance_id().clone(),
+            status: *receipt.terminal_status(),
+            stdout: outcome.output().stdout().to_vec(),
+            stderr: outcome.output().stderr().to_vec(),
+            receipt: receipt.clone(),
+        })
+    }
+
     fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
         let outcome = self.runtime.file_machine(request)?;
         Ok(FileOutcome {

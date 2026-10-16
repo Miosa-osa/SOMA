@@ -1,11 +1,12 @@
 //! What a caller is told it received, and how a guest result becomes a portable one.
 
+use serde::{Deserialize, Serialize};
 use soma::{
     CommandObservation, CommandStatus, CommandTimes, DnsPolicy, EffectiveNetwork, EffectiveShape,
     EgressPolicy, ExecutionRequest, NetworkAttachment, NetworkPolicy, Observation,
     ObservationUnavailable, ObservedOutput, PortActivationClass,
 };
-use soma_guest::TerminalStatus;
+use soma_guest::{CommandContext, GuestCommand, TerminalStatus};
 
 use super::network::Egress;
 
@@ -72,11 +73,65 @@ pub(super) fn effective_network(egress: &Egress, policy: &NetworkPolicy) -> Effe
 ///
 /// The lowering happens on the side that was asked, whether or not the machine is in this
 /// process, so a request no guest could accept is refused before any other process is addressed.
-pub(super) struct CommandParts {
-    pub(super) program: Vec<u8>,
-    pub(super) arguments: Vec<Vec<u8>>,
-    pub(super) timeout_ms: u32,
-    pub(super) max_output_bytes: u64,
+pub(in crate::backend::kvm) struct CommandParts {
+    pub(in crate::backend::kvm) program: Vec<u8>,
+    pub(in crate::backend::kvm) arguments: Vec<Vec<u8>>,
+    pub(in crate::backend::kvm) timeout_ms: u32,
+    pub(in crate::backend::kvm) max_output_bytes: u64,
+    pub(in crate::backend::kvm) context: WireContext,
+}
+
+/// The environment, working directory, user, and standard input of one command, in the form that
+/// crosses to a resident host and rebuilds a guest context.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::backend::kvm) struct WireContext {
+    pub(in crate::backend::kvm) environment: Vec<(Vec<u8>, Vec<u8>)>,
+    pub(in crate::backend::kvm) working_directory: Option<Vec<u8>>,
+    pub(in crate::backend::kvm) user: Option<Vec<u8>>,
+    pub(in crate::backend::kvm) stdin: Vec<u8>,
+}
+
+impl WireContext {
+    pub(in crate::backend::kvm) fn is_empty(&self) -> bool {
+        self.environment.is_empty()
+            && self.working_directory.is_none()
+            && self.user.is_none()
+            && self.stdin.is_empty()
+    }
+
+    fn from_portable(context: &soma::CommandContext) -> Self {
+        Self {
+            environment: context
+                .environment()
+                .iter()
+                .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
+                .collect(),
+            working_directory: context
+                .working_directory()
+                .map(|path| path.as_bytes().to_vec()),
+            user: context.user().map(|user| user.as_bytes().to_vec()),
+            stdin: context.stdin().to_vec(),
+        }
+    }
+
+    /// The guest command carrying this context, which re-checks every bound the guest enforces.
+    ///
+    /// An empty context leaves the command exactly as `GuestCommand::new` built it.
+    pub(in crate::backend::kvm) fn apply(
+        self,
+        command: GuestCommand,
+    ) -> Result<GuestCommand, soma_guest::Error> {
+        if self.is_empty() {
+            return Ok(command);
+        }
+        command.with_context(CommandContext {
+            environment: self.environment,
+            working_directory: self.working_directory,
+            user: self.user,
+            stdin: self.stdin,
+        })
+    }
 }
 
 pub(super) fn command_parts(request: &ExecutionRequest<'_>) -> Option<CommandParts> {
@@ -91,6 +146,7 @@ pub(super) fn command_parts(request: &ExecutionRequest<'_>) -> Option<CommandPar
             .collect(),
         timeout_ms: u32::try_from(limits.timeout_ms()).ok()?,
         max_output_bytes: limits.max_output_bytes(),
+        context: WireContext::from_portable(command.context()),
     })
 }
 
@@ -147,5 +203,52 @@ mod shape_tests {
         assert_eq!(effective.vcpu_count(), &Observation::Observed(1));
         assert_eq!(effective.memory_mib(), &Observation::Observed(1024));
         assert_eq!(effective.storage_mib(), &Observation::Observed(10_240));
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use soma_guest::GuestCommand;
+
+    use super::WireContext;
+
+    fn command() -> GuestCommand {
+        GuestCommand::new(b"/bin/true".to_vec(), Vec::new(), 30_000, 1 << 20).expect("command")
+    }
+
+    fn context() -> WireContext {
+        WireContext {
+            environment: vec![(b"A".to_vec(), b"1".to_vec()), (b"B".to_vec(), Vec::new())],
+            working_directory: Some(b"/work".to_vec()),
+            user: Some(b"dev".to_vec()),
+            stdin: b"in".to_vec(),
+        }
+    }
+
+    #[test]
+    fn an_empty_context_leaves_the_command_as_built() {
+        let applied = WireContext::default().apply(command()).expect("applies");
+        assert_eq!(applied, command());
+        assert!(applied.environment().is_empty() && applied.stdin().is_empty());
+    }
+
+    #[test]
+    fn a_context_reaches_the_guest_command_in_the_callers_order() {
+        let applied = context().apply(command()).expect("applies");
+        assert_eq!(applied.environment().len(), 2);
+        assert_eq!(&*applied.environment()[0].0, b"A");
+        assert_eq!(applied.working_directory(), Some(&b"/work"[..]));
+        assert_eq!(applied.user(), Some(&b"dev"[..]));
+        assert_eq!(applied.stdin(), b"in");
+    }
+
+    #[test]
+    fn a_context_the_guest_would_refuse_is_refused_before_any_machine_is_asked() {
+        let mut relative = context();
+        relative.working_directory = Some(b"relative".to_vec());
+        assert!(relative.apply(command()).is_err());
+        let mut named = context();
+        named.environment = vec![(b"A=B".to_vec(), b"1".to_vec())];
+        assert!(named.apply(command()).is_err());
     }
 }

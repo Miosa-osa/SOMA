@@ -103,6 +103,41 @@ impl fmt::Debug for DirectoryEntry {
     }
 }
 
+/// One directory entry with the facts a listing needs without a request per entry.
+#[derive(Clone, Eq, PartialEq)]
+pub struct DetailedEntry {
+    /// The entry's own name, with no separator in it.
+    pub name: Box<[u8]>,
+    /// What the entry is.
+    pub kind: EntryKind,
+    /// Size in bytes; zero for anything that is not a regular file.
+    pub size: u64,
+    /// Permission bits, within [`super::MAX_FILE_MODE`].
+    pub mode: u32,
+    /// Modification time in whole seconds since the Unix epoch, zero when unknown.
+    pub modified: u64,
+}
+
+impl DetailedEntry {
+    /// Bytes this entry takes in an encoded listing.
+    #[must_use]
+    pub const fn encoded_len(&self) -> usize {
+        1 + 2 + self.name.len() + 8 + 4 + 8
+    }
+}
+
+impl fmt::Debug for DetailedEntry {
+    /// Names the kind and the name length, never the name, which is tenant data.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "DetailedEntry {{ kind: {:?}, name: {} bytes }}",
+            self.kind,
+            self.name.len()
+        )
+    }
+}
+
 /// The guest's answer to one filesystem request.
 #[derive(Clone, Eq, PartialEq)]
 pub enum FileOutcome {
@@ -125,10 +160,28 @@ pub enum FileOutcome {
         /// Whether the directory held more entries than this listing carries.
         more: bool,
     },
+    /// A directory listing with size, mode, and modification time per entry.
+    ListedDetailed {
+        /// The entries, at most [`MAX_ENTRIES`] of them.
+        entries: Vec<DetailedEntry>,
+        /// Whether the directory held more entries than this listing carries.
+        more: bool,
+    },
     /// What the named path is, or that it is absent.
     Status {
         /// The kind, or `None` when nothing exists at the path.
         kind: Option<EntryKind>,
+    },
+    /// The kind, size, permission bits, and modification time of a path that exists.
+    Stat {
+        /// What the path is.
+        kind: EntryKind,
+        /// Size in bytes; zero for anything that is not a regular file.
+        size: u64,
+        /// Permission bits, within [`super::MAX_FILE_MODE`].
+        mode: u32,
+        /// Modification time in whole seconds since the Unix epoch, zero when unknown.
+        modified: u64,
     },
     /// The operation completed and has nothing to report.
     Done,
@@ -151,7 +204,13 @@ impl fmt::Debug for FileOutcome {
                     entries.len()
                 )
             }
+            Self::ListedDetailed { entries, more } => write!(
+                formatter,
+                "ListedDetailed {{ {} entries, more: {more} }}",
+                entries.len()
+            ),
             Self::Status { kind } => write!(formatter, "Status {{ {kind:?} }}"),
+            Self::Stat { kind, size, .. } => write!(formatter, "Stat {{ {kind:?}, {size} bytes }}"),
             Self::Done => formatter.write_str("Done"),
             Self::Failed(failure) => write!(formatter, "Failed({failure})"),
         }
@@ -164,6 +223,8 @@ const LISTED: u8 = 3;
 const STATUS: u8 = 4;
 const DONE: u8 = 5;
 const FAILED: u8 = 6;
+const STAT: u8 = 7;
+const LISTED_DETAILED: u8 = 8;
 
 impl FileOutcome {
     /// Encodes this outcome as one frame body.
@@ -193,9 +254,34 @@ impl FileOutcome {
                     put_field(&mut out, &entry.name);
                 }
             }
+            Self::ListedDetailed { entries, more } => {
+                out.push(LISTED_DETAILED);
+                out.push(u8::from(*more));
+                let count = u32::try_from(entries.len()).unwrap_or(u32::MAX);
+                out.extend_from_slice(&count.to_be_bytes());
+                for entry in entries {
+                    out.push(entry.kind as u8);
+                    put_field(&mut out, &entry.name);
+                    out.extend_from_slice(&entry.size.to_be_bytes());
+                    out.extend_from_slice(&entry.mode.to_be_bytes());
+                    out.extend_from_slice(&entry.modified.to_be_bytes());
+                }
+            }
             Self::Status { kind } => {
                 out.push(STATUS);
                 out.push(kind.map_or(0, |kind| kind as u8));
+            }
+            Self::Stat {
+                kind,
+                size,
+                mode,
+                modified,
+            } => {
+                out.push(STAT);
+                out.push(*kind as u8);
+                out.extend_from_slice(&size.to_be_bytes());
+                out.extend_from_slice(&mode.to_be_bytes());
+                out.extend_from_slice(&modified.to_be_bytes());
             }
             Self::Done => out.push(DONE),
             Self::Failed(failure) => {
@@ -243,12 +329,53 @@ impl FileOutcome {
                 }
                 Self::Listed { entries, more }
             }
+            LISTED_DETAILED => {
+                let more = flag(&mut reader)?;
+                let count = reader.u32()?;
+                let count =
+                    usize::try_from(count).map_err(|_| Error::ApplicationMessageRejected)?;
+                if count > MAX_ENTRIES {
+                    return Err(Error::ApplicationMessageRejected);
+                }
+                let mut entries = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let kind = EntryKind::parse(reader.u8()?)?;
+                    let name: Box<[u8]> = reader.field(super::MAX_PATH_BYTES)?.into();
+                    if name.is_empty() || name.contains(&b'/') || name.contains(&0) {
+                        return Err(Error::ApplicationMessageRejected);
+                    }
+                    let size = reader.u64()?;
+                    let permission = reader.u32()?;
+                    super::check_mode(permission)?;
+                    let modified = reader.u64()?;
+                    entries.push(DetailedEntry {
+                        name,
+                        kind,
+                        size,
+                        mode: permission,
+                        modified,
+                    });
+                }
+                Self::ListedDetailed { entries, more }
+            }
             STATUS => Self::Status {
                 kind: match reader.u8()? {
                     0 => None,
                     value => Some(EntryKind::parse(value)?),
                 },
             },
+            STAT => {
+                let kind = EntryKind::parse(reader.u8()?)?;
+                let size = reader.u64()?;
+                let mode = reader.u32()?;
+                super::check_mode(mode)?;
+                Self::Stat {
+                    kind,
+                    size,
+                    mode,
+                    modified: reader.u64()?,
+                }
+            }
             DONE => Self::Done,
             FAILED => Self::Failed(FileFailure::parse(reader.u8()?)?),
             _ => return Err(Error::ApplicationMessageRejected),

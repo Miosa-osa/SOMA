@@ -14,8 +14,8 @@ pub use cleanup::{CleanupObservation, CleanupReason, CleanupRequest, CleanupTime
 pub use execution::{CommandObservation, CommandTimes, ExecutionRequest};
 pub use failure::{BackendFailure, BackendFailureKind};
 pub use file::{
-    FileAnswer, FileEntry, FileKind, FileObservation, FileOperation, FileRefusal, FileRequest,
-    MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, PathRejected, check_guest_path,
+    FileAnswer, FileEntry, FileKind, FileMetadata, FileObservation, FileOperation, FileRefusal,
+    FileRequest, MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, PathRejected, check_guest_path,
 };
 pub use liveness::SandboxLiveness;
 pub use pty::{
@@ -68,6 +68,26 @@ pub trait Backend: Send {
         &mut self,
         request: ExecutionRequest<'_>,
     ) -> Result<CommandObservation, BackendFailure>;
+
+    /// Executes one command and reports each output chunk to `sink` while it runs.
+    ///
+    /// The default executes the command to its end and then replays the retained output, so
+    /// every backend answers a streaming request. A backend that can observe output as the
+    /// guest produces it overrides this. Either way the returned observation is the complete
+    /// one `execute` returns, and the chunks delivered add up to its output.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed backend failure `execute` returns.
+    fn execute_streaming(
+        &mut self,
+        request: ExecutionRequest<'_>,
+        sink: crate::OutputSink<'_>,
+    ) -> Result<CommandObservation, BackendFailure> {
+        let observation = self.execute(request)?;
+        observation.output().replay(sink);
+        Ok(observation)
+    }
 
     /// Performs one bounded filesystem operation inside an exact Instance.
     ///

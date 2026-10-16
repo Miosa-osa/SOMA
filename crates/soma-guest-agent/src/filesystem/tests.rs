@@ -8,6 +8,7 @@ mod directory;
 mod failures;
 mod mode;
 mod presence;
+mod stat_rename;
 
 use std::fs;
 use std::os::unix::ffi::OsStrExt;

@@ -11,13 +11,14 @@ use super::{
     host_connect,
     io::HostControlIo,
     operation_ledger::OperationLedger,
-    outcome::ExecuteOutcome,
+    outcome::{ExecuteOutcome, OutputSource},
 };
 
 mod file;
 mod network;
 mod operation;
 mod pty;
+mod ranged;
 mod secret;
 mod whole_file;
 
@@ -25,6 +26,7 @@ use operation::fresh_operation;
 
 pub use secret::{SecretPlacement, SecretStage};
 
+pub use ranged::{GUEST_API_PROBE_PREFIX, GuestApi, MAX_PROBE_NONCE_BYTES, RangeRead, RangeWrite};
 pub use whole_file::{WholeFileRead, WholeFileWrite};
 
 /// Host owner of one authenticated pre-repair guest-control session.
@@ -120,9 +122,33 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     ///
     /// Returns a redacted Execute error after poisoning the transport exactly once.
     pub fn execute(
+        self,
+        operation: OperationId,
+        command: GuestCommand,
+    ) -> Result<(Self, ExecuteOutcome), ControlError> {
+        self.execute_streaming(operation, command, |_, _| {})
+    }
+
+    /// Executes one operation like [`Self::execute`], and hands every authenticated output chunk
+    /// to `on_output` as it arrives instead of only after the command ends.
+    ///
+    /// The chunk has already passed the output allowance, so the callback never sees more bytes
+    /// than the command was allowed. The outcome still carries the complete retained output and
+    /// was checked against the guest's terminal counts exactly as `execute` checks it, so a
+    /// streaming caller and a buffering caller observe the same command.
+    ///
+    /// The callback runs on the thread driving the exchange, between two authenticated reads.
+    /// It must not block: the guest agent is waiting on the transport, and the exchange's
+    /// deadline keeps running while the callback does.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted Execute error after poisoning the transport exactly once.
+    pub fn execute_streaming(
         mut self,
         operation: OperationId,
         command: GuestCommand,
+        mut on_output: impl FnMut(OutputSource, &[u8]),
     ) -> Result<(Self, ExecuteOutcome), ControlError> {
         if !self.operations.reserve(operation) {
             return Err(self
@@ -165,6 +191,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                             .channel
                             .fail(ControlStage::Execute, ControlFailureClass::Accounting));
                     }
+                    on_output(OutputSource::Stdout, chunk.as_bytes());
                 }
                 GuestMessage::Stderr { chunk, .. } => {
                     if accounting.push_stderr(&chunk).is_err() {
@@ -172,6 +199,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                             .channel
                             .fail(ControlStage::Execute, ControlFailureClass::Accounting));
                     }
+                    on_output(OutputSource::Stderr, chunk.as_bytes());
                 }
                 GuestMessage::Terminal { report, .. } => {
                     if accounting.validate(report).is_err() {

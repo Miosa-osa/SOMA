@@ -18,6 +18,23 @@ pub(super) fn hex(bytes: &[u8]) -> String {
     text
 }
 
+/// Lowercase hexadecimal behind an `x`, so an empty byte string is still one token.
+///
+/// Whitespace separates fields, and the hexadecimal of nothing is nothing, which would make an
+/// empty environment value vanish from the packet. The prefix gives it a spelling.
+pub(super) fn tagged(bytes: &[u8]) -> String {
+    format!("x{}", hex(bytes))
+}
+
+/// Decodes one `x`-prefixed hexadecimal field into its bytes.
+pub(super) fn untagged(token: Option<&str>, field: &'static str) -> Result<Vec<u8>, ControlError> {
+    let text = token.ok_or(ControlError::MissingField(field))?;
+    let digits = text
+        .strip_prefix('x')
+        .ok_or(ControlError::InvalidValue(field))?;
+    bytes(Some(digits), field)
+}
+
 /// Decodes one hexadecimal field into its bytes.
 pub(super) fn bytes(token: Option<&str>, field: &'static str) -> Result<Vec<u8>, ControlError> {
     let text = token.ok_or(ControlError::MissingField(field))?;

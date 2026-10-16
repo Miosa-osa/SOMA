@@ -1,4 +1,5 @@
 mod command;
+mod command_context;
 mod execution_limits;
 mod network;
 mod oci;
@@ -7,6 +8,10 @@ mod shape;
 mod validation;
 
 pub use command::DirectCommand;
+pub use command_context::{
+    CommandContext, MAX_ENVIRONMENT, MAX_FIELD_BYTES as MAX_CONTEXT_FIELD_BYTES, MAX_STDIN_BYTES,
+    MAX_USER_BYTES,
+};
 pub use execution_limits::ExecutionLimits;
 pub use network::{
     DnsPolicy, EgressPolicy, GuestAddressIntent, HostBind, HostPort, Ipv4AddressIntent,

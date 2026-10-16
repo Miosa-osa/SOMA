@@ -33,6 +33,8 @@ pub enum Outcome {
     Failure { kind: FailureKind, detail: String },
     /// One bounded window of a completed command's output.
     Output(Vec<u8>),
+    /// One chunk of a streaming command's output, before the command ended.
+    Chunk(super::OutputStream, Vec<u8>),
     /// One bounded terminal answer.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Pty(soma::PtyAnswer),
@@ -55,6 +57,7 @@ impl Outcome {
             "sealed" => Ok(Self::Sealed),
             "rejected" => Ok(Self::Rejected(rest.to_owned())),
             "output" => field::bytes(Some(rest.trim()), "output").map(Self::Output),
+            "chunk" => chunk(rest),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "pty" => serde_json::from_slice(&field::bytes(Some(rest.trim()), "terminal answer")?)
                 .map(Self::Pty)
@@ -68,6 +71,18 @@ impl Outcome {
             _ => Err(ControlError::UnknownRequest),
         }
     }
+}
+
+/// `chunk <stream> <hex>`.
+fn chunk(text: &str) -> Result<Outcome, ControlError> {
+    let mut tokens = text.split_whitespace();
+    let stream = tokens
+        .next()
+        .and_then(super::OutputStream::from_token)
+        .ok_or(ControlError::InvalidValue("stream"))?;
+    let bytes = field::bytes(tokens.next(), "chunk")?;
+    field::end(tokens)?;
+    Ok(Outcome::Chunk(stream, bytes))
 }
 
 /// The value of one `name=value` field of a reply.

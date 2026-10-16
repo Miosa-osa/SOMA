@@ -93,18 +93,52 @@ impl KvmBackend {
                 parts.timeout_ms,
                 parts.max_output_bytes,
             )
+            .and_then(|command| parts.context.apply(command))
             .map_err(|_| BackendFailureKind::WorkloadRejected)
             .and_then(|command| self.execute_resident(&instance, command)),
-            Some(directory) => host::execute(
-                &directory,
-                &instance,
+            Some(directory) => host::execute(&directory, &instance, parts)
+                .map(|executed| (executed.status, executed.stdout, executed.stderr))
+                .map_err(|failure| self.host_kind(failure, &instance)),
+        };
+        let (status, stdout, stderr) = outcome.map_err(|kind| self.fail(operation, kind))?;
+        let finished = self.clocks.elapsed_ns(operation);
+        Ok(observation(
+            &request,
+            status,
+            stdout,
+            stderr,
+            CommandTimes::new(started, finished),
+        ))
+    }
+
+    /// Executes one command and reports each output chunk to `sink` while it runs.
+    ///
+    /// The same road `execute` takes, with the same admission and the same observation at the
+    /// end; only the delivery of output differs.
+    pub(in crate::backend) fn execute_streaming(
+        &mut self,
+        request: ExecutionRequest<'_>,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandObservation, BackendFailure> {
+        let operation = request.operation_id();
+        let started = self.clocks.elapsed_ns(operation);
+        let Some(parts) = command_parts(&request) else {
+            return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
+        };
+        let instance = request.instance_id().clone();
+        let outcome = match self.hosted_directory() {
+            None => GuestCommand::new(
                 parts.program,
                 parts.arguments,
                 parts.timeout_ms,
                 parts.max_output_bytes,
             )
-            .map(|executed| (executed.status, executed.stdout, executed.stderr))
-            .map_err(|failure| self.host_kind(failure, &instance)),
+            .and_then(|command| parts.context.apply(command))
+            .map_err(|_| BackendFailureKind::WorkloadRejected)
+            .and_then(|command| self.execute_resident_streaming(&instance, command, sink)),
+            Some(directory) => host::execute_streaming(&directory, &instance, parts, sink)
+                .map(|executed| (executed.status, executed.stdout, executed.stderr))
+                .map_err(|failure| self.host_kind(failure, &instance)),
         };
         let (status, stdout, stderr) = outcome.map_err(|kind| self.fail(operation, kind))?;
         let finished = self.clocks.elapsed_ns(operation);

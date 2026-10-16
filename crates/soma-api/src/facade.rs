@@ -108,6 +108,33 @@ pub trait SandboxFacade {
     fn execute(&mut self, request: ExecuteMachineRequest)
     -> Result<CommandOutcome, ManagedFailure>;
 
+    /// Runs one bounded command like [`Self::execute`], reporting each output chunk to `sink`
+    /// while the command runs.
+    ///
+    /// The outcome is the one `execute` returns, so the receipt and the retained output are the
+    /// same whichever way the caller asked. The default runs the command to its end and then
+    /// replays what it retained, so an implementation that cannot stream still answers; one
+    /// that can overrides this.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    fn execute_streaming(
+        &mut self,
+        request: ExecuteMachineRequest,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandOutcome, ManagedFailure> {
+        let outcome = self.execute(request)?;
+        let output = soma::ObservedOutput::new(
+            outcome.stdout.clone(),
+            outcome.stdout.len() as u64,
+            outcome.stderr.clone(),
+            outcome.stderr.len() as u64,
+        );
+        output.replay(sink);
+        Ok(outcome)
+    }
+
     /// Performs one bounded filesystem operation inside a managed sandbox.
     ///
     /// # Errors

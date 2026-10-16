@@ -57,7 +57,9 @@ impl FileReport {
             kind: None,
         };
         match answer {
-            FileAnswer::Read { bytes } => report.content = Some(OutputBytes::new(bytes)),
+            FileAnswer::Read { bytes } | FileAnswer::Range { bytes, .. } => {
+                report.content = Some(OutputBytes::new(bytes));
+            }
             FileAnswer::Written { bytes } => report.byte_length = Some(*bytes),
             FileAnswer::Listed { entries, more } => {
                 report.entries = Some(
@@ -74,6 +76,10 @@ impl FileReport {
             FileAnswer::Status { kind } => {
                 report.exists = Some(kind.is_some());
                 report.kind = kind.map(FileKind::code);
+            }
+            FileAnswer::Stat { kind, size, .. } => {
+                report.byte_length = Some(*size);
+                let _ = kind;
             }
             FileAnswer::Done => {}
             FileAnswer::Refused(refusal) => report.refusal = Some(FileRefusal::code(*refusal)),

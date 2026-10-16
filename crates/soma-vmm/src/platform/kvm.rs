@@ -181,7 +181,16 @@ impl Platform for KvmPlatform {
     fn execute(
         &mut self,
         execute: &Execute,
+        guest: &mut ReadyAuthenticatedGuest,
+    ) -> Result<PlatformExecution, PlatformFailure> {
+        self.execute_streaming(execute, guest, &mut |_, _| {})
+    }
+
+    fn execute_streaming(
+        &mut self,
+        execute: &Execute,
         _guest: &mut ReadyAuthenticatedGuest,
+        sink: &mut dyn FnMut(crate::control::OutputStream, &[u8]),
     ) -> Result<PlatformExecution, PlatformFailure> {
         let session = self
             .session
@@ -198,10 +207,25 @@ impl Platform for KvmPlatform {
             limits.timeout().get(),
             limits.output().get(),
         )
+        .and_then(|command| {
+            if execute.context().is_empty() {
+                Ok(command)
+            } else {
+                command.with_context(execute.context().to_guest())
+            }
+        })
         .map_err(|_| PlatformFailure::new(Recovery::DoNotRetry))?;
         let deadline = Duration::from_millis(u64::from(limits.timeout().get())) + COMMAND_SLACK;
         let completed = session
-            .execute(command, deadline)
+            .execute_streaming(command, deadline, |source, bytes| {
+                sink(
+                    match source {
+                        soma_guest::OutputSource::Stdout => crate::control::OutputStream::Stdout,
+                        soma_guest::OutputSource::Stderr => crate::control::OutputStream::Stderr,
+                    },
+                    bytes,
+                );
+            })
             .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))?;
         let status = faults::exit_status(completed.status)
             .ok_or_else(|| PlatformFailure::new(Recovery::ReplaceMachine))?;

@@ -150,6 +150,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().execute(request)
     }
 
+    fn execute_streaming(
+        &mut self,
+        request: ExecuteMachineRequest,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandOutcome, ManagedFailure> {
+        self.deref_mut().execute_streaming(request, sink)
+    }
+
     fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
         self.deref_mut().file(request)
     }

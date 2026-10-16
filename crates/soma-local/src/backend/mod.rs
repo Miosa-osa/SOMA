@@ -13,9 +13,9 @@ mod macos;
 use std::{any::Any, path::PathBuf};
 
 use soma::{
-    Backend, BackendFailure, BackendKind, CleanupObservation, CleanupRequest, CommandObservation,
-    ExecutionRequest, FileObservation, FileRequest, InspectionObservation, InspectionRequest,
-    InstanceId, LaunchObservation, LaunchRequest, PtyObservation, PtyRequest,
+    Backend, BackendFailure, BackendFailureKind, BackendKind, CleanupObservation, CleanupRequest,
+    CommandObservation, ExecutionRequest, FileObservation, FileRequest, InspectionObservation,
+    InspectionRequest, InstanceId, LaunchObservation, LaunchRequest, PtyObservation, PtyRequest,
     ResolutionObservation, ResolutionRequest, SandboxLiveness,
 };
 
@@ -185,12 +185,41 @@ impl Backend for LocalBackend {
         &mut self,
         request: ExecutionRequest<'_>,
     ) -> Result<CommandObservation, BackendFailure> {
+        // Only the KVM backend delivers a command's environment, working directory, user, and
+        // standard input. The others would run the command without them, which is a different
+        // command, so they refuse it.
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        let delivers_context = matches!(self, Self::Kvm(_));
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        let delivers_context = false;
+        if !request.command().context().is_empty() && !delivers_context {
+            return Err(BackendFailure::new(BackendFailureKind::Unsupported, 0));
+        }
         match self {
             Self::Docker(backend) => Ok(backend.execute(request)),
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             Self::Macos(backend) => backend.execute(request),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Kvm(backend) => backend.execute(request),
+        }
+    }
+
+    fn execute_streaming(
+        &mut self,
+        request: ExecutionRequest<'_>,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandObservation, BackendFailure> {
+        match self {
+            // Only the KVM backend observes output while the guest produces it. The others
+            // answer a streaming request the way every backend does by default: run the command
+            // to its end, then deliver what it retained.
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.execute_streaming(request, sink),
+            _ => {
+                let observation = self.execute(request)?;
+                observation.output().replay(sink);
+                Ok(observation)
+            }
         }
     }
 

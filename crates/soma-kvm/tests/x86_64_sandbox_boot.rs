@@ -69,6 +69,10 @@ mod x86_64_sandbox_boot_memory_fill;
 mod x86_64_sandbox_boot_memory;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_sandbox_boot/guest_api.rs"]
+mod x86_64_sandbox_boot_guest_api;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {
     use soma_kvm::MachineContract;
     use std::{

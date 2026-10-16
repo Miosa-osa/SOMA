@@ -5,6 +5,7 @@
 //! two answers differ; a caller that asks to remove a link means the link.
 
 use std::fs::{self, FileType};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use soma_guest::{EntryKind, FileOutcome};
@@ -24,6 +25,31 @@ pub(super) fn status(path: &Path) -> FileOutcome {
         }
         Err(error) => failure::failed(&error),
     }
+}
+
+/// Reports kind, size, permission bits, and modification time of the path itself.
+pub(super) fn stat(path: &Path) -> FileOutcome {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => FileOutcome::Stat {
+            kind: kind_of(metadata.file_type()),
+            size: if metadata.is_file() {
+                metadata.len()
+            } else {
+                0
+            },
+            mode: metadata.mode() & 0o777,
+            modified: u64::try_from(metadata.mtime()).unwrap_or(0),
+        },
+        Err(error) => failure::failed(&error),
+    }
+}
+
+/// Moves `from` to `to`, atomically replacing a file already at `to`.
+///
+/// The kernel refuses a rename that would put a directory over a file or the reverse, and that
+/// refusal is reported as the wrong kind rather than as a generic failure.
+pub(super) fn rename(from: &Path, to: &Path) -> FileOutcome {
+    failure::done(fs::rename(from, to))
 }
 
 /// Removes the path, taking a directory's contents with it only when asked.

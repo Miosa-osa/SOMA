@@ -47,12 +47,12 @@ mod secret;
 
 pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
-    CommandContext, DirectoryEntry, EntryKind, EnvironmentPair, FIXED_BODY_SIZE, FileFailure,
-    FileOutcome, FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_ARGUMENTS,
-    MAX_BODY_SIZE, MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_FIELD_BYTES, MAX_FILE_MODE, MAX_PATH_BYTES,
-    MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS, MAX_TIMEOUT_MILLIS,
-    OperationId, OutputChunk, PtyFailure, PtyOutcome, PtyRequest, PtySize, TerminalReport,
-    TerminalStatus,
+    CommandContext, DetailedEntry, DirectoryEntry, EntryKind, EnvironmentPair, FIXED_BODY_SIZE,
+    FileFailure, FileOutcome, FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_ARGUMENTS,
+    MAX_BODY_SIZE, MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_ENVIRONMENT, MAX_FIELD_BYTES, MAX_FILE_MODE,
+    MAX_PATH_BYTES, MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS,
+    MAX_STDIN_BYTES, MAX_TIMEOUT_MILLIS, MAX_USER_BYTES, OperationId, OutputChunk, PtyFailure,
+    PtyOutcome, PtyRequest, PtySize, TerminalReport, TerminalStatus,
 };
 pub use binding::SessionBinding;
 pub use capture_warm::{
@@ -61,8 +61,9 @@ pub use capture_warm::{
 };
 pub use control::{
     CONTROL_VSOCK_PORT, ControlError, ControlFailureClass, ControlIo, ControlStage, ExecuteOutcome,
-    GuestControl, GuestRequest, HostControl, HostControlIo, RepairedHostControl, SecretPlacement,
-    SecretStage, WholeFileRead, WholeFileWrite,
+    GUEST_API_PROBE_PREFIX, GuestApi, GuestControl, GuestRequest, HostControl, HostControlIo,
+    MAX_PROBE_NONCE_BYTES, OutputSource, RangeRead, RangeWrite, RepairedHostControl,
+    SecretPlacement, SecretStage, WholeFileRead, WholeFileWrite,
 };
 pub use error::Error;
 pub(crate) use handshake::{

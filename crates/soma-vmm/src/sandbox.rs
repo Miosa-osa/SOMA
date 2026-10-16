@@ -22,6 +22,8 @@ mod identity;
 mod io;
 mod memory;
 mod operations;
+#[cfg(test)]
+mod operations_tests;
 mod pending;
 mod pty;
 mod secrets;

@@ -6,16 +6,17 @@
 //! sixteen mebibytes, and a worker that answered with as much as fitted would be reporting a
 //! different command than the one that ran.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use soma::BackendFailureKind;
 use soma_guest::GuestCommand;
 use soma_vmm::control::{
-    MAX_OUTPUT_WINDOW_BYTES, MAX_REQUEST_BYTES, OutputStream, OutputWindow, Request,
+    MAX_OUTPUT_WINDOW_BYTES, MAX_REQUEST_BYTES, Outcome, OutputStream, OutputWindow, Request,
 };
 use soma_vmm::sandbox::Completed;
 use soma_vmm::{
-    Argument, Execute, ExecutionLimits, OperationId, OutputBytes, Program, TimeoutMillis,
+    Argument, Execute, ExecuteContext, ExecutionLimits, OperationId, OutputBytes, Program,
+    TimeoutMillis,
 };
 
 use super::outcome;
@@ -43,7 +44,7 @@ impl Jailed {
         }
         let operation =
             OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?;
-        let request = self.execute_request(operation, command)?;
+        let request = self.execute_request(operation, command, false)?;
         let within = Duration::from_millis(u64::from(command.timeout_millis())) + COMMAND_SLACK;
         let answered = self.control.ask(&request, within);
         let (status, stdout_bytes, stderr_bytes) = match answered {
@@ -67,10 +68,81 @@ impl Jailed {
         })
     }
 
+    /// Runs one bounded command and hands each output chunk to `sink` while it runs.
+    ///
+    /// The worker answers a streaming request with any number of chunk packets and then the one
+    /// final reply, so the output has already crossed by the time the command ends and nothing
+    /// is read back by window. The chunks are checked against the byte counts the final reply
+    /// names, and against the command's own output allowance as they arrive, so a worker that
+    /// sends more or fewer bytes than it reports poisons the handle exactly as an uncertain
+    /// buffered command does.
+    ///
+    /// A worker that predates the request refuses it with one `rejected` packet before sending
+    /// any chunk, which is read as the command having been turned down.
+    pub(in crate::backend::kvm) fn execute_streaming(
+        &mut self,
+        command: &GuestCommand,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<Completed, BackendFailureKind> {
+        if self.poisoned {
+            return Err(BackendFailureKind::Unavailable);
+        }
+        let operation =
+            OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?;
+        let request = self.execute_request(operation, command, true)?;
+        let end = Instant::now()
+            + Duration::from_millis(u64::from(command.timeout_millis()))
+            + COMMAND_SLACK;
+        self.control
+            .tell(&request)
+            .map_err(|kind| self.poison(kind))?;
+        let allowance = command.output_bytes();
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let (status, stdout_bytes, stderr_bytes) = loop {
+            let remaining = end.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(self.poison(BackendFailureKind::Unavailable));
+            }
+            let text = self
+                .control
+                .receive(remaining)
+                .map_err(|kind| self.poison(kind))?;
+            match Outcome::decode(&text) {
+                Ok(Outcome::Chunk(stream, bytes)) => {
+                    let total = (stdout.len() + stderr.len() + bytes.len()) as u64;
+                    if total > allowance {
+                        return Err(self.poison(BackendFailureKind::GuestFailure));
+                    }
+                    let (channel, retained) = match stream {
+                        OutputStream::Stdout => (soma::OutputChannel::Stdout, &mut stdout),
+                        OutputStream::Stderr => (soma::OutputChannel::Stderr, &mut stderr),
+                    };
+                    sink(channel, &bytes);
+                    retained.extend_from_slice(&bytes);
+                }
+                Ok(reply) => match outcome::executed(&reply) {
+                    Ok(completed) => break completed,
+                    Err(kind) if outcome::is_refusal(kind) => return Err(kind),
+                    Err(kind) => return Err(self.poison(kind)),
+                },
+                Err(_) => return Err(self.poison(BackendFailureKind::Unavailable)),
+            }
+        };
+        if stdout.len() as u64 != stdout_bytes || stderr.len() as u64 != stderr_bytes {
+            return Err(self.poison(BackendFailureKind::GuestFailure));
+        }
+        Ok(Completed {
+            status,
+            stdout,
+            stderr,
+        })
+    }
+
     fn execute_request(
         &self,
         operation: OperationId,
         command: &GuestCommand,
+        streaming: bool,
     ) -> Result<Request, BackendFailureKind> {
         let rejected = |_| BackendFailureKind::WorkloadRejected;
         let limits = ExecutionLimits::new(
@@ -89,7 +161,23 @@ impl Jailed {
                 .map_err(rejected)?,
             limits,
         )
-        .map(Request::Execute)
+        .map(|execute| {
+            let execute = execute.with_context(ExecuteContext {
+                environment: command
+                    .environment()
+                    .iter()
+                    .map(|(name, value)| (name.to_vec(), value.to_vec()))
+                    .collect(),
+                working_directory: command.working_directory().map(<[u8]>::to_vec),
+                user: command.user().map(<[u8]>::to_vec),
+                stdin: command.stdin().to_vec(),
+            });
+            if streaming {
+                Request::ExecuteStreaming(execute)
+            } else {
+                Request::Execute(execute)
+            }
+        })
         .map_err(rejected)?;
         // One control packet is one datagram, and a datagram longer than the worker's receive
         // buffer is truncated by the kernel rather than refused. The program and every argument

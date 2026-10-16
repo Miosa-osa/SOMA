@@ -209,6 +209,24 @@ impl KvmBackend {
         Ok((status, completed.stdout, completed.stderr))
     }
 
+    /// Runs one bounded command like [`Self::execute_resident`], reporting each output chunk to
+    /// `sink` while it runs.
+    pub(super) fn execute_resident_streaming(
+        &mut self,
+        instance: &InstanceId,
+        command: GuestCommand,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<Ran, BackendFailureKind> {
+        let Some(live) = self.live_for(instance) else {
+            return Err(self.absent_kind(instance));
+        };
+        let completed = live
+            .held
+            .execute_streaming(command, COMMAND_CEILING, sink)?;
+        let status = command_status(completed.status).ok_or(BackendFailureKind::GuestFailure)?;
+        Ok((status, completed.stdout, completed.stderr))
+    }
+
     /// Dials `port` on the guest of the sandbox this process is driving.
     pub(super) fn connect_resident(
         &mut self,

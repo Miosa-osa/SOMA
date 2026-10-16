@@ -53,6 +53,30 @@ impl Held {
         }
     }
 
+    /// Runs one bounded command on the machine, reporting each output chunk to `sink` while it
+    /// runs, wherever the machine is.
+    pub(super) fn execute_streaming(
+        &mut self,
+        command: GuestCommand,
+        deadline: Duration,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<Completed, BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session
+                .execute_streaming(command, deadline, |source, bytes| {
+                    sink(
+                        match source {
+                            soma_guest::OutputSource::Stdout => soma::OutputChannel::Stdout,
+                            soma_guest::OutputSource::Stderr => soma::OutputChannel::Stderr,
+                        },
+                        bytes,
+                    );
+                })
+                .map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.execute_streaming(&command, sink),
+        }
+    }
+
     /// Performs one filesystem operation on the machine, wherever it is.
     pub(super) fn file(
         &mut self,

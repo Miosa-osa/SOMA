@@ -49,6 +49,15 @@ pub(super) struct Engine {
     pub(super) exec_delay: Mutex<Duration>,
     /// How long each terminal call takes, as a long `read` with `wait_ms` would.
     pub(super) terminal_delay: Mutex<Duration>,
+    /// Output a streaming command delivers one chunk at a time, with the command held open
+    /// after the first chunk until the gate is released. Taken by the next streaming command.
+    pub(super) stream_script: Mutex<Option<StreamScript>>,
+}
+
+/// Chunks for one streaming command and the gate between its first chunk and the rest.
+pub(super) struct StreamScript {
+    pub(super) chunks: Vec<(soma::OutputChannel, Vec<u8>)>,
+    pub(super) gate: std::sync::mpsc::Receiver<()>,
 }
 
 struct Fake(Arc<Engine>);
@@ -86,6 +95,41 @@ impl SandboxFacade for Fake {
             status: TerminalStatus::Exited { code: 3 },
             stdout: Vec::new(),
             stderr: b"no".to_vec(),
+            receipt: outcome.receipt,
+        })
+    }
+
+    fn execute_streaming(
+        &mut self,
+        request: ExecuteMachineRequest,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<CommandOutcome, ManagedFailure> {
+        let script = self.0.stream_script.lock().expect("script").take();
+        let Some(script) = script else {
+            // Unscripted commands behave as they always did: run, then replay what was retained.
+            let outcome = self.execute(request)?;
+            soma::ObservedOutput::new(
+                outcome.stdout.clone(),
+                outcome.stdout.len() as u64,
+                outcome.stderr.clone(),
+                outcome.stderr.len() as u64,
+            )
+            .replay(sink);
+            return Ok(outcome);
+        };
+        self.0.execs.fetch_add(1, Ordering::SeqCst);
+        for (index, (channel, bytes)) in script.chunks.iter().enumerate() {
+            if index == 1 {
+                let _ = script.gate.recv();
+            }
+            sink(*channel, bytes);
+        }
+        let outcome = lifecycle();
+        Ok(CommandOutcome {
+            instance_id: outcome.instance_id,
+            status: TerminalStatus::Exited { code: 0 },
+            stdout: Vec::new(),
+            stderr: Vec::new(),
             receipt: outcome.receipt,
         })
     }

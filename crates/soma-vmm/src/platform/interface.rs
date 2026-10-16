@@ -22,6 +22,22 @@ pub(crate) trait Platform: Send {
         guest: &mut ReadyAuthenticatedGuest,
     ) -> Result<PlatformExecution, PlatformFailure>;
 
+    /// Executes a command and reports each output chunk to `sink`.
+    ///
+    /// The default runs the command to its end and then replays the retained output, so a
+    /// platform that cannot stream still answers a streaming request, honestly late. A platform
+    /// that can stream overrides this and calls `sink` while the command runs.
+    fn execute_streaming(
+        &mut self,
+        execute: &Execute,
+        guest: &mut ReadyAuthenticatedGuest,
+        sink: &mut dyn FnMut(crate::control::OutputStream, &[u8]),
+    ) -> Result<PlatformExecution, PlatformFailure> {
+        let outcome = self.execute(execute, guest)?;
+        outcome.replay(sink);
+        Ok(outcome)
+    }
+
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn pty(&mut self, _operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure> {
         Err(PlatformFailure::new(crate::Recovery::DoNotRetry))

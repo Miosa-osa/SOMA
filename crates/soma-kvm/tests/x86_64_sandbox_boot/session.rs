@@ -109,6 +109,79 @@ pub fn run(
     (evidence, outcome)
 }
 
+/// What a scenario does with the repaired session before the machine is shut down.
+///
+/// A plain function pointer rather than a closure: the session borrows the machine for a
+/// lifetime the scenario must accept for any value, which a function type states and a closure
+/// signature does not infer.
+pub type Scenario =
+    for<'a> fn(RepairedHostControl<HostIo<'a>>) -> Result<RepairedHostControl<HostIo<'a>>, String>;
+
+/// Boots `config`, completes the session, hands the repaired session to `scenario`, shuts down.
+pub fn run_scenario(
+    config: SandboxConfig,
+    generation_id: &str,
+    scenario: Scenario,
+) -> (SandboxEvidence, Result<(), String>) {
+    let network = LaunchNetwork::new(
+        GUEST_CID,
+        1,
+        GUEST_MAC,
+        [10, 0, 0, 2],
+        24,
+        [10, 0, 0, 1],
+        [10, 0, 0, 1],
+        now_unix_nanos(),
+    )
+    .expect("link-down placeholder network");
+    let material = HostLaunchMaterial::generate(
+        generation_bytes(generation_id),
+        random16(),
+        random16(),
+        network,
+    )
+    .expect("fresh launch material");
+    let mut sandbox = match SandboxMachine::create(config) {
+        Ok(sandbox) => sandbox,
+        Err(error) => panic!("sandbox creation failed: {error}"),
+    };
+    let outcome = drive_scenario(&mut sandbox, material, scenario);
+    let evidence = sandbox.finish(EXIT_GRACE);
+    (evidence, outcome)
+}
+
+fn drive_scenario(
+    sandbox: &mut SandboxMachine,
+    material: HostLaunchMaterial,
+    scenario: Scenario,
+) -> Result<(), String> {
+    let delivered = material
+        .deliver_with(|page| sandbox.write_launch_page(page))
+        .map_err(|error| format!("launch page delivery: {error}"))?;
+    sandbox.start().map_err(|error| format!("start: {error}"))?;
+    let boot_deadline = Instant::now() + BOOT_DEADLINE;
+    sandbox
+        .wait_launch_page_consumed(PAGE_DOMAIN, boot_deadline)
+        .map_err(|error| format!("launch page consumption: {error}"))?;
+    sandbox
+        .control()
+        .wait_connected(boot_deadline)
+        .map_err(|error| format!("vsock connection: {error}"))?;
+    sandbox.mark(Milestone::VsockConnected);
+    let host = HostControl::connect(delivered, HostIo::new(sandbox))
+        .map_err(|error| format!("handshake: {error}"))?;
+    sandbox.mark(Milestone::Handshake);
+    let repaired = host.prepare().map_err(|error| format!("repair: {error}"))?;
+    sandbox.mark(Milestone::Ready);
+    let repaired = scenario(repaired)?;
+    sandbox.mark(Milestone::Execute);
+    repaired
+        .shutdown(OperationId::new(random16()).unwrap())
+        .map_err(|error| format!("shutdown: {error}"))?;
+    sandbox.mark(Milestone::Shutdown);
+    Ok(())
+}
+
 fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     bytes.iter().fold(String::new(), |mut text, byte| {

@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use soma::{DirectCommand, ExecuteMachineRequest, ExecutionLimits, ManagedFailure};
+use soma::{CommandContext, DirectCommand, ExecuteMachineRequest, ExecutionLimits, ManagedFailure};
 
 use crate::{
     facade::CommandOutcome,
@@ -161,22 +161,43 @@ fn executed_answer(
 /// The plan says how the command would reach the guest; [`exec_contract::admit`] says whether
 /// anything will carry it. Both answers have to be given here, because a command the guest would
 /// refuse is only refusable while no machine has been asked to run it.
+#[cfg(test)]
 pub(super) fn exec_command(
     text: &str,
     shell_free_exec: bool,
     timeout_millis: u64,
+) -> Result<DirectCommand, PlatformError> {
+    exec_command_in(
+        text,
+        shell_free_exec,
+        timeout_millis,
+        &CommandContext::default(),
+    )
+}
+
+/// [`exec_command`] for a command that carries an environment, working directory or user.
+pub(super) fn exec_command_in(
+    text: &str,
+    shell_free_exec: bool,
+    timeout_millis: u64,
+    context: &CommandContext,
 ) -> Result<DirectCommand, PlatformError> {
     let (program, arguments) = match shell::plan(text, shell_free_exec) {
         shell::Plan::LoginShell(command) => (shell::SHELL, vec!["-lc", command]),
         shell::Plan::PlainShell(command) => (shell::SHELL, vec!["-c", command]),
         shell::Plan::Direct { program, arguments } => (program, arguments),
     };
-    exec_contract::admit(program, &arguments, timeout_millis)
+    exec_contract::admit_in(program, &arguments, timeout_millis, context)
         .map_err(exec_contract::Refusal::error)?;
-    DirectCommand::new(program, arguments).map_err(|_| {
+    let command = DirectCommand::new(program, arguments).map_err(|_| {
         // The contract above is stricter than this type on every field, so a command that got
         // here is one this constructor takes; a refusal from it would be a runner bug rather
         // than a request a caller can fix.
+        PlatformError::invalid_param("command", "the command is not one this runner can send")
+    })?;
+    // `admit_in` already ran the guest's own constructor over the whole command, context
+    // included, so this only moves the verified context onto the facade's command.
+    command.with_context(context.clone()).map_err(|_| {
         PlatformError::invalid_param("command", "the command is not one this runner can send")
     })
 }
@@ -187,7 +208,12 @@ fn execute_request(
     params: &ExecParams,
     shell_free_exec: bool,
 ) -> Result<ExecuteMachineRequest, PlatformError> {
-    let command = exec_command(&params.command, shell_free_exec, params.timeout_ms)?;
+    let command = exec_command_in(
+        &params.command,
+        shell_free_exec,
+        params.timeout_ms,
+        &params.context,
+    )?;
     let limits = ExecutionLimits::new(params.timeout_ms, ExecutionLimits::DEFAULT_MAX_OUTPUT_BYTES)
         .map_err(|_| PlatformError::invalid_timeout())?;
     let unbuildable = || PlatformError::invalid_param("command", "the command could not be built");

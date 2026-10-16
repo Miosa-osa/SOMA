@@ -9,13 +9,13 @@ mod pty;
 mod terminal;
 
 pub use command::{
-    CommandContext, EnvironmentPair, FIXED_BODY_SIZE, GuestCommand, MAX_ARGUMENTS, MAX_FIELD_BYTES,
-    MAX_TIMEOUT_MILLIS,
+    CommandContext, EnvironmentPair, FIXED_BODY_SIZE, GuestCommand, MAX_ARGUMENTS, MAX_ENVIRONMENT,
+    MAX_FIELD_BYTES, MAX_STDIN_BYTES, MAX_TIMEOUT_MILLIS, MAX_USER_BYTES,
 };
 pub(crate) use filesystem::check_path;
 pub use filesystem::{
-    DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES, MAX_ENTRIES,
-    MAX_FILE_MODE, MAX_PATH_BYTES,
+    DetailedEntry, DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest,
+    MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_FILE_MODE, MAX_PATH_BYTES,
 };
 pub use guest::GuestMessage;
 pub use host::HostMessage;

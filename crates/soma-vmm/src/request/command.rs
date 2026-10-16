@@ -11,6 +11,71 @@ pub struct Execute {
     program: Program,
     arguments: Box<[Argument]>,
     limits: ExecutionLimits,
+    context: ExecuteContext,
+}
+
+/// What a command runs with, beside its program and arguments.
+///
+/// The fields are plain bytes here; the bounds are the guest protocol's and are enforced where
+/// the guest command is built, so this type cannot drift from them. An empty context is the
+/// default and encodes exactly as a request did before contexts existed.
+#[derive(Clone, Default, Eq, PartialEq)]
+pub struct ExecuteContext {
+    pub environment: Vec<(Vec<u8>, Vec<u8>)>,
+    pub working_directory: Option<Vec<u8>>,
+    pub user: Option<Vec<u8>>,
+    pub stdin: Vec<u8>,
+}
+
+impl ExecuteContext {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.environment.is_empty()
+            && self.working_directory.is_none()
+            && self.user.is_none()
+            && self.stdin.is_empty()
+    }
+
+    /// This context as the guest protocol's own, which re-checks every bound.
+    ///
+    /// The guest protocol is linked only where a machine can run, which is also the only place
+    /// a worker decodes and performs a command.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[must_use]
+    pub fn to_guest(&self) -> soma_guest::CommandContext {
+        soma_guest::CommandContext {
+            environment: self.environment.clone(),
+            working_directory: self.working_directory.clone(),
+            user: self.user.clone(),
+            stdin: self.stdin.clone(),
+        }
+    }
+
+    /// The bytes of every field, for memory accounting.
+    #[must_use]
+    pub fn byte_len(&self) -> usize {
+        self.environment
+            .iter()
+            .fold(0_usize, |total, (name, value)| {
+                total.saturating_add(name.len()).saturating_add(value.len())
+            })
+            .saturating_add(self.working_directory.as_ref().map_or(0, Vec::len))
+            .saturating_add(self.user.as_ref().map_or(0, Vec::len))
+            .saturating_add(self.stdin.len())
+    }
+}
+
+impl fmt::Debug for ExecuteContext {
+    /// Shapes and lengths only: an environment value or standard input is tenant data.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ExecuteContext")
+            .field("environment_count", &self.environment.len())
+            .field("has_working_directory", &self.working_directory.is_some())
+            .field("has_user", &self.user.is_some())
+            .field("stdin_bytes", &self.stdin.len())
+            .finish()
+    }
 }
 
 impl Execute {
@@ -43,7 +108,20 @@ impl Execute {
             program,
             arguments: arguments.into_boxed_slice(),
             limits,
+            context: ExecuteContext::default(),
         })
+    }
+
+    /// Runs the command with an environment, working directory, user and standard input.
+    #[must_use]
+    pub fn with_context(mut self, context: ExecuteContext) -> Self {
+        self.context = context;
+        self
+    }
+
+    #[must_use]
+    pub const fn context(&self) -> &ExecuteContext {
+        &self.context
     }
 
     #[must_use]
@@ -131,6 +209,7 @@ impl fmt::Debug for Execute {
             .field("argument_count", &self.arguments.len())
             .field("argument_bytes", &argument_bytes)
             .field("limits", &self.limits)
+            .field("context", &self.context)
             .finish()
     }
 }

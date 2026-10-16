@@ -90,6 +90,20 @@ impl LocalRuntime {
         self.engine.execute_machine(request)
     }
 
+    /// Executes one command like [`Self::execute_machine`] and reports each output chunk to
+    /// `sink` as the backend observes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    pub fn execute_machine_streaming(
+        &mut self,
+        request: ExecuteMachineRequest,
+        sink: soma::OutputSink<'_>,
+    ) -> Result<MachineExecution, ManagedFailure> {
+        self.engine.execute_machine_streaming(request, sink)
+    }
+
     /// Performs one bounded filesystem operation in a durably managed Machine.
     ///
     /// # Errors

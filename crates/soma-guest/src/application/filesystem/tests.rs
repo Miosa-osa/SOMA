@@ -2,8 +2,8 @@
 
 use super::super::{HostMessage, OperationId};
 use super::{
-    DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES,
-    MAX_PATH_BYTES,
+    DetailedEntry, DirectoryEntry, EntryKind, FileFailure, FileOutcome, FileRequest,
+    MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_PATH_BYTES,
 };
 
 fn operation() -> OperationId {
@@ -57,6 +57,17 @@ fn every_request_round_trips() {
             path: b"/run/secrets/token".to_vec().into(),
             mode: 0o400,
         },
+        FileRequest::ReadDirectoryDetailed {
+            path: b"/workspace".to_vec().into(),
+            offset: 7,
+        },
+        FileRequest::Stat {
+            path: b"/workspace/main.rs".to_vec().into(),
+        },
+        FileRequest::Rename {
+            path: b"/etc/miosa/.identity.env.tmp".to_vec().into(),
+            to: b"/etc/miosa/identity.env".to_vec().into(),
+        },
     ] {
         round_trip(&request);
     }
@@ -89,6 +100,31 @@ fn every_outcome_round_trips() {
             kind: Some(EntryKind::File),
         },
         FileOutcome::Status { kind: None },
+        FileOutcome::ListedDetailed {
+            entries: vec![
+                DetailedEntry {
+                    name: b"src".to_vec().into(),
+                    kind: EntryKind::Directory,
+                    size: 0,
+                    mode: 0o755,
+                    modified: 1_760_000_000,
+                },
+                DetailedEntry {
+                    name: b"main.rs".to_vec().into(),
+                    kind: EntryKind::File,
+                    size: 1 << 33,
+                    mode: 0o644,
+                    modified: 0,
+                },
+            ],
+            more: true,
+        },
+        FileOutcome::Stat {
+            kind: EntryKind::File,
+            size: 1 << 40,
+            mode: 0o600,
+            modified: 1_760_000_000,
+        },
         FileOutcome::Done,
         FileOutcome::Failed(FileFailure::NotFound),
     ] {
@@ -217,4 +253,93 @@ fn debug_reports_shapes_and_never_content() {
     };
     let rendered = format!("{outcome:?}");
     assert!(!rendered.contains("hunter2"), "{rendered}");
+}
+
+/// A rename names two admissible paths; either one being inadmissible refuses the body.
+#[test]
+fn a_rename_with_an_inadmissible_path_is_refused() {
+    for (from, to) in [
+        (&b"relative"[..], &b"/ok"[..]),
+        (&b"/ok"[..], &b"relative"[..]),
+        (&b"/ok"[..], &b""[..]),
+        (&b"/ok"[..], &b"/a\0b"[..]),
+    ] {
+        let mut body = vec![10u8];
+        for path in [from, to] {
+            body.extend_from_slice(&u16::try_from(path.len()).unwrap().to_be_bytes());
+            body.extend_from_slice(path);
+        }
+        assert!(FileRequest::decode_body(&body).is_err());
+    }
+}
+
+/// A stat answer carrying a mode outside the permission bits, or a trailing byte, is refused.
+#[test]
+fn a_hostile_stat_answer_is_refused() {
+    let good = FileOutcome::Stat {
+        kind: EntryKind::Directory,
+        size: 0,
+        mode: 0o755,
+        modified: 0,
+    }
+    .encode_body();
+    assert!(FileOutcome::decode_body(&good).is_ok());
+
+    let mut high_mode = good.clone();
+    high_mode[10..14].copy_from_slice(&0o4755u32.to_be_bytes());
+    assert!(FileOutcome::decode_body(&high_mode).is_err());
+
+    let mut trailing = good.clone();
+    trailing.push(0);
+    assert!(FileOutcome::decode_body(&trailing).is_err());
+
+    let mut bad_kind = good;
+    bad_kind[1] = 9;
+    assert!(FileOutcome::decode_body(&bad_kind).is_err());
+    assert!(FileOutcome::decode_body(&bad_kind[..5]).is_err());
+}
+
+/// A detailed listing is refused when an entry could not be a child of the listed directory,
+/// carries a mode the protocol does not, or claims more entries than the bound.
+#[test]
+fn a_hostile_detailed_listing_is_refused() {
+    let entry = |name: &[u8], mode: u32| DetailedEntry {
+        name: name.to_vec().into(),
+        kind: EntryKind::File,
+        size: 1,
+        mode,
+        modified: 1,
+    };
+    for (name, mode) in [
+        (&b"a/b"[..], 0o644),
+        (&b""[..], 0o644),
+        (&b"a\0b"[..], 0o644),
+        (&b"ok"[..], 0o4755),
+    ] {
+        let body = FileOutcome::ListedDetailed {
+            entries: vec![entry(name, mode)],
+            more: false,
+        }
+        .encode_body();
+        assert!(
+            FileOutcome::decode_body(&body).is_err(),
+            "{name:?} {mode:o}"
+        );
+    }
+
+    let mut over = FileOutcome::ListedDetailed {
+        entries: Vec::new(),
+        more: false,
+    }
+    .encode_body();
+    over[2..6].copy_from_slice(&u32::try_from(MAX_ENTRIES + 1).expect("count").to_be_bytes());
+    assert!(FileOutcome::decode_body(&over).is_err());
+
+    let mut trailing = FileOutcome::ListedDetailed {
+        entries: vec![entry(b"ok", 0o644)],
+        more: false,
+    }
+    .encode_body();
+    trailing.push(0);
+    assert!(FileOutcome::decode_body(&trailing).is_err());
 }

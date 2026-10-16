@@ -77,6 +77,11 @@ pub struct CommandObservation {
 
 impl CommandObservation {
     #[must_use]
+    pub const fn output(&self) -> &ObservedOutput {
+        &self.output
+    }
+
+    #[must_use]
     pub const fn new(
         operation_id: OperationId,
         instance_id: InstanceId,

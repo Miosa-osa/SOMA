@@ -33,14 +33,40 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: ExecuteMachineRequest,
     ) -> Result<MachineExecution, ManagedFailure> {
+        self.execute_machine_streaming(request, &mut |_, _| {})
+    }
+
+    /// Executes one command like [`Self::execute_machine`] and reports each output chunk to
+    /// `sink` while the backend observes it.
+    ///
+    /// Admission, validation, the receipt and the durable record are exactly `execute_machine`'s,
+    /// so a streamed command has the same idempotency and evidence as a buffered one. Chunks are
+    /// delivered before the command has been validated, so a caller that must not act on
+    /// unverified output waits for the returned execution.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failures `execute_machine` returns.
+    #[allow(
+        clippy::needless_pass_by_value,
+        reason = "the use-case boundary takes ownership of its immutable request"
+    )]
+    pub fn execute_machine_streaming(
+        &mut self,
+        request: ExecuteMachineRequest,
+        sink: crate::OutputSink<'_>,
+    ) -> Result<MachineExecution, ManagedFailure> {
         let admission = self.admit_execution(&request)?;
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
-        let observation = self.backend.execute(crate::ExecutionRequest::new(
-            &request.operation_id,
-            &request.instance_id,
-            &request.command,
-            &request.limits,
-        ));
+        let observation = self.backend.execute_streaming(
+            crate::ExecutionRequest::new(
+                &request.operation_id,
+                &request.instance_id,
+                &request.command,
+                &request.limits,
+            ),
+            sink,
+        );
         let validated = match observation {
             Ok(observation) => validate_command(
                 observation,

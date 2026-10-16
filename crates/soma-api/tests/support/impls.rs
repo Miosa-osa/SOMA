@@ -94,9 +94,10 @@ impl SandboxFacade for FakeFacade {
 
     fn execute(
         &mut self,
-        _request: ExecuteMachineRequest,
+        request: ExecuteMachineRequest,
     ) -> Result<CommandOutcome, ManagedFailure> {
         self.record(Call::Execute)?;
+        self.last_stdin = request.command().context().stdin().to_vec();
         let receipt = receipt();
         Ok(CommandOutcome {
             instance_id: receipt.instance_id().clone(),

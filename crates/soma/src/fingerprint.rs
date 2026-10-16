@@ -146,6 +146,25 @@ fn command_fields(encoder: &mut CanonicalHash, command: &DirectCommand) {
     for argument in command.arguments() {
         encoder.field(b"argument", argument.as_bytes());
     }
+    // A context is added to the digest only when there is one, so every fingerprint taken
+    // before contexts existed, and every command that still has none, is unchanged.
+    let context = command.context();
+    if !context.is_empty() {
+        encoder.u64(
+            b"environment_count",
+            u64::try_from(context.environment().len()).expect("validated count fits u64"),
+        );
+        for (name, value) in context.environment() {
+            encoder.field(b"environment_name", name.as_bytes());
+            encoder.field(b"environment_value", value.as_bytes());
+        }
+        encoder.optional_field(
+            b"working_directory",
+            context.working_directory().map(str::as_bytes),
+        );
+        encoder.optional_field(b"user", context.user().map(str::as_bytes));
+        encoder.field(b"stdin", context.stdin());
+    }
 }
 
 struct CanonicalHash(Sha256);
@@ -184,5 +203,7 @@ impl CanonicalHash {
     }
 }
 
+#[cfg(test)]
+mod context_tests;
 #[cfg(test)]
 mod network_tests;
