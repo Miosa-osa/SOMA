@@ -94,3 +94,11 @@ RUN printf '#!/bin/sh\nexit 0\n' > /usr/bin/systemctl \
 COPY --from=docker-engine --chmod=0644 daemon.json /etc/docker/daemon.json
 COPY --from=docker-engine --chmod=0755 soma-docker-ensure /usr/local/libexec/soma-docker-ensure
 COPY --from=docker-engine --chmod=0755 docker-wrapper /usr/local/bin/docker
+
+# The display stack the live browser needs for a headed Chromium: the daemon starts its own Xvfb on :99 and serves
+# the whole screen through ffmpeg x11grab, with xdotool for input. python3-pip is for users and the code interpreter.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends xvfb xauth xdotool ffmpeg python3-pip \
+ && apt-get clean \
+ && find /var/lib/apt/lists -type f -delete \
+ && command -v Xvfb xauth xdotool ffmpeg pip3
