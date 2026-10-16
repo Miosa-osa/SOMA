@@ -8,6 +8,10 @@ use soma::{FileAnswer, FileEntry, FileKind, FileRefusal};
 
 use crate::report::OutputBytes;
 
+#[allow(
+    clippy::wildcard_imports,
+    reason = "this module is its parent's body moved wholesale; naming every import would obscure it"
+)]
 use super::*;
 
 /// One directory entry on the wire.

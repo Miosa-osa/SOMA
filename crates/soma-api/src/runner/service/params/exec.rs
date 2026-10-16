@@ -3,6 +3,10 @@
 //! They live apart from the create vocabulary so each door's parsing stays inside the source
 //! budget; a child module may read the parent's imports, so the split costs nothing but a `use`.
 
+#[allow(
+    clippy::wildcard_imports,
+    reason = "this module is its parent's body moved wholesale; naming every import would obscure it"
+)]
 use super::*;
 
 /// The exec timeout when a request names none, as the fast lane applies it.

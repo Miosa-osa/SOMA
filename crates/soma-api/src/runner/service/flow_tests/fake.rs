@@ -3,6 +3,10 @@
 //! It lives apart from the double's fields so the tests stay inside the source budget; a child
 //! module may read them, so the split costs nothing but a `use`.
 
+#[allow(
+    clippy::wildcard_imports,
+    reason = "this module is its parent's body moved wholesale; naming every import would obscure it"
+)]
 use super::*;
 
 fn lifecycle() -> LifecycleOutcome {
