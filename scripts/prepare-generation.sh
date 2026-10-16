@@ -35,6 +35,22 @@
 # This script therefore refuses to end quietly on such an entry. Set
 # SOMA_ALLOW_COLD_BOOT_ENTRY=1 to accept one deliberately.
 
+# SOMA_CAPTURE_WARM declares a capture warm plan: commands separated by ';' that the guest agent
+# runs once, at the disconnected repair point and before the snapshot is taken. Their pages are
+# then part of the captured memory, so every Instance restored from this entry finds them
+# resident rather than paying the first touch itself. Name the runtime a sandbox will be asked
+# for, which is the one whose first command matters:
+#
+#   SOMA_CAPTURE_WARM='/usr/local/bin/node -v' \
+#       scripts/prepare-generation.sh node:22 /srv/soma/prepared /srv/soma/fs-tools
+#
+# This is the capture-time counterpart of the host's SOMA_LAUNCH_WARM_COMMAND, and it is the one
+# that costs a create nothing: the plan is paid once here, instead of once per launch. It costs
+# capture time - up to ten seconds per command, plus a two second settle before the capture
+# point - and it is advisory: a command the image does not have is reported and killed, and the
+# entry still builds. The plan is part of the Generation, written into the initramfs whose digest
+# the manifest binds, so changing it changes the entry's identity.
+
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -47,6 +63,7 @@ FS_TOOLS=""
 MEM_MIB=""
 DISK_MIB=""
 CEILING_MIB=""
+WARM_PLAN=""
 
 readonly MUSL_TARGET="x86_64-unknown-linux-musl"
 readonly AGENT_BIN="$REPO_ROOT/target/${MUSL_TARGET}/release/soma-guest-agent"
@@ -67,6 +84,7 @@ parse_args() {
     MEM_MIB="${4:-1024}"
     DISK_MIB="${5:-10240}"
     CEILING_MIB="${6:-${SOMA_PREPARE_CEILING_MIB:-}}"
+    WARM_PLAN="${SOMA_CAPTURE_WARM:-}"
     if [[ -n "$CEILING_MIB" ]]; then
         [[ "$CEILING_MIB" =~ ^[0-9]+$ && "$MEM_MIB" =~ ^[0-9]+$ ]] || \
             die "ceiling_mib and mem_mib must be positive integers, got ceiling '$CEILING_MIB' memory '$MEM_MIB'"
@@ -130,8 +148,12 @@ prepare() {
     if [[ -n "$CEILING_MIB" ]]; then
         log "live-resize machine: boot ${MEM_MIB} MiB, ceiling ${CEILING_MIB} MiB (hotplug region $((CEILING_MIB - MEM_MIB)) MiB)"
     fi
+    if [[ -n "$WARM_PLAN" ]]; then
+        log "capture warm plan: $WARM_PLAN"
+    fi
     # Passed explicitly, set or empty, so an inherited value never reaches the tool unseen.
-    SOMA_PREPARE_CEILING_MIB="$CEILING_MIB" "$PREPARE_BIN" "$IMAGE" "$LAYOUT" "$KERNEL" \
+    SOMA_PREPARE_CEILING_MIB="$CEILING_MIB" SOMA_CAPTURE_WARM="$WARM_PLAN" \
+        "$PREPARE_BIN" "$IMAGE" "$LAYOUT" "$KERNEL" \
         "$KERNEL_CONFIG" "$AGENT_BIN" "$FS_TOOLS/erofs" "$FS_TOOLS/e2fsprogs" "$entry" \
         "$MEM_MIB" "$DISK_MIB"
     rm -rf -- "$LAYOUT"
