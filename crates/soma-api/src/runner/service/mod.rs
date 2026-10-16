@@ -4,6 +4,10 @@ mod command;
 mod create;
 mod exec_contract;
 #[cfg(test)]
+mod exec_contract_agreement_tests;
+#[cfg(test)]
+mod exec_params_tests;
+#[cfg(test)]
 mod exec_refusal_tests;
 mod extend;
 #[cfg(test)]
