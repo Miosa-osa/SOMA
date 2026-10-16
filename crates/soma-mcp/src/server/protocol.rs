@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use crate::ToolRuntime;
 use rmcp::{
     ServerHandler,
-    model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo},
+    model::{Implementation, ProtocolVersion, ServerCapabilities, ServerConfig},
     tool_handler,
 };
 
@@ -17,8 +17,8 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = ProtocolVersion::KNOWN_V
 )]
 #[tool_handler(router = self.tool_router)]
 impl<R: ToolRuntime> ServerHandler for SomaMcpServer<R> {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("soma-mcp", env!("CARGO_PKG_VERSION")))
             .with_instructions(
                 "Use direct bounded SOMA tools. Commands are argv arrays and never implicit shells.",
