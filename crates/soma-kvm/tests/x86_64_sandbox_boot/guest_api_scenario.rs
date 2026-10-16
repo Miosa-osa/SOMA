@@ -8,7 +8,7 @@ use super::*;
 pub(crate) fn scenario<'a>(repaired: Repaired<'a>) -> Result<Repaired<'a>, String> {
     let want = expected_level();
     let nonce = nonce();
-    let repaired = probe_and_plants(repaired, want, nonce)?;
+    let repaired = probe_and_plants(repaired, want, &nonce)?;
     if want < 2 {
         return the_old_guest_path(repaired);
     }
@@ -24,11 +24,11 @@ pub(crate) fn scenario<'a>(repaired: Repaired<'a>) -> Result<Repaired<'a>, Strin
 pub(crate) fn probe_and_plants<'a>(
     repaired: Repaired<'a>,
     want: u8,
-    nonce: Vec<u8>,
+    nonce: &[u8],
 ) -> Result<Repaired<'a>, String> {
     // The level probe, then a file planted at the probe path by a workload.
     let (repaired, api) = repaired
-        .probe_guest_api(&nonce)
+        .probe_guest_api(nonce)
         .map_err(|error| format!("probe: {error}"))?;
     eprintln!("[guest-api] probe -> {api:?}");
     check!(
@@ -53,7 +53,7 @@ pub(crate) fn probe_and_plants<'a>(
         made == FileOutcome::Done,
         "could not create the probe directory: {made:?}"
     );
-    let planted = [crate_probe_prefix(), nonce.clone()].concat();
+    let planted = [crate_probe_prefix(), nonce.to_vec()].concat();
     let mut repaired = repaired;
     for forged in [&b"2\n"[..], b"2 0123456789abcdef\n", b"2"] {
         let (next, written) = repaired
@@ -66,7 +66,7 @@ pub(crate) fn probe_and_plants<'a>(
             "the plant was not written: {written:?}"
         );
         let (next, seen) = repaired
-            .probe_guest_api(&nonce)
+            .probe_guest_api(nonce)
             .map_err(|error| format!("probe after plant: {error}"))?;
         repaired = next;
         eprintln!("[guest-api] probe after plant -> {seen:?}");
