@@ -1,0 +1,1 @@
+Throwaway self-signed TLS credentials, issued by a test CA whose key was discarded, used only to drive the runner integration tests over a loopback port; they authenticate nothing, are trusted by nobody, and must never be installed, copied, deployed, or added to any trust store anywhere.
