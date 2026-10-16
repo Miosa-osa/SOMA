@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use soma_guest::ControlIo;
 
-use super::{IoFault, StreamIo};
+use super::{
+    CID_POLL, FIRST_CID_POLL, IoFault, StreamIo, TransportError, await_cid_with, cid_polls,
+};
 
 fn pair() -> (StreamIo<UnixStream>, UnixStream) {
     let (local, peer) = UnixStream::pair().expect("socket pair");
@@ -104,4 +106,37 @@ fn poison_closes_the_transport_locally_and_permanently() {
 fn the_control_port_is_the_fixed_machine_contract_value() {
     assert_eq!(super::CONTROL_VSOCK_PORT, 0x534f_4d41);
     assert_eq!(libc::VMADDR_CID_HOST, 2);
+}
+
+#[test]
+fn the_cid_wait_starts_short_and_saturates_at_the_ceiling() {
+    let taken: Vec<_> = cid_polls().take(64).collect();
+    assert_eq!(taken.first(), Some(&FIRST_CID_POLL));
+    assert!(taken.windows(2).all(|pair| pair[0] <= pair[1]));
+    assert_eq!(taken.last(), Some(&CID_POLL));
+}
+
+#[test]
+fn a_stale_cid_is_retried_on_the_ladder_and_then_accepted() {
+    let mut reads = [3_u32, 3, 7].into_iter();
+    let mut pauses = Vec::new();
+    let outcome = await_cid_with(
+        7,
+        Instant::now() + Duration::from_secs(5),
+        || Ok(reads.next().expect("no extra read")),
+        |wait| pauses.push(wait),
+    );
+    assert!(outcome.is_ok());
+    assert_eq!(pauses, [FIRST_CID_POLL, FIRST_CID_POLL * 2]);
+}
+
+#[test]
+fn a_cid_that_never_matches_fails_closed_at_the_deadline() {
+    let outcome = await_cid_with(
+        7,
+        Instant::now(),
+        || Ok(3),
+        |_| panic!("an elapsed deadline must not sleep"),
+    );
+    assert!(matches!(outcome, Err(TransportError::CidMismatch)));
 }
