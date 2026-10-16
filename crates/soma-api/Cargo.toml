@@ -37,6 +37,6 @@ soma = { path = "../soma", version = "=1.0.0-alpha.1" }
 soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
 soma-hostd = { path = "../soma-hostd", version = "=1.0.0-alpha.1" }
 soma-local = { path = "../soma-local", version = "=1.0.0-alpha.1" }
-tokio = { version = "=1.53.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "=1.53.2", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-rustls = { version = "=0.26.6", default-features = false, features = ["ring", "tls12"] }
 uuid = { version = "=1.27.0", features = ["v4"] }
