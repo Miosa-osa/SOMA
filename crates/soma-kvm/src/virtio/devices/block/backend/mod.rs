@@ -3,6 +3,9 @@
 use std::fmt;
 
 #[cfg(unix)]
+use crate::head_reads::HeadReadsHandle;
+
+#[cfg(unix)]
 use std::fs::File;
 use std::io;
 
@@ -74,6 +77,9 @@ pub struct FileBackend {
     file: File,
     capacity: u64,
     read_only: bool,
+    /// Where the ranges a guest reads from this file are recorded, when a session asked for
+    /// them. A backend nothing watches reads exactly as it did before.
+    reads: Option<HeadReadsHandle>,
 }
 
 #[cfg(unix)]
@@ -84,12 +90,30 @@ impl FileBackend {
     /// # Errors
     /// Fails when the length cannot be read.
     pub fn new(file: File, read_only: bool) -> io::Result<Self> {
+        Self::open(file, read_only, None)
+    }
+
+    /// Wraps an already-open head and records the ranges a guest reads from it.
+    ///
+    /// A head is a `FICLONE`, so its pages are shared with the template but its page cache is
+    /// not: the first read of a fresh head faults every page it touches in from the device.
+    /// Recording which ranges those were is what lets the next head for the same Generation be
+    /// warmed while it is prepared instead of while the guest waits.
+    ///
+    /// # Errors
+    /// Fails when the length cannot be read.
+    pub fn recording(file: File, read_only: bool, reads: HeadReadsHandle) -> io::Result<Self> {
+        Self::open(file, read_only, Some(reads))
+    }
+
+    fn open(file: File, read_only: bool, reads: Option<HeadReadsHandle>) -> io::Result<Self> {
         let len = file.metadata()?.len();
         let capacity = len - len % super::request::SECTOR_SIZE;
         Ok(Self {
             file,
             capacity,
             read_only,
+            reads,
         })
     }
 }
@@ -108,6 +132,11 @@ impl BlockBackend for FileBackend {
         use std::os::unix::fs::FileExt;
         in_range(self.capacity, offset, buf.len())?;
         self.file.read_exact_at(buf, offset)?;
+        // Recorded after the read returned, so a read that failed is not part of the warm set.
+        if let Some(reads) = &self.reads {
+            let len = u64::try_from(buf.len()).unwrap_or(u64::MAX);
+            crate::head_reads::record(reads, offset, len);
+        }
         Ok(buf.len())
     }
 
@@ -206,3 +235,6 @@ mod detached;
 // prepared-worker seam, which is Linux x86_64 plus the portable tests.
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub use detached::Detached;
+
+#[cfg(test)]
+mod reads_tests;
