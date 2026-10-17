@@ -3,8 +3,11 @@
 
 use std::time::Duration;
 
+use soma::{Observation, ObservationUnavailable, PreparationClass};
+
 use super::{LaunchPhases, Timing};
 use crate::runner::backend::CallTiming;
+use crate::runner::journal::LaunchPreparation;
 
 /// The retained launch receipt the fixtures carry, milestones and all.
 const RECEIPT: &str = include_str!("../../../tests/fixtures/receipt.json");
@@ -28,6 +31,7 @@ fn server_timing_names_every_segment_of_a_create() {
         finish: Duration::from_micros(120),
         wait: None,
         run: None,
+        launch_preparation: None,
     };
 
     let header = timing.header();
@@ -134,4 +138,73 @@ fn a_ready_milestone_past_the_call_leaves_commit_at_zero() {
     let phases = LaunchPhases::from_receipt(&receipt, Duration::from_millis(1));
 
     assert_eq!(phases.commit, Duration::ZERO);
+}
+
+#[test]
+fn server_timing_names_the_launch_path_alongside_the_segments() {
+    let timing = Timing {
+        auth: Duration::from_micros(12),
+        call: CallTiming {
+            pool: Duration::from_micros(1_500),
+            exec: Duration::from_millis(21),
+        },
+        prep: Duration::from_micros(340),
+        launch: LaunchPhases {
+            assign: Duration::from_millis(13),
+            ready: Duration::from_millis(4),
+            ..LaunchPhases::default()
+        },
+        finish: Duration::from_micros(120),
+        launch_preparation: Some(LaunchPreparation::OnDemand),
+    };
+
+    let header = timing.header();
+    // A metric with a description and no duration: a fact about the request rather than a span
+    // of it, so it cannot be read as one of the segments and cannot disturb them.
+    assert!(header.ends_with(",launch;desc=\"on_demand\""), "{header}");
+    assert!(!header.contains("launch;dur"), "{header}");
+    assert!(
+        header.starts_with("auth;dur=0.012,pool;dur=1.500,exec;dur=21.000,"),
+        "{header}"
+    );
+}
+
+#[test]
+fn a_launch_with_no_reported_path_says_nothing_rather_than_guessing() {
+    let timing = Timing {
+        launch_preparation: None,
+        ..Timing::default()
+    };
+    assert!(!timing.header().contains("launch;"), "{}", timing.header());
+}
+
+#[test]
+fn the_engines_own_classes_are_read_into_the_reported_names() {
+    for (class, expected) in [
+        (
+            PreparationClass::PreparedWorker,
+            LaunchPreparation::Prepared,
+        ),
+        (PreparationClass::OnDemand, LaunchPreparation::OnDemand),
+        (
+            PreparationClass::PausedLease,
+            LaunchPreparation::PausedLease,
+        ),
+        (PreparationClass::ReadyLease, LaunchPreparation::ReadyLease),
+    ] {
+        assert_eq!(
+            LaunchPreparation::of(&Observation::Observed(class)),
+            Some(expected)
+        );
+    }
+    // A receipt that never reached a launch reports no path at all, and the header must not
+    // invent one.
+    assert_eq!(
+        LaunchPreparation::of(&Observation::Unavailable(
+            ObservationUnavailable::NotReached
+        )),
+        None
+    );
+    assert_eq!(LaunchPreparation::Prepared.label(), "prepared");
+    assert_eq!(LaunchPreparation::OnDemand.label(), "on_demand");
 }
