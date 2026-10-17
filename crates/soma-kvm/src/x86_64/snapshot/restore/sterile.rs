@@ -90,13 +90,14 @@ impl Sterile {
         volume: Option<File>,
         guest_cid: u32,
         network: Option<NetworkAttachment>,
+        reads: Option<crate::head_reads::HeadReadsHandle>,
     ) -> Result<Restored, SnapshotError> {
         let Self {
             machine,
             facts,
             sequence,
         } = self;
-        machine.assign_instance_resources(overlay, volume, guest_cid, network)?;
+        machine.assign_instance_resources(overlay, volume, guest_cid, network, reads)?;
         let readiness = readiness::sample_challenge()?;
         Ok(Restored {
             machine,

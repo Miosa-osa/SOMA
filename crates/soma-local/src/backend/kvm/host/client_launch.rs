@@ -92,6 +92,16 @@ pub(in crate::backend::kvm) fn launch(
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
         Ok(launched) => {
+            // What the guest read from its head travels back with the answer, so the pool can warm
+            // the next head for this Generation while it is prepared rather than while the next
+            // guest waits. A launch that read nothing leaves the set as it was.
+            let spans: Vec<soma_kvm::head_reads::HeadSpan> = launched
+                .head_reads
+                .iter()
+                .copied()
+                .map(Into::into)
+                .collect();
+            sterile::note_head_reads(&sterile::key_for(prepared), &spans);
             reaper::adopt(child).map_err(|_| BackendFailureKind::Unavailable)?;
             Ok(launched)
         }

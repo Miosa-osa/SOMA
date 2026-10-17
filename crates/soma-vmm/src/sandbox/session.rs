@@ -10,6 +10,7 @@
 //! it. That is also the shape a sandbox process eventually takes, so the seam does not move
 //! when the daemon owns it.
 
+use soma_kvm::head_reads::HeadSpan;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -92,6 +93,20 @@ pub struct Session {
     pub(super) poisoned: bool,
     /// A background activation the next network-using operation must wait for.
     pub(super) pending: Option<Arc<Outcome>>,
+    /// The head ranges the guest read before it reached Ready, as the machine thread reported
+    /// them. Empty until one arrives, and empty for a machine that was not watched.
+    pub(super) head_reads: Vec<HeadSpan>,
+}
+
+impl Session {
+    /// The head ranges the guest read before Ready.
+    ///
+    /// What the next head for the same Generation is warmed with, so that the fault this launch
+    /// paid is not paid again by the next one.
+    #[must_use]
+    pub fn head_reads(&self) -> &[HeadSpan] {
+        &self.head_reads
+    }
 }
 
 impl Session {
@@ -119,9 +134,13 @@ impl Session {
             thread: Some(thread),
             poisoned: false,
             pending: None,
+            head_reads: Vec::new(),
         };
         match session.await_response(BOOT_DEADLINE + EXIT_GRACE) {
-            Ok(Response::Ready) => Ok(session),
+            Ok(Response::Ready { head_reads }) => {
+                session.head_reads = head_reads;
+                Ok(session)
+            }
             Ok(Response::Minted(receipt)) => session.open_the_link(&receipt, activate),
             // A sandbox that answered anything else never reached Ready, and one that answered
             // nothing is gone; both carry the reason the thread reported.

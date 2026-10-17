@@ -86,6 +86,8 @@ pub fn run_workload<W: Workload>(
             volume_placeholder: false,
         },
         guest_cid: cid,
+        // These tests exercise the restore, not the warm set.
+        reads: None,
         memory_bytes: fixture.ram_bytes,
         vcpus: fixture.vcpus,
         contract: fixture.contract,

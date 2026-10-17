@@ -171,6 +171,7 @@ impl KvmBackend {
             preparation,
             held,
             launched,
+            head_reads,
         } = if self.jail.is_some() {
             self.launch_in_a_jail(operation, launching)?
         } else {
@@ -194,15 +195,38 @@ impl KvmBackend {
             let _ignored = self.cleanup_resident(instance, Force::Immediately);
             return Err(self.fail(operation, kind));
         }
-        Ok(Launched {
+        Ok(launch_answer(
             preparation,
-            memory_mib: shape.memory_mib(),
+            shape,
             storage_mib,
-            vcpus: shape.vcpu_count(),
-            network: observed,
-            at_ns: launched,
-            live_cgroup: None,
-        })
+            head_reads,
+            observed,
+            launched,
+        ))
+    }
+}
+
+/// The answer a caller reads, once a machine exists and its shape is confirmed.
+///
+/// Built apart from the launch because the launch is already long, and this is the one part of it
+/// that is a report rather than a step.
+fn launch_answer(
+    preparation: soma::PreparationClass,
+    shape: &MachineShape,
+    storage_mib: u64,
+    head_reads: Vec<soma_kvm::head_reads::HeadSpan>,
+    observed: EffectiveNetwork,
+    at_ns: u64,
+) -> Launched {
+    Launched {
+        preparation,
+        memory_mib: shape.memory_mib(),
+        storage_mib,
+        head_reads: head_reads.into_iter().map(Into::into).collect(),
+        vcpus: shape.vcpu_count(),
+        network: observed,
+        at_ns,
+        live_cgroup: None,
     }
 }
 

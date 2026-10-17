@@ -78,7 +78,8 @@ fn serve_primed(
     ) else {
         return REFUSED;
     };
-    let Ok(backend) = KvmBackend::primed_machine_host(&prepared, plan.memory_mib) else {
+    let Ok(backend) = KvmBackend::primed_machine_host(&prepared, plan.memory_mib, &plan.warm)
+    else {
         let _ignored = channel::write_line(&mut io::stdout(), &PrewarmReady::Refused);
         return REFUSED;
     };

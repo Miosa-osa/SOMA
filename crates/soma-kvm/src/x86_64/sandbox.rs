@@ -42,6 +42,7 @@ use super::{
     timing::Stopwatch,
     watchdog::{RunContext, RunReport, VcpuRun},
 };
+use crate::head_reads::{HeadReadsHandle, HeadSpan};
 
 struct Prepared {
     vcpus: Vec<VcpuFd>,
@@ -84,6 +85,9 @@ pub struct SandboxMachine {
     stage: Stage,
     clock: Stopwatch,
     timeline: Mutex<Timeline>,
+    /// Where the ranges a guest reads from this machine's head are recorded, when a session asked
+    /// to be told them. Nothing watches a machine that was not asked to be watched.
+    head_reads: Mutex<Option<HeadReadsHandle>>,
     cmdline: String,
     entry: u64,
     initramfs: Option<(u64, u64)>,
@@ -97,6 +101,28 @@ pub struct SandboxMachine {
 }
 
 impl SandboxMachine {
+    /// Has this machine record the ranges a guest reads from its head.
+    pub(in crate::x86_64) fn watch_head_reads(&self, reads: HeadReadsHandle) {
+        *self
+            .head_reads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(reads);
+    }
+
+    /// Seals the head recorder and reports the ranges the guest read before Ready.
+    ///
+    /// Read once, where the launch reaches Ready, so that what the guest later *chooses* to read is
+    /// not mistaken for a cost of the launch. Empty when nothing was watching.
+    #[must_use]
+    pub fn seal_head_reads(&self) -> Vec<HeadSpan> {
+        let watching = self
+            .head_reads
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        watching.map_or_else(Vec::new, |reads| crate::head_reads::seal(&reads))
+    }
+
     /// Creates the VM, RAM, platform, devices, launch page slot, guest, vCPUs, and eventfd
     /// routes, in that order, without running anything.
     ///
@@ -199,6 +225,7 @@ impl SandboxMachine {
             }),
             clock,
             timeline: Mutex::new(timeline),
+            head_reads: Mutex::new(None),
             cmdline: loaded.cmdline,
             entry: loaded.entry,
             initramfs: loaded.initramfs,

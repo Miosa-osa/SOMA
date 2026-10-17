@@ -45,6 +45,7 @@ impl Session {
             thread: Some(thread),
             poisoned: false,
             pending: None,
+            head_reads: Vec::new(),
         };
         match session.await_response(PREPARE_DEADLINE) {
             Ok(Response::Prepared) => Ok(session),
@@ -76,7 +77,10 @@ impl Session {
             .send(Request::Assign(Box::new(assignment)))
             .map_err(|_| self.poison(SessionError::Gone))?;
         match self.await_response(BOOT_DEADLINE + EXIT_GRACE) {
-            Ok(Response::Ready) => Ok(()),
+            Ok(Response::Ready { head_reads }) => {
+                self.head_reads = head_reads;
+                Ok(())
+            }
             Ok(Response::Minted(receipt)) => self.raise_the_link(&receipt, activate),
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
             Ok(_) => Err(self.poison(SessionError::Boot)),
@@ -100,7 +104,10 @@ impl Session {
             .send(Request::RaiseLink)
             .map_err(|_| self.poison(SessionError::Gone))?;
         match self.await_response(BOOT_DEADLINE) {
-            Ok(Response::Ready) => Ok(()),
+            Ok(Response::Ready { head_reads }) => {
+                self.head_reads = head_reads;
+                Ok(())
+            }
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
             Ok(_) => Err(self.poison(SessionError::Boot)),
         }
@@ -149,7 +156,10 @@ impl Session {
         };
         match outcome.wait(ACTIVATION_PATIENCE) {
             Some(Ok(())) => match self.await_response(BOOT_DEADLINE) {
-                Ok(Response::Ready) => Ok(()),
+                Ok(Response::Ready { head_reads }) => {
+                    self.head_reads = head_reads;
+                    Ok(())
+                }
                 Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
                 Ok(_) => Err(self.poison(SessionError::Boot)),
             },
@@ -176,7 +186,9 @@ mod tests {
                 match request {
                     Request::RaiseLink => {
                         seen.push("raise");
-                        let _ = response_tx.send(Response::Ready);
+                        let _ = response_tx.send(Response::Ready {
+                            head_reads: Vec::new(),
+                        });
                     }
                     Request::Execute(_) => seen.push("execute"),
                     _ => seen.push("other"),
@@ -190,6 +202,7 @@ mod tests {
             thread: None,
             poisoned: false,
             pending: None,
+            head_reads: Vec::new(),
         };
         (session, stand_in)
     }

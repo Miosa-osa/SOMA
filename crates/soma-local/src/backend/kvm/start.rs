@@ -30,6 +30,8 @@ pub(super) struct Started {
     pub(super) held: Held,
     /// When this Launch finished producing a machine, in nanoseconds since it was accepted.
     pub(super) launched: u64,
+    /// The head ranges the guest read before Ready, for the pool to warm the next head with.
+    pub(super) head_reads: Vec<soma_kvm::head_reads::HeadSpan>,
 }
 
 /// Everything a Launch needs to turn a claim or a restore into a running Instance.
@@ -105,11 +107,17 @@ impl KvmBackend {
                     .map_err(|()| SessionError::Network)
             },
         ) {
-            Ok(session) => Ok(Started {
-                preparation: PreparationClass::PreparedWorker,
-                held: Held::Resident(session),
-                launched,
-            }),
+            Ok(session) => {
+                // Read before the session is handed over: this is the only point at which the
+                // launch's own view of the window is available.
+                let head_reads = session.head_reads().to_vec();
+                Ok(Started {
+                    preparation: PreparationClass::PreparedWorker,
+                    held: Held::Resident(session),
+                    launched,
+                    head_reads,
+                })
+            }
             Err(error) => Err(self.withdraw(operation, instance, error)),
         }
     }
@@ -182,6 +190,8 @@ impl KvmBackend {
                 preparation: PreparationClass::OnDemand,
                 held: Held::Jailed(Box::new(jailed)),
                 launched,
+                // A jailed machine has no private head of its own to warm.
+                head_reads: Vec::new(),
             }),
             Err(kind) => {
                 // A launch that never produced a machine leaves no Instance owned by this Host.
@@ -221,6 +231,8 @@ impl KvmBackend {
                 preparation: PreparationClass::OnDemand,
                 held: Held::Resident(session),
                 launched,
+                // A machine that built its own disk built it where the guest can reach it already.
+                head_reads: Vec::new(),
             }),
             Err(error) => Err(self.withdraw(operation, instance, error)),
         }

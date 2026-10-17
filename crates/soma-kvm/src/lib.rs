@@ -17,6 +17,7 @@ mod linux;
 /// or macOS client must compose and verify it byte for byte even though only
 /// a Linux x86_64 host can boot it.
 pub mod cmdline;
+pub mod head_reads;
 
 /// The versioned `x86_64` machine contract as portable data.
 ///

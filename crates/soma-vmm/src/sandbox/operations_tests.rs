@@ -50,6 +50,7 @@ fn session_playing(
         thread: None,
         poisoned: false,
         pending: None,
+        head_reads: Vec::new(),
     };
     (session, stand_in)
 }
@@ -124,7 +125,11 @@ fn a_command_that_never_ends_is_bounded_by_the_whole_deadline_not_the_gap_betwee
 #[test]
 fn an_unexpected_reply_poisons_the_session() {
     let (mut session, stand_in) = session_playing(|responses| {
-        responses.send(Response::Ready).expect("send");
+        responses
+            .send(Response::Ready {
+                head_reads: Vec::new(),
+            })
+            .expect("send");
     });
     let result = session.execute_streaming(command(), Duration::from_secs(5), |_, _| {});
     assert_eq!(result.err(), Some(SessionError::Execute));

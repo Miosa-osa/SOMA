@@ -151,6 +151,7 @@ impl KvmBackend {
     pub(in crate::backend::kvm) fn primed_machine_host(
         prepared: &prepared::PreparedGeneration,
         memory_mib: u64,
+        warm: &[crate::backend::kvm::host::HeadSpanWire],
     ) -> Result<Self, LocalFailure> {
         let mut backend = Self::with_role(Role::MachineHost)?;
         if backend.jail.is_some() {
@@ -166,6 +167,19 @@ impl KvmBackend {
             .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
         let overlay = claim::prepared_overlay(prepared)
             .map_err(|_| LocalFailure::new(LocalFailureKind::BackendUnavailable))?;
+        // A head is a fresh inode: its pages are shared with the Generation's template but not
+        // resident in it, so a guest's first read of it faults every page it touches in from the
+        // device. Reading them here, synchronously and before this host counts as prepared, is
+        // what makes that fault free and stops a claim racing a read still in flight.
+        if let Some(head) = overlay.as_ref() {
+            let spans: Vec<soma_kvm::head_reads::HeadSpan> =
+                warm.iter().copied().map(Into::into).collect();
+            if !spans.is_empty() {
+                // An unwarmed head is not a failure: the guest faults the pages itself, which is
+                // what happens today.
+                let _ignored = soma_kvm::head_reads::warm(head, &spans);
+            }
+        }
         backend.primed = Some((key, session, overlay));
         Ok(backend)
     }
