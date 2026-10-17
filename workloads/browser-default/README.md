@@ -17,8 +17,13 @@ Design, measurements, and the rollout runbook live in MIOSA `tasks/soma-browser-
 ## Build
 
 ```sh
-docker build --platform=linux/amd64 -t soma-browser-default:1 workloads/browser-default
+docker build --platform=linux/amd64 --build-context docker-engine=workloads/docker-engine \
+  -t soma-browser-default:1 workloads/browser-default
 ```
+
+The engine directory is a named build context, not an option: the image carries the Docker engine
+and copies `install-docker-ce.sh`, `daemon.json`, `soma-docker-ensure` and `docker-wrapper` out of
+it, so leaving the flag off fails the build looking for a registry image called `docker-engine`.
 
 The image is a Generation input, exactly like `workloads/large-dax`: export it to an OCI layout and compile it with `scripts/prepare-generation.sh`, then capture the snapshot at the memory shape the host serves (2048 MiB for the browser-capable default).
 
