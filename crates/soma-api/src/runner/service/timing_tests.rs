@@ -56,6 +56,43 @@ fn server_timing_names_every_segment_of_a_create() {
 }
 
 #[test]
+fn the_two_segments_a_call_earns_are_appended_and_no_others_are() {
+    let bare = Timing::default();
+    assert_eq!(bare.header().split(',').count(), 10);
+    assert!(
+        !bare.header().contains("wait;") && !bare.header().contains("run;"),
+        "a call that neither waited nor ran a command reports neither: {}",
+        bare.header()
+    );
+
+    // A call that waited for a launch its create had answered early for reports how long, as a
+    // segment of its own at the end.
+    let waited = Timing {
+        wait: Some(Duration::from_micros(7_736)),
+        ..bare
+    };
+    assert!(waited.header().ends_with(",wait;dur=7.736"), "{}", waited.header());
+    assert_eq!(waited.header().split(',').count(), 11);
+
+    // A create-and-run reports the command's own part of its facade call, and a create-and-run
+    // never waited: it is the create that waited.
+    let ran = Timing {
+        run: Some(Duration::from_millis(13)),
+        ..bare
+    };
+    assert!(ran.header().ends_with(",run;dur=13.000"), "{}", ran.header());
+    assert!(!ran.header().contains("wait;"), "{}", ran.header());
+
+    // Both together keep the wait first, which is the order they happen in.
+    let both = Timing {
+        wait: Some(Duration::from_millis(1)),
+        run: Some(Duration::from_millis(2)),
+        ..bare
+    };
+    assert!(both.header().ends_with(",wait;dur=1.000,run;dur=2.000"), "{}", both.header());
+}
+
+#[test]
 fn the_launch_segments_are_read_from_the_receipt_milestones() {
     let receipt: soma::ExecutionReceipt =
         serde_json::from_str(RECEIPT).expect("the retained receipt is valid");
