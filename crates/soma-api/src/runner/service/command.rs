@@ -36,7 +36,26 @@ impl Runner {
         body: &[u8],
         timing: &mut Timing,
     ) -> RunnerResponse {
-        let Prepared { id, owner, request } = match self.prepare_command(principal, raw_id, body) {
+        let id = match self.addressed(raw_id) {
+            Ok(id) => id,
+            Err(response) => {
+                return refused_sandbox(*response, EntryKind::Exec, principal);
+            }
+        };
+        // A sandbox whose create answered before it was up is waited for here, before the command
+        // is built: the command may not be admitted against a machine that does not exist yet.
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => {
+                let status = response.status;
+                return with_journal(
+                    *response,
+                    Some(command_entry(principal, &id, None, status, None)),
+                );
+            }
+        };
+        timing.wait = waited;
+        let Prepared { id, owner, request } = match self.prepare_command(principal, &id, body) {
             Ok(prepared) => prepared,
             Err(response) => return *response,
         };
@@ -65,34 +84,40 @@ impl Runner {
 
     /// The checks every command passes, shared by exec and exec/stream. A refusal comes back
     /// as the finished, journaled answer.
+    ///
+    /// The sandbox is addressed by the caller rather than from a raw id, because a caller has to
+    /// wait for a launch its sandbox is still in before the command may be built.
     pub(super) fn prepare_command(
         &self,
         principal: &Principal,
-        raw_id: &str,
+        id: &SandboxId,
         body: &[u8],
     ) -> Result<Prepared, Box<RunnerResponse>> {
-        let id = self
-            .addressed(raw_id)
-            .map_err(|response| Box::new(refused_sandbox(*response, EntryKind::Exec, principal)))?;
-        let refuse = |error: &PlatformError, owner: Option<&Owner>| {
+        let refuse = |response: RunnerResponse, owner: Option<&Owner>| {
+            let status = response.status;
             Box::new(with_journal(
-                RunnerResponse::platform(error),
-                Some(command_entry(principal, &id, owner, error.status, None)),
+                response,
+                Some(command_entry(principal, id, owner, status, None)),
             ))
         };
-        let params = ExecParams::parse(body).map_err(|error| refuse(&error, None))?;
+        let params = ExecParams::parse(body)
+            .map_err(|error| refuse(RunnerResponse::platform(&error), None))?;
         let owner = self
             .sandboxes
-            .begin_command(&id, &principal.key.tenant_id)
-            .map_err(|unavailable| refuse(&outcome::command_refusal(&unavailable), None))?;
-        let request = match execute_request(&id, &params, self.config.shell_free_exec) {
+            .begin_command(id, &principal.key.tenant_id)
+            .map_err(|unavailable| refuse(outcome::command_refusal(&unavailable), None))?;
+        let request = match execute_request(id, &params, self.config.shell_free_exec) {
             Ok(request) => request,
             Err(error) => {
-                self.sandboxes.release(&id);
-                return Err(refuse(&error, Some(&owner)));
+                self.sandboxes.release(id);
+                return Err(refuse(RunnerResponse::platform(&error), Some(&owner)));
             }
         };
-        Ok(Prepared { id, owner, request })
+        Ok(Prepared {
+            id: id.clone(),
+            owner,
+            request,
+        })
     }
 }
 
@@ -115,26 +140,58 @@ pub(super) fn command_entry(
     entry
 }
 
+/// What one command produced, in the terms the exec endpoint answers it in.
+pub(super) enum Ran {
+    /// The command ended: its exit code, and the output it produced.
+    Exited {
+        exit_code: i32,
+        stdout: String,
+        stderr: String,
+    },
+    /// The command produced no result, and this is the answer the exec endpoint gives.
+    Failed(PlatformError),
+}
+
+/// Reads one finished facade command call.
+///
+/// This is the whole of the rule that turns a command's outcome into an answer: a command that
+/// ended has an exit code, a command that produced no result is answered by what stopped it, and
+/// a command the engine named is answered by [`outcome::failure_error`]. Every door onto a
+/// command reads it here, so `exec` and a create-and-run can never disagree about one.
+pub(super) fn ran(outcome: Result<CommandOutcome, ManagedFailure>) -> Ran {
+    match outcome {
+        Ok(executed) => match outcome::exit_code(executed.status) {
+            Some(exit_code) => Ran::Exited {
+                exit_code,
+                stdout: String::from_utf8_lossy(&executed.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&executed.stderr).into_owned(),
+            },
+            // The fast lane only ever answered a command that ended; anything else decoded as an
+            // invalid receipt and was answered as an unavailable agent.
+            None => Ran::Failed(PlatformError::agent_unavailable()),
+        },
+        Err(failure) => Ran::Failed(outcome::failure_error(&failure)),
+    }
+}
+
 /// The answer to one finished command, and its exit code when it exited.
 fn executed_answer(
     outcome: Result<(Result<CommandOutcome, ManagedFailure>, CallTiming), Busy>,
     started: Instant,
 ) -> (RunnerResponse, Option<i32>) {
-    let failure = match outcome {
-        Ok((Ok(executed), _)) => {
-            let Some(code) = outcome::exit_code(executed.status) else {
-                // The fast lane only ever answered a command that ended; anything else decoded
-                // as an invalid receipt and was answered as an unavailable agent.
-                return (
-                    RunnerResponse::platform(&PlatformError::agent_unavailable()),
-                    None,
-                );
-            };
-            let stdout = String::from_utf8_lossy(&executed.stdout);
-            let stderr = String::from_utf8_lossy(&executed.stderr);
+    let outcome = match outcome {
+        Ok((command, _)) => command,
+        Err(Busy) => return (RunnerResponse::runtime_busy(), None),
+    };
+    match ran(outcome) {
+        Ran::Exited {
+            exit_code,
+            stdout,
+            stderr,
+        } => {
             let body = public_wire::encode(&public_wire::Executed {
                 data: public_wire::ExecutedData {
-                    exit_code: code,
+                    exit_code,
                     stderr: &stderr,
                     stdout: &stdout,
                 },
@@ -143,13 +200,10 @@ fn executed_answer(
                 "x-miosa-soma-server-tti-us",
                 started.elapsed().as_micros().to_string(),
             );
-            return (response, Some(code));
+            (response, Some(exit_code))
         }
-        Ok((Err(failure), _)) => failure,
-        Err(Busy) => return (RunnerResponse::runtime_busy(), None),
-    };
-    let error = outcome::failure_error(&failure);
-    (RunnerResponse::platform(&error), None)
+        Ran::Failed(error) => (RunnerResponse::platform(&error), None),
+    }
 }
 
 /// One command's argv, chosen by [`shell::plan`] and admitted by the machine's exec contract.
@@ -214,7 +268,19 @@ fn execute_request(
         params.timeout_ms,
         &params.context,
     )?;
-    let limits = ExecutionLimits::new(params.timeout_ms, ExecutionLimits::DEFAULT_MAX_OUTPUT_BYTES)
+    command_request(id, command, params.timeout_ms)
+}
+
+/// The request one already-built command carries to the facade.
+///
+/// A create-and-run builds its command while it parses the create body, so this is the second
+/// half of the same construction rather than a second way to build one.
+pub(super) fn command_request(
+    id: &SandboxId,
+    command: DirectCommand,
+    timeout_ms: u64,
+) -> Result<ExecuteMachineRequest, PlatformError> {
+    let limits = ExecutionLimits::new(timeout_ms, ExecutionLimits::DEFAULT_MAX_OUTPUT_BYTES)
         .map_err(|_| PlatformError::invalid_timeout())?;
     let unbuildable = || PlatformError::invalid_param("command", "the command could not be built");
     let operation = operation_id(None).map_err(|_| unbuildable())?;

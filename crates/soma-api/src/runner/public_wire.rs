@@ -9,6 +9,10 @@
 use serde::Serialize;
 
 pub use crate::runner::refusals::{health, misdirected, refusal};
+
+mod run;
+
+pub use run::Ran;
 use serde_json::Value;
 
 /// The compact `201` body `SandboxView.render_compact/1` produces.
@@ -23,6 +27,12 @@ pub struct Created<'a> {
     pub id: &'a str,
     pub memory_mb: u64,
     pub name: Option<&'a str>,
+    /// The command a create-and-run ran, and what it produced.
+    ///
+    /// Only a create that carried a `run` block has one, and the key is left out entirely for
+    /// every other create, so a body that a client read before this field existed is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<&'a Ran<'a>>,
     /// Where every later call for this sandbox goes (contract C2). An extra key, which the
     /// compact body's JSON clients ignore; it sorts where Jason would put it.
     pub runner_url: &'a str,

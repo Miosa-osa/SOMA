@@ -26,6 +26,16 @@ pub(super) struct Timing {
     /// The runner's own bookkeeping after the facade call returned: confirming
     /// the sandbox and encoding the `201` body.
     pub(super) finish: Duration,
+    /// How long this request waited for a launch its create had answered an early `201` for.
+    ///
+    /// `None` on every request that did not have to wait, which is every request that arrived
+    /// after its sandbox was up and every request on the path that existed before an early
+    /// answer did, so their header is unchanged.
+    pub(super) wait: Option<Duration>,
+    /// The whole second facade call a create-and-run makes, its lease wait and its command
+    /// together, named the way `exec` names a create's own call. Only a create-and-run has one,
+    /// so the segment is absent from every other answer.
+    pub(super) run: Option<Duration>,
 }
 
 /// The phase boundaries `soma` already records, read back from a receipt.
@@ -80,11 +90,24 @@ impl Timing {
             if index > 0 {
                 value.push(',');
             }
-            let micros = duration.as_micros();
-            let _written = write!(value, "{name};dur={}.{:03}", micros / 1_000, micros % 1_000);
+            push(&mut value, name, duration);
+        }
+        if let Some(wait) = self.wait {
+            value.push(',');
+            push(&mut value, "wait", wait);
+        }
+        if let Some(run) = self.run {
+            value.push(',');
+            push(&mut value, "run", run);
         }
         value
     }
+}
+
+/// Writes one `name;dur=<ms>.<micros>` segment.
+fn push(value: &mut String, name: &str, duration: Duration) {
+    let micros = duration.as_micros();
+    let _written = write!(value, "{name};dur={}.{:03}", micros / 1_000, micros % 1_000);
 }
 
 impl LaunchPhases {

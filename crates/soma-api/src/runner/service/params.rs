@@ -1,5 +1,7 @@
+use std::fmt;
+
 use serde_json::Value;
-use soma::MachineShape;
+use soma::{DirectCommand, MachineShape};
 
 use crate::runner::{
     config::{LargeShape, LaunchConfig},
@@ -8,108 +10,16 @@ use crate::runner::{
 };
 
 mod exec;
+mod fields;
+mod run;
+
+use fields::{CREATE_FIELDS, UNSUPPORTED_CREATE_PARAMS};
 
 pub(super) use exec::ExecParams;
-
-/// Create parameters that ask for something other than the bare prepared sandbox.
-///
-/// This is the fast-lane door's own list (`Web.SomaFastLane.Handler`'s `@unsupported_params`):
-/// on that path these requests fell through to the standard pipeline, and the runner has none.
-/// `cwd` is the one addition to that list: contract C2 names a create carrying it among the
-/// requests the runner does not serve, and only this list can refuse it with that answer.
-const UNSUPPORTED_CREATE_PARAMS: [&str; 16] = [
-    "snapshot_id",
-    "source_snapshot_id",
-    "snapshot",
-    "source",
-    "github_repo_url",
-    "template_id",
-    "image",
-    "env",
-    "entrypoint",
-    "services",
-    "database",
-    "name",
-    "readiness_probe",
-    "always_on",
-    "slug",
-    "cwd",
-];
-
-/// Every top-level create field the platform defines.
-///
-/// The door this runner replaces ignored any key it did not read, so a misspelled field quietly
-/// created a sandbox that honored none of it. This list is the platform's own create vocabulary,
-/// taken from the three places that define it: the fast-lane door
-/// (`Web.SomaFastLane.Handler.build_attrs/3` and `shape?/2`), the create-parameter module
-/// (`Web.Controllers.Sandboxes.CreateParams`), and the published SDK's create body
-/// (`sdks/typescript/src/resources/sandboxes.ts`). A key outside it is answered with a 400 that
-/// names it, so the next misspelled field is a refusal instead of a silent create.
-const CREATE_FIELDS: [&str; 60] = [
-    "__soma_api_started_at_us",
-    "agent_runtime_profile_id",
-    "allow_provision",
-    "always_on",
-    "auto_start",
-    "compute_placement_request",
-    "cpu_count",
-    "cwd",
-    "database",
-    "depth",
-    "disk_mb",
-    "disk_size_mb",
-    "entrypoint",
-    "env",
-    "external_project_id",
-    "external_user_id",
-    "external_workspace_id",
-    "github_branch",
-    "github_clone_path",
-    "github_repo_url",
-    "idle_timeout_sec",
-    "image",
-    "install",
-    "install_command",
-    "install_timeout_sec",
-    "memory_mb",
-    "metadata",
-    "name",
-    "network_profile",
-    "persistent",
-    "port",
-    "project_id",
-    "project_name",
-    "project_slug",
-    "readiness_probe",
-    "region",
-    "response_format",
-    "revision",
-    "runtime_profile",
-    "services",
-    "size",
-    "skip_agent_runtime_profile",
-    "slug",
-    "snapshot",
-    "snapshot_id",
-    "source",
-    "source_path",
-    "source_snapshot_id",
-    "start_command",
-    "start_timeout_sec",
-    "storage_profile",
-    "tags",
-    "template_id",
-    "timeout",
-    "timeout_sec",
-    "wait",
-    "workdir",
-    "workspace_id",
-    "workspace_name",
-    "workspace_slug",
-];
+pub(super) use run::RunCommand;
 
 /// The create body fields the runner acts on.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub(super) struct CreateParams {
     pub(super) project_id: Option<String>,
     pub(super) timeout_seconds: u64,
@@ -120,6 +30,32 @@ pub(super) struct CreateParams {
     /// `large` carries the runner's large shape, and is only reachable on a runner that
     /// configured one.
     pub(super) shape: MachineShape,
+    /// Whether the create waits for the sandbox to be up before it answers.
+    ///
+    /// Absent is `true`, the answer every client had before this field existed. `false` is the
+    /// early `201`: the runner answers as soon as the launch has taken a facade lease and keeps
+    /// bringing the sandbox up behind the answer, and every later call on it waits.
+    pub(super) wait_ready: bool,
+    /// The command a create-and-run carries, already through every check the exec door makes.
+    ///
+    /// A create that carries one always waits for its sandbox first, so this and
+    /// [`Self::wait_ready`] are never both set away from their defaults.
+    pub(super) run: Option<RunCommand>,
+}
+
+/// The command is not printed: a create's command is the caller's, and a debug print of it in a
+/// test failure or a log line is a copy of it in a place it was not sent to.
+impl fmt::Debug for CreateParams {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CreateParams")
+            .field("project_id", &self.project_id)
+            .field("timeout_seconds", &self.timeout_seconds)
+            .field("shape", &self.shape)
+            .field("wait_ready", &self.wait_ready)
+            .field("run", &self.run.is_some())
+            .finish()
+    }
 }
 
 impl CreateParams {
@@ -128,6 +64,7 @@ impl CreateParams {
         body: &[u8],
         default_timeout: u64,
         launch: &LaunchConfig,
+        shell_free_exec: bool,
     ) -> Result<Self, PlatformError> {
         let params = object(body)?;
         refuse_unknown_fields(&params)?;
@@ -203,11 +140,39 @@ impl CreateParams {
                     )
                 })?,
         };
+        let run = RunCommand::parse(&params, shell_free_exec)?;
+        let wait_ready = wait_ready(&params)?;
+        if run.is_some() && !wait_ready {
+            // The command cannot run before the sandbox is up, so a create that carries one has
+            // nothing to answer early about: it waits, and says so rather than silently ignoring
+            // the field it was given.
+            return Err(PlatformError::invalid_param(
+                "wait_ready",
+                "a create that runs a command waits for its sandbox; send `wait_ready` as true or leave it out",
+            ));
+        }
         Ok(Self {
             project_id,
             timeout_seconds,
             shape,
+            wait_ready,
+            run,
         })
+    }
+}
+
+/// Whether a create waits for its sandbox to be up, read the way the platform reads its
+/// booleans: absent or null is the synchronous answer that predates this field, and `true`,
+/// `false`, `"true"`, `"1"`, `"false"` and `"0"` are the values a form or a query string sends.
+fn wait_ready(params: &serde_json::Map<String, Value>) -> Result<bool, PlatformError> {
+    match params.get("wait_ready") {
+        None | Some(Value::Null) => Ok(true),
+        Some(value) if truthy(value) => Ok(true),
+        Some(value) if falsy(value) => Ok(false),
+        Some(_) => Err(PlatformError::invalid_param(
+            "wait_ready",
+            "wait_ready must be a boolean",
+        )),
     }
 }
 
@@ -251,4 +216,9 @@ fn empty(value: Option<&Value>) -> bool {
 /// `Handler.truthy?/1`: `true`, `"true"`, or `"1"`.
 fn truthy(value: &Value) -> bool {
     matches!(value, Value::Bool(true)) || matches!(value.as_str(), Some("true" | "1"))
+}
+
+/// `Handler.falsy?/1`: the values the platform reads as a `false` a human typed into a form.
+fn falsy(value: &Value) -> bool {
+    matches!(value, Value::Bool(false)) || matches!(value.as_str(), Some("false" | "0"))
 }

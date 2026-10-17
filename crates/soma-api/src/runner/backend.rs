@@ -48,6 +48,20 @@ impl Backend {
         &self,
         call: impl FnOnce(&mut dyn SandboxFacade) -> R + Send + 'static,
     ) -> Result<(R, CallTiming), Busy> {
+        self.spawn(call).await.map_err(|_| Busy)?
+    }
+
+    /// Leases a facade and runs `call` on it, handing back the task that is running it.
+    ///
+    /// This is [`Self::call`] without the wait: a create that answers before its launch finishes
+    /// keeps the launch's own task, so the lease is held for exactly as long as the call runs
+    /// and the launch is not cancelled when the request that started it returns. Dropping the
+    /// handle does not stop the call.
+    #[must_use]
+    pub fn spawn<R: Send + 'static>(
+        &self,
+        call: impl FnOnce(&mut dyn SandboxFacade) -> R + Send + 'static,
+    ) -> tokio::task::JoinHandle<Result<(R, CallTiming), Busy>> {
         let opener = Arc::clone(&self.opener);
         let queued = Instant::now();
         tokio::task::spawn_blocking(move || {
@@ -64,8 +78,6 @@ impl Backend {
                 },
             ))
         })
-        .await
-        .map_err(|_| Busy)?
     }
 
     /// Runs `call` on a facade from synchronous code, for startup work done before serving.

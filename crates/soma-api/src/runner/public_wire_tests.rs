@@ -1,6 +1,6 @@
 use super::{
-    Created, Destroyed, Executed, ExecutedData, PlatformError, create_unavailable, encode, health,
-    misdirected, refusal,
+    Created, Destroyed, Executed, ExecutedData, PlatformError, Ran, create_unavailable, encode,
+    health, misdirected, refusal,
 };
 
 fn text(bytes: &[u8]) -> &str {
@@ -17,6 +17,7 @@ fn the_compact_create_body_is_the_fast_lane_bytes_plus_runner_url_and_create_ms(
         id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
         memory_mb: 512,
         name: None,
+        run: None,
         runner_url: "https://3.run-us.miosa.ai",
         slug: "3f2504e0",
         state: "running",
@@ -27,6 +28,53 @@ fn the_compact_create_body_is_the_fast_lane_bytes_plus_runner_url_and_create_ms(
     assert_eq!(
         text(&body),
         r#"{"cpu_count":1,"create_ms":42,"created_at":"2026-10-02T17:04:05.123456Z","deletion_pending":false,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","memory_mb":512,"name":null,"runner_url":"https://3.run-us.miosa.ai","slug":"3f2504e0","state":"running","template_id":"miosa-sandbox-soma","timeout_sec":3600}"#
+    );
+}
+
+#[test]
+fn a_create_and_run_body_is_the_compact_create_body_plus_its_run_object() {
+    let ran = Ran {
+        duration_ms: 41,
+        error: None,
+        exit_code: Some(0),
+        stderr: "",
+        stdout: "v22.23.2\n",
+    };
+    let body = encode(&Created {
+        cpu_count: 1,
+        create_ms: 63,
+        created_at: "2026-10-02T17:04:05.123456Z",
+        deletion_pending: false,
+        id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+        memory_mb: 512,
+        name: None,
+        run: Some(&ran),
+        runner_url: "https://3.run-us.miosa.ai",
+        slug: "3f2504e0",
+        state: "running",
+        template_id: "miosa-sandbox-soma",
+        timeout_sec: 3600,
+    });
+
+    // The `run` key sorts between `name` and `runner_url`, where the platform's own
+    // alphabetical rendering would put it, and adds nothing else to the body.
+    assert_eq!(
+        text(&body),
+        r#"{"cpu_count":1,"create_ms":63,"created_at":"2026-10-02T17:04:05.123456Z","deletion_pending":false,"id":"3f2504e0-4f89-41d3-9a0c-0305e82c3301","memory_mb":512,"name":null,"run":{"duration_ms":41,"error":null,"exit_code":0,"stderr":"","stdout":"v22.23.2\n"},"runner_url":"https://3.run-us.miosa.ai","slug":"3f2504e0","state":"running","template_id":"miosa-sandbox-soma","timeout_sec":3600}"#
+    );
+
+    // A command that produced no result carries the exec endpoint's own error object, and says
+    // there was no result of its own.
+    let stopped = Ran {
+        duration_ms: 30_000,
+        error: Some(serde_json::json!({"code":"EXEC_TIMEOUT","retryable":false})),
+        exit_code: None,
+        stderr: "",
+        stdout: "",
+    };
+    assert_eq!(
+        text(&encode(&stopped)),
+        r#"{"duration_ms":30000,"error":{"code":"EXEC_TIMEOUT","retryable":false},"exit_code":null,"stderr":"","stdout":""}"#
     );
 }
 

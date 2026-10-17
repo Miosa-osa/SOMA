@@ -12,7 +12,7 @@ use crate::{
     tenant::TENANT_HEADER,
 };
 
-use super::{Runner, RunnerResponse, Timing, routing::Forward};
+use super::{Runner, RunnerResponse, Timing, outcome, routing::Forward};
 
 /// The tenant label the loopback handler is given when the real tenant id does not fit its
 /// identity grammar. The handler only checks the shape; ownership was decided by the runner.
@@ -41,6 +41,13 @@ impl Runner {
             Ok(id) => id,
             Err(response) => return *response,
         };
+        // An id whose sandbox answered its create before it was up is waited for here, so the
+        // loopback handler behind this route never sees a sandbox that does not exist yet.
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => return *response,
+        };
+        timing.wait = waited;
         // Held for the whole call, so a long terminal read never sees its sandbox reaped.
         let _held = match self.sandboxes.hold(&id, &principal.key.tenant_id) {
             Ok(held) => held,
@@ -50,6 +57,10 @@ impl Runner {
             Err(Unavailable::NotFound | Unavailable::Destroyed(..)) => {
                 return RunnerResponse::platform(&PlatformError::sandbox_not_found());
             }
+            // A launch that failed after its create had answered: the call is answered as the
+            // create itself would have been. A call that arrived while the launch was still in
+            // flight waited for it above and read the same failure there.
+            Err(Unavailable::LaunchFailed(failure)) => return outcome::launch_failed(failure),
         };
         let Some(instance_id) = id.instance_id() else {
             return RunnerResponse::platform(&PlatformError::sandbox_not_found());

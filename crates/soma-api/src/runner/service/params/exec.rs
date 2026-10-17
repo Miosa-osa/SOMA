@@ -9,9 +9,12 @@
 )]
 use super::*;
 
-/// The exec timeout when a request names none, as the fast lane applies it.
-const DEFAULT_EXEC_TIMEOUT_MS: u64 = 30_000;
+/// The exec timeout when a request names none, as the fast lane applies it. A create-and-run
+/// command that names no deadline takes the same one, because it runs as an exec does.
+pub(in crate::runner::service) const DEFAULT_EXEC_TIMEOUT_MS: u64 = 30_000;
 const MAX_EXEC_TIMEOUT_SECONDS: u64 = 86_400;
+/// The same ceiling in the unit a create-and-run block names it in.
+pub(in crate::runner::service) const MAX_EXEC_TIMEOUT_MS: u64 = MAX_EXEC_TIMEOUT_SECONDS * 1_000;
 
 /// The exec body fields the fast lane accepted.
 #[derive(Debug, PartialEq, Eq)]

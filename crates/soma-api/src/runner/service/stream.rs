@@ -18,17 +18,22 @@ use tokio::sync::mpsc;
 
 use crate::runner::{
     backend::{Backend, Busy},
-    journal::Journal,
+    journal::{EntryKind, Journal},
     keys::Principal,
     public_wire::PlatformError,
     sandboxes::Sandboxes,
 };
+
+mod split;
+
+use split::Utf8Splitter;
 
 use super::{
     Runner, RunnerResponse, Timing,
     command::{Prepared, command_entry},
     millis,
     outcome::{exit_code, failure_error},
+    refused_sandbox, with_journal,
 };
 
 /// How often a running command's stream says it is still alive.
@@ -47,15 +52,35 @@ struct Exit {
 }
 
 impl Runner {
-    pub(super) fn exec_stream(
+    /// The stream is opened after a sandbox whose create answered early has been waited for, so
+    /// the caller's events begin when there is a machine to produce them rather than with an
+    /// error about one that is still coming up.
+    pub(super) async fn exec_stream(
         &self,
         principal: &Principal,
         raw_id: &str,
         body: &[u8],
         received: Instant,
-        timing: &Timing,
+        timing: &mut Timing,
     ) -> RunnerResponse {
-        let Prepared { id, owner, request } = match self.prepare_command(principal, raw_id, body) {
+        let id = match self.addressed(raw_id) {
+            Ok(id) => id,
+            Err(response) => {
+                return refused_sandbox(*response, EntryKind::Exec, principal);
+            }
+        };
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => {
+                let status = response.status;
+                return with_journal(
+                    *response,
+                    Some(command_entry(principal, &id, None, status, None)),
+                );
+            }
+        };
+        timing.wait = waited;
+        let Prepared { id, owner, request } = match self.prepare_command(principal, &id, body) {
             Ok(prepared) => prepared,
             Err(response) => return *response,
         };
@@ -75,9 +100,10 @@ impl Runner {
                 entry
             });
         });
+        let header = timing.header();
         let mut response = RunnerResponse::new(200, Vec::new())
             .header("content-type", "text/event-stream".to_owned())
-            .header("server-timing", timing.header());
+            .header("server-timing", header);
         response.stream = Some(events);
         response
     }
@@ -166,55 +192,6 @@ impl Run {
     }
 }
 
-/// Turns a byte stream into text without cutting a character in half.
-///
-/// Guest output is bytes. A chunk boundary can fall inside a multi-byte character, and decoding
-/// each chunk on its own would turn both halves into replacement characters. This holds an
-/// incomplete trailing sequence back until the next chunk, and replaces only bytes that can
-/// never become valid. [`Self::finish`] releases whatever is left when the command ends.
-#[derive(Default)]
-pub(super) struct Utf8Splitter {
-    held: Vec<u8>,
-}
-
-impl Utf8Splitter {
-    pub(super) fn push(&mut self, bytes: &[u8]) -> String {
-        self.held.extend_from_slice(bytes);
-        let mut text = String::new();
-        let mut rest = self.held.as_slice();
-        loop {
-            match std::str::from_utf8(rest) {
-                Ok(valid) => {
-                    text.push_str(valid);
-                    rest = &[];
-                    break;
-                }
-                Err(error) => {
-                    let (valid, after) = rest.split_at(error.valid_up_to());
-                    text.push_str(&String::from_utf8_lossy(valid));
-                    if let Some(length) = error.error_len() {
-                        // Bytes that can never be valid: replace them and carry on.
-                        text.push(char::REPLACEMENT_CHARACTER);
-                        rest = &after[length..];
-                    } else {
-                        // The chunk ended inside a character: wait for the rest of it.
-                        rest = after;
-                        break;
-                    }
-                }
-            }
-        }
-        self.held = rest.to_vec();
-        text
-    }
-
-    pub(super) fn finish(&mut self) -> String {
-        let text = String::from_utf8_lossy(&self.held).into_owned();
-        self.held.clear();
-        text
-    }
-}
-
 /// One SSE event. JSON never holds a raw newline, so the data is always one `data:` line.
 fn frame(name: &str, data: &[u8]) -> Bytes {
     let mut bytes = Vec::with_capacity(name.len() + data.len() + 16);
@@ -228,57 +205,7 @@ fn frame(name: &str, data: &[u8]) -> Bytes {
 
 #[cfg(test)]
 mod tests {
-    use super::{Utf8Splitter, frame};
-
-    #[test]
-    fn a_character_split_across_chunks_is_decoded_once_whole() {
-        let mut splitter = Utf8Splitter::default();
-        let euro = "\u{20ac}".as_bytes();
-        assert_eq!(splitter.push(&euro[..1]), "");
-        assert_eq!(splitter.push(&euro[1..2]), "");
-        assert_eq!(splitter.push(&euro[2..]), "\u{20ac}");
-        assert_eq!(splitter.finish(), "");
-    }
-
-    #[test]
-    fn plain_text_passes_straight_through() {
-        let mut splitter = Utf8Splitter::default();
-        assert_eq!(splitter.push(b"hello "), "hello ");
-        assert_eq!(splitter.push(b"world\n"), "world\n");
-    }
-
-    #[test]
-    fn bytes_that_can_never_be_valid_are_replaced_without_waiting() {
-        let mut splitter = Utf8Splitter::default();
-        assert_eq!(splitter.push(&[b'a', 0xff, b'b']), "a\u{fffd}b");
-        // A lone continuation byte is invalid on its own.
-        assert_eq!(splitter.push(&[0x80]), "\u{fffd}");
-    }
-
-    #[test]
-    fn an_incomplete_character_at_the_end_is_released_replaced() {
-        let mut splitter = Utf8Splitter::default();
-        assert_eq!(splitter.push(&"\u{20ac}".as_bytes()[..2]), "");
-        assert_eq!(splitter.finish(), "\u{fffd}");
-        assert_eq!(
-            splitter.finish(),
-            "",
-            "finishing twice releases nothing more"
-        );
-    }
-
-    #[test]
-    fn a_character_cut_at_every_possible_boundary_survives() {
-        let text = "a\u{e9}\u{20ac}\u{1f600}z";
-        let bytes = text.as_bytes();
-        for cut in 0..=bytes.len() {
-            let mut splitter = Utf8Splitter::default();
-            let mut out = splitter.push(&bytes[..cut]);
-            out.push_str(&splitter.push(&bytes[cut..]));
-            out.push_str(&splitter.finish());
-            assert_eq!(out, text, "cut at {cut}");
-        }
-    }
+    use super::frame;
 
     #[test]
     fn an_event_is_one_data_line() {

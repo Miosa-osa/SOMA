@@ -9,7 +9,9 @@ use soma::{BackendFailureKind, ManagedFailure, ManagedStateError, RunFailureKind
 
 use crate::runner::public_wire::PlatformError;
 
-use crate::runner::sandboxes::Unavailable;
+use crate::runner::sandboxes::{LaunchFailure, Unavailable};
+
+use super::RunnerResponse;
 
 /// The exit code one terminal status reports, when it is one a caller reads as a result.
 ///
@@ -140,10 +142,32 @@ fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
     }
 }
 
-pub(super) fn command_refusal(unavailable: &Unavailable) -> PlatformError {
+/// The answer for a command that cannot start on the sandbox it named.
+pub(super) fn command_refusal(unavailable: &Unavailable) -> RunnerResponse {
     match unavailable {
-        Unavailable::NotFound => PlatformError::sandbox_not_found(),
-        Unavailable::Busy => PlatformError::exec_busy(),
-        Unavailable::Destroyed(..) => PlatformError::sandbox_not_running(),
+        Unavailable::NotFound => RunnerResponse::platform(&PlatformError::sandbox_not_found()),
+        Unavailable::Busy => RunnerResponse::platform(&PlatformError::exec_busy()),
+        Unavailable::Destroyed(..) => {
+            RunnerResponse::platform(&PlatformError::sandbox_not_running())
+        }
+        Unavailable::LaunchFailed(failure) => launch_failed(*failure),
+    }
+}
+
+/// The answer for a launch that failed after its create had already answered.
+///
+/// This is the one answer in this module that is not an error envelope: the create's own failure
+/// is not a `PlatformError`, it is the fixed body `create_unavailable` sends, and a caller that
+/// reads this failure must read the same bytes a caller of the synchronous create reads. The
+/// status and the code are the create's, which is what the caller acts on.
+pub(super) fn launch_failed(failure: LaunchFailure) -> RunnerResponse {
+    match failure {
+        // The engine's own code names what it refused in the operator's log; the caller reads the
+        // create's answer, not the engine's internals.
+        LaunchFailure::Unavailable { code } => {
+            eprintln!("soma-api: runner create failed: {code}");
+            RunnerResponse::create_unavailable()
+        }
+        LaunchFailure::Busy => RunnerResponse::runtime_busy(),
     }
 }

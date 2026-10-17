@@ -18,7 +18,7 @@ use crate::{
     tunnel::{Refusal, TunnelSlot, UPGRADE_TOKEN},
 };
 
-use super::{Runner, RunnerRequest, RunnerResponse, Timing};
+use super::{Runner, RunnerRequest, RunnerResponse, Timing, outcome};
 
 /// A guest connection waiting for the transport to finish the upgrade.
 pub struct TunnelHandoff {
@@ -70,6 +70,13 @@ impl Runner {
             .header("upgrade", UPGRADE_TOKEN.to_owned())
             .header("connection", "Upgrade".to_owned());
         }
+        // A guest with no machine behind it has nothing listening, so a sandbox whose create
+        // answered before it was up is waited for here rather than dialled into.
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => return *response,
+        };
+        timing.wait = waited;
         // Held while the guest is dialled; the tunnel itself keeps its sandbox alive by
         // reporting traffic, so the sandbox's own lifetime still ends it.
         let _held = match self.sandboxes.hold(&id, &principal.key.tenant_id) {
@@ -80,6 +87,7 @@ impl Runner {
             Err(Unavailable::NotFound | Unavailable::Destroyed(..)) => {
                 return RunnerResponse::platform(&PlatformError::sandbox_not_found());
             }
+            Err(Unavailable::LaunchFailed(failure)) => return outcome::launch_failed(failure),
         };
         let Some(instance_id) = id.instance_id() else {
             return RunnerResponse::platform(&PlatformError::sandbox_not_found());

@@ -945,3 +945,33 @@ The classifier keeps the shell for anything it cannot prove is a plain word list
 
 Three create-contract changes landed with it. An unknown top-level create field is now a 400 naming the field instead of a key silently ignored, and the allowlist is the platform's own create vocabulary read from the fast-lane door (`Handler.build_attrs/3`, `shape?/2`), `Web.Controllers.Sandboxes.CreateParams`, and the published SDK's create body, so a first-party create cannot be refused. `cwd` also joined the refused-when-non-empty list, because contract C2 already names a create carrying it among the requests the runner does not serve and only that list answers with `RUNNER_UNSUPPORTED_REQUEST`. The 201 body carries `create_ms`, the pool and exec segments `Server-Timing` already reports for the same create, and the destroy body carries `mem_peak_bytes`.
 `cpu_ms` and `mem_peak_bytes` stay null on destroy because nothing measured them: the facade, the execution receipt, and the destroy answer all carry no per-sandbox CPU or peak-memory figure, and a value derived from the shape would be the shape's ceiling rather than a measurement. `lifetime_ms` is the sandbox's uptime (create to destroy), so it is not duplicated under an `uptime_ms` key.
+
+## 2026-10-17 - A create may answer before its sandbox is up
+
+The public runner's create had one shape: it waited for the machine and answered once, so a caller that
+only wanted to run one command paid a round trip for the create and a second for the command. Two opt-in
+fields are added. `"wait_ready": false` answers `201` as soon as the launch has taken a facade lease and
+hands the launch to the sandbox's own record, so every later call waits for it and reads the same failure a
+synchronous create would have given; `"run": {"command": ...}` builds and admits the command while the
+create body is parsed and runs it on the same facade call the launch was made on.
+
+Neither field removes work, and it is worth writing down that this was measured rather than argued. On
+host-01 against real machines, `node -v` on a prepared `node:22` Generation at concurrency 1: the default
+path answers in 21.171 ms, the early answer in 21.237 ms, create-and-run in 20.743 ms. What the early answer
+does is move the wait, and it moves it exactly: its create answers in 10 µs and its command's answer
+reports 7.736 ms of waiting, against the 7.883 ms the synchronous create spent on the same launch, timed by
+the same receipts. The whole of the gain is one round trip for the caller, which on loopback is a fraction
+of a millisecond and across a region is seven. The full record is
+[docs/evidence/2026-10-17-runner-early-create-answer-and-create-and-run.md](docs/evidence/2026-10-17-runner-early-create-answer-and-create-and-run.md).
+
+A hosted launch is started by re-entering the running executable with `machine-host`, which makes the
+program a caller compiles a part of the sandbox-hosting contract whether or not it means to be. An example
+or a test binary that opens a hosted runtime has to answer `machine-host` in its own `main` before it does
+anything else; a cargo test target cannot answer it at all, because libtest owns `main` there, so a
+measurement that needs real hosted machines cannot be a test target. The first attempt at this measurement
+failed with `BackendUnavailable` from prewarm for exactly that reason, which reads as a Generation problem
+and is not one.
+
+The create vocabulary already carries `wait`, which this runner accepts and ignores as the door it replaces
+did. `wait_ready` is a second name for a similar idea rather than a reuse of the first, and the adapter is
+the place to decide what `wait: false` means, not the runner.
