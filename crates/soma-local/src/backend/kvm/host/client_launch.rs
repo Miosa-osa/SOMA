@@ -6,6 +6,7 @@ use std::{
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::Child,
+    time::Instant,
 };
 
 use soma::{BackendFailureKind, InstanceId, MachineShape, OperationId};
@@ -22,17 +23,43 @@ struct LaunchContext<'a> {
     socket: PathBuf,
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
+    /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
+    admitted_at: Instant,
+}
+
+/// One launch a resident machine host is asked to perform, as the process that admitted it holds
+/// it.
+#[derive(Clone, Copy)]
+pub(in crate::backend::kvm) struct HostedLaunch<'a> {
+    /// Where hosted machines are addressed.
+    pub(in crate::backend::kvm) directory: &'a Path,
+    pub(in crate::backend::kvm) operation_id: &'a OperationId,
+    pub(in crate::backend::kvm) instance_id: &'a InstanceId,
+    /// The Generation this launch serves, re-verified before a machine is claimed.
+    pub(in crate::backend::kvm) prepared: &'a PreparedGeneration,
+    pub(in crate::backend::kvm) shape: &'a MachineShape,
+    pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
+    /// When this operation was admitted, on the admitting process's clock.
+    ///
+    /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
+    /// what places the child's own milestones on the timeline the caller reads. See
+    /// [`handshake`].
+    pub(in crate::backend::kvm) admitted_at: Instant,
 }
 
 /// Claims the host that will hold one machine, and returns what its launch established.
 pub(in crate::backend::kvm) fn launch(
-    directory: &Path,
-    operation_id: &OperationId,
-    instance_id: &InstanceId,
-    prepared: &PreparedGeneration,
-    shape: &MachineShape,
-    volume: Option<&soma::VolumeAttachment>,
+    request: HostedLaunch<'_>,
 ) -> Result<Launched, BackendFailureKind> {
+    let HostedLaunch {
+        directory,
+        operation_id,
+        instance_id,
+        prepared,
+        shape,
+        volume,
+        admitted_at,
+    } = request;
     if !channel::addressable(directory) {
         return Err(BackendFailureKind::Unsupported);
     }
@@ -61,6 +88,7 @@ pub(in crate::backend::kvm) fn launch(
         socket,
         skip_warm: in_flight.skip_warm(),
         volume,
+        admitted_at,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
         Ok(launched) => {
@@ -97,6 +125,11 @@ fn handshake(
         shape: shape.clone(),
         skip_warm: context.skip_warm,
     };
+    // Taken as late as it can be, because time before this point is time this launch spent
+    // reaching the process that will build it, and a child can only time what happens after the
+    // launch arrives. Only the socket's own carry is left uncounted, which between two processes
+    // on one host is microseconds.
+    let handoff_ns: u64;
     if output.is_none() {
         let (_manifest, artifacts) = prepared
             .handoff()
@@ -107,9 +140,11 @@ fn handshake(
             .collect::<Vec<_>>();
         soma_supervise::send_descriptors(handoff.as_fd(), &borrowed)
             .map_err(|_| BackendFailureKind::Unavailable)?;
+        handoff_ns = since_ns(context.admitted_at);
         channel::write_line(&mut handoff, &InitialWire::Launch(Box::new(request)))
             .map_err(|()| BackendFailureKind::Unavailable)?;
     } else {
+        handoff_ns = since_ns(context.admitted_at);
         channel::write_line(&mut handoff, &request)
             .map_err(|()| BackendFailureKind::Unavailable)?;
     }
@@ -119,13 +154,24 @@ fn handshake(
         None => BufReader::new(child.stdout.take().ok_or(BackendFailureKind::Unavailable)?),
     };
     match channel::read_line::<Ready>(&mut reader) {
-        Some(Ready::Launched(launched)) => {
+        Some(Ready::Launched(mut launched)) => {
             report_unsurvivable(&launched);
+            // The child timed its own construction from the moment it received the launch. Adding
+            // the two elapsed times is what makes `machine_launched` mean "the machine existed"
+            // rather than "the machine was asked to exist": without it the child's clock starts at
+            // its own launch stamp, the stamp reports zero, and every second the launch spent
+            // being built is charged to the readiness that follows it.
+            launched.at_ns = launched.at_ns.saturating_add(handoff_ns);
             Ok(launched)
         }
         Some(Ready::Refused(refusal)) => Err(refusal.into()),
         None => Err(BackendFailureKind::Unavailable),
     }
+}
+
+/// Nanoseconds from `at` to now, saturating rather than wrapping on a clock that never runs back.
+fn since_ns(at: Instant) -> u64 {
+    u64::try_from(at.elapsed().as_nanos()).unwrap_or(u64::MAX)
 }
 
 /// Says so when a claimed host could not leave the unit's control group, since the host has no log.
