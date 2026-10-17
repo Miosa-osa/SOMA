@@ -23,6 +23,12 @@ pub struct Created<'a> {
     pub id: &'a str,
     pub memory_mb: u64,
     pub name: Option<&'a str>,
+    /// The command a create-and-run ran, and what it produced.
+    ///
+    /// Only a create that carried a `run` block has one, and the key is left out entirely for
+    /// every other create, so a body that a client read before this field existed is unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<&'a Ran<'a>>,
     /// Where every later call for this sandbox goes (contract C2). An extra key, which the
     /// compact body's JSON clients ignore; it sorts where Jason would put it.
     pub runner_url: &'a str,
@@ -30,6 +36,23 @@ pub struct Created<'a> {
     pub state: &'a str,
     pub template_id: &'a str,
     pub timeout_sec: u64,
+}
+
+/// The `run` object a create-and-run's `201` carries.
+///
+/// It is the exec endpoint's own result, moved into the create the caller asked for: a command
+/// that ended reports its exit code and its output exactly as `POST .../exec` would have, and a
+/// command that produced no result reports exactly the `error` object that endpoint would have
+/// answered with, with `exit_code` null to say there was no result of its own.
+#[derive(Serialize)]
+pub struct Ran<'a> {
+    /// How long the command ran, server-side, in whole milliseconds.
+    pub duration_ms: u64,
+    /// The answer the exec endpoint would have given, when the command produced no result.
+    pub error: Option<Value>,
+    pub exit_code: Option<i32>,
+    pub stderr: &'a str,
+    pub stdout: &'a str,
 }
 
 /// The `200` exec body: `%{data: %{stdout, stderr, exit_code}}`.

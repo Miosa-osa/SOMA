@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, millis,
+    Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, entry, failure_code, millis, outcome,
     refused_sandbox, with_journal,
 };
 
@@ -42,6 +42,17 @@ impl Runner {
             entry.lifetime_ms = lifetime.map(millis);
             Some(entry)
         };
+        // A destroy of a sandbox whose create answered before it was up waits for the launch:
+        // destroying a machine that is still being built is a race the launch would win, and a
+        // launch that failed is answered as the create would have answered it.
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => {
+                let status = response.status;
+                return with_journal(*response, journal(status, None, None));
+            }
+        };
+        timing.wait = waited;
         let owner = match self.sandboxes.begin_destroy(&id, &principal.key.tenant_id) {
             Ok(owner) => owner,
             Err(Unavailable::Destroyed(_, lifetime)) => {
@@ -55,6 +66,11 @@ impl Runner {
             Err(Unavailable::Busy) => {
                 let error = PlatformError::destroy_busy();
                 return with_journal(RunnerResponse::platform(&error), journal(409, None, None));
+            }
+            Err(Unavailable::LaunchFailed(failure)) => {
+                let response = outcome::launch_failed(failure);
+                let status = response.status;
+                return with_journal(response, journal(status, None, None));
             }
         };
         let result = self.release(&id).await;

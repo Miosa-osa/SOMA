@@ -23,6 +23,15 @@ impl SandboxFacade for Fake {
     }
 
     fn launch(&mut self, _: LaunchMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.0.launches.fetch_add(1, Ordering::SeqCst);
+        // Held before the machine is built, so a test can watch the answer a create gives while
+        // its launch is still in flight.
+        if let Some(gate) = self.0.launch_gate.lock().expect("gate").take() {
+            let _ = gate.recv();
+        }
+        if let Some(kind) = self.0.launch_refusal.lock().expect("refusal").take() {
+            return Err(ManagedFailure::Backend(kind));
+        }
         Ok(lifecycle())
     }
 
@@ -37,9 +46,16 @@ impl SandboxFacade for Fake {
             return Err(ManagedFailure::Backend(kind));
         }
         let outcome = lifecycle();
+        let status = self
+            .0
+            .exec_status
+            .lock()
+            .expect("status")
+            .take()
+            .unwrap_or(TerminalStatus::Exited { code: 3 });
         Ok(CommandOutcome {
             instance_id: outcome.instance_id,
-            status: TerminalStatus::Exited { code: 3 },
+            status,
             stdout: Vec::new(),
             stderr: b"no".to_vec(),
             receipt: outcome.receipt,

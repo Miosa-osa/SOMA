@@ -40,6 +40,8 @@ const RECEIPT: &str = include_str!("../../../tests/fixtures/receipt.json");
 
 #[derive(Default)]
 pub(super) struct Engine {
+    /// How many launches reached the facade.
+    pub(super) launches: AtomicUsize,
     pub(super) destroys: AtomicUsize,
     /// How many commands reached the facade. A refused command must leave this where it was.
     pub(super) execs: AtomicUsize,
@@ -54,6 +56,13 @@ pub(super) struct Engine {
     /// Output a streaming command delivers one chunk at a time, with the command held open
     /// after the first chunk until the gate is released. Taken by the next streaming command.
     pub(super) stream_script: Mutex<Option<StreamScript>>,
+    /// A launch holds here until the test releases it, so a create's answer can be observed while
+    /// the launch it started is still in flight.
+    pub(super) launch_gate: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    /// The refusal the next launch gets instead of a machine, taken one at a time.
+    pub(super) launch_refusal: Mutex<Option<BackendFailureKind>>,
+    /// What the next command reports as its terminal status, taken one at a time.
+    pub(super) exec_status: Mutex<Option<TerminalStatus>>,
 }
 
 /// Chunks for one streaming command and the gate between its first chunk and the rest.
@@ -108,9 +117,40 @@ pub(super) async fn call(
         .await
 }
 
-fn created_id(response: &RunnerResponse) -> String {
+pub(super) fn created_id(response: &RunnerResponse) -> String {
     let body: serde_json::Value = serde_json::from_slice(&response.body).expect("JSON");
     body["id"].as_str().expect("id").to_owned()
+}
+
+/// The `Server-Timing` segments one answer reports, in microseconds.
+///
+/// The header carries milliseconds with three decimals, so every value here is exact rather than
+/// rounded: a test can compare a segment with the body's own `create_ms` instead of with a
+/// tolerance.
+pub(super) fn timing_of(response: &RunnerResponse) -> std::collections::BTreeMap<String, u64> {
+    let header = response
+        .headers
+        .iter()
+        .find(|(name, _)| *name == "server-timing")
+        .map(|(_, value)| value.as_str())
+        .expect("every answer carries a server-timing header");
+    header
+        .split(',')
+        .map(|segment| {
+            let (name, value) = segment.split_once(";dur=").expect("a named segment");
+            let (millis, micros) = value.split_once('.').expect("three decimals");
+            (
+                name.to_owned(),
+                millis.parse::<u64>().expect("millis") * 1_000
+                    + micros.parse::<u64>().expect("micros"),
+            )
+        })
+        .collect()
+}
+
+/// The decoded body of one answer.
+pub(super) fn body_of(response: &RunnerResponse) -> serde_json::Value {
+    serde_json::from_slice(&response.body).expect("the answer is JSON")
 }
 
 /// Sweeps until the expired sandbox is gone, or fails once the deadline passes.

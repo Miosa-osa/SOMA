@@ -46,4 +46,24 @@ pub enum Unavailable {
     Busy,
     /// Already destroyed: the owner, and how long the sandbox lived.
     Destroyed(Owner, Duration),
+    /// The launch this sandbox was answered for failed, so the sandbox was never created.
+    LaunchFailed(LaunchFailure),
+}
+
+/// A launch that failed after its create had already answered.
+///
+/// A synchronous create reports its own failure; a create that answered early has already sent
+/// its `201`, so the launch's failure is filed against the sandbox and the next call about it
+/// reads the answer the synchronous create would have given. The two cases are kept apart
+/// because they are a different status: a launch the engine refused is `503`, and a launch that
+/// could not take a facade lease is the `429` every other call at this runner's admission cap
+/// gets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LaunchFailure {
+    /// The engine refused the launch, or it could not be completed. `code` is the engine's own
+    /// stable one, for the operator's log rather than for the caller: the caller reads the
+    /// create's `503`, exactly as it would have from a synchronous create.
+    Unavailable { code: &'static str },
+    /// No facade lease could be taken.
+    Busy,
 }

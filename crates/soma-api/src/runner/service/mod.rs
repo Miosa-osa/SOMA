@@ -4,6 +4,8 @@ mod command;
 mod create;
 mod exec_contract;
 #[cfg(test)]
+mod early_tests;
+#[cfg(test)]
 mod exec_contract_agreement_tests;
 #[cfg(test)]
 mod exec_params_tests;
@@ -21,6 +23,7 @@ mod outcome;
 #[cfg(test)]
 mod outcome_tests;
 mod params;
+mod ready;
 mod relay;
 mod routing;
 #[cfg(test)]
@@ -133,6 +136,15 @@ impl RunnerResponse {
     /// `503 feed_stale`: this runner's key table is too old to admit a create.
     fn feed_stale() -> Self {
         Self::refusal(503, "feed_stale").header("retry-after", "0".to_owned())
+    }
+
+    /// `503`: this runner could not claim a prepared sandbox.
+    ///
+    /// One constructor for the whole service, because a create's own failure and the same
+    /// failure read later by a call on a sandbox whose launch failed after its create had
+    /// answered must be the same answer, byte for byte.
+    fn create_unavailable() -> Self {
+        Self::new(503, public_wire::create_unavailable()).header("retry-after", "1".to_owned())
     }
 
     fn header(mut self, name: &'static str, value: String) -> Self {
@@ -248,10 +260,11 @@ impl Runner {
             Route::Exec(id) => self.exec(&principal, id, &request.body, timing).await,
             Route::ExecStream(id) => {
                 self.exec_stream(&principal, id, &request.body, request.received, timing)
+                    .await
             }
             Route::Destroy(id) => self.destroy(&principal, id, timing).await,
             Route::Tunnel(id, port) => self.tunnel(&principal, id, port, request, timing).await,
-            Route::Extend(id) => self.extend(&principal, id, &request.body),
+            Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,
             Route::Forward(forward) => {
                 self.forward(&principal, forward, &request.body, timing)

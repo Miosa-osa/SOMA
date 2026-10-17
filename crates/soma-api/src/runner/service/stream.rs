@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 
 use crate::runner::{
     backend::{Backend, Busy},
-    journal::Journal,
+    journal::{EntryKind, Journal},
     keys::Principal,
     public_wire::PlatformError,
     sandboxes::Sandboxes,
@@ -29,6 +29,7 @@ use super::{
     command::{Prepared, command_entry},
     millis,
     outcome::{exit_code, failure_error},
+    refused_sandbox, with_journal,
 };
 
 /// How often a running command's stream says it is still alive.
@@ -47,15 +48,35 @@ struct Exit {
 }
 
 impl Runner {
-    pub(super) fn exec_stream(
+    /// The stream is opened after a sandbox whose create answered early has been waited for, so
+    /// the caller's events begin when there is a machine to produce them rather than with an
+    /// error about one that is still coming up.
+    pub(super) async fn exec_stream(
         &self,
         principal: &Principal,
         raw_id: &str,
         body: &[u8],
         received: Instant,
-        timing: &Timing,
+        timing: &mut Timing,
     ) -> RunnerResponse {
-        let Prepared { id, owner, request } = match self.prepare_command(principal, raw_id, body) {
+        let id = match self.addressed(raw_id) {
+            Ok(id) => id,
+            Err(response) => {
+                return refused_sandbox(*response, EntryKind::Exec, principal);
+            }
+        };
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => {
+                let status = response.status;
+                return with_journal(
+                    *response,
+                    Some(command_entry(principal, &id, None, status, None)),
+                );
+            }
+        };
+        timing.wait = waited;
+        let Prepared { id, owner, request } = match self.prepare_command(principal, &id, body) {
             Ok(prepared) => prepared,
             Err(response) => return *response,
         };
@@ -75,9 +96,10 @@ impl Runner {
                 entry
             });
         });
+        let header = timing.header();
         let mut response = RunnerResponse::new(200, Vec::new())
             .header("content-type", "text/event-stream".to_owned())
-            .header("server-timing", timing.header());
+            .header("server-timing", header);
         response.stream = Some(events);
         response
     }

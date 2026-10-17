@@ -4,11 +4,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use crate::runner::owner::{Owner, Unavailable};
+pub use crate::runner::owner::{LaunchFailure, Owner, Unavailable};
 use crate::runner::{
     idle::{Clock, Lifetime},
     ids::SandboxId,
     journal::ExpireReason,
+    starting::Starting,
 };
 
 /// One call holding a sandbox (see [`Sandboxes::hold`]); dropping it lets the sweep back in.
@@ -30,16 +31,39 @@ impl Drop for Held<'_> {
 /// How long a destroyed sandbox is remembered, so a repeated destroy answers as the first did.
 pub const TOMBSTONE_RETENTION: Duration = Duration::from_mins(10);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 enum Phase {
     /// Reserved by a create that has not finished.
     Creating,
+    /// A create answered `201` before its launch finished; the launch is still in flight, and
+    /// every call on this sandbox waits for it before it proceeds.
+    Starting(Starting),
     Ready,
     /// One command or destroy is in flight.
     Busy,
+    /// A launch that failed after its create had answered. The sandbox was never created, so no
+    /// call on it can proceed; the record is kept for as long as a destroyed one so the create's
+    /// own failure stays readable instead of becoming a `404` that hides it.
+    Failed {
+        failure: LaunchFailure,
+        at: Instant,
+    },
     Destroyed {
         at: Instant,
     },
+}
+
+impl Phase {
+    /// Whether this record is a sandbox the host holds and can still be commanded.
+    ///
+    /// A sandbox whose launch is still in flight is one of those: it holds a machine, a tenant
+    /// slot and an id, and every call on it waits for it rather than being turned away.
+    const fn live(&self) -> bool {
+        matches!(
+            self,
+            Self::Creating | Self::Starting(_) | Self::Ready | Self::Busy
+        )
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -89,6 +113,64 @@ impl Sandboxes {
         }
     }
 
+    /// Hands a reserved sandbox over to the launch a create has answered `201` for.
+    ///
+    /// From here the record holds the launch rather than the request that started it, so a call
+    /// that arrives before the launch ends can wait for it and read what it reported.
+    pub fn start_launch(&self, id: &SandboxId, launch: Starting) {
+        if let Some(record) = self.lock().get_mut(id) {
+            record.phase = Phase::Starting(launch);
+        }
+    }
+
+    /// Records that the launch of a reserved sandbox failed, and gives its tenant slot back.
+    ///
+    /// This is the accounting a failed synchronous create does, at the same moment: the slot goes
+    /// back as the launch is known to have failed rather than when someone reads about it. The
+    /// record itself is kept as a tombstone, so the next call reads the create's own failure.
+    pub fn fail_launch(&self, id: &SandboxId, failure: LaunchFailure) {
+        if let Some(record) = self.lock().get_mut(id)
+            && matches!(record.phase, Phase::Creating | Phase::Starting(_))
+        {
+            record.phase = Phase::Failed {
+                failure,
+                at: Instant::now(),
+            };
+            record.owner.give_back_slot();
+        }
+    }
+
+    /// The in-flight launch of a sandbox `tenant_id` owns, if its create answered early.
+    ///
+    /// `Ok(None)` is a sandbox that is not starting: a call may go on and address it, and will
+    /// read whatever state it is in. Anything else is why the call cannot go on at all, including
+    /// a launch that has already failed, which is answered as the synchronous create would have
+    /// answered it.
+    ///
+    /// # Errors
+    ///
+    /// Returns why the sandbox cannot be addressed.
+    pub fn in_flight(
+        &self,
+        id: &SandboxId,
+        tenant_id: &str,
+    ) -> Result<Option<Starting>, Unavailable> {
+        let records = self.lock();
+        let record = records
+            .get(id)
+            .filter(|record| record.owner.tenant_id == tenant_id)
+            .ok_or(Unavailable::NotFound)?;
+        match &record.phase {
+            Phase::Starting(launch) => Ok(Some(launch.clone())),
+            Phase::Failed { failure, .. } => Err(Unavailable::LaunchFailed(*failure)),
+            Phase::Destroyed { at } => Err(Unavailable::Destroyed(
+                record.owner.clone(),
+                at.saturating_duration_since(record.owner.created),
+            )),
+            Phase::Creating | Phase::Ready | Phase::Busy => Ok(None),
+        }
+    }
+
     /// Forgets a reservation whose create failed, giving its tenant slot back.
     pub fn abandon(&self, id: &SandboxId) {
         if let Some(record) = self.lock().remove(id) {
@@ -119,7 +201,11 @@ impl Sandboxes {
                     owner: record.owner.clone(),
                 })
             }
-            Phase::Creating => Err(Unavailable::NotFound),
+            // Both are the same answer: a sandbox a create has not finished is not one this
+            // caller may address. A call on a sandbox whose launch is still in flight waits for
+            // it before it gets here ([`Super::in_flight`]).
+            Phase::Creating | Phase::Starting(_) => Err(Unavailable::NotFound),
+            Phase::Failed { failure, .. } => Err(Unavailable::LaunchFailed(failure)),
             Phase::Destroyed { at } => Err(Unavailable::Destroyed(
                 record.owner.clone(),
                 at.saturating_duration_since(record.owner.created),
@@ -144,7 +230,7 @@ impl Sandboxes {
             .iter()
             .filter(|(_, record)| {
                 record.owner.tenant_id == tenant_id
-                    && matches!(record.phase, Phase::Ready | Phase::Busy)
+                    && matches!(record.phase, Phase::Starting(_) | Phase::Ready | Phase::Busy)
             })
             .map(|(id, _)| id.clone())
             .collect()
@@ -182,7 +268,8 @@ impl Sandboxes {
                 Ok(record.owner.clone())
             }
             Phase::Busy => Err(Unavailable::Busy),
-            Phase::Creating => Err(Unavailable::NotFound),
+            Phase::Creating | Phase::Starting(_) => Err(Unavailable::NotFound),
+            Phase::Failed { failure, .. } => Err(Unavailable::LaunchFailed(failure)),
             Phase::Destroyed { at } => Err(Unavailable::Destroyed(
                 record.owner.clone(),
                 at.saturating_duration_since(record.owner.created),
@@ -193,7 +280,7 @@ impl Sandboxes {
     /// Ends a command, or a destroy that did not happen, leaving the sandbox ready.
     pub fn release(&self, id: &SandboxId) {
         if let Some(record) = self.lock().get_mut(id)
-            && record.phase == Phase::Busy
+            && matches!(record.phase, Phase::Busy)
         {
             record.phase = Phase::Ready;
             // A command's end is activity too: a long command must not leave its sandbox
@@ -225,7 +312,8 @@ impl Sandboxes {
                 record.clock.extend(idle, Instant::now());
                 Ok(record.clock.deadline())
             }
-            Phase::Creating => Err(Unavailable::NotFound),
+            Phase::Creating | Phase::Starting(_) => Err(Unavailable::NotFound),
+            Phase::Failed { failure, .. } => Err(Unavailable::LaunchFailed(failure)),
             Phase::Destroyed { at } => Err(Unavailable::Destroyed(
                 record.owner.clone(),
                 at.saturating_duration_since(record.owner.created),
@@ -234,12 +322,18 @@ impl Sandboxes {
     }
 
     /// Records that a sandbox is gone, giving its tenant slot back exactly once.
+    ///
+    /// A failed launch has already given the slot back, so its tombstone is only re-dated here:
+    /// the slot is returned once per sandbox however many of these run.
     pub fn destroyed(&self, id: &SandboxId, at: Instant) {
         if let Some(record) = self.lock().get_mut(id)
             && !matches!(record.phase, Phase::Destroyed { .. })
         {
+            let failed = matches!(record.phase, Phase::Failed { .. });
             record.phase = Phase::Destroyed { at };
-            record.owner.give_back_slot();
+            if !failed {
+                record.owner.give_back_slot();
+            }
         }
     }
 
@@ -253,7 +347,7 @@ impl Sandboxes {
         let mut records = self.lock();
         let mut expired = Vec::new();
         for (id, record) in records.iter_mut() {
-            if record.phase != Phase::Ready || record.in_flight > 0 {
+            if !matches!(record.phase, Phase::Ready) || record.in_flight > 0 {
                 continue;
             }
             let reason = reap_reason(&record.owner.tenant_id)
@@ -266,10 +360,13 @@ impl Sandboxes {
         expired
     }
 
-    /// Forgets destroyed sandboxes older than the retention.
+    /// Forgets the records kept only so a later call can read what happened to them: a destroyed
+    /// sandbox, and a launch that failed after its create had already answered.
     pub fn sweep(&self, now: Instant) {
         self.lock().retain(|_, record| match record.phase {
-            Phase::Destroyed { at } => now.saturating_duration_since(at) < TOMBSTONE_RETENTION,
+            Phase::Destroyed { at } | Phase::Failed { at, .. } => {
+                now.saturating_duration_since(at) < TOMBSTONE_RETENTION
+            }
             _ => true,
         });
     }
@@ -289,13 +386,13 @@ impl Sandboxes {
         }
     }
 
-    /// The number of sandboxes this host holds that are not destroyed.
+    /// The number of sandboxes this host holds.
+    ///
+    /// A tombstone is not a sandbox: a destroyed one is gone, and one whose launch failed was
+    /// never created. Its record is kept only so a later call can read why.
     #[must_use]
     pub fn live(&self) -> usize {
-        self.lock()
-            .values()
-            .filter(|record| !matches!(record.phase, Phase::Destroyed { .. }))
-            .count()
+        self.lock().values().filter(|record| record.phase.live()).count()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SandboxId, Record>> {

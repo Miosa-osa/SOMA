@@ -11,7 +11,7 @@ use crate::runner::config::{LargeShape, LaunchConfig};
 
 #[test]
 fn a_large_create_is_served_the_large_shape() {
-    let parsed = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &launch_serving_large())
+    let parsed = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &launch_serving_large(), true)
         .expect("a runner that configured the large shape serves it");
 
     assert_eq!(parsed.shape.vcpu_count(), 8);
@@ -32,7 +32,7 @@ fn a_large_create_is_served_the_large_shape() {
 fn a_large_create_is_refused_by_a_runner_that_does_not_serve_it() {
     // The refusal is the same one an unknown size gets, so a caller cannot tell a size this
     // host does not build from a size the platform does not define.
-    let refused = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &launch())
+    let refused = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &launch(), true)
         .expect_err("a runner without a large shape refuses one");
 
     assert_eq!(refused.status, 400);
@@ -45,7 +45,7 @@ fn the_size_field_only_ever_selects_one_of_the_two_named_shapes() {
     // `xs` and an absent size both select the runner's own shape, so the byte-for-byte
     // behaviour of every create written before `large` existed is unchanged.
     for body in [r#"{"size":"xs"}"#, "{}"] {
-        let parsed = CreateParams::parse(body.as_bytes(), 3_600, &config).expect("accepted");
+        let parsed = CreateParams::parse(body.as_bytes(), 3_600, &config, true).expect("accepted");
         assert_eq!(parsed.shape, shape(), "{body} selects the runner's shape");
     }
     for body in [
@@ -56,7 +56,7 @@ fn the_size_field_only_ever_selects_one_of_the_two_named_shapes() {
         r#"{"size":8}"#,
     ] {
         assert_eq!(
-            CreateParams::parse(body.as_bytes(), 3_600, &config).map_err(|error| error.code),
+            CreateParams::parse(body.as_bytes(), 3_600, &config, true).map_err(|error| error.code),
             Err("RUNNER_UNSUPPORTED_REQUEST"),
             "{body} must be refused"
         );
@@ -70,7 +70,8 @@ fn a_large_create_is_checked_against_the_large_shape() {
         CreateParams::parse(
             br#"{"size":"large","cpu_count":8,"memory_mb":16384}"#,
             3_600,
-            &config
+            &config,
+            true
         )
         .is_ok(),
         "the large shape's own numbers are accepted"
@@ -82,7 +83,7 @@ fn a_large_create_is_checked_against_the_large_shape() {
         r#"{"size":"large","memory_mb":32768}"#,
     ] {
         assert!(
-            CreateParams::parse(body.as_bytes(), 3_600, &config).is_err(),
+            CreateParams::parse(body.as_bytes(), 3_600, &config, true).is_err(),
             "{body} must be refused against the large shape"
         );
     }
@@ -97,7 +98,7 @@ fn a_machine_of_the_large_size_can_be_built_without_a_network() {
         }),
         ..launch()
     };
-    let parsed = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &config).expect("accepted");
+    let parsed = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &config, true).expect("accepted");
     assert_eq!(
         parsed.shape.capabilities().network_policy().egress(),
         soma::EgressPolicy::Denied,

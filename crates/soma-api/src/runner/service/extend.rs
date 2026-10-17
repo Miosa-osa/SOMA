@@ -10,9 +10,10 @@ use crate::runner::{
     idle::MAX_IDLE_TIMEOUT_SECONDS,
     keys::Principal,
     public_wire::{self, PlatformError},
+    sandboxes::Unavailable,
 };
 
-use super::{Runner, RunnerResponse};
+use super::{Runner, RunnerResponse, Timing, outcome};
 
 /// The answer to an extend, in the platform's sorted-key style.
 #[derive(Serialize)]
@@ -24,16 +25,25 @@ struct Extended<'a> {
 }
 
 impl Runner {
-    pub(super) fn extend(
+    /// A sandbox whose create answered before it was up is waited for here as well: an extend is
+    /// an answer about a sandbox that exists, and it may not report a lifetime for one whose
+    /// launch has not finished, let alone for one whose launch failed.
+    pub(super) async fn extend(
         &self,
         principal: &Principal,
         raw_id: &str,
         body: &[u8],
+        timing: &mut Timing,
     ) -> RunnerResponse {
         let id = match self.addressed(raw_id) {
             Ok(id) => id,
             Err(response) => return *response,
         };
+        let waited = match self.wait_for_launch(&id, &principal.key.tenant_id).await {
+            Ok(waited) => waited,
+            Err(response) => return *response,
+        };
+        timing.wait = waited;
         let Some(seconds) = timeout(body) else {
             return RunnerResponse::platform(&PlatformError::invalid_param(
                 "timeout",
@@ -56,6 +66,7 @@ impl Runner {
                     }),
                 )
             }
+            Err(Unavailable::LaunchFailed(failure)) => outcome::launch_failed(failure),
             Err(_) => RunnerResponse::platform(&PlatformError::sandbox_not_found()),
         }
     }

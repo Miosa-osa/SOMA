@@ -26,6 +26,8 @@ fn server_timing_names_every_segment_of_a_create() {
             commit: Duration::from_millis(2),
         },
         finish: Duration::from_micros(120),
+        wait: None,
+        run: None,
     };
 
     let header = timing.header();
