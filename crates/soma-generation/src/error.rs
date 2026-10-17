@@ -36,6 +36,12 @@ pub enum ImportErrorKind {
     StoreConflict,
     /// A redacted filesystem or stream operation failed.
     Io,
+    /// The input path is a symbolic link.
+    ///
+    /// Every input root is opened with the platform's no-follow guarantee and a link is refused
+    /// rather than resolved, so the operator is told to name the real directory. The path itself
+    /// stays out, as it does for every other kind: this error can reach a log or a receipt.
+    Symlink,
 }
 
 /// One path-redacted OCI import error.
@@ -79,7 +85,13 @@ impl fmt::Display for ImportError {
             formatter,
             "OCI import failed during {:?}: {:?}",
             self.phase, self.kind
-        )
+        )?;
+        // The classification says what was found; this says what to do about it, because a bare
+        // `Symlink` does not tell an operator that the remedy is a real directory.
+        if self.kind == ImportErrorKind::Symlink {
+            formatter.write_str(" (name a real directory, not a symlink)")?;
+        }
+        Ok(())
     }
 }
 

@@ -47,9 +47,13 @@ impl NormalizeError {
     pub(super) const fn from_import(phase: NormalizePhase, error: crate::ImportError) -> Self {
         use crate::ImportErrorKind as ImportKind;
         let kind = match error.kind() {
-            ImportKind::InvalidInput | ImportKind::NotFound | ImportKind::Ambiguous => {
-                NormalizeErrorKind::InvalidInput
-            }
+            // A symlinked input root is the same bucket as the rest of this arm: the input is
+            // not a usable directory. Normalization has no finer vocabulary than this, and the
+            // precise kind is what the import error reports before normalization begins.
+            ImportKind::InvalidInput
+            | ImportKind::NotFound
+            | ImportKind::Ambiguous
+            | ImportKind::Symlink => NormalizeErrorKind::InvalidInput,
             ImportKind::Unsupported => NormalizeErrorKind::Unsupported,
             ImportKind::LimitExceeded => NormalizeErrorKind::LimitExceeded,
             ImportKind::Integrity => NormalizeErrorKind::Integrity,

@@ -52,7 +52,8 @@ impl LayoutImage {
 /// # Errors
 ///
 /// Returns a redacted [`ImportError`] with [`ImportErrorKind::NotFound`] when the layout holds
-/// no image for the selection, [`ImportErrorKind::Ambiguous`] when it holds more than one, and
+/// no image for the selection, [`ImportErrorKind::Ambiguous`] when it holds more than one,
+/// [`ImportErrorKind::Symlink`] when the path is a symbolic link rather than a directory, and
 /// the usual parsing, integrity, and limit failures for a malformed layout.
 pub fn resolve_layout_image(
     layout: &Path,
