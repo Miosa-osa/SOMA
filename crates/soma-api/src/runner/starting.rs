@@ -81,7 +81,8 @@ impl Starting {
     /// A launch that finished this quickly reports `Ready` here, and the create answers the
     /// truth about a sandbox that is already up.
     pub async fn begun(&mut self) -> LaunchState {
-        self.until(|state| !matches!(state, LaunchState::Pending)).await
+        self.until(|state| !matches!(state, LaunchState::Pending))
+            .await
     }
 
     /// Waits until nothing about the launch will change again.

@@ -8,73 +8,13 @@ pub use crate::runner::owner::{LaunchFailure, Owner, Unavailable};
 use crate::runner::{
     idle::{Clock, Lifetime},
     ids::SandboxId,
-    journal::ExpireReason,
     starting::Starting,
 };
 
-/// One call holding a sandbox (see [`Sandboxes::hold`]); dropping it lets the sweep back in.
-pub struct Held<'a> {
-    sandboxes: &'a Sandboxes,
-    id: SandboxId,
-    pub owner: Owner,
-}
+mod records;
 
-impl Drop for Held<'_> {
-    fn drop(&mut self) {
-        if let Some(record) = self.sandboxes.lock().get_mut(&self.id) {
-            record.in_flight = record.in_flight.saturating_sub(1);
-            record.clock.touch(Instant::now());
-        }
-    }
-}
-
-/// How long a destroyed sandbox is remembered, so a repeated destroy answers as the first did.
-pub const TOMBSTONE_RETENTION: Duration = Duration::from_mins(10);
-
-#[derive(Clone, Debug)]
-enum Phase {
-    /// Reserved by a create that has not finished.
-    Creating,
-    /// A create answered `201` before its launch finished; the launch is still in flight, and
-    /// every call on this sandbox waits for it before it proceeds.
-    Starting(Starting),
-    Ready,
-    /// One command or destroy is in flight.
-    Busy,
-    /// A launch that failed after its create had answered. The sandbox was never created, so no
-    /// call on it can proceed; the record is kept for as long as a destroyed one so the create's
-    /// own failure stays readable instead of becoming a `404` that hides it.
-    Failed {
-        failure: LaunchFailure,
-        at: Instant,
-    },
-    Destroyed {
-        at: Instant,
-    },
-}
-
-impl Phase {
-    /// Whether this record is a sandbox the host holds and can still be commanded.
-    ///
-    /// A sandbox whose launch is still in flight is one of those: it holds a machine, a tenant
-    /// slot and an id, and every call on it waits for it rather than being turned away.
-    const fn live(&self) -> bool {
-        matches!(
-            self,
-            Self::Creating | Self::Starting(_) | Self::Ready | Self::Busy
-        )
-    }
-}
-
-#[derive(Clone, Debug)]
-struct Record {
-    owner: Owner,
-    clock: Clock,
-    phase: Phase,
-    /// Calls that hold the sandbox without its lifecycle slot (inspect, files, terminal).
-    /// They overlap freely with each other and with a command; the sweep waits for all.
-    in_flight: u32,
-}
+pub use records::{Held, TOMBSTONE_RETENTION};
+use records::{Phase, Record};
 
 /// The runner's own record of which tenant owns each sandbox on this host.
 ///
@@ -213,16 +153,6 @@ impl Sandboxes {
         }
     }
 
-    /// Records activity on a live sandbox, restarting its idle timer. A tunnel's traffic calls
-    /// this so a browser session that moves bytes is not reaped for being idle.
-    pub fn touch(&self, id: &SandboxId) {
-        if let Some(record) = self.lock().get_mut(id)
-            && matches!(record.phase, Phase::Ready | Phase::Busy)
-        {
-            record.clock.touch(Instant::now());
-        }
-    }
-
     /// The ids of the live sandboxes `tenant_id` owns, for a tenant-scoped listing.
     #[must_use]
     pub fn owned_by(&self, tenant_id: &str) -> Vec<SandboxId> {
@@ -230,7 +160,10 @@ impl Sandboxes {
             .iter()
             .filter(|(_, record)| {
                 record.owner.tenant_id == tenant_id
-                    && matches!(record.phase, Phase::Starting(_) | Phase::Ready | Phase::Busy)
+                    && matches!(
+                        record.phase,
+                        Phase::Starting(_) | Phase::Ready | Phase::Busy
+                    )
             })
             .map(|(id, _)| id.clone())
             .collect()
@@ -321,56 +254,6 @@ impl Sandboxes {
         }
     }
 
-    /// Records that a sandbox is gone, giving its tenant slot back exactly once.
-    ///
-    /// A failed launch has already given the slot back, so its tombstone is only re-dated here:
-    /// the slot is returned once per sandbox however many of these run.
-    pub fn destroyed(&self, id: &SandboxId, at: Instant) {
-        if let Some(record) = self.lock().get_mut(id)
-            && !matches!(record.phase, Phase::Destroyed { .. })
-        {
-            let failed = matches!(record.phase, Phase::Failed { .. });
-            record.phase = Phase::Destroyed { at };
-            if !failed {
-                record.owner.give_back_slot();
-            }
-        }
-    }
-
-    /// Claims every ready sandbox whose tenant `reap_reason` names, or whose lifetime has run
-    /// out, for the reaper to destroy (contract C7), with the reason it is ending.
-    pub fn claim_expired(
-        &self,
-        now: Instant,
-        reap_reason: impl Fn(&str) -> Option<ExpireReason>,
-    ) -> Vec<(SandboxId, Owner, ExpireReason)> {
-        let mut records = self.lock();
-        let mut expired = Vec::new();
-        for (id, record) in records.iter_mut() {
-            if !matches!(record.phase, Phase::Ready) || record.in_flight > 0 {
-                continue;
-            }
-            let reason = reap_reason(&record.owner.tenant_id)
-                .or_else(|| record.clock.expired(now).then_some(ExpireReason::Timeout));
-            if let Some(reason) = reason {
-                record.phase = Phase::Busy;
-                expired.push((id.clone(), record.owner.clone(), reason));
-            }
-        }
-        expired
-    }
-
-    /// Forgets the records kept only so a later call can read what happened to them: a destroyed
-    /// sandbox, and a launch that failed after its create had already answered.
-    pub fn sweep(&self, now: Instant) {
-        self.lock().retain(|_, record| match record.phase {
-            Phase::Destroyed { at } | Phase::Failed { at, .. } => {
-                now.saturating_duration_since(at) < TOMBSTONE_RETENTION
-            }
-            _ => true,
-        });
-    }
-
     /// Re-adopts a sandbox the state store still holds after a restart, counting it against
     /// its tenant.
     pub fn recover(&self, id: SandboxId, owner: Owner, lifetime: Lifetime) {
@@ -392,10 +275,15 @@ impl Sandboxes {
     /// never created. Its record is kept only so a later call can read why.
     #[must_use]
     pub fn live(&self) -> usize {
-        self.lock().values().filter(|record| record.phase.live()).count()
+        self.lock()
+            .values()
+            .filter(|record| record.phase.live())
+            .count()
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<SandboxId, Record>> {
+    pub(in crate::runner::sandboxes) fn lock(
+        &self,
+    ) -> std::sync::MutexGuard<'_, HashMap<SandboxId, Record>> {
         self.records
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)

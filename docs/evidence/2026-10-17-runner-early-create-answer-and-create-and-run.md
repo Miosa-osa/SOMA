@@ -21,17 +21,17 @@ flow makes, which is what a network adds to a total.
 
 | Concurrency | Flow | n | Total p50 | Total p90 | create | ready | waited | command | run | requests |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | default, then exec | 30 | 21.171 ms | 23.846 ms | 7.883 ms | 4.758 ms | – | 13.376 ms | – | 2 |
-| 1 | early answer, then exec | 30 | 21.237 ms | 22.146 ms | 0.010 ms | – | 7.736 ms | 13.421 ms | – | 2 |
-| 1 | create and run | 30 | 20.743 ms | 21.171 ms | 20.716 ms | 4.707 ms | – | – | 13.000 ms | 1 |
-| 32 | default, then exec | 64 | 47.364 ms | 56.525 ms | 15.309 ms | 6.828 ms | – | 30.501 ms | – | 2 |
-| 32 | early answer, then exec | 64 | 49.663 ms | 63.968 ms | 0.073 ms | – | 18.340 ms | 27.264 ms | – | 2 |
-| 32 | create and run | 64 | 49.222 ms | 69.717 ms | 49.144 ms | 7.493 ms | – | – | 29.074 ms | 1 |
+| 1 | default, then exec | 30 | 21.171 ms | 23.846 ms | 7.883 ms | 4.758 ms | - | 13.376 ms | - | 2 |
+| 1 | early answer, then exec | 30 | 21.237 ms | 22.146 ms | 0.010 ms | - | 7.736 ms | 13.421 ms | - | 2 |
+| 1 | create and run | 30 | 20.743 ms | 21.171 ms | 20.716 ms | 4.707 ms | - | - | 13.000 ms | 1 |
+| 32 | default, then exec | 64 | 47.364 ms | 56.525 ms | 15.309 ms | 6.828 ms | - | 30.501 ms | - | 2 |
+| 32 | early answer, then exec | 64 | 49.663 ms | 63.968 ms | 0.073 ms | - | 18.340 ms | 27.264 ms | - | 2 |
+| 32 | create and run | 64 | 49.222 ms | 69.717 ms | 49.144 ms | 7.493 ms | - | - | 29.074 ms | 1 |
 
 The three paths cost the same server-side work, and the early answer accounts for the launch it no
 longer waits for: at concurrency 1 its create answers in 10 µs while the command's answer reports 7.736 ms
 of waiting, and those two add to 7.746 ms against the 7.883 ms the synchronous create spent on the same
-launch — the same launch, timed by the same receipts, read through two different doors. At concurrency 32
+launch, the same launch timed by the same receipts and read through two different doors. At concurrency 32
 the ordering between the three paths is not stable: this host runs a pre-existing `soma-api-large` service
 of its own, and the three totals move by more than they differ from each other.
 

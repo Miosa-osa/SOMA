@@ -1,10 +1,11 @@
 //! The public runner's request handling, independent of the HTTP version that carried it.
 
+mod addressing;
 mod command;
 mod create;
-mod exec_contract;
 #[cfg(test)]
 mod early_tests;
+mod exec_contract;
 #[cfg(test)]
 mod exec_contract_agreement_tests;
 #[cfg(test)]
@@ -47,7 +48,6 @@ use soma::OciImage;
 use crate::runner::{
     backend::Backend,
     config::RunnerConfig,
-    ids::SandboxId,
     journal::{Entry, Journal},
     keys::{KeyTable, Refusal},
     peers::Peers,
@@ -279,24 +279,5 @@ impl Runner {
         // The prepared pool's depth is not observable through the facade; it is reported as
         // unknown rather than as a number that would mean something else.
         RunnerResponse::new(200, public_wire::health(self.config.host_tag, age, None))
-    }
-
-    /// Parses a path id and checks that this runner owns its tag.
-    fn addressed(&self, raw_id: &str) -> Result<SandboxId, Box<RunnerResponse>> {
-        let id = SandboxId::parse(raw_id)
-            .ok_or_else(|| Box::new(RunnerResponse::platform(&PlatformError::invalid_id())))?;
-        if id.tag() != self.config.host_tag {
-            let runner_url = self.runner_url(id.tag());
-            return Err(Box::new(RunnerResponse::new(
-                421,
-                public_wire::misdirected(&runner_url),
-            )));
-        }
-        Ok(id)
-    }
-
-    /// `https://<tag>.<domain>`: where every call for a sandbox with this tag goes (C1).
-    fn runner_url(&self, tag: char) -> String {
-        format!("https://{tag}.{}", self.config.public_domain)
     }
 }

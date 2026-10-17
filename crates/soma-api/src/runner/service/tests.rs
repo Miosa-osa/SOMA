@@ -190,7 +190,8 @@ fn a_create_field_the_platform_does_not_define_is_refused_by_name() {
         r#"{"metadata":"x","typo":1}"#,
     ] {
         assert_eq!(
-            CreateParams::parse(body.as_bytes(), 3_600, &launch(), true).map_err(|error| error.code),
+            CreateParams::parse(body.as_bytes(), 3_600, &launch(), true)
+                .map_err(|error| error.code),
             Err("INVALID_PARAM"),
             "{body} must be refused"
         );

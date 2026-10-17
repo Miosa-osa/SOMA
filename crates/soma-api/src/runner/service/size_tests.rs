@@ -98,7 +98,8 @@ fn a_machine_of_the_large_size_can_be_built_without_a_network() {
         }),
         ..launch()
     };
-    let parsed = CreateParams::parse(br#"{"size":"large"}"#, 3_600, &config, true).expect("accepted");
+    let parsed =
+        CreateParams::parse(br#"{"size":"large"}"#, 3_600, &config, true).expect("accepted");
     assert_eq!(
         parsed.shape.capabilities().network_policy().egress(),
         soma::EgressPolicy::Denied,

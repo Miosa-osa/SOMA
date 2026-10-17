@@ -100,8 +100,8 @@ impl Runner {
                 Some(command_entry(principal, id, owner, status, None)),
             ))
         };
-        let params =
-            ExecParams::parse(body).map_err(|error| refuse(RunnerResponse::platform(&error), None))?;
+        let params = ExecParams::parse(body)
+            .map_err(|error| refuse(RunnerResponse::platform(&error), None))?;
         let owner = self
             .sandboxes
             .begin_command(id, &principal.key.tenant_id)
