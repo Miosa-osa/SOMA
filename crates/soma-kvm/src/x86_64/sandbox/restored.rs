@@ -10,6 +10,7 @@ use kvm_ioctls::VcpuFd;
 use vmm_sys_util::eventfd::EventFd;
 
 use super::{Prepared, SandboxMachine, Stage, Timeline};
+use crate::head_reads::HeadReadsHandle;
 use crate::virtio::{FileBackend, MmioBus, VsockDevice};
 use crate::x86_64::{
     Machine,
@@ -76,14 +77,22 @@ impl SandboxMachine {
         volume: Option<std::fs::File>,
         guest_cid: u32,
         network: Option<NetworkAttachment>,
+        reads: Option<HeadReadsHandle>,
     ) -> Result<(), MachineError> {
         // Validate every fallible identity input before replacing either detached resource.
         // Once this succeeds, `set_guest_cid` cannot reject the same value while the bus lock is
         // held, so assignment cannot expose a half-updated device set.
         VsockDevice::validate_guest_cid(u64::from(guest_cid))
             .map_err(|error| MachineError::new(Phase::Devices, MachineErrorKind::Vsock(error)))?;
+        // The head is the one device worth watching: it is a fresh inode whose pages are shared
+        // with the Generation's template but not resident in it, so the guest's first read of it
+        // faults every page in. Recording which ranges those were lets the next head for this
+        // Generation be warmed while it is prepared rather than while the guest waits.
         let head = overlay
-            .map(|overlay| FileBackend::new(overlay, false))
+            .map(|overlay| match &reads {
+                Some(reads) => FileBackend::recording(overlay, false, std::sync::Arc::clone(reads)),
+                None => FileBackend::new(overlay, false),
+            })
             .transpose()
             .map_err(|error| MachineError::io(Phase::Devices, &error))?;
         let data = volume
@@ -110,6 +119,11 @@ impl SandboxMachine {
                     "the machine's overlay slot and the assigned head disagree",
                 ));
             }
+        }
+        // Watching starts only once a head is bound, so a machine with no head neither records
+        // nor reports anything.
+        if let Some(reads) = reads {
+            self.watch_head_reads(reads);
         }
         // The same rule for the durable volume, and this is the one place the Instance's own
         // file is bound over the placeholder the device was built on. A declared volume with no
@@ -174,6 +188,7 @@ impl SandboxMachine {
             }),
             clock: parts.clock,
             timeline: Mutex::new(parts.timeline),
+            head_reads: Mutex::new(None),
             cmdline: parts.cmdline,
             entry: 0,
             initramfs: None,

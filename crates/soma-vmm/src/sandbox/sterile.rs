@@ -172,7 +172,18 @@ fn assign(
         }
         None => None,
     };
-    let Ok(mut restored) = sterile.assign(overlay, data, guest_cid, attachment) else {
+    // A head is a fresh inode: its pages are shared with the Generation's template but not
+    // resident in it, so the guest's first read faults every page it touches in. Recording which
+    // ranges those were is what lets the next head for this Generation be warmed while it is
+    // prepared, instead of while a guest waits.
+    let reads = soma_kvm::head_reads::recording();
+    let Ok(mut restored) = sterile.assign(
+        overlay,
+        data,
+        guest_cid,
+        attachment,
+        Some(std::sync::Arc::clone(&reads)),
+    ) else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));
         return;
     };
@@ -186,6 +197,7 @@ fn assign(
         (instance, operation, activation),
         requests,
         responses,
+        &reads,
     );
     report(restored.machine, outcome, responses, instance);
 }

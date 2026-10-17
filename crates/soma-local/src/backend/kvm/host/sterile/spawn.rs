@@ -81,6 +81,12 @@ fn prime(host: &mut SterileHost, plan: &PrewarmPlan) -> Result<(), SpawnFailure>
     channel::write_line(
         &mut host.handoff,
         &InitialWire::Prewarm(PrewarmWire {
+            // Read here rather than captured when the target was installed, because the set is
+            // learned from launches that happened after it was.
+            warm: super::warm_for(&plan.key())
+                .into_iter()
+                .map(super::super::wire::HeadSpanWire::from)
+                .collect(),
             reference: plan.prepared.reference.clone(),
             generation_id: plan.prepared.id.clone(),
             manifest,

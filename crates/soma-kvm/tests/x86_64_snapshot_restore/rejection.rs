@@ -234,6 +234,8 @@ fn attempt(
         },
         devices: fixture.devices(),
         guest_cid: 30,
+        // These tests exercise the restore, not the warm set.
+        reads: None,
         memory_bytes: fixture.ram_bytes,
         vcpus: 1,
         contract: MachineContract::V1,

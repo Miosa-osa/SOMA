@@ -27,6 +27,10 @@ pub(super) struct PrewarmWire {
     pub(super) generation_id: GenerationId,
     pub(super) manifest: Vec<u8>,
     pub(super) memory_mib: u64,
+    /// What this Generation's guest read from its head on earlier launches, so this host can make
+    /// those pages resident before it parks and counts as prepared.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) warm: Vec<HeadSpanWire>,
 }
 
 /// The first message after the verified descriptor handoff.
@@ -101,6 +105,39 @@ pub(in crate::backend::kvm) struct Launched {
     /// Absent from the line when none is, so a host built before this field still reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(in crate::backend::kvm) live_cgroup: Option<LiveCgroup>,
+    /// The head ranges the guest read on its way to Ready, in the order it read them.
+    ///
+    /// Absent from the line when there are none, so a host built before this field still reads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(in crate::backend::kvm) head_reads: Vec<HeadSpanWire>,
+}
+
+/// One head range, as it crosses between processes.
+///
+/// Carried apart from [`soma_kvm::head_reads::HeadSpan`] because the engine crate takes no serde
+/// dependency for it; the conversion is total and losing nothing.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(in crate::backend::kvm) struct HeadSpanWire {
+    pub(in crate::backend::kvm) offset: u64,
+    pub(in crate::backend::kvm) len: u64,
+}
+
+impl From<soma_kvm::head_reads::HeadSpan> for HeadSpanWire {
+    fn from(span: soma_kvm::head_reads::HeadSpan) -> Self {
+        Self {
+            offset: span.offset,
+            len: span.len,
+        }
+    }
+}
+
+impl From<HeadSpanWire> for soma_kvm::head_reads::HeadSpan {
+    fn from(span: HeadSpanWire) -> Self {
+        Self {
+            offset: span.offset,
+            len: span.len,
+        }
+    }
 }
 
 /// What a claimed host reports about leaving its unit's control group.

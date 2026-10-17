@@ -36,7 +36,7 @@ fn a_head_of_the_wrong_shape_is_refused_and_the_worker_never_starts() {
         .set_len(fixture.overlay_capacity_bytes() / 2)
         .expect("shorten the head");
 
-    let refused = sterile(&fixture).assign(Some(short), None, 4, None);
+    let refused = sterile(&fixture).assign(Some(short), None, 4, None, None);
 
     assert!(
         refused.is_err(),
@@ -61,7 +61,7 @@ fn an_unassignable_context_identifier_is_refused_and_the_worker_never_starts() {
         let descriptors_before = crate::x86_64_sandbox_boot_host::open_descriptor_count();
         let (_path, head) = fixture.private_head("sterile-cid");
 
-        let refused = sterile(&fixture).assign(Some(head), None, reserved, None);
+        let refused = sterile(&fixture).assign(Some(head), None, reserved, None, None);
 
         assert!(
             refused.is_err(),

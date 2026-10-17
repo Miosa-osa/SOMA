@@ -76,6 +76,9 @@ pub struct RestoreRequest {
     pub devices: DeviceSet,
     /// The fresh vsock context identifier this Instance is assigned.
     pub guest_cid: u32,
+    /// Where the ranges a guest reads from its private head are recorded, when the caller wants
+    /// them. `None` restores exactly as before, and a caller that passes nothing pays nothing.
+    pub reads: Option<crate::head_reads::HeadReadsHandle>,
     /// Guest RAM the caller expects, from the Generation shape rather than from the snapshot.
     pub memory_bytes: u64,
     /// The vCPU count the Generation declared, from its shape rather than from the snapshot.
@@ -127,6 +130,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
         volume,
         devices,
         guest_cid,
+        reads,
         memory_bytes,
         vcpus,
         contract,
@@ -179,7 +183,7 @@ pub fn restore(request: RestoreRequest) -> Result<Restored, SnapshotError> {
     })?
     // The Instance's own volume file arrives with the head: the placeholder declared the device
     // and this is what the guest writes, bound over the placeholder before it runs.
-    .assign(overlay, volume, guest_cid, network)
+    .assign(overlay, volume, guest_cid, network, reads)
 }
 
 mod sterile_entry;

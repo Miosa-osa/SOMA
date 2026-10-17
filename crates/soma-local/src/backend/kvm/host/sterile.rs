@@ -15,6 +15,9 @@ mod snapshot;
 mod spawn;
 #[cfg(test)]
 mod tests;
+mod warm;
+#[cfg(test)]
+mod warm_tests;
 
 use std::{
     io::BufReader,
@@ -26,12 +29,15 @@ use std::{
 
 use soma::BackendFailureKind;
 
+use soma_kvm::head_reads::HeadReads;
+
 use crate::backend::kvm::prepared::PreparedGeneration;
 use refill::schedule_refill;
 use retire::retire_surplus;
 use spawn::{SpawnFailure, spawn, spawn_explained};
 
 pub(crate) use snapshot::snapshot;
+pub(super) use warm::{key_for, note_head_reads, warm_for};
 
 pub(super) struct SterileHost {
     pub(super) child: Child,
@@ -69,7 +75,7 @@ impl PrewarmPlan {
 }
 
 #[derive(Clone, Eq, PartialEq)]
-struct PrimedKey {
+pub(super) struct PrimedKey {
     reference: String,
     generation_id: soma::GenerationId,
     memory_mib: u64,
@@ -117,6 +123,13 @@ struct Pool {
     available: Mutex<Vec<SterileHost>>,
     desired: Mutex<Desired>,
     replenishing: AtomicBool,
+    /// What each Generation's guest read from its head on launches that already happened, so the
+    /// next head for that Generation can be warmed while it is prepared rather than while a guest
+    /// waits.
+    ///
+    /// Keyed by the whole primed key rather than by the reference, so no Generation's observation
+    /// can ever widen another's.
+    warm: Mutex<Vec<(PrimedKey, HeadReads)>>,
 }
 
 /// A target the pool is asked to keep, already resolved to a prepared Generation.
@@ -150,6 +163,7 @@ fn pool() -> &'static Pool {
         available: Mutex::new(Vec::new()),
         desired: Mutex::new(Desired::default()),
         replenishing: AtomicBool::new(false),
+        warm: Mutex::new(Vec::new()),
     })
 }
 

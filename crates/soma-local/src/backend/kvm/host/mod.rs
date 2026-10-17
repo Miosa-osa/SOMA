@@ -49,8 +49,8 @@ pub(crate) use sterile::{
 };
 use transport::{ask, await_close, exchange, open};
 pub(crate) use tunnel::open_tunnel;
-pub(in crate::backend::kvm) use wire::Launched;
 use wire::{Answer, Call};
+pub(in crate::backend::kvm) use wire::{HeadSpanWire, Launched};
 
 /// Who holds the machines this Backend launches.
 pub(super) enum Role {

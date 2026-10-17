@@ -76,6 +76,11 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 }
                 None => None,
             };
+            // A head is a fresh inode: its pages are shared with the Generation's template but
+            // not resident in it, so the guest's first read faults every page it touches in.
+            // Recording which ranges those were is what lets the next head for this Generation be
+            // warmed while it is prepared, instead of while a guest waits.
+            let reads = soma_kvm::head_reads::recording();
             let restored = restore(RestoreRequest {
                 objects,
                 hypervisor,
@@ -94,6 +99,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 // one that asked for no egress keeps the device it was built with, whose link
                 // stays down and which drops every frame.
                 network: attachment,
+                reads: Some(std::sync::Arc::clone(&reads)),
             });
             let Ok(mut restored) = restored else {
                 let _ignored = responses.send(Response::Failed(SessionError::Create));
@@ -109,6 +115,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 (instance, operation, activation),
                 requests,
                 responses,
+                &reads,
             );
             report(restored.machine, outcome, responses, instance);
         }

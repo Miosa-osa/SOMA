@@ -7,6 +7,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::{OperationId, RepairedHostControl};
+use soma_kvm::head_reads::HeadSpan;
 use soma_kvm::x86_64::{Milestone, SandboxMachine};
 
 use super::super::identity::fresh16;
@@ -26,9 +27,12 @@ pub(super) fn serve_commands(
     mut repaired: RepairedHostControl<HostIo<'_>>,
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
+    head_reads: &[HeadSpan],
 ) -> Result<Ending, SessionError> {
     responses
-        .send(Response::Ready)
+        .send(Response::Ready {
+            head_reads: head_reads.to_vec(),
+        })
         .map_err(|_| SessionError::Gone)?;
 
     // What the guest answered to the API level probe, learned lazily by the first level 2 file
@@ -43,8 +47,12 @@ pub(super) fn serve_commands(
             // request keeps the owner's exchange idempotent rather than deadlocking it.
             Request::RaiseLink => {
                 machine.set_network_link(true);
+                // The ranges travel with both answers, because a launch whose activation is
+                // deferred sees only this one.
                 responses
-                    .send(Response::Ready)
+                    .send(Response::Ready {
+                        head_reads: head_reads.to_vec(),
+                    })
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::Execute(command) => {

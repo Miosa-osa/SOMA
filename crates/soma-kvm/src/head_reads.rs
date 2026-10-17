@@ -26,6 +26,9 @@ pub const MAX_WARM_BYTES: u64 = 1024 * 1024;
 /// Most ranges one Generation's warm set may hold.
 pub const MAX_WARM_SPANS: usize = 32;
 
+/// How much of a range is read at a time while warming.
+const WARM_CHUNK: usize = 64 * 1024;
+
 /// One range of a head a guest read, as offset and length in bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct HeadSpan {
@@ -78,7 +81,49 @@ pub fn seal(handle: &HeadReadsHandle) -> Vec<HeadSpan> {
     with_reads(handle, HeadReads::seal)
 }
 
+/// Reads every recorded range once, so its pages are resident before a guest asks for them.
+///
+/// Synchronous by design. A head is warmed before the host holding it counts as primed, so a
+/// claim can never race a read that is still in flight.
+///
+/// # Errors
+///
+/// Fails when a range cannot be read. The caller decides whether an unwarmed head is fatal, and
+/// it is not: the guest will fault the pages itself, which is what happens today.
+#[cfg(unix)]
+pub fn warm(file: &std::fs::File, spans: &[HeadSpan]) -> std::io::Result<u64> {
+    use std::os::unix::fs::FileExt as _;
+
+    let mut buffer = vec![0_u8; WARM_CHUNK];
+    let mut warmed = 0_u64;
+    for span in spans {
+        let end = span.offset.saturating_add(span.len);
+        let mut offset = span.offset;
+        while offset < end {
+            let want = usize::try_from((end - offset).min(WARM_CHUNK as u64)).unwrap_or(0);
+            let Some(chunk) = buffer.get_mut(..want) else {
+                break;
+            };
+            file.read_exact_at(chunk, offset)?;
+            offset = offset.saturating_add(want as u64);
+            warmed = warmed.saturating_add(want as u64);
+        }
+    }
+    Ok(warmed)
+}
+
 impl HeadReads {
+    /// Adds ranges observed by another host, under this recorder's own bounds.
+    ///
+    /// Used where a set recorded by one machine host is taken up by another. Going through
+    /// [`Self::record`] rather than replacing the set is what keeps a later or larger observation
+    /// from growing the set past [`MAX_WARM_BYTES`] or [`MAX_WARM_SPANS`].
+    pub fn absorb(&mut self, spans: &[HeadSpan]) {
+        for span in spans {
+            self.record(span.offset, span.len);
+        }
+    }
+
     /// Records one read, merging it into the range it continues or overlaps.
     ///
     /// A read that would take the set past [`MAX_WARM_BYTES`] or [`MAX_WARM_SPANS`] is dropped

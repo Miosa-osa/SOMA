@@ -6,6 +6,7 @@
 //! failure a caller may render.
 
 use soma_guest::{ActivationReceipt, GuestCommand, TerminalStatus};
+use soma_kvm::head_reads::HeadSpan;
 use soma_kvm::x86_64::SandboxEvidence;
 
 use super::super::memory::{MemoryError, MemoryLevel};
@@ -57,7 +58,14 @@ pub enum Response {
     /// and only then is the link raised.
     Minted(Box<ActivationReceipt>),
     /// The sandbox reached an authenticated Ready.
-    Ready,
+    ///
+    /// Carries the head ranges the guest read on the way there. They are what the next head for
+    /// the same Generation is warmed with, so that the fault this launch paid is not paid again by
+    /// the next one.
+    Ready {
+        /// Offsets and lengths, never guest bytes.
+        head_reads: Vec<HeadSpan>,
+    },
     /// One authenticated chunk of a streaming command's output, before the command ended.
     Output(soma_guest::OutputSource, Vec<u8>),
     /// One command completed with its typed terminal status.
