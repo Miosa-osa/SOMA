@@ -71,7 +71,14 @@ fn layout_root_symlink_is_rejected() {
 
     let error = run_paths(&linked_layout, &fixture.store).unwrap_err();
 
-    assert_eq!(error.kind(), ImportErrorKind::InvalidInput);
+    assert_eq!(error.kind(), ImportErrorKind::Symlink);
+    // The refusal has to be diagnosable from the message alone: a bare `InvalidInput` sent an
+    // operator looking at their layout for a whole cycle when the answer was "not a symlink".
+    let shown = error.to_string();
+    assert!(
+        shown.contains("not a symlink"),
+        "the refusal must name its cause and its remedy: {shown}"
+    );
 }
 
 #[test]
@@ -88,7 +95,7 @@ fn store_root_symlink_is_rejected_without_writing_its_target() {
 
     let error = run_paths(&fixture.layout, &linked_store).unwrap_err();
 
-    assert_eq!(error.kind(), ImportErrorKind::StoreConflict);
+    assert_eq!(error.kind(), ImportErrorKind::Symlink);
     assert_eq!(fs::read_dir(store_target).unwrap().count(), 0);
 }
 

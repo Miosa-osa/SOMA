@@ -93,9 +93,12 @@ impl CompileError {
     pub(crate) const fn from_import(phase: CompilePhase, error: ImportError) -> Self {
         use crate::ImportErrorKind as ImportKind;
         let kind = match error.kind() {
-            ImportKind::InvalidInput | ImportKind::NotFound | ImportKind::Ambiguous => {
-                CompileErrorKind::InvalidInput
-            }
+            // As in normalization: a symlinked input root is "not a usable directory" here. The
+            // precise kind is what the import error reports; the compile error is a funnel.
+            ImportKind::InvalidInput
+            | ImportKind::NotFound
+            | ImportKind::Ambiguous
+            | ImportKind::Symlink => CompileErrorKind::InvalidInput,
             ImportKind::Unsupported => CompileErrorKind::Unsupported,
             ImportKind::LimitExceeded => CompileErrorKind::LimitExceeded,
             ImportKind::Integrity => CompileErrorKind::Integrity,

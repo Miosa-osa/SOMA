@@ -7,6 +7,16 @@ use cap_std::fs::{Dir, Metadata};
 
 use crate::{ImportError, ImportErrorKind, ImportPhase};
 
+/// Opens an existing directory as an import root, refusing a link in its place.
+///
+/// A path that is a symbolic link is rejected with [`ImportErrorKind::Symlink`] rather than the
+/// caller's `rejected_kind`: every root is opened with the platform's no-follow guarantee, so the
+/// reason a caller most needs is that the path is a link at all, not which stage noticed it.
+///
+/// # Errors
+///
+/// Returns `rejected_kind` for a path that does not exist, is not a directory, or cannot be
+/// opened, and [`ImportErrorKind::Symlink`] for one that is a link-like entry.
 pub(crate) fn open_existing(
     path: &Path,
     phase: ImportPhase,
@@ -22,7 +32,7 @@ pub(crate) fn open_existing(
         .symlink_metadata(name)
         .map_err(|_| ImportError::new(phase, rejected_kind))?;
     if is_link_like(&entry) {
-        return Err(ImportError::new(phase, rejected_kind));
+        return Err(ImportError::new(phase, ImportErrorKind::Symlink));
     }
     let root = parent
         .open_dir_nofollow(name)
@@ -31,7 +41,7 @@ pub(crate) fn open_existing(
         .dir_metadata()
         .map_err(|_| ImportError::new(phase, rejected_kind))?;
     if is_link_like(&opened) {
-        return Err(ImportError::new(phase, rejected_kind));
+        return Err(ImportError::new(phase, ImportErrorKind::Symlink));
     }
     Ok(root)
 }
