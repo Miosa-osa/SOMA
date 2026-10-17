@@ -21,19 +21,19 @@ flow makes, which is what a network adds to a total.
 
 | Concurrency | Flow | n | Total p50 | Total p90 | create | ready | waited | command | run | requests |
 | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 | default, then exec | 30 | 21.171 ms | 23.846 ms | 7.883 ms | 4.758 ms | - | 13.376 ms | - | 2 |
-| 1 | early answer, then exec | 30 | 21.237 ms | 22.146 ms | 0.010 ms | - | 7.736 ms | 13.421 ms | - | 2 |
-| 1 | create and run | 30 | 20.743 ms | 21.171 ms | 20.716 ms | 4.707 ms | - | - | 13.000 ms | 1 |
-| 32 | default, then exec | 64 | 47.364 ms | 56.525 ms | 15.309 ms | 6.828 ms | - | 30.501 ms | - | 2 |
-| 32 | early answer, then exec | 64 | 49.663 ms | 63.968 ms | 0.073 ms | - | 18.340 ms | 27.264 ms | - | 2 |
-| 32 | create and run | 64 | 49.222 ms | 69.717 ms | 49.144 ms | 7.493 ms | - | - | 29.074 ms | 1 |
+| 1 | default, then exec | 30 | 21.131 ms | 21.764 ms | 7.882 ms | 4.861 ms | - | 13.276 ms | - | 2 |
+| 1 | early answer, then exec | 30 | 21.016 ms | 22.109 ms | 0.009 ms | - | 7.681 ms | 13.286 ms | - | 2 |
+| 1 | create and run | 30 | 21.318 ms | 22.016 ms | 21.290 ms | 4.858 ms | - | - | 13.000 ms | 1 |
+| 32 | default, then exec | 64 | 55.503 ms | 72.429 ms | 17.467 ms | 7.518 ms | - | 34.812 ms | - | 2 |
+| 32 | early answer, then exec | 64 | 50.760 ms | 60.675 ms | 0.072 ms | - | 17.212 ms | 30.790 ms | - | 2 |
+| 32 | create and run | 64 | 57.147 ms | 70.921 ms | 57.007 ms | 8.726 ms | - | - | 33.000 ms | 1 |
 
 The three paths cost the same server-side work, and the early answer accounts for the launch it no
 longer waits for: at concurrency 1 its create answers in 10 µs while the command's answer reports 7.736 ms
 of waiting, and those two add to 7.746 ms against the 7.883 ms the synchronous create spent on the same
 launch, the same launch timed by the same receipts and read through two different doors. At concurrency 32
 the ordering between the three paths is not stable: this host runs a pre-existing `soma-api-large` service
-of its own, and the three totals move by more than they differ from each other.
+of its own, and the three totals move by more than they differ from each other from run to run.
 
 ## What the total on the wire would be
 
@@ -53,8 +53,10 @@ ComputeSDK benchmark runs at, the concurrency-1 row becomes 35.2 ms for the sync
 - The command ran inside the guest through the engine's own exec path, but no network was attached to any
   machine: the shape these machines were prepared at has no network, and this host has no broker.
 - Concurrency 32 is 2 rounds of 32 and so 64 samples, not 30 rounds; each round is a simultaneous burst.
-- The measurements were taken on a host holding a pre-existing `soma-api-large` service of its own, which
-  is why the concurrency-32 totals are 2.4 times the concurrency-1 ones rather than near them.
+- The measurements were taken on a host holding a pre-existing `soma-api-large` service of its own and, for
+  the run below, a per-minute process sampler that a maintenance roll had just installed. That is why the
+  concurrency-32 totals are 2.4 to 2.7 times the concurrency-1 ones rather than near them, and why the
+  concurrency-32 ordering between the three paths moves between runs.
 - Both new fields are opt-in and neither is set by the platform's adapter yet, so no user-visible latency
   has changed.
 
@@ -69,22 +71,22 @@ The scratch state root, the build tree and every sandbox it made were removed fr
 
 ```
 concurrency 1
-  default + exec         n=30   total p50=    21.171 ms  p90=    23.846 ms  create p50=7883 us (body create_ms p50=7000 ms), ready p50=4758 us, waited p50=none, command p50=13.376 ms, run p50=none, requests=2
-  early answer + exec    n=30   total p50=    21.237 ms  p90=    22.146 ms  create p50=10 us (body create_ms p50=0 ms), ready p50=0 us, waited p50=7.736 ms, command p50=13.421 ms, run p50=none, requests=2
-  create and run         n=30   total p50=    20.743 ms  p90=    21.171 ms  create p50=20716 us (body create_ms p50=20000 ms), ready p50=4707 us, waited p50=none, command p50=none, run p50=13.000 ms, requests=1
+  default + exec         n=30   total p50=    21.131 ms  p90=    21.764 ms  create p50=7882 us (body create_ms p50=7000 ms), ready p50=4861 us, waited p50=none, command p50=13.276 ms, run p50=none, requests=2
+  early answer + exec    n=30   total p50=    21.016 ms  p90=    22.109 ms  create p50=9 us (body create_ms p50=0 ms), ready p50=0 us, waited p50=7.681 ms, command p50=13.286 ms, run p50=none, requests=2
+  create and run         n=30   total p50=    21.318 ms  p90=    22.016 ms  create p50=21290 us (body create_ms p50=21000 ms), ready p50=4858 us, waited p50=none, command p50=none, run p50=13.000 ms, requests=1
 
 concurrency 32
-  default + exec         n=64   total p50=    47.364 ms  p90=    56.525 ms  create p50=15309 us (body create_ms p50=15000 ms), ready p50=6828 us, waited p50=none, command p50=30.501 ms, run p50=none, requests=2
-  early answer + exec    n=64   total p50=    49.663 ms  p90=    63.968 ms  create p50=73 us (body create_ms p50=0 ms), ready p50=0 us, waited p50=18.340 ms, command p50=27.264 ms, run p50=none, requests=2
-  create and run         n=64   total p50=    49.222 ms  p90=    69.717 ms  create p50=49144 us (body create_ms p50=49000 ms), ready p50=7493 us, waited p50=none, command p50=none, run p50=29.074 ms, requests=1
-== final measure exit: 0 ==
+  default + exec         n=64   total p50=    55.503 ms  p90=    72.429 ms  create p50=17467 us (body create_ms p50=17000 ms), ready p50=7518 us, waited p50=none, command p50=34.812 ms, run p50=none, requests=2
+  early answer + exec    n=64   total p50=    50.760 ms  p90=    60.675 ms  create p50=72 us (body create_ms p50=0 ms), ready p50=0 us, waited p50=17.212 ms, command p50=30.790 ms, run p50=none, requests=2
+  create and run         n=64   total p50=    57.147 ms  p90=    70.921 ms  create p50=57007 us (body create_ms p50=57000 ms), ready p50=8726 us, waited p50=none, command p50=none, run p50=33.000 ms, requests=1
+== measure exit: 0 ==
 ```
 
-Two earlier runs of the same example on the same host reproduced the same shape of result: the early
-answer's create plus its command's wait recovered the synchronous create's own time, and the three totals
-stayed within a couple of milliseconds of each other at both concurrencies. The second of them is why the
-`run` column is now cross-checked against the body's own `duration_ms`: it had been printed in the wrong
-unit, reading 0.013 ms for a 13 ms command.
+Three runs of the same example on the same host, one of them before the maintenance roll of 2026-10-17 and
+two after it, reproduced the same shape of result: at concurrency 1 the early answer's create plus its
+command's wait recovered the synchronous create's own time to within 0.2 ms, and the three totals stayed
+within a couple of milliseconds of each other. One of them is why the `run` column is cross-checked against
+the body's own `duration_ms`: it had been printed in the wrong unit, reading 0.013 ms for a 13 ms command.
 
 ## Test evidence, same host
 
