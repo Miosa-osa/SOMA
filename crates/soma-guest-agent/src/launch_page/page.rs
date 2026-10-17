@@ -14,9 +14,12 @@ use zeroize::Zeroize;
 pub const PAGE_DOMAIN: &[u8; 16] = b"SOMA-LAUNCH-PAGE";
 
 /// The widest access this walks the page with.
-type Word = u64;
+///
+/// The tests beside this module assert the property the walk depends on, so both this and the
+/// width below are visible to them.
+pub(super) type Word = u64;
 /// Bytes one access covers, and how many of them the page holds.
-const WORD_BYTES: usize = size_of::<Word>();
+pub(super) const WORD_BYTES: usize = size_of::<Word>();
 const WORDS: usize = LAUNCH_PAGE_SIZE / WORD_BYTES;
 
 /// One launch page as the agent walks it: a whole number of words, aligned for one.
