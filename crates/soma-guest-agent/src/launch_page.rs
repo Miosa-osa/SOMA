@@ -8,7 +8,6 @@
 
 #![allow(unsafe_code)]
 
-use std::ptr;
 use std::time::Instant;
 
 use soma_guest::{GuestLaunchMaterial, LAUNCH_PAGE_SIZE};
@@ -18,8 +17,11 @@ use crate::timings::{self, Step};
 
 pub use soma_guest::LAUNCH_PAGE_GUEST_ADDRESS;
 
-/// Exact domain bytes at the start of every valid launch page.
-pub const PAGE_DOMAIN: &[u8; 16] = b"SOMA-LAUNCH-PAGE";
+mod page;
+#[cfg(test)]
+mod tests;
+
+pub use page::Page;
 
 /// Redacted launch-page failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,13 +64,13 @@ impl Drop for Locked<'_> {
 /// # Errors
 ///
 /// Returns a redacted failure and leaves no material behind.
-pub fn consume(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> Result<GuestLaunchMaterial, LaunchPageError> {
-    let mut copy = Zeroizing::new([0_u8; LAUNCH_PAGE_SIZE]);
-    let locked = Locked::pin(&mut copy)?;
+pub fn consume(view: &mut Page) -> Result<GuestLaunchMaterial, LaunchPageError> {
+    let mut copy = Zeroizing::new(Page::zeroed());
+    let locked = Locked::pin(copy.bytes_mut())?;
     let pinned = Instant::now();
-    copy_volatile(view, locked.0);
+    view.copy_into(locked.0);
     let copied = Instant::now();
-    let erased = erase_and_verify(view);
+    let erased = view.erase_and_verify();
     let scrubbed = Instant::now();
     let parsed = GuestLaunchMaterial::take_from_page(locked.0);
     timings::record(Step::PageCopy, copied.saturating_duration_since(pinned));
@@ -79,42 +81,6 @@ pub fn consume(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> Result<GuestLaunchMaterial,
         return Err(LaunchPageError::EraseUnverified);
     }
     parsed.map_err(|_| LaunchPageError::Rejected)
-}
-
-/// Overwrites the view with zeroes through volatile stores and re-reads every byte.
-#[must_use]
-pub fn erase_and_verify(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> bool {
-    let base = view.as_mut_ptr();
-    for index in 0..LAUNCH_PAGE_SIZE {
-        // SAFETY: `index` is below the array length, so the offset pointer stays inside the
-        // exclusively borrowed view and is valid for a one-byte volatile write and read.
-        unsafe {
-            ptr::write_volatile(base.add(index), 0);
-            if ptr::read_volatile(base.add(index)) != 0 {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-/// Returns whether the view starts with the launch-page domain.
-#[must_use]
-pub fn page_present(view: &[u8; LAUNCH_PAGE_SIZE]) -> bool {
-    let mut domain = [0; 16];
-    for (index, byte) in domain.iter_mut().enumerate() {
-        // SAFETY: `index` is below 16 and the view is at least 4096 bytes, so the pointer
-        // stays inside the borrowed array for a one-byte volatile read.
-        *byte = unsafe { ptr::read_volatile(view.as_ptr().add(index)) };
-    }
-    &domain == PAGE_DOMAIN
-}
-
-fn copy_volatile(source: &[u8; LAUNCH_PAGE_SIZE], destination: &mut [u8; LAUNCH_PAGE_SIZE]) {
-    for (index, byte) in destination.iter_mut().enumerate() {
-        // SAFETY: `index` is below the array length of the borrowed source.
-        *byte = unsafe { ptr::read_volatile(source.as_ptr().add(index)) };
-    }
 }
 
 fn errno() -> i32 {
@@ -136,7 +102,7 @@ mod physical {
 
     use crate::timings::{self, Step};
 
-    use super::{LAUNCH_PAGE_GUEST_ADDRESS, LaunchPageError, consume, errno, page_present};
+    use super::{LAUNCH_PAGE_GUEST_ADDRESS, LaunchPageError, Page, consume, errno};
 
     const DEV_MEM: &str = "/dev/mem";
 
@@ -172,10 +138,16 @@ mod physical {
             Ok(Self { base: base.cast() })
         }
 
-        fn view(&mut self) -> &mut [u8; LAUNCH_PAGE_SIZE] {
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "mmap returns a page-aligned mapping, which is exactly the alignment Page \
+                      asks for; the pointer's own type cannot say so"
+        )]
+        fn view(&mut self) -> &mut Page {
             // SAFETY: `base` is a live page-aligned mapping of exactly `LAUNCH_PAGE_SIZE` bytes
-            // owned by `self`, and `&mut self` guarantees no other reference to it exists.
-            unsafe { &mut *self.base.cast::<[u8; LAUNCH_PAGE_SIZE]>() }
+            // owned by `self`, and `&mut self` guarantees no other reference to it exists. A
+            // whole mapped page is what `Page` describes, including its alignment.
+            unsafe { &mut *self.base.cast::<Page>() }
         }
     }
 
@@ -201,7 +173,7 @@ mod physical {
         let mut slept = Instant::now();
         loop {
             let woke = Instant::now();
-            let present = page_present(page.view());
+            let present = page.view().has_domain();
             let looked = Instant::now();
             if present {
                 timings::record(Step::PollWake, woke.saturating_duration_since(slept));
@@ -211,67 +183,5 @@ mod physical {
             slept = Instant::now();
             thread::sleep(poll);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use soma_guest::{HostLaunchMaterial, LaunchNetwork};
-
-    use super::*;
-
-    fn delivered_page() -> [u8; LAUNCH_PAGE_SIZE] {
-        let network = LaunchNetwork::new(
-            3,
-            1,
-            [0x02, 0, 0, 0, 0, 1],
-            [10, 0, 0, 2],
-            24,
-            [10, 0, 0, 1],
-            [10, 0, 0, 1],
-            1,
-        )
-        .expect("network");
-        let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], network).expect("host");
-        let mut page = [0xA5; LAUNCH_PAGE_SIZE];
-        host.deliver_with(|bytes| {
-            page.copy_from_slice(bytes);
-            Ok::<(), ()>(())
-        })
-        .expect("delivery");
-        page
-    }
-
-    #[test]
-    fn a_valid_page_is_consumed_and_the_view_is_zero_afterwards() {
-        let mut view = delivered_page();
-        assert!(page_present(&view));
-
-        let material = consume(&mut view).expect("material");
-
-        assert_eq!(view, [0; LAUNCH_PAGE_SIZE]);
-        assert!(!page_present(&view));
-        assert_eq!(material.binding().instance(), &[2; 16]);
-        assert_eq!(material.network().vsock_cid(), 3);
-    }
-
-    #[test]
-    fn a_malformed_page_is_rejected_but_still_erased() {
-        let mut view = delivered_page();
-        view[100] ^= 1;
-
-        assert_eq!(
-            consume(&mut view).expect_err("malformed page"),
-            LaunchPageError::Rejected
-        );
-        assert_eq!(view, [0; LAUNCH_PAGE_SIZE]);
-    }
-
-    #[test]
-    fn an_absent_page_is_not_present() {
-        assert!(!page_present(&[0; LAUNCH_PAGE_SIZE]));
-        assert!(!page_present(&[0xFF; LAUNCH_PAGE_SIZE]));
-        assert_eq!(LAUNCH_PAGE_GUEST_ADDRESS, 0xd010_0000);
-        assert_eq!(LAUNCH_PAGE_GUEST_ADDRESS % 4096, 0);
     }
 }
