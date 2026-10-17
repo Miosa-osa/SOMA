@@ -12,7 +12,7 @@ use std::ptr;
 use std::time::Instant;
 
 use soma_guest::{GuestLaunchMaterial, LAUNCH_PAGE_SIZE};
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::timings::{self, Step};
 
@@ -20,6 +20,54 @@ pub use soma_guest::LAUNCH_PAGE_GUEST_ADDRESS;
 
 /// Exact domain bytes at the start of every valid launch page.
 pub const PAGE_DOMAIN: &[u8; 16] = b"SOMA-LAUNCH-PAGE";
+
+/// The widest access this walks the page with.
+type Word = u64;
+/// Bytes one access covers, and how many of them the page holds.
+const WORD_BYTES: usize = size_of::<Word>();
+const WORDS: usize = LAUNCH_PAGE_SIZE / WORD_BYTES;
+
+/// One launch page as the agent walks it: a whole number of words, aligned for one.
+///
+/// The page is mapped uncached, and an uncached access costs about the same whether it moves
+/// one byte or eight, so the copy, the erase, and the verification after it walk the page a word
+/// at a time. The alignment that walk needs is a property of this type rather than of whatever
+/// the caller happened to pass, and the size is a whole number of words by construction.
+#[repr(C, align(4096))]
+pub struct Page([u8; LAUNCH_PAGE_SIZE]);
+
+impl Page {
+    /// A page of zeroes, which is what an erased page is.
+    #[must_use]
+    pub const fn zeroed() -> Self {
+        Self([0; LAUNCH_PAGE_SIZE])
+    }
+
+    /// A page holding `byte` everywhere, for the tests that only care that it is not the domain.
+    #[cfg(test)]
+    fn filled(byte: u8) -> Self {
+        Self([byte; LAUNCH_PAGE_SIZE])
+    }
+
+    /// The same bytes as a plain slice, for the locked copy the decoder reads.
+    fn bytes_mut(&mut self) -> &mut [u8; LAUNCH_PAGE_SIZE] {
+        &mut self.0
+    }
+
+    fn words(&self) -> *const Word {
+        self.0.as_ptr().cast()
+    }
+
+    fn words_mut(&mut self) -> *mut Word {
+        self.0.as_mut_ptr().cast()
+    }
+}
+
+impl Zeroize for Page {
+    fn zeroize(&mut self) {
+        self.0.zeroize();
+    }
+}
 
 /// Redacted launch-page failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,9 +110,9 @@ impl Drop for Locked<'_> {
 /// # Errors
 ///
 /// Returns a redacted failure and leaves no material behind.
-pub fn consume(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> Result<GuestLaunchMaterial, LaunchPageError> {
-    let mut copy = Zeroizing::new([0_u8; LAUNCH_PAGE_SIZE]);
-    let locked = Locked::pin(&mut copy)?;
+pub fn consume(view: &mut Page) -> Result<GuestLaunchMaterial, LaunchPageError> {
+    let mut copy = Zeroizing::new(Page::zeroed());
+    let locked = Locked::pin(copy.bytes_mut())?;
     let pinned = Instant::now();
     copy_volatile(view, locked.0);
     let copied = Instant::now();
@@ -81,13 +129,13 @@ pub fn consume(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> Result<GuestLaunchMaterial,
     parsed.map_err(|_| LaunchPageError::Rejected)
 }
 
-/// Overwrites the view with zeroes through volatile stores and re-reads every byte.
+/// Overwrites the view with zeroes through volatile stores and re-reads every word.
 #[must_use]
-pub fn erase_and_verify(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> bool {
-    let base = view.as_mut_ptr();
-    for index in 0..LAUNCH_PAGE_SIZE {
-        // SAFETY: `index` is below the array length, so the offset pointer stays inside the
-        // exclusively borrowed view and is valid for a one-byte volatile write and read.
+pub fn erase_and_verify(view: &mut Page) -> bool {
+    let base = view.words_mut();
+    for index in 0..WORDS {
+        // SAFETY: `Page` is aligned for `Word` and holds exactly `WORDS` of them, so `index`
+        // stays inside the exclusively borrowed view and names one whole word.
         unsafe {
             ptr::write_volatile(base.add(index), 0);
             if ptr::read_volatile(base.add(index)) != 0 {
@@ -100,20 +148,37 @@ pub fn erase_and_verify(view: &mut [u8; LAUNCH_PAGE_SIZE]) -> bool {
 
 /// Returns whether the view starts with the launch-page domain.
 #[must_use]
-pub fn page_present(view: &[u8; LAUNCH_PAGE_SIZE]) -> bool {
-    let mut domain = [0; 16];
-    for (index, byte) in domain.iter_mut().enumerate() {
-        // SAFETY: `index` is below 16 and the view is at least 4096 bytes, so the pointer
-        // stays inside the borrowed array for a one-byte volatile read.
-        *byte = unsafe { ptr::read_volatile(view.as_ptr().add(index)) };
+pub fn page_present(view: &Page) -> bool {
+    let source = view.words();
+    let mut domain = [0_u8; PAGE_DOMAIN.len()];
+    for (index, chunk) in domain
+        .as_chunks_mut::<WORD_BYTES>()
+        .0
+        .iter_mut()
+        .enumerate()
+    {
+        // SAFETY: the domain is fewer words than the page holds, so `index` stays inside the
+        // borrowed view and names one whole word.
+        let word = unsafe { ptr::read_volatile(source.add(index)) };
+        chunk.copy_from_slice(&word.to_ne_bytes());
     }
-    &domain == PAGE_DOMAIN
+    domain == *PAGE_DOMAIN
 }
 
-fn copy_volatile(source: &[u8; LAUNCH_PAGE_SIZE], destination: &mut [u8; LAUNCH_PAGE_SIZE]) {
-    for (index, byte) in destination.iter_mut().enumerate() {
-        // SAFETY: `index` is below the array length of the borrowed source.
-        *byte = unsafe { ptr::read_volatile(source.as_ptr().add(index)) };
+/// Copies the whole page one uncached word at a time into ordinary locked memory.
+///
+/// Only the source is accessed a word at a time: it is the uncached side, where an access costs
+/// about the same whatever its width, so a byte-wise walk pays eight times the transactions for
+/// the same bytes. The destination is locked anonymous memory, where a byte store is as cheap as
+/// any other, so its bytes are written straight out of a register already holding the whole word.
+fn copy_volatile(source: &Page, destination: &mut [u8; LAUNCH_PAGE_SIZE]) {
+    let base = source.words();
+    for index in 0..WORDS {
+        // SAFETY: `Page` is aligned for `Word` and holds exactly `WORDS` of them, so `index`
+        // stays inside the borrowed view and names one whole word.
+        let word = unsafe { ptr::read_volatile(base.add(index)) };
+        let start = index * WORD_BYTES;
+        destination[start..start + WORD_BYTES].copy_from_slice(&word.to_ne_bytes());
     }
 }
 
@@ -136,7 +201,7 @@ mod physical {
 
     use crate::timings::{self, Step};
 
-    use super::{LAUNCH_PAGE_GUEST_ADDRESS, LaunchPageError, consume, errno, page_present};
+    use super::{LAUNCH_PAGE_GUEST_ADDRESS, LaunchPageError, Page, consume, errno, page_present};
 
     const DEV_MEM: &str = "/dev/mem";
 
@@ -172,10 +237,16 @@ mod physical {
             Ok(Self { base: base.cast() })
         }
 
-        fn view(&mut self) -> &mut [u8; LAUNCH_PAGE_SIZE] {
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "mmap returns a page-aligned mapping, which is exactly the alignment Page \
+                      asks for; the pointer's own type cannot say so"
+        )]
+        fn view(&mut self) -> &mut Page {
             // SAFETY: `base` is a live page-aligned mapping of exactly `LAUNCH_PAGE_SIZE` bytes
-            // owned by `self`, and `&mut self` guarantees no other reference to it exists.
-            unsafe { &mut *self.base.cast::<[u8; LAUNCH_PAGE_SIZE]>() }
+            // owned by `self`, and `&mut self` guarantees no other reference to it exists. A
+            // whole mapped page is what `Page` describes, including its alignment.
+            unsafe { &mut *self.base.cast::<Page>() }
         }
     }
 
@@ -220,7 +291,7 @@ mod tests {
 
     use super::*;
 
-    fn delivered_page() -> [u8; LAUNCH_PAGE_SIZE] {
+    fn delivered_page() -> Page {
         let network = LaunchNetwork::new(
             3,
             1,
@@ -233,9 +304,9 @@ mod tests {
         )
         .expect("network");
         let host = HostLaunchMaterial::generate([1; 32], [2; 16], [3; 16], network).expect("host");
-        let mut page = [0xA5; LAUNCH_PAGE_SIZE];
+        let mut page = Page::filled(0xA5);
         host.deliver_with(|bytes| {
-            page.copy_from_slice(bytes);
+            page.0.copy_from_slice(bytes);
             Ok::<(), ()>(())
         })
         .expect("delivery");
@@ -249,7 +320,7 @@ mod tests {
 
         let material = consume(&mut view).expect("material");
 
-        assert_eq!(view, [0; LAUNCH_PAGE_SIZE]);
+        assert_eq!(view.0, [0; LAUNCH_PAGE_SIZE]);
         assert!(!page_present(&view));
         assert_eq!(material.binding().instance(), &[2; 16]);
         assert_eq!(material.network().vsock_cid(), 3);
@@ -258,20 +329,33 @@ mod tests {
     #[test]
     fn a_malformed_page_is_rejected_but_still_erased() {
         let mut view = delivered_page();
-        view[100] ^= 1;
+        view.0[100] ^= 1;
 
         assert_eq!(
             consume(&mut view).expect_err("malformed page"),
             LaunchPageError::Rejected
         );
-        assert_eq!(view, [0; LAUNCH_PAGE_SIZE]);
+        assert_eq!(view.0, [0; LAUNCH_PAGE_SIZE]);
     }
 
     #[test]
     fn an_absent_page_is_not_present() {
-        assert!(!page_present(&[0; LAUNCH_PAGE_SIZE]));
-        assert!(!page_present(&[0xFF; LAUNCH_PAGE_SIZE]));
+        assert!(!page_present(&Page::zeroed()));
+        assert!(!page_present(&Page::filled(0xFF)));
         assert_eq!(LAUNCH_PAGE_GUEST_ADDRESS, 0xd010_0000);
         assert_eq!(LAUNCH_PAGE_GUEST_ADDRESS % 4096, 0);
+    }
+
+    #[test]
+    fn a_page_is_whole_words_of_bytes() {
+        // The word walk is only sound because the page divides exactly, and the domain probe
+        // only reads whole words because the domain does too.
+        assert_eq!(LAUNCH_PAGE_SIZE % WORD_BYTES, 0);
+        assert_eq!(PAGE_DOMAIN.len() % WORD_BYTES, 0);
+        assert!(PAGE_DOMAIN.len() < LAUNCH_PAGE_SIZE);
+        assert_eq!(
+            std::mem::align_of::<Page>() % std::mem::align_of::<Word>(),
+            0
+        );
     }
 }
