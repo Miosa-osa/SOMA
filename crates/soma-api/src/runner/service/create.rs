@@ -12,7 +12,7 @@ use crate::{
         clock::iso8601_micros,
         idle::Lifetime,
         ids::SandboxId,
-        journal::{Entry, EntryKind},
+        journal::{Entry, EntryKind, LaunchPreparation},
         keys::Principal,
         public_wire::{self, PlatformError},
         sandboxes::{LaunchFailure, Owner},
@@ -197,6 +197,7 @@ impl Runner {
                     None => call.exec,
                 };
                 timing.launch = LaunchPhases::from_receipt(&created.receipt, launch_only);
+                timing.launch_preparation = LaunchPreparation::of(created.receipt.preparation());
                 let finish_started = Instant::now();
                 self.sandboxes.confirm(id);
                 let body = self.created_body(
@@ -210,7 +211,10 @@ impl Runner {
                 let runner_url = self.runner_url(self.config.host_tag);
                 with_journal(
                     RunnerResponse::new(201, body).header("soma-runner-url", runner_url),
-                    journal(201, Some(id), prepared.project.clone()),
+                    journal(201, Some(id), prepared.project.clone()).map(|mut entry| {
+                        entry.launch = timing.launch_preparation;
+                        entry
+                    }),
                 )
             }
             Ok((Err(code), call)) => {

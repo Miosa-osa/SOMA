@@ -23,6 +23,10 @@ const SYNC_INTERVAL: Duration = Duration::from_secs(1);
 const WRITE_RETRY: Duration = Duration::from_secs(1);
 const WRITE_BUFFER_BYTES: usize = 256 * 1024;
 
+mod preparation;
+
+pub use preparation::LaunchPreparation;
+
 /// What one journal line records (contract C4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -59,6 +63,9 @@ pub struct Entry {
     /// Present on `expire` lines only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<ExpireReason>,
+    /// Which path the launch took, on `create` lines the engine reported it for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch: Option<LaunchPreparation>,
 }
 
 /// One journal line in contract field order.

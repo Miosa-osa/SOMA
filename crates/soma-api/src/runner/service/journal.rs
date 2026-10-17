@@ -31,6 +31,7 @@ pub(super) fn entry(
         cpu_ms: None,
         lifetime_ms: None,
         reason: None,
+        launch: None,
     }
 }
 

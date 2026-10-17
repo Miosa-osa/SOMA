@@ -134,16 +134,18 @@ pub(super) fn timing_of(response: &RunnerResponse) -> std::collections::BTreeMap
         .find(|(name, _)| *name == "server-timing")
         .map(|(_, value)| value.as_str())
         .expect("every answer carries a server-timing header");
+    // A metric with a description and no duration, such as `launch;desc="prepared"`, is a fact
+    // about the request rather than a span of it, so it has no place in a map of durations.
     header
         .split(',')
-        .map(|segment| {
-            let (name, value) = segment.split_once(";dur=").expect("a named segment");
+        .filter_map(|segment| {
+            let (name, value) = segment.split_once(";dur=")?;
             let (millis, micros) = value.split_once('.').expect("three decimals");
-            (
+            Some((
                 name.to_owned(),
                 millis.parse::<u64>().expect("millis") * 1_000
                     + micros.parse::<u64>().expect("micros"),
-            )
+            ))
         })
         .collect()
 }

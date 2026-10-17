@@ -4,7 +4,7 @@ use std::{fmt::Write as _, time::Duration};
 
 use soma::{ExecutionReceipt, MilestoneKind};
 
-use crate::runner::backend::CallTiming;
+use crate::runner::{backend::CallTiming, journal::LaunchPreparation};
 
 /// Where each request's time went, as `Server-Timing` reports it in milliseconds.
 ///
@@ -36,6 +36,13 @@ pub(super) struct Timing {
     /// together, named the way `exec` names a create's own call. Only a create-and-run has one,
     /// so the segment is absent from every other answer.
     pub(super) run: Option<Duration>,
+    /// How this launch came to hold its machine, when the engine reported it.
+    ///
+    /// Every other segment here is a duration and says nothing about which path the launch took.
+    /// A machine the pool prepared is served by claiming it; one that was not is built on the
+    /// request path, and the two differ by more than the whole of the rest of this header. An
+    /// operator reading a slow create needs to know which one they are looking at.
+    pub(super) launch_preparation: Option<LaunchPreparation>,
 }
 
 /// The phase boundaries `soma` already records, read back from a receipt.
@@ -99,6 +106,12 @@ impl Timing {
         if let Some(run) = self.run {
             value.push(',');
             push(&mut value, "run", run);
+        }
+        // A metric with a description and no duration, which is how `Server-Timing` carries a
+        // fact about a request rather than a span of it. It is not a segment, so it is not one of
+        // the durations above and cannot be mistaken for one.
+        if let Some(preparation) = self.launch_preparation {
+            let _written = write!(value, ",launch;desc=\"{}\"", preparation.label());
         }
         value
     }
