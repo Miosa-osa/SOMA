@@ -55,6 +55,10 @@ pub(super) fn serve_machine(
     mut backend: KvmBackend,
 ) -> i32 {
     let instance = request.instance_id.clone();
+    // The launch is timed from the moment this process received it, not from the first milestone
+    // that reads the clock: everything between is work this launch asked for, and a parent that
+    // added its own elapsed time before the handoff would otherwise lose all of it.
+    backend.begin_operation(&request.operation_id);
     // Claimed: leave the API unit's control group, so stopping or restarting the API does not kill
     // this machine. The Instance socket is already bound, so a restarted API finds it by identity.
     let joined = super::live_cgroup::join(&instance);

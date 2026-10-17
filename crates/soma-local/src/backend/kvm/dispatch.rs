@@ -29,6 +29,9 @@ impl KvmBackend {
         request: &LaunchRequest<'_, Box<dyn Any + Send>>,
     ) -> Result<LaunchObservation, BackendFailure> {
         let operation = request.operation_id();
+        // The instant this operation was admitted, so a hosted launch can place the machine
+        // host's own milestones on this process's timeline. See `host::launch`.
+        let admitted_at = self.clocks.start(operation);
         let admitted = self.clocks.elapsed_ns(operation);
         let prepared = request
             .prepared()
@@ -42,14 +45,15 @@ impl KvmBackend {
                 request.shape(),
                 request.volume().cloned(),
             )?,
-            Some(directory) => host::launch(
-                &directory,
-                operation,
-                request.instance_id(),
+            Some(directory) => host::launch(host::HostedLaunch {
+                directory: &directory,
+                operation_id: operation,
+                instance_id: request.instance_id(),
                 prepared,
-                request.shape(),
-                request.volume(),
-            )
+                shape: request.shape(),
+                volume: request.volume(),
+                admitted_at,
+            })
             .map_err(|kind| self.fail(operation, kind))?,
         };
         let ready = self.clocks.elapsed_ns(operation);

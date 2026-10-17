@@ -41,7 +41,7 @@ use soma::{
 };
 
 pub(crate) use bootstrap::host_machine;
-pub(super) use client_launch::launch;
+pub(super) use client_launch::{HostedLaunch, launch};
 pub(super) use command::{execute, execute_streaming};
 pub(in crate::backend::kvm) use live_cgroup::under_root_lock;
 pub(crate) use sterile::{

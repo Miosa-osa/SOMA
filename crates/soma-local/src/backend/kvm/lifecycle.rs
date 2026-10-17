@@ -64,6 +64,17 @@ pub(super) struct Live {
 }
 
 impl KvmBackend {
+    /// Starts an operation's clock, if nothing has started it.
+    ///
+    /// A machine host calls this the moment it receives a launch, before it does any of the work
+    /// that launch asks for. Without it the clock starts at the first milestone that reads it,
+    /// which is the launch stamp itself: the machine would appear to exist the instant it was
+    /// asked to start, and everything spent building it would be charged to the readiness that
+    /// follows. See [`crate::backend::clock::OperationClocks::start`].
+    pub(in crate::backend::kvm) fn begin_operation(&mut self, operation: &OperationId) {
+        let _started = self.clocks.start(operation);
+    }
+
     /// Builds the one machine this process will hold, and reports what that established.
     pub(super) fn launch_resident(
         &mut self,
