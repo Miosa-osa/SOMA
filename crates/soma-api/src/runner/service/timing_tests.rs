@@ -155,6 +155,8 @@ fn server_timing_names_the_launch_path_alongside_the_segments() {
             ..LaunchPhases::default()
         },
         finish: Duration::from_micros(120),
+        wait: None,
+        run: None,
         launch_preparation: Some(LaunchPreparation::OnDemand),
     };
 
