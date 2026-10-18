@@ -21,6 +21,8 @@ use crate::{
     wire::operation_id,
 };
 
+use crate::runner::sandboxes::Reservation;
+
 use super::{
     Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, command, entry, failure_code, millis,
     params::CreateParams, timing::LaunchPhases, with_journal,
@@ -99,6 +101,10 @@ impl Runner {
             principal.tenant.policy.max_lifetime_seconds,
         );
         self.sandboxes.reserve(id.clone(), owner, lifetime);
+        // The tenant slot belongs to the sandbox once there is one, and to this request until
+        // then. Held for the rest of the request so that however it ends - including being
+        // dropped because the client reset the stream - the slot goes back.
+        let mut reservation = Reservation::new(std::sync::Arc::clone(&self.sandboxes), id.clone());
         let Some(launch) = self.launch_request(&id, &principal.key.tenant_id, &params.shape) else {
             self.sandboxes.abandon(&id);
             return with_journal(
@@ -114,9 +120,13 @@ impl Runner {
             project,
         };
         if prepared.params.wait_ready {
+            // Nothing else holds this record until the launch settles it, so the reservation
+            // stays armed: if this request is dropped mid-launch, its slot goes back.
             self.create_and_wait(principal, &prepared, timing).await
         } else {
-            self.create_before_ready(principal, &prepared, timing).await
+            // The answer hands the record to the launch, which owns its lifecycle from here.
+            self.create_before_ready(principal, &prepared, timing, &mut reservation)
+                .await
         }
     }
 
