@@ -103,16 +103,20 @@ impl Runner {
         let sandboxes = Arc::clone(&self.sandboxes);
         let id = prepared.id.clone();
         let launch = prepared.launch.clone();
+        let launch_id = prepared.id.clone();
         tokio::spawn(async move {
             let lease = sender.clone();
             let outcome = backend
                 .spawn(move |facade| {
                     let _reported = lease.send(LaunchState::Launched);
                     if facade.hosts_addressable_sandboxes() {
+                        let started = Instant::now();
                         facade
                             .launch(launch)
                             .map(|launched| launched.receipt)
-                            .map_err(|failure| failure_code(&failure))
+                            .map_err(|failure| {
+                                super::failure::launch_failed(&launch_id, started, &failure)
+                            })
                     } else {
                         Err("durable_machine_hosting_missing")
                     }
