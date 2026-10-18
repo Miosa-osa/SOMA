@@ -32,6 +32,7 @@ pub(super) fn entry(
         lifetime_ms: None,
         reason: None,
         launch: None,
+        refusal: None,
     }
 }
 

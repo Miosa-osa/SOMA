@@ -102,3 +102,36 @@ fn error_object(error: &PlatformError) -> serde_json::Value {
         .and_then(|body| body.get("error").cloned())
         .unwrap_or(serde_json::Value::Null)
 }
+
+impl Runner {
+    /// The checks a create passes before it may take an admission slot.
+    pub(super) fn create_params(
+        &self,
+        principal: &Principal,
+        body: &[u8],
+    ) -> Result<CreateParams, Box<RunnerResponse>> {
+        if !self.keys.has_received()
+            || self.keys.resync_required()
+            || self.keys.feed_age(Instant::now()) > self.config.feed_stale_after()
+        {
+            return Err(Box::new(RunnerResponse::feed_stale()));
+        }
+        // C7: the request's timeout, else the tenant's default, else this runner's.
+        let default_timeout = principal
+            .tenant
+            .policy
+            .default_timeout_seconds
+            .unwrap_or(self.config.launch.default_timeout_seconds);
+        let params = CreateParams::parse(
+            body,
+            default_timeout,
+            &self.config.launch,
+            self.config.shell_free_exec,
+        )
+        .map_err(|error| Box::new(RunnerResponse::platform(&error)))?;
+        if !principal.key.projects.allows(params.project_id.as_deref()) {
+            return Err(Box::new(RunnerResponse::refusal(403, "forbidden")));
+        }
+        Ok(params)
+    }
+}
