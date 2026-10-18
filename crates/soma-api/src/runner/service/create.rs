@@ -3,7 +3,9 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use soma::{ExecutionReceipt, LaunchMachineRequest, MachineName, MachineShape};
+use soma::{
+    DestroyMachineRequest, ExecutionReceipt, LaunchMachineRequest, MachineName, MachineShape,
+};
 
 use crate::{
     facade::CommandOutcome,
@@ -33,7 +35,7 @@ mod early;
 
 // Its own and its sibling module's, so `early` reads them from `super::*` as it did when they
 // were written here.
-use body::{CreateOutcome, created_entry};
+use body::{CreateOutcome, abandoned_launch, created_entry};
 
 /// One create, prepared to the point where all that is left is its launch.
 ///
@@ -136,6 +138,11 @@ impl Runner {
     /// parsed, and it runs here, on the same facade lease and the same call the launch was made
     /// on: the machine is the one that was just launched, and neither the command nor the create
     /// waits for a second lease to become free.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one create: the launch, the command it may carry, and every way it answers. Its                   pieces are named rather than split further, because the alternative is passing \
+                  the launch context between them as arguments"
+    )]
     async fn create_and_wait(
         &self,
         principal: &Principal,
@@ -172,6 +179,10 @@ impl Runner {
             }
         };
         let launch = prepared.launch.clone();
+        // The machine this builds belongs to the record, so the launch checks the record is
+        // still there when it finishes: see `abandoned_launch`.
+        let sandboxes = std::sync::Arc::clone(&self.sandboxes);
+        let owned = prepared.id.clone();
         let outcome = self
             .backend
             .call(move |facade| {
@@ -185,6 +196,9 @@ impl Runner {
                     .launch(launch)
                     .map(|launched| launched.receipt)
                     .map_err(|failure| failure_code(&failure))?;
+                if !sandboxes.holds(&owned) {
+                    return Err(abandoned_launch(facade, &owned));
+                }
                 let run = request.map(|request| {
                     let started = Instant::now();
                     let outcome = facade.execute(request);
@@ -244,37 +258,6 @@ impl Runner {
                 )
             }
         }
-    }
-
-    /// The checks a create passes before it may take an admission slot.
-    fn create_params(
-        &self,
-        principal: &Principal,
-        body: &[u8],
-    ) -> Result<CreateParams, Box<RunnerResponse>> {
-        if !self.keys.has_received()
-            || self.keys.resync_required()
-            || self.keys.feed_age(Instant::now()) > self.config.feed_stale_after()
-        {
-            return Err(Box::new(RunnerResponse::feed_stale()));
-        }
-        // C7: the request's timeout, else the tenant's default, else this runner's.
-        let default_timeout = principal
-            .tenant
-            .policy
-            .default_timeout_seconds
-            .unwrap_or(self.config.launch.default_timeout_seconds);
-        let params = CreateParams::parse(
-            body,
-            default_timeout,
-            &self.config.launch,
-            self.config.shell_free_exec,
-        )
-        .map_err(|error| Box::new(RunnerResponse::platform(&error)))?;
-        if !principal.key.projects.allows(params.project_id.as_deref()) {
-            return Err(Box::new(RunnerResponse::refusal(403, "forbidden")));
-        }
-        Ok(params)
     }
 
     fn launch_request(
