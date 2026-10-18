@@ -22,9 +22,13 @@ impl Runner {
         principal: &Principal,
         prepared: &PreparedCreate,
         timing: &mut Timing,
+        reservation: &mut Reservation,
     ) -> RunnerResponse {
         let (sender, mut create) = Starting::channel();
         self.sandboxes.start_launch(&prepared.id, create.clone());
+        // The record belongs to the launch from here, so it is no longer this request's to give
+        // back: its slot is the sandbox's now, and the launch settles it either way.
+        reservation.disarm();
         self.spawn_launch(prepared, sender);
         // The answer's own timing reports the wait for the launch to take its lease as its `pool`
         // segment, and its `exec` is zero because this request's facade call had not returned; the
