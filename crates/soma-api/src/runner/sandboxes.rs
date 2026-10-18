@@ -12,9 +12,11 @@ use crate::runner::{
 };
 
 mod records;
+mod reservation;
 
 pub use records::{Held, TOMBSTONE_RETENTION};
 use records::{Phase, Record};
+pub use reservation::Reservation;
 
 /// The runner's own record of which tenant owns each sandbox on this host.
 ///

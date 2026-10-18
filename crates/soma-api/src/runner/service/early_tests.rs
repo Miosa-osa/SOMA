@@ -173,3 +173,82 @@ async fn a_launch_that_failed_after_an_early_answer_answers_the_next_call_with_t
     assert_eq!(again.status, 503);
     assert_eq!(again.body, public_wire::create_unavailable());
 }
+
+#[tokio::test]
+async fn an_abandoned_create_gives_its_tenant_slot_back() {
+    let engine = Arc::new(Engine::default());
+    // The launch holds until this test releases it, so the request can be dropped while the
+    // launch it started is still in flight - which is exactly what a client that resets the
+    // stream does to the handler it was waiting on.
+    let (release, gate) = mpsc::channel();
+    *engine.launch_gate.lock().expect("gate") = Some(gate);
+    // One slot for this tenant, so a slot that is not given back is a create that cannot happen.
+    let runner = runner(&engine, r#""*""#, "1");
+
+    {
+        let mut abandoned = Box::pin(create(&runner, "{}"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut abandoned)
+                .await
+                .is_err(),
+            "the create must still be waiting on its launch"
+        );
+        // Dropping the future here is the client's reset: nothing will settle this record.
+    }
+
+    // The slot comes back as the abandoned request is dropped, so this waits for it rather than
+    // reading at one exact instant. What the test is about is a slot that is *never* given back,
+    // and that one does not arrive however long this waits.
+    for _ in 0..20 {
+        if slots(&runner) == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        slots(&runner),
+        0,
+        "an abandoned create must give its tenant slot back"
+    );
+
+    let _ = release.send(());
+    let after = create(&runner, "{}").await;
+    assert_eq!(
+        after.status, 201,
+        "the slot must be free again for the next create"
+    );
+}
+
+#[tokio::test]
+async fn an_abandoned_create_takes_down_the_machine_it_was_building() {
+    let engine = Arc::new(Engine::default());
+    let (release, gate) = mpsc::channel();
+    *engine.launch_gate.lock().expect("gate") = Some(gate);
+    let runner = runner(&engine, r#""*""#, "1");
+
+    {
+        let mut abandoned = Box::pin(create(&runner, "{}"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut abandoned)
+                .await
+                .is_err(),
+            "the create must still be waiting on its launch"
+        );
+        // The launch itself cannot be cancelled, so it is released here rather than dropped:
+        // finishing is what makes it find that the record its machine belongs to has gone.
+    }
+    let _ = release.send(());
+
+    for _ in 0..40 {
+        if engine.destroys.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        engine.destroys.load(Ordering::SeqCst),
+        1,
+        "a machine whose create was abandoned must not be left running"
+    );
+    assert_eq!(slots(&runner), 0, "and the tenant slot must be back");
+}
