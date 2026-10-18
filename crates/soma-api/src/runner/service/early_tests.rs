@@ -218,3 +218,37 @@ async fn an_abandoned_create_gives_its_tenant_slot_back() {
         "the slot must be free again for the next create"
     );
 }
+
+#[tokio::test]
+async fn an_abandoned_create_takes_down_the_machine_it_was_building() {
+    let engine = Arc::new(Engine::default());
+    let (release, gate) = mpsc::channel();
+    *engine.launch_gate.lock().expect("gate") = Some(gate);
+    let runner = runner(&engine, r#""*""#, "1");
+
+    {
+        let mut abandoned = Box::pin(create(&runner, "{}"));
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), &mut abandoned)
+                .await
+                .is_err(),
+            "the create must still be waiting on its launch"
+        );
+        // The launch itself cannot be cancelled, so it is released here rather than dropped:
+        // finishing is what makes it find that the record its machine belongs to has gone.
+    }
+    let _ = release.send(());
+
+    for _ in 0..40 {
+        if engine.destroys.load(Ordering::SeqCst) > 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    assert_eq!(
+        engine.destroys.load(Ordering::SeqCst),
+        1,
+        "a machine whose create was abandoned must not be left running"
+    );
+    assert_eq!(slots(&runner), 0, "and the tenant slot must be back");
+}

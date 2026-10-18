@@ -44,6 +44,15 @@ impl Drop for Reservation {
 }
 
 impl Sandboxes {
+    /// Whether this host still holds any record for `id`, in any phase.
+    ///
+    /// A launch that finishes after the request that asked for it has gone finds nothing here,
+    /// which is how it knows that the machine it just built has no owner.
+    #[must_use]
+    pub(in crate::runner) fn holds(&self, id: &SandboxId) -> bool {
+        self.lock().contains_key(id)
+    }
+
     /// Forgets a reservation the creating request still owns, giving its tenant slot back.
     ///
     /// A record that has moved on - handed to a launch, confirmed, failed, destroyed - belongs to
