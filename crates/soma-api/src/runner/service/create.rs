@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use crate::runner::journal::RefusalKind;
 use soma::{
     DestroyMachineRequest, ExecutionReceipt, LaunchMachineRequest, MachineName, MachineShape,
 };
@@ -81,13 +82,22 @@ impl Runner {
         };
         let project = params.project_id.clone();
         let Ok(_permit) = self.admission.try_acquire() else {
-            return with_journal(RunnerResponse::runtime_busy(), journal(429, None, project));
+            return with_journal(
+                RunnerResponse::runtime_busy(),
+                journal(429, None, project).map(|mut entry| {
+                    entry.refusal = Some(RefusalKind::RuntimeBusy);
+                    entry
+                }),
+            );
         };
         // The tenant's share on this runner is one atomic counter (contract C3).
         if !principal.tenant.admit() {
             return with_journal(
                 RunnerResponse::refusal(429, "rate_limited"),
-                journal(429, None, project),
+                journal(429, None, project).map(|mut entry| {
+                    entry.refusal = Some(RefusalKind::TenantShare);
+                    entry
+                }),
             );
         }
         let id = SandboxId::mint(self.config.host_tag);
@@ -254,7 +264,10 @@ impl Runner {
                 self.sandboxes.abandon(id);
                 with_journal(
                     RunnerResponse::runtime_busy(),
-                    journal(429, Some(id), prepared.project.clone()),
+                    journal(429, Some(id), prepared.project.clone()).map(|mut entry| {
+                        entry.refusal = Some(RefusalKind::RuntimeBusy);
+                        entry
+                    }),
                 )
             }
         }
