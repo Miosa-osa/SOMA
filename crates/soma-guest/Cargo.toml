@@ -15,7 +15,7 @@ snow = { version = "=0.10.0", default-features = false, features = [
     "use-curve25519",
     "use-getrandom",
 ] }
-zeroize = "=1.9.0"
+zeroize = "=1.9.1"
 
 [lints]
 workspace = true
