@@ -145,13 +145,22 @@ pub(super) fn abandoned_launch(
     facade: &mut dyn crate::facade::SandboxFacade,
     id: &SandboxId,
 ) -> &'static str {
-    if let Some(instance) = id.instance_id()
-        && let Ok(operation) = operation_id(None)
-    {
-        let _ignored = facade.destroy(DestroyMachineRequest::new(operation, instance));
-    }
-    eprintln!(
-        "soma-api: runner create {id} was abandoned while its machine was built; the machine was destroyed"
-    );
+    // The log says what happened to the machine, not what was hoped for: a destroy that failed
+    // leaves a machine nothing owns, and that is the line an operator needs to see.
+    let outcome = match (id.instance_id(), operation_id(None)) {
+        (Some(instance), Ok(operation)) => {
+            match facade.destroy(DestroyMachineRequest::new(operation, instance)) {
+                Ok(_) => "the machine was destroyed".to_owned(),
+                Err(failure) => {
+                    format!("destroying the machine failed: {}", failure_code(&failure))
+                }
+            }
+        }
+        (None, _) => "the sandbox has no instance id, so no machine was destroyed".to_owned(),
+        (_, Err(_)) => {
+            "no operation id could be minted, so the machine was not destroyed".to_owned()
+        }
+    };
+    eprintln!("soma-api: runner create {id} was abandoned while its machine was built; {outcome}");
     "create_abandoned"
 }
