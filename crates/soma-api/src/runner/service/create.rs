@@ -117,15 +117,18 @@ impl Runner {
         // What the create named is remembered from here, so a window can be opened the moment the
         // sandbox is up and the answer can say what the sandbox was given.
         if let Some(egress) = params.egress {
-            self.windows
-                .created(&id, egress.word(), params.windowed);
+            self.windows.created(&id, egress.word(), params.windowed);
         }
         // The tenant slot belongs to the sandbox once there is one, and to this request until
         // then. Held for the rest of the request so that however it ends - including being
         // dropped because the client reset the stream - the slot goes back.
         let mut reservation = Reservation::new(std::sync::Arc::clone(&self.sandboxes), id.clone());
-        let Some(launch) = self.launch_request(&id, &principal.key.tenant_id, &params.shape, params.windowed)
-        else {
+        let Some(launch) = self.launch_request(
+            &id,
+            &principal.key.tenant_id,
+            &params.shape,
+            params.windowed,
+        ) else {
             self.sandboxes.abandon(&id);
             return with_journal(
                 RunnerResponse::create_unavailable(),

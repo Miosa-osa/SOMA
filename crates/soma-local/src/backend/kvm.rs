@@ -1,6 +1,7 @@
 mod boot;
 mod claim;
 mod dispatch;
+mod egress;
 mod evidence;
 mod file;
 mod fit;
@@ -14,7 +15,6 @@ mod network;
 mod pool;
 mod prepared;
 mod pty;
-mod egress;
 mod resize;
 mod resolve;
 mod runtime;

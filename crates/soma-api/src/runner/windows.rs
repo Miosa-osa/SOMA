@@ -270,7 +270,10 @@ mod tests {
 
         assert!(windows.is_windowed(&windowed));
         assert!(!windows.is_windowed(&plain));
-        assert!(!windows.is_windowed(&plain_named), "a named denied sandbox is not windowed");
+        assert!(
+            !windows.is_windowed(&plain_named),
+            "a named denied sandbox is not windowed"
+        );
         assert_eq!(windows.base(&plain_named), Some("denied"));
         assert_eq!(windows.base(&plain), None);
         windows.forget(&windowed);

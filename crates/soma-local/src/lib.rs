@@ -3,10 +3,10 @@
 
 mod backend;
 mod config;
+mod egress;
 mod error;
 mod file_store;
 mod prewarm;
-mod egress;
 mod resize;
 mod runtime;
 mod tunnel;
@@ -15,11 +15,11 @@ mod tunnel;
 mod test_support;
 
 pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
+pub use egress::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
 pub use prewarm::{
     MAX_TARGET_COUNT, MAX_TARGETS, PrewarmError, PrewarmStatus, PrewarmTarget, Source,
     TargetStatus, UncoveredDemand,
 };
-pub use egress::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
 pub use resize::{
     CpuResize, DimensionState, MemoryResize, ResizeFailure, ResizeOutcome, ResizeRequest,
 };

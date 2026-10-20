@@ -4,8 +4,8 @@ use soma::BackendFailureKind;
 use soma_guest::{ActivationReceipt, LaunchNetwork};
 use soma_kvm::x86_64::NetworkAttachment;
 use soma_netd::{
-    BrokerClient, BundleId, CleanupGeneration, ClientError, EgressClass, InstanceId,
-    NetworkIntent, OperationId, Reply, Request,
+    BrokerClient, BundleId, CleanupGeneration, ClientError, EgressClass, InstanceId, NetworkIntent,
+    OperationId, Reply, Request,
 };
 
 use crate::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};

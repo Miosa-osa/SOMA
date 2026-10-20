@@ -68,7 +68,9 @@ impl Runner {
         };
         match self.windows.begin_open(&id, window) {
             Opening::Fresh => {}
-            Opening::Already(open) => return RunnerResponse::new(200, window_body(&id, &open, false)),
+            Opening::Already(open) => {
+                return RunnerResponse::new(200, window_body(&id, &open, false));
+            }
             Opening::InFlight => {
                 return RunnerResponse::platform(&PlatformError::new(
                     409,
@@ -102,7 +104,9 @@ impl Runner {
             Flip::Done(outcome) if outcome.open => {
                 self.windows.opened(&id, &wanted.window_id);
                 match self.windows.current(&id) {
-                    Some(open) => RunnerResponse::new(200, window_body(&id, &open, outcome.changed)),
+                    Some(open) => {
+                        RunnerResponse::new(200, window_body(&id, &open, outcome.changed))
+                    }
                     None => RunnerResponse::platform(&flip_failed()),
                 }
             }
@@ -208,7 +212,9 @@ impl Runner {
             (Some(base), None) => json!({"egress": base, "dns": base == "internet"}),
         };
         let expires_at = open.map(|window| {
-            iso8601_micros(SystemTime::now() + window.expires.saturating_duration_since(Instant::now()))
+            iso8601_micros(
+                SystemTime::now() + window.expires.saturating_duration_since(Instant::now()),
+            )
         });
         RunnerResponse::new(
             200,
@@ -234,7 +240,9 @@ impl Runner {
                 Flip::Done(_) => self.windows.closed(&id),
                 Flip::Failed(EgressSetFailure::NotFound) => self.windows.forget(&id),
                 Flip::Failed(failure) => {
-                    eprintln!("soma-api: runner could not close the egress window of {id}: {failure:?}");
+                    eprintln!(
+                        "soma-api: runner could not close the egress window of {id}: {failure:?}"
+                    );
                 }
                 Flip::Busy => {}
             }
@@ -290,7 +298,9 @@ impl Runner {
         let held = match self.sandboxes.hold(&id, &principal.key.tenant_id) {
             Ok(held) => held,
             Err(Unavailable::Busy) => {
-                return Err(Box::new(RunnerResponse::platform(&PlatformError::exec_busy())));
+                return Err(Box::new(RunnerResponse::platform(
+                    &PlatformError::exec_busy(),
+                )));
             }
             Err(Unavailable::NotFound | Unavailable::Destroyed(..)) => {
                 return Err(Box::new(RunnerResponse::platform(
@@ -457,7 +467,9 @@ mod tests {
             r#"{"egress":"internet","ttl_ms":1000,"window_id":"w","dns":"yes"}"#,
             r#"{"egress":"internet","ttl_ms":1000,"window_id":"w","extra":1}"#,
         ] {
-            let error = open(body).err().unwrap_or_else(|| panic!("{body:?} was accepted"));
+            let error = open(body)
+                .err()
+                .unwrap_or_else(|| panic!("{body:?} was accepted"));
             assert_eq!(error.status, 400, "{body:?}");
         }
     }

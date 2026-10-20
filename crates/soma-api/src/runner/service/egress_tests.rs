@@ -139,8 +139,11 @@ fn only_a_non_denied_egress_needs_the_broker() {
 #[test]
 fn windowed_needs_a_denied_network_and_is_a_boolean() {
     let config = connected_host();
-    let parsed = parse(r#"{"network":{"egress":"denied","windowed":true}}"#, &config)
-        .expect("a windowed denied network is accepted");
+    let parsed = parse(
+        r#"{"network":{"egress":"denied","windowed":true}}"#,
+        &config,
+    )
+    .expect("a windowed denied network is accepted");
     assert!(parsed.windowed);
     assert_eq!(parsed.egress, Some(EgressRequest::Denied));
     assert_eq!(
@@ -149,10 +152,17 @@ fn windowed_needs_a_denied_network_and_is_a_boolean() {
         "windowed starts denied, however the host connects by default"
     );
 
-    let plain = parse(r#"{"network":{"egress":"denied","windowed":false}}"#, &config)
-        .expect("accepted");
+    let plain = parse(
+        r#"{"network":{"egress":"denied","windowed":false}}"#,
+        &config,
+    )
+    .expect("accepted");
     assert!(!plain.windowed);
-    assert!(!parse(r#"{"network":{"egress":"denied"}}"#, &config).expect("ok").windowed);
+    assert!(
+        !parse(r#"{"network":{"egress":"denied"}}"#, &config)
+            .expect("ok")
+            .windowed
+    );
 
     for body in [
         r#"{"network":{"egress":"internet","windowed":true}}"#,
