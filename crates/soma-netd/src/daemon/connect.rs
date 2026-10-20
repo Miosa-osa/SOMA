@@ -57,7 +57,7 @@ pub(super) fn connect(
 ///
 /// The peer is the kernel-derived identity of the connection and the Instance is what the
 /// request names; both must agree with the assignment the broker holds.
-fn authorize(owner: u32, peer: u32, bound: InstanceId, asked: InstanceId) -> Result<(), Error> {
+pub(super) fn authorize(owner: u32, peer: u32, bound: InstanceId, asked: InstanceId) -> Result<(), Error> {
     if owner != peer {
         return Err(Error::Unauthorized("assignment owner"));
     }

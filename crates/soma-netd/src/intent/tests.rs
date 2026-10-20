@@ -120,3 +120,34 @@ fn a_publication_on_an_ipv6_host_bind_is_refused_at_admission() {
         "an IPv6 bind has no destination while the guest lease is IPv4 only"
     );
 }
+
+#[test]
+fn a_runtime_egress_change_keeps_publications_and_the_profile() {
+    let profile = ProfileDigest([1; 32]);
+    let denied = NetworkIntent::new(EgressClass::Denied, Vec::new(), Vec::new(), profile)
+        .expect("denied");
+    let open = denied
+        .with_egress(EgressClass::PublicInternet, vec![Ipv4Addr::new(1, 1, 1, 1)])
+        .expect("open");
+    assert_eq!(open.egress(), EgressClass::PublicInternet);
+    assert!(open.dns_allowed());
+    assert_eq!(open.profile(), profile);
+    assert_ne!(open, denied);
+    let back = open.with_egress(EgressClass::Denied, Vec::new()).expect("closed");
+    assert_eq!(back, denied);
+}
+
+#[test]
+fn a_runtime_egress_change_refuses_dns_without_egress() {
+    let denied = NetworkIntent::new(
+        EgressClass::Denied,
+        Vec::new(),
+        Vec::new(),
+        ProfileDigest([1; 32]),
+    )
+    .expect("denied");
+    assert_eq!(
+        denied.with_egress(EgressClass::Denied, vec![Ipv4Addr::new(1, 1, 1, 1)]),
+        Err(Error::InvalidIntent(IntentRejection::DnsWithoutEgress))
+    );
+}

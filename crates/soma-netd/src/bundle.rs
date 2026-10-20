@@ -22,6 +22,8 @@ use crate::{
     namespace::NetNamespace, nft, release,
 };
 
+mod egress;
+pub use egress::EgressChange;
 mod prepare;
 mod types;
 
@@ -237,6 +239,7 @@ impl Broker {
         match self.try_assign(&bundle, instance, operation, intent, claim) {
             Ok(parts) => Ok(Assigned {
                 bundle,
+                current: intent.clone(),
                 record: parts.record,
                 launch: parts.launch,
                 reservations: parts.reservations,
