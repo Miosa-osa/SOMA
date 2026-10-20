@@ -278,9 +278,9 @@ impl Lease {
                 },
                 None,
             )) => Ok(EgressSetOutcome { open, dns, changed }),
-            Ok(_) => Err(EgressSetFailure::Unavailable),
             Err(ClientError::Refused(code)) => Err(refusal(code)),
-            Err(_) => Err(EgressSetFailure::Unavailable),
+            // A reply that is not the egress answer, or no answer at all.
+            Ok(_) | Err(_) => Err(EgressSetFailure::Unavailable),
         }
     }
 
