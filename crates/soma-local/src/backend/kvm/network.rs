@@ -240,8 +240,8 @@ mod tests {
     fn a_request_for_no_egress_never_reaches_a_broker() {
         let identity = identity();
         for policy in [NetworkPolicy::isolated(), NetworkPolicy::runtime_default()] {
-            let mut egress = Egress::claim(None, &policy, identity, (true, false))
-                .expect("no egress requested");
+            let mut egress =
+                Egress::claim(None, &policy, identity, (true, false)).expect("no egress requested");
             assert!(matches!(egress, Egress::Declined));
             assert!(egress.attachment().is_none());
             assert!(egress.pending_activation().is_none());

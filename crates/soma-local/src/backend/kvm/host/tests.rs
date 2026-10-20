@@ -244,8 +244,8 @@ fn a_host_that_predates_windowed_egress_refuses_a_windowed_launch() {
 
 #[test]
 fn a_hosted_windowed_launch_is_only_served_attached_to_a_bundle() {
-    use soma::{NetworkAttachment, Observation, ObservationUnavailable};
     use super::client_launch::honours_windowed;
+    use soma::{NetworkAttachment, Observation, ObservationUnavailable};
 
     let attached = Observation::Observed(NetworkAttachment::Attached);
     let detached = Observation::Observed(NetworkAttachment::Detached);

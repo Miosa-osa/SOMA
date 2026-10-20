@@ -86,6 +86,7 @@ impl KvmBackend {
     }
 
     /// Builds the one machine this process will hold, and reports what that established.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn launch_resident(
         &mut self,
         operation: &OperationId,
@@ -132,9 +133,13 @@ impl KvmBackend {
         // A request that needs egress is served by the broker or refused. It is never served by
         // the placeholder device, which would report a working network that drops every packet.
         let has_device = prepared.manifest.device_set().net();
-        let mut egress =
-            Egress::claim(self.broker.as_deref(), policy, identity, (has_device, windowed))
-                .map_err(|kind| self.fail(operation, kind))?;
+        let mut egress = Egress::claim(
+            self.broker.as_deref(),
+            policy,
+            identity,
+            (has_device, windowed),
+        )
+        .map_err(|kind| self.fail(operation, kind))?;
         let network = Network {
             launch: egress
                 .launch(identity)
