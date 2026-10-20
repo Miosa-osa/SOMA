@@ -64,7 +64,7 @@ use delivery::deliver;
 use crate::{
     Accepted, Assigned, Broker, BundleId, Capability, CleanupGeneration, ControlAuthority,
     ControlListener, Error, InstanceId, MAX_FRAME, OperationId, PeerIdentity, Reply, Request, Step,
-    SterileBundle, activate, error_code, reconcile, release, release_record,
+    SterileBundle, activate, error_code, release, release_record,
 };
 
 /// Connections served at once; one more is closed so a flood cannot exhaust threads.
@@ -370,6 +370,20 @@ pub fn serve(
             crate::reconcile::ReapPlan::default()
         }
     };
+    // A window that was open when the previous broker ended has no timer and no record now, and the
+    // kernel kept its ruleset. Every bundle claimed with no egress is put back to that base before
+    // the first request is served, so a restart can only close, never leave open.
+    match crate::recover::restore_base_rulesets(&state.broker) {
+        Ok(report) => eprintln!(
+            "soma-netd: start restored {} denied bundle(s) to their base; forwarding switched off for [{}]; could not restore [{}]",
+            report.restored.len(),
+            report.forwarding_off.join(","),
+            report.failed.join(",")
+        ),
+        Err(error) => eprintln!(
+            "soma-netd: WARN: start could not read the ledger to restore denied bundles: {error}"
+        ),
+    }
     let listener = ControlListener::bind(socket, authority)?;
     let live = AtomicUsize::new(0);
     std::thread::scope(|scope| {
@@ -457,7 +471,14 @@ fn handle(state: &State, request: Request, connection: &OwnedFd, peer: PeerIdent
                 .gate
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match reconcile(&state.broker) {
+            let window_open = |bundle: crate::BundleId, generation: crate::CleanupGeneration| {
+                state
+                    .maps()
+                    .assigned
+                    .get(&(bundle, generation))
+                    .is_some_and(|owned| owned.assigned.current.egress().forwards())
+            };
+            match crate::reconcile::reconcile_with(&state.broker, &window_open) {
                 Ok(report) => {
                     let (consistent, drifted, orphaned) = report.counts();
                     Reply::Reconciled {

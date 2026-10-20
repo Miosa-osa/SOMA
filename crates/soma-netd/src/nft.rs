@@ -140,6 +140,40 @@ pub(crate) fn flush_zone(zone: ConntrackZone) -> Result<(), Error> {
     }
 }
 
+/// Reads the rules of one chain of one `inet` table in the calling thread's namespace.
+pub(crate) fn chain_text(table: &str, chain: &str) -> Result<String, Error> {
+    let output = nft(&["list", "chain", "inet", table, chain]).run("")?;
+    if output.succeeded() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        Err(Error::Tool {
+            tool: Tool::Nft,
+            status: output.exit_code,
+        })
+    }
+}
+
+/// Whether the text of a sandbox `forward` chain lets the guest open connections outward.
+///
+/// The guest's way out is an accept rule that matches traffic arriving on its TAP and names the
+/// `new` connection state. Replies and the broker's own inbound rules arrive on the veth or name
+/// only `established`, so they do not count. The state list is read as a set of words because the
+/// tool prints it in its own order.
+pub(crate) fn chain_forwards(text: &str, tap: &str) -> bool {
+    let tap = format!("iifname \"{tap}\"");
+    text.lines().any(|line| {
+        let line = line.trim();
+        line.contains(&tap)
+            && line.ends_with("accept")
+            && line.split_once("ct state").is_some_and(|(_, states)| {
+                states
+                    .trim_end_matches("accept")
+                    .split([',', ' '])
+                    .any(|state| state == "new")
+            })
+    })
+}
+
 /// Flushes every conntrack entry of the calling thread's namespace.
 ///
 /// Used inside a bundle's sandbox namespace when its egress is closed: the namespace holds only
