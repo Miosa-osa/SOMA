@@ -1,7 +1,6 @@
 use super::{
-    Created, Destroyed, Executed, ExecutedData, NetworkEcho, PlatformError, Ran, create_unavailable,
-    encode,
-    health, misdirected, refusal,
+    Created, Destroyed, Executed, ExecutedData, NetworkEcho, PlatformError, Ran,
+    create_unavailable, encode, health, misdirected, refusal,
 };
 
 fn text(bytes: &[u8]) -> &str {
@@ -168,5 +167,7 @@ fn a_create_that_named_a_network_echoes_it_and_one_that_did_not_is_unchanged() {
         .expect("utf8")
     };
     assert!(!plain(None).contains("network"));
-    assert!(plain(Some(NetworkEcho { egress: "denied" })).contains(r#""network":{"egress":"denied"}"#));
+    assert!(
+        plain(Some(NetworkEcho { egress: "denied" })).contains(r#""network":{"egress":"denied"}"#)
+    );
 }

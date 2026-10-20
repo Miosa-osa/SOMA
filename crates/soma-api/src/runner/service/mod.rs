@@ -5,6 +5,8 @@ mod command;
 mod create;
 #[cfg(test)]
 mod early_tests;
+#[cfg(test)]
+mod egress_tests;
 mod exec_contract;
 #[cfg(test)]
 mod exec_contract_agreement_tests;
@@ -30,8 +32,6 @@ mod routing;
 #[cfg(test)]
 mod scope_tests;
 mod shell;
-#[cfg(test)]
-mod egress_tests;
 #[cfg(test)]
 mod size_tests;
 mod stream;

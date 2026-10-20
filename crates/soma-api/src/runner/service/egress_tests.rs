@@ -49,11 +49,21 @@ fn denied_is_denied_on_a_host_that_connects_by_default() {
 
     let policy = parsed.shape.capabilities().network_policy();
     assert_eq!(policy.egress(), EgressPolicy::Denied);
-    assert_eq!(policy.dns(), &DnsPolicy::Denied, "denied means no DNS either");
+    assert_eq!(
+        policy.dns(),
+        &DnsPolicy::Denied,
+        "denied means no DNS either"
+    );
     assert_eq!(parsed.egress, Some(EgressRequest::Denied));
     // Only the network changed: it is still the machine the host was sized for.
-    assert_eq!(parsed.shape.vcpu_count(), connected_host().shape.vcpu_count());
-    assert_eq!(parsed.shape.memory_mib(), connected_host().shape.memory_mib());
+    assert_eq!(
+        parsed.shape.vcpu_count(),
+        connected_host().shape.vcpu_count()
+    );
+    assert_eq!(
+        parsed.shape.memory_mib(),
+        connected_host().shape.memory_mib()
+    );
 }
 
 #[test]
