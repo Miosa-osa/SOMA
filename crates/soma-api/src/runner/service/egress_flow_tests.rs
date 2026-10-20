@@ -42,7 +42,12 @@ async fn windowed_sandbox(engine: &Arc<Engine>) -> (super::Runner, String) {
     (runner, id)
 }
 
-async fn open(runner: &super::Runner, id: &str, window: &str, ttl_ms: u64) -> super::RunnerResponse {
+async fn open(
+    runner: &super::Runner,
+    id: &str,
+    window: &str,
+    ttl_ms: u64,
+) -> super::RunnerResponse {
     call(
         runner,
         http::Method::POST,
@@ -80,7 +85,10 @@ async fn a_window_opens_is_idempotent_on_its_id_and_closes() {
     let (runner, id) = windowed_sandbox(&engine).await;
 
     let before = network(&runner, &id).await;
-    assert_eq!(before["base"], serde_json::json!({"egress": "denied", "windowed": true}));
+    assert_eq!(
+        before["base"],
+        serde_json::json!({"egress": "denied", "windowed": true})
+    );
     assert_eq!(before["current"]["egress"], "denied");
     assert!(before["window_id"].is_null());
 
@@ -100,7 +108,11 @@ async fn a_window_opens_is_idempotent_on_its_id_and_closes() {
     let again = open(&runner, &id, "w1", 900_000).await;
     assert_eq!(again.status, 200);
     assert_eq!(body_of(&again)["changed"], false);
-    assert_eq!(calls(&engine), vec![(true, true)], "no second change reached the host");
+    assert_eq!(
+        calls(&engine),
+        vec![(true, true)],
+        "no second change reached the host"
+    );
 
     // Another window cannot open beside it, and cannot close it.
     let other = open(&runner, &id, "w2", 60_000).await;
@@ -109,7 +121,11 @@ async fn a_window_opens_is_idempotent_on_its_id_and_closes() {
     let wrong = close(&runner, &id, "w2").await;
     assert_eq!(wrong.status, 409);
     assert_eq!(body_of(&wrong)["error"]["code"], "egress_window_mismatch");
-    assert_eq!(calls(&engine), vec![(true, true)], "neither refusal touched the host");
+    assert_eq!(
+        calls(&engine),
+        vec![(true, true)],
+        "neither refusal touched the host"
+    );
 
     let closed = close(&runner, &id, "w1").await;
     assert_eq!(closed.status, 200);
@@ -133,7 +149,10 @@ async fn a_failed_open_closes_again_before_it_answers() {
     assert_eq!(calls(&engine), vec![(true, true), (false, false)]);
     let after = network(&runner, &id).await;
     assert_eq!(after["current"]["egress"], "denied");
-    assert!(after["window_id"].is_null(), "a window that failed to open is not recorded");
+    assert!(
+        after["window_id"].is_null(),
+        "a window that failed to open is not recorded"
+    );
 
     // And the same window id can be tried again.
     assert_eq!(open(&runner, &id, "w1", 60_000).await.status, 200);
@@ -153,7 +172,10 @@ async fn an_open_the_host_reports_as_closed_is_not_served() {
     );
 
     let refused = open(&runner, &id, "w1", 60_000).await;
-    assert_eq!(refused.status, 502, "the host's own answer says egress is not open");
+    assert_eq!(
+        refused.status, 502,
+        "the host's own answer says egress is not open"
+    );
     assert_eq!(calls(&engine), vec![(true, true), (false, false)]);
 }
 
@@ -194,7 +216,11 @@ async fn a_window_is_closed_when_it_runs_out_and_a_failed_close_is_retried() {
     script(&engine, vec![Err(EgressSetFailure::Unavailable)]);
     runner.reap().await;
     assert_eq!(calls(&engine), vec![(true, true), (false, false)]);
-    assert_eq!(network(&runner, &id).await["window_id"], "w1", "still recorded, so still retried");
+    assert_eq!(
+        network(&runner, &id).await["window_id"],
+        "w1",
+        "still recorded, so still retried"
+    );
 
     runner.reap().await;
     assert_eq!(
@@ -227,7 +253,10 @@ async fn a_sandbox_not_created_windowed_cannot_be_opened_and_the_host_is_not_ask
     assert_eq!(body_of(&refused)["error"]["code"], "egress_not_windowed");
     assert!(calls(&engine).is_empty());
     let view = network(&runner, &id).await;
-    assert_eq!(view["base"], serde_json::json!({"egress": "denied", "windowed": false}));
+    assert_eq!(
+        view["base"],
+        serde_json::json!({"egress": "denied", "windowed": false})
+    );
 }
 
 #[tokio::test]
