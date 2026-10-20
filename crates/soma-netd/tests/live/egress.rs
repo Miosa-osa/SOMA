@@ -157,6 +157,52 @@ fn egress_opens_and_closes_an_activated_bundle_and_a_close_leaves_no_tracked_flo
 
 #[test]
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
+fn a_flow_opened_before_a_close_does_not_come_back_when_egress_reopens() {
+    super::require_privilege();
+    let _world = world::World::build();
+    let state = tempfile::tempdir().expect("state dir");
+    let broker = super::broker(state.path(), 16);
+    let (mut assigned, mut guest) = bring_up(&broker, 0xe4, true);
+
+    broker
+        .set_egress(&mut assigned, EgressClass::PublicInternet, false)
+        .expect("open");
+    let flow = guest
+        .tcp_open(world::PUBLIC_ADDRESS, world::PUBLIC_PORT, PROBE)
+        .expect("a flow opened inside the window");
+    assert!(
+        guest.tcp_data_answered(&flow, PROBE),
+        "the flow is admitted while the window is open"
+    );
+
+    broker
+        .set_egress(&mut assigned, EgressClass::Denied, false)
+        .expect("close");
+    assert!(
+        !guest.tcp_data_answered(&flow, PROBE),
+        "the flow is cut while egress is closed"
+    );
+
+    // Reopened, the same flow must not be adopted mid-stream: only a flow that starts after the
+    // reopen is admitted. With conntrack's loose tracking on, this segment would be accepted.
+    broker
+        .set_egress(&mut assigned, EgressClass::PublicInternet, false)
+        .expect("reopen");
+    assert!(
+        !guest.tcp_data_answered(&flow, PROBE),
+        "a flow from an earlier window is not adopted after a reopen"
+    );
+    assert_eq!(
+        guest.tcp_syn(world::PUBLIC_ADDRESS, world::PUBLIC_PORT, PROBE),
+        SynOutcome::SynAck,
+        "a fresh flow is admitted after the reopen"
+    );
+    drop(guest);
+    assert!(release(&broker, assigned).complete);
+}
+
+#[test]
+#[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
 fn a_bundle_that_is_not_activated_refuses_an_egress_change() {
     super::require_privilege();
     let _world = world::World::build();
