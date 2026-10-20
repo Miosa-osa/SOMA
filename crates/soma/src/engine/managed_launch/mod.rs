@@ -84,6 +84,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             &request.instance_id,
             request.machine_name.as_ref(),
             &request.shape,
+            request.windowed,
         );
         let intent = LaunchIntent {
             operation_id: request.operation_id.clone(),
@@ -108,7 +109,8 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             )
             // The volume the host resolved for this Instance: a machine whose Generation
             // declares one refuses to run without it.
-            .with_volume(request.volume.as_ref()),
+            .with_volume(request.volume.as_ref())
+            .with_windowed(request.windowed),
         );
         let launch = match observation {
             Ok(observation) => validate_launch(

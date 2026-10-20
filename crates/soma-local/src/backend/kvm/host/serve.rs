@@ -26,7 +26,11 @@ use std::{
 use soma::{BackendFailureKind, InstanceId};
 use soma_guest::GuestCommand;
 
-use crate::backend::kvm::{KvmBackend, held, lifecycle::Force, prepared};
+use crate::backend::kvm::{
+    KvmBackend, held,
+    lifecycle::{Force, LaunchExtras},
+    prepared,
+};
 
 use super::{
     Launched, channel,
@@ -97,7 +101,10 @@ fn launch(
             &request.instance_id,
             found,
             &request.shape,
-            request.volume.clone(),
+            LaunchExtras {
+                volume: request.volume.clone(),
+                windowed: request.windowed,
+            },
         )
         .map_err(|failure| failure.kind())
 }

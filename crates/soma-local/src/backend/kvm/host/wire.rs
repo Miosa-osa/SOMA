@@ -84,6 +84,14 @@ pub(super) struct LaunchWire {
     /// warms, and read as unset when absent, so a parent that predates it still warms.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) skip_warm: bool,
+    /// The machine must hold a network whose egress can be opened after launch.
+    ///
+    /// It is written only when set, so a host that predates it still reads every ordinary launch.
+    /// A host that predates it reads a frame carrying it as an unknown field and refuses the
+    /// launch, which is the refusal this machine wants: a launch that would be served without
+    /// the gate must not run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) windowed: bool,
 }
 
 /// What a launch established, whichever side performed it.
