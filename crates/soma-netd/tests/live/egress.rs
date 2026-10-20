@@ -288,7 +288,8 @@ fn a_restarted_broker_puts_a_denied_bundle_back_to_its_base_and_leaves_a_public_
         .expect("assign public");
     let mut public_guest = transfer_tap(&public);
     let host = session::repaired(*public_instance.as_bytes(), *public_operation.as_bytes());
-    activate(&mut public, &session::mint(&host, &public)).expect("activate public");
+    let receipt = session::mint(&host, &public);
+    activate(&mut public, &receipt).expect("activate public");
     assert!(public_guest.resolve_gateway(GATEWAY_WAIT).is_some());
 
     first
