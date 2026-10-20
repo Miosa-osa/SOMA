@@ -147,6 +147,10 @@ fn a_directory_too_deep_to_name_a_socket_in_is_not_addressable() {
 }
 
 fn launch_wire(skip_warm: bool) -> LaunchWire {
+    launch_wire_with(skip_warm, false)
+}
+
+fn launch_wire_with(skip_warm: bool, windowed: bool) -> LaunchWire {
     LaunchWire {
         volume: None,
         socket: "/run/soma/one.sock".into(),
@@ -158,6 +162,7 @@ fn launch_wire(skip_warm: bool) -> LaunchWire {
         manifest: Vec::new(),
         shape: MachineShape::new(1, 512, 0).expect("shape"),
         skip_warm,
+        windowed,
     }
 }
 
@@ -186,6 +191,72 @@ fn a_launch_from_a_parent_that_predates_the_skip_still_warms() {
     let read: LaunchWire = serde_json::from_value(written).expect("decodes");
 
     assert!(!read.skip_warm);
+}
+
+#[test]
+fn an_ordinary_launch_is_written_exactly_as_before_windowed_egress_existed() {
+    let written = serde_json::to_value(launch_wire_with(false, false)).expect("encodes");
+
+    assert!(written.get("windowed").is_none(), "{written}");
+}
+
+#[test]
+fn a_windowed_launch_crosses_the_launch_channel_with_its_flag() {
+    let written = serde_json::to_string(&launch_wire_with(false, true)).expect("encodes");
+    let read: LaunchWire = serde_json::from_str(&written).expect("decodes");
+
+    assert!(
+        read.windowed,
+        "a host that strips the field would serve the machine ungated"
+    );
+}
+
+/// What a host built before the flag looks like: the same frame with no `windowed` field known.
+/// It must refuse a windowed launch, never read it as an ordinary one.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct LaunchWireWithoutWindowed {
+    socket: std::path::PathBuf,
+    operation_id: OperationId,
+    instance_id: InstanceId,
+    reference: String,
+    generation_id: GenerationId,
+    manifest: Vec<u8>,
+    shape: MachineShape,
+    #[serde(default)]
+    skip_warm: bool,
+}
+
+#[test]
+fn a_host_that_predates_windowed_egress_refuses_a_windowed_launch() {
+    let windowed = serde_json::to_string(&launch_wire_with(false, true)).expect("encodes");
+    assert!(
+        serde_json::from_str::<LaunchWireWithoutWindowed>(&windowed).is_err(),
+        "an old host must not read a windowed launch"
+    );
+    let ordinary = serde_json::to_string(&launch_wire_with(false, false)).expect("encodes");
+    assert!(
+        serde_json::from_str::<LaunchWireWithoutWindowed>(&ordinary).is_ok(),
+        "and an ordinary launch still reads"
+    );
+}
+
+#[test]
+fn a_hosted_windowed_launch_is_only_served_attached_to_a_bundle() {
+    use soma::{NetworkAttachment, Observation, ObservationUnavailable};
+    use super::client_launch::honours_windowed;
+
+    let attached = Observation::Observed(NetworkAttachment::Attached);
+    let detached = Observation::Observed(NetworkAttachment::Detached);
+    let unknown = Observation::Unavailable(ObservationUnavailable::NotVerified);
+
+    assert!(honours_windowed(true, &attached));
+    assert!(!honours_windowed(true, &detached));
+    assert!(!honours_windowed(true, &unknown));
+    // A launch that did not ask for a window is satisfied by anything.
+    assert!(honours_windowed(false, &detached));
+    assert!(honours_windowed(false, &attached));
 }
 
 mod streaming;

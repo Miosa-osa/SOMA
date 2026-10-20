@@ -11,6 +11,7 @@ pub struct LaunchMachineRequest {
     pub(super) shape: crate::MachineShape,
     pub(super) machine_name: Option<MachineName>,
     pub(super) volume: Option<VolumeAttachment>,
+    pub(super) windowed: bool,
 }
 
 /// The durable volume one Instance's machine binds, as the host resolved it.
@@ -54,7 +55,25 @@ impl LaunchMachineRequest {
             shape,
             machine_name: None,
             volume: None,
+            windowed: false,
         }
+    }
+
+    /// This request with a network whose egress can be opened and closed after launch.
+    ///
+    /// Only meaningful with a denied network: the machine holds a broker bundle that starts
+    /// denying everything, so a later window has something to change. A backend that cannot hold
+    /// one refuses the launch; it never serves the request as an ungated machine.
+    #[must_use]
+    pub const fn with_windowed_egress(mut self) -> Self {
+        self.windowed = true;
+        self
+    }
+
+    /// Whether the launch asked for a network whose egress can be opened later.
+    #[must_use]
+    pub const fn windowed_egress(&self) -> bool {
+        self.windowed
     }
 
     /// This request with the durable volume the Instance's machine must bind.
