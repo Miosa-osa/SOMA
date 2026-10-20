@@ -7,6 +7,8 @@ mod create;
 mod early_tests;
 mod egress;
 #[cfg(test)]
+mod egress_flow_tests;
+#[cfg(test)]
 mod egress_tests;
 mod exec_contract;
 #[cfg(test)]

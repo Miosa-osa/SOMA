@@ -63,6 +63,14 @@ pub(super) struct Engine {
     pub(super) launch_refusal: Mutex<Option<BackendFailureKind>>,
     /// What the next command reports as its terminal status, taken one at a time.
     pub(super) exec_status: Mutex<Option<TerminalStatus>>,
+    /// Every egress change that reached the facade, in order.
+    pub(super) egress_calls: Mutex<Vec<soma_local::EgressSetRequest>>,
+    /// What the next egress changes answer instead of succeeding, taken one at a time.
+    pub(super) egress_script: Mutex<
+        std::collections::VecDeque<
+            Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure>,
+        >,
+    >,
 }
 
 /// Chunks for one streaming command and the gate between its first chunk and the rest.
