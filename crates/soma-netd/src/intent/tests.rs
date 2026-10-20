@@ -124,8 +124,8 @@ fn a_publication_on_an_ipv6_host_bind_is_refused_at_admission() {
 #[test]
 fn a_runtime_egress_change_keeps_publications_and_the_profile() {
     let profile = ProfileDigest([1; 32]);
-    let denied = NetworkIntent::new(EgressClass::Denied, Vec::new(), Vec::new(), profile)
-        .expect("denied");
+    let denied =
+        NetworkIntent::new(EgressClass::Denied, Vec::new(), Vec::new(), profile).expect("denied");
     let open = denied
         .with_egress(EgressClass::PublicInternet, vec![Ipv4Addr::new(1, 1, 1, 1)])
         .expect("open");
@@ -133,7 +133,9 @@ fn a_runtime_egress_change_keeps_publications_and_the_profile() {
     assert!(open.dns_allowed());
     assert_eq!(open.profile(), profile);
     assert_ne!(open, denied);
-    let back = open.with_egress(EgressClass::Denied, Vec::new()).expect("closed");
+    let back = open
+        .with_egress(EgressClass::Denied, Vec::new())
+        .expect("closed");
     assert_eq!(back, denied);
 }
 

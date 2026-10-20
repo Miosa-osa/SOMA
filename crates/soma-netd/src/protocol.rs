@@ -15,8 +15,8 @@ pub use reply::Reply;
 use soma_guest::ActivationReceipt;
 
 use crate::{
-    BundleId, CleanupGeneration, EgressClass, Error, InstanceId, MAX_ENCODED_INTENT,
-    NetworkIntent, OperationId,
+    BundleId, CleanupGeneration, EgressClass, Error, InstanceId, MAX_ENCODED_INTENT, NetworkIntent,
+    OperationId,
 };
 
 /// The largest request or reply frame.
@@ -257,6 +257,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn requests_and_replies_round_trip_and_reject_hostile_frames() {
         let intent = NetworkIntent::new(
             EgressClass::Denied,

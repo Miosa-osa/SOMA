@@ -22,8 +22,12 @@ pub(super) fn set_egress(
     let Some(mut owned) = state.disown((bundle, generation)) else {
         return Reply::Failed(error_code(&Error::NotAssigned));
     };
-    if let Err(error) = authorize(owned.peer, peer.uid(), owned.assigned.record().instance, instance)
-    {
+    if let Err(error) = authorize(
+        owned.peer,
+        peer.uid(),
+        owned.assigned.record().instance,
+        instance,
+    ) {
         state.own(owned);
         return Reply::Failed(error_code(&error));
     }

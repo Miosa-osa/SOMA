@@ -75,7 +75,10 @@ impl Broker {
             connect_ports: self.connect_ports.ranges(),
         }
         .render();
-        assigned.bundle.namespace.within(move || nft::apply(&ruleset))?;
+        assigned
+            .bundle
+            .namespace
+            .within(move || nft::apply(&ruleset))?;
         assigned.current = next;
         if closing {
             assigned.bundle.namespace.within(nft::flush_all)?;
