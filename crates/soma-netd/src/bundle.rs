@@ -313,9 +313,7 @@ impl Broker {
         // The setting is written after the ruleset is committed, which is when the namespace's
         // conntrack exists, and a bundle that cannot take it is refused rather than served.
         if !intent.egress().forwards() {
-            bundle
-                .namespace
-                .within(|| sysctl::set_tcp_loose(false))?;
+            bundle.namespace.within(|| sysctl::set_tcp_loose(false))?;
         }
         let dns = DnsPlan::from_intent(intent, bundle.leases.guest.host());
         let launch = LaunchNetwork::new(
