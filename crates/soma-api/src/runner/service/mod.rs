@@ -5,6 +5,8 @@ mod command;
 mod create;
 #[cfg(test)]
 mod early_tests;
+#[cfg(test)]
+mod egress_tests;
 mod exec_contract;
 #[cfg(test)]
 mod exec_contract_agreement_tests;

@@ -19,6 +19,7 @@ pub(super) fn launch() -> LaunchConfig {
         template_id: "miosa-sandbox-soma".into(),
         default_timeout_seconds: 300,
         public_egress: false,
+        allow_unrestricted_egress: false,
     }
 }
 

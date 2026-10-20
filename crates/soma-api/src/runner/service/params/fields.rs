@@ -39,7 +39,7 @@ pub(super) const UNSUPPORTED_CREATE_PARAMS: [&str; 16] = [
 /// (`Web.Controllers.Sandboxes.CreateParams`), and the published SDK's create body
 /// (`sdks/typescript/src/resources/sandboxes.ts`). A key outside it is answered with a 400 that
 /// names it, so the next misspelled field is a refusal instead of a silent create.
-pub(super) const CREATE_FIELDS: [&str; 62] = [
+pub(super) const CREATE_FIELDS: [&str; 63] = [
     "__soma_api_started_at_us",
     "agent_runtime_profile_id",
     "allow_provision",
@@ -68,6 +68,7 @@ pub(super) const CREATE_FIELDS: [&str; 62] = [
     "memory_mb",
     "metadata",
     "name",
+    "network",
     "network_profile",
     "persistent",
     "port",

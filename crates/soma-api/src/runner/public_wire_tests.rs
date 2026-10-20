@@ -1,6 +1,6 @@
 use super::{
-    Created, Destroyed, Executed, ExecutedData, PlatformError, Ran, create_unavailable, encode,
-    health, misdirected, refusal,
+    Created, Destroyed, Executed, ExecutedData, NetworkEcho, PlatformError, Ran,
+    create_unavailable, encode, health, misdirected, refusal,
 };
 
 fn text(bytes: &[u8]) -> &str {
@@ -17,6 +17,7 @@ fn the_compact_create_body_is_the_fast_lane_bytes_plus_runner_url_and_create_ms(
         id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
         memory_mb: 512,
         name: None,
+        network: None,
         run: None,
         runner_url: "https://3.run-us.miosa.ai",
         slug: "3f2504e0",
@@ -48,6 +49,7 @@ fn a_create_and_run_body_is_the_compact_create_body_plus_its_run_object() {
         id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
         memory_mb: 512,
         name: None,
+        network: None,
         run: Some(&ran),
         runner_url: "https://3.run-us.miosa.ai",
         slug: "3f2504e0",
@@ -140,5 +142,32 @@ fn runner_refusals_match_contract_c2() {
     assert_eq!(
         text(&health('3', 1200, Some(18))),
         r#"{"ok":true,"tag":"3","feed_age_ms":1200,"pool_ready":18}"#
+    );
+}
+
+#[test]
+fn a_create_that_named_a_network_echoes_it_and_one_that_did_not_is_unchanged() {
+    let plain = |network| {
+        String::from_utf8(encode(&Created {
+            cpu_count: 1,
+            create_ms: 1,
+            created_at: "2026-10-02T17:04:05.123456Z",
+            deletion_pending: false,
+            id: "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            memory_mb: 512,
+            name: None,
+            network,
+            run: None,
+            runner_url: "https://3.run-us.miosa.ai",
+            slug: "3f2504e0",
+            state: "running",
+            template_id: "miosa-sandbox-soma",
+            timeout_sec: 300,
+        }))
+        .expect("utf8")
+    };
+    assert!(!plain(None).contains("network"));
+    assert!(
+        plain(Some(NetworkEcho { egress: "denied" })).contains(r#""network":{"egress":"denied"}"#)
     );
 }

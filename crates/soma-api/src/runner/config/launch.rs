@@ -55,6 +55,11 @@ pub struct LaunchConfig {
     /// network Generation is refused at launch rather than served as a different machine.
     #[serde(default = "default_public_egress")]
     pub public_egress: bool,
+    /// Whether a create may ask for `network.egress: "unrestricted"`. Off unless an operator says
+    /// on: unrestricted is the broader, trusted-workload network, so a tenant's request alone
+    /// never reaches it.
+    #[serde(default)]
+    pub allow_unrestricted_egress: bool,
 }
 
 impl LaunchConfig {
@@ -151,6 +156,7 @@ mod tests {
             template_id: "miosa-sandbox-soma".into(),
             default_timeout_seconds: 300,
             public_egress,
+            allow_unrestricted_egress: false,
         }
     }
 

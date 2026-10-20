@@ -1,7 +1,7 @@
 use std::fmt;
 
 use serde_json::Value;
-use soma::{DirectCommand, MachineShape};
+use soma::{Capabilities, DirectCommand, MachineShape};
 
 use crate::runner::{
     config::{LargeShape, LaunchConfig},
@@ -30,6 +30,12 @@ pub(super) struct CreateParams {
     /// `large` carries the runner's large shape, and is only reachable on a runner that
     /// configured one.
     pub(super) shape: MachineShape,
+    /// The egress the create named in `network.egress`, if it named one.
+    ///
+    /// Already applied to [`Self::shape`]: this sandbox's network is what the request said, not
+    /// what the host's `launch.public_egress` defaults a shape to. Kept so a launch that cannot
+    /// serve it is answered as an egress refusal rather than as a generic outage.
+    pub(super) egress: Option<EgressRequest>,
     /// Whether the create waits for the sandbox to be up before it answers.
     ///
     /// Absent is `true`, the answer every client had before this field existed. `false` is the
@@ -52,10 +58,86 @@ impl fmt::Debug for CreateParams {
             .field("project_id", &self.project_id)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("shape", &self.shape)
+            .field("egress", &self.egress)
             .field("wait_ready", &self.wait_ready)
             .field("run", &self.run.is_some())
             .finish()
     }
+}
+
+/// What a create's `network.egress` asked for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum EgressRequest {
+    /// No TCP, no UDP, no DNS.
+    Denied,
+    /// Public destinations only, with the system resolvers.
+    Internet,
+    /// The operator-admitted unfiltered network.
+    Unrestricted,
+}
+
+impl EgressRequest {
+    /// The word the create body used and its answer echoes.
+    pub(super) const fn word(self) -> &'static str {
+        match self {
+            Self::Denied => "denied",
+            Self::Internet => "internet",
+            Self::Unrestricted => "unrestricted",
+        }
+    }
+
+    /// Whether serving it needs the host's network broker.
+    pub(super) const fn needs_broker(self) -> bool {
+        !matches!(self, Self::Denied)
+    }
+
+    fn capabilities(self) -> Capabilities {
+        match self {
+            Self::Denied => Capabilities::isolated(),
+            Self::Internet => Capabilities::isolated().with_network_access(),
+            Self::Unrestricted => Capabilities::isolated().with_unrestricted_network(),
+        }
+    }
+}
+
+/// Applies a create's `network` object to the shape it selected.
+///
+/// The object has one key, `egress`, and an unknown key is refused so a misspelling is never
+/// served as the default network. A create that names no network keeps the host's own default,
+/// which is how every create behaved before this field existed.
+fn apply_network(
+    shape: MachineShape,
+    network: Option<&Value>,
+    launch: &LaunchConfig,
+) -> Result<(MachineShape, Option<EgressRequest>), PlatformError> {
+    let invalid = |detail: &str| PlatformError::invalid_param("network", detail);
+    let object = match network {
+        None | Some(Value::Null) => return Ok((shape, None)),
+        Some(Value::Object(object)) => object,
+        Some(_) => return Err(invalid("network must be an object")),
+    };
+    if let Some(unknown) = object.keys().find(|key| key.as_str() != "egress") {
+        return Err(invalid(&format!("network has no `{unknown}` field")));
+    }
+    let egress = match object.get("egress").map(Value::as_str) {
+        Some(Some("denied")) => EgressRequest::Denied,
+        Some(Some("internet")) => EgressRequest::Internet,
+        Some(Some("unrestricted")) => EgressRequest::Unrestricted,
+        _ => {
+            return Err(invalid(
+                "network.egress must be \"denied\", \"internet\" or \"unrestricted\"",
+            ));
+        }
+    };
+    if egress == EgressRequest::Unrestricted && !launch.allow_unrestricted_egress {
+        return Err(PlatformError::new(
+            403,
+            "egress_not_permitted",
+            "this runner does not serve unrestricted egress",
+            false,
+        ));
+    }
+    Ok((shape.with_capabilities(egress.capabilities()), Some(egress)))
 }
 
 impl CreateParams {
@@ -87,6 +169,7 @@ impl CreateParams {
                 .ok_or_else(|| PlatformError::unsupported("a size other than xs"))?,
             Some(_) => return Err(PlatformError::unsupported("a size other than xs or large")),
         };
+        let (shape, egress) = apply_network(shape, params.get("network"), launch)?;
         if params.get("persistent").is_some_and(truthy) {
             return Err(PlatformError::unsupported("persistent sandboxes"));
         }
@@ -155,6 +238,7 @@ impl CreateParams {
             project_id,
             timeout_seconds,
             shape,
+            egress,
             wait_ready,
             run,
         })
