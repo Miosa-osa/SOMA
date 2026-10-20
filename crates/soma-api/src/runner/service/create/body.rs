@@ -34,6 +34,11 @@ impl Runner {
             id: id.as_str(),
             memory_mb: params.shape.memory_mib(),
             name: None,
+            network: params
+                .egress
+                .map(|egress| public_wire::NetworkEcho {
+                    egress: egress.word(),
+                }),
             run: ran.as_ref(),
             runner_url: &self.runner_url(self.config.host_tag),
             slug: &id.as_str()[..8],

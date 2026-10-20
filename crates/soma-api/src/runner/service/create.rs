@@ -27,8 +27,19 @@ use crate::runner::sandboxes::Reservation;
 
 use super::{
     Runner, RunnerResponse, TENANT_LABEL_PREFIX, Timing, command, entry, failure_code, millis,
-    params::CreateParams, timing::LaunchPhases, with_journal,
+    params::{CreateParams, EgressRequest},
+    timing::LaunchPhases,
+    with_journal,
 };
+
+/// The stable codes a launch fails with when the host cannot give the network a create asked for:
+/// no broker to lease from (`unsupported_backend`), a broker that refused the policy
+/// (`workload_rejected`), or one that cannot be reached (`backend_unavailable`).
+const EGRESS_REFUSALS: [&str; 3] = [
+    "unsupported_backend",
+    "workload_rejected",
+    "backend_unavailable",
+];
 
 mod body;
 mod early;
@@ -245,6 +256,24 @@ impl Runner {
                 timing.call = call;
                 self.sandboxes.abandon(id);
                 eprintln!("soma-api: runner create {id} failed: {code}");
+                // A create that asked for a network this host cannot give is refused for that,
+                // once and plainly. The generic answer below is retryable, and a caller that
+                // retries a refused network gets the same refusal, or on another host more
+                // egress than it asked for.
+                if prepared.params.egress.is_some_and(EgressRequest::needs_broker)
+                    && EGRESS_REFUSALS.contains(&code)
+                {
+                    let refusal = PlatformError::new(
+                        409,
+                        "egress_unavailable",
+                        "this host cannot serve the requested network.egress; no sandbox was created",
+                        false,
+                    );
+                    return with_journal(
+                        RunnerResponse::platform(&refusal),
+                        journal(409, Some(id), prepared.project.clone()),
+                    );
+                }
                 with_journal(
                     RunnerResponse::create_unavailable(),
                     journal(503, Some(id), prepared.project.clone()),

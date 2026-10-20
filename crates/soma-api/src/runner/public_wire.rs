@@ -27,6 +27,10 @@ pub struct Created<'a> {
     pub id: &'a str,
     pub memory_mb: u64,
     pub name: Option<&'a str>,
+    /// The network this sandbox was created with, echoed only when the create named one, so a
+    /// caller can tell a runner that honoured `network.egress` from an older one that ignored it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network: Option<NetworkEcho<'a>>,
     /// The command a create-and-run ran, and what it produced.
     ///
     /// Only a create that carried a `run` block has one, and the key is left out entirely for
@@ -40,6 +44,13 @@ pub struct Created<'a> {
     pub state: &'a str,
     pub template_id: &'a str,
     pub timeout_sec: u64,
+}
+
+/// The `network` object a create that named one echoes.
+#[derive(Serialize)]
+pub struct NetworkEcho<'a> {
+    /// `denied`, `internet` or `unrestricted`.
+    pub egress: &'a str,
 }
 
 /// The `200` exec body: `%{data: %{stdout, stderr, exit_code}}`.
