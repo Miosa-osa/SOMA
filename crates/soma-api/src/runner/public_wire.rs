@@ -51,6 +51,9 @@ pub struct Created<'a> {
 pub struct NetworkEcho<'a> {
     /// `denied`, `internet` or `unrestricted`.
     pub egress: &'a str,
+    /// Present (and true) only for a windowed sandbox, whose egress can be opened later.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub windowed: Option<bool>,
 }
 
 /// The `200` exec body: `%{data: %{stdout, stderr, exit_code}}`.

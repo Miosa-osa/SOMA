@@ -6,6 +6,7 @@ mod config;
 mod error;
 mod file_store;
 mod prewarm;
+mod egress;
 mod resize;
 mod runtime;
 mod tunnel;
@@ -18,6 +19,7 @@ pub use prewarm::{
     MAX_TARGET_COUNT, MAX_TARGETS, PrewarmError, PrewarmStatus, PrewarmTarget, Source,
     TargetStatus, UncoveredDemand,
 };
+pub use egress::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
 pub use resize::{
     CpuResize, DimensionState, MemoryResize, ResizeFailure, ResizeOutcome, ResizeRequest,
 };

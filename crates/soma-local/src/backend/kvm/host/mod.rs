@@ -162,6 +162,27 @@ pub(crate) fn resize(
     }
 }
 
+/// Asks the host that holds `instance` to open or close its egress.
+///
+/// Anything that is not the host's own outcome is a failure the caller must read as "the egress
+/// may not be what I asked for", including a host that does not know the call.
+pub(crate) fn set_egress(
+    directory: &Path,
+    instance: &InstanceId,
+    request: crate::EgressSetRequest,
+) -> Result<crate::EgressSetOutcome, crate::EgressSetFailure> {
+    let call = Call::SetEgress {
+        instance_id: instance.clone(),
+        request,
+    };
+    match ask(directory, instance, &call, CONTROL_CEILING) {
+        Ok(Answer::EgressSet(outcome)) => Ok(outcome),
+        Ok(Answer::EgressRefused(failure)) => Err(failure),
+        Err(HostFailure::Absent) => Err(crate::EgressSetFailure::NotFound),
+        _ => Err(crate::EgressSetFailure::Unavailable),
+    }
+}
+
 pub(super) fn liveness(directory: &Path, instance: &InstanceId) -> SandboxLiveness {
     match channel::connect(directory, instance) {
         Ok(_) => SandboxLiveness::Live,

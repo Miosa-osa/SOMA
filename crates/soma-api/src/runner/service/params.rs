@@ -36,6 +36,10 @@ pub(super) struct CreateParams {
     /// what the host's `launch.public_egress` defaults a shape to. Kept so a launch that cannot
     /// serve it is answered as an egress refusal rather than as a generic outage.
     pub(super) egress: Option<EgressRequest>,
+    /// Whether the sandbox is created with a denied network whose egress can be opened later.
+    ///
+    /// Only meaningful with `egress: denied`; the sandbox then holds a broker bundle from boot.
+    pub(super) windowed: bool,
     /// Whether the create waits for the sandbox to be up before it answers.
     ///
     /// Absent is `true`, the answer every client had before this field existed. `false` is the
@@ -59,6 +63,7 @@ impl fmt::Debug for CreateParams {
             .field("timeout_seconds", &self.timeout_seconds)
             .field("shape", &self.shape)
             .field("egress", &self.egress)
+            .field("windowed", &self.windowed)
             .field("wait_ready", &self.wait_ready)
             .field("run", &self.run.is_some())
             .finish()
@@ -86,7 +91,8 @@ impl EgressRequest {
         }
     }
 
-    /// Whether serving it needs the host's network broker.
+    /// Whether serving it needs the host's network broker. A windowed `denied` does too, which
+    /// the caller adds.
     pub(super) const fn needs_broker(self) -> bool {
         !matches!(self, Self::Denied)
     }
@@ -109,14 +115,17 @@ fn apply_network(
     shape: MachineShape,
     network: Option<&Value>,
     launch: &LaunchConfig,
-) -> Result<(MachineShape, Option<EgressRequest>), PlatformError> {
+) -> Result<(MachineShape, Option<EgressRequest>, bool), PlatformError> {
     let invalid = |detail: &str| PlatformError::invalid_param("network", detail);
     let object = match network {
-        None | Some(Value::Null) => return Ok((shape, None)),
+        None | Some(Value::Null) => return Ok((shape, None, false)),
         Some(Value::Object(object)) => object,
         Some(_) => return Err(invalid("network must be an object")),
     };
-    if let Some(unknown) = object.keys().find(|key| key.as_str() != "egress") {
+    if let Some(unknown) = object
+        .keys()
+        .find(|key| !matches!(key.as_str(), "egress" | "windowed"))
+    {
         return Err(invalid(&format!("network has no `{unknown}` field")));
     }
     let egress = match object.get("egress").map(Value::as_str) {
@@ -129,6 +138,16 @@ fn apply_network(
             ));
         }
     };
+    let windowed = match object.get("windowed") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(windowed)) => *windowed,
+        Some(_) => return Err(invalid("network.windowed must be a boolean")),
+    };
+    // A window opens the internet on a sandbox that starts with none, so it only makes sense
+    // there; asking for one next to an already open network is a mistake worth refusing.
+    if windowed && egress != EgressRequest::Denied {
+        return Err(invalid("network.windowed needs network.egress \"denied\""));
+    }
     if egress == EgressRequest::Unrestricted && !launch.allow_unrestricted_egress {
         return Err(PlatformError::new(
             403,
@@ -137,7 +156,11 @@ fn apply_network(
             false,
         ));
     }
-    Ok((shape.with_capabilities(egress.capabilities()), Some(egress)))
+    Ok((
+        shape.with_capabilities(egress.capabilities()),
+        Some(egress),
+        windowed,
+    ))
 }
 
 impl CreateParams {
@@ -169,7 +192,7 @@ impl CreateParams {
                 .ok_or_else(|| PlatformError::unsupported("a size other than xs"))?,
             Some(_) => return Err(PlatformError::unsupported("a size other than xs or large")),
         };
-        let (shape, egress) = apply_network(shape, params.get("network"), launch)?;
+        let (shape, egress, windowed) = apply_network(shape, params.get("network"), launch)?;
         if params.get("persistent").is_some_and(truthy) {
             return Err(PlatformError::unsupported("persistent sandboxes"));
         }
@@ -239,6 +262,7 @@ impl CreateParams {
             timeout_seconds,
             shape,
             egress,
+            windowed,
             wait_ready,
             run,
         })

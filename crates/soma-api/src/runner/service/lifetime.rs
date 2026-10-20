@@ -125,6 +125,7 @@ impl Runner {
             Ok((Ok(_) | Err(ManagedFailure::State(ManagedStateError::MachineNotFound)), call)) => {
                 let at = Instant::now();
                 self.sandboxes.destroyed(id, at);
+                self.windows.forget(id);
                 Release {
                     outcome: Released::Gone(at),
                     timing: Some(call),
@@ -156,6 +157,8 @@ impl Runner {
     pub async fn reap(&self) {
         let now = Instant::now();
         self.sandboxes.sweep(now);
+        // A window that has run out is closed here, whether or not its caller is still around.
+        self.close_expired_windows().await;
         let keys = &self.keys;
         let claimed = self
             .sandboxes
@@ -217,6 +220,7 @@ impl Runner {
         // recovered sandbox gets this runner's default idle timeout.
         let lifetime = Lifetime::from_seconds(self.config.launch.default_timeout_seconds, None);
         let mut recovered = 0_usize;
+        let mut adopted = Vec::new();
         for entry in entries {
             if !matches!(
                 entry.phase(),
@@ -239,9 +243,13 @@ impl Runner {
                 created: Instant::now(),
                 slot: self.keys.counter(tenant),
             };
-            self.sandboxes.recover(id, owner, lifetime);
+            self.sandboxes.recover(id.clone(), owner, lifetime);
+            adopted.push(id);
             recovered += 1;
         }
+        // A restart loses every window's timer, so each adopted sandbox is told to deny: a window
+        // that was open is closed, and one that holds none answers that it has nothing to change.
+        self.close_recovered_windows(&adopted).await;
         eprintln!("soma-api: runner recovered {recovered} sandboxes");
     }
 }

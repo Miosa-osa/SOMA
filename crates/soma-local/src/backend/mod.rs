@@ -22,7 +22,7 @@ pub(crate) use kvm::host_machine;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::open_tunnel;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(crate) use kvm::resize_machine;
+pub(crate) use kvm::{resize_machine, set_egress_machine};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{prewarm_machine_hosts, prewarm_status, set_prewarm_targets, start_prewarm};
 pub(crate) use local::LocalBackend;

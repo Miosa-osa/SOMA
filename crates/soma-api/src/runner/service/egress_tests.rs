@@ -135,3 +135,35 @@ fn only_a_non_denied_egress_needs_the_broker() {
     assert!(EgressRequest::Internet.needs_broker());
     assert!(EgressRequest::Unrestricted.needs_broker());
 }
+
+#[test]
+fn windowed_needs_a_denied_network_and_is_a_boolean() {
+    let config = connected_host();
+    let parsed = parse(r#"{"network":{"egress":"denied","windowed":true}}"#, &config)
+        .expect("a windowed denied network is accepted");
+    assert!(parsed.windowed);
+    assert_eq!(parsed.egress, Some(EgressRequest::Denied));
+    assert_eq!(
+        parsed.shape.capabilities().network_policy().egress(),
+        EgressPolicy::Denied,
+        "windowed starts denied, however the host connects by default"
+    );
+
+    let plain = parse(r#"{"network":{"egress":"denied","windowed":false}}"#, &config)
+        .expect("accepted");
+    assert!(!plain.windowed);
+    assert!(!parse(r#"{"network":{"egress":"denied"}}"#, &config).expect("ok").windowed);
+
+    for body in [
+        r#"{"network":{"egress":"internet","windowed":true}}"#,
+        r#"{"network":{"egress":"unrestricted","windowed":true}}"#,
+        r#"{"network":{"egress":"denied","windowed":"yes"}}"#,
+        r#"{"network":{"egress":"denied","windowed":1}}"#,
+    ] {
+        assert_eq!(
+            parse(body, &config).map(|_| ()),
+            Err((400, "INVALID_PARAM")),
+            "{body}"
+        );
+    }
+}

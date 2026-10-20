@@ -114,11 +114,18 @@ impl Runner {
             principal.tenant.policy.max_lifetime_seconds,
         );
         self.sandboxes.reserve(id.clone(), owner, lifetime);
+        // What the create named is remembered from here, so a window can be opened the moment the
+        // sandbox is up and the answer can say what the sandbox was given.
+        if let Some(egress) = params.egress {
+            self.windows
+                .created(&id, egress.word(), params.windowed);
+        }
         // The tenant slot belongs to the sandbox once there is one, and to this request until
         // then. Held for the rest of the request so that however it ends - including being
         // dropped because the client reset the stream - the slot goes back.
         let mut reservation = Reservation::new(std::sync::Arc::clone(&self.sandboxes), id.clone());
-        let Some(launch) = self.launch_request(&id, &principal.key.tenant_id, &params.shape) else {
+        let Some(launch) = self.launch_request(&id, &principal.key.tenant_id, &params.shape, params.windowed)
+        else {
             self.sandboxes.abandon(&id);
             return with_journal(
                 RunnerResponse::create_unavailable(),
@@ -256,14 +263,16 @@ impl Runner {
                 timing.call = call;
                 self.sandboxes.abandon(id);
                 eprintln!("soma-api: runner create {id} failed: {code}");
+                self.windows.forget(id);
                 // A create that asked for a network this host cannot give is refused for that,
                 // once and plainly. The generic answer below is retryable, and a caller that
                 // retries a refused network gets the same refusal, or on another host more
                 // egress than it asked for.
-                if prepared
-                    .params
-                    .egress
-                    .is_some_and(EgressRequest::needs_broker)
+                if (prepared.params.windowed
+                    || prepared
+                        .params
+                        .egress
+                        .is_some_and(EgressRequest::needs_broker))
                     && EGRESS_REFUSALS.contains(&code)
                 {
                     let refusal = PlatformError::new(
@@ -297,11 +306,15 @@ impl Runner {
         id: &SandboxId,
         tenant_id: &str,
         shape: &MachineShape,
+        windowed: bool,
     ) -> Option<LaunchMachineRequest> {
         let instance_id = id.instance_id()?;
         let operation = operation_id(None).ok()?;
-        let request =
+        let mut request =
             LaunchMachineRequest::new(operation, instance_id, self.image.clone(), shape.clone());
+        if windowed {
+            request = request.with_windowed_egress();
+        }
         Some(
             match MachineName::parse(format!("{TENANT_LABEL_PREFIX}{tenant_id}")) {
                 Ok(name) => request.with_name(name),
