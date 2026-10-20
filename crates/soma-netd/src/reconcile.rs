@@ -115,7 +115,7 @@ pub fn reconcile_with(
             Disposition::Drifted(Drift::HostVethMissing)
         } else if !table {
             Disposition::Drifted(Drift::HostRulesetMissing)
-        } else if base_is_breached(broker, &entry.record, &names, window_open) {
+        } else if base_is_breached(broker, &record, &names, window_open) {
             Disposition::Drifted(Drift::RulesetNotBase)
         } else {
             Disposition::Consistent
