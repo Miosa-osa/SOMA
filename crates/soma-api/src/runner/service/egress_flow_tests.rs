@@ -4,7 +4,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use soma_local::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
+use soma_local::{EgressSetFailure, EgressSetOutcome};
 
 use super::flow_tests::{Engine, body_of, call, created_id, runner};
 
