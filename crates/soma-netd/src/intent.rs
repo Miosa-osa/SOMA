@@ -170,6 +170,26 @@ impl NetworkIntent {
         }
     }
 
+    /// The same intent with another egress class and DNS resolver set.
+    ///
+    /// Publications and the profile digest carry over, so only what the sandbox ruleset
+    /// renders for outbound traffic changes. Egress `Denied` with resolvers is refused for the
+    /// same reason admission refuses it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidIntent`] when DNS is requested while egress is denied.
+    pub fn with_egress(
+        &self,
+        egress: EgressClass,
+        resolvers: Vec<Ipv4Addr>,
+    ) -> Result<Self, Error> {
+        if egress == EgressClass::Denied && !resolvers.is_empty() {
+            return Err(Error::InvalidIntent(IntentRejection::DnsWithoutEgress));
+        }
+        Self::new(egress, resolvers, self.publications.clone(), self.profile)
+    }
+
     /// Returns the egress class.
     #[must_use]
     pub const fn egress(&self) -> EgressClass {

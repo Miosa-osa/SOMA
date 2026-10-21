@@ -70,7 +70,8 @@ impl Capability {
             Request::Claim { .. }
             | Request::Activate { .. }
             | Request::Release { .. }
-            | Request::Connect { .. } => Self::Lifecycle,
+            | Request::Connect { .. }
+            | Request::SetEgress { .. } => Self::Lifecycle,
             Request::Reconcile => Self::Reconcile,
         }
     }

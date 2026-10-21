@@ -19,9 +19,11 @@ use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, DnsPlan, Error,
     InstanceId, Ipam, LeasePair, Ledger, NetworkIntent, NetworkProfile, OperationId,
     PortReservation, PublishedPort, RecordOutcome, SandboxRuleset, Step, derive_macs, ingress,
-    namespace::NetNamespace, nft, release,
+    namespace::NetNamespace, nft, release, sysctl,
 };
 
+mod egress;
+pub use egress::EgressChange;
 mod prepare;
 mod types;
 
@@ -237,6 +239,7 @@ impl Broker {
         match self.try_assign(&bundle, instance, operation, intent, claim) {
             Ok(parts) => Ok(Assigned {
                 bundle,
+                current: intent.clone(),
                 record: parts.record,
                 launch: parts.launch,
                 reservations: parts.reservations,
@@ -304,6 +307,13 @@ impl Broker {
         // intent renders to something the namespace does not already hold.
         if prepare::ruleset_digest(&ruleset) != bundle.ruleset {
             bundle.namespace.within(move || nft::apply(&ruleset))?;
+        }
+        // A bundle claimed with no egress is one whose egress may be opened later, so a flow the
+        // guest opened in an earlier window must not come back as "established" in a later one.
+        // The setting is written after the ruleset is committed, which is when the namespace's
+        // conntrack exists, and a bundle that cannot take it is refused rather than served.
+        if !intent.egress().forwards() {
+            bundle.namespace.within(|| sysctl::set_tcp_loose(false))?;
         }
         let dns = DnsPlan::from_intent(intent, bundle.leases.guest.host());
         let launch = LaunchNetwork::new(

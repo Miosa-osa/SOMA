@@ -140,5 +140,27 @@ pub(crate) fn flush_zone(zone: ConntrackZone) -> Result<(), Error> {
     }
 }
 
+/// Flushes every conntrack entry of the calling thread's namespace.
+///
+/// Used inside a bundle's sandbox namespace when its egress is closed: the namespace holds only
+/// that one guest's flows, so nothing else is touched.
+pub(crate) fn flush_all() -> Result<(), Error> {
+    let output = Invocation {
+        tool: Tool::Conntrack,
+        program: CONNTRACK,
+        arguments: &["-F"],
+        deadline: DEADLINE,
+    }
+    .run("")?;
+    if output.succeeded() {
+        Ok(())
+    } else {
+        Err(Error::Tool {
+            tool: Tool::Conntrack,
+            status: output.exit_code,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests;
