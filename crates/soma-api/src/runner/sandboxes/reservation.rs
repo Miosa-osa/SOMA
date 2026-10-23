@@ -67,6 +67,15 @@ impl Sandboxes {
             return;
         }
         if let Some(record) = records.remove(id) {
+            // An admitted create that never settled leaves no other trace: the journal is written
+            // with the response, and this request never got one. Say what it reached and how long
+            // it had run, so the next incident is traceable rather than invisible.
+            eprintln!(
+                "soma-api: runner create {id} was abandoned before it settled; tenant={} key={} phase=creating elapsed_ms={}",
+                record.owner.tenant_id,
+                record.owner.key_id.as_deref().unwrap_or("-"),
+                record.owner.created.elapsed().as_millis(),
+            );
             record.owner.give_back_slot();
         }
     }

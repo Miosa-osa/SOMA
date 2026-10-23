@@ -30,6 +30,7 @@ pub(crate) fn entry(status: u16) -> Entry {
         lifetime_ms: None,
         reason: None,
         launch: None,
+        refusal: None,
     }
 }
 
