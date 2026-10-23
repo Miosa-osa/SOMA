@@ -43,6 +43,7 @@ const EGRESS_REFUSALS: [&str; 3] = [
 
 mod body;
 mod early;
+mod failure;
 
 // Its own and its sibling module's, so `early` reads them from `super::*` as it did when they
 // were written here.
@@ -203,10 +204,11 @@ impl Runner {
                 // The receipt comes back so the answer can report the phases
                 // the launch evidence already timed; the runner itself does
                 // not read it for anything else.
+                let started = Instant::now();
                 let receipt = facade
                     .launch(launch)
                     .map(|launched| launched.receipt)
-                    .map_err(|failure| failure_code(&failure))?;
+                    .map_err(|failure| failure::launch_failed(&owned, started, &failure))?;
                 if !sandboxes.holds(&owned) {
                     return Err(abandoned_launch(facade, &owned));
                 }
