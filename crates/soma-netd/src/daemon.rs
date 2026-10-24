@@ -397,6 +397,10 @@ pub fn serve(
         for _ in 0..PREPARE_WORKERS {
             scope.spawn(|| prepare_worker(&state));
         }
+        if let Some(config) = crate::snapshot::Config::from_env() {
+            let broker = &state.broker;
+            scope.spawn(move || crate::snapshot::run(broker, &config));
+        }
         loop {
             match listener.accept()? {
                 Accepted::Authorized(connection, peer) => {
