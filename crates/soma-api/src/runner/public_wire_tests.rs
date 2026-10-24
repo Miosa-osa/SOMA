@@ -168,6 +168,17 @@ fn a_create_that_named_a_network_echoes_it_and_one_that_did_not_is_unchanged() {
     };
     assert!(!plain(None).contains("network"));
     assert!(
-        plain(Some(NetworkEcho { egress: "denied" })).contains(r#""network":{"egress":"denied"}"#)
+        plain(Some(NetworkEcho {
+            egress: "denied",
+            windowed: None
+        }))
+        .contains(r#""network":{"egress":"denied"}"#)
+    );
+    assert!(
+        plain(Some(NetworkEcho {
+            egress: "denied",
+            windowed: Some(true)
+        }))
+        .contains(r#""network":{"egress":"denied","windowed":true}"#)
     );
 }

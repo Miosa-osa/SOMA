@@ -88,6 +88,14 @@ pub(in crate::backend::kvm::host) enum Call {
         instance_id: InstanceId,
         request: crate::ResizeRequest,
     },
+    /// Open or close the egress of the windowed machine this host holds.
+    ///
+    /// A variant of its own, so a host built before it refuses the line rather than reading it as
+    /// something else and leaving the egress as it was while the caller believes it changed.
+    SetEgress {
+        instance_id: InstanceId,
+        request: crate::EgressSetRequest,
+    },
     /// End the host, because nothing has addressed its machine for long enough.
     Shutdown,
 }
@@ -159,5 +167,7 @@ pub(in crate::backend::kvm::host) enum Answer {
     Resized(crate::ResizeOutcome),
     ResizeRefused(crate::ResizeFailure),
     TunnelRefused(crate::TunnelFailure),
+    EgressSet(crate::EgressSetOutcome),
+    EgressRefused(crate::EgressSetFailure),
     Refused(Refusal),
 }

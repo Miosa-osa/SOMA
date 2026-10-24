@@ -189,6 +189,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().resize(instance_id, request)
     }
 
+    fn set_egress(
+        &mut self,
+        instance_id: &soma::InstanceId,
+        request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        self.deref_mut().set_egress(instance_id, request)
+    }
+
     fn tunnel(
         &mut self,
         instance_id: &soma::InstanceId,

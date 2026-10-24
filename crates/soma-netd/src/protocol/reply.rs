@@ -45,6 +45,19 @@ pub enum Reply {
         /// Its generation.
         generation: CleanupGeneration,
     },
+    /// The egress of a bundle was set; this is the state now in force.
+    EgressSet {
+        /// The bundle.
+        bundle: BundleId,
+        /// Its generation.
+        generation: CleanupGeneration,
+        /// Whether guest egress is now permitted.
+        open: bool,
+        /// Whether DNS to the profile's resolvers is now permitted.
+        dns: bool,
+        /// Whether the ruleset differed from before the call.
+        changed: bool,
+    },
     /// A typed failure code from [`super::error_code`].
     Failed(u16),
 }
@@ -85,6 +98,18 @@ impl Reply {
                 out.extend_from_slice(bundle.as_bytes());
                 out.extend_from_slice(&generation.get().to_be_bytes());
             }
+            Self::EgressSet {
+                bundle,
+                generation,
+                open,
+                dns,
+                changed,
+            } => {
+                out.push(6);
+                out.extend_from_slice(bundle.as_bytes());
+                out.extend_from_slice(&generation.get().to_be_bytes());
+                out.extend_from_slice(&[u8::from(*open), u8::from(*dns), u8::from(*changed)]);
+            }
             Self::Failed(code) => {
                 out.push(0xff);
                 out.extend_from_slice(&code.to_be_bytes());
@@ -124,6 +149,15 @@ impl Reply {
                     .map_err(|_| Error::Protocol("bundle"))?,
                 generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
                     .map_err(|_| Error::Protocol("generation"))?,
+            }),
+            (Some(6), 24) if bytes[21..24].iter().all(|flag| *flag <= 1) => Ok(Self::EgressSet {
+                bundle: BundleId::new(array(&bytes[1..17]))
+                    .map_err(|_| Error::Protocol("bundle"))?,
+                generation: CleanupGeneration::new(u32::from_be_bytes(array(&bytes[17..21])))
+                    .map_err(|_| Error::Protocol("generation"))?,
+                open: bytes[21] == 1,
+                dns: bytes[22] == 1,
+                changed: bytes[23] == 1,
             }),
             (Some(0xff), 3) => Ok(Self::Failed(u16::from_be_bytes([bytes[1], bytes[2]]))),
             _ => Err(Error::Protocol("reply")),

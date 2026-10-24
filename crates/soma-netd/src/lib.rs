@@ -77,9 +77,9 @@ pub use transfer::{MAX_HEADER, TransferHeader};
 #[cfg(target_os = "linux")]
 pub use activate::{ActivationEvidence, activate};
 #[cfg(target_os = "linux")]
-pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
+pub use bundle::{AssignFailure, Assigned, Broker, EgressChange, SterileBundle};
 #[cfg(target_os = "linux")]
-pub use client::{BrokerClient, ClientError};
+pub use client::{BrokerClient, ClientError, EgressState};
 #[cfg(target_os = "linux")]
 pub use connect::{ConnectPlan, ConnectPorts};
 #[cfg(target_os = "linux")]

@@ -209,6 +209,20 @@ pub trait SandboxFacade {
         Err(ResizeFailure::Unavailable)
     }
 
+    /// Opens or closes the egress of a sandbox that was launched windowed, and reports what is
+    /// now in force. Anything other than an outcome means the egress may not be as asked.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure; a backend that holds no bundle to change is `Unavailable`.
+    fn set_egress(
+        &mut self,
+        _instance_id: &InstanceId,
+        _request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        Err(soma_local::EgressSetFailure::Unavailable)
+    }
+
     /// Performs one durable data volume operation through the host daemon.
     ///
     /// The volume store lives inside `soma-hostd` (ADR 0053 Step A), so a backend with no host
