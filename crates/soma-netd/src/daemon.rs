@@ -55,6 +55,7 @@ use std::{
 mod claim;
 mod connect;
 mod delivery;
+mod egress;
 
 use claim::{claim, fresh_id};
 use connect::connect;
@@ -547,6 +548,13 @@ fn handle_lifecycle(
             peer,
             (instance, bundle, generation, port),
         ),
+        Request::SetEgress {
+            instance,
+            bundle,
+            generation,
+            egress,
+            dns,
+        } => egress::set_egress(state, peer, (instance, bundle, generation, egress, dns)),
         Request::Reconcile => Reply::Failed(error_code(&Error::InvalidState("reconcile"))),
     }
 }
