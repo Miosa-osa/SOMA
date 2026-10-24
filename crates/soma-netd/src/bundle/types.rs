@@ -6,7 +6,7 @@ use soma_guest::{ActivationChallenge, ActivationReceipt, LaunchNetwork};
 
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, Error, LeasePair,
-    MacPair, PortReservation, PublishedPort, namespace::NetNamespace,
+    MacPair, NetworkIntent, PortReservation, PublishedPort, namespace::NetNamespace,
 };
 
 /// One prepared, unassigned bundle.
@@ -85,6 +85,9 @@ pub struct Assigned {
     pub(crate) activation: Option<ActivationChallenge>,
     pub(crate) activated: Option<ActivationReceipt>,
     pub(crate) active: bool,
+    /// The intent the sandbox ruleset enforces now. It starts as the admitted intent and changes
+    /// only through [`crate::Broker::set_egress`]; the ledger record keeps the admitted one.
+    pub(crate) current: NetworkIntent,
 }
 
 impl Assigned {

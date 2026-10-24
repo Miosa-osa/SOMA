@@ -190,3 +190,33 @@ fn an_absent_tool_is_a_typed_failure_rather_than_a_panic() {
         }
     );
 }
+
+#[test]
+fn only_a_rule_that_accepts_new_connections_from_the_tap_counts_as_a_way_out() {
+    let denied = r#"table inet soma_0a0b0c0d {
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		iifname "tap0" ether saddr != 02:01:02:03:04:05 drop
+		iifname "tap0" ip daddr @protected4 drop
+		iifname "tap0" tcp dport 25 drop
+		iifname "tap0" udp dport 53 drop
+		iifname "tap0" tcp dport 53 drop
+		iifname "vs0" oifname "tap0" ip daddr 10.200.0.5 ct state established,related accept
+	}
+}"#;
+    assert!(!super::chain_forwards(denied, "tap0"));
+
+    // The tool prints the states in its own order, and either order is a way out.
+    for states in ["new,established", "established,new"] {
+        let open = format!(
+            "{denied}\n\t\tiifname \"tap0\" oifname \"sv0a0b0c0d\" ct state {states} accept\n"
+        );
+        assert!(super::chain_forwards(&open, "tap0"), "{states}");
+    }
+    // A published port's inbound rule names `new` but arrives on the veth, so it is not one.
+    let published = "\t\tiifname \"vs0\" oifname \"tap0\" ip daddr 10.200.0.5 tcp dport 8080 ct state new,established accept";
+    assert!(!super::chain_forwards(published, "tap0"));
+    // Established-only on the tap is a reply path, not a way out.
+    let reply = "\t\tiifname \"tap0\" ip saddr 10.200.0.5 ct state established,related accept";
+    assert!(!super::chain_forwards(reply, "tap0"));
+}
