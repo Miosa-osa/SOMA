@@ -9,19 +9,18 @@
 //! Identity is recomputed from the bytes on every read rather than recorded beside them, so a
 //! tampered or truncated entry cannot present itself as a Generation it is not.
 
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{path::PathBuf, sync::Arc};
 
 use soma::GenerationId;
 use soma_generation::{ArtifactDescriptor, GenerationManifest, generation_manifest};
 
+mod cache;
 mod entry;
+mod prune;
 mod scan;
 
 pub(super) use entry::from_handoff;
+pub(crate) use prune::prune;
 pub(super) use scan::{find, preload, store_root};
 
 /// Names the root holding Generations prepared for this host.
@@ -43,7 +42,6 @@ const GENERATION_ID_BYTES: u64 = 72;
 
 type VerifiedArtifact = (ArtifactDescriptor, Arc<std::fs::File>);
 type CacheKey = (PathBuf, String);
-type GenerationCache = Mutex<HashMap<CacheKey, PreparedGeneration>>;
 
 /// Why a request cannot be served from the prepared root.
 #[derive(Clone, Debug, Eq, PartialEq)]
