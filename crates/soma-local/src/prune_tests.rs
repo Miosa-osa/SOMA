@@ -14,6 +14,7 @@ fn request(keep: &[&str], apply: bool) -> PruneRequest {
             .map(|reference| (*reference).to_owned())
             .collect(),
         apply,
+        keep_previous: true,
     }
 }
 
@@ -94,4 +95,15 @@ fn holds_name_each_kvm_generation_and_count_everything_unknown_as_unattributed()
     // A KVM record with no Generation and an undecodable record could each hold anything; a
     // record another backend wrote holds nothing in the prepared store.
     assert_eq!(holds.unattributed, vec![instance('b'), instance('d')]);
+}
+
+#[test]
+fn a_request_keeps_the_rollback_target_unless_it_says_otherwise() {
+    assert!(PruneRequest::default().keep_previous);
+    let empty: PruneRequest = serde_json::from_str("{}").expect("request");
+    assert!(empty.keep_previous);
+    let dropping: PruneRequest =
+        serde_json::from_str(r#"{"keep":["soma-default:G10-sr1"],"keep_previous":false}"#)
+            .expect("request");
+    assert!(!dropping.keep_previous);
 }

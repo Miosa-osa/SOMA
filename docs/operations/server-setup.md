@@ -206,6 +206,7 @@ curl -s -X POST -H 'x-soma-tenant: ops' http://127.0.0.1:18787/v1/prepared/prune
 
 The answer lists what is kept, what would be removed, and what is refused, each with a reason and its unshared bytes.
 Nothing changes until the same request is sent with `"apply": true`.
+Each family keeps its newest certified entry older than its pin as a rollback target; add `"keep_previous": false` to drop it in the families your `keep` list pins.
 [ADR 0054](../adr/0054-release-prepared-generations.md) states the keep rule and what refuses a removal.
 
 ## What this gives you, and what it does not

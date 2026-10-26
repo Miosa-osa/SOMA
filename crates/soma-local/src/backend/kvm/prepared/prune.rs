@@ -41,6 +41,7 @@ pub(super) struct Inputs {
     pub(super) head_root: PathBuf,
     pub(super) pins: BTreeMap<String, BTreeSet<PinSource>>,
     pub(super) apply: bool,
+    pub(super) keep_previous: bool,
 }
 
 /// Plans, and when asked applies, a prune of this host's prepared root.
@@ -64,6 +65,7 @@ pub(crate) fn prune(
         head_root: crate::backend::kvm::boot::head_root(),
         pins: pins(request),
         apply: request.apply,
+        keep_previous: request.keep_previous,
     };
     run(&inputs, generations(), instances)
 }
@@ -100,7 +102,7 @@ pub(super) fn run<T: Clone + Retained>(
     let (entries, leftovers) = survey::survey(&inputs.root)?;
     let holds = instances().map_err(PruneError::InstancesUnavailable)?;
     let holders = Holders::new(&holds, heads::named_heads(&inputs.head_root));
-    let mut decisions = policy::decide(&entries, &inputs.pins, &holders);
+    let mut decisions = policy::decide_with(&entries, &inputs.pins, &holders, inputs.keep_previous);
     // The dry run says what the applied run would find: a value held outside the cache is
     // refused here too, rather than only when a release is attempted.
     for (entry, decision) in entries.iter().zip(decisions.iter_mut()) {

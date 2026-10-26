@@ -22,7 +22,7 @@ pub use plan::{Pin, PinSource, PrunePlan, PruneReason, PrunedEntry};
 pub const MAX_KEEP: usize = 1024;
 
 /// One prune request.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PruneRequest {
     /// The references the caller still needs, kept whatever their age.
@@ -35,6 +35,28 @@ pub struct PruneRequest {
     /// Remove what the plan names. Without it the answer is the plan and nothing changes.
     #[serde(default)]
     pub apply: bool,
+    /// Keep each family's rollback target, its newest certified entry older than its pin.
+    ///
+    /// `false` drops that rollback target, but only in a family whose pin the keep list names: a
+    /// family pinned only by this host's own configuration, or not pinned at all, keeps it. A
+    /// pinned entry is never dropped, and anything still in use is still refused.
+    #[serde(default = "keeps_previous")]
+    pub keep_previous: bool,
+}
+
+impl Default for PruneRequest {
+    fn default() -> Self {
+        Self {
+            keep: Vec::new(),
+            apply: false,
+            keep_previous: keeps_previous(),
+        }
+    }
+}
+
+/// A request keeps each family's rollback target unless it says otherwise.
+const fn keeps_previous() -> bool {
+    true
 }
 
 impl PruneRequest {

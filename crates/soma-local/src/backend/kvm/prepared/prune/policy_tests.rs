@@ -8,7 +8,7 @@ use std::{
 
 use soma::{GenerationId, InstanceId};
 
-use super::{Decision, Holders, Verdict, decide, family};
+use super::{Decision, Holders, Verdict, decide, decide_with, family};
 use crate::backend::kvm::prepared::prune::{
     heads::NamedHead,
     survey::{State, Surveyed},
@@ -194,4 +194,99 @@ fn anything_unattributed_refuses_every_removal() {
     let unreadable = Holders::new(&InstanceHolds::default(), Err("heads: denied".to_owned()));
     let decisions = decide(&entries, &pinned(&[]), &unreadable);
     assert_eq!(decisions[0].reason, PruneReason::UnattributedHead);
+}
+
+#[test]
+fn the_rollback_target_is_kept_by_default_and_dropped_on_request() {
+    let entries = [
+        certified("soma-default:G10", 1, 40),
+        certified("soma-default:G10-b2", 2, 30),
+        certified("soma-default:G10-sr1", 3, 20),
+        certified("soma-default:G10-stepa", 4, 10),
+    ];
+    let pins = pinned(&["soma-default:G10-sr1"]);
+    assert_eq!(
+        reasons(&decide_with(&entries, &pins, &nobody(), true)),
+        [
+            (Verdict::Remove, PruneReason::Superseded),
+            (Verdict::Keep, PruneReason::PreviousInFamily),
+            (Verdict::Keep, PruneReason::Pinned),
+            (Verdict::Keep, PruneReason::NewerThanPinned),
+        ]
+    );
+    // Only the rollback target goes; the entry certified after the pin stays.
+    assert_eq!(
+        reasons(&decide_with(&entries, &pins, &nobody(), false)),
+        [
+            (Verdict::Remove, PruneReason::Superseded),
+            (Verdict::Remove, PruneReason::Superseded),
+            (Verdict::Keep, PruneReason::Pinned),
+            (Verdict::Keep, PruneReason::NewerThanPinned),
+        ]
+    );
+}
+
+#[test]
+fn a_pinned_entry_is_never_dropped_even_without_the_rollback() {
+    let entries = [
+        certified("soma-default:G10", 1, 40),
+        certified("soma-default:G10-b2", 2, 30),
+        certified("soma-default:G10-sr1", 3, 20),
+    ];
+    let pins = pinned(&["soma-default:G10-b2", "soma-default:G10-sr1"]);
+    assert_eq!(
+        reasons(&decide_with(&entries, &pins, &nobody(), false)),
+        [
+            (Verdict::Remove, PruneReason::Superseded),
+            (Verdict::Keep, PruneReason::Pinned),
+            (Verdict::Keep, PruneReason::Pinned),
+        ]
+    );
+}
+
+#[test]
+fn without_the_rollback_a_family_the_keep_list_does_not_name_keeps_its_own() {
+    let entries = [
+        certified("soma-browser-default:1", 1, 10),
+        certified("soma-browser-default:1-old", 2, 20),
+        certified("soma-default:G40-b2", 3, 30),
+        certified("soma-default:G40-sr1", 4, 20),
+    ];
+    // Pinned by the host's own prewarm reference, not by the keep list.
+    let pins = BTreeMap::from([(
+        "soma-browser-default:1".to_owned(),
+        BTreeSet::from([PinSource::PrewarmReference]),
+    )]);
+    assert_eq!(
+        reasons(&decide_with(&entries, &pins, &nobody(), false)),
+        [
+            (Verdict::Keep, PruneReason::Pinned),
+            (Verdict::Keep, PruneReason::PreviousInFamily),
+            (Verdict::Remove, PruneReason::Superseded),
+            (Verdict::Keep, PruneReason::PreviousInFamily),
+        ]
+    );
+}
+
+#[test]
+fn an_entry_in_use_is_still_refused_without_the_rollback() {
+    let entries = [
+        certified("soma-default:G20-b2", 2, 30),
+        certified("soma-default:G20-sr1", 3, 20),
+    ];
+    let holds = InstanceHolds {
+        held: vec![(
+            InstanceId::new("d".repeat(32)).expect("instance"),
+            generation(2),
+        )],
+        unattributed: Vec::new(),
+    };
+    let decisions = decide_with(
+        &entries,
+        &pinned(&["soma-default:G20-sr1"]),
+        &Holders::new(&holds, Ok(Vec::new())),
+        false,
+    );
+    assert_eq!(decisions[0].verdict, Verdict::Refuse);
+    assert_eq!(decisions[0].reason, PruneReason::HasInstances);
 }
