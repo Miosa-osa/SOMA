@@ -30,6 +30,9 @@ Entries reflink each other on XFS, so `du` over-counts what a removal frees.
    The family keeps every pinned entry and its newest unpinned entry.
    When that newest unpinned entry was certified after the family's newest pinned one (`newer_than_pinned`), the family also keeps its newest unpinned entry certified no later than that pin (`previous_in_family`), so both a rollback target and a freshly captured candidate survive.
    Every older unpinned certified entry is `superseded`.
+   A request may set `"keep_previous": false` (default `true`) to drop the `previous_in_family` rollback target, but only in a family whose pin its `keep` list names; a family pinned only by the host's own configuration, or not pinned at all, keeps it.
+   It never drops a pinned or `newer_than_pinned` entry, and every refusal in item 4 still applies.
+   It exists for families no policy launches any more, where a rollback target only holds disk (host-11's `-b2` set on 2026-10-26).
    Where the rule is ambiguous it keeps more: an uncertified entry (it may still be being certified), an entry that cannot be read, a link, and two entries claiming one reference are all kept.
 4. A removal is refused while anything may hold the entry.
    - `has_instances`: a durable record that is not terminal names the entry's Generation.

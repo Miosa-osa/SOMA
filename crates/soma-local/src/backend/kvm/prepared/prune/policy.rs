@@ -3,7 +3,8 @@
 //! The rule, decided by the SOMA owner (ADR 0054):
 //!
 //! 1. Keep every pinned entry.
-//! 2. Keep the newest previous certified entry of each reference family.
+//! 2. Keep the newest previous certified entry of each reference family, unless the request asks
+//!    to drop it (`keep_previous: false`) and its keep list names a pin of that family.
 //! 3. Refuse to remove anything an Instance or a head still holds.
 //!
 //! Where the rule is ambiguous it keeps more, not less: an entry that is not certified, cannot be
@@ -155,11 +156,25 @@ pub(super) fn family(reference: &str) -> String {
     }
 }
 
-/// Decides every entry, in the order given.
+/// Decides every entry, in the order given, keeping every family's rollback target.
+#[cfg(test)]
 pub(super) fn decide(
     entries: &[Surveyed],
     pins: &BTreeMap<String, BTreeSet<PinSource>>,
     holders: &Holders,
+) -> Vec<Decision> {
+    decide_with(entries, pins, holders, true)
+}
+
+/// Decides every entry, in the order given.
+///
+/// With `keep_previous` false, a family whose pin the request's keep list names loses its
+/// rollback target; a family pinned only by the host's own configuration, or not at all, keeps it.
+pub(super) fn decide_with(
+    entries: &[Surveyed],
+    pins: &BTreeMap<String, BTreeSet<PinSource>>,
+    holders: &Holders,
+    keep_previous: bool,
 ) -> Vec<Decision> {
     let mut claims: BTreeMap<&str, usize> = BTreeMap::new();
     for reference in entries
@@ -204,18 +219,37 @@ pub(super) fn decide(
         decisions.push(decision);
     }
     for members in families.values_mut() {
-        keep_previous(entries, members, &mut decisions, holders);
+        let keep_rollback = keep_previous || !named_in_keep(entries, members, pins);
+        settle_family(entries, members, &mut decisions, holders, keep_rollback);
     }
     decisions
 }
 
+/// Whether the request's keep list names a pinned entry of this family.
+fn named_in_keep(
+    entries: &[Surveyed],
+    members: &[(usize, std::time::SystemTime, bool)],
+    pins: &BTreeMap<String, BTreeSet<PinSource>>,
+) -> bool {
+    members.iter().any(|&(index, _, pinned)| {
+        pinned
+            && entries[index]
+                .reference
+                .as_deref()
+                .and_then(|reference| pins.get(reference))
+                .is_some_and(|sources| sources.contains(&PinSource::Keep))
+    })
+}
+
 /// Keeps the newest unpinned entry of one family, and the previous one when that is newer than
-/// every pinned entry; everything older is removed unless something holds it.
-fn keep_previous(
+/// every pinned entry; everything older is removed unless something holds it. Without
+/// `keep_rollback` the previous one is not kept either.
+fn settle_family(
     entries: &[Surveyed],
     members: &mut [(usize, std::time::SystemTime, bool)],
     decisions: &mut [Decision],
     holders: &Holders,
+    keep_rollback: bool,
 ) {
     // Newest first; equal times fall back to the reference so the order never depends on the
     // filesystem's.
@@ -239,7 +273,7 @@ fn keep_previous(
         decisions[index] = if newer_than_pinned && !newer_kept {
             newer_kept = true;
             Decision::keep(PruneReason::NewerThanPinned, Vec::new())
-        } else if !newer_than_pinned && !previous_kept {
+        } else if !newer_than_pinned && !previous_kept && keep_rollback {
             previous_kept = true;
             Decision::keep(PruneReason::PreviousInFamily, Vec::new())
         } else {

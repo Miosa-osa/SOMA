@@ -77,6 +77,7 @@ impl Host {
             head_root: self.scratch.path().join("heads"),
             pins,
             apply,
+            keep_previous: true,
         };
         run(&inputs, &self.cache, instances).expect("the prune plans")
     }
