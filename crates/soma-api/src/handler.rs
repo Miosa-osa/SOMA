@@ -1,3 +1,4 @@
+mod prepared;
 mod prewarm;
 mod support;
 mod volume;
@@ -125,6 +126,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
         // Served by the connection before a facade is opened, through `handle_prewarm`. This
         // function serves sandboxes, so only that one path can change what is prepared.
         Route::Prewarm(_) => Err(ApiError::not_found()),
+        Route::PrunePrepared => prepared::prune(facade, operation, body),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;

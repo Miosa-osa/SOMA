@@ -80,7 +80,7 @@ fn clone_or_copy(
 ///
 /// An operator names a reflink-capable directory to get the fast path; the default is the
 /// ordinary temporary directory, which usually cannot reflink and therefore copies.
-fn head_root() -> PathBuf {
+pub(in crate::backend::kvm) fn head_root() -> PathBuf {
     std::env::var_os("SOMA_HEAD_DIR").map_or_else(
         || std::env::temp_dir().join("soma-kvm-heads"),
         PathBuf::from,

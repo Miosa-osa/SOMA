@@ -1,5 +1,5 @@
 use soma::{
-    Engine, InstanceId, ManagedFailure, MemoryStateStore, StateRecord, StateStore,
+    Engine, GenerationId, InstanceId, ManagedFailure, MemoryStateStore, StateRecord, StateStore,
     StateStoreFailureKind,
 };
 
@@ -64,6 +64,24 @@ fn listing_fails_whole_on_an_undecodable_record_unless_the_caller_asks_for_a_rep
     assert_eq!(listing.entries()[0].instance_id(), &instance());
     assert_eq!(listing.unreadable().len(), 1);
     assert_eq!(listing.unreadable()[0].instance_id(), &other_instance());
+}
+
+/// A prune decides whether a Generation is still in use from the listing, so an entry names the
+/// Generation its durable record says it launched from.
+#[test]
+fn a_listed_sandbox_names_the_generation_it_was_launched_from() {
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::with_state_store(backend, MemoryStateStore::new());
+    engine
+        .launch_machine(launch_request(operation('1'), instance()))
+        .expect("launch");
+
+    let entries = engine.list_machines().expect("listing");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        entries[0].generation_id().map(GenerationId::as_str),
+        Some(format!("sha256:{}", "3".repeat(64)).as_str()),
+    );
 }
 
 #[test]

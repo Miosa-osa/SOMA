@@ -194,6 +194,20 @@ On Linux x86_64, `capture_snapshot` installs the captured objects, runs certific
 The public KVM resolver refuses Candidate-only entries and independently re-verifies the ready Generation and every bound artifact before machine creation.
 There is no environment-variable bypass for Candidate launch.
 
+## Releasing Generations a host no longer needs
+
+Do not delete entries from the prepared store by hand: `soma-api` holds every entry open.
+Ask it for a plan instead, naming every reference the control plane may still launch:
+
+```sh
+curl -s -X POST -H 'x-soma-tenant: ops' http://127.0.0.1:18787/v1/prepared/prune \
+  -d '{"keep": ["soma-default:G20-sr1", "node:22@1024"]}'
+```
+
+The answer lists what is kept, what would be removed, and what is refused, each with a reason and its unshared bytes.
+Nothing changes until the same request is sent with `"apply": true`.
+[ADR 0054](../adr/0054-release-prepared-generations.md) states the keep rule and what refuses a removal.
+
 ## What this gives you, and what it does not
 
 **What works today.** Hardware-isolated sandboxes restored from a certified snapshot and driven through the command line, MCP, or HTTP surfaces on a compatible KVM host, including a bounded prepared-machine HTTP path.

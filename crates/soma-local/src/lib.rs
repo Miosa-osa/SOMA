@@ -6,6 +6,7 @@ mod config;
 mod error;
 mod file_store;
 mod prewarm;
+mod prune;
 mod resize;
 mod runtime;
 mod tunnel;
@@ -17,6 +18,10 @@ pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hostin
 pub use prewarm::{
     MAX_TARGET_COUNT, MAX_TARGETS, PrewarmError, PrewarmStatus, PrewarmTarget, Source,
     TargetStatus, UncoveredDemand,
+};
+pub use prune::{
+    InstanceHolds, MAX_KEEP, Pin, PinSource, PruneError, PrunePlan, PruneReason, PruneRequest,
+    PrunedEntry, pin_launch_reference,
 };
 pub use resize::{
     CpuResize, DimensionState, MemoryResize, ResizeFailure, ResizeOutcome, ResizeRequest,
@@ -128,6 +133,39 @@ pub const fn prewarm_status() -> PrewarmStatus {
         targets: Vec::new(),
         uncovered_demand: Vec::new(),
     }
+}
+
+/// Plans, and when asked applies, the release of prepared Generations this host no longer needs.
+///
+/// `instances` reads what the durable store says holds a Generation. It is asked once before the
+/// plan and, when the plan is applied, once more after the entries are out of the root, so a
+/// launch that recorded itself in between puts its entry back instead of losing it (ADR 0054).
+///
+/// # Errors
+///
+/// Returns the named refusal: a request that could remove what its caller needs, a store that
+/// cannot be read, holders that cannot be read, or another prune in progress.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub fn prune_prepared(
+    request: &PruneRequest,
+    instances: &mut dyn FnMut() -> Result<InstanceHolds, String>,
+) -> Result<PrunePlan, PruneError> {
+    request.validate()?;
+    backend::prune_prepared(request, instances)
+}
+
+/// Non-KVM targets have no prepared store.
+///
+/// # Errors
+///
+/// The request's own refusal, and otherwise [`PruneError::Unsupported`].
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+pub fn prune_prepared(
+    request: &PruneRequest,
+    _instances: &mut dyn FnMut() -> Result<InstanceHolds, String>,
+) -> Result<PrunePlan, PruneError> {
+    request.validate()?;
+    Err(PruneError::Unsupported)
 }
 
 /// A durable machine host is a Linux `x86_64` capability, and no other target can serve one.
