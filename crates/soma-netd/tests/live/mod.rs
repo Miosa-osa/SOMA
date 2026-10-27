@@ -6,6 +6,7 @@ pub mod codec;
 pub mod connect;
 pub mod control;
 pub mod delivery;
+pub mod egress;
 pub mod frames;
 pub mod load;
 pub mod publication;
