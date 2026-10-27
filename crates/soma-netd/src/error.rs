@@ -139,6 +139,9 @@ pub enum Drift {
     LinkAlreadyUp,
     LinkNotRaised,
     PublicationRulesetPresent,
+    /// The sandbox ruleset lets the guest open connections although the bundle's recorded base
+    /// intent denies them and no change of egress is recorded.
+    RulesetNotBase,
 }
 
 /// Why a descriptor transfer was refused.

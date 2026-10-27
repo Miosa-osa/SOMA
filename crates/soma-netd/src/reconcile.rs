@@ -70,6 +70,23 @@ impl ReconcileReport {
 ///
 /// Returns a ledger read failure or a kernel listing failure.
 pub fn reconcile(broker: &Broker) -> Result<ReconcileReport, Error> {
+    reconcile_with(broker, &|_, _| false)
+}
+
+/// Compares the ledger with the kernel, including what the sandbox ruleset of a bundle claimed
+/// with no egress actually lets through.
+///
+/// `window_open` says whether the caller has recorded an opened egress for a bundle. A bundle
+/// whose base intent denies egress, whose live ruleset lets connections out, and for which no
+/// window is recorded is drifted: egress is open and nobody asked for it.
+///
+/// # Errors
+///
+/// Returns a ledger read failure or a kernel listing failure.
+pub fn reconcile_with(
+    broker: &Broker,
+    window_open: &dyn Fn(BundleId, CleanupGeneration) -> bool,
+) -> Result<ReconcileReport, Error> {
     let pins = NetNamespace::list(broker.namespace_dir())?;
     let links = link::list_links()?;
     let tables = nft::list_tables()?;
@@ -98,6 +115,8 @@ pub fn reconcile(broker: &Broker) -> Result<ReconcileReport, Error> {
             Disposition::Drifted(Drift::HostVethMissing)
         } else if !table {
             Disposition::Drifted(Drift::HostRulesetMissing)
+        } else if base_is_breached(broker, &record, &names, window_open) {
+            Disposition::Drifted(Drift::RulesetNotBase)
         } else {
             Disposition::Consistent
         };
@@ -133,6 +152,33 @@ pub fn reconcile(broker: &Broker) -> Result<ReconcileReport, Error> {
         })
         .collect();
     Ok(report)
+}
+
+/// Whether the live ruleset of a bundle claimed with no egress lets connections out although no
+/// window is recorded for it.
+///
+/// A bundle whose base intent forwards is not examined: its ruleset is what it was claimed with.
+/// One whose ruleset cannot be read is breached too, because "could not tell" is not "closed".
+fn base_is_breached(
+    broker: &Broker,
+    record: &crate::AssignmentRecord,
+    names: &BundleNames,
+    window_open: &dyn Fn(BundleId, CleanupGeneration) -> bool,
+) -> bool {
+    if record.intent.egress().forwards() {
+        return false;
+    }
+    let pin = broker.namespace_dir().join(record.bundle.short_hex());
+    let live = NetNamespace::open(&pin).and_then(|namespace| {
+        namespace.within(|| {
+            let text = nft::chain_text(&names.sandbox_table, "forward")?;
+            Ok(nft::chain_forwards(&text, &names.tap))
+        })
+    });
+    match live {
+        Ok(open) => open && !window_open(record.bundle, record.generation),
+        Err(_) => true,
+    }
 }
 
 /// What [`reap_unassigned`] did with the kernel objects of bundles no ledger record owns.
