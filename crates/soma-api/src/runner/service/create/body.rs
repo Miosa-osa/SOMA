@@ -36,6 +36,7 @@ impl Runner {
             name: None,
             network: params.egress.map(|egress| public_wire::NetworkEcho {
                 egress: egress.word(),
+                windowed: params.windowed.then_some(true),
             }),
             run: ran.as_ref(),
             runner_url: &self.runner_url(self.config.host_tag),

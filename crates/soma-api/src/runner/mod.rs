@@ -35,6 +35,7 @@ pub mod shipper;
 pub mod starting;
 pub mod tls;
 pub mod transport;
+pub mod windows;
 
 use std::{io, net::SocketAddr, sync::Arc, thread, time::Duration};
 

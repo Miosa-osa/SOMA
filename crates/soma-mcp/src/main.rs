@@ -28,6 +28,17 @@ const MACHINE_HOST: &str = "machine-host";
 
 #[tokio::main]
 async fn main() {
+    if soma_version::version_requested(std::env::args_os()) {
+        let speaks = soma_version::Speaks {
+            api: None,
+            protocols: soma_local::PROTOCOLS,
+        };
+        print!(
+            "{}",
+            soma_version::report("soma-mcp", &soma_version::build!(), &speaks)
+        );
+        return;
+    }
     let mut invocation = std::env::args_os().skip(1);
     if invocation.next().as_deref() == Some(std::ffi::OsStr::new(MACHINE_HOST)) {
         let socket = invocation.next().unwrap_or_default();

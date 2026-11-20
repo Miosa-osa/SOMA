@@ -5,6 +5,9 @@ mod command;
 mod create;
 #[cfg(test)]
 mod early_tests;
+mod egress;
+#[cfg(test)]
+mod egress_flow_tests;
 #[cfg(test)]
 mod egress_tests;
 mod exec_contract;
@@ -31,6 +34,7 @@ mod outcome_tests;
 mod params;
 mod ready;
 mod relay;
+mod response;
 mod routing;
 #[cfg(test)]
 mod scope_tests;
@@ -59,6 +63,7 @@ use crate::runner::{
     public_wire::{self, PlatformError},
     rate_limit::RateLimiter,
     sandboxes::Sandboxes,
+    windows::Windows,
 };
 use crate::tunnel::TunnelTable;
 
@@ -114,57 +119,12 @@ pub struct RunnerResponse {
     pub tunnel: Option<TunnelHandoff>,
 }
 
-impl RunnerResponse {
-    fn new(status: u16, body: Vec<u8>) -> Self {
-        Self {
-            status,
-            headers: Vec::new(),
-            body,
-            stream: None,
-            journal: None,
-            tunnel: None,
-        }
-    }
-
-    fn platform(error: &PlatformError) -> Self {
-        Self::new(error.status, error.body())
-    }
-
-    fn refusal(status: u16, code: &str) -> Self {
-        Self::new(status, public_wire::refusal(code))
-    }
-
-    /// The `503` that tells the SDK to retry on the next runner at once.
-    /// `429 runtime_busy`: this runner is at its admission cap; the SDK retries the next IP.
-    fn runtime_busy() -> Self {
-        Self::refusal(429, "runtime_busy").header("retry-after", "0".to_owned())
-    }
-
-    /// `503 feed_stale`: this runner's key table is too old to admit a create.
-    fn feed_stale() -> Self {
-        Self::refusal(503, "feed_stale").header("retry-after", "0".to_owned())
-    }
-
-    /// `503`: this runner could not claim a prepared sandbox.
-    ///
-    /// One constructor for the whole service, because a create's own failure and the same
-    /// failure read later by a call on a sandbox whose launch failed after its create had
-    /// answered must be the same answer, byte for byte.
-    fn create_unavailable() -> Self {
-        Self::new(503, public_wire::create_unavailable()).header("retry-after", "1".to_owned())
-    }
-
-    fn header(mut self, name: &'static str, value: String) -> Self {
-        self.headers.push((name, value));
-        self
-    }
-}
-
 /// The public runner: routing, admission, and the facade calls behind each route.
 pub struct Runner {
     config: Arc<RunnerConfig>,
     keys: Arc<KeyTable>,
     sandboxes: Arc<Sandboxes>,
+    windows: Windows,
     limiter: RateLimiter,
     backend: Backend,
     journal: Journal,
@@ -188,6 +148,7 @@ impl Runner {
             admission: tokio::sync::Semaphore::new(config.admission()),
             keys: Arc::new(KeyTable::new()),
             sandboxes: Arc::new(Sandboxes::new()),
+            windows: Windows::default(),
             limiter: RateLimiter::new(),
             config,
             backend,
@@ -242,6 +203,9 @@ impl Runner {
             | Route::Destroy(_)
             | Route::Extend(_)
             | Route::List
+            | Route::EgressOpen(_)
+            | Route::EgressClose(..)
+            | Route::Network(_)
             | Route::Tunnel(..)
             | Route::Files(..)
             | Route::Forward(_) => {}
@@ -275,6 +239,14 @@ impl Runner {
             Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,
             Route::Files(id, call) => self.files(&principal, id, call, request, timing).await,
+            Route::EgressOpen(id) => {
+                self.open_egress(&principal, id, &request.body, timing)
+                    .await
+            }
+            Route::EgressClose(id, window) => {
+                self.close_egress(&principal, id, window, timing).await
+            }
+            Route::Network(id) => self.network(&principal, id, timing).await,
             Route::Forward(forward) => {
                 self.forward(&principal, forward, &request.body, timing)
                     .await
@@ -287,6 +259,11 @@ impl Runner {
         let age = millis(self.keys.feed_age(Instant::now()));
         // The prepared pool's depth is not observable through the facade; it is reported as
         // unknown rather than as a number that would mean something else.
-        RunnerResponse::new(200, public_wire::health(self.config.host_tag, age, None))
+        let records = crate::retention::last_sweep()
+            .map(|sweep| u64::try_from(sweep.records).unwrap_or(u64::MAX));
+        RunnerResponse::new(
+            200,
+            public_wire::health(self.config.host_tag, age, None, records),
+        )
     }
 }

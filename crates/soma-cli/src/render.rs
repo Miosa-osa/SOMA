@@ -70,6 +70,8 @@ fn render_human(
         }
         Some(ResultBody::Version(report)) => {
             writeln!(stdout, "soma {}", report.version)?;
+            writeln!(stdout, "commit: {}", report.commit)?;
+            writeln!(stdout, "source: {}", report.source)?;
             writeln!(stdout, "contract: {}", report.envelope_schema)?;
             writeln!(
                 stdout,

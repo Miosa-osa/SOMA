@@ -25,19 +25,30 @@ pub fn misdirected(runner_url: &str) -> Vec<u8> {
 }
 
 /// The `/healthz` body, in the field order contract C2 writes it.
+///
+/// `state_records` follows the C2 fields: the durable records the state store held after the
+/// last terminal record sweep, or null before the first one. A number that keeps growing is a
+/// store that is filling, seen before a create fails on it (SOMA#127).
 #[must_use]
-pub fn health(tag: char, feed_age_ms: u64, pool_ready: Option<u64>) -> Vec<u8> {
+pub fn health(
+    tag: char,
+    feed_age_ms: u64,
+    pool_ready: Option<u64>,
+    state_records: Option<u64>,
+) -> Vec<u8> {
     #[derive(Serialize)]
     struct Health {
         ok: bool,
         tag: char,
         feed_age_ms: u64,
         pool_ready: Option<u64>,
+        state_records: Option<u64>,
     }
     encode(&Health {
         ok: true,
         tag,
         feed_age_ms,
         pool_ready,
+        state_records,
     })
 }

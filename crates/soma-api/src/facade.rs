@@ -1,7 +1,8 @@
 use soma::{
     BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
     FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineListing,
-    MachineState, ManagedFailure, PtyAnswer, PtyMachineRequest, StopMachineRequest, TerminalStatus,
+    MachineRelease, MachineState, ManagedFailure, PtyAnswer, PtyMachineRequest, StopMachineRequest,
+    TerminalCensus, TerminalStatus,
 };
 
 use std::os::unix::net::UnixStream;
@@ -160,6 +161,21 @@ pub trait SandboxFacade {
     /// Returns the facade's typed managed failure.
     fn list(&mut self) -> Result<MachineListing, ManagedFailure>;
 
+    /// Counts this service's durable records and names the ones that reached a terminal phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    fn terminal_census(&mut self) -> Result<TerminalCensus, ManagedFailure>;
+
+    /// Releases the durable record of one sandbox that reached a terminal phase, and keeps any
+    /// other.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    fn release(&mut self, instance_id: &InstanceId) -> Result<MachineRelease, ManagedFailure>;
+
     /// Gracefully stops one managed sandbox.
     ///
     /// # Errors
@@ -207,6 +223,20 @@ pub trait SandboxFacade {
         _request: ResizeRequest,
     ) -> Result<ResizeOutcome, ResizeFailure> {
         Err(ResizeFailure::Unavailable)
+    }
+
+    /// Opens or closes the egress of a sandbox that was launched windowed, and reports what is
+    /// now in force. Anything other than an outcome means the egress may not be as asked.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure; a backend that holds no bundle to change is `Unavailable`.
+    fn set_egress(
+        &mut self,
+        _instance_id: &InstanceId,
+        _request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        Err(soma_local::EgressSetFailure::Unavailable)
     }
 
     /// Performs one durable data volume operation through the host daemon.
