@@ -27,6 +27,7 @@ pub const MAX_WARM_BYTES: u64 = 1024 * 1024;
 pub const MAX_WARM_SPANS: usize = 32;
 
 /// How much of a range is read at a time while warming.
+#[cfg(unix)]
 const WARM_CHUNK: usize = 64 * 1024;
 
 /// One range of a head a guest read, as offset and length in bytes.

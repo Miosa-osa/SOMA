@@ -1,3 +1,10 @@
+//! The admission ledger's tests.
+//!
+//! Unix only: the ledger admits a blob by a kernel stamp a unix host gives, and elsewhere
+//! `Stamp::of` is `None` and every admission hashes.
+
+#![cfg(unix)]
+
 use std::sync::atomic::Ordering;
 
 use crate::{

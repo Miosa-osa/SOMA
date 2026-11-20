@@ -15,8 +15,8 @@
 //! and addresses a Machine by identity from any process, so the encoding never exists twice.
 //!
 //! The jail launcher, the storage clone path, and the network broker are consumed through
-//! the [`WorkerLauncher`] and [`ResourceBroker`] seams; the in-process implementations in
-//! [`testing`] make every policy testable without a kernel.
+//! the [`WorkerLauncher`] and [`ResourceBroker`] seams; the in-process implementations in the
+//! unix-only `testing` module make every policy testable without a kernel.
 
 #![deny(unsafe_code)]
 

@@ -18,4 +18,5 @@ mod stale;
 mod support;
 mod tenancy;
 mod timing;
+#[cfg(unix)]
 mod tunnel;

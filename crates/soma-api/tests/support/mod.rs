@@ -227,6 +227,7 @@ fn request_with_headers(method: &str, path: &str, headers: &str, body: &str) -> 
 ///
 /// The returned end is what the facade hands the service; the thread behind the other end plays
 /// the broker's connected socket to the guest's service.
+#[cfg(unix)]
 #[must_use]
 pub fn echo_guest(port: u16) -> std::os::unix::net::UnixStream {
     use std::io::{Read, Write};

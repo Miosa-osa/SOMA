@@ -176,9 +176,16 @@ pub(super) fn sync_record(directory: &Path, _record: &Path) -> Result<(), StateS
     sync_root(directory)
 }
 
+/// Makes a record's own bytes durable by flushing its file.
+///
+/// Windows flushes a file only through a handle that may write it, so the record is opened
+/// for writing there; it is never written through that handle.
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 pub(super) fn sync_record(_directory: &Path, record: &Path) -> Result<(), StateStoreFailure> {
-    File::open(record)
+    OpenOptions::new()
+        .read(true)
+        .write(cfg!(windows))
+        .open(record)
         .and_then(|file| file.sync_data())
         .map_err(|_| unavailable())
 }

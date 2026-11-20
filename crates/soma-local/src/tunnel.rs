@@ -32,7 +32,7 @@ pub(crate) fn tunnel_machine(
 }
 
 /// Only the KVM backend hosts machines whose guests have a network of their own.
-#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+#[cfg(all(unix, not(all(target_os = "linux", target_arch = "x86_64"))))]
 pub(crate) fn tunnel_machine(
     _directory: &std::path::Path,
     _instance: &soma::InstanceId,

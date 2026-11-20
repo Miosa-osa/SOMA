@@ -179,6 +179,7 @@ impl LocalRuntime {
     /// # Errors
     ///
     /// Returns the typed [`crate::TunnelFailure`].
+    #[cfg(unix)]
     pub fn tunnel_machine(
         &self,
         instance: &soma::InstanceId,

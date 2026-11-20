@@ -24,11 +24,13 @@ pub(crate) struct Engine {
     pub(crate) executes: AtomicUsize,
     pub(crate) destroys: AtomicUsize,
     pub(crate) inspects: AtomicUsize,
+    #[cfg(unix)]
     pub(crate) tunnels: AtomicUsize,
     /// What the next resizes answer; `None` is a backend that cannot resize.
     pub(crate) resize_outcome: Mutex<Option<soma_api::ResizeOutcome>>,
     pub(crate) resizes: Mutex<Vec<soma_api::ResizeRequest>>,
     /// Why the next tunnels are refused; `None` connects them to an echoing guest.
+    #[cfg(unix)]
     pub(crate) tunnel_failure: Mutex<Option<soma_api::TunnelFailure>>,
     /// The guest's files, by path; directories are only the prefixes of the paths under them.
     pub(crate) files: Mutex<std::collections::BTreeMap<Vec<u8>, Vec<u8>>>,
@@ -57,6 +59,7 @@ impl SandboxFacade for FakeFacade {
             .ok_or(soma_api::ResizeFailure::Unavailable)
     }
 
+    #[cfg(unix)]
     fn tunnel(
         &mut self,
         _instance_id: &soma::InstanceId,
@@ -159,6 +162,7 @@ pub(crate) fn opener(engine: &Arc<Engine>) -> FacadeOpener {
 
 /// The guest's service as the broker's connected socket reaches it: speaks first, then echoes
 /// until told to `quit`.
+#[cfg(unix)]
 fn echo_guest(port: u16) -> std::os::unix::net::UnixStream {
     use std::io::{Read, Write};
     let (service, guest) = std::os::unix::net::UnixStream::pair().expect("a socket pair");

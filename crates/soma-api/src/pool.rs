@@ -212,7 +212,7 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         &mut self,
         instance_id: &soma::InstanceId,
         port: u16,
-    ) -> Result<std::os::unix::net::UnixStream, soma_local::TunnelFailure> {
+    ) -> Result<crate::tunnel::GuestStream, soma_local::TunnelFailure> {
         self.deref_mut().tunnel(instance_id, port)
     }
 

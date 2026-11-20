@@ -5,7 +5,7 @@ use soma::{
     TerminalCensus, TerminalStatus,
 };
 
-use std::os::unix::net::UnixStream;
+use crate::tunnel::GuestStream;
 
 pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
 
@@ -206,7 +206,7 @@ pub trait SandboxFacade {
         &mut self,
         _instance_id: &InstanceId,
         _port: u16,
-    ) -> Result<UnixStream, TunnelFailure> {
+    ) -> Result<GuestStream, TunnelFailure> {
         Err(TunnelFailure::Unavailable)
     }
 
