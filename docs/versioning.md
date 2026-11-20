@@ -1,5 +1,19 @@
 # SOMA versioning and releases
 
+## The three versions
+
+SOMA has three kinds of version, and each has one owner in the code.
+
+| Version | Owner | Definition |
+| --- | --- | --- |
+| Release | `VERSION`, `[workspace.package]` in `Cargo.toml`, read in code as `soma_version::RELEASE` | The Semantic Versioning number of one tagged source tree, shared by every crate and every binary built from it. |
+| API | `soma_api::API_VERSION` | The `MAJOR.MINOR` of the HTTP surface `soma-api` serves under `/v1`, which every response names and a client may require. |
+| Protocol | one constant per protocol, in the crate that owns its encoding | The version of one wire protocol between two SOMA processes, which every binary that speaks it lists. |
+
+The release version says which source a binary came from, the API version says what a client of the service may rely on, and the protocol versions say which processes can talk to each other.
+They move independently: a release can leave the API and every protocol unchanged, and a protocol can change without changing the API.
+[The API surface](protocol/api-surface.md) records every API version and its compatibility rule.
+
 ## Version line
 
 SOMA follows Semantic Versioning 2.0.0.
@@ -21,6 +35,28 @@ A release must reject incompatible artifacts and messages rather than guessing, 
 
 An internal Rust module, private trait, unpublished test adapter, or diagnostic field is not a stable public contract unless the release documentation says otherwise.
 Changing an implementation detail does not require a major release when externally observable semantics and supported artifacts remain compatible.
+
+## Protocol versions
+
+Every wire protocol between two SOMA processes has one named constant in the crate that owns its encoding, and every binary lists the ones it speaks in `--version`.
+A frame or message a build does not understand is refused, never guessed at.
+
+| Name | Between | Owner | Where the number travels | Skew rule |
+| --- | --- | --- | --- | --- |
+| `guest-application` | the host runtime and the guest agent | `soma_guest::APPLICATION_PROTOCOL_VERSION` | the header of every frame | Exact. The agent is built into each Generation, so a new number needs Generations rebuilt with the new agent, and a host that must keep running older Generations has to accept both numbers before any Generation carries the new one. |
+| `guest-api` | the host runtime and the guest agent | `soma_guest::GUEST_API_LEVEL` | the agent's answer to the level probe of ADR 0051 | Either side may be newer: a host sends a level 2 request only to a guest that answered at least 2. |
+| `launch-page` | the host runtime and the guest agent | `soma_guest::LAUNCH_PAGE_SCHEMA_VERSION` | the launch page itself | Exact: the page layout is part of what a Generation is certified with. |
+| `hostd` | the local runtime and `soma-hostd` | `soma_hostd::protocol::PROTOCOL_VERSION` | not carried | Lockstep: a host runs the daemon and its clients from one release, and an unknown frame is answered with the `Protocol` failure code. |
+| `netd` | the local runtime or `soma-hostd`, and `soma-netd` | `soma_netd::PROTOCOL_VERSION` | not carried | Lockstep, as for `hostd`. |
+| `vmm-control` | the jail supervisor and the `soma-vmm` worker | `soma_vmm::control::CONTROL_PROTOCOL_VERSION` | not carried | Lockstep: the worker is executed from the installed release for each launch. |
+| `runner` | the public runner in `soma-api` and the control plane | `soma_api::runner::control_plane::RUNNER_PROTOCOL_VERSION` | the `soma-runner-protocol` header of every feed and journal request | The control plane may be newer and must keep serving every version still installed on a host; a runner skips and logs a feed event it does not know, so new event kinds are additive. |
+
+The exchange between a client and its resident machine host has no number on purpose.
+A resident machine host outlives an upgrade of the binary that started it, so a newer client talking to an older host is the normal case.
+The exchange therefore grows only by new tagged variants, which an older host refuses, and an existing variant never changes shape.
+A change that cannot follow that rule needs an architecture decision and a versioned exchange.
+
+Stored artifacts such as Generation manifests, snapshots, the machine state store, and execution receipts carry their own format versions beside their encoders, and a release that does not know a version rejects the artifact.
 
 ## `1.0.0` admission gates
 
@@ -52,6 +88,52 @@ A mismatch fails the release before an artifact is published.
 The release workflow never changes the source version itself.
 A reviewed source commit establishes the version first, and the immutable tag selects that exact commit for validation and packaging.
 GitHub-generated release notes provide the change history so agents do not manually edit a generated changelog.
+
+## Build identity
+
+Every shipped binary answers `--version`, given as its only argument, with the same report.
+
+```text
+soma-api 1.0.0-alpha.2 (2ec3789c4f1a 2026-11-20)
+release: 1.0.0-alpha.2
+commit: 2ec3789c4f1a8e9d0b1c2d3e4f5a6b7c8d9e0f1a
+commit-short: 2ec3789c4f1a
+commit-date: 2026-11-20T18:04:11Z
+source: clean
+profile: release
+target: x86_64-unknown-linux-gnu
+api: 1.0
+protocol.guest-application: 1
+protocol.guest-api: 2
+protocol.launch-page: 3
+protocol.hostd: 1
+protocol.netd: 1
+protocol.runner: 1
+```
+
+The binaries are `soma`, `soma-mcp`, `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, and `soma-guest-agent`.
+The first line is for people and the `key: value` lines after it are a stable contract, which `soma_version::ParsedReport` reads back.
+`api` appears only for `soma-api`, and each binary lists only the protocols it speaks.
+A running `soma-api` reports the same facts at `GET /v1/version`.
+`source` is `clean` when every file Git does not ignore matched the commit, `dirty` when one did not, and `unknown` when the build was not told.
+A dirty build also marks its first line, as in `(2ec3789c4f1a-dirty 2026-11-20)`.
+`soma version --format json` carries the same facts in the `soma.cli.v1` envelope.
+
+The commit reaches a binary through `scripts/build-identity.sh`, which runs a build command with `SOMA_BUILD_COMMIT`, `SOMA_BUILD_COMMIT_DATE`, and `SOMA_BUILD_SOURCE` set from the local repository.
+
+```sh
+scripts/build-identity.sh cargo build --release --locked -p soma-api
+```
+
+The script reads no network and no clock: the date is the commit's own committer date, so one clean commit always produces the same report.
+`soma_version::build!()` reads the three variables in the binary's own crate, and Cargo recompiles only those crates when they change.
+A build script would have followed the commit too, but every crate that depends on it would then recompile on every commit, the host daemons and the local runtime included.
+A binary built without the script reports its commit as `unknown`, which is true, rather than a commit it cannot prove.
+The release workflow and `scripts/build-soma.sh` always build through the script.
+
+The guest agent is the one exception and never records a commit.
+It is built into every Generation and a Generation is addressed by its content, so a commit inside the agent would give every new commit a new Generation identity even when the agent had not changed.
+The release manifest ties the agent's digest to the commit of its release instead.
 
 ## Support and backports
 

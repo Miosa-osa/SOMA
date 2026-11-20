@@ -1,6 +1,7 @@
 mod boot;
 mod claim;
 mod dispatch;
+mod egress;
 mod evidence;
 mod file;
 mod fit;
@@ -31,6 +32,7 @@ use super::clock::OperationClocks;
 use host::Role;
 pub(crate) use host::open_tunnel;
 pub(crate) use host::resize as resize_machine;
+pub(crate) use host::set_egress as set_egress_machine;
 use network::BrokerConfiguration;
 use pool::{MachineKey, MachinePool};
 use runtime::Ownership;
@@ -216,6 +218,11 @@ impl KvmBackend {
 
     pub(super) const fn kind() -> BackendKind {
         BackendKind::LinuxKvm
+    }
+
+    /// Whether this host can give a launch `policy`'s network; see [`network::serves`].
+    pub(crate) fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        network::serves(self.broker.as_deref(), policy)
     }
 }
 

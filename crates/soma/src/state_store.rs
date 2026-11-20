@@ -164,6 +164,23 @@ pub trait StateStore: Send {
         replacement: StateRecord,
     ) -> Result<StateRevision, StateStoreFailure>;
 
+    /// Removes a document only when the durable revision equals `expected`, so the Instance ID
+    /// reads as absent afterwards and may be created again.
+    ///
+    /// The store does not judge which records may go: the facade releases only a terminal one,
+    /// whose machine is already cleaned up (ADR 0055). The revision check is what stops a release
+    /// that judged one document from removing a newer one written since.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Conflict` when the key is absent or its revision is not `expected`, or another
+    /// typed storage failure.
+    fn release(
+        &mut self,
+        instance_id: &InstanceId,
+        expected: StateRevision,
+    ) -> Result<(), StateStoreFailure>;
+
     /// Reports every Instance ID this store currently holds a record for.
     ///
     /// The identities are returned rather than the documents, because a caller enumerating the

@@ -61,6 +61,8 @@ pub(super) struct Live {
     pub(super) cpu_limit: u16,
     /// The memory the machine booted with, in MiB.
     pub(super) memory_mib: u64,
+    /// Whether this machine holds a bundle whose egress may be opened and closed.
+    pub(super) windowed: bool,
 }
 
 /// What a launch carries besides the Generation and the shape.
@@ -205,6 +207,7 @@ impl KvmBackend {
             vcpus: booted_vcpus,
             cpu_limit: booted_vcpus,
             memory_mib: boot_mib,
+            windowed,
         });
         // The answer states the machine as it is, so a Launch that cannot give the limits it
         // was asked for ends here instead of reporting a shape the machine does not have.

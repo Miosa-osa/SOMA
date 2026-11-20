@@ -61,6 +61,21 @@ impl StateStore for MemoryStateStore {
         Ok(revision)
     }
 
+    fn release(
+        &mut self,
+        instance_id: &InstanceId,
+        expected: StateRevision,
+    ) -> Result<(), StateStoreFailure> {
+        let mut records = self.records.lock().map_err(|_| unavailable())?;
+        match records.get(instance_id) {
+            Some(current) if current.revision() == expected => {
+                records.remove(instance_id);
+                Ok(())
+            }
+            _ => Err(conflict()),
+        }
+    }
+
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
         self.records
             .lock()

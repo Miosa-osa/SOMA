@@ -7,7 +7,7 @@
 //! than a request a caller can invent.
 
 use serde::Deserialize;
-use soma::{Capabilities, MachineShape};
+use soma::{Capabilities, MachineShape, NetworkPolicy};
 
 /// The idle timeout a create gets when neither the request nor the tenant names one.
 const DEFAULT_TIMEOUT_SECONDS: u64 = crate::runner::idle::DEFAULT_IDLE_TIMEOUT_SECONDS;
@@ -74,6 +74,40 @@ impl LaunchConfig {
                 .clone()
                 .with_capabilities(Capabilities::isolated().with_network_access());
         }
+    }
+
+    /// The first key whose machines would need a network this host cannot give, asking `serves`
+    /// about every network this configuration makes a default or allows a create to ask for.
+    ///
+    /// `public_egress` is on unless an operator says off, so a configuration written before the
+    /// key existed gives its default shape the public internet. On hosts with no egress broker
+    /// that failed every create with `unsupported_backend` for four hours (SOMA#56). A host that
+    /// cannot give the network now refuses the configuration when it starts, by this key.
+    pub fn unservable_network(
+        &self,
+        serves: impl Fn(&NetworkPolicy) -> bool,
+    ) -> Option<&'static str> {
+        let policy = self.shape.capabilities().network_policy();
+        if !serves(policy) {
+            let defaulted = Capabilities::isolated().with_network_access();
+            return Some(
+                if self.public_egress && policy == defaulted.network_policy() {
+                    "launch.public_egress"
+                } else {
+                    "launch.shape"
+                },
+            );
+        }
+        if let Some(large) = &self.large
+            && !serves(large.machine_shape().capabilities().network_policy())
+        {
+            return Some("launch.large.public_egress");
+        }
+        let unrestricted = Capabilities::isolated().with_unrestricted_network();
+        if self.allow_unrestricted_egress && !serves(unrestricted.network_policy()) {
+            return Some("launch.allow_unrestricted_egress");
+        }
+        None
     }
 }
 
@@ -179,6 +213,55 @@ mod tests {
         let mut off = config(false, isolated_shape());
         off.apply_egress_default();
         assert!(!connected(&off.shape), "off keeps the isolated machine");
+    }
+
+    /// A host like the V1 runner hosts of SOMA#56: it serves an isolated machine and nothing else.
+    fn isolated_only(policy: &NetworkPolicy) -> bool {
+        policy == Capabilities::isolated().network_policy()
+    }
+
+    #[test]
+    fn a_default_that_needs_a_network_this_host_cannot_give_is_named_at_load() {
+        let mut defaulted = config(true, isolated_shape());
+        defaulted.apply_egress_default();
+        assert_eq!(
+            defaulted.unservable_network(isolated_only),
+            Some("launch.public_egress")
+        );
+        assert_eq!(defaulted.unservable_network(|_| true), None);
+
+        let mut off = config(false, isolated_shape());
+        off.apply_egress_default();
+        assert_eq!(off.unservable_network(isolated_only), None);
+
+        let composed = isolated_shape()
+            .with_capabilities(Capabilities::isolated().with_unrestricted_network());
+        assert_eq!(
+            config(true, composed).unservable_network(isolated_only),
+            Some("launch.shape")
+        );
+    }
+
+    #[test]
+    fn a_large_shape_and_allowed_unrestricted_egress_are_checked_too() {
+        let mut large = config(false, isolated_shape());
+        large.large = Some(LargeShape {
+            vcpu_count: DEFAULT_LARGE_VCPU_COUNT,
+            memory_mib: DEFAULT_LARGE_MEMORY_MIB,
+            storage_mib: DEFAULT_LARGE_STORAGE_MIB,
+            public_egress: true,
+        });
+        assert_eq!(
+            large.unservable_network(isolated_only),
+            Some("launch.large.public_egress")
+        );
+
+        let mut unrestricted = config(false, isolated_shape());
+        unrestricted.allow_unrestricted_egress = true;
+        assert_eq!(
+            unrestricted.unservable_network(isolated_only),
+            Some("launch.allow_unrestricted_egress")
+        );
     }
 
     #[test]

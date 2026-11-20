@@ -2,6 +2,7 @@ use std::{env, net::TcpListener, path::PathBuf, process, sync::Arc, time::Durati
 
 use soma_api::{
     ApiError, CREATE_ADMISSION_ENV, CreateAdmission, FacadePool, LocalFacade, SandboxFacade,
+    retention,
     runner::{self, RunnerConfig},
     serve_with_tunnels,
     tunnel::{TunnelPolicy, TunnelTable},
@@ -28,7 +29,55 @@ const POOL_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 const MACHINE_HOST: &str = "machine-host";
 
 fn main() {
+    if soma_version::version_requested(env::args_os()) {
+        print!("{}", version_report());
+        return;
+    }
     process::exit(run());
+}
+
+/// Starts the public runner on facades leased from the request pool, or answers the exit status.
+///
+/// A runner whose machines would need a network this host cannot give is refused first, by the
+/// key that asked for it, so the configuration fails here rather than every create (SOMA#56).
+fn start_runner(config: RunnerConfig, pool: &FacadePool<LocalFacade>) -> Result<(), i32> {
+    let Some(lease) = pool.acquire_timeout(POOL_WAIT_TIMEOUT) else {
+        eprintln!("soma-api: the local sandbox runtime could not be opened");
+        return Err(69);
+    };
+    if let Some(key) = config
+        .launch
+        .unservable_network(|policy| lease.serves_network(policy))
+    {
+        eprintln!(
+            "soma-api: {key} gives the runner's machines a network this host cannot serve; set \
+             it to false, or give this host an egress broker"
+        );
+        return Err(78);
+    }
+    drop(lease);
+    let runner_pool = pool.clone();
+    let opener: runner::FacadeOpener = Arc::new(move || {
+        runner_pool
+            .acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+            .ok_or_else(runtime_busy)
+    });
+    runner::spawn(config, opener).map(drop).map_err(|error| {
+        eprintln!("soma-api: the public runner could not start: {error}");
+        74
+    })
+}
+
+/// The report `soma-api --version` prints.
+fn version_report() -> String {
+    let api = soma_api::API_VERSION.to_string();
+    let protocols = soma_api::version::protocols();
+    let speaks = soma_version::Speaks {
+        api: Some(&api),
+        protocols: &protocols,
+    };
+    soma_version::report("soma-api", &soma_version::build!(), &speaks)
 }
 
 fn run() -> i32 {
@@ -106,18 +155,13 @@ fn run() -> i32 {
         eprintln!("soma-api: the local sandbox runtime could not be opened");
         return 69;
     };
-    if let Some(config) = runner_config {
-        let runner_pool = pool.clone();
-        let opener: runner::FacadeOpener = Arc::new(move || {
-            runner_pool
-                .acquire_timeout(POOL_WAIT_TIMEOUT)
-                .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
-                .ok_or_else(runtime_busy)
-        });
-        if let Err(error) = runner::spawn(config, opener) {
-            eprintln!("soma-api: the public runner could not start: {error}");
-            return 74;
-        }
+    if let Some(config) = runner_config
+        && let Err(code) = start_runner(config, &pool)
+    {
+        return code;
+    }
+    if !start_record_sweep(pool.clone()) {
+        return 71;
     }
     eprintln!(
         "soma-api: listening on {} (at most {} concurrent creates)",
@@ -128,11 +172,27 @@ fn run() -> i32 {
         pool.acquire_timeout(POOL_WAIT_TIMEOUT)
             .ok_or_else(runtime_busy)
     };
-    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels).is_err() {
+    let build = soma_version::build!();
+    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels, build).is_err() {
         eprintln!("soma-api: the listener stopped accepting connections");
         return 74;
     }
     0
+}
+
+/// Starts the sweep that releases terminal records (SOMA#127).
+///
+/// Records are released on the same rule whichever surface created them, so the sweep runs with
+/// or without the runner, on facades leased from the request pool.
+fn start_record_sweep(pool: FacadePool<LocalFacade>) -> bool {
+    let started = retention::spawn(move || {
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+    });
+    if started.is_err() {
+        eprintln!("soma-api: the terminal record sweep could not start");
+    }
+    started.is_ok()
 }
 
 const fn runtime_busy() -> ApiError {
