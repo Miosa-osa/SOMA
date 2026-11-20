@@ -21,6 +21,12 @@ The first stable release will be `1.0.0`.
 Development builds leading to that release use `1.0.0-alpha.N` and `1.0.0-rc.N` versions so an unfinished sandbox cannot be confused with the stable release.
 The current source version is recorded in both `VERSION` and the Cargo workspace package metadata.
 
+Before `1.0.0`:
+
+- `1.0.0-alpha.N` names a tagged development release while any admission gate below is still open, and each new tag increments `N`.
+- `1.0.0-rc.N` names a release candidate once every gate has evidence at one revision, and only fixes land between candidates.
+- `1.0.0` is a candidate that needed no further fix.
+
 After `1.0.0`:
 
 - A backward-compatible defect or security fix increments the patch version, such as `1.0.1`.
@@ -88,6 +94,100 @@ A mismatch fails the release before an artifact is published.
 The release workflow never changes the source version itself.
 A reviewed source commit establishes the version first, and the immutable tag selects that exact commit for validation and packaging.
 GitHub-generated release notes provide the change history so agents do not manually edit a generated changelog.
+
+A release publishes these files, all built from the tagged commit:
+
+| File | What it is |
+| --- | --- |
+| `soma-vX.Y.Z-source.tar.gz` | The committed tree, from `git archive`, byte-identical for one commit. |
+| `soma-host-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` | `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, and the static `soma-guest-agent`. |
+| `soma-vX.Y.Z-TARGET.tar.gz` | The `soma` command line and `soma-mcp` for Linux x86_64, macOS arm64, and Windows x86_64. |
+| `soma-vX.Y.Z-manifest.json` | The release manifest described below. |
+| `SHA256SUMS` | The SHA-256 of every other file. |
+
+Each bundle also holds `BUILD-INFO.txt` with the tag, target, commit, and toolchain, the license files, and its own `SHA256SUMS`.
+The workspace crates are not published to a registry: the public crates depend on crates that are not published, and the source archive is what ties a release to its source.
+
+## Cutting a release
+
+A release is cut from `main` in four steps.
+
+1. Move the version in a pull request: `scripts/set-version.sh 1.0.0-alpha.2` rewrites `VERSION`, the workspace version, every requirement between workspace crates, and `Cargo.lock`, then runs the version contract.
+2. Prove the release before tagging. On Ubuntu 24.04 x86_64, `SOMA_RELEASE_TAG=v1.0.0-alpha.2 scripts/check.sh release` runs the Linux validation, builds the source part, the host bundle, and the Linux client bundle, assembles them with the manifest, and verifies the result as a deployer would. The `Release bundle` workflow run by hand on the branch does the same for every target and publishes nothing.
+3. Tag the merged commit with an annotated tag and push the tag:
+
+   ```sh
+   git switch main && git pull --ff-only
+   git tag -a v1.0.0-alpha.2 -m "SOMA v1.0.0-alpha.2"
+   git push origin v1.0.0-alpha.2
+   ```
+
+4. The tag runs the `Release bundle` workflow, which checks that the tag names the commit it built, builds every target, assembles and verifies the release, and creates a draft GitHub release with generated notes, marked as a pre-release when the version has a pre-release part. Publish the draft after reading it: `gh release edit v1.0.0-alpha.2 --draft=false`.
+
+Anyone can verify a downloaded release with the same verifier the workflow uses, from a checkout of the tag:
+
+```sh
+scripts/verify-release-artifacts.sh release DOWNLOAD_DIR v1.0.0-alpha.2
+```
+
+## Release manifest
+
+`soma-vX.Y.Z-manifest.json` is the one machine-readable record of a release, schema `soma.release-manifest.v1`.
+It is written by `scripts/assemble-release.sh` from the binaries' own `--version` reports, so it cannot claim a commit or a protocol a binary does not report.
+
+```json
+{
+  "schema": "soma.release-manifest.v1",
+  "release": "1.0.0-alpha.2",
+  "tag": "v1.0.0-alpha.2",
+  "prerelease": true,
+  "commit": "2ec3789c4f1a8e9d0b1c2d3e4f5a6b7c8d9e0f1a",
+  "commit_date": "2026-11-20T18:04:11Z",
+  "rust": "1.98.0",
+  "api_version": "1.0",
+  "artifacts": [
+    { "file": "soma-host-v1.0.0-alpha.2-x86_64-unknown-linux-gnu.tar.gz", "sha256": "...", "size": 12345678 }
+  ],
+  "binaries": [
+    {
+      "name": "soma-api",
+      "archive": "soma-host-v1.0.0-alpha.2-x86_64-unknown-linux-gnu.tar.gz",
+      "path": "soma-host-v1.0.0-alpha.2-x86_64-unknown-linux-gnu/soma-api",
+      "sha256": "...",
+      "size": 14658384,
+      "release": "1.0.0-alpha.2",
+      "commit": "2ec3789c4f1a8e9d0b1c2d3e4f5a6b7c8d9e0f1a",
+      "reports_commit": true,
+      "source": "clean",
+      "profile": "release",
+      "target": "x86_64-unknown-linux-gnu",
+      "api_version": "1.0",
+      "protocols": { "guest-application": 1, "guest-api": 2, "launch-page": 3, "hostd": 1, "netd": 1, "runner": 1 }
+    }
+  ]
+}
+```
+
+`artifacts` lists every published file except the manifest and `SHA256SUMS`, and `binaries` lists every binary inside every bundle.
+`reports_commit` is `false` only for the guest agent, which records no commit; its `commit` is still the release commit it was built from.
+
+A deployer pins from the manifest instead of a bare checksum:
+
+1. Choose the binary by `name` and `target`, and keep its `sha256`, `size`, `release`, `commit`, `api_version`, and `protocols` beside the pin.
+2. Download `SHA256SUMS`, the manifest, and the named `archive`, and check the archive against both.
+3. Extract `path` from the archive and refuse it unless its SHA-256 and byte size equal the pinned ones.
+4. After installing, read `soma-api --version` or `GET /v1/version` on the host and refuse the host unless it reports the pinned `release` and `commit`.
+
+## Reading the version of a running host
+
+The binary on disk answers `--version`, and a running `soma-api` answers `GET /v1/version` with the same facts plus the API version.
+
+```sh
+soma-api --version
+curl -s -H 'x-soma-tenant: operator' http://127.0.0.1:8787/v1/version
+```
+
+Every response of the service also names its API version in `soma-api-version`, so a client learns it from any call.
 
 ## Build identity
 
