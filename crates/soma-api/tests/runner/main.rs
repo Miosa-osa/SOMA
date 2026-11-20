@@ -9,6 +9,7 @@ mod clients;
 mod contract;
 mod control_plane;
 mod facade;
+mod files;
 mod forwarding;
 mod lifecycle;
 mod resources;
