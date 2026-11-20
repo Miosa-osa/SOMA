@@ -103,6 +103,10 @@ pub enum Refusal {
     Unauthorized,
     /// The key is known but its tenant may not use the runner (403).
     Forbidden,
+    /// The feed has not written the live table since this runner started, so no key can be
+    /// judged yet (503, retryable). Read as unknown, a valid key would look revoked to its client
+    /// (SOMA#154).
+    NotLoaded,
 }
 
 /// The identity a request acts under once its key is accepted.

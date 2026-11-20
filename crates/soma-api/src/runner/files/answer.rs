@@ -183,6 +183,7 @@ const fn kind_name(kind: FileKind) -> &'static str {
         FileKind::File | FileKind::Other => "file",
     }
 }
+<<<<<<< HEAD
 
 /// The `Content-Disposition` a download is sent with, as the platform's `send_raw/3` builds it:
 /// the file's own name, keeping only ASCII letters, digits, `_`, `.`, `-`, and spaces, at most
@@ -196,3 +197,5 @@ pub(crate) fn attachment(name: &str) -> String {
     let name = if kept.is_empty() { "download" } else { &kept };
     format!("attachment; filename=\"{name}\"")
 }
+=======
+>>>>>>> origin/r3/soma-unified

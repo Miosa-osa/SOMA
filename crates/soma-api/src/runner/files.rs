@@ -15,12 +15,18 @@ pub(crate) mod call;
 pub(crate) mod error;
 pub(crate) mod guest;
 pub(crate) mod mode;
+<<<<<<< HEAD
 pub(crate) mod multipart;
+=======
+>>>>>>> origin/r3/soma-unified
 pub(crate) mod params;
 pub(crate) mod path;
 pub(crate) mod plan;
 pub(crate) mod run;
+<<<<<<< HEAD
 pub(crate) mod upload;
+=======
+>>>>>>> origin/r3/soma-unified
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -31,7 +37,10 @@ pub(crate) use guest::{OnFacade, Stop};
 pub(crate) use params::{Params, ParamsRefused};
 pub(crate) use plan::{MAX_JSON_FILE_BYTES, Plan};
 pub(crate) use run::{Answer, refusal};
+<<<<<<< HEAD
 pub(crate) use upload::MAX_UPLOAD_BODY_BYTES;
+=======
+>>>>>>> origin/r3/soma-unified
 
 /// The largest body a JSON write may carry: the largest file it moves, as base64, and room for
 /// the path and the JSON around it.
