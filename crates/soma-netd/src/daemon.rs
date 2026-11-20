@@ -55,19 +55,22 @@ use std::{
 mod claim;
 mod connect;
 mod delivery;
+mod egress;
 mod instance_lock;
 mod pacing;
+mod teardown;
 
 use claim::{claim, fresh_id};
 use connect::connect;
 use delivery::deliver;
 use instance_lock::InstanceLock;
 use pacing::{Permits, Traffic};
+use teardown::release_request;
 
 use crate::{
     Accepted, Assigned, Broker, BundleId, Capability, CleanupGeneration, ControlAuthority,
     ControlListener, Error, InstanceId, MAX_FRAME, OperationId, PeerIdentity, Reply, Request, Step,
-    SterileBundle, activate, error_code, reconcile, release, release_record,
+    SterileBundle, activate, error_code, reconcile, release,
 };
 
 /// Connections served at once; one more is closed so a flood cannot exhaust threads.
@@ -77,8 +80,6 @@ const MAX_CONNECTIONS: usize = 1024;
 const PREPARE_WORKERS: usize = 4;
 /// Teardowns allowed to run at once.
 const MAX_TEARDOWNS: usize = 8;
-/// The longest a release waits for the request path to go quiet before it runs anyway.
-const RELEASE_PATIENCE: Duration = Duration::from_millis(500);
 /// Pool depth under which a worker builds even while the request path is busy, because a
 /// claim that finds the pool empty builds a bundle inline and that is slower than contention.
 const LOW_WATER: usize = 8;
@@ -447,69 +448,14 @@ fn handle_lifecycle(
             peer,
             (instance, bundle, generation, port),
         ),
+        Request::SetEgress {
+            instance,
+            bundle,
+            generation,
+            egress,
+            dns,
+        } => egress::set_egress(state, peer, (instance, bundle, generation, egress, dns)),
         Request::Reconcile => Reply::Failed(error_code(&Error::InvalidState("reconcile"))),
-    }
-}
-
-fn release_request(state: &State, peer: PeerIdentity, slot: Slot) -> Reply {
-    let (bundle, generation) = slot;
-    state.traffic.wait_quiet(RELEASE_PATIENCE);
-    let _turn = state.teardowns.acquire();
-    let result = match state.disown((bundle, generation)) {
-        Some(owned) if owned.peer != peer.uid() => {
-            state.own(owned);
-            Err(Error::Unauthorized("assignment owner"))
-        }
-        Some(owned) => {
-            let operation = operation_of(&owned.assigned);
-            let record = owned.assigned.record().clone();
-            let evidence = release(&state.broker, owned.assigned);
-            log_release(&record, &evidence);
-            if evidence.complete {
-                state.forget(operation);
-                state.recycle(&record);
-            }
-            Ok(evidence)
-        }
-        None => match state.broker.ledger().lookup(bundle, generation) {
-            Ok(entry) if entry.record.owner != peer.uid() => {
-                Err(Error::Unauthorized("assignment owner"))
-            }
-            Ok(entry) => {
-                let evidence = release_record(&state.broker, &entry.record);
-                if evidence.complete {
-                    state.forget((entry.record.instance, entry.record.operation));
-                    if !entry.released {
-                        state.recycle(&entry.record);
-                    }
-                }
-                Ok(evidence)
-            }
-            Err(error) => Err(error),
-        },
-    };
-    match result {
-        Ok(evidence) => Reply::Released {
-            complete: evidence.complete,
-        },
-        Err(error) => Reply::Failed(error_code(&error)),
-    }
-}
-
-/// Says why a release was not verified complete; reconciliation owns what is left.
-fn log_release(record: &crate::AssignmentRecord, evidence: &crate::ReleaseEvidence) {
-    if let Some(usage) = evidence.usage {
-        eprintln!(
-            "soma-netd: usage bundle={} bytes_out={} bytes_in={} packets_out={} packets_in={}",
-            record.bundle.short_hex(),
-            usage.bytes_out,
-            usage.bytes_in,
-            usage.packets_out,
-            usage.packets_in
-        );
-    }
-    if !evidence.complete {
-        eprintln!("soma-netd: release incomplete: {evidence:?}");
     }
 }
 
