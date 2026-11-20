@@ -219,6 +219,11 @@ impl KvmBackend {
     pub(super) const fn kind() -> BackendKind {
         BackendKind::LinuxKvm
     }
+
+    /// Whether this host can give a launch `policy`'s network; see [`network::serves`].
+    pub(crate) fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        network::serves(self.broker.as_deref(), policy)
+    }
 }
 
 /// The pool target this process can actually make useful.

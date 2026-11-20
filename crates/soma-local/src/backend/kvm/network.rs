@@ -23,7 +23,7 @@ use soma_netd::ClientError;
 use crate::TunnelFailure;
 use soma_vmm::sandbox::PendingActivation;
 
-pub(super) use self::intent::BrokerConfiguration;
+pub(super) use self::intent::{BrokerConfiguration, serves};
 pub(super) use self::lease::Lease;
 use super::identity::LaunchIdentity;
 
