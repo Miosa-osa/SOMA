@@ -58,7 +58,10 @@ mod publication;
 use build::BuildInputs;
 
 const DEFAULT_MEMORY_MIB: u64 = 1024;
-const DEFAULT_STORAGE_MIB: u64 = 10240;
+/// The writable size an unstated `storage_mib` builds: the largest class every compiler profile
+/// admits, so the default shape (one vCPU, 1024 MiB, profile version 1) can be certified.
+const DEFAULT_STORAGE_MIB: u64 = 4096;
+const MIB: u64 = 1024 * 1024;
 const DEFAULT_TTL_SECONDS: u64 = 3600;
 /// The guest RAM above which the shape targets compiler profile version 2.
 const V2_MEMORY_MIB: u64 = 3 * 1024;
@@ -187,9 +190,39 @@ fn startup() -> Result<StartupBehavior, Box<dyn Error>> {
     Ok(StartupBehavior::readiness_only().with_capture_warm(CaptureWarmPlan::new(commands)?))
 }
 
+/// Refuses a writable size the selected profile cannot certify, naming the sizes it can.
+///
+/// The build narrows its profile to the one class the revision declares, so an inadmissible size
+/// compiles and is refused only by certification, after the image was exported and the whole
+/// Generation built (SOMA#150). The profile is the table: nothing here lists sizes of its own.
+fn admit_storage(profile: &CompilerProfile, args: &Args) -> Result<(), String> {
+    if args
+        .storage_mib
+        .checked_mul(MIB)
+        .is_some_and(|bytes| profile.overlay_capacities.contains(&bytes))
+    {
+        return Ok(());
+    }
+    let admitted: Vec<String> = profile
+        .overlay_capacities
+        .iter()
+        .map(|bytes| (bytes / MIB).to_string())
+        .collect();
+    Err(format!(
+        "storage_mib {} is not a writable size compiler profile version {} admits for {} vCPU \
+         and {} MiB; it admits {} MiB",
+        args.storage_mib,
+        profile.policy_version,
+        args.vcpus,
+        args.memory_mib,
+        admitted.join(", ")
+    ))
+}
+
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     let startup = startup()?;
     let (shape, profile) = shape(args)?;
+    admit_storage(&profile, args)?;
     let policy_version = profile.policy_version;
     let prepared = build::prepare(&args.inputs, profile, |normalized, _store| {
         let workload = normalized.workload();
@@ -217,6 +250,18 @@ fn main() {
             std::process::exit(2);
         }
     };
+    // `SOMA_PREPARE_CHECK=1` answers only whether the shape can be built, before any input is
+    // read, so a script can refuse a size before it exports an image.
+    if std::env::var_os("SOMA_PREPARE_CHECK").is_some_and(|value| !value.is_empty()) {
+        if let Err(error) = shape(&args)
+            .map_err(|error| error.to_string())
+            .and_then(|(_, profile)| admit_storage(&profile, &args))
+        {
+            eprintln!("prepare refused: {error}");
+            std::process::exit(2);
+        }
+        return;
+    }
     if let Err(error) = run(&args) {
         eprintln!("prepare failed: {error}");
         std::process::exit(1);
@@ -224,19 +269,5 @@ fn main() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::persistence_from;
-
-    #[test]
-    fn the_persistence_policy_is_asked_for_rather_than_implied() {
-        // Absent, blank, and the two false spellings are all "no"; the two true spellings are
-        // "yes"; anything else is refused rather than read as one of them.
-        for value in [None, Some(""), Some("0"), Some("false")] {
-            assert_eq!(persistence_from(value), Ok(false), "value {value:?}");
-        }
-        for value in [Some("1"), Some("true")] {
-            assert_eq!(persistence_from(value), Ok(true), "value {value:?}");
-        }
-        assert!(persistence_from(Some("yes")).is_err());
-    }
-}
+#[path = "prepare_generation/tests.rs"]
+mod tests;
