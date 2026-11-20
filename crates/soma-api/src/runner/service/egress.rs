@@ -10,7 +10,7 @@
 //! - A close that is not confirmed is retried by the sweep, and is reported as a failure, never
 //!   as done.
 
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use serde_json::{Value, json};
 use soma_local::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
@@ -21,23 +21,21 @@ use crate::runner::{
     keys::Principal,
     public_wire::PlatformError,
     sandboxes::{Held, Unavailable},
-    windows::{MAX_WINDOW, Opening, Window, valid_window_id},
+    windows::{Opening, Window, valid_window_id},
 };
 
 use super::{Runner, RunnerResponse, Timing, outcome};
+
+mod sweep;
+mod wire;
+
+use wire::{failure_error, flip_failed, json_body, not_windowed, parse_open, window_body};
 
 /// What one call to the host about a sandbox's egress came back with.
 enum Flip {
     Done(EgressSetOutcome),
     Failed(EgressSetFailure),
     Busy,
-}
-
-/// A window request, after validation.
-struct OpenRequest {
-    window_id: String,
-    ttl: Duration,
-    dns: bool,
 }
 
 impl Runner {
@@ -228,42 +226,6 @@ impl Runner {
         )
     }
 
-    /// Closes every window that has run out. A close the host does not confirm is tried again on
-    /// the next sweep; a sandbox that is gone has nothing left to close.
-    pub(super) async fn close_expired_windows(&self) {
-        for id in self.windows.expired(Instant::now()) {
-            let Some(instance) = id.instance_id() else {
-                self.windows.forget(&id);
-                continue;
-            };
-            match self.flip(&instance, CLOSED).await {
-                Flip::Done(_) => self.windows.closed(&id),
-                Flip::Failed(EgressSetFailure::NotFound) => self.windows.forget(&id),
-                Flip::Failed(failure) => {
-                    eprintln!(
-                        "soma-api: runner could not close the egress window of {id}: {failure:?}"
-                    );
-                }
-                Flip::Busy => {}
-            }
-        }
-    }
-
-    /// After a restart the runner does not know which windows were open, and the timers died with
-    /// it. Asking every recovered sandbox to deny closes whatever was open; a sandbox that holds
-    /// no window answers that there is nothing to change, which is ignored. The ones that
-    /// answered are windowed, and are recorded as such.
-    pub(super) async fn close_recovered_windows(&self, recovered: &[SandboxId]) {
-        for id in recovered {
-            let Some(instance) = id.instance_id() else {
-                continue;
-            };
-            if let Flip::Done(_) = self.flip(&instance, CLOSED).await {
-                self.windows.created(id, "denied", true);
-            }
-        }
-    }
-
     /// Ask the host to deny this sandbox's egress, and record it only if the host confirmed.
     async fn shut(&self, id: &SandboxId, instance: &soma::InstanceId) {
         match self.flip(instance, CLOSED).await {
@@ -322,181 +284,3 @@ const CLOSED: EgressSetRequest = EgressSetRequest {
     open: false,
     dns: false,
 };
-
-fn parse_open(body: &[u8]) -> Result<OpenRequest, PlatformError> {
-    let invalid = |field: &str, detail: &str| PlatformError::invalid_param(field, detail);
-    let document: Value = serde_json::from_slice(body)
-        .map_err(|_| invalid("body", "the body must be a JSON object"))?;
-    let Value::Object(fields) = document else {
-        return Err(invalid("body", "the body must be a JSON object"));
-    };
-    if let Some(unknown) = fields
-        .keys()
-        .find(|key| !matches!(key.as_str(), "egress" | "ttl_ms" | "window_id" | "dns"))
-    {
-        return Err(invalid(unknown, "unknown field"));
-    }
-    if fields.get("egress").and_then(Value::as_str) != Some("internet") {
-        return Err(invalid("egress", "egress must be \"internet\""));
-    }
-    let window_id = fields
-        .get("window_id")
-        .and_then(Value::as_str)
-        .filter(|id| valid_window_id(id))
-        .ok_or_else(|| {
-            invalid(
-                "window_id",
-                "window_id must be 1 to 64 letters, digits, '-', '_' or '.'",
-            )
-        })?
-        .to_owned();
-    let ttl = fields
-        .get("ttl_ms")
-        .and_then(Value::as_u64)
-        .map(Duration::from_millis)
-        .filter(|ttl| !ttl.is_zero() && *ttl <= MAX_WINDOW)
-        .ok_or_else(|| {
-            invalid(
-                "ttl_ms",
-                "ttl_ms must be between 1 and 900000 (fifteen minutes)",
-            )
-        })?;
-    let dns = match fields.get("dns") {
-        None | Some(Value::Null) => true,
-        Some(Value::Bool(dns)) => *dns,
-        Some(_) => return Err(invalid("dns", "dns must be a boolean")),
-    };
-    Ok(OpenRequest {
-        window_id,
-        ttl,
-        dns,
-    })
-}
-
-fn window_body(id: &SandboxId, window: &Window, changed: bool) -> Vec<u8> {
-    let expires_at = iso8601_micros(
-        SystemTime::now() + window.expires.saturating_duration_since(Instant::now()),
-    );
-    json_body(&json!({
-        "sandbox_id": id.as_str(),
-        "window_id": window.id,
-        "egress": "internet",
-        "dns": window.dns,
-        "changed": changed,
-        "expires_at": expires_at,
-    }))
-}
-
-fn json_body(value: &Value) -> Vec<u8> {
-    serde_json::to_vec(value).unwrap_or_default()
-}
-
-fn not_windowed() -> PlatformError {
-    PlatformError::new(
-        409,
-        "egress_not_windowed",
-        "this sandbox was not created with network.windowed, so its egress cannot be opened",
-        false,
-    )
-}
-
-fn flip_failed() -> PlatformError {
-    PlatformError::new(
-        502,
-        "egress_flip_failed",
-        "the network rules could not be put in force; treat egress as unchanged for an open and as possibly open for a close",
-        false,
-    )
-}
-
-fn failure_error(failure: EgressSetFailure) -> PlatformError {
-    match failure {
-        EgressSetFailure::NotFound => PlatformError::sandbox_not_found(),
-        EgressSetFailure::NotWindowed => not_windowed(),
-        EgressSetFailure::NotActive => PlatformError::new(
-            409,
-            "egress_not_active",
-            "the sandbox's network is not active yet",
-            true,
-        ),
-        EgressSetFailure::FlipFailed => flip_failed(),
-        EgressSetFailure::Unavailable => PlatformError::new(
-            503,
-            "egress_unavailable",
-            "the sandbox's host could not be reached to change its network",
-            true,
-        ),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn open(body: &str) -> Result<OpenRequest, PlatformError> {
-        parse_open(body.as_bytes())
-    }
-
-    #[test]
-    fn a_window_request_names_its_id_and_a_bounded_ttl() {
-        let parsed =
-            open(r#"{"egress":"internet","ttl_ms":30000,"window_id":"call-1"}"#).expect("valid");
-        assert_eq!(parsed.window_id, "call-1");
-        assert_eq!(parsed.ttl, Duration::from_secs(30));
-        assert!(parsed.dns, "dns defaults to on with the window");
-
-        let without_dns =
-            open(r#"{"egress":"internet","ttl_ms":1,"window_id":"c","dns":false}"#).expect("valid");
-        assert!(!without_dns.dns);
-    }
-
-    #[test]
-    fn anything_else_is_refused_not_served_as_a_default() {
-        for body in [
-            "",
-            "[]",
-            r#"{"ttl_ms":30000,"window_id":"w"}"#,
-            r#"{"egress":"denied","ttl_ms":30000,"window_id":"w"}"#,
-            r#"{"egress":"unrestricted","ttl_ms":30000,"window_id":"w"}"#,
-            r#"{"egress":"internet","window_id":"w"}"#,
-            r#"{"egress":"internet","ttl_ms":0,"window_id":"w"}"#,
-            r#"{"egress":"internet","ttl_ms":900001,"window_id":"w"}"#,
-            r#"{"egress":"internet","ttl_ms":"30000","window_id":"w"}"#,
-            r#"{"egress":"internet","ttl_ms":1000}"#,
-            r#"{"egress":"internet","ttl_ms":1000,"window_id":"has space"}"#,
-            r#"{"egress":"internet","ttl_ms":1000,"window_id":"w","dns":"yes"}"#,
-            r#"{"egress":"internet","ttl_ms":1000,"window_id":"w","extra":1}"#,
-        ] {
-            let error = open(body)
-                .err()
-                .unwrap_or_else(|| panic!("{body:?} was accepted"));
-            assert_eq!(error.status, 400, "{body:?}");
-        }
-    }
-
-    #[test]
-    fn every_host_failure_has_its_own_stable_answer() {
-        let answers: Vec<(u16, &str)> = [
-            EgressSetFailure::NotFound,
-            EgressSetFailure::NotWindowed,
-            EgressSetFailure::NotActive,
-            EgressSetFailure::FlipFailed,
-            EgressSetFailure::Unavailable,
-        ]
-        .map(|failure| {
-            let error = failure_error(failure);
-            (error.status, error.code)
-        })
-        .to_vec();
-        assert_eq!(
-            answers,
-            vec![
-                (404, "NOT_FOUND"),
-                (409, "egress_not_windowed"),
-                (409, "egress_not_active"),
-                (502, "egress_flip_failed"),
-                (503, "egress_unavailable"),
-            ]
-        );
-    }
-}
