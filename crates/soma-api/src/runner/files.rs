@@ -25,7 +25,7 @@ pub(crate) mod tests;
 
 pub(crate) use call::FileCall;
 pub(crate) use error::FileError;
-pub(crate) use guest::{GuestFiles, OnFacade, Stop};
+pub(crate) use guest::{OnFacade, Stop};
 pub(crate) use params::{Params, ParamsRefused};
 pub(crate) use plan::{MAX_JSON_FILE_BYTES, Plan};
 pub(crate) use run::{Answer, refusal};

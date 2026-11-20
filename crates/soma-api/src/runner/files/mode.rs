@@ -81,11 +81,10 @@ impl Mode {
 
     /// The text the platform echoes for this mode.
     pub(crate) fn echo(&self, source: &Value) -> String {
-        match (self, source) {
-            (Self::Absolute(bits), Value::Number(_)) => format!("{bits:04o}"),
-            (_, Value::String(text)) => text.trim().to_owned(),
-            (Self::Absolute(bits), _) => format!("{bits:04o}"),
-            (Self::Symbolic(_), _) => String::new(),
+        match (source, self) {
+            (Value::String(text), _) => text.trim().to_owned(),
+            (_, Self::Absolute(bits)) => format!("{bits:04o}"),
+            (_, Self::Symbolic(_)) => String::new(),
         }
     }
 }
@@ -167,34 +166,34 @@ mod tests {
 
     use super::{Mode, ModeRefused};
 
-    fn result(value: serde_json::Value, current: u32, directory: bool) -> u32 {
-        Mode::parse(&value)
+    fn result(value: &serde_json::Value, current: u32, directory: bool) -> u32 {
+        Mode::parse(value)
             .expect("a mode")
             .apply(current, directory)
     }
 
     #[test]
     fn octal_text_and_integers_set_the_bits_exactly() {
-        assert_eq!(result(json!("0644"), 0o777, false), 0o644);
-        assert_eq!(result(json!("755"), 0, false), 0o755);
-        assert_eq!(result(json!(0o600), 0o777, false), 0o600);
-        assert_eq!(result(json!(" 0700 "), 0, false), 0o700);
+        assert_eq!(result(&json!("0644"), 0o777, false), 0o644);
+        assert_eq!(result(&json!("755"), 0, false), 0o755);
+        assert_eq!(result(&json!(0o600), 0o777, false), 0o600);
+        assert_eq!(result(&json!(" 0700 "), 0, false), 0o700);
     }
 
     #[test]
     fn symbolic_clauses_apply_in_order_to_the_current_bits() {
-        assert_eq!(result(json!("u+x"), 0o644, false), 0o744);
-        assert_eq!(result(json!("go-w"), 0o666, false), 0o644);
-        assert_eq!(result(json!("a=r"), 0o755, false), 0o444);
-        assert_eq!(result(json!("u=rwx,go=rx"), 0, false), 0o755);
+        assert_eq!(result(&json!("u+x"), 0o644, false), 0o744);
+        assert_eq!(result(&json!("go-w"), 0o666, false), 0o644);
+        assert_eq!(result(&json!("a=r"), 0o755, false), 0o444);
+        assert_eq!(result(&json!("u=rwx,go=rx"), 0, false), 0o755);
         assert_eq!(
-            result(json!("a+X"), 0o644, false),
+            result(&json!("a+X"), 0o644, false),
             0o644,
             "no class can execute a file"
         );
-        assert_eq!(result(json!("a+X"), 0o744, false), 0o755);
+        assert_eq!(result(&json!("a+X"), 0o744, false), 0o755);
         assert_eq!(
-            result(json!("a+X"), 0o644, true),
+            result(&json!("a+X"), 0o644, true),
             0o755,
             "a directory is searchable"
         );
@@ -213,7 +212,7 @@ mod tests {
             assert!(
                 matches!(
                     refused,
-                    Err(ModeRefused::SpecialBits) | Err(ModeRefused::Invalid)
+                    Err(ModeRefused::SpecialBits | ModeRefused::Invalid)
                 ),
                 "{value}"
             );

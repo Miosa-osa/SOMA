@@ -18,7 +18,7 @@ use crate::facade::SandboxFacade;
 
 use super::path::GuestPath;
 
-pub(crate) use transfer::{Slice, SliceRead, Written, read_slice, read_whole, write};
+pub(crate) use transfer::{Slice, Written, read_slice, read_whole, write};
 
 /// What one sandbox's guest answers to one file operation.
 pub(crate) trait GuestFiles {

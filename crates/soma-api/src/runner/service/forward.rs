@@ -51,7 +51,7 @@ impl Runner {
         // Held for the whole call, so a long terminal read never sees its sandbox reaped.
         let _held = match self.sandboxes.hold(&id, &principal.key.tenant_id) {
             Ok(held) => held,
-            Err(refused) => return unavailable(refused),
+            Err(refused) => return unavailable(&refused),
         };
         let Some(instance_id) = id.instance_id() else {
             return RunnerResponse::platform(&PlatformError::sandbox_not_found());
@@ -123,7 +123,7 @@ impl Runner {
 }
 
 /// The answer for a held call on a sandbox that cannot be held, shared by every held route.
-pub(super) fn unavailable(refused: Unavailable) -> RunnerResponse {
+pub(super) fn unavailable(refused: &Unavailable) -> RunnerResponse {
     match refused {
         Unavailable::Busy => RunnerResponse::platform(&PlatformError::exec_busy()),
         Unavailable::NotFound | Unavailable::Destroyed(..) => {
@@ -132,7 +132,7 @@ pub(super) fn unavailable(refused: Unavailable) -> RunnerResponse {
         // A launch that failed after its create had answered: the call is answered as the
         // create itself would have been. A call that arrived while the launch was still in
         // flight waited for it before it was held and read the same failure there.
-        Unavailable::LaunchFailed(failure) => outcome::launch_failed(failure),
+        Unavailable::LaunchFailed(failure) => outcome::launch_failed(*failure),
     }
 }
 

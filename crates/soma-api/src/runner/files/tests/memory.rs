@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use soma::{FileAnswer, FileKind, FileOperation, FileRefusal, ManagedFailure};
 
-use crate::runner::files::GuestFiles;
+use crate::runner::files::guest::GuestFiles;
 
 mod tree;
 

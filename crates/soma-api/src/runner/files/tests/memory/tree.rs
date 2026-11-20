@@ -118,8 +118,8 @@ impl MemoryGuest {
         let moving = self.kind(from).ok_or(FileRefusal::NotFound)?;
         self.parent_ready(to)?;
         match (moving, self.kind(to)) {
-            (FileKind::File, Some(FileKind::Directory)) => return Err(FileRefusal::WrongKind),
-            (FileKind::Directory, Some(FileKind::File)) => return Err(FileRefusal::WrongKind),
+            (FileKind::File, Some(FileKind::Directory))
+            | (FileKind::Directory, Some(FileKind::File)) => return Err(FileRefusal::WrongKind),
             (FileKind::Directory, Some(FileKind::Directory)) if !self.children(to).is_empty() => {
                 return Err(FileRefusal::NotEmpty);
             }

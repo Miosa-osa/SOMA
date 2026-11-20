@@ -79,42 +79,45 @@ mod tests {
 
     use super::FileCall;
 
-    fn resolve(method: Method, prefix: &str, rest: &[&str]) -> Option<FileCall> {
-        FileCall::resolve(&method, prefix, rest)
+    fn resolve(method: &Method, prefix: &str, rest: &[&str]) -> Option<FileCall> {
+        FileCall::resolve(method, prefix, rest)
     }
 
     #[test]
     fn both_prefixes_name_the_same_calls() {
         for prefix in ["fs", "files"] {
-            assert_eq!(resolve(Method::GET, prefix, &[]), Some(FileCall::List));
-            assert_eq!(resolve(Method::DELETE, prefix, &[]), Some(FileCall::Delete));
+            assert_eq!(resolve(&Method::GET, prefix, &[]), Some(FileCall::List));
             assert_eq!(
-                resolve(Method::GET, prefix, &["read"]),
+                resolve(&Method::DELETE, prefix, &[]),
+                Some(FileCall::Delete)
+            );
+            assert_eq!(
+                resolve(&Method::GET, prefix, &["read"]),
                 Some(FileCall::Read)
             );
             assert_eq!(
-                resolve(Method::POST, prefix, &["write"]),
+                resolve(&Method::POST, prefix, &["write"]),
                 Some(FileCall::Write)
             );
             assert_eq!(
-                resolve(Method::POST, prefix, &["stat"]),
+                resolve(&Method::POST, prefix, &["stat"]),
                 Some(FileCall::Stat)
             );
             assert_eq!(
-                resolve(Method::POST, prefix, &["mkdir"]),
+                resolve(&Method::POST, prefix, &["mkdir"]),
                 Some(FileCall::MakeDirectory)
             );
             assert_eq!(
-                resolve(Method::POST, prefix, &["rename"]),
+                resolve(&Method::POST, prefix, &["rename"]),
                 Some(FileCall::Rename)
             );
             assert_eq!(
-                resolve(Method::POST, prefix, &["chmod"]),
+                resolve(&Method::POST, prefix, &["chmod"]),
                 Some(FileCall::Chmod)
             );
         }
         assert_eq!(
-            resolve(Method::GET, "files", &["list"]),
+            resolve(&Method::GET, "files", &["list"]),
             Some(FileCall::List)
         );
     }
@@ -122,21 +125,21 @@ mod tests {
     #[test]
     fn a_platform_route_this_runner_does_not_serve_is_named() {
         assert_eq!(
-            resolve(Method::POST, "fs", &["copy"]),
+            resolve(&Method::POST, "fs", &["copy"]),
             Some(FileCall::Unserved("copy"))
         );
         assert_eq!(
-            resolve(Method::GET, "files", &["etc", "hosts"]),
+            resolve(&Method::GET, "files", &["etc", "hosts"]),
             Some(FileCall::Unserved("legacy download"))
         );
     }
 
     #[test]
     fn a_wrong_method_or_an_unknown_action_is_no_route() {
-        assert_eq!(resolve(Method::POST, "fs", &["read"]), None);
-        assert_eq!(resolve(Method::GET, "fs", &["write"]), None);
-        assert_eq!(resolve(Method::GET, "fs", &["list"]), None);
-        assert_eq!(resolve(Method::POST, "fs", &["format"]), None);
-        assert_eq!(resolve(Method::PUT, "fs", &[]), None);
+        assert_eq!(resolve(&Method::POST, "fs", &["read"]), None);
+        assert_eq!(resolve(&Method::GET, "fs", &["write"]), None);
+        assert_eq!(resolve(&Method::GET, "fs", &["list"]), None);
+        assert_eq!(resolve(&Method::POST, "fs", &["format"]), None);
+        assert_eq!(resolve(&Method::PUT, "fs", &[]), None);
     }
 }

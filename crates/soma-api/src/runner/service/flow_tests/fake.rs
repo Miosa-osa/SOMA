@@ -98,7 +98,7 @@ impl SandboxFacade for Fake {
     }
 
     fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
-        use crate::runner::files::GuestFiles as _;
+        use crate::runner::files::guest::GuestFiles as _;
         let operation = request.operation().clone();
         let name = operation.name();
         let answer = self.0.guest.lock().expect("guest").perform(operation)?;

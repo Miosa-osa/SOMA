@@ -62,7 +62,7 @@ impl Runner {
         // Held for the whole call, so a sandbox is never reaped under a write in progress.
         let _held = match self.sandboxes.hold(&id, &principal.key.tenant_id) {
             Ok(held) => held,
-            Err(refused) => return unavailable(refused),
+            Err(refused) => return unavailable(&refused),
         };
         let Some(instance_id) = id.instance_id() else {
             return RunnerResponse::platform(&PlatformError::sandbox_not_found());
