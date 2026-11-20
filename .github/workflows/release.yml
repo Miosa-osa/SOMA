@@ -31,10 +31,10 @@ env:
   RUST_TOOLCHAIN: "1.98.0"
 
 jobs:
-  native:
-    name: Validate and build the Linux release
+  tag:
+    name: Resolve the release tag
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 5
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
     steps:
@@ -42,8 +42,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # The evidence check resolves every commit the claim ledger names.
-          fetch-depth: 0
 
       - name: Resolve the release tag
         id: tag
@@ -62,6 +60,19 @@ jobs:
           fi
           printf 'release_tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
 
+  native:
+    name: Validate and build the Linux release
+    needs: tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The evidence check resolves every commit the claim ledger names.
+          fetch-depth: 0
+
       - name: Install pinned Rust toolchain and the static guest target
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -76,21 +87,21 @@ jobs:
 
       - name: Validate, build, assemble, and verify the Linux release
         env:
-          SOMA_RELEASE_TAG: ${{ steps.tag.outputs.release_tag }}
+          SOMA_RELEASE_TAG: ${{ needs.tag.outputs.release_tag }}
         run: ./scripts/check.sh release
 
       - name: Upload the Linux release parts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: soma-${{ steps.tag.outputs.release_tag }}-parts-linux
-          path: target/release-parts/${{ steps.tag.outputs.release_tag }}
+          name: soma-${{ needs.tag.outputs.release_tag }}-parts-linux
+          path: target/release-parts/${{ needs.tag.outputs.release_tag }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
   client-binaries:
     name: Build the ${{ matrix.target }} client bundle
-    needs: native
+    needs: tag
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     strategy:
@@ -120,22 +131,22 @@ jobs:
         env:
           SOMA_RELEASE_CLI_BINARY: ${{ matrix.cli_binary }}
           SOMA_RELEASE_MCP_BINARY: ${{ matrix.mcp_binary }}
-          SOMA_RELEASE_TAG: ${{ needs.native.outputs.release_tag }}
+          SOMA_RELEASE_TAG: ${{ needs.tag.outputs.release_tag }}
           SOMA_RELEASE_TARGET: ${{ matrix.target }}
         run: ./scripts/package-client-release.sh
 
       - name: Upload the client release part
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: soma-${{ needs.native.outputs.release_tag }}-parts-${{ matrix.target }}
-          path: target/release-parts/${{ needs.native.outputs.release_tag }}
+          name: soma-${{ needs.tag.outputs.release_tag }}-parts-${{ matrix.target }}
+          path: target/release-parts/${{ needs.tag.outputs.release_tag }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
   assemble:
     name: Assemble and verify the release
-    needs: [native, client-binaries]
+    needs: [tag, native, client-binaries]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -147,13 +158,13 @@ jobs:
       - name: Download every release part
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: soma-${{ needs.native.outputs.release_tag }}-parts-*
+          pattern: soma-${{ needs.tag.outputs.release_tag }}-parts-*
           path: release-parts
           merge-multiple: true
 
       - name: Assemble the release, write its manifest, and verify it
         env:
-          SOMA_RELEASE_TAG: ${{ needs.native.outputs.release_tag }}
+          SOMA_RELEASE_TAG: ${{ needs.tag.outputs.release_tag }}
         run: |
           ./scripts/assemble-release.sh "release/${SOMA_RELEASE_TAG}" release-parts/*
           jq . "release/${SOMA_RELEASE_TAG}/soma-${SOMA_RELEASE_TAG}-manifest.json"
@@ -161,8 +172,8 @@ jobs:
       - name: Upload the release
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: soma-${{ needs.native.outputs.release_tag }}
-          path: release/${{ needs.native.outputs.release_tag }}
+          name: soma-${{ needs.tag.outputs.release_tag }}
+          path: release/${{ needs.tag.outputs.release_tag }}
           if-no-files-found: error
           compression-level: 0
           retention-days: 90
@@ -170,7 +181,7 @@ jobs:
   publish:
     name: Draft the GitHub release
     if: github.event_name == 'push'
-    needs: [native, assemble]
+    needs: [tag, assemble]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -179,13 +190,13 @@ jobs:
       - name: Download the verified release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: soma-${{ needs.native.outputs.release_tag }}
+          name: soma-${{ needs.tag.outputs.release_tag }}
           path: release
 
       - name: Draft the release with generated notes
         env:
           GH_TOKEN: ${{ github.token }}
-          SOMA_RELEASE_TAG: ${{ needs.native.outputs.release_tag }}
+          SOMA_RELEASE_TAG: ${{ needs.tag.outputs.release_tag }}
         run: |
           flags=(--draft --verify-tag --generate-notes --title "SOMA ${SOMA_RELEASE_TAG}")
           if [[ "$SOMA_RELEASE_TAG" == *-* ]]; then
