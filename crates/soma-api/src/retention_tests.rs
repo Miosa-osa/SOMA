@@ -107,7 +107,12 @@ fn a_terminal_record_is_released_only_after_a_whole_window_and_a_live_one_never(
             released: 0
         }
     );
-    let early = after(start, TERMINAL_RETENTION - Duration::from_secs(1));
+    let early = after(
+        start,
+        TERMINAL_RETENTION
+            .checked_sub(Duration::from_secs(1))
+            .expect("a window longer than a second"),
+    );
     assert_eq!(
         sweep(&mut retention, &open, early).expect("early").released,
         0

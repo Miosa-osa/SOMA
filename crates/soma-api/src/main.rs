@@ -120,17 +120,7 @@ fn run() -> i32 {
             return 74;
         }
     }
-    // Terminal records are released on the same rule whichever surface created them, so the
-    // sweep runs with or without the runner (SOMA#127).
-    let sweep_pool = pool.clone();
-    if retention::spawn(move || {
-        sweep_pool
-            .acquire_timeout(POOL_WAIT_TIMEOUT)
-            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
-    })
-    .is_err()
-    {
-        eprintln!("soma-api: the terminal record sweep could not start");
+    if !start_record_sweep(pool.clone()) {
         return 71;
     }
     eprintln!(
@@ -147,6 +137,21 @@ fn run() -> i32 {
         return 74;
     }
     0
+}
+
+/// Starts the sweep that releases terminal records (SOMA#127).
+///
+/// Records are released on the same rule whichever surface created them, so the sweep runs with
+/// or without the runner, on facades leased from the request pool.
+fn start_record_sweep(pool: FacadePool<LocalFacade>) -> bool {
+    let started = retention::spawn(move || {
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+    });
+    if started.is_err() {
+        eprintln!("soma-api: the terminal record sweep could not start");
+    }
+    started.is_ok()
 }
 
 const fn runtime_busy() -> ApiError {
