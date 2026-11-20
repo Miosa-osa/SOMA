@@ -107,19 +107,6 @@ fn run() -> i32 {
         eprintln!("soma-api: the local sandbox runtime could not be opened");
         return 69;
     };
-    // Terminal records are released on the same rule whichever surface created them, so the
-    // sweep runs with or without the runner (SOMA#127).
-    let sweep_pool = pool.clone();
-    if retention::spawn(move || {
-        sweep_pool
-            .acquire_timeout(POOL_WAIT_TIMEOUT)
-            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
-    })
-    .is_err()
-    {
-        eprintln!("soma-api: the terminal record sweep could not start");
-        return 71;
-    }
     if let Some(config) = runner_config {
         let runner_pool = pool.clone();
         let opener: runner::FacadeOpener = Arc::new(move || {
@@ -132,6 +119,19 @@ fn run() -> i32 {
             eprintln!("soma-api: the public runner could not start: {error}");
             return 74;
         }
+    }
+    // Terminal records are released on the same rule whichever surface created them, so the
+    // sweep runs with or without the runner (SOMA#127).
+    let sweep_pool = pool.clone();
+    if retention::spawn(move || {
+        sweep_pool
+            .acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+    })
+    .is_err()
+    {
+        eprintln!("soma-api: the terminal record sweep could not start");
+        return 71;
     }
     eprintln!(
         "soma-api: listening on {} (at most {} concurrent creates)",
