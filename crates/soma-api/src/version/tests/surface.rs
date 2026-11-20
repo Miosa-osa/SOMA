@@ -5,6 +5,8 @@
 //! changes the generated text, and this test fails until the document records it under a new
 //! version: a new minor for an addition, a new major for anything an older client cannot survive.
 
+use std::fmt::Write as _;
+
 use serde::de::DeserializeOwned;
 use sha2::{Digest as _, Sha256};
 
@@ -186,7 +188,11 @@ fn surface() -> String {
 
 fn digest(text: &str) -> String {
     let hash = Sha256::digest(text.as_bytes());
-    let hex: String = hash.iter().map(|byte| format!("{byte:02x}")).collect();
+    let hex = hash.iter().fold(String::new(), |mut hex, byte| {
+        // Writing to a `String` cannot fail.
+        let _ = write!(hex, "{byte:02x}");
+        hex
+    });
     format!("sha256:{hex}")
 }
 
