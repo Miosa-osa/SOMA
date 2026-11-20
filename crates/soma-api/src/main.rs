@@ -30,7 +30,10 @@ const MACHINE_HOST: &str = "machine-host";
 
 fn main() {
     if soma_version::version_requested(env::args_os()) {
-        print!("{}", version_report());
+        print!(
+            "{}",
+            soma_api::version::version_report(&soma_version::build!())
+        );
         return;
     }
     process::exit(run());
@@ -67,17 +70,6 @@ fn start_runner(config: RunnerConfig, pool: &FacadePool<LocalFacade>) -> Result<
         eprintln!("soma-api: the public runner could not start: {error}");
         74
     })
-}
-
-/// The report `soma-api --version` prints.
-fn version_report() -> String {
-    let api = soma_api::API_VERSION.to_string();
-    let protocols = soma_api::version::protocols();
-    let speaks = soma_version::Speaks {
-        api: Some(&api),
-        protocols: &protocols,
-    };
-    soma_version::report("soma-api", &soma_version::build!(), &speaks)
 }
 
 fn run() -> i32 {
