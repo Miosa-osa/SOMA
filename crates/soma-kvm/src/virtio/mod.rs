@@ -37,7 +37,6 @@ pub use devices::block::{
     VIRTIO_BLK_F_BLK_SIZE, VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_RO, VIRTIO_BLK_F_SEG_MAX,
     VIRTIO_BLK_F_SIZE_MAX,
 };
-#[cfg(unix)]
 pub use devices::mem::backing::{RecordingBacking, RegionBacking};
 pub use devices::mem::state::{MEM_STATE_LEN, MEM_STATE_VERSION, MemState};
 pub use devices::mem::{
@@ -56,6 +55,7 @@ pub use devices::net::{
     MAX_RX_CHAIN_BYTES, NET_CONFIG_LEN, NET_FEATURES, NET_QUEUE_MAX, NET_RX_QUEUE, NET_TX_QUEUE,
     NetCounters, NetDevice, VIRTIO_NET_DEVICE_ID, VIRTIO_NET_F_MAC,
 };
+#[cfg(unix)]
 pub use devices::rng::backend::OsEntropy;
 pub use devices::rng::backend::{EntropyBackend, EntropyError};
 pub use devices::rng::state::{RNG_STATE_LEN, RNG_STATE_VERSION, RngState};

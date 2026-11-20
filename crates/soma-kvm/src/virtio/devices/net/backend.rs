@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::fs::File;
 use std::io::{self, Read, Write};
+#[cfg(unix)]
 use std::os::fd::{AsRawFd as _, RawFd};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -50,6 +51,7 @@ pub trait NetBackend {
     /// reason to come.
     ///
     /// The descriptor is borrowed for watching only; ownership stays with the backend.
+    #[cfg(unix)]
     fn readable_fd(&self) -> Option<RawFd> {
         None
     }
@@ -100,6 +102,7 @@ impl NetBackend for TapBackend {
         }
     }
 
+    #[cfg(unix)]
     fn readable_fd(&self) -> Option<RawFd> {
         Some(self.tap.as_raw_fd())
     }
