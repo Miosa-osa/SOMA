@@ -14,6 +14,7 @@ use super::{
     outcome::{ExecuteOutcome, OutputSource},
 };
 
+mod admission;
 mod file;
 mod network;
 mod operation;
@@ -42,6 +43,8 @@ pub struct RepairedHostControl<I: HostControlIo> {
     channel: AuthChannel<I>,
     binding: SessionBinding,
     operations: OperationLedger,
+    /// What the guest answered to the API level probe, once this session has asked.
+    api: Option<GuestApi>,
 }
 
 impl<I: HostControlIo> HostControl<I> {
@@ -111,6 +114,7 @@ impl<I: HostControlIo> HostControl<I> {
             channel: self.channel,
             binding: self.binding,
             operations: self.operations,
+            api: None,
         })
     }
 }
@@ -141,6 +145,12 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     /// It must not block: the guest agent is waiting on the transport, and the exchange's
     /// deadline keeps running while the callback does.
     ///
+    /// A command that [`GuestCommand::needs_long_arguments`] ends the session of a guest below
+    /// API level 3 on arrival. So this session must already have learned, with
+    /// [`Self::ensure_guest_api`], that the guest [`GuestApi::has_long_arguments`]; a caller that
+    /// sends one without asking is a host bug, failed here as a lifecycle violation before a byte
+    /// is sent.
+    ///
     /// # Errors
     ///
     /// Returns a redacted Execute error after poisoning the transport exactly once.
@@ -150,7 +160,9 @@ impl<I: HostControlIo> RepairedHostControl<I> {
         command: GuestCommand,
         mut on_output: impl FnMut(OutputSource, &[u8]),
     ) -> Result<(Self, ExecuteOutcome), ControlError> {
-        if !self.operations.reserve(operation) {
+        let unasked =
+            command.needs_long_arguments() && !self.api.is_some_and(GuestApi::has_long_arguments);
+        if unasked || !self.operations.reserve(operation) {
             return Err(self
                 .channel
                 .fail(ControlStage::Execute, ControlFailureClass::Lifecycle));

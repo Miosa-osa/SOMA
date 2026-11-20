@@ -4,8 +4,6 @@
 //! the sandbox will admit is the guest's decision, taken inside the guest, and a command line
 //! that pre-approved one would be deciding something it cannot see.
 
-use std::os::unix::ffi::OsStringExt as _;
-
 use soma::{FileMachineRequest, FileOperation, InstanceId};
 
 use crate::cli::{FileArgs, FileCommand, FilePathArgs};
@@ -15,23 +13,23 @@ use super::{PreparedOperation, RequestError, operation_id};
 pub(super) fn prepare(arguments: FileArgs) -> Result<PreparedOperation, RequestError> {
     let (target, operation) = match arguments.command {
         FileCommand::Read(target) => {
-            let path = path(&target);
+            let path = path(&target)?;
             (target, FileOperation::Read { path })
         }
         FileCommand::Mkdir(target) => {
-            let path = path(&target);
+            let path = path(&target)?;
             (target, FileOperation::MakeDirectory { path })
         }
         FileCommand::List(target) => {
-            let path = path(&target);
+            let path = path(&target)?;
             (target, FileOperation::ReadDirectory { path })
         }
         FileCommand::Exists(target) => {
-            let path = path(&target);
+            let path = path(&target)?;
             (target, FileOperation::Exists { path })
         }
         FileCommand::Remove(arguments) => {
-            let path = path(&arguments.target);
+            let path = path(&arguments.target)?;
             (
                 arguments.target,
                 FileOperation::Remove {
@@ -41,7 +39,7 @@ pub(super) fn prepare(arguments: FileArgs) -> Result<PreparedOperation, RequestE
             )
         }
         FileCommand::Write(arguments) => {
-            let path = path(&arguments.target);
+            let path = path(&arguments.target)?;
             let bytes = read_host_file(&arguments.content_file)?;
             (arguments.target, FileOperation::Write { path, bytes })
         }
@@ -59,8 +57,27 @@ pub(super) fn prepare(arguments: FileArgs) -> Result<PreparedOperation, RequestE
 }
 
 /// The path exactly as the operating system gave it.
-fn path(target: &FilePathArgs) -> Vec<u8> {
-    target.path.clone().into_vec()
+#[cfg(unix)]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "a Windows argument that is not Unicode is refused by the other definition"
+)]
+fn path(target: &FilePathArgs) -> Result<Vec<u8>, RequestError> {
+    use std::os::unix::ffi::OsStrExt as _;
+    Ok(target.path.as_bytes().to_vec())
+}
+
+/// The path in UTF-8, the encoding a Linux guest names it in.
+///
+/// A Windows argument is UTF-16, so there are no bytes to hand over as given. An argument that
+/// is not valid Unicode has no UTF-8 form and is refused rather than altered.
+#[cfg(not(unix))]
+fn path(target: &FilePathArgs) -> Result<Vec<u8>, RequestError> {
+    target
+        .path
+        .to_str()
+        .map(|path| path.as_bytes().to_vec())
+        .ok_or(RequestError::Path)
 }
 
 /// Reads the host file a write takes its contents from, refusing one this call will not move.

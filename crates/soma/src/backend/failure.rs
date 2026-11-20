@@ -4,6 +4,10 @@ pub enum BackendFailureKind {
     Unavailable,
     ResourceConflict,
     WorkloadRejected,
+    /// The sandbox's guest agent cannot decode this command (an argument longer than it carries),
+    /// so it was refused with nothing sent; the sandbox is kept, and its Generation must be
+    /// captured again with a newer agent for the command to run.
+    GuestAgentOutdated,
     IsolationFailure,
     GuestFailure,
     Timeout,

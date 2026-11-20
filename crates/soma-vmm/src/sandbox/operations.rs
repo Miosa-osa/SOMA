@@ -38,6 +38,8 @@ impl Session {
             .map_err(|_| self.poison(SessionError::Gone))?;
         match self.await_response(deadline) {
             Ok(Response::Executed(completed)) => Ok(*completed),
+            // Refused before anything was sent, so the answer is certain and the session stays.
+            Ok(Response::ExecuteRefused) => Err(SessionError::GuestAgentOutdated),
             // Every other outcome leaves the answer uncertain, so the session ends carrying the
             // reason: a reported failure, an unexpected reply, or no reply at all.
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
@@ -74,6 +76,7 @@ impl Session {
             match self.await_response(remaining) {
                 Ok(Response::Output(source, bytes)) => on_output(source, &bytes),
                 Ok(Response::Executed(completed)) => return Ok(*completed),
+                Ok(Response::ExecuteRefused) => return Err(SessionError::GuestAgentOutdated),
                 Ok(Response::Failed(error)) | Err(error) => return Err(self.poison(error)),
                 Ok(_) => return Err(self.poison(SessionError::Execute)),
             }

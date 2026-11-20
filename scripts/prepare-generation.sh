@@ -13,6 +13,11 @@
 #   prepare-generation.sh <image-reference> <store-directory> <fs-tools-directory> \
 #       [memory_mib] [storage_mib] [ceiling_mib]
 #
+# memory_mib defaults to 1024 and storage_mib to 4096. The writable size must be a class the
+# compiler profile the shape selects admits: one vCPU up to 3072 MiB is version 1, which admits
+# 256, 1024 and 4096 MiB. The script asks the prepare tool before it exports anything and stops,
+# naming the sizes that are admitted, when the size is not one of them.
+#
 # A ceiling_mib (or SOMA_PREPARE_CEILING_MIB, which the argument wins over) builds the live-resize
 # machine: a compiler profile version 3 Generation with a memory device whose manifest declares a
 # hotplug region of ceiling_mib minus memory_mib, so a running sandbox can be grown up to
@@ -65,7 +70,7 @@ parse_args() {
     STORE_DIR="$(mkdir -p "$2" && cd "$2" && pwd -P)"
     FS_TOOLS="$(cd "$3" && pwd -P)"
     MEM_MIB="${4:-1024}"
-    DISK_MIB="${5:-10240}"
+    DISK_MIB="${5:-4096}"
     CEILING_MIB="${6:-${SOMA_PREPARE_CEILING_MIB:-}}"
     if [[ -n "$CEILING_MIB" ]]; then
         [[ "$CEILING_MIB" =~ ^[0-9]+$ && "$MEM_MIB" =~ ^[0-9]+$ ]] || \
@@ -110,6 +115,15 @@ resolve_inputs() {
         log "building the prepare tool"
         cargo build --release -p soma-generation --example prepare_generation >/dev/null
     fi
+}
+
+# Asks the prepare tool whether this shape's profile admits the writable size, before the image is
+# exported: the build would otherwise compile it and certification refuse it at the very end.
+check_shape() {
+    SOMA_PREPARE_CHECK=1 SOMA_PREPARE_CEILING_MIB="$CEILING_MIB" "$PREPARE_BIN" "$IMAGE" \
+        "$STORE_DIR" "$KERNEL" "$KERNEL_CONFIG" "$AGENT_BIN" "$FS_TOOLS/erofs" \
+        "$FS_TOOLS/e2fsprogs" "$STORE_DIR" "$MEM_MIB" "$DISK_MIB" || \
+        die "the shape ${MEM_MIB} MiB / ${DISK_MIB} MiB cannot be built; nothing was exported"
 }
 
 export_oci() {
@@ -185,6 +199,7 @@ report_boot_path() {
 main() {
     parse_args "$@"
     resolve_inputs
+    check_shape
     export_oci
     prepare
 }

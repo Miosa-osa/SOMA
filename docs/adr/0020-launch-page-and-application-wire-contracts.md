@@ -142,7 +142,7 @@ The fixed kind table is:
 A command body contains, in order, a nonzero unsigned 32-bit big-endian timeout in milliseconds, a nonzero unsigned 64-bit big-endian combined-output allowance, an unsigned 16-bit big-endian program length plus program bytes, an unsigned 16-bit big-endian argument count, that many unsigned 16-bit length-prefixed argument byte strings, an unsigned 16-bit big-endian environment count, that many pairs of unsigned 16-bit length-prefixed name and value byte strings, one presence byte and its unsigned 16-bit length-prefixed working directory, one presence byte and its unsigned 16-bit length-prefixed user, and an unsigned 16-bit length-prefixed standard input.
 
 The program is nonempty, absolute, NUL-free, and at most 4096 bytes.
-Arguments are shell-free byte strings, may be empty, must be NUL-free, and are individually at most 4096 bytes.
+Arguments are shell-free byte strings, may be empty, must be NUL-free, and are individually at most 32768 bytes (4096 before the amendment recorded in [ADR 0051](0051-guest-api-level-and-ranged-files.md#command-size-limits)).
 A command contains at most 64 arguments.
 The timeout is at most 3,600,000 milliseconds.
 The combined-output allowance is at most 16 MiB.

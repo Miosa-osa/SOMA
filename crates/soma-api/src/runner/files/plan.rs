@@ -124,13 +124,16 @@ impl Plan {
                 let echo = mode.echo(source);
                 Ok(Self::Chmod { path, mode, echo })
             }
+            // The streaming calls are performed as their bodies move, never planned whole; the
+            // service hands them to their own routes before a plan is asked for.
+            FileCall::Upload | FileCall::Download => Err(FileError::unserved(call.name())),
             FileCall::Unserved(route) => Err(FileError::unserved(route)),
         }
     }
 }
 
-/// The `path` field, present, non-empty, and exposed.
-fn required(params: &Params) -> Result<(String, GuestPath), FileError> {
+/// The `path` field, present, non-empty, and exposed: the text as sent, and the guest path.
+pub(crate) fn required(params: &Params) -> Result<(String, GuestPath), FileError> {
     let echo = params.text("path").ok_or_else(FileError::missing_path)?;
     Ok((echo.to_owned(), admit(echo)?))
 }

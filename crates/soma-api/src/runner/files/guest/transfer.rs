@@ -8,7 +8,7 @@
 
 use soma::{FileAnswer, FileKind, FileOperation, FileRefusal};
 
-use super::{GuestFiles, Stop, ask, kind_of, make_directory, remove, rename, set_mode, stat};
+use super::{GuestFiles, Stop, ask, kind_of, staged::Staged, stat};
 use crate::runner::files::path::GuestPath;
 
 /// The most one facade call moves.
@@ -148,21 +148,18 @@ fn replace(
     contents: &[u8],
     mode: u32,
 ) -> Result<(), Stop> {
-    make_directory(guest, &path.parent())?;
-    let temporary = path.sibling(&temporary_name());
-    let published = write_ranges(guest, &temporary, 0, contents, true)
-        .and_then(|()| set_mode(guest, &temporary, mode))
-        .and_then(|()| rename(guest, &temporary, path));
+    let mut staged = Staged::begin(guest, path.clone())?;
+    let published = staged
+        .append(guest, contents)
+        .and_then(|()| staged.publish(guest, mode));
     if published.is_err() {
-        // Best effort: the sibling must not outlive the write, and its own removal failing
-        // changes nothing about why the write did.
-        let _removed = remove(guest, &temporary, false);
+        staged.discard(guest);
     }
-    published
+    published.map(|_| ())
 }
 
 /// Writes `contents` from `start` in transfers, creating the file with the first one when asked.
-fn write_ranges(
+pub(super) fn write_ranges(
     guest: &mut dyn GuestFiles,
     path: &GuestPath,
     start: u64,
@@ -192,7 +189,7 @@ fn write_ranges(
 }
 
 /// One ranged read: the bytes and whether they reached the end of the file.
-pub(super) fn read_range(
+pub(crate) fn read_range(
     guest: &mut dyn GuestFiles,
     path: &GuestPath,
     offset: u64,
@@ -213,7 +210,7 @@ pub(super) fn read_range(
 }
 
 /// A name no caller chose and no two writes share, hidden as the platform's own staging files are.
-fn temporary_name() -> String {
+pub(super) fn temporary_name() -> String {
     let unique = uuid::Uuid::new_v4().simple().to_string();
     format!(".soma-write-{}", &unique[..16])
 }

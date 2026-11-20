@@ -102,6 +102,25 @@ impl FileError {
         )
     }
 
+    /// A file larger than any route moves, in the platform's own words.
+    pub(crate) fn exceeds(limit: &str) -> Self {
+        Self::new(413, "FILE_TOO_LARGE", format!("file exceeds {limit} limit"))
+    }
+
+    /// The upload carried no file part.
+    pub(crate) fn missing_file() -> Self {
+        Self::new(400, "MISSING_FILE", "file is required")
+    }
+
+    /// The upload stopped arriving before it ended.
+    pub(crate) fn upload_stalled() -> Self {
+        Self::new(
+            408,
+            "REQUEST_TIMEOUT",
+            "the upload stopped arriving before it ended",
+        )
+    }
+
     /// A platform route this runner does not serve.
     pub(crate) fn unserved(route: &str) -> Self {
         Self::new(

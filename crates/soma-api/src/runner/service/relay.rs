@@ -24,6 +24,11 @@ impl Runner {
         if matches!(route, Route::Tunnel(..)) {
             return None;
         }
+        // Nor can a body that is still arriving: an upload to another runner's sandbox is
+        // answered `421` the same way, and the client sends it to the owner.
+        if request.streamed.is_some() {
+            return None;
+        }
         let tag = SandboxId::parse(route.sandbox_id()?)?.tag();
         if tag == self.config.host_tag || request.forwarded {
             return None;

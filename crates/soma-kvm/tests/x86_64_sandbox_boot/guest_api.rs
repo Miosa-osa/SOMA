@@ -43,7 +43,7 @@ fn expected_level() -> u8 {
     std::env::var("SOMA_EXPECT_GUEST_API")
         .ok()
         .and_then(|value| value.parse().ok())
-        .expect("set SOMA_EXPECT_GUEST_API to 1 or 2")
+        .expect("set SOMA_EXPECT_GUEST_API to 1, 2 or 3")
 }
 
 fn operation() -> OperationId {

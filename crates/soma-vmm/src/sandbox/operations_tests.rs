@@ -161,3 +161,43 @@ fn a_poisoned_session_refuses_a_streaming_command_without_sending_it() {
     drop(session);
     assert!(stand_in.join().expect("stand-in").is_empty());
 }
+
+#[test]
+fn a_command_the_guest_cannot_decode_is_refused_and_the_session_runs_the_next_one() {
+    // The worker answers `ExecuteRefused` for a command it never sent; the session stays usable.
+    let (request_tx, request_rx) = channel::<Request>();
+    let (response_tx, response_rx) = channel();
+    let stand_in = std::thread::spawn(move || {
+        let mut answers = vec![
+            Response::Executed(Box::new(completed())),
+            Response::ExecuteRefused,
+        ];
+        while let Ok(request) = request_rx.recv() {
+            if matches!(request, Request::Execute(_)) {
+                let answer = answers.pop().expect("one answer per command");
+                response_tx.send(answer).expect("send");
+            }
+        }
+    });
+    let mut session = Session {
+        requests: request_tx,
+        responses: response_rx,
+        thread: None,
+        poisoned: false,
+        pending: None,
+        head_reads: Vec::new(),
+    };
+
+    let refused = session.execute(command(), Duration::from_secs(5));
+    assert_eq!(refused.err(), Some(SessionError::GuestAgentOutdated));
+    assert!(
+        session.is_usable(),
+        "a refusal before sending keeps the session"
+    );
+    let ran = session
+        .execute(command(), Duration::from_secs(5))
+        .expect("the next command runs");
+    assert_eq!(ran.status, TerminalStatus::Exited(0));
+    drop(session);
+    stand_in.join().expect("stand-in");
+}

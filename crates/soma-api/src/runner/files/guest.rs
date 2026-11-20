@@ -7,6 +7,7 @@
 //! seam, so they run the same against a real sandbox and against the in-memory guest the tests
 //! drive.
 
+mod staged;
 mod transfer;
 
 use soma::{
@@ -18,7 +19,8 @@ use crate::facade::SandboxFacade;
 
 use super::path::GuestPath;
 
-pub(crate) use transfer::{Slice, Written, read_slice, read_whole, write};
+pub(crate) use staged::Staged;
+pub(crate) use transfer::{Slice, Written, read_range, read_slice, read_whole, write};
 
 /// What one sandbox's guest answers to one file operation.
 pub(crate) trait GuestFiles {

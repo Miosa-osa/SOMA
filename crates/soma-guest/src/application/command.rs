@@ -29,12 +29,28 @@ use crate::Error;
 /// that admits a request has to admit exactly the set this protocol carries, or the refusal
 /// lands somewhere that no longer knows the request was merely too big.
 pub const MAX_ARGUMENTS: usize = 64;
-/// Maximum byte length of the program, one argument, one environment name or value, or the
-/// working directory.
+/// Maximum byte length of the program, one environment name or value, or the working directory.
 ///
 /// Every field travels as one `u16`-prefixed length, so the framing ceiling that matters here is
-/// this contract's own bound rather than the width of the prefix.
+/// this contract's own bound rather than the width of the prefix. The program and the directory
+/// are paths, and 4096 is the guest's `PATH_MAX`.
 pub const MAX_FIELD_BYTES: usize = 4096;
+/// Maximum byte length of one argument.
+///
+/// A shell command runs as `sh -lc <command>`, which is one argument, so this is the longest
+/// script a caller can send inline; real clients send a 12 KB script that way. The bound is what
+/// one record carries beside the rest of a command: the body is [`super::MAX_BODY_SIZE`], 65,481
+/// bytes, and an argument of 32 KiB plus its two length bytes leaves 32,711 of them for the fixed
+/// part, the program, the other arguments, and the context. It is the same bound as standard
+/// input, so a script fits inline exactly when it fits on standard input. The `u16` prefix
+/// (65,535) is not what binds; the whole command is still bounded by the record (ADR 0051).
+pub const MAX_ARGUMENT_BYTES: usize = 32 * 1024;
+/// The longest argument a guest below API level 3 decodes.
+///
+/// Such a guest refuses a longer one as a protocol fault and stops serving, so a host sends a
+/// command with a longer argument only to a guest whose probe answered level 3
+/// ([`crate::GuestApi::has_long_arguments`]).
+pub const LEVEL_TWO_ARGUMENT_BYTES: usize = 4096;
 /// Maximum number of environment variables in one authenticated command.
 pub const MAX_ENVIRONMENT: usize = 64;
 /// Maximum byte length of the user name a command runs as.
@@ -101,7 +117,9 @@ impl GuestCommand {
             return Err(Error::InvalidCommand);
         }
         for argument in &arguments {
-            check_field(argument, true)?;
+            if argument.len() > MAX_ARGUMENT_BYTES || argument.contains(&0) {
+                return Err(Error::InvalidCommand);
+            }
         }
         let command = Self {
             program: program.into_boxed_slice(),
@@ -132,6 +150,14 @@ impl GuestCommand {
         self.stdin = parts.stdin;
         self.check_encoded_size()?;
         Ok(self)
+    }
+
+    /// Whether this command carries an argument longer than a guest below API level 3 decodes.
+    #[must_use]
+    pub fn needs_long_arguments(&self) -> bool {
+        self.arguments
+            .iter()
+            .any(|argument| argument.len() > LEVEL_TWO_ARGUMENT_BYTES)
     }
 
     /// Returns the exact executable path bytes.

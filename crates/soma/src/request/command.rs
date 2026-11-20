@@ -26,8 +26,9 @@ impl DirectCommand {
     pub const MAX_EXECUTABLE_BYTES: usize = 4_096;
     /// The most arguments one command may carry.
     pub const MAX_ARGUMENTS: usize = 64;
-    /// The largest one argument may be.
-    pub const MAX_ARGUMENT_BYTES: usize = 4_096;
+    /// The largest one argument may be: 32 KiB, what one guest record carries beside the rest
+    /// of a command (ADR 0051).
+    pub const MAX_ARGUMENT_BYTES: usize = 32_768;
     /// The largest the executable and arguments may total, counted the way the guest codec
     /// counts them: the executable's bytes plus two length bytes plus the bytes of each
     /// argument. This is one guest record's body allowance less its fixed part.

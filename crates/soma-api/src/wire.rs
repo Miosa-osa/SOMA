@@ -103,9 +103,9 @@ impl RunCommandBody {
             return Err(ApiError::new(
                 413,
                 "command_too_large",
-                "the command is larger than the runtime carries: the executable and each argument \
-                 may be at most 4096 bytes, and the whole command 65459; send large payloads on \
-                 standard input or as a file",
+                "the command is larger than the runtime carries: the executable may be at most \
+                 4096 bytes, each argument at most 32768 bytes, and the whole command 65459; send \
+                 larger payloads on standard input or as a file",
                 false,
             ));
         }

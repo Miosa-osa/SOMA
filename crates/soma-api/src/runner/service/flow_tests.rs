@@ -127,6 +127,8 @@ pub(super) async fn call(
             received: Instant::now(),
             forwarded: false,
             upgrade: false,
+            content_type: None,
+            streamed: None,
         })
         .await
 }

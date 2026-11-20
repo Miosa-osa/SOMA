@@ -1,0 +1,14 @@
+# cargo audit configuration, read from the repository root by scripts/check.sh security.
+# The same advisories, with the full reason and evidence for each, are in deny.toml; keep the
+# two lists identical. Review every entry by 2027-02-01.
+[advisories]
+ignore = [
+    # rmcp 3.1.4 is held by commit 4e55b89 (rmcp CHANGELOG 3.5.0, 3.6.0); OAuth client not built.
+    "RUSTSEC-2026-0457",
+    # rmcp 3.1.4 held by 4e55b89 (rmcp CHANGELOG 3.5.0, 3.6.0); StreamableHttpService not built.
+    "RUSTSEC-2026-0461",
+    # rmcp 3.1.4 is held by commit 4e55b89 (rmcp CHANGELOG 3.5.0, 3.6.0); HTTP clients not built.
+    "RUSTSEC-2026-0462",
+    # chrono, unmaintained, only through soma-mcp -> rmcp and soma-mcp -> schemars (chrono04).
+    "RUSTSEC-2026-0543",
+]

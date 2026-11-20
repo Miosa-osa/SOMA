@@ -102,6 +102,7 @@ impl NetDevice {
     }
 
     /// The host descriptor the device thread must watch to notice inbound frames.
+    #[cfg(unix)]
     #[must_use]
     pub fn backend_fd(&self) -> Option<std::os::fd::RawFd> {
         self.backend.readable_fd()

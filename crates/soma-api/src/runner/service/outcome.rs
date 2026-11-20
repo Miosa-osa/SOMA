@@ -121,6 +121,21 @@ fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
             "the sandbox runtime refused this request",
             false,
         ),
+        // The one refusal whose cause is the sandbox rather than the request: its agent predates
+        // the argument bound, so the caller is told what fixes it, and that the sandbox stays.
+        BackendFailureKind::GuestAgentOutdated => alive(
+            422,
+            "GUEST_AGENT_OUTDATED",
+            &format!(
+                "this sandbox's guest agent carries arguments of at most {} bytes, so the command \
+                 was not sent; its Generation must be captured again with a newer agent",
+                soma_guest::LEVEL_TWO_ARGUMENT_BYTES
+            ),
+            serde_json::json!({
+                "field": "argument",
+                "limit": soma_guest::LEVEL_TWO_ARGUMENT_BYTES,
+            }),
+        ),
         BackendFailureKind::ResourceConflict => PlatformError::new(
             409,
             "RESOURCE_CONFLICT",

@@ -14,7 +14,6 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::{Path, PathBuf};
 
 use chacha20poly1305::{
@@ -26,7 +25,10 @@ use zeroize::Zeroize as _;
 use crate::VolumeId;
 
 mod error;
+mod file_mode;
 pub use error::KeyError;
+
+use file_mode::owner_only;
 
 /// The environment variable naming the host's master key file.
 pub const KEY_FILE_ENV: &str = "SOMA_HOSTD_VOLUME_KEY_FILE";
@@ -171,10 +173,7 @@ fn create_master(path: &Path) -> Result<[u8; KEY_LEN], KeyError> {
     fs::create_dir_all(parent).map_err(|_| KeyError::KeyFile("the host key directory"))?;
     let mut key = [0_u8; KEY_LEN];
     random(&mut key)?;
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
+    let mut file = owner_only(OpenOptions::new().write(true).create_new(true))
         .open(path)
         .map_err(|_| KeyError::KeyFile("the host key could not be created"))?;
     file.write_all(&key)
@@ -235,11 +234,7 @@ impl VolumeKeys for HostKeyring {
         body.extend_from_slice(&key.sealed);
         // The file is replaced whole: a sealed key is one fixed-size frame, and writing over it
         // is how a re-record after a lost answer stays a single key rather than two.
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
+        let mut file = owner_only(OpenOptions::new().write(true).create(true).truncate(true))
             .open(&path)
             .map_err(|_| KeyError::Record("sealed key file"))?;
         file.write_all(&body)
