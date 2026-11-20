@@ -14,6 +14,7 @@ impl RunnerResponse {
             stream: None,
             journal: None,
             tunnel: None,
+            complete: None,
         }
     }
 

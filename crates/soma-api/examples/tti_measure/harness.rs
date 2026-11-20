@@ -148,5 +148,7 @@ pub(super) fn request(method: http::Method, path: &str, body: &str) -> RunnerReq
         received: Instant::now(),
         forwarded: false,
         upgrade: false,
+        content_type: None,
+        streamed: None,
     }
 }

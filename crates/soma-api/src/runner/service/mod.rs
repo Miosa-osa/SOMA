@@ -3,6 +3,7 @@
 mod addressing;
 mod command;
 mod create;
+mod download;
 #[cfg(test)]
 mod early_tests;
 mod egress;
@@ -10,6 +11,7 @@ mod egress;
 mod egress_flow_tests;
 #[cfg(test)]
 mod egress_tests;
+mod exchange;
 mod exec_contract;
 #[cfg(test)]
 mod exec_contract_agreement_tests;
@@ -47,17 +49,19 @@ mod stream_tests;
 #[cfg(test)]
 mod tests;
 mod timing;
+#[cfg(test)]
+mod transfer_tests;
 mod tunnel;
+mod upload;
 
 use std::{sync::Arc, time::Instant};
 
-use bytes::Bytes;
 use soma::OciImage;
 
 use crate::runner::{
     backend::Backend,
     config::RunnerConfig,
-    journal::{Entry, Journal},
+    journal::Journal,
     keys::{KeyTable, Refusal},
     peers::Peers,
     public_wire::{self, PlatformError},
@@ -67,6 +71,7 @@ use crate::runner::{
 };
 use crate::tunnel::TunnelTable;
 
+pub use exchange::{RunnerRequest, RunnerResponse};
 pub use tunnel::TunnelHandoff;
 
 use command::failure_code;
@@ -87,36 +92,6 @@ fn unreadable_ids(records: &[soma::UnreadableRecord]) -> String {
         .map(|record| record.instance_id().as_str())
         .collect::<Vec<_>>()
         .join(",")
-}
-
-/// One request, after the transport has read it, independent of HTTP version.
-#[derive(Clone, Debug)]
-pub struct RunnerRequest {
-    pub method: http::Method,
-    pub path: String,
-    /// The query string, without its `?`, when the request carried one.
-    pub query: Option<String>,
-    pub authorization: Option<String>,
-    pub body: Bytes,
-    pub received: Instant,
-    /// Arrived from another runner over the private listener: never forwarded again.
-    pub forwarded: bool,
-    /// An HTTP/1.1 request that asked for `Connection: Upgrade` and `Upgrade: soma-tunnel`.
-    pub upgrade: bool,
-}
-
-/// One answer, plus the journal entry to write once it has been sent.
-#[derive(Debug)]
-pub struct RunnerResponse {
-    pub status: u16,
-    pub headers: Vec<(&'static str, String)>,
-    pub body: Vec<u8>,
-    /// A body that is still being produced (server-sent events, a forwarded answer); sent
-    /// after `body`, chunk by chunk, until the sender is dropped.
-    pub stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
-    pub journal: Option<Entry>,
-    /// A guest connection to pump after the `101` is sent; the transport owns the upgrade.
-    pub tunnel: Option<TunnelHandoff>,
 }
 
 /// The public runner: routing, admission, and the facade calls behind each route.

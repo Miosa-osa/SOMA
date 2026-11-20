@@ -35,6 +35,8 @@ pub(crate) struct MemoryGuest {
     pub(crate) listing_limit: Option<usize>,
     /// The facade failure every operation answers with, as an unreachable sandbox would.
     pub(crate) unreachable: Option<ManagedFailure>,
+    /// How many more operations are answered before the sandbox becomes unreachable.
+    pub(crate) answers_left: Option<usize>,
     /// Every operation performed, by name, in order.
     pub(crate) log: Vec<&'static str>,
 }
@@ -194,6 +196,15 @@ impl MemoryGuest {
 impl GuestFiles for MemoryGuest {
     fn perform(&mut self, operation: FileOperation) -> Result<FileAnswer, ManagedFailure> {
         self.log.push(operation.name());
+        if let Some(left) = self.answers_left.as_mut() {
+            if *left == 0 {
+                self.unreachable = Some(ManagedFailure::Backend(
+                    soma::BackendFailureKind::Unavailable,
+                ));
+            } else {
+                *left -= 1;
+            }
+        }
         if let Some(failure) = self.unreachable.clone() {
             return Err(failure);
         }

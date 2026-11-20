@@ -1,21 +1,20 @@
 use std::{
     convert::Infallible,
-    pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
     time::{Duration, Instant},
 };
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Limited};
-use hyper::body::{Body, Frame, Incoming, SizeHint};
+use hyper::body::Incoming;
 use hyper_util::{
     rt::{TokioExecutor, TokioIo, TokioTimer},
     server::conn::auto,
 };
 
 use crate::runner::{
-    journal::{Entry, Journal},
+    body::{self, StreamedBody},
+    journal::Journal,
     limits::{
         Activity, BODY_READ_TIMEOUT, HEADER_READ_TIMEOUT, IDLE_CHECK, IDLE_TIMEOUT, IdleIo,
         MAX_HEADER_BYTES, MAX_HTTP1_BUFFER_BYTES, MAX_STREAMS_PER_CONNECTION, PerIp,
@@ -27,63 +26,12 @@ use crate::runner::{
 use crate::tunnel;
 
 mod early;
+pub(crate) mod journaled;
 
 pub(crate) use early::{payload_too_large, request_timeout};
+pub use journaled::JournaledBody;
 
 const CONTENT_TYPE: &str = "application/json; charset=utf-8";
-
-/// A response body that journals its request once the body is gone.
-///
-/// Hyper drops the body after its last frame is written, or when the connection fails first, so
-/// the journal entry is written strictly after the response left this process: the paperwork is
-/// never on the request path (contract C4).
-///
-/// A streamed answer (server-sent events, a forwarded response) sends its first bytes, then
-/// every chunk its producer sends, and ends when the producer drops its sender.
-pub struct JournaledBody {
-    head: Option<Bytes>,
-    stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
-    after: Option<(Journal, Entry)>,
-}
-
-impl Body for JournaledBody {
-    type Data = Bytes;
-    type Error = Infallible;
-
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        if let Some(head) = self.head.take().filter(|head| !head.is_empty()) {
-            return Poll::Ready(Some(Ok(Frame::data(head))));
-        }
-        match self.stream.as_mut() {
-            Some(stream) => stream
-                .poll_recv(context)
-                .map(|chunk| chunk.map(|bytes| Ok(Frame::data(bytes)))),
-            None => Poll::Ready(None),
-        }
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.stream.is_none() && self.head.as_ref().is_none_or(Bytes::is_empty)
-    }
-
-    fn size_hint(&self) -> SizeHint {
-        match (&self.stream, &self.head) {
-            (None, head) => SizeHint::with_exact(head.as_ref().map_or(0, |head| head.len() as u64)),
-            (Some(_), _) => SizeHint::default(),
-        }
-    }
-}
-
-impl Drop for JournaledBody {
-    fn drop(&mut self) {
-        if let Some((journal, entry)) = self.after.take() {
-            journal.record(entry);
-        }
-    }
-}
 
 /// Serves TLS over TCP, negotiating HTTP/2 or HTTP/1.1, until the listener fails.
 pub async fn serve_tcp(
@@ -199,23 +147,33 @@ async fn respond(
     let on_upgrade = upgrade.then(|| hyper::upgrade::on(&mut request));
     let (parts, body) = request.into_parts();
     let authorization = authorization(&parts.headers);
-    let limit = runner.body_limit(&parts.method, parts.uri.path(), authorization.as_deref());
-    let collected =
-        match tokio::time::timeout(BODY_READ_TIMEOUT, Limited::new(body, limit).collect()).await {
-            Ok(Ok(collected)) => collected,
+    let (path, key) = (parts.uri.path(), authorization.as_deref());
+    // An upload is handed on as it arrives; every other body is read whole first.
+    let (body, streamed) = if let Some(limit) = runner.streamed_limit(&parts.method, path, key) {
+        let (sender, streamed) = StreamedBody::channel();
+        tokio::spawn(body::pump_hyper(body, sender, limit));
+        (Bytes::new(), Some(streamed))
+    } else {
+        let limited = Limited::new(body, runner.body_limit(&parts.method, path, key));
+        match tokio::time::timeout(BODY_READ_TIMEOUT, limited.collect()).await {
+            Ok(Ok(collected)) => (collected.to_bytes(), None),
             Ok(Err(_)) => return encode_hyper(payload_too_large(), None),
             Err(_) => return encode_hyper(request_timeout(), None),
-        };
+        }
+    };
+    let content_type = header_text(&parts.headers, http::header::CONTENT_TYPE).map(str::to_owned);
     let mut response = runner
         .handle(RunnerRequest {
             method: parts.method,
             path: parts.uri.path().to_owned(),
             query: parts.uri.query().map(str::to_owned),
             authorization,
-            body: collected.to_bytes(),
+            body,
             received,
             forwarded,
             upgrade,
+            content_type,
+            streamed,
         })
         .await;
     if let (Some(handoff), Some(on_upgrade)) = (response.tunnel.take(), on_upgrade) {
@@ -251,6 +209,7 @@ fn switch_protocols(
         head: None,
         stream: None,
         after: None,
+        complete: None,
     });
     *response.status_mut() = http::StatusCode::SWITCHING_PROTOCOLS;
     let headers = response.headers_mut();
@@ -279,6 +238,7 @@ fn encode_hyper(
         head: Some(Bytes::from(std::mem::take(&mut response.body))),
         stream: response.stream.take(),
         after,
+        complete: response.complete.take(),
     });
     *built.status_mut() = http::StatusCode::from_u16(response.status)
         .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);

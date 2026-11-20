@@ -23,5 +23,6 @@ pub(crate) fn payload_too_large() -> RunnerResponse {
         stream: None,
         journal: None,
         tunnel: None,
+        complete: None,
     }
 }

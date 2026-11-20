@@ -30,6 +30,10 @@ pub(crate) struct Engine {
     pub(crate) resizes: Mutex<Vec<soma_api::ResizeRequest>>,
     /// Why the next tunnels are refused; `None` connects them to an echoing guest.
     pub(crate) tunnel_failure: Mutex<Option<soma_api::TunnelFailure>>,
+    /// The guest's files, by path; directories are only the prefixes of the paths under them.
+    pub(crate) files: Mutex<std::collections::BTreeMap<Vec<u8>, Vec<u8>>>,
+    /// A ranged read at or past this offset finds the sandbox gone.
+    pub(crate) reads_fail_from: Mutex<Option<u64>>,
 }
 
 pub(crate) struct FakeFacade(Arc<Engine>);
@@ -105,8 +109,14 @@ impl SandboxFacade for FakeFacade {
         })
     }
 
-    fn file(&mut self, _: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
-        unreachable!("the runner never touches files")
+    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
+        let operation = request.operation().clone();
+        let answer = crate::files::answer(&self.0, &operation)?;
+        Ok(FileOutcome {
+            instance_id: receipt().instance_id().clone(),
+            operation: operation.name(),
+            answer,
+        })
     }
 
     fn terminal(&mut self, _: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {

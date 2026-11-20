@@ -10,6 +10,7 @@
 //! replaces the loopback listener: that one stays for local and administrative use.
 
 pub mod backend;
+pub mod body;
 pub mod clock;
 pub mod config;
 pub mod control_plane;
