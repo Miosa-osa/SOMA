@@ -1,0 +1,1 @@
+{"schema":"soma.cli.v1","command":"doctor","status":"ok","result":{"backend":"docker","status":"probe_passed","supported_target":true,"runtime_ready":true,"production_ready":false,"runtime_version":"docker-28.5.1","reason":"backend_probe_passed"},"error":null,"receipt":null}
