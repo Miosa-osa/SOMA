@@ -31,7 +31,20 @@ fn main() {
     process::exit(run());
 }
 
+/// The report `soma-api --version` prints.
+fn version_report() -> String {
+    let speaks = soma_version::Speaks {
+        api: None,
+        protocols: soma_local::PROTOCOLS,
+    };
+    soma_version::report("soma-api", &soma_version::build!(), &speaks)
+}
+
 fn run() -> i32 {
+    if soma_version::version_requested(env::args_os()) {
+        print!("{}", version_report());
+        return 0;
+    }
     // A machine host is not a request this service serves: it becomes the process that holds one
     // sandbox. The runtime starts one by re-entering this executable, so every binary that opens
     // a hosted runtime has to answer here, before any listener exists. Without it this service
