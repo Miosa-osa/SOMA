@@ -3,10 +3,11 @@
 # Walks the whole documented flow on one host and says which stage broke.
 #
 # Unit tests prove parts. This proves the join: host readiness, build, Generation compilation,
-# snapshot capture, a sandbox that runs a command through the public command line, and a cleanup
-# that left nothing behind. Every stage records passed, failed, or skipped with a bounded detail
-# string, results are written machine readable, and the summary names the first failing stage. A
-# failure is never worked around: later stages are marked skipped so the break stays visible.
+# snapshot capture, a sandbox that runs a command through the public command line, the platform's
+# file contract through the public runner, and a cleanup that left nothing behind. Every stage
+# records passed, failed, or skipped with a bounded detail string, results are written machine
+# readable, and the summary names the first failing stage. A failure is never worked around:
+# later stages are marked skipped so the break stays visible.
 # It never writes to a shared store, compiling its own Generation into its own work directory and
 # running against its own state root and head directory, so the cleanup proof can be exact.
 #
@@ -154,6 +155,25 @@ stage_run_sandbox() {
     DETAIL="first: $first | second: $second"
 }
 
+# Stage 6. The platform's file contract through the public runner, against a machine booted from
+# the same Generation: every call a client makes, a file larger than two transfers uploaded,
+# downloaded and read back byte for byte, and hashed by the guest itself. It runs before the
+# cleanup proof, so the head directory that proof inspects covers this sandbox too.
+stage_runner_files() {
+    cargo build --release -p soma-api --example runner_files || return 1
+    local state="$WORK/runner-files-state" transcript="$WORK/runner-files.txt"
+    mkdir -p "$state"
+    if ! SOMA_GENERATION_STORE="$STORE" \
+        SOMA_HEAD_DIR="$HEAD_DIR" \
+        SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+        ./target/release/examples/runner_files "$state" "$IMAGE" \
+        >"$transcript" 2>"$WORK/runner-files.err"; then
+        DETAIL="$(tail -1 "$WORK/runner-files.err")"
+        return 1
+    fi
+    DETAIL="$(tail -1 "$transcript")"
+}
+
 # The three shared host surfaces a leak would show up on, sampled either side of the runs. An
 # empty table listing is ambiguous, because a host that holds many refuses to show them without
 # privilege, so the listing command's own status decides and an unreadable one never reads as empty.
@@ -175,7 +195,7 @@ probe() {
     return 0
 }
 
-# Stage 6. Nothing of the sandbox outlived it.
+# Stage 7. Nothing of the sandboxes outlived them.
 stage_cleanup_proof() {
     probe after
     local checks="$WORK/cleanup-checks.tsv" leaked=0 notes=()
@@ -222,11 +242,12 @@ main() {
     run_stage prepare_generation stage_prepare_generation
     run_stage capture_snapshot stage_capture_snapshot
     run_stage run_sandbox stage_run_sandbox
+    run_stage runner_files stage_runner_files
     run_stage cleanup_proof stage_cleanup_proof
     local status=0
     summarize || status=1
     # The prepared store, heads, and state root are large; the results and logs are the record.
-    (( ! PURGE )) || rm -rf -- "$STORE" "$HEAD_DIR" "$STATE_ROOT"
+    (( ! PURGE )) || rm -rf -- "$STORE" "$HEAD_DIR" "$STATE_ROOT" "$WORK/runner-files-state"
     return "$status"
 }
 
