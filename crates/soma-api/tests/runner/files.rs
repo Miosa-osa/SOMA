@@ -15,7 +15,7 @@ use crate::{
     clients::{client_tls, create_when_ready, h3_request},
     control_plane::start_control_plane,
     facade::{Engine, opener},
-    support::{TOKEN, config, scratch, snapshot, start_runner},
+    support::{TOKEN, config, eventually, scratch, snapshot, start_runner},
 };
 
 /// The facade's file answers for the operations an upload and a download use.
@@ -98,6 +98,7 @@ async fn sandbox() -> (Arc<Engine>, SocketAddr, String) {
         opener(&engine),
     )
     .await;
+    eventually("the feed connection", || !state.connections().is_empty()).await;
     snapshot(&state, 1);
     let created = create_when_ready(handle.address, "{}").await;
     let id = created.body["id"].as_str().expect("id").to_owned();
