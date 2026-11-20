@@ -11,6 +11,7 @@ pub struct LaunchRequest<'a, P> {
     prepared: &'a P,
     shape: &'a MachineShape,
     volume: Option<&'a VolumeAttachment>,
+    windowed: bool,
 }
 
 impl<'a, P> LaunchRequest<'a, P> {
@@ -28,7 +29,22 @@ impl<'a, P> LaunchRequest<'a, P> {
             prepared,
             shape,
             volume: None,
+            windowed: false,
         }
+    }
+
+    /// This request with its network's egress openable after launch (see
+    /// [`crate::LaunchMachineRequest::with_windowed_egress`]).
+    #[must_use]
+    pub const fn with_windowed(mut self, windowed: bool) -> Self {
+        self.windowed = windowed;
+        self
+    }
+
+    /// Whether the machine must hold a network whose egress can be opened later.
+    #[must_use]
+    pub const fn windowed(&self) -> bool {
+        self.windowed
     }
 
     /// This request with the durable volume the machine must bind before the guest runs.

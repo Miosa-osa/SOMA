@@ -50,9 +50,20 @@ impl Egress {
         configuration: Option<&BrokerConfiguration>,
         policy: &NetworkPolicy,
         identity: LaunchIdentity,
-        has_device: bool,
+        (has_device, windowed): (bool, bool),
     ) -> Result<Self, BackendFailureKind> {
         match policy.egress() {
+            // A windowed machine starts denied but holds a bundle, so a later window has
+            // something to change. Without a broker or a NIC it cannot be served, and it is never
+            // served as the bundle-free machine, which could not be opened and so would hide that
+            // the request was not honoured.
+            EgressPolicy::Denied if windowed => {
+                let configuration = configuration.ok_or(BackendFailureKind::Unsupported)?;
+                if !has_device {
+                    return Err(BackendFailureKind::Unsupported);
+                }
+                Self::lease(configuration, policy, identity)
+            }
             EgressPolicy::Denied => Ok(Self::Declined),
             // A request that stated no preference gets the operator default, which is the
             // public internet, so a sandbox can install packages and reach an API without the
@@ -230,7 +241,7 @@ mod tests {
         let identity = identity();
         for policy in [NetworkPolicy::isolated(), NetworkPolicy::runtime_default()] {
             let mut egress =
-                Egress::claim(None, &policy, identity, true).expect("no egress requested");
+                Egress::claim(None, &policy, identity, (true, false)).expect("no egress requested");
             assert!(matches!(egress, Egress::Declined));
             assert!(egress.attachment().is_none());
             assert!(egress.pending_activation().is_none());
@@ -252,8 +263,24 @@ mod tests {
         )
         .expect("policy");
         assert_eq!(
-            Egress::claim(None, &policy, identity(), true).err(),
+            Egress::claim(None, &policy, identity(), (true, false)).err(),
             Some(BackendFailureKind::Unsupported)
         );
+    }
+
+    /// A windowed machine on a host with no broker is refused: serving it as the bundle-free
+    /// denied machine would hide that it can never be opened.
+    #[test]
+    fn a_windowed_machine_without_a_broker_is_unsupported_not_declined() {
+        let denied = NetworkPolicy::isolated();
+        assert_eq!(
+            Egress::claim(None, &denied, identity(), (true, true)).err(),
+            Some(BackendFailureKind::Unsupported)
+        );
+        // The same request unwindowed is the bundle-free denied machine it always was.
+        assert!(matches!(
+            Egress::claim(None, &denied, identity(), (true, false)),
+            Ok(Egress::Declined)
+        ));
     }
 }

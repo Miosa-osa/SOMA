@@ -19,7 +19,7 @@ use super::{
     KvmBackend,
     evidence::{command_parts, effective_shape, observation},
     host::{self, HostFailure, Role},
-    lifecycle::Force,
+    lifecycle::{Force, LaunchExtras},
     prepared::PreparedGeneration,
 };
 
@@ -43,7 +43,10 @@ impl KvmBackend {
                 request.instance_id(),
                 prepared,
                 request.shape(),
-                request.volume().cloned(),
+                LaunchExtras {
+                    volume: request.volume().cloned(),
+                    windowed: request.windowed(),
+                },
             )?,
             Some(directory) => host::launch(host::HostedLaunch {
                 directory: &directory,
@@ -52,6 +55,7 @@ impl KvmBackend {
                 prepared,
                 shape: request.shape(),
                 volume: request.volume(),
+                windowed: request.windowed(),
                 admitted_at,
             })
             .map_err(|kind| self.fail(operation, kind))?,

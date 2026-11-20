@@ -18,14 +18,18 @@
 
 use crate::{
     Backend, BackendKind, InstanceId, MachineName, SandboxLiveness, StateStore,
-    StateStoreFailureKind,
+    StateStoreFailureKind, WorkloadIdentity,
 };
 
 use super::{
     Engine, ManagedFailure,
-    machine_state::{DurablePhase, VersionedMachine},
+    machine_state::{ActiveMachine, DurablePhase, VersionedMachine},
     managed_state::store_failure,
 };
+
+mod entry;
+
+pub use entry::{SandboxEntry, SandboxPhase};
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
     /// Lists every sandbox this engine's durable store holds that has not reached a terminal
@@ -92,30 +96,24 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         instance_id: InstanceId,
         stored: &VersionedMachine,
     ) -> Option<SandboxEntry> {
-        let (phase, backend, name) = match &stored.machine.phase {
+        let (phase, launch) = match &stored.machine.phase {
             DurablePhase::Launching { intent } => (
                 SandboxPhase::Launching,
-                intent.backend,
-                intent.machine_name.clone(),
+                (
+                    intent.backend,
+                    intent.machine_name.clone(),
+                    Some(&intent.workload),
+                ),
             ),
-            DurablePhase::Active { active } => (
-                SandboxPhase::Active,
-                active.backend(),
-                active.machine_name().cloned(),
-            ),
-            DurablePhase::Executing { active, .. } => (
-                SandboxPhase::Executing,
-                active.backend(),
-                active.machine_name().cloned(),
-            ),
-            DurablePhase::Terminating { active, .. } => (
-                SandboxPhase::Terminating,
-                active.backend(),
-                active.machine_name().cloned(),
-            ),
+            DurablePhase::Active { active } => (SandboxPhase::Active, of_active(active)),
+            DurablePhase::Executing { active, .. } => (SandboxPhase::Executing, of_active(active)),
+            DurablePhase::Terminating { active, .. } => {
+                (SandboxPhase::Terminating, of_active(active))
+            }
             // A released Instance is not a sandbox any more.
             DurablePhase::Terminal { .. } => return None,
         };
+        let (backend, name, workload) = launch;
         // A record written by a different backend belongs to a machine this engine cannot reach,
         // so it is reported without a liveness claim rather than probed against the wrong one.
         let liveness = if backend == self.backend.kind() {
@@ -123,105 +121,23 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         } else {
             SandboxLiveness::Unknown
         };
-        Some(SandboxEntry {
-            instance_id,
-            phase,
-            backend,
-            name,
-            liveness,
-        })
+        let generation = workload.and_then(WorkloadIdentity::generation_id).cloned();
+        Some(
+            SandboxEntry::new(instance_id, phase, backend, name, liveness)
+                .with_generation(generation),
+        )
     }
 }
 
-/// What the durable record says one sandbox's last completed transition left it in.
-///
-/// This is the store's phase rather than the guest's state. A machine reported Active here has a
-/// record saying its launch completed and nothing has released it; whether its guest is running
-/// is what the liveness beside it is for, and what an inspection by exact identity answers in
-/// full.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SandboxPhase {
-    /// A launch was admitted and has not completed.
-    Launching,
-    /// The launch completed and nothing has released it.
-    Active,
-    /// A command is in flight against it.
-    Executing,
-    /// A release is in flight against it.
-    Terminating,
-}
-
-impl SandboxPhase {
-    /// The stable name a surface reports this phase by.
-    #[must_use]
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::Launching => "launching",
-            Self::Active => "active",
-            Self::Executing => "executing",
-            Self::Terminating => "terminating",
-        }
-    }
-}
-
-/// One sandbox in a listing.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SandboxEntry {
-    instance_id: InstanceId,
-    phase: SandboxPhase,
-    backend: BackendKind,
-    name: Option<MachineName>,
-    liveness: SandboxLiveness,
-}
-
-impl SandboxEntry {
-    /// Builds one entry.
-    ///
-    /// Public because the trait a service implements to serve a listing returns these, so a
-    /// facade that is not this engine still has to be able to produce one.
-    #[must_use]
-    pub const fn new(
-        instance_id: InstanceId,
-        phase: SandboxPhase,
-        backend: BackendKind,
-        name: Option<MachineName>,
-        liveness: SandboxLiveness,
-    ) -> Self {
-        Self {
-            instance_id,
-            phase,
-            backend,
-            name,
-            liveness,
-        }
-    }
-
-    #[must_use]
-    pub const fn instance_id(&self) -> &InstanceId {
-        &self.instance_id
-    }
-
-    #[must_use]
-    pub const fn phase(&self) -> SandboxPhase {
-        self.phase
-    }
-
-    #[must_use]
-    pub const fn backend(&self) -> BackendKind {
-        self.backend
-    }
-
-    /// The optional metadata name the launch carried, which never replaces the identity.
-    #[must_use]
-    pub const fn name(&self) -> Option<&MachineName> {
-        self.name.as_ref()
-    }
-
-    /// What the backend could reach for this Instance at the moment of the listing.
-    #[must_use]
-    pub const fn liveness(&self) -> SandboxLiveness {
-        self.liveness
-    }
+/// What an admitted launch recorded: its backend, its name, and the workload it resolved.
+fn of_active(
+    active: &ActiveMachine,
+) -> (BackendKind, Option<MachineName>, Option<&WorkloadIdentity>) {
+    (
+        active.backend(),
+        active.machine_name().cloned(),
+        active.workload(),
+    )
 }
 
 /// A record the store holds that could be read from disk but not decoded as a machine.

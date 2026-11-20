@@ -63,6 +63,16 @@ pub(super) struct Live {
     pub(super) memory_mib: u64,
 }
 
+/// What a launch carries besides the Generation and the shape.
+///
+/// Gathered so that adding one more fact does not add one more argument to every launch.
+pub(in crate::backend::kvm) struct LaunchExtras {
+    /// The durable volume the host resolved, when the Generation declares one.
+    pub(in crate::backend::kvm) volume: Option<soma::VolumeAttachment>,
+    /// Whether the machine must hold a network whose egress can be opened after launch.
+    pub(in crate::backend::kvm) windowed: bool,
+}
+
 impl KvmBackend {
     /// Starts an operation's clock, if nothing has started it.
     ///
@@ -76,14 +86,16 @@ impl KvmBackend {
     }
 
     /// Builds the one machine this process will hold, and reports what that established.
+    #[allow(clippy::too_many_lines)]
     pub(super) fn launch_resident(
         &mut self,
         operation: &OperationId,
         instance: &InstanceId,
         prepared: &PreparedGeneration,
         shape: &MachineShape,
-        volume: Option<soma::VolumeAttachment>,
+        extras: LaunchExtras,
     ) -> Result<Launched, BackendFailure> {
+        let LaunchExtras { volume, windowed } = extras;
         // This Backend owns at most one sandbox. Assigning over a live one would drop its
         // Session, and dropping a Session shuts the guest down, so launching B would silently
         // destroy A without any Stop or Cleanup naming A.
@@ -121,8 +133,13 @@ impl KvmBackend {
         // A request that needs egress is served by the broker or refused. It is never served by
         // the placeholder device, which would report a working network that drops every packet.
         let has_device = prepared.manifest.device_set().net();
-        let mut egress = Egress::claim(self.broker.as_deref(), policy, identity, has_device)
-            .map_err(|kind| self.fail(operation, kind))?;
+        let mut egress = Egress::claim(
+            self.broker.as_deref(),
+            policy,
+            identity,
+            (has_device, windowed),
+        )
+        .map_err(|kind| self.fail(operation, kind))?;
         let network = Network {
             launch: egress
                 .launch(identity)

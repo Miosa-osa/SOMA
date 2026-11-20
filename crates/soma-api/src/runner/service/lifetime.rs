@@ -178,6 +178,7 @@ impl Runner {
                     lifetime_ms: Some(millis(at.saturating_duration_since(owner.created))),
                     reason: Some(reason),
                     launch: None,
+                    refusal: None,
                 });
             }
         }
