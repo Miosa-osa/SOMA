@@ -98,7 +98,7 @@ fn awaiting_repair() -> (
     (host_thread, guest, host_observed, guest_observed)
 }
 
-fn repaired_owners() -> (RepairedHost, Guest, Observation, Observation) {
+pub(super) fn repaired_owners() -> (RepairedHost, Guest, Observation, Observation) {
     let (host_thread, guest, host_observed, guest_observed) = awaiting_repair();
     let guest = guest.repair_complete(deadline()).expect("repair report");
     let host = host_thread
@@ -136,7 +136,7 @@ enum IllegalReport {
     Terminal,
 }
 
-fn control_error<T>(result: Result<T, ControlError>) -> ControlError {
+pub(super) fn control_error<T>(result: Result<T, ControlError>) -> ControlError {
     match result {
         Ok(value) => {
             drop(value);

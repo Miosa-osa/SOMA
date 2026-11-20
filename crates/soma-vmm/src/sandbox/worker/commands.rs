@@ -36,7 +36,9 @@ pub(super) fn serve_commands(
         .map_err(|_| SessionError::Gone)?;
 
     // What the guest answered to the API level probe, learned lazily by the first level 2 file
-    // operation and kept for the life of this session.
+    // operation or the first command with a long argument, and kept for the life of this session.
+    // A guest that cannot decode a command is answered `ExecuteRefused` with nothing sent, so the
+    // sandbox keeps answering every command it can.
     let mut guest_api: Option<soma_guest::GuestApi> = None;
 
     // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
@@ -56,6 +58,18 @@ pub(super) fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::Execute(command) => {
+                let (next, admitted) = repaired
+                    .admits(&command, &mut guest_api, || {
+                        files::nonce_text(&fresh16()).into_bytes()
+                    })
+                    .map_err(|_| SessionError::Execute)?;
+                repaired = next;
+                if !admitted {
+                    responses
+                        .send(Response::ExecuteRefused)
+                        .map_err(|_| SessionError::Gone)?;
+                    continue;
+                }
                 let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
                 let (next, outcome) = repaired
                     .execute(operation, command)
@@ -71,6 +85,18 @@ pub(super) fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::ExecuteStreaming(command) => {
+                let (next, admitted) = repaired
+                    .admits(&command, &mut guest_api, || {
+                        files::nonce_text(&fresh16()).into_bytes()
+                    })
+                    .map_err(|_| SessionError::Execute)?;
+                repaired = next;
+                if !admitted {
+                    responses
+                        .send(Response::ExecuteRefused)
+                        .map_err(|_| SessionError::Gone)?;
+                    continue;
+                }
                 let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
                 // A closed response channel cannot abort the guest exchange half way, so the
                 // loss is remembered and reported once the exchange has ended cleanly.

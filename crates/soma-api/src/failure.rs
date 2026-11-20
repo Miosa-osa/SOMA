@@ -103,6 +103,13 @@ fn backend_error(kind: BackendFailureKind) -> ApiError {
         BackendFailureKind::WorkloadRejected => {
             ApiError::new(400, "workload_rejected", "workload was rejected", false)
         }
+        BackendFailureKind::GuestAgentOutdated => ApiError::new(
+            422,
+            "guest_agent_outdated",
+            "the sandbox's guest agent carries arguments of at most 4096 bytes; capture its \
+             Generation again with a newer agent to run this command",
+            false,
+        ),
         BackendFailureKind::Timeout => run_kind_error(RunFailureKind::TimedOut),
         BackendFailureKind::OutputLimit => run_kind_error(RunFailureKind::OutputLimitExceeded),
         BackendFailureKind::CleanupFailure => run_kind_error(RunFailureKind::CleanupIncomplete),

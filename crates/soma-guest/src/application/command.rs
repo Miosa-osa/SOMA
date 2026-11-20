@@ -45,6 +45,12 @@ pub const MAX_FIELD_BYTES: usize = 4096;
 /// input, so a script fits inline exactly when it fits on standard input. The `u16` prefix
 /// (65,535) is not what binds; the whole command is still bounded by the record (ADR 0051).
 pub const MAX_ARGUMENT_BYTES: usize = 32 * 1024;
+/// The longest argument a guest below API level 3 decodes.
+///
+/// Such a guest refuses a longer one as a protocol fault and stops serving, so a host sends a
+/// command with a longer argument only to a guest whose probe answered level 3
+/// ([`crate::GuestApi::has_long_arguments`]).
+pub const LEVEL_TWO_ARGUMENT_BYTES: usize = 4096;
 /// Maximum number of environment variables in one authenticated command.
 pub const MAX_ENVIRONMENT: usize = 64;
 /// Maximum byte length of the user name a command runs as.
@@ -144,6 +150,14 @@ impl GuestCommand {
         self.stdin = parts.stdin;
         self.check_encoded_size()?;
         Ok(self)
+    }
+
+    /// Whether this command carries an argument longer than a guest below API level 3 decodes.
+    #[must_use]
+    pub fn needs_long_arguments(&self) -> bool {
+        self.arguments
+            .iter()
+            .any(|argument| argument.len() > LEVEL_TWO_ARGUMENT_BYTES)
     }
 
     /// Returns the exact executable path bytes.

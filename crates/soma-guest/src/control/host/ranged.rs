@@ -2,7 +2,8 @@
 //!
 //! These are guest API level 2 operations. A host must learn the level with
 //! [`RepairedHostControl::probe_guest_api`] before it sends one, because an older guest rejects
-//! an unknown request tag as a protocol fault and ends the session.
+//! an unknown request tag as a protocol fault and ends the session. Level 3 is a command with an
+//! argument longer than [`crate::LEVEL_TWO_ARGUMENT_BYTES`], under the same rule.
 
 use crate::{FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES};
 
@@ -34,6 +35,14 @@ impl GuestApi {
     #[must_use]
     pub const fn has_ranged_files(self) -> bool {
         matches!(self, Self::Level(level) if level >= 2)
+    }
+
+    /// Whether this guest accepts an argument up to [`crate::MAX_ARGUMENT_BYTES`] in one
+    /// `Execute` record, which is level 3; an older one decodes at most
+    /// [`crate::LEVEL_TWO_ARGUMENT_BYTES`].
+    #[must_use]
+    pub const fn has_long_arguments(self) -> bool {
+        matches!(self, Self::Level(level) if level >= 3)
     }
 }
 
@@ -111,6 +120,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
             FileOutcome::Read { bytes, .. } => parse_probe(&bytes, nonce),
             _ => GuestApi::Legacy,
         };
+        self.api = Some(api);
         Ok((self, api))
     }
 
@@ -125,11 +135,12 @@ impl<I: HostControlIo> RepairedHostControl<I> {
     ///
     /// Returns a redacted File error after poisoning the transport exactly once.
     pub fn ensure_guest_api(
-        self,
+        mut self,
         cache: &mut Option<GuestApi>,
         nonce: impl FnOnce() -> Vec<u8>,
     ) -> Result<(Self, GuestApi), ControlError> {
         if let Some(level) = *cache {
+            self.api = Some(level);
             return Ok((self, level));
         }
         let (session, level) = self.probe_guest_api(&nonce())?;
