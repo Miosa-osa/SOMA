@@ -50,4 +50,11 @@ impl<B, S> Engine<B, S> {
     pub const fn with_state_store(backend: B, state: S) -> Self {
         Self { backend, state }
     }
+
+    /// The backend this engine drives, for a caller that asks it about a capability before any
+    /// launch depends on the answer.
+    #[must_use]
+    pub const fn backend(&self) -> &B {
+        &self.backend
+    }
 }
