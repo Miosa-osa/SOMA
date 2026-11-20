@@ -95,7 +95,10 @@ pub(super) fn commit_revision(
     // The record's bytes must be durable before anything can publish them, so a
     // crash cannot leave a link pointing at a record that was never written.
     // Group commit puts one sync behind every writer that arrived with this one.
-    barrier.commit(|| sync_record(directory, &temp))?;
+    if let Err(failure) = barrier.commit(|| sync_record(directory, &temp)) {
+        let _ = fs::remove_file(&temp);
+        return Err(failure);
+    }
     match fs::hard_link(&temp, &target) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
@@ -131,9 +134,18 @@ fn create_temp(directory: &Path, record: &StateRecord) -> Result<PathBuf, StateS
         set_create_file_mode(&mut options);
         match options.open(&path) {
             Ok(mut file) => {
-                file.write_all(record.as_bytes())
-                    .map_err(|_| unavailable())?;
-                set_file_permissions(&file)?;
+                let written = file
+                    .write_all(record.as_bytes())
+                    .map_err(|_| unavailable())
+                    .and_then(|()| set_file_permissions(&file));
+                // A full filesystem fails the write after the name already exists, so the name
+                // goes with the failure: left behind, it is an empty file in a directory that
+                // names an Instance with no record (SOMA#127).
+                if let Err(failure) = written {
+                    drop(file);
+                    let _ = fs::remove_file(&path);
+                    return Err(failure);
+                }
                 // No sync here: `commit_revision` makes these bytes durable through the
                 // barrier before the link can publish them, which is a stronger place for it
                 // because one sync then covers every writer in the batch.
@@ -144,6 +156,33 @@ fn create_temp(directory: &Path, record: &StateRecord) -> Result<PathBuf, StateS
         }
     }
     Err(capacity_exceeded())
+}
+
+/// Removes every revision of one Instance, the current one last, and makes the removal durable.
+///
+/// Older revisions go first because the newest name is the record: removing it first would let
+/// a crash part way leave an older revision as the current one, and an older revision of a
+/// terminal record is a machine that was still running. Superseded revisions normally do not
+/// exist, since every replacement prunes them, so the extra sync is paid only after a crash.
+///
+/// The removal is synced before it is reported because a released identity may be created
+/// again, and a terminal record that came back after a crash would then hide the new one.
+pub(super) fn remove_revisions(
+    directory: &Path,
+    revisions: &BTreeMap<StateRevision, PathBuf>,
+    barrier: &SyncBarrier,
+) -> Result<(), StateStoreFailure> {
+    let Some((_, current)) = revisions.last_key_value() else {
+        return Ok(());
+    };
+    if revisions.len() > 1 {
+        for path in revisions.values().filter(|path| *path != current) {
+            fs::remove_file(path).map_err(|_| unavailable())?;
+        }
+        barrier.commit(|| sync_root(directory))?;
+    }
+    fs::remove_file(current).map_err(|_| unavailable())?;
+    barrier.commit(|| sync_root(directory))
 }
 
 pub(super) fn prune_superseded(

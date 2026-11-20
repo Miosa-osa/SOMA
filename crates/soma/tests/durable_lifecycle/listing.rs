@@ -125,6 +125,14 @@ impl StateStore for UnavailableList {
         unreachable!("listing does not replace")
     }
 
+    fn release(
+        &mut self,
+        _: &InstanceId,
+        _: soma::StateRevision,
+    ) -> Result<(), soma::StateStoreFailure> {
+        unreachable!("listing does not release")
+    }
+
     fn list(&mut self) -> Result<Vec<InstanceId>, soma::StateStoreFailure> {
         Err(soma::StateStoreFailure::new(
             StateStoreFailureKind::Unavailable,
