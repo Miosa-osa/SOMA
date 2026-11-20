@@ -5,16 +5,11 @@
 //! with the entries themselves. Every entry is examined, not just until one matches, because two
 //! entries claiming one reference must fail as ambiguous rather than resolve by directory order.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
-};
+use std::path::{Path, PathBuf};
 
+use super::cache::generations;
 use super::entry::{Claim, claims, read_bounded, read_entry};
-use super::{
-    GenerationCache, MAX_REFERENCE_BYTES, PreparedError, PreparedGeneration, REFERENCE, STORE,
-};
+use super::{MAX_REFERENCE_BYTES, PreparedError, PreparedGeneration, REFERENCE, STORE};
 
 /// Finds the Generation prepared for `reference` under `root`.
 ///
@@ -32,12 +27,7 @@ pub(in crate::backend::kvm) fn find(
 ) -> Result<PreparedGeneration, PreparedError> {
     let root = root.ok_or(PreparedError::StoreUnset)?;
     let key = (root.to_path_buf(), reference.to_owned());
-    if let Some(found) = cache()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&key)
-        .cloned()
-    {
+    if let Some(found) = generations().get(&key) {
         return Ok(found);
     }
     // A root that is simply absent is a different operator problem from one that is a link, and
@@ -68,15 +58,17 @@ pub(in crate::backend::kvm) fn find(
             Claim::Unreadable => return Err(PreparedError::Damaged),
         }
     }
-    let found = match claimants.as_slice() {
-        [] => Err(PreparedError::NotPrepared),
-        [only] => read_entry(root, only, reference),
-        _ => Err(PreparedError::Ambiguous),
-    }?;
-    cache()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(key, found.clone());
+    let only = match claimants.as_slice() {
+        [] => return Err(PreparedError::NotPrepared),
+        [only] => only,
+        _ => return Err(PreparedError::Ambiguous),
+    };
+    let found = read_entry(root, only, reference)?;
+    // A prune that released this entry while it was being read has moved it out of the root, and
+    // caching what was read would reopen what the prune just released.
+    if !generations().admit(key, found.clone(), only) {
+        return Err(PreparedError::NotPrepared);
+    }
     Ok(found)
 }
 
@@ -104,11 +96,6 @@ pub(in crate::backend::kvm) fn preload() -> Result<(), PreparedError> {
         find(Some(&root), reference)?;
     }
     Ok(())
-}
-
-fn cache() -> &'static GenerationCache {
-    static CACHE: OnceLock<GenerationCache> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 /// The prepared root this host names, if any.

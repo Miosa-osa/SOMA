@@ -1,7 +1,7 @@
 use std::fmt;
 
 use serde_json::Value;
-use soma::{DirectCommand, MachineShape};
+use soma::{Capabilities, DirectCommand, MachineShape};
 
 use crate::runner::{
     config::{LargeShape, LaunchConfig},
@@ -11,11 +11,14 @@ use crate::runner::{
 
 mod exec;
 mod fields;
+mod network;
 mod run;
 
 use fields::{CREATE_FIELDS, UNSUPPORTED_CREATE_PARAMS};
+use network::apply_network;
 
 pub(super) use exec::ExecParams;
+pub(super) use network::EgressRequest;
 pub(super) use run::RunCommand;
 
 /// The create body fields the runner acts on.
@@ -30,6 +33,12 @@ pub(super) struct CreateParams {
     /// `large` carries the runner's large shape, and is only reachable on a runner that
     /// configured one.
     pub(super) shape: MachineShape,
+    /// The egress the create named in `network.egress`, if it named one.
+    ///
+    /// Already applied to [`Self::shape`]: this sandbox's network is what the request said, not
+    /// what the host's `launch.public_egress` defaults a shape to. Kept so a launch that cannot
+    /// serve it is answered as an egress refusal rather than as a generic outage.
+    pub(super) egress: Option<EgressRequest>,
     /// Whether the create waits for the sandbox to be up before it answers.
     ///
     /// Absent is `true`, the answer every client had before this field existed. `false` is the
@@ -52,6 +61,7 @@ impl fmt::Debug for CreateParams {
             .field("project_id", &self.project_id)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("shape", &self.shape)
+            .field("egress", &self.egress)
             .field("wait_ready", &self.wait_ready)
             .field("run", &self.run.is_some())
             .finish()
@@ -87,6 +97,7 @@ impl CreateParams {
                 .ok_or_else(|| PlatformError::unsupported("a size other than xs"))?,
             Some(_) => return Err(PlatformError::unsupported("a size other than xs or large")),
         };
+        let (shape, egress) = apply_network(shape, params.get("network"), launch)?;
         if params.get("persistent").is_some_and(truthy) {
             return Err(PlatformError::unsupported("persistent sandboxes"));
         }
@@ -155,6 +166,7 @@ impl CreateParams {
             project_id,
             timeout_seconds,
             shape,
+            egress,
             wait_ready,
             run,
         })

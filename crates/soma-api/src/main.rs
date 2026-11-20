@@ -70,6 +70,10 @@ fn run() -> i32 {
             return 78;
         }
     };
+    // The runner launches this one image, so a prune never removes the entry it launches from.
+    if let Some(config) = &runner_config {
+        soma_local::pin_launch_reference(&config.launch.image);
+    }
     let tunnels = match TunnelPolicy::from_env() {
         Ok(policy) => TunnelTable::new(policy),
         Err(variable) => {

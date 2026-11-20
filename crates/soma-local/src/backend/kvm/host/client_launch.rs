@@ -23,6 +23,7 @@ struct LaunchContext<'a> {
     socket: PathBuf,
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
+    windowed: bool,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -39,6 +40,8 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     pub(in crate::backend::kvm) prepared: &'a PreparedGeneration,
     pub(in crate::backend::kvm) shape: &'a MachineShape,
     pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
+    /// Whether the machine must hold a network whose egress can be opened after launch.
+    pub(in crate::backend::kvm) windowed: bool,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -58,6 +61,7 @@ pub(in crate::backend::kvm) fn launch(
         prepared,
         shape,
         volume,
+        windowed,
         admitted_at,
     } = request;
     if !channel::addressable(directory) {
@@ -88,9 +92,19 @@ pub(in crate::backend::kvm) fn launch(
         socket,
         skip_warm: in_flight.skip_warm(),
         volume,
+        windowed,
         admitted_at,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
+        // The host's own answer must show the gate was kept. A host that served the launch
+        // without it (an older build that dropped the field, or a claim that fell back to the
+        // bundle-free machine) answers with a detached network, and that machine is torn down
+        // here rather than handed back as one whose egress a window could change.
+        Ok(launched) if !honours_windowed(windowed, launched.network.attachment()) => {
+            let _ignored = child.kill();
+            let _ignored = child.wait();
+            Err(BackendFailureKind::Unsupported)
+        }
         Ok(launched) => {
             // What the guest read from its head travels back with the answer, so the pool can warm
             // the next head for this Generation while it is prepared rather than while the next
@@ -111,6 +125,19 @@ pub(in crate::backend::kvm) fn launch(
             Err(kind)
         }
     }
+}
+
+/// Whether a launch's observed network is the one a windowed request needs: attached to a
+/// bundle. A request that did not ask for a window is satisfied by anything.
+pub(super) fn honours_windowed(
+    windowed: bool,
+    attachment: &soma::Observation<soma::NetworkAttachment>,
+) -> bool {
+    !windowed
+        || matches!(
+            attachment,
+            soma::Observation::Observed(soma::NetworkAttachment::Attached)
+        )
 }
 
 fn handshake(
@@ -134,6 +161,7 @@ fn handshake(
             .map_err(|_| BackendFailureKind::Unavailable)?,
         shape: shape.clone(),
         skip_warm: context.skip_warm,
+        windowed: context.windowed,
     };
     // Taken as late as it can be, because time before this point is time this launch spent
     // reaching the process that will build it, and a child can only time what happens after the
