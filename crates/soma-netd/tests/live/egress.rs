@@ -19,6 +19,8 @@ use super::{
     session, world,
 };
 
+mod restart;
+
 const CONNTRACK: &str = "/usr/sbin/conntrack";
 const GATEWAY_WAIT: Duration = Duration::from_secs(5);
 

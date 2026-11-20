@@ -49,6 +49,8 @@ mod nft;
 #[cfg(target_os = "linux")]
 mod reconcile;
 #[cfg(target_os = "linux")]
+mod recover;
+#[cfg(target_os = "linux")]
 mod release;
 #[cfg(target_os = "linux")]
 mod snapshot;
@@ -94,8 +96,10 @@ pub use namespace::{NetNamespace, Unpinned};
 #[cfg(target_os = "linux")]
 pub use reconcile::{
     Disposition, MAX_REAP_PER_START, ReapPlan, ReapReport, ReconcileReport, reap_plan,
-    reap_unassigned, reconcile,
+    reap_unassigned, reconcile, reconcile_with,
 };
+#[cfg(target_os = "linux")]
+pub use recover::{RestoreReport, restore_base_rulesets};
 #[cfg(target_os = "linux")]
 pub use release::{ReleaseEvidence, StepResult, release, release_record, release_sterile};
 #[cfg(target_os = "linux")]

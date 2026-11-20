@@ -199,6 +199,24 @@ impl LocalRuntime {
         crate::resize::resize_machine(directory, instance, request)
     }
 
+    /// Opens or closes the egress of a hosted Machine that was launched windowed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::EgressSetFailure`]; anything other than an outcome means the egress may
+    /// not be what was asked for.
+    pub fn set_egress_machine(
+        &self,
+        instance: &soma::InstanceId,
+        request: crate::EgressSetRequest,
+    ) -> Result<crate::EgressSetOutcome, crate::EgressSetFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::EgressSetFailure::Unavailable)?;
+        crate::egress::set_egress_machine(directory, instance, request)
+    }
+
     /// Gracefully attempts to stop and release one managed Machine.
     ///
     /// # Errors
