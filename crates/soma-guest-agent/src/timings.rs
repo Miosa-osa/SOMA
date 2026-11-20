@@ -53,7 +53,7 @@ pub enum Step {
     RequestWait,
     /// Sending the `RepairComplete` report.
     RepairReport,
-    /// Forking and executing the first command.
+    /// Spawning and executing the first command.
     Spawn,
     /// Streaming that command's pipes until both close.
     Stream,

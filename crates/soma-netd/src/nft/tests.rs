@@ -6,11 +6,13 @@
 
 use std::{
     fs,
+    os::unix::process::CommandExt as _,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
-use soma_supervise::{CAPTURE_LIMIT, TERMINATION_GRACE};
+use soma_supervise::{CAPTURE_LIMIT, Output, TERMINATION_GRACE};
 
 use super::{DEADLINE, Invocation};
 use crate::{Error, Tool};
@@ -167,26 +169,98 @@ fn a_tool_that_floods_its_output_is_terminated_rather_than_buffered() {
     assert_eq!(CAPTURE_LIMIT, 64 * 1024);
 }
 
+/// Whether this platform's process spawn hides a failed exec, asked of `program` with the same
+/// standard streams and process group the contained invocation gives a tool.
+///
+/// glibc's `posix_spawn` learns that the exec failed through memory the child shares with the
+/// caller (`CLONE_VM | CLONE_VFORK`). A user-mode emulator, such as an amd64 container on an
+/// Apple Silicon host, runs that clone as a plain fork, so the errno never reaches the caller:
+/// the spawn succeeds and the child exits with glibc's status 127 having written nothing
+/// (issue #55). A native Linux kernel reports the failure from the spawn itself.
+fn spawn_hides_a_failed_exec(program: &Path) -> bool {
+    let spawned = Command::new(program)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn();
+    match spawned {
+        Ok(mut child) => {
+            let _ = child.wait();
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 #[test]
 fn an_absent_tool_is_a_typed_failure_rather_than_a_panic() {
     let missing = scratch("no-such-tool");
     let _ = fs::remove_file(&missing);
     let path = missing.to_string_lossy().into_owned();
 
-    let error = Invocation {
+    let outcome = Invocation {
         tool: Tool::Conntrack,
         program: &path,
         arguments: &[],
         deadline: DEADLINE,
     }
-    .run("")
-    .expect_err("a missing tool");
+    .run("");
 
-    assert_eq!(
-        error,
-        Error::Tool {
-            tool: Tool::Conntrack,
-            status: None
+    match outcome {
+        Err(error) => assert_eq!(
+            error,
+            Error::Tool {
+                tool: Tool::Conntrack,
+                status: None
+            }
+        ),
+        // Accepted only where the probe shows the spawn itself cannot see the failed exec; on a
+        // native kernel this is still a failure of the case. Every caller treats a status other
+        // than zero as `Error::Tool`, so the tool is a typed failure there too.
+        Ok(output) => {
+            assert!(
+                spawn_hides_a_failed_exec(&missing),
+                "a native spawn must report the absent tool, not run it: {output:?}"
+            );
+            assert_eq!(
+                output,
+                Output {
+                    exit_code: Some(127),
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                }
+            );
         }
-    );
+    }
+}
+
+#[test]
+fn only_a_rule_that_accepts_new_connections_from_the_tap_counts_as_a_way_out() {
+    let denied = r#"table inet soma_0a0b0c0d {
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+		iifname "tap0" ether saddr != 02:01:02:03:04:05 drop
+		iifname "tap0" ip daddr @protected4 drop
+		iifname "tap0" tcp dport 25 drop
+		iifname "tap0" udp dport 53 drop
+		iifname "tap0" tcp dport 53 drop
+		iifname "vs0" oifname "tap0" ip daddr 10.200.0.5 ct state established,related accept
+	}
+}"#;
+    assert!(!super::chain_forwards(denied, "tap0"));
+
+    // The tool prints the states in its own order, and either order is a way out.
+    for states in ["new,established", "established,new"] {
+        let open = format!(
+            "{denied}\n\t\tiifname \"tap0\" oifname \"sv0a0b0c0d\" ct state {states} accept\n"
+        );
+        assert!(super::chain_forwards(&open, "tap0"), "{states}");
+    }
+    // A published port's inbound rule names `new` but arrives on the veth, so it is not one.
+    let published = "\t\tiifname \"vs0\" oifname \"tap0\" ip daddr 10.200.0.5 tcp dport 8080 ct state new,established accept";
+    assert!(!super::chain_forwards(published, "tap0"));
+    // Established-only on the tap is a reply path, not a way out.
+    let reply = "\t\tiifname \"tap0\" ip saddr 10.200.0.5 ct state established,related accept";
+    assert!(!super::chain_forwards(reply, "tap0"));
 }

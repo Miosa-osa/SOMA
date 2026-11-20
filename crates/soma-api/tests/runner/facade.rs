@@ -117,6 +117,17 @@ impl SandboxFacade for FakeFacade {
         Ok(soma::MachineListing::default())
     }
 
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        unreachable!("the runner never releases records; the record sweep does")
+    }
+
+    fn release(
+        &mut self,
+        _instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        unreachable!("the runner never releases records; the record sweep does")
+    }
+
     fn stop(&mut self, _: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
         unreachable!("the runner never stops")
     }

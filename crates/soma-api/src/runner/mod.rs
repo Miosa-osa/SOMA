@@ -15,6 +15,7 @@ pub mod config;
 pub mod control_plane;
 pub mod feed;
 pub mod feed_client;
+pub(crate) mod files;
 pub mod idle;
 pub mod ids;
 pub mod journal;
@@ -34,6 +35,7 @@ pub mod shipper;
 pub mod starting;
 pub mod tls;
 pub mod transport;
+pub mod windows;
 
 use std::{io, net::SocketAddr, sync::Arc, thread, time::Duration};
 

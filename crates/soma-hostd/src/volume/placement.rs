@@ -127,10 +127,6 @@ pub fn root_is_encrypted(directory: &Path, name: &str) -> io::Result<bool> {
 ///
 /// This build never returns an error; the signature matches the Linux check.
 #[cfg(not(target_os = "linux"))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "matches the Linux check, which can fail to read the mount table"
-)]
 pub fn root_is_encrypted(directory: &Path, name: &str) -> io::Result<bool> {
     let _ = (directory, name);
     Ok(false)
@@ -142,10 +138,6 @@ pub fn root_is_encrypted(directory: &Path, name: &str) -> io::Result<bool> {
 ///
 /// This build never returns an error; the signature matches the Linux check.
 #[cfg(not(target_os = "linux"))]
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "matches the Linux check, which can refuse"
-)]
 pub fn refuse_volatile(directory: &Path) -> io::Result<()> {
     let _ = directory;
     Ok(())

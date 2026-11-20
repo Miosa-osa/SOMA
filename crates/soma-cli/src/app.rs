@@ -6,7 +6,9 @@ mod success;
 use crate::{
     cli::{Cli, RootCommand},
     exit::ProcessExit,
-    model::{CapabilityState, ENVELOPE_SCHEMA, Response, ResultBody, VersionReport},
+    model::{
+        CapabilityState, ENVELOPE_SCHEMA, ProtocolVersions, Response, ResultBody, VersionReport,
+    },
     request::{prepare_machine, prepare_run},
 };
 
@@ -46,10 +48,17 @@ pub fn execute(cli: Cli) -> Execution {
 }
 
 fn version() -> Execution {
+    let build = soma_version::build!();
     success(
         "version",
         ResultBody::Version(VersionReport {
-            version: env!("CARGO_PKG_VERSION"),
+            version: build.release(),
+            commit: build.commit(),
+            commit_date: build.commit_date(),
+            source: build.source().as_str(),
+            profile: build.profile(),
+            target: build.target(),
+            protocols: ProtocolVersions(soma_local::PROTOCOLS),
             envelope_schema: ENVELOPE_SCHEMA,
             production_ready: false,
             macos_development_lifecycle: capability(cfg!(all(

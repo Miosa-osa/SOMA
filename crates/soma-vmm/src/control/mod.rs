@@ -27,3 +27,11 @@ pub use pty::PtyRequest;
 pub use reply::Reply;
 pub use request::{MAX_REQUEST_BYTES, Request};
 pub use window::{MAX_OUTPUT_WINDOW_BYTES, MAX_REPLY_BYTES, OutputStream, OutputWindow};
+
+/// The version of this packet protocol.
+///
+/// No packet carries it. The supervisor and the worker it executes always come from one
+/// installed release, because the worker is started from that release's binary for each launch,
+/// so the two ends never differ. The number names the packet layout in `--version` and in the
+/// compatibility table of `docs/versioning.md`, and it changes whenever a packet's layout does.
+pub const CONTROL_PROTOCOL_VERSION: u16 = 1;

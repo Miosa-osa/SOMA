@@ -44,9 +44,11 @@ async fn serve_the_lifecycle(
     // The first feed connection resumes from nothing.
     eventually("the feed connection", || !state.connections().is_empty()).await;
     assert_eq!(state.connections(), vec![0]);
+    // No key can be judged before the snapshot, so a valid one is told to retry, never that it
+    // is unknown (SOMA#154).
     let early = h2(address, "POST", "/api/v1/sandboxes", Some(TOKEN), "{}").await;
-    assert_eq!(early.status, 401, "no key is known before the snapshot");
-    assert_eq!(early.body, serde_json::json!({"error": "unauthorized"}));
+    assert_eq!(early.status, 503, "no key is known before the snapshot");
+    assert_eq!(early.body, serde_json::json!({"error": "feed_stale"}));
 
     snapshot(state, 1);
     let created = create_when_ready(

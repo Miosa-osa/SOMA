@@ -39,6 +39,10 @@ pub(super) struct CreateParams {
     /// what the host's `launch.public_egress` defaults a shape to. Kept so a launch that cannot
     /// serve it is answered as an egress refusal rather than as a generic outage.
     pub(super) egress: Option<EgressRequest>,
+    /// Whether the sandbox is created with a denied network whose egress can be opened later.
+    ///
+    /// Only meaningful with `egress: denied`; the sandbox then holds a broker bundle from boot.
+    pub(super) windowed: bool,
     /// Whether the create waits for the sandbox to be up before it answers.
     ///
     /// Absent is `true`, the answer every client had before this field existed. `false` is the
@@ -62,6 +66,7 @@ impl fmt::Debug for CreateParams {
             .field("timeout_seconds", &self.timeout_seconds)
             .field("shape", &self.shape)
             .field("egress", &self.egress)
+            .field("windowed", &self.windowed)
             .field("wait_ready", &self.wait_ready)
             .field("run", &self.run.is_some())
             .finish()
@@ -97,7 +102,7 @@ impl CreateParams {
                 .ok_or_else(|| PlatformError::unsupported("a size other than xs"))?,
             Some(_) => return Err(PlatformError::unsupported("a size other than xs or large")),
         };
-        let (shape, egress) = apply_network(shape, params.get("network"), launch)?;
+        let (shape, egress, windowed) = apply_network(shape, params.get("network"), launch)?;
         if params.get("persistent").is_some_and(truthy) {
             return Err(PlatformError::unsupported("persistent sandboxes"));
         }
@@ -167,6 +172,7 @@ impl CreateParams {
             timeout_seconds,
             shape,
             egress,
+            windowed,
             wait_ready,
             run,
         })

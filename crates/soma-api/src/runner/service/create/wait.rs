@@ -133,14 +133,16 @@ impl Runner {
                 timing.call = call;
                 self.sandboxes.abandon(id);
                 eprintln!("soma-api: runner create {id} failed: {code}");
+                self.windows.forget(id);
                 // A create that asked for a network this host cannot give is refused for that,
                 // once and plainly. The generic answer below is retryable, and a caller that
                 // retries a refused network gets the same refusal, or on another host more
                 // egress than it asked for.
-                if prepared
-                    .params
-                    .egress
-                    .is_some_and(EgressRequest::needs_broker)
+                if (prepared.params.windowed
+                    || prepared
+                        .params
+                        .egress
+                        .is_some_and(EgressRequest::needs_broker))
                     && EGRESS_REFUSALS.contains(&code)
                 {
                     let refusal = PlatformError::new(

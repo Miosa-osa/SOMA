@@ -194,6 +194,13 @@ On Linux x86_64, `capture_snapshot` installs the captured objects, runs certific
 The public KVM resolver refuses Candidate-only entries and independently re-verifies the ready Generation and every bound artifact before machine creation.
 There is no environment-variable bypass for Candidate launch.
 
+## The public runner's network defaults
+
+A `--runner-config` gives its default shape the public internet unless `launch.public_egress` is `false`, and a `launch.large` block does the same unless its own `public_egress` is `false`.
+`launch.allow_unrestricted_egress` is off unless it is set.
+A host that cannot give one of those networks, such as a KVM host with no egress broker, refuses to start with exit status 78 and names the key, for example `soma-api: launch.public_egress gives the runner's machines a network this host cannot serve`.
+Set that key to `false` on an isolated host, or configure the broker.
+
 ## Releasing Generations a host no longer needs
 
 Do not delete entries from the prepared store by hand: `soma-api` holds every entry open.
@@ -208,6 +215,13 @@ The answer lists what is kept, what would be removed, and what is refused, each 
 Nothing changes until the same request is sent with `"apply": true`.
 Each family keeps its newest certified entry older than its pin as a rollback target; add `"keep_previous": false` to drop it in the families your `keep` list pins.
 [ADR 0054](../adr/0054-release-prepared-generations.md) states the keep rule and what refuses a removal.
+
+## Terminal sandbox records
+
+`soma-api` keeps a destroyed or failed sandbox's durable record for ten minutes, so an exact repeated request still gets its first answer, and then releases it.
+A sweep runs every minute; after a restart, records the earlier process left are released ten minutes after the first sweep.
+The runner's `/healthz` reports `state_records`, the records the state store held after the last sweep; a number that keeps growing is a store that is filling.
+[ADR 0055](../adr/0055-release-terminal-machine-records.md) states the rule.
 
 ## What this gives you, and what it does not
 

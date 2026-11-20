@@ -25,6 +25,19 @@ fn main() {
 
 fn run() -> i32 {
     let arguments = env::args_os().collect::<Vec<_>>();
+    // `soma --version` prints the same report every SOMA binary prints; `soma version` keeps
+    // its own envelope for clients of `soma.cli.v1`.
+    if soma_version::version_requested(&arguments) {
+        let speaks = soma_version::Speaks {
+            api: None,
+            protocols: soma_local::PROTOCOLS,
+        };
+        print!(
+            "{}",
+            soma_version::report("soma", &soma_version::build!(), &speaks)
+        );
+        return ProcessExit::Success.code();
+    }
     let format = requested_format(&arguments);
     let cli = match Cli::try_parse_from(&arguments) {
         Ok(cli) => cli,

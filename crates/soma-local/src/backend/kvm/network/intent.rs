@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
 };
 
-use soma::NetworkPolicy;
+use soma::{EgressPolicy, NetworkPolicy};
 use soma_netd::{InterfaceName, NetworkIntent, NetworkProfile, SubnetPlan};
 
 /// The environment variable naming the broker's control socket.
@@ -63,6 +63,18 @@ impl BrokerConfiguration {
     /// Admits one portable policy against the configured profile.
     pub(crate) fn admit(&self, policy: &NetworkPolicy) -> Option<NetworkIntent> {
         NetworkIntent::admit(policy, &self.profile).ok()
+    }
+}
+
+/// Whether a launch can be given `policy` on a host configured with `configuration`, decided as
+/// [`super::Egress::claim`] decides it for a launch that is not windowed.
+///
+/// No egress is the placeholder device, and an unstated preference degrades to it, so both are
+/// always served. Anything else needs a configured broker whose profile admits the policy.
+pub(crate) fn serves(configuration: Option<&BrokerConfiguration>, policy: &NetworkPolicy) -> bool {
+    match policy.egress() {
+        EgressPolicy::Denied | EgressPolicy::Unspecified => true,
+        _ => configuration.is_some_and(|configuration| configuration.admit(policy).is_some()),
     }
 }
 
@@ -142,6 +154,26 @@ mod tests {
         )
         .expect("policy");
         assert!(configuration().admit(&policy).is_none());
+    }
+
+    /// SOMA#56: a runner whose default shape asked for the public internet on hosts with no
+    /// broker failed every create with `unsupported_backend`; this is the answer that stops it
+    /// at startup instead.
+    #[test]
+    fn egress_is_served_only_by_a_broker_that_admits_it_and_no_egress_always() {
+        let internet =
+            NetworkPolicy::new(EgressPolicy::PublicInternet, DnsPolicy::System, Vec::new())
+                .expect("policy");
+        let isolated = soma::Capabilities::isolated().network_policy().clone();
+        let unstated =
+            NetworkPolicy::new(EgressPolicy::Unspecified, DnsPolicy::Unspecified, vec![])
+                .expect("policy");
+        let broker = configuration();
+
+        assert!(!serves(None, &internet), "no broker, no egress");
+        assert!(serves(Some(&broker), &internet));
+        assert!(serves(None, &isolated));
+        assert!(serves(None, &unstated), "an unstated preference degrades");
     }
 
     #[test]
