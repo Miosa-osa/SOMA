@@ -2,6 +2,7 @@ use std::{env, net::TcpListener, path::PathBuf, process, sync::Arc, time::Durati
 
 use soma_api::{
     ApiError, CREATE_ADMISSION_ENV, CreateAdmission, FacadePool, LocalFacade, SandboxFacade,
+    retention,
     runner::{self, RunnerConfig},
     serve_with_tunnels,
     tunnel::{TunnelPolicy, TunnelTable},
@@ -134,6 +135,9 @@ fn run() -> i32 {
             return 74;
         }
     }
+    if !start_record_sweep(pool.clone()) {
+        return 71;
+    }
     eprintln!(
         "soma-api: listening on {} (at most {} concurrent creates)",
         options.listen,
@@ -149,6 +153,21 @@ fn run() -> i32 {
         return 74;
     }
     0
+}
+
+/// Starts the sweep that releases terminal records (SOMA#127).
+///
+/// Records are released on the same rule whichever surface created them, so the sweep runs with
+/// or without the runner, on facades leased from the request pool.
+fn start_record_sweep(pool: FacadePool<LocalFacade>) -> bool {
+    let started = retention::spawn(move || {
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+    });
+    if started.is_err() {
+        eprintln!("soma-api: the terminal record sweep could not start");
+    }
+    started.is_ok()
 }
 
 const fn runtime_busy() -> ApiError {

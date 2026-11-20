@@ -22,7 +22,7 @@ use self::{
     filesystem::{ensure_directory, existing_directory},
     layout::{LOCK_DIRECTORY, shard_lock_path},
     lock::open_lock,
-    revision::{commit_revision, prune_superseded, read_record, scan_revisions},
+    revision::{commit_revision, prune_superseded, read_record, remove_revisions, scan_revisions},
 };
 
 /// A process-safe, revisioned local store rooted at an explicit caller-owned directory.
@@ -88,7 +88,14 @@ impl StateStore for FileStateStore {
             if !scan_revisions(directory)?.is_empty() {
                 return Err(conflict());
             }
-            commit_revision(directory, StateRevision::INITIAL, &record, &self.sync)?;
+            if let Err(failure) =
+                commit_revision(directory, StateRevision::INITIAL, &record, &self.sync)
+            {
+                // A create that wrote nothing leaves nothing: a directory with no record in it
+                // would be listed as an Instance for good (SOMA#127).
+                remove_empty_directory(directory);
+                return Err(failure);
+            }
             Ok(StateRevision::INITIAL)
         })
     }
@@ -100,6 +107,11 @@ impl StateStore for FileStateStore {
             }
             let revisions = scan_revisions(directory)?;
             let Some((revision, path)) = revisions.last_key_value() else {
+                // An Instance directory with no revision is exactly an absent record: a create
+                // writes its first revision under this same lock. The name is removed so the
+                // listing stops naming it; one left by a create that failed before this store
+                // cleaned up after itself goes the first time anything reads it.
+                remove_empty_directory(directory);
                 return Ok(None);
             };
             let record = read_record(path)?;
@@ -136,9 +148,41 @@ impl StateStore for FileStateStore {
         })
     }
 
+    fn release(
+        &mut self,
+        instance_id: &InstanceId,
+        expected: StateRevision,
+    ) -> Result<(), StateStoreFailure> {
+        self.with_instance_lock(instance_id, |directory| {
+            if !existing_directory(directory)? {
+                return Err(conflict());
+            }
+            let revisions = scan_revisions(directory)?;
+            match revisions.last_key_value() {
+                Some((current, path)) if *current == expected => {
+                    // The record is read once more so a release never removes a document this
+                    // store could not have returned, exactly as a replacement refuses one.
+                    read_record(path)?;
+                }
+                _ => return Err(conflict()),
+            }
+            remove_revisions(directory, &revisions, &self.sync)?;
+            remove_empty_directory(directory);
+            Ok(())
+        })
+    }
+
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
         instance_identities(&self.root)
     }
+}
+
+/// Removes an Instance directory that holds nothing, and leaves one that holds anything.
+///
+/// Only an empty directory can be removed this way, so a revision or a file this store does not
+/// know is never lost to it. A failure leaves the name for the next read to remove.
+fn remove_empty_directory(directory: &Path) {
+    let _ = std::fs::remove_dir(directory);
 }
 
 #[cfg(test)]

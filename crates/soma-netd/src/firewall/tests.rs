@@ -7,6 +7,8 @@ use crate::{
     protected::CERTIFIED_DEFAULT,
 };
 
+mod egress;
+
 fn lease() -> Lease {
     SubnetPlan::new(Ipv4Addr::new(10, 200, 0, 0), 16)
         .expect("plan")
@@ -129,18 +131,6 @@ fn public_internet_ruleset_admits_declared_dns_and_egress_after_protection() {
     // Any public resolver is reachable on 53, so nothing closes the port after the protected
     // set has been dropped.
     assert!(!forward.contains("dport 53 drop"));
-}
-
-#[test]
-fn an_intent_that_denies_dns_closes_port_53_before_egress() {
-    let ruleset = render(EgressClass::PublicInternet, Vec::new());
-    let forward = chain(&ruleset, "forward");
-    let drop = forward.find("udp dport 53 drop").expect("udp 53 drop");
-    assert!(forward.contains("tcp dport 53 drop"));
-    let egress = forward
-        .find("oifname \"vs0\" ct state new,established accept")
-        .expect("egress");
-    assert!(drop < egress);
 }
 
 #[test]

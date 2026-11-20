@@ -30,6 +30,9 @@ use crate::{
     BundleId, CleanupGeneration, InstanceId, MAX_FRAME, MAX_HEADER, Reply, Request, TransferHeader,
 };
 
+mod egress;
+pub use egress::EgressState;
+
 /// Why one broker exchange did not produce an answer the caller can use.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ClientError {

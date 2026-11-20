@@ -93,7 +93,18 @@ mod tests {
     }
 
     #[test]
+    #[allow(unsafe_code)]
     fn unprivileged_setup_never_panics() {
+        // Both calls act on the real host. Unprivileged they fail and are ignored, which is what
+        // this proves; as root they would mount a second cgroup2 over the host's, delegate its
+        // controllers, and stack a bind under a shared `/` on every run, so they must not run.
+        // SAFETY: `geteuid` has no preconditions.
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!(
+                "SKIP unprivileged_setup_never_panics: running as root would mount on the host"
+            );
+            return;
+        }
         mount_cgroups();
         bind_data_root("/nonexistent-head", "/nonexistent-root");
     }
