@@ -1,30 +1,22 @@
 //! What a recording backend keeps, and that a plain one keeps nothing.
 //!
-//! The scratch file is one fixed name at one fixed size in the system temp directory, created
-//! once per run and deliberately never removed: a test that cleaned up after itself would be a
-//! file deletion on the machine these run on. One fixed name means repeated runs reuse it rather
-//! than accumulating, and one fixed size means the tests, which run in parallel, cannot resize
-//! each other's file.
+//! Every case reads a scratch head of its own: an anonymous temporary file with no name in the
+//! file system. No two cases or runs can share it, nothing is left behind for anyone to remove,
+//! and a file some other user left under a fixed name can no longer stop a run, which a
+//! root-owned `soma-kvm-head-reads.img` did on a shared check host.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{Seek as _, SeekFrom, Write as _};
 
 use super::{BackendError, BlockBackend, FileBackend};
 use crate::head_reads;
 
-/// One megabyte, fixed, so no test can shrink the file another is reading.
+/// The size of every scratch head: one megabyte.
 const SCRATCH_BYTES: u64 = 1 << 20;
 
-/// The scratch head, sized and holding one recognizable page.
+/// A scratch head of this case's own, sized and holding one recognizable page.
 fn head() -> File {
-    let path = std::env::temp_dir().join("soma-kvm-head-reads.img");
-    let mut file = OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(&path)
-        .expect("scratch head");
+    let mut file = tempfile::tempfile().expect("scratch head");
     file.set_len(SCRATCH_BYTES).expect("size the scratch head");
     file.seek(SeekFrom::Start(0)).expect("rewind");
     file.write_all(&[0x5a_u8; 4096]).expect("write a page");
