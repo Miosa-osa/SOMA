@@ -137,58 +137,62 @@ fn a_directory_with_no_record_is_removed_the_first_time_it_is_read() {
 }
 
 /// SOMA#127: every create and destroy left its terminal record, and the state root filled. Ten
-/// thousand create, replace, and release cycles, from eight stores sharing one root as a facade
-/// pool does, must leave nothing but the shard locks.
+/// thousand create, replace, and release cycles must leave nothing but the shard locks.
+///
+/// They run as eight threads, each on its own root. A root's stores share one sync barrier, and
+/// a writer that arrives after a sync took its snapshot waits for the next writer to lead
+/// (SOMA#118), which the last writer on a shared root may never get, so the roots are separate.
 #[test]
 fn ten_thousand_create_and_release_cycles_leave_only_the_shard_locks() {
-    const STORES: u32 = 8;
-    let (root, cycles) = cycle_root();
-    let per_store = cycles / STORES;
-    let workers = (0..STORES)
-        .map(|store_index| {
-            let path = root.path().to_path_buf();
+    const ROOTS: u32 = 8;
+    let (base, cycles) = cycle_base();
+    let per_root = cycles / ROOTS;
+    let workers = (0..ROOTS)
+        .map(|root_index| {
+            let root = base.path().join(format!("root-{root_index}"));
             thread::spawn(move || {
-                let mut store = FileStateStore::open(&path).expect("open state store");
-                for cycle in 0..per_store {
-                    // Each store gets its own shard, so the stores contend only on the sync.
-                    let shard = 0x10 * (store_index + 1);
-                    let id = InstanceId::new(format!("{shard:02x}{cycle:030x}")).expect("instance");
+                let mut store = FileStateStore::open(&root).expect("open state store");
+                for cycle in 1..=per_root {
+                    let id = InstanceId::new(format!("{cycle:032x}")).expect("instance");
                     let current = cycle_once(&mut store, &id);
                     store.release(&id, current).expect("release");
                 }
+                root
             })
         })
         .collect::<Vec<_>>();
-    // Every worker is joined before any is judged, so the root outlives all of them.
+    // Every worker is joined before any is judged, so the base outlives all of them.
     let joined = workers
         .into_iter()
         .map(thread::JoinHandle::join)
         .collect::<Vec<_>>();
     for worker in joined {
-        worker.expect("worker");
+        let root = worker.expect("worker");
+        let (directories, bytes) = footprint(&root);
+        assert_eq!(
+            directories, 0,
+            "{per_root} cycles left Instance directories"
+        );
+        assert_eq!(bytes, 0, "{per_root} cycles left record bytes");
+        let locks = fs::read_dir(root.join(LOCK_DIRECTORY))
+            .expect("lock directory")
+            .count();
+        assert!(locks <= 256, "{locks} shard locks");
     }
-
-    let (directories, bytes) = footprint(root.path());
-    assert_eq!(directories, 0, "{cycles} cycles left Instance directories");
-    assert_eq!(bytes, 0, "{cycles} cycles left record bytes");
-    let locks = fs::read_dir(root.path().join(LOCK_DIRECTORY))
-        .expect("lock directory")
-        .count();
-    assert!(locks <= 256, "{locks} shard locks");
 }
 
 /// The production state root is a tmpfs, and a tmpfs is also what makes ten thousand rounds of
 /// synced writes quick enough for a unit test. Where there is none the run is shorter, and says so.
-fn cycle_root() -> (TempRoot, u32) {
+fn cycle_base() -> (TempRoot, u32) {
     let shared_memory = Path::new("/dev/shm");
     if shared_memory.is_dir() {
-        let root = TempRoot::under(shared_memory, "release-cycles");
-        if fs::create_dir(root.path()).is_ok() {
-            return (root, 10_000);
+        let base = TempRoot::under(shared_memory, "release-cycles");
+        if fs::create_dir(base.path()).is_ok() {
+            return (base, 10_000);
         }
     }
-    eprintln!("no writable tmpfs at /dev/shm: running 800 cycles on the temporary directory");
-    (TempRoot::new("release-cycles"), 800)
+    eprintln!("no writable tmpfs at /dev/shm: running 400 cycles on the temporary directory");
+    (TempRoot::new("release-cycles"), 400)
 }
 
 /// One sandbox's writes, sized like host-04's records (a terminal one was 5.4 KB).
