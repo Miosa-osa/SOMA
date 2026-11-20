@@ -8,6 +8,8 @@ use soma_local::{EgressSetFailure, EgressSetOutcome};
 
 use super::flow_tests::{Engine, body_of, call, created_id, runner};
 
+mod lifetime;
+
 const WINDOWED: &str = r#"{"network":{"egress":"denied","windowed":true}}"#;
 
 fn open_body(window: &str, ttl_ms: u64) -> String {
