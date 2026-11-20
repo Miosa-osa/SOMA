@@ -21,11 +21,14 @@ use crate::runner::{
         MAX_HEADER_BYTES, MAX_HTTP1_BUFFER_BYTES, MAX_STREAMS_PER_CONNECTION, PerIp,
         TLS_HANDSHAKE_TIMEOUT,
     },
-    public_wire,
-    service::{MAX_BODY_BYTES, Runner, RunnerRequest, RunnerResponse, TunnelHandoff},
+    service::{Runner, RunnerRequest, RunnerResponse, TunnelHandoff},
     tls::CertificateStore,
 };
 use crate::tunnel;
+
+mod early;
+
+pub(crate) use early::{payload_too_large, request_timeout};
 
 const CONTENT_TYPE: &str = "application/json; charset=utf-8";
 
@@ -195,21 +198,20 @@ async fn respond(
         );
     let on_upgrade = upgrade.then(|| hyper::upgrade::on(&mut request));
     let (parts, body) = request.into_parts();
-    let collected = match tokio::time::timeout(
-        BODY_READ_TIMEOUT,
-        Limited::new(body, MAX_BODY_BYTES).collect(),
-    )
-    .await
-    {
-        Ok(Ok(collected)) => collected,
-        Ok(Err(_)) => return encode_hyper(payload_too_large(), None),
-        Err(_) => return encode_hyper(request_timeout(), None),
-    };
+    let authorization = authorization(&parts.headers);
+    let limit = runner.body_limit(&parts.method, parts.uri.path(), authorization.as_deref());
+    let collected =
+        match tokio::time::timeout(BODY_READ_TIMEOUT, Limited::new(body, limit).collect()).await {
+            Ok(Ok(collected)) => collected,
+            Ok(Err(_)) => return encode_hyper(payload_too_large(), None),
+            Err(_) => return encode_hyper(request_timeout(), None),
+        };
     let mut response = runner
         .handle(RunnerRequest {
             method: parts.method,
             path: parts.uri.path().to_owned(),
-            authorization: authorization(&parts.headers),
+            query: parts.uri.query().map(str::to_owned),
+            authorization,
             body: collected.to_bytes(),
             received,
             forwarded,
@@ -305,26 +307,4 @@ pub(crate) fn authorization(headers: &http::HeaderMap) -> Option<String> {
         .get(http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned)
-}
-
-pub(crate) fn request_timeout() -> RunnerResponse {
-    let mut response = payload_too_large();
-    response.status = 408;
-    response.body = public_wire::refusal("request_timeout");
-    response
-}
-
-pub(crate) fn payload_too_large() -> RunnerResponse {
-    RunnerResponse {
-        status: 413,
-        // Refused before any stage ran, but every answer carries the header all the same.
-        headers: vec![(
-            "server-timing",
-            "auth;dur=0.000,pool;dur=0.000,exec;dur=0.000".to_owned(),
-        )],
-        body: public_wire::refusal("payload_too_large"),
-        stream: None,
-        journal: None,
-        tunnel: None,
-    }
 }

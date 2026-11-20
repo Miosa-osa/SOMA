@@ -63,6 +63,8 @@ pub(super) struct Engine {
     pub(super) launch_refusal: Mutex<Option<BackendFailureKind>>,
     /// What the next command reports as its terminal status, taken one at a time.
     pub(super) exec_status: Mutex<Option<TerminalStatus>>,
+    /// The guest every file call reaches.
+    pub(super) guest: Mutex<crate::runner::files::tests::MemoryGuest>,
 }
 
 /// Chunks for one streaming command and the gate between its first chunk and the rest.
@@ -104,10 +106,14 @@ pub(super) async fn call(
     path: &str,
     body: &str,
 ) -> RunnerResponse {
+    let (path, query) = path
+        .split_once('?')
+        .map_or((path, None), |(path, query)| (path, Some(query.to_owned())));
     runner
         .handle(RunnerRequest {
             method,
             path: path.to_owned(),
+            query,
             authorization: Some(format!("Bearer {TOKEN}")),
             body: Bytes::from(body.to_owned()),
             received: Instant::now(),

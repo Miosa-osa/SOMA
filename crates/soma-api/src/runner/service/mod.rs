@@ -15,6 +15,9 @@ mod exec_params_tests;
 #[cfg(test)]
 mod exec_refusal_tests;
 mod extend;
+mod files;
+#[cfg(test)]
+mod files_tests;
 #[cfg(test)]
 mod flow_tests;
 mod forward;
@@ -86,6 +89,8 @@ fn unreadable_ids(records: &[soma::UnreadableRecord]) -> String {
 pub struct RunnerRequest {
     pub method: http::Method,
     pub path: String,
+    /// The query string, without its `?`, when the request carried one.
+    pub query: Option<String>,
     pub authorization: Option<String>,
     pub body: Bytes,
     pub received: Instant,
@@ -238,6 +243,7 @@ impl Runner {
             | Route::Extend(_)
             | Route::List
             | Route::Tunnel(..)
+            | Route::Files(..)
             | Route::Forward(_) => {}
         }
         let started = Instant::now();
@@ -268,6 +274,7 @@ impl Runner {
             Route::Tunnel(id, port) => self.tunnel(&principal, id, port, request, timing).await,
             Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,
+            Route::Files(id, call) => self.files(&principal, id, call, request, timing).await,
             Route::Forward(forward) => {
                 self.forward(&principal, forward, &request.body, timing)
                     .await

@@ -97,8 +97,16 @@ impl SandboxFacade for Fake {
         })
     }
 
-    fn file(&mut self, _: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
-        unreachable!("not a runner route")
+    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
+        use crate::runner::files::GuestFiles as _;
+        let operation = request.operation().clone();
+        let name = operation.name();
+        let answer = self.0.guest.lock().expect("guest").perform(operation)?;
+        Ok(FileOutcome {
+            instance_id: lifecycle().instance_id,
+            operation: name,
+            answer,
+        })
     }
 
     fn terminal(&mut self, _: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {

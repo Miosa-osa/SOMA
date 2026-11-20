@@ -1,6 +1,6 @@
 //! Which route a request names.
 
-use crate::http::request::Method;
+use crate::{http::request::Method, runner::files::FileCall};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Route<'a> {
@@ -16,6 +16,8 @@ pub(super) enum Route<'a> {
     Extend(&'a str),
     /// The caller's own sandboxes on this runner.
     List,
+    /// One call of the platform's file contract (`fs/...` or `files/...`).
+    Files(&'a str, FileCall),
     Forward(Forward<'a>),
     NotFound,
 }
@@ -37,7 +39,8 @@ impl<'a> Route<'a> {
             | Self::ExecStream(id)
             | Self::Destroy(id)
             | Self::Extend(id)
-            | Self::Tunnel(id, _) => Some(id),
+            | Self::Tunnel(id, _)
+            | Self::Files(id, _) => Some(id),
             Self::Forward(forward) => Some(forward.id),
             Self::Health | Self::Create | Self::List | Self::NotFound => None,
         }
@@ -89,6 +92,12 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
             if !id.is_empty() && !operation.is_empty() =>
         {
             forward(id, Method::Post)
+        }
+        // Phoenix ignores empty path segments, so `fs/` and `fs` are the same route there.
+        (_, ["", id, prefix @ ("fs" | "files"), rest @ ..]) if !id.is_empty() => {
+            let rest: Vec<&str> = rest.iter().copied().filter(|s| !s.is_empty()).collect();
+            FileCall::resolve(method, prefix, &rest)
+                .map_or(Route::NotFound, |call| Route::Files(id, call))
         }
         _ => Route::NotFound,
     }
