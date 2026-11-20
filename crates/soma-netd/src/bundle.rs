@@ -17,15 +17,18 @@ use soma_guest::{ActivationChallenge, LaunchNetwork};
 use crate::connect::ConnectPorts;
 use crate::{
     AssignmentRecord, BundleId, BundleNames, CleanupGeneration, ConntrackZone, DnsPlan, Error,
-    InstanceId, Ipam, LeasePair, Ledger, NetworkIntent, NetworkProfile, OperationId,
-    PortReservation, PublishedPort, RecordOutcome, SandboxRuleset, Step, derive_macs, ingress,
+    InstanceId, Ipam, Ledger, NetworkIntent, NetworkProfile, OperationId, PortReservation,
+    PublishedPort, RecordOutcome, SandboxRuleset, Step, derive_macs, ingress,
     namespace::NetNamespace, nft, release, sysctl,
 };
 
+mod allocator;
 mod egress;
 pub use egress::EgressChange;
 mod prepare;
 mod types;
+
+use allocator::Allocator;
 
 impl Broker {
     /// Replaces the guest ports [`Broker::connect_guest`] may dial.
@@ -62,31 +65,6 @@ pub struct Broker {
     connect_ports: ConnectPorts,
 }
 
-/// The lease and conntrack-zone counters, behind one lock so concurrent preparation cannot
-/// hand two bundles the same addresses.
-#[derive(Debug)]
-struct Allocator {
-    ipam: Ipam,
-    next_zone: u16,
-    free_zones: Vec<u16>,
-}
-
-impl Allocator {
-    /// Takes one lease pair and one conntrack zone, or neither.
-    fn take(&mut self) -> Result<(LeasePair, ConntrackZone), Error> {
-        let leases = self.ipam.allocate()?;
-        let zone = if let Some(zone) = self.free_zones.pop() {
-            zone
-        } else if let Some(next) = self.next_zone.checked_add(1) {
-            std::mem::replace(&mut self.next_zone, next)
-        } else {
-            self.ipam.recycle(leases.guest.index());
-            return Err(Error::PoolExhausted);
-        };
-        Ok((leases, ConntrackZone::new(zone)?))
-    }
-}
-
 impl Broker {
     /// Opens the broker over one state directory after proving namespace privilege.
     ///
@@ -113,11 +91,7 @@ impl Broker {
             ns_dir: state_dir.join("ns"),
             ledger,
             generation,
-            allocator: Mutex::new(Allocator {
-                ipam,
-                next_zone: 1,
-                free_zones: Vec::new(),
-            }),
+            allocator: Mutex::new(Allocator::new(ipam)),
             prewarm,
             connect_ports: ConnectPorts::default(),
         })
@@ -161,14 +135,10 @@ impl Broker {
     /// Only a release whose live inspection found nothing owned may call this, because the next
     /// holder is given the same addresses and zone.
     pub fn recycle(&self, lease_index: u32, zone: ConntrackZone) {
-        let mut allocator = self
-            .allocator
+        self.allocator
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        allocator.ipam.recycle(lease_index);
-        if zone.get() < allocator.next_zone && !allocator.free_zones.contains(&zone.get()) {
-            allocator.free_zones.push(zone.get());
-        }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .recycle(lease_index, zone);
     }
 
     /// Prepares one sterile bundle; any failure tears down what was built.

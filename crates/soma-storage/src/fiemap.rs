@@ -73,6 +73,11 @@ pub struct ExtentSummary {
     pub delalloc_extents: u64,
     /// Sum of extent lengths in bytes.
     pub mapped_bytes: u64,
+    /// Sum of the lengths of extents carrying `FIEMAP_EXTENT_SHARED`, in bytes.
+    ///
+    /// Defaulted when absent so a summary recorded before this field existed still decodes.
+    #[serde(default)]
+    pub shared_bytes: u64,
 }
 
 impl ExtentSummary {
@@ -80,6 +85,15 @@ impl ExtentSummary {
     #[must_use]
     pub fn all_shared(&self) -> bool {
         self.extents > 0 && self.shared_extents == self.extents
+    }
+
+    /// Bytes this file holds in extents no other file shares.
+    ///
+    /// Removing the file frees at least this much. It frees more when the extents it shares are
+    /// shared only with files that are removed beside it, which one file's map cannot show.
+    #[must_use]
+    pub const fn unshared_bytes(&self) -> u64 {
+        self.mapped_bytes.saturating_sub(self.shared_bytes)
     }
 }
 
@@ -127,6 +141,7 @@ pub fn summarize(fd: BorrowedFd<'_>) -> io::Result<ExtentSummary> {
             summary.mapped_bytes = summary.mapped_bytes.saturating_add(extent.length);
             if extent.flags & FIEMAP_EXTENT_SHARED != 0 {
                 summary.shared_extents += 1;
+                summary.shared_bytes = summary.shared_bytes.saturating_add(extent.length);
             }
             if extent.flags & FIEMAP_EXTENT_UNWRITTEN != 0 {
                 summary.unwritten_extents += 1;
@@ -179,12 +194,29 @@ mod tests {
     }
 
     #[test]
+    fn unshared_bytes_are_the_mapped_bytes_no_other_file_shares() {
+        let summary = ExtentSummary {
+            extents: 3,
+            shared_extents: 1,
+            mapped_bytes: 12_288,
+            shared_bytes: 4_096,
+            ..ExtentSummary::default()
+        };
+        assert_eq!(summary.unshared_bytes(), 8_192);
+    }
+
+    #[test]
     fn summarize_rejects_a_filesystem_without_fiemap_or_reports_extents() {
         use std::io::Write;
         let file = tempfile::tempfile().expect("tempfile");
         (&file).write_all(&[1u8; 8192]).expect("write");
         match summarize(std::os::fd::AsFd::as_fd(&file)) {
-            Ok(summary) => assert!(summary.extents >= 1 || summary.delalloc_extents >= 1),
+            Ok(summary) => {
+                assert!(summary.extents >= 1 || summary.delalloc_extents >= 1);
+                // A file nothing was cloned from or into shares no extent with anything.
+                assert_eq!(summary.shared_bytes, 0);
+                assert_eq!(summary.unshared_bytes(), summary.mapped_bytes);
+            }
             Err(error) => assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP)),
         }
     }

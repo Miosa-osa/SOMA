@@ -5,7 +5,11 @@
 //! the same thing on both sides of a process boundary. None of it needs KVM, which is the point:
 //! these are the paths a caller reaches when the machine is exactly what is missing.
 
-use std::{io::BufReader, os::unix::net::UnixListener};
+use std::{
+    io::BufReader,
+    os::unix::net::UnixListener,
+    time::{Duration, Instant},
+};
 
 use soma::{BackendFailureKind, GenerationId, InstanceId, MachineShape, OperationId};
 
@@ -20,6 +24,27 @@ fn instance(value: &str) -> InstanceId {
 
 const ONE: &str = "0123456789abcdef0123456789abcdef";
 const TWO: &str = "fedcba9876543210fedcba9876543210";
+
+/// Whether `condition` holds within a moment, polling it.
+///
+/// A listener this test drops can outlive the drop. Other tests in this binary spawn processes,
+/// and a child forked while the listener exists holds a copy of its descriptor until that child
+/// `exec`s; `SOCK_CLOEXEC` closes it there, not at the fork. Under a busy suite an `exec` of this
+/// large test binary takes milliseconds, and for that long the socket still accepts, so a
+/// `connect` straight after the drop can succeed (issue #108). A killed host's socket going quiet
+/// "within a moment" is what production needs; going quiet within the same instruction is not.
+fn within_a_moment(mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        if condition() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
 
 #[test]
 fn every_refusal_means_the_same_kind_on_both_sides() {
@@ -62,7 +87,11 @@ fn a_socket_nothing_answers_on_is_removed_by_the_lookup_that_finds_it() {
     drop(UnixListener::bind(&socket).expect("a socket to abandon"));
     assert!(socket.exists(), "the abandoned socket exists to begin with");
 
-    assert!(channel::connect(directory.path(), &instance(ONE)).is_err());
+    assert!(within_a_moment(|| channel::connect(
+        directory.path(),
+        &instance(ONE)
+    )
+    .is_err()));
     assert!(
         !socket.exists(),
         "a socket no process answers on must not survive the lookup that found it"
@@ -86,7 +115,7 @@ fn binding_refuses_a_socket_something_already_answers_on() {
 
     // Once the first host is gone the name is free again, which is what makes a killed host
     // recoverable rather than a permanently poisoned identity.
-    assert!(channel::bind(&socket).is_ok());
+    assert!(within_a_moment(|| channel::bind(&socket).is_ok()));
 }
 
 #[test]
