@@ -18,6 +18,7 @@ STORE="${2:?store}"
 REFERENCE="${3:?reference}"
 WORK="${4:?work}"
 HOLD="${5:-0}"
+LAUNCH_SAMPLES="${SOMA_PROOF_LAUNCH_SAMPLES:-5}"
 OUT="$WORK/results"
 STATE="$WORK/state"
 HEADS="$WORK/heads"
@@ -84,8 +85,17 @@ log "starting soma-netd and soma-api"
 start_runtime
 probe before
 
-log "create: $REFERENCE at the small shape"
 SHAPE="{\"vcpu_count\":2,\"memory_mib\":4096,\"storage_mib\":20480,\"capabilities\":{\"network\":$RUNTIME_DEFAULT_NETWORK}}"
+log "launch to Ready: $LAUNCH_SAMPLES launches of $REFERENCE, each destroyed at once"
+for i in $(seq 1 "$LAUNCH_SAMPLES"); do
+    api "launch-$i" POST /v1/sandboxes "{\"image\":\"$REFERENCE\",\"shape\":$SHAPE}"
+    [[ "$STATUS" == 201 ]] || { cat "$LAST" >&2; exit 1; }
+    record "launch_sample_ms" "$(python3 -c "print(round(float('$SECONDS_TAKEN') * 1000, 1))")"
+    record "launch_sample_receipt_ready_ms" "$(field 'next(m["elapsed_ns"] for m in d["receipt"]["milestones"] if m["kind"] == "ready") / 1e6')"
+    api "launch-$i-destroy" DELETE "/v1/sandboxes/$(field 'd["result"]["instance_id"]')"
+done
+
+log "create: $REFERENCE at the small shape"
 created_at="$(ns)"
 api create POST /v1/sandboxes "{\"image\":\"$REFERENCE\",\"shape\":$SHAPE}"
 ready_at="$(ns)"
@@ -123,7 +133,14 @@ fetch "$CAPTURES/menu.png" "$OUT/menu.png"
 desktop_call menu-close press_key '{"key":"Escape","delivery_mode":"foreground","target":{"kind":"desktop","display_id":"primary"}}'
 desktop_call terminal-launch launch_app '{"launch_path":"/usr/bin/xfce4-terminal"}'
 TERMINAL_PID="$(field 'd["pid"]' "$GUEST_OUT")"
-TERMINAL_WINDOW="$(field 'd["windows"][0]["window_id"]' "$GUEST_OUT")"
+TERMINAL_WINDOW=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    desktop_call terminal-windows list_windows '{}'
+    TERMINAL_WINDOW="$(field "next((w['window_id'] for w in d['windows'] if w['pid'] == $TERMINAL_PID), '')" "$GUEST_OUT")"
+    [[ -n "$TERMINAL_WINDOW" ]] && break
+    sleep 0.5
+done
+[[ -n "$TERMINAL_WINDOW" ]] || { printf 'the terminal never mapped a window\n' >&2; exit 1; }
 desktop_call terminal-type type_text "{\"pid\":$TERMINAL_PID,\"window_id\":$TERMINAL_WINDOW,\"text\":\"mkdir -p /tmp/soma-m1-typed && cd /tmp/soma-m1-typed\\n\"}"
 desktop_call terminal-verify verify_state "{\"pid\":$TERMINAL_PID,\"window_id\":$TERMINAL_WINDOW,\"timeout_ms\":5000,\"expect\":[{\"element\":{\"selector\":{\"role\":\"frame\",\"label_contains\":\"soma-m1-typed\"},\"exists\":true}}]}"
 desktop_call terminal-tree get_window_state "{\"pid\":$TERMINAL_PID,\"window_id\":$TERMINAL_WINDOW,\"include_screenshot\":false}"
@@ -133,15 +150,22 @@ fetch "$CAPTURES/terminal.png" "$OUT/terminal.png"
 log "click-to-paint: viewer clicks through the tunnel, then agent clicks through exec"
 python3 "$PROOF/rfb_probe.py" click --api "$API" --tenant "$TENANT" --instance "$INSTANCE" \
     --samples 20 --x 1400 --y 300 >"$OUT/viewer-click.json"
-CLICK='{"x":1400,"y":300,"button":"right","target":{"kind":"desktop","display_id":"primary"}}'
-TRIGGER="curl -s -o /dev/null -H 'x-soma-tenant: $TENANT' -H 'content-type: application/json' http://$API/v1/sandboxes/$INSTANCE/commands --data-binary '{\"executable\":\"$CALL\",\"arguments\":[\"call\",\"click\",$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$CLICK")]}'"
+# The agent's click is one exec request, sent exactly as any other caller would send it.
+python3 -c 'import json,sys; print(json.dumps({"executable": sys.argv[1], "arguments": ["call", "click", sys.argv[2]]}))' \
+    "$CALL" '{"x":1400,"y":300,"button":"right","target":{"kind":"desktop","display_id":"primary"}}' \
+    >"$OUT/agent-click.request"
+TRIGGER="curl -s -o /dev/null -H 'x-soma-tenant: $TENANT' -H 'content-type: application/json' --data-binary @$OUT/agent-click.request http://$API/v1/sandboxes/$INSTANCE/commands"
 for _ in 1 2 3 4 5; do
     python3 "$PROOF/rfb_probe.py" trigger --api "$API" --tenant "$TENANT" --instance "$INSTANCE" \
         --x 1400 --y 300 --command "$TRIGGER" >>"$OUT/agent-click.jsonl"
 done
 
-log "idle memory after 30 s"
+log "idle memory after 30 s, and every connection the guest holds"
 sleep 30
+# Telemetry, update checks and KasmVNC's STUN query would all show here as a remote endpoint
+# that is not loopback; the viewer's own tunnel connection is the only expected remote peer.
+guest connections /bin/sh -c 'cat /proc/net/tcp /proc/net/udp'
+python3 "$PROOF/connections.py" "$GUEST_OUT" | tee "$OUT/guest-connections.txt"
 guest meminfo /bin/cat /proc/meminfo
 cp "$GUEST_OUT" "$OUT/guest-meminfo.txt"
 record machine_host_rss_kib "$(machine_memory idle)"
