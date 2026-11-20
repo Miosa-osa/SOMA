@@ -46,6 +46,7 @@ sha256_digest() {
 
 require_command cmp
 require_command grep
+require_command jq
 require_command tar
 
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/soma-verifier-test.XXXXXX")"
@@ -79,7 +80,18 @@ chmod 0755 "$bundle_dir/$cli_binary" "$bundle_dir/$mcp_binary"
 write_binary_manifest "$bundle_dir" SHA256SUMS \
     BUILD-INFO.txt LICENSE NOTICE "$cli_binary" "$mcp_binary"
 tar -czf "$delivery_dir/$archive_name" -C "$stage_dir" "$bundle_name"
-write_binary_manifest "$delivery_dir" SHA256SUMS "$archive_name"
+records_name="${bundle_name}.binaries.json"
+for binary in "$cli_binary" "$mcp_binary"; do
+    jq -n --arg name "$binary" --arg archive "$archive_name" --arg path "$bundle_name/$binary" \
+        --arg sha256 "$(sha256_digest "$bundle_dir/$binary")" \
+        --argjson size "$(wc -c < "$bundle_dir/$binary" | tr -d ' ')" \
+        --arg release "${release_tag#v}" \
+        '{name: $name, archive: $archive, path: $path, sha256: $sha256, size: $size,
+          release: $release, commit: ("a" * 40), reports_commit: true, source: "clean",
+          profile: "release", target: "x86_64-pc-windows-msvc", api_version: null,
+          protocols: {}}'
+done | jq -s . > "$delivery_dir/$records_name"
+write_binary_manifest "$delivery_dir" SHA256SUMS "$archive_name" "$records_name"
 
 grep -Eq '^[0-9a-f]{64} \*' "$bundle_dir/SHA256SUMS" ||
     fail 'inner fixture manifest does not contain binary-mode checksum markers'
@@ -96,9 +108,13 @@ cmp -s "$test_root/inner-before" "$bundle_dir/SHA256SUMS" ||
 cmp -s "$test_root/outer-before" "$delivery_dir/SHA256SUMS" ||
     fail 'outer checksum manifest changed during verification'
 
-cp "$delivery_dir/$archive_name" "$bad_delivery_dir/"
+cp "$delivery_dir/$archive_name" "$delivery_dir/$records_name" "$bad_delivery_dir/"
 archive_digest="$(sha256_digest "$bad_delivery_dir/$archive_name")"
-printf '%s **%s\n' "$archive_digest" "$archive_name" > "$bad_delivery_dir/SHA256SUMS"
+records_digest="$(sha256_digest "$bad_delivery_dir/$records_name")"
+{
+    printf '%s **%s\n' "$archive_digest" "$archive_name"
+    printf '%s *%s\n' "$records_digest" "$records_name"
+} > "$bad_delivery_dir/SHA256SUMS"
 if "$VERIFIER" client \
     "$bad_delivery_dir" "$release_tag" "$release_target" "$cli_binary" "$mcp_binary" \
     > "$test_root/bad-verifier.log" 2>&1; then
@@ -107,5 +123,19 @@ fi
 grep -Fq 'checksum manifest does not cover exactly the shipped files' \
     "$test_root/bad-verifier.log" ||
     fail 'verifier rejected the double marker for an unexpected reason'
+
+# A record that does not match its binary is refused.
+lying_dir="$test_root/lying-delivery"
+mkdir -p "$lying_dir"
+cp "$delivery_dir/$archive_name" "$lying_dir/"
+jq '.[0].sha256 = ("0" * 64)' "$delivery_dir/$records_name" > "$lying_dir/$records_name"
+write_binary_manifest "$lying_dir" SHA256SUMS "$archive_name" "$records_name"
+if "$VERIFIER" client \
+    "$lying_dir" "$release_tag" "$release_target" "$cli_binary" "$mcp_binary" \
+    > "$test_root/lying-verifier.log" 2>&1; then
+    fail 'verifier accepted a binary record whose digest is wrong'
+fi
+grep -Fq 'does not match the binary' "$test_root/lying-verifier.log" ||
+    fail 'verifier rejected the wrong digest for an unexpected reason'
 
 printf 'release artifact verifier regression tests passed\n'

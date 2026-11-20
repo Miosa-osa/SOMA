@@ -93,6 +93,21 @@ pub fn protocols() -> Vec<Protocol> {
     protocols
 }
 
+/// The report `soma-api --version` prints, for the identity the binary was compiled with.
+///
+/// The binary expands `soma_version::build!()` and passes it in, so only the binary's own crate
+/// reads the commit.
+#[must_use]
+pub fn version_report(build: &Build) -> String {
+    let api = API_VERSION.to_string();
+    let protocols = protocols();
+    let speaks = soma_version::Speaks {
+        api: Some(&api),
+        protocols: &protocols,
+    };
+    soma_version::report("soma-api", build, &speaks)
+}
+
 /// The refusal for an identified request that needs an API version this build does not serve.
 ///
 /// An unidentified request is left to the handler, which refuses it as unidentified first: a
