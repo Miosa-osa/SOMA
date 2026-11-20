@@ -32,7 +32,7 @@ readonly STAMP_NAME=".soma-reproduce-stamp"
 
 IMAGE=""
 MEM_MIB=1024
-DISK_MIB=10240
+DISK_MIB=4096
 VCPUS=1
 SAMPLES=5
 CONCURRENCY=1
@@ -54,7 +54,7 @@ usage() {
 usage: scripts/reproduce.sh [options] <image> [-- command ...]
 
   --memory-mib N    guest memory; part of the shape a snapshot is captured at (default 1024)
-  --storage-mib N   guest storage; part of the shape (default 10240)
+  --storage-mib N   guest storage; part of the shape (default 4096)
   --vcpus N         guest vCPUs; part of the shape (default 1)
   --samples N       launches to measure (default 5)
   --concurrency N   launches to start together per round (default 1)

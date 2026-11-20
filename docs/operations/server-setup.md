@@ -113,7 +113,7 @@ at all. None of the three says so.
 silently, and ends with a measured result:
 
 ```sh
-./scripts/reproduce.sh --memory-mib 1024 --storage-mib 10240 --samples 25 \
+./scripts/reproduce.sh --memory-mib 1024 --storage-mib 4096 --samples 25 \
     --expect v22 node:22 -- /usr/local/bin/node --version
 ```
 
@@ -153,6 +153,9 @@ Prepare a small shell image and a Node runtime image:
 ```
 
 Each call exports the image to an OCI layout, compiles the Candidate in a private staging directory, and atomically publishes one new prepared-store entry.
+Without a shape the entry is built at 1024 MiB of memory and a 4096 MiB writable layer.
+The writable size must be a class the shape's compiler profile admits: one vCPU up to 3072 MiB is profile version 1, which admits 256, 1024, and 4096 MiB.
+The script asks before it exports anything, and stops naming the admitted sizes when the size is not one of them.
 The tool refuses to overwrite an existing entry.
 References are keyed by their SHA-256 digest so distinct registry references cannot collide through filename normalization.
 
@@ -166,11 +169,13 @@ export SOMA_GENERATION_STORE=/srv/soma/prepared
 export SOMA_HEAD_DIR=/srv/soma/heads              # on the XFS reflink volume
 
 # the empty sandbox: prove it boots and runs a command
-./target/release/soma --backend kvm run busybox:stable-musl -- /bin/busybox uname -a
+./target/release/soma --backend kvm run --storage-mib 4096 busybox:stable-musl -- /bin/busybox uname -a
 
 # the node sandbox: a real runtime, running inside the VM
-./target/release/soma --backend kvm run node:22 -- /usr/local/bin/node --version
+./target/release/soma --backend kvm run --storage-mib 4096 node:22 -- /usr/local/bin/node --version
 ```
+
+A run asks for the shape the entry was built at; `--storage-mib 4096` is stated because the command line's own default is 10240 MiB, which the entry was not built at.
 
 To serve the prepared hosted path, select the exact Generation and memory class before starting the API:
 
