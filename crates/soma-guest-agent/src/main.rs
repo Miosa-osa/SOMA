@@ -63,11 +63,18 @@ mod survivors;
 mod timings;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod tuning;
+mod version;
 
 #[cfg(target_os = "linux")]
 mod warm;
 
 fn main() {
+    // Answered before anything else, so a release packager can read a built agent's contracts
+    // on the build host. As PID 1 the agent is started by the kernel, which never passes it this.
+    if soma_version::version_requested(std::env::args_os()) {
+        print!("{}", version::report());
+        return;
+    }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     agent::run();
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
