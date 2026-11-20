@@ -10,12 +10,21 @@
 //! `SCHED_FIFO` at a fixed priority is the smallest change that does it. It is asked for at agent
 //! start and reported either way: a kernel that refuses the request (no `CAP_SYS_NICE`, or a
 //! cgroup that forbids the band) leaves the agent exactly where it was, which is slow under the
-//! loops but never wrong. Children are dropped back to the default policy so a runaway command
-//! cannot hold the realtime band against the agent that supervises it.
+//! loops but never wrong.
+//!
+//! Children never start in the band, so a runaway command cannot hold it against the agent that
+//! supervises it. The band is asked for with `SCHED_RESET_ON_FORK`, and the kernel then starts
+//! every task the agent creates at `SCHED_OTHER`: the reset is done by the kernel at the fork
+//! itself, for every child of every spawn path, and needs no code in the child. That matters for
+//! speed as well as coverage. A `pre_exec` hook in the child is what used to drop the policy, and
+//! any `pre_exec` forces the standard library onto `fork()` rather than `posix_spawn`, so every
+//! command paid a copy of the agent's page tables and copy-on-write faults on its next writes
+//! (issue #128). The flag reaches threads too: the agent creates none, and a helper thread that
+//! ever had to outrank the workload would have to raise itself.
 
 #![allow(unsafe_code)]
 
-use std::{fmt, io, os::unix::process::CommandExt as _, process::Command};
+use std::{fmt, io};
 
 /// The realtime priority the agent asks for.
 ///
@@ -44,12 +53,12 @@ impl fmt::Display for Priority {
     }
 }
 
-/// Raises the calling thread to `SCHED_FIFO` at [`PRIORITY`], or reports the errno it was refused
-/// with.
+/// Raises the calling thread to `SCHED_FIFO` at [`PRIORITY`], with every task it creates reset
+/// to the default policy, or reports the errno it was refused with.
 #[must_use]
 pub fn raise() -> Priority {
     let parameters = scheduler_param(PRIORITY);
-    let result = set_scheduler(libc::SCHED_FIFO, &parameters);
+    let result = set_scheduler(libc::SCHED_FIFO | libc::SCHED_RESET_ON_FORK, &parameters);
     if result == 0 {
         Priority::Realtime(PRIORITY)
     } else {
@@ -96,15 +105,14 @@ fn set_scheduler(policy: libc::c_int, parameters: &libc::sched_param) -> libc::c
 
 /// Drops the calling thread to the default `SCHED_OTHER` policy.
 ///
-/// The executor calls this from a forked child, so it uses only the syscall and the errno.
+/// Only tests need it: they raise a test thread the way the agent raises itself and put it back.
 ///
 /// # Errors
 ///
 /// Returns the kernel errno if the policy could not be set.
+#[cfg(test)]
 pub fn drop_to_default() -> io::Result<()> {
     let parameters = scheduler_param(0);
-    // As in `raise`, through the syscall directly. It runs in the forked child before `execve`,
-    // where only syscalls are safe.
     let result = set_scheduler(libc::SCHED_OTHER, &parameters);
     if result == 0 {
         Ok(())
@@ -116,23 +124,6 @@ pub fn drop_to_default() -> io::Result<()> {
 /// The current errno as a plain integer.
 fn last_errno() -> i32 {
     io::Error::last_os_error().raw_os_error().unwrap_or(0)
-}
-
-/// Arranges for `command`'s child to run at the default policy, not the agent's realtime band.
-///
-/// A forked child inherits the parent's scheduling policy across `execve`, so a workload would
-/// otherwise start at the agent's realtime priority. The refusal is ignored, so a machine that
-/// forbids the band still runs the command at whatever the child inherited.
-pub fn reset_child_policy(command: &mut Command) {
-    // SAFETY: the closure runs in the forked child between `fork` and `execve`, where only
-    // async-signal-safe calls are permitted; it is one `sched_setscheduler` syscall whose result is
-    // ignored, and it allocates nothing.
-    unsafe {
-        command.pre_exec(|| {
-            let _ = drop_to_default();
-            Ok(())
-        });
-    }
 }
 
 #[cfg(test)]

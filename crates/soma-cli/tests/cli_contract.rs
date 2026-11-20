@@ -22,7 +22,7 @@ fn version_reports_the_alpha_contract_without_claiming_kvm_readiness() {
     let response = json(&output);
     assert_eq!(response["schema"], "soma.cli.v1");
     assert_eq!(response["command"], "version");
-    assert_eq!(response["result"]["version"], "1.0.0-alpha.1");
+    assert_eq!(response["result"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(response["result"]["production_ready"], false);
     assert_eq!(response["result"]["native_kvm_lifecycle"], "unavailable");
     assert!(response["receipt"].is_null());
@@ -71,4 +71,19 @@ fn explicit_kvm_refusal_distinguishes_unsupported_targets_from_unprepared_hosts(
         assert_eq!(output.status.code(), Some(78));
         assert_eq!(response["error"]["code"], "unsupported_backend");
     }
+}
+
+#[test]
+fn the_version_flag_reports_this_build_and_the_protocols_it_speaks() {
+    let speaks = soma_version::Speaks {
+        api: None,
+        protocols: soma_local::PROTOCOLS,
+    };
+    soma_version::verify_binary(
+        std::path::Path::new(env!("CARGO_BIN_EXE_soma")),
+        "soma",
+        &soma_version::build!(),
+        &speaks,
+    )
+    .unwrap_or_else(|failure| panic!("{failure}"));
 }

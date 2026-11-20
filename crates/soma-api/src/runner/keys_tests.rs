@@ -56,6 +56,32 @@ fn a_completed_snapshot_admits_its_keys() {
     assert_eq!(table.last_seq(), 4);
 }
 
+/// Before any snapshot has completed, a key cannot be judged: a valid key read as unknown would
+/// look revoked to its client, so it is told to retry instead (SOMA#154).
+#[test]
+fn a_table_no_snapshot_has_completed_cannot_judge_a_key() {
+    let table = KeyTable::new();
+    assert_eq!(
+        table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
+        Some(Refusal::NotLoaded)
+    );
+    assert_eq!(
+        table.admit(Some("Bearer eyJhbGciOi")).err(),
+        Some(Refusal::Unauthorized),
+        "a token that is not a key is refused whatever the table holds"
+    );
+
+    let loaded = enabled_table();
+    let now = Instant::now();
+    loaded
+        .apply(&event(r#"{"seq":10,"kind":"snapshot_begin"}"#), now)
+        .expect("applies");
+    assert!(
+        loaded.admit(Some(&format!("Bearer {TOKEN}"))).is_ok(),
+        "a later snapshot in progress keeps serving the table it will replace"
+    );
+}
+
 #[test]
 fn keys_inside_an_unfinished_snapshot_are_not_served() {
     let table = KeyTable::new();
@@ -75,7 +101,7 @@ fn keys_inside_an_unfinished_snapshot_are_not_served() {
 
     assert_eq!(
         table.admit(Some(&format!("Bearer {TOKEN}"))).err(),
-        Some(Refusal::Unauthorized)
+        Some(Refusal::NotLoaded)
     );
 }
 

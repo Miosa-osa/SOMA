@@ -1,12 +1,12 @@
 use soma::{
-    BackendFailure, BackendFailureKind, BackendKind, DigestBinding, DnsPolicy, EffectiveShape,
-    EgressPolicy, IsolationClass, LaunchObservation, LaunchRequest, LaunchTimes, Observation,
-    ObservationUnavailable, PreparationClass,
+    BackendFailure, BackendFailureKind, BackendKind, DigestBinding, EffectiveShape, IsolationClass,
+    LaunchObservation, LaunchRequest, LaunchTimes, Observation, ObservationUnavailable,
+    PreparationClass,
 };
 
 use super::command::{CONTROL_TIMEOUT, command, command_owned};
 use super::container::{container_name, remove};
-use super::network::effective_network;
+use super::network::{effective_network, network_mode};
 use super::resolve::DockerPreparedWorkload;
 use super::{DockerBackend, failure};
 
@@ -25,12 +25,8 @@ impl DockerBackend {
             return Err(failure(operation, BackendFailureKind::WorkloadRejected));
         }
         let name = container_name(request.instance_id().as_str());
-        let network = request.shape().capabilities().network_policy();
-        let network_mode = match (network.egress(), network.dns(), network.published_ports()) {
-            (EgressPolicy::Denied, DnsPolicy::Denied, []) => "none",
-            (EgressPolicy::Unrestricted, DnsPolicy::System, []) => "bridge",
-            _ => return Err(failure(operation, BackendFailureKind::Unsupported)),
-        };
+        let network_mode = network_mode(request.shape().capabilities().network_policy())
+            .ok_or_else(|| failure(operation, BackendFailureKind::Unsupported))?;
         let memory = format!("{}m", request.shape().memory_mib());
         let cpus = request.shape().vcpu_count().to_string();
         let args = vec![

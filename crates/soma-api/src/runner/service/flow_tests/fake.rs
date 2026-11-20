@@ -35,6 +35,22 @@ impl SandboxFacade for Fake {
         Ok(lifecycle())
     }
 
+    fn set_egress(
+        &mut self,
+        _: &soma::InstanceId,
+        request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        self.0.egress_calls.lock().expect("calls").push(request);
+        match self.0.egress_script.lock().expect("script").pop_front() {
+            Some(scripted) => scripted,
+            None => Ok(soma_local::EgressSetOutcome {
+                open: request.open,
+                dns: request.dns,
+                changed: true,
+            }),
+        }
+    }
+
     fn inspect(&mut self, _: InspectMachineRequest) -> Result<SandboxSnapshot, ManagedFailure> {
         unreachable!("not a runner route")
     }
@@ -125,6 +141,17 @@ impl SandboxFacade for Fake {
         Ok(soma::MachineListing::new(
             self.0.listed.lock().expect("listed").clone(),
         ))
+    }
+
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        unreachable!("the runner never releases records; the record sweep does")
+    }
+
+    fn release(
+        &mut self,
+        _instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        unreachable!("the runner never releases records; the record sweep does")
     }
 
     fn stop(&mut self, _: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

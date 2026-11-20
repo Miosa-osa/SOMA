@@ -3,6 +3,7 @@
 
 mod backend;
 mod config;
+mod egress;
 mod error;
 mod file_store;
 mod prewarm;
@@ -15,6 +16,7 @@ mod tunnel;
 mod test_support;
 
 pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
+pub use egress::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
 pub use prewarm::{
     MAX_TARGET_COUNT, MAX_TARGETS, PrewarmError, PrewarmStatus, PrewarmTarget, Source,
     TargetStatus, UncoveredDemand,
@@ -178,3 +180,6 @@ pub use config::LocalRuntimeConfig;
 pub use error::{LocalFailure, LocalFailureKind};
 pub use file_store::FileStateStore;
 pub use runtime::LocalRuntime;
+
+mod protocols;
+pub use protocols::PROTOCOLS;

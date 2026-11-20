@@ -47,10 +47,30 @@ impl ReservedPorts {
         Self { listeners, ports }
     }
 
-    /// Gives the ports up, so the runners can bind them.
-    fn release(self) {
+    /// Gives the runners' ports up so they can bind them, and keeps the last one, the owner
+    /// nothing answers for, bound for the whole test.
+    fn release(mut self) -> TcpListener {
+        let unreachable = self.listeners.pop().expect("the unreachable owner's port");
         drop(self.listeners);
+        unreachable
     }
+}
+
+/// Holds the unreachable owner's port and closes every connection to it at once.
+///
+/// A port given back to the system can be bound by any other test process, and every runner a
+/// test starts presents a certificate these runners trust for that address (`localhost`, from
+/// the one test CA). Given back, host `b`'s port was once taken by another test's runner, whose
+/// key table did not hold this test's key, so the call for `b`'s sandbox was authenticated there
+/// and came back `401` instead of `421` (SOMA#154).
+fn hold_unreachable(listener: TcpListener) {
+    listener.set_nonblocking(true).expect("nonblocking");
+    let listener = tokio::net::TcpListener::from_std(listener).expect("an async listener");
+    tokio::spawn(async move {
+        while let Ok((connection, _)) = listener.accept().await {
+            drop(connection);
+        }
+    });
 }
 
 fn runner_config(
@@ -98,7 +118,7 @@ async fn a_call_for_another_hosts_sandbox_is_answered_by_its_owner() {
     let a_config = runner_config(control_plane, 'a', private_a, &[('3', private_three)]);
     // Both configurations name both ports, so the ports are given up only here, once there is
     // nothing left to build before the runners bind.
-    reserved.release();
+    hold_unreachable(reserved.release());
     let three = start_runner(three_config, opener(&three_engine)).await;
     let a = start_runner(a_config, opener(&a_engine)).await;
     eventually("both feeds", || state.connections().len() == 2).await;
@@ -188,4 +208,47 @@ async fn unreachable_owners_answer_misdirected(address: SocketAddr, id: &str) {
             format!("https://{tag}.run-us.miosa.ai")
         );
     }
+}
+
+/// A forward that lands on a runner whose key table no snapshot has filled yet, as host `b`'s
+/// call did in SOMA#154, or as any call does while its owner is starting.
+///
+/// That runner cannot judge the key, so it says retry rather than `401`: an unknown key and a
+/// valid key it has not heard of yet are different answers, and only the first means stop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_forward_to_a_runner_with_no_keys_yet_is_told_to_retry_not_refused() {
+    let (control_plane, state) = start_control_plane().await;
+    let (silent_control_plane, silent) = start_control_plane().await;
+    let reserved = ReservedPorts::take();
+    let [private_three, private_other, _] = reserved.ports;
+    let three_config = runner_config(control_plane, '3', private_three, &[('b', private_other)]);
+    let other_config = runner_config(silent_control_plane, 'a', private_other, &[]);
+    hold_unreachable(reserved.release());
+    let three = start_runner(three_config, opener(&Arc::new(Engine::default()))).await;
+    let _other = start_runner(other_config, opener(&Arc::new(Engine::default()))).await;
+    eventually("both feeds", || {
+        state.connections().len() == 1 && silent.connections().len() == 1
+    })
+    .await;
+    snapshot(&state, 1);
+    // Host `3` holds the key; the runner answering for `b` has connected to its feed and has
+    // been sent nothing.
+    let foreign = soma_api::runner::ids::SandboxId::mint('b');
+    let path = format!("/api/v1/sandboxes/{foreign}/exec");
+    // Host `3` forwards only once its own snapshot is applied; until then it answers itself.
+    let mut answered = h2(three.address, "POST", &path, Some(TOKEN), "{}").await;
+    for _ in 0..100 {
+        if answered.headers.contains_key("soma-runner-url") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        answered = h2(three.address, "POST", &path, Some(TOKEN), "{}").await;
+    }
+
+    assert_eq!(answered.status, 503, "{}", answered.body);
+    assert_eq!(answered.body, serde_json::json!({"error": "feed_stale"}));
+    assert_eq!(
+        answered.headers["soma-runner-url"],
+        "https://b.run-us.miosa.ai"
+    );
 }
