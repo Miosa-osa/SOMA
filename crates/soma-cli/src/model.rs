@@ -8,11 +8,13 @@ mod file;
 mod list;
 mod pty;
 mod resize;
+mod version;
 
 pub use file::FileReport;
 pub use list::SandboxListReport;
 pub use pty::PtyReport;
 pub use resize::ResizeReport;
+pub use version::{CapabilityState, ProtocolVersions, VersionReport};
 
 pub const ENVELOPE_SCHEMA: &str = "soma.cli.v1";
 pub const MAX_OUTPUT_BYTES_USIZE: usize = 16 * 1024 * 1024;
@@ -48,22 +50,6 @@ impl DoctorReport {
     pub const fn passed(&self) -> bool {
         matches!(self.status, DoctorStatus::ProbePassed)
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub struct VersionReport {
-    pub version: &'static str,
-    pub envelope_schema: &'static str,
-    pub production_ready: bool,
-    pub macos_development_lifecycle: CapabilityState,
-    pub native_kvm_lifecycle: CapabilityState,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CapabilityState {
-    Compiled,
-    Unavailable,
 }
 
 #[derive(Clone, Eq, PartialEq, Serialize)]

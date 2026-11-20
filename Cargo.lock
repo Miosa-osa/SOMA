@@ -1501,6 +1501,7 @@ dependencies = [
  "soma-guest",
  "soma-hostd",
  "soma-local",
+ "soma-version",
  "tokio",
  "tokio-rustls",
  "uuid",
@@ -1516,6 +1517,7 @@ dependencies = [
  "serde_json",
  "soma",
  "soma-local",
+ "soma-version",
  "uuid",
 ]
 
@@ -1554,6 +1556,7 @@ version = "1.0.0-alpha.1"
 dependencies = [
  "libc",
  "soma-guest",
+ "soma-version",
  "tempfile",
  "zeroize",
 ]
@@ -1569,6 +1572,7 @@ dependencies = [
  "soma-guest",
  "soma-netd",
  "soma-storage",
+ "soma-version",
  "tempfile",
  "zeroize",
 ]
@@ -1620,6 +1624,7 @@ dependencies = [
  "soma-netd",
  "soma-storage",
  "soma-supervise",
+ "soma-version",
  "soma-vmm",
  "tempfile",
 ]
@@ -1647,6 +1652,7 @@ dependencies = [
  "serde_json",
  "soma",
  "soma-local",
+ "soma-version",
  "tokio",
  "tokio-util",
  "uuid",
@@ -1661,6 +1667,7 @@ dependencies = [
  "soma",
  "soma-guest",
  "soma-supervise",
+ "soma-version",
  "tempfile",
 ]
 
@@ -1693,6 +1700,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-version"
+version = "1.0.0-alpha.1"
+
+[[package]]
 name = "soma-vmm"
 version = "1.0.0-alpha.1"
 dependencies = [
@@ -1702,6 +1713,7 @@ dependencies = [
  "soma-guest",
  "soma-jail",
  "soma-kvm",
+ "soma-version",
  "tempfile",
 ]
 

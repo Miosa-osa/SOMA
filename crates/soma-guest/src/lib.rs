@@ -82,3 +82,16 @@ pub use secret::{
 };
 
 const NOISE_PATTERN: &str = "Noise_NKpsk0_25519_ChaChaPoly_BLAKE2s";
+
+/// The version every application frame between a host and a guest agent carries.
+///
+/// A frame naming any other version is refused, so a host and a guest agent that disagree stop
+/// at the first frame of the session instead of misreading one. A guest agent is built into each
+/// Generation, so a host keeps accepting every version a Generation it still runs carries.
+pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
+
+/// The highest guest API level this release speaks (ADR 0051).
+///
+/// The guest agent answers it at the [`GUEST_API_PROBE_PREFIX`] probe, and a host sends a level 2
+/// request only to a guest that answered at least 2, so any host and guest pair interoperate.
+pub const GUEST_API_LEVEL: u8 = 2;
