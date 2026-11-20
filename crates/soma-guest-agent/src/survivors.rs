@@ -11,7 +11,7 @@ use std::fs;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::descendants::{other_pids, sweep_strays};
+use crate::descendants::{is_kernel_thread, other_pids, sweep_strays};
 use crate::pid1;
 
 const INIT_PID: i32 = 1;
@@ -171,6 +171,10 @@ fn process_groups() -> Vec<Membership> {
         .filter_map(|pid| {
             // A process that exits between the listing and the read is already gone.
             let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            // A kernel thread is never a stray: it ignores the kill and never exits (SOMA#159).
+            if is_kernel_thread(&stat) {
+                return None;
+            }
             parse_membership(pid, &stat)
         })
         .collect()
