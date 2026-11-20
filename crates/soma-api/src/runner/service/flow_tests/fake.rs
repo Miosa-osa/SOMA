@@ -35,6 +35,22 @@ impl SandboxFacade for Fake {
         Ok(lifecycle())
     }
 
+    fn set_egress(
+        &mut self,
+        _: &soma::InstanceId,
+        request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        self.0.egress_calls.lock().expect("calls").push(request);
+        match self.0.egress_script.lock().expect("script").pop_front() {
+            Some(scripted) => scripted,
+            None => Ok(soma_local::EgressSetOutcome {
+                open: request.open,
+                dns: request.dns,
+                changed: true,
+            }),
+        }
+    }
+
     fn inspect(&mut self, _: InspectMachineRequest) -> Result<SandboxSnapshot, ManagedFailure> {
         unreachable!("not a runner route")
     }

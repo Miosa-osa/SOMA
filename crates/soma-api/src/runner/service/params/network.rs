@@ -31,7 +31,8 @@ impl EgressRequest {
         }
     }
 
-    /// Whether serving it needs the host's network broker.
+    /// Whether serving it needs the host's network broker. A windowed `denied` does too, which
+    /// the caller adds.
     pub(in crate::runner::service) const fn needs_broker(self) -> bool {
         !matches!(self, Self::Denied)
     }
@@ -54,14 +55,17 @@ pub(super) fn apply_network(
     shape: MachineShape,
     network: Option<&Value>,
     launch: &LaunchConfig,
-) -> Result<(MachineShape, Option<EgressRequest>), PlatformError> {
+) -> Result<(MachineShape, Option<EgressRequest>, bool), PlatformError> {
     let invalid = |detail: &str| PlatformError::invalid_param("network", detail);
     let object = match network {
-        None | Some(Value::Null) => return Ok((shape, None)),
+        None | Some(Value::Null) => return Ok((shape, None, false)),
         Some(Value::Object(object)) => object,
         Some(_) => return Err(invalid("network must be an object")),
     };
-    if let Some(unknown) = object.keys().find(|key| key.as_str() != "egress") {
+    if let Some(unknown) = object
+        .keys()
+        .find(|key| !matches!(key.as_str(), "egress" | "windowed"))
+    {
         return Err(invalid(&format!("network has no `{unknown}` field")));
     }
     let egress = match object.get("egress").map(Value::as_str) {
@@ -74,6 +78,16 @@ pub(super) fn apply_network(
             ));
         }
     };
+    let windowed = match object.get("windowed") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(windowed)) => *windowed,
+        Some(_) => return Err(invalid("network.windowed must be a boolean")),
+    };
+    // A window opens the internet on a sandbox that starts with none, so it only makes sense
+    // there; asking for one next to an already open network is a mistake worth refusing.
+    if windowed && egress != EgressRequest::Denied {
+        return Err(invalid("network.windowed needs network.egress \"denied\""));
+    }
     if egress == EgressRequest::Unrestricted && !launch.allow_unrestricted_egress {
         return Err(PlatformError::new(
             403,
@@ -82,5 +96,9 @@ pub(super) fn apply_network(
             false,
         ));
     }
-    Ok((shape.with_capabilities(egress.capabilities()), Some(egress)))
+    Ok((
+        shape.with_capabilities(egress.capabilities()),
+        Some(egress),
+        windowed,
+    ))
 }

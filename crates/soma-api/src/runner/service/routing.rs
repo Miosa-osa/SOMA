@@ -14,6 +14,12 @@ pub(super) enum Route<'a> {
     Tunnel(&'a str, &'a str),
     /// `PATCH {"timeout": N}`: reset or extend the idle timer.
     Extend(&'a str),
+    /// `POST .../{id}/network/egress`: open an egress window.
+    EgressOpen(&'a str),
+    /// `DELETE .../{id}/network/egress/{window_id}`: close it.
+    EgressClose(&'a str, &'a str),
+    /// `GET .../{id}/network`: the network the sandbox was created with and what is in force.
+    Network(&'a str),
     /// The caller's own sandboxes on this runner.
     List,
     Forward(Forward<'a>),
@@ -37,6 +43,9 @@ impl<'a> Route<'a> {
             | Self::ExecStream(id)
             | Self::Destroy(id)
             | Self::Extend(id)
+            | Self::EgressOpen(id)
+            | Self::EgressClose(id, _)
+            | Self::Network(id)
             | Self::Tunnel(id, _) => Some(id),
             Self::Forward(forward) => Some(forward.id),
             Self::Health | Self::Create | Self::List | Self::NotFound => None,
@@ -71,6 +80,15 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
             Route::ExecStream(id)
         }
         (&http::Method::GET, ["", id, "tunnel", port]) if !id.is_empty() => Route::Tunnel(id, port),
+        (&http::Method::POST, ["", id, "network", "egress"]) if !id.is_empty() => {
+            Route::EgressOpen(id)
+        }
+        (&http::Method::DELETE, ["", id, "network", "egress", window])
+            if !id.is_empty() && !window.is_empty() =>
+        {
+            Route::EgressClose(id, window)
+        }
+        (&http::Method::GET, ["", id, "network"]) if !id.is_empty() => Route::Network(id),
         (&http::Method::DELETE, ["", id]) if !id.is_empty() => Route::Destroy(id),
         (&http::Method::PATCH, ["", id]) if !id.is_empty() => Route::Extend(id),
         (&http::Method::GET, ["", id]) if !id.is_empty() => forward(id, Method::Get),

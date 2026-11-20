@@ -22,7 +22,6 @@
 ./crates/soma-kvm/src/x86_64/snapshot/restore.rs 303
 ./crates/soma-local/src/backend/kvm/host/sterile/tests.rs 308
 ./crates/soma-local/src/backend/kvm/lifecycle.rs 319
-./crates/soma-local/src/backend/kvm/network/lease.rs 339
 ./crates/soma-local/src/backend/kvm/resize/memory.rs 598
 ./crates/soma-netd/src/bundle.rs 326
 ./crates/soma-netd/src/daemon.rs 446
