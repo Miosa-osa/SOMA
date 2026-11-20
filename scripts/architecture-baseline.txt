@@ -24,7 +24,7 @@
 ./crates/soma-local/src/backend/kvm/lifecycle.rs 319
 ./crates/soma-local/src/backend/kvm/network/lease.rs 339
 ./crates/soma-local/src/backend/kvm/resize/memory.rs 598
-./crates/soma-netd/src/bundle.rs 346
+./crates/soma-netd/src/bundle.rs 326
 ./crates/soma-netd/src/daemon.rs 624
 ./crates/soma-netd/src/firewall/tests.rs 320
 ./crates/soma-netd/src/ipam.rs 327
