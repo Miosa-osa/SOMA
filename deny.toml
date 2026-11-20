@@ -13,7 +13,15 @@ targets = [
 yanked = "deny"
 unmaintained = "all"
 unused-ignored-advisory = "deny"
-ignore = []
+# Each entry names who pulls the crate in, why it cannot move, and the evidence that the affected
+# code is not compiled into SOMA. Review every entry by 2027-02-01. The same IDs are in
+# .cargo/audit.toml for cargo audit.
+ignore = [
+    { id = "RUSTSEC-2026-0457", reason = "rmcp is held at 3.1.4 by commit 4e55b89 (from rmcp 3.5 the MCP 2026-07-28 revision has no initialize handshake, and moving soma-mcp to it is an owner decision); the advisory is in rmcp's OAuth client (feature auth), which is not built: soma-mcp builds rmcp with default-features = false and only macros, server and transport-async-rw (dev-dependency: client, macros, server), Cargo.lock resolves no oauth2, reqwest, hyper or axum under rmcp, and soma-mcp references no OAuth or Streamable HTTP type. Review by 2027-02-01." },
+    { id = "RUSTSEC-2026-0461", reason = "rmcp is held at 3.1.4 by commit 4e55b89 (from rmcp 3.5 the MCP 2026-07-28 revision has no initialize handshake, and moving soma-mcp to it is an owner decision); the advisory is in StreamableHttpService (feature transport-streamable-http-server), which is not built: soma-mcp builds rmcp with default-features = false and only macros, server and transport-async-rw (dev-dependency: client, macros, server), Cargo.lock resolves no oauth2, reqwest, hyper or axum under rmcp, and soma-mcp references no OAuth or Streamable HTTP type. Review by 2027-02-01." },
+    { id = "RUSTSEC-2026-0462", reason = "rmcp is held at 3.1.4 by commit 4e55b89 (from rmcp 3.5 the MCP 2026-07-28 revision has no initialize handshake, and moving soma-mcp to it is an owner decision); the advisory is in the Streamable HTTP clients (features transport-streamable-http-client-reqwest and -unix-socket), which are not built: soma-mcp builds rmcp with default-features = false and only macros, server and transport-async-rw (dev-dependency: client, macros, server), Cargo.lock resolves no oauth2, reqwest, hyper or axum under rmcp, and soma-mcp references no OAuth or Streamable HTTP type. Review by 2027-02-01." },
+    { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained, with no patched release; SOMA does not depend on it directly: it comes only through soma-mcp -> rmcp 3.1.4 and soma-mcp -> schemars 1.2.2 (feature chrono04, enabled by rmcp), and rmcp 3.9.0 still pulls it. An unmaintained notice, not a vulnerability. Review by 2027-02-01." },
+]
 
 [licenses]
 confidence-threshold = 0.93
