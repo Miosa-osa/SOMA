@@ -170,6 +170,17 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().list()
     }
 
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        self.deref_mut().terminal_census()
+    }
+
+    fn release(
+        &mut self,
+        instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        self.deref_mut().release(instance_id)
+    }
+
     fn stop(&mut self, request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
         self.deref_mut().stop(request)
     }
