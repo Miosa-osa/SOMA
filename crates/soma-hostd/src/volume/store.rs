@@ -167,6 +167,8 @@ impl DirectoryVolumes {
             .map_err(|_| VolumeError::Ledger("record write"))?;
         file.sync_all()
             .map_err(|_| VolumeError::Ledger("record sync"))?;
+        // A directory cannot be opened to sync it on Windows, as in the pool ledger.
+        #[cfg(unix)]
         fs::File::open(&directory)
             .and_then(|handle| handle.sync_all())
             .map_err(|_| VolumeError::Ledger("record directory sync"))?;
