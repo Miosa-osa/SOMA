@@ -113,3 +113,63 @@ fn concurrent_writers_share_one_sync() {
         "{WRITERS} writers arriving together must share one sync"
     );
 }
+
+#[test]
+fn a_writer_that_arrives_during_a_sync_gets_a_sync_of_its_own() {
+    let barrier = Arc::new(SyncBarrier::new(TEST_WINDOW));
+    let (entered, leader_in_sync) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let leader = {
+        let barrier = Arc::clone(&barrier);
+        thread::spawn(move || {
+            barrier.commit(|| {
+                let _entered = entered.send(());
+                let _held = released.recv();
+                Ok(())
+            })
+        })
+    };
+    leader_in_sync
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the leader must run its sync");
+
+    // The leader took its snapshot before it entered the sync, so a writer arriving now is not
+    // covered by that sync and must not be released by it.
+    let syncs = Arc::new(AtomicUsize::new(0));
+    let (done, finished) = mpsc::channel();
+    let late = {
+        let barrier = Arc::clone(&barrier);
+        let syncs = Arc::clone(&syncs);
+        thread::spawn(move || {
+            let result = barrier.commit(|| {
+                syncs.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            });
+            let _sent = done.send(result);
+        })
+    };
+    assert!(
+        finished.recv_timeout(Duration::from_millis(200)).is_err(),
+        "a writer was released by a sync that started before it arrived"
+    );
+
+    release.send(()).expect("the held sync must still be open");
+    assert_eq!(
+        leader.join().expect("the leader thread must finish"),
+        Ok(())
+    );
+    // No other writer comes, so nobody else will ever sync: the late writer must lead the next
+    // sync itself instead of waiting for one forever.
+    assert_eq!(
+        finished
+            .recv_timeout(Duration::from_secs(5))
+            .expect("a writer that arrived during a sync must not wait for a sync nobody runs"),
+        Ok(())
+    );
+    assert_eq!(
+        syncs.load(Ordering::SeqCst),
+        1,
+        "the late writer runs the sync that covers it"
+    );
+    late.join().expect("the late writer thread must finish");
+}
