@@ -21,6 +21,7 @@ use crate::pid1;
 use crate::survivors;
 use crate::timings::{self, Step};
 
+mod exit;
 mod pipes;
 
 /// Time the killed process group is given to die while its pipes are drained.
@@ -31,7 +32,9 @@ pub const KILL_GRACE: Duration = Duration::from_millis(500);
 /// prefix of that same buffer, so nothing scales with the volume a child produces.
 pub const RESIDENT_OUTPUT_BYTES: usize = crate::output::MAX_CHUNK_BYTES;
 
-/// First wait between reapability checks after the child's pipes reached their end.
+/// First wait between reapability checks after the child's pipes reached their end, on the one
+/// path that still polls: a kernel that will not give the agent a process descriptor (see
+/// [`exit`]).
 ///
 /// A child that closed its pipes is already inside its own exit and becomes reapable within
 /// microseconds, so the first check must not cost more than that; the flat ceiling below would
@@ -170,11 +173,12 @@ fn spawn(invocation: &Invocation, stdin: &[u8]) -> Result<Child, i32> {
     if let Some(credentials) = invocation.credentials() {
         builder.uid(credentials.uid).gid(credentials.gid);
     }
-    // The agent runs at `SCHED_FIFO` (see `crate::priority`), and a forked child inherits the
-    // policy across `execve`. The workload is dropped back to the default band before it starts so
-    // the agent always outranks the command it supervises, and a command that spins cannot hold
-    // the realtime band against the agent that would answer the next request.
-    crate::priority::reset_child_policy(&mut builder);
+    // No `pre_exec` hook, on purpose: any hook forces the standard library to `fork()` the agent,
+    // while without one a command that names no account is started with `posix_spawn`, which
+    // neither copies the agent's page tables nor leaves its pages copy-on-write. The workload
+    // still never starts in the agent's realtime band: the agent holds the band with
+    // `SCHED_RESET_ON_FORK`, so the kernel starts this child at the default policy (see
+    // `crate::priority`).
     let mut child = builder
         .spawn()
         .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))?;
@@ -196,7 +200,28 @@ fn waits() -> impl Iterator<Item = Duration> {
     })
 }
 
+/// Waits for the child's exit until `until`, then kills its group and collects it.
+///
+/// A child whose pipes closed has usually exited already, and then one reapability check is all
+/// the wait costs. Otherwise the exit is seen on a process descriptor the moment it happens; only
+/// a kernel that refuses one sends the wait back to the bounded sleep schedule.
 fn wait_for_child(child: &mut Child, until: Instant, process_group: i32) -> Ending {
+    match child.try_wait() {
+        Ok(Some(status)) => return ending(status),
+        Ok(None) => {}
+        Err(_) => return Ending::Unknown,
+    }
+    match exit::watch(child, until) {
+        exit::Watched::Exited => child.wait().map_or(Ending::Unknown, ending),
+        exit::Watched::Deadline => {
+            descendants::kill_group(process_group);
+            child.wait().map_or(Ending::Unknown, ending)
+        }
+        exit::Watched::Unwatchable => poll_for_child(child, until, process_group),
+    }
+}
+
+fn poll_for_child(child: &mut Child, until: Instant, process_group: i32) -> Ending {
     let mut waits = waits();
     loop {
         match child.try_wait() {
