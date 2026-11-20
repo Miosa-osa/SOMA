@@ -140,8 +140,12 @@ fn runner_refusals_match_contract_c2() {
         r#"{"error":"misdirected","runner_url":"https://a.run-us.miosa.ai"}"#
     );
     assert_eq!(
-        text(&health('3', 1200, Some(18))),
-        r#"{"ok":true,"tag":"3","feed_age_ms":1200,"pool_ready":18}"#
+        text(&health('3', 1200, Some(18), Some(7))),
+        r#"{"ok":true,"tag":"3","feed_age_ms":1200,"pool_ready":18,"state_records":7}"#
+    );
+    assert_eq!(
+        text(&health('3', 1200, None, None)),
+        r#"{"ok":true,"tag":"3","feed_age_ms":1200,"pool_ready":null,"state_records":null}"#
     );
 }
 

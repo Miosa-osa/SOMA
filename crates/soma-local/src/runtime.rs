@@ -222,6 +222,27 @@ impl LocalRuntime {
     ) -> Result<MachineDestroy, ManagedFailure> {
         self.engine.destroy_machine(request)
     }
+
+    /// Counts the durable records and names the ones that reached a terminal phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure when the store cannot be read.
+    pub fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        self.engine.terminal_census()
+    }
+
+    /// Releases the durable record of one Machine that reached a terminal phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    pub fn release_machine(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        self.engine.release_machine(instance)
+    }
 }
 
 impl std::fmt::Debug for LocalRuntime {

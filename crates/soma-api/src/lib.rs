@@ -13,6 +13,7 @@ pub mod local;
 pub mod pool;
 pub mod report;
 pub mod resources;
+pub mod retention;
 pub mod route;
 pub mod runner;
 pub mod tenant;
