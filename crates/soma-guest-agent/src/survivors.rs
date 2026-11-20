@@ -265,7 +265,8 @@ mod tests {
             .expect("stray");
         // `setsid` execs `sleep` in place when it is not a group leader, so the child's id is
         // the session id either way.
-        let list = std::env::temp_dir().join("soma-survivors-test");
+        let directory = tempfile::tempdir().expect("a directory for the list");
+        let list = directory.path().join("survivors");
         fs::write(&list, format!("{}\n", survivor.id())).expect("list");
         thread::sleep(Duration::from_millis(100));
 
