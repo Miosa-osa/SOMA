@@ -10,6 +10,18 @@ use tokio_rustls::TlsConnector;
 
 use crate::runner::config::{ControlPlaneConfig, control_plane_authority};
 
+/// The version of the runner's protocol with the control plane: the key feed it reads and the
+/// journal it ships.
+///
+/// Every request this client builds names it in [`RUNNER_PROTOCOL_HEADER`], so the control plane
+/// knows which runner it is serving before it answers. The control plane may be newer than a
+/// runner and must keep serving every version still installed on a host; a runner skips and logs
+/// a feed event it does not know, so new event kinds are additive.
+pub const RUNNER_PROTOCOL_VERSION: u16 = 1;
+
+/// The request header that carries [`RUNNER_PROTOCOL_VERSION`].
+pub const RUNNER_PROTOCOL_HEADER: &str = "soma-runner-protocol";
+
 /// How often an idle runner-to-runner link proves it is alive, and how long it may take.
 const PEER_KEEPALIVE: std::time::Duration = std::time::Duration::from_secs(10);
 
@@ -146,7 +158,8 @@ impl Client {
         let mut builder = http::Request::builder()
             .method(method)
             .uri(path)
-            .header(http::header::HOST, &self.authority);
+            .header(http::header::HOST, &self.authority)
+            .header(RUNNER_PROTOCOL_HEADER, RUNNER_PROTOCOL_VERSION);
         if let Some(content_type) = content_type {
             builder = builder.header(http::header::CONTENT_TYPE, content_type);
         }

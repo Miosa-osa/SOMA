@@ -32,7 +32,7 @@ pub fn handle_prewarm(request: &Request) -> Response {
 /// The body of `PUT /v1/prewarm`: the whole desired set.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PrewarmSetBody {
+pub(crate) struct PrewarmSetBody {
     targets: Vec<soma_local::PrewarmTarget>,
 }
 

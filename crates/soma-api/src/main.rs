@@ -33,9 +33,11 @@ fn main() {
 
 /// The report `soma-api --version` prints.
 fn version_report() -> String {
+    let api = soma_api::API_VERSION.to_string();
+    let protocols = soma_api::version::protocols();
     let speaks = soma_version::Speaks {
-        api: None,
-        protocols: soma_local::PROTOCOLS,
+        api: Some(&api),
+        protocols: &protocols,
     };
     soma_version::report("soma-api", &soma_version::build!(), &speaks)
 }
@@ -141,7 +143,8 @@ fn run() -> i32 {
         pool.acquire_timeout(POOL_WAIT_TIMEOUT)
             .ok_or_else(runtime_busy)
     };
-    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels).is_err() {
+    let build = soma_version::build!();
+    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels, build).is_err() {
         eprintln!("soma-api: the listener stopped accepting connections");
         return 74;
     }
