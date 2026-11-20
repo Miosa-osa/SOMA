@@ -50,6 +50,8 @@ mod reconcile;
 #[cfg(target_os = "linux")]
 mod release;
 #[cfg(target_os = "linux")]
+mod snapshot;
+#[cfg(target_os = "linux")]
 mod sysctl;
 #[cfg(target_os = "linux")]
 mod tap;
