@@ -10,7 +10,7 @@ They do not substitute for real KVM execution, production admission, or performa
 | --- | --- | --- |
 | Rust, benchmark, or script change on a pull request or `main` | CI | Full Ubuntu 24.04 correctness plus Linux ARM64 compile-check |
 | Markdown or claim-ledger change on a pull request or `main` | Documentation policy | Fast architecture, forbidden-dash, and claim-ledger validation |
-| Rust, benchmark, or script change on a pull request or `main` | Portability | macOS ARM64 portable profile, Intel macOS compile-check, Windows x86_64 portable client with lint, tests, and rustdoc, Windows ARM64 compile-check, and the Ubuntu 26.04 Linux profile |
+| Rust, benchmark, or script change on a pull request or `main` | Portability | macOS ARM64 portable profile, Intel macOS compile-check, Windows x86_64 portable client with lint, tests, and rustdoc, Windows ARM64 compile-check, native Linux ARM64 lint and tests, and the Ubuntu 26.04 Linux profile |
 | Weekly schedule or manual request | Portability | Detect runner image and upstream drift on the same matrix even without repository changes |
 | Dependency, toolchain, workflow-policy, or security-script change | Security and dependencies | Supply-chain, advisory, license, workflow, spelling, and secret policy |
 | Weekly schedule or manual request | Security and dependencies | Detect upstream advisories and policy drift even without repository changes |
@@ -29,7 +29,7 @@ Every repeatable workflow cancels an older run for the same ref when a newer com
 ## Proof boundaries
 
 Green CI means the repository compiled and passed its declared tests on the selected hosted runner.
-Green portability means the portable client paths passed on the macOS, Windows, and Ubuntu 26.04 runners of that matrix.
+Green portability means the portable client paths passed on the macOS, Windows, Linux ARM64, and Ubuntu 26.04 runners of that matrix.
 Green KVM smoke means the isolated Linux runner completed the smoke contract defined by `scripts/kvm-smoke.sh`.
 None of those results establishes latency, density, or production admission.
 Those claims require retained benchmark artifacts and the evidence gates in the benchmark contract.
