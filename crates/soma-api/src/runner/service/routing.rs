@@ -22,6 +22,10 @@ pub(super) enum Route<'a> {
     Network(&'a str),
     /// The caller's own sandboxes on this runner.
     List,
+    /// `POST .../filesystem/write`, served by the runner itself at any size.
+    FilesystemWrite(&'a str),
+    /// `POST .../filesystem/read`, served by the runner itself at any size.
+    FilesystemRead(&'a str),
     /// One call of the platform's file contract (`fs/...` or `files/...`).
     Files(&'a str, FileCall),
     Forward(Forward<'a>),
@@ -49,6 +53,8 @@ impl<'a> Route<'a> {
             | Self::EgressClose(id, _)
             | Self::Network(id)
             | Self::Tunnel(id, _)
+            | Self::FilesystemWrite(id)
+            | Self::FilesystemRead(id)
             | Self::Files(id, _) => Some(id),
             Self::Forward(forward) => Some(forward.id),
             Self::Health | Self::Create | Self::List | Self::NotFound => None,
@@ -106,6 +112,12 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
             )
         }
         (&http::Method::POST, ["", id, "stop"]) if !id.is_empty() => forward(id, Method::Post),
+        (&http::Method::POST, ["", id, "filesystem", "write"]) if !id.is_empty() => {
+            Route::FilesystemWrite(id)
+        }
+        (&http::Method::POST, ["", id, "filesystem", "read"]) if !id.is_empty() => {
+            Route::FilesystemRead(id)
+        }
         (&http::Method::POST, ["", id, "filesystem" | "terminal", operation])
             if !id.is_empty() && !operation.is_empty() =>
         {

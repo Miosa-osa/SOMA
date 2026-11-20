@@ -182,7 +182,7 @@ impl Runner {
             Ok(()) => {
                 let mut staged = file.staged.clone();
                 self.on_guest(instance_id, move |guest| {
-                    staged.publish(guest, UPLOADED_MODE)
+                    staged.publish(guest, Some(UPLOADED_MODE))
                 })
                 .await
             }

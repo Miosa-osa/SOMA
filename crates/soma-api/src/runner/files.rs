@@ -21,6 +21,7 @@ pub(crate) mod path;
 pub(crate) mod plan;
 pub(crate) mod run;
 pub(crate) mod upload;
+pub(crate) mod write_body;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -32,6 +33,13 @@ pub(crate) use params::{Params, ParamsRefused};
 pub(crate) use plan::{MAX_JSON_FILE_BYTES, Plan};
 pub(crate) use run::{Answer, refusal};
 pub(crate) use upload::MAX_UPLOAD_BODY_BYTES;
+
+/// The largest file soma-api's own `/filesystem/write` and `/filesystem/read` move on the runner,
+/// as consecutive transfers of at most four mebibytes each.
+pub(crate) const MAX_FILESYSTEM_FILE_BYTES: u64 = 512 * 1024 * 1024;
+/// The largest `/filesystem/write` body: the file as base64, and room for the rest of the object.
+pub(crate) const MAX_FILESYSTEM_WRITE_BODY_BYTES: u64 =
+    MAX_FILESYSTEM_FILE_BYTES.div_ceil(3) * 4 + 64 * 1024;
 
 /// The largest body a JSON write may carry: the largest file it moves, as base64, and room for
 /// the path and the JSON around it.

@@ -64,6 +64,18 @@ impl GuestPath {
         Ok(Self(normalized))
     }
 
+    /// A path as soma-api's own `/filesystem` routes carry it: the guest protocol's shape rules
+    /// and nothing else, because on that surface what is admissible is the guest's decision
+    /// (`soma::check_guest_path`). The platform's exposed trees do not apply there.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PathRefused`] for a path the guest protocol will not carry.
+    pub(crate) fn carried(raw: &str) -> Result<Self, PathRefused> {
+        soma::check_guest_path(raw.as_bytes()).map_err(|_| PathRefused)?;
+        Ok(Self(raw.to_owned()))
+    }
+
     /// The path as the guest is sent it.
     pub(crate) fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()

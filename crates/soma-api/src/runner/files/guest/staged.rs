@@ -46,14 +46,21 @@ impl Staged {
         Ok(())
     }
 
-    /// Gives the sibling `mode` and renames it over the target; returns the file's size.
-    pub(crate) fn publish(&mut self, guest: &mut dyn GuestFiles, mode: u32) -> Result<u64, Stop> {
+    /// Gives the sibling `mode`, when one is named, and renames it over the target; returns the
+    /// file's size. `None` leaves the mode the guest created the sibling with.
+    pub(crate) fn publish(
+        &mut self,
+        guest: &mut dyn GuestFiles,
+        mode: Option<u32>,
+    ) -> Result<u64, Stop> {
         if !self.created {
             // An empty file is still a file: the sibling is created with no bytes in it.
             write_ranges(guest, &self.temporary, 0, &[], true)?;
             self.created = true;
         }
-        set_mode(guest, &self.temporary, mode)?;
+        if let Some(mode) = mode {
+            set_mode(guest, &self.temporary, mode)?;
+        }
         rename(guest, &self.temporary, &self.target)?;
         Ok(self.written)
     }

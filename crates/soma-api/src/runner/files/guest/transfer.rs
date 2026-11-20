@@ -151,7 +151,7 @@ fn replace(
     let mut staged = Staged::begin(guest, path.clone())?;
     let published = staged
         .append(guest, contents)
-        .and_then(|()| staged.publish(guest, mode));
+        .and_then(|()| staged.publish(guest, Some(mode)));
     if published.is_err() {
         staged.discard(guest);
     }

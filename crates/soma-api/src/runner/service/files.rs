@@ -48,8 +48,9 @@ impl Runner {
     /// The most bytes a body handed on as it arrives may carry, or `None` for a request whose
     /// body is read whole first.
     ///
-    /// Only an upload from an admitted key is streamed, for the reason [`Self::body_limit`]
-    /// gives: an unadmitted one is read under the ordinary bound and refused unauthorized.
+    /// Only an upload and a `/filesystem/write` from an admitted key are streamed, for the
+    /// reason [`Self::body_limit`] gives: an unadmitted one is read under the ordinary bound and
+    /// refused unauthorized.
     #[must_use]
     pub fn streamed_limit(
         &self,
@@ -60,6 +61,9 @@ impl Runner {
         match route(method, path) {
             Route::Files(_, FileCall::Upload) if self.keys.admit(authorization).is_ok() => {
                 Some(files::MAX_UPLOAD_BODY_BYTES)
+            }
+            Route::FilesystemWrite(_) if self.keys.admit(authorization).is_ok() => {
+                Some(files::MAX_FILESYSTEM_WRITE_BODY_BYTES)
             }
             _ => None,
         }

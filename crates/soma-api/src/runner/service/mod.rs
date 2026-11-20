@@ -23,6 +23,11 @@ mod extend;
 mod files;
 #[cfg(test)]
 mod files_tests;
+mod filesystem;
+mod filesystem_answer;
+mod filesystem_read;
+#[cfg(test)]
+mod filesystem_tests;
 #[cfg(test)]
 mod flow_tests;
 mod forward;
@@ -183,6 +188,8 @@ impl Runner {
             | Route::Network(_)
             | Route::Tunnel(..)
             | Route::Files(..)
+            | Route::FilesystemWrite(_)
+            | Route::FilesystemRead(_)
             | Route::Forward(_) => {}
         }
         let started = Instant::now();
@@ -214,6 +221,12 @@ impl Runner {
             Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,
             Route::Files(id, call) => self.files(&principal, id, call, request, timing).await,
+            Route::FilesystemWrite(id) => {
+                self.filesystem_write(&principal, id, request, timing).await
+            }
+            Route::FilesystemRead(id) => {
+                self.filesystem_read(&principal, id, request, timing).await
+            }
             Route::EgressOpen(id) => {
                 self.open_egress(&principal, id, &request.body, timing)
                     .await
