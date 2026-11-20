@@ -57,6 +57,18 @@ A frame or message a build does not understand is refused, never guessed at.
 | `vmm-control` | the jail supervisor and the `soma-vmm` worker | `soma_vmm::control::CONTROL_PROTOCOL_VERSION` | not carried | Lockstep: the worker is executed from the installed release for each launch. |
 | `runner` | the public runner in `soma-api` and the control plane | `soma_api::runner::control_plane::RUNNER_PROTOCOL_VERSION` | the `soma-runner-protocol` header of every feed and journal request | The control plane may be newer and must keep serving every version still installed on a host; a runner skips and logs a feed event it does not know, so new event kinds are additive. |
 
+### Guest API levels
+
+The guest API level is the one protocol number a host learns at run time, from the agent's answer to the probe of ADR 0051, because a guest agent is built into each Generation and can be older or newer than its host.
+Each level is defined once, here, and `soma_guest::GUEST_API_LEVEL` is the highest level this release speaks.
+
+| Level | What a host may send | Defined by |
+| --- | --- | --- |
+| 1 | The original protocol: commands, terminals, and whole-file reads, writes, listings without metadata, existence checks, removals, and directory creation. A guest that does not echo the probe nonce is level 1. | The protocol before ADR 0051 |
+| 2 | Everything in level 1, plus stat, rename, ranged reads and writes, permission changes, and listings with size, mode, and modification time. | ADR 0051 |
+
+A new level adds one row with what it allows, raises `soma_guest::GUEST_API_LEVEL`, and keeps every lower level working: a host sends a request of a level only to a guest that answered at least that level, and refuses it before the wire otherwise.
+
 The exchange between a client and its resident machine host has no number on purpose.
 A resident machine host outlives an upgrade of the binary that started it, so a newer client talking to an older host is the normal case.
 The exchange therefore grows only by new tagged variants, which an older host refuses, and an existing variant never changes shape.
