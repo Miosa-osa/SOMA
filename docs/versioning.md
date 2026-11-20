@@ -192,7 +192,7 @@ A deployer pins from the manifest instead of a bare checksum:
 
 To rebuild a released binary and compare it with its record, check out the commit and run the packager itself, for example `SOMA_RELEASE_TAG=v1.0.0-alpha.2 scripts/package-host-release.sh`, then compare the new `.binaries.json` with the manifest.
 The packager is the reference build on purpose: Cargo unifies the features of every package in one invocation, so which packages are built together is part of the input, and the packager remaps the checkout and the Cargo home out of every path a binary embeds.
-The guest agent is built by `scripts/build-guest-agent.sh`, which does not remap paths yet, so its bytes still depend on the directory it was built in.
+The guest agent is built by `scripts/build-guest-agent.sh` with the same two remappings, so it is reproducible across machines too, and so is the identity of a Generation that embeds it.
 
 ## Reading the version of a running host
 
