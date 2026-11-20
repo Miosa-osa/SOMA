@@ -68,7 +68,9 @@ const fn map_run_failure_kind(kind: RunFailureKind) -> RuntimeFailureKind {
             BackendFailureKind::Unsupported => RuntimeFailureKind::Unsupported,
             BackendFailureKind::Unavailable => RuntimeFailureKind::Unavailable,
             BackendFailureKind::ResourceConflict => RuntimeFailureKind::Conflict,
-            BackendFailureKind::WorkloadRejected => RuntimeFailureKind::Rejected,
+            BackendFailureKind::WorkloadRejected | BackendFailureKind::GuestAgentOutdated => {
+                RuntimeFailureKind::Rejected
+            }
             BackendFailureKind::Timeout => RuntimeFailureKind::Timeout,
             BackendFailureKind::OutputLimit => RuntimeFailureKind::OutputLimit,
             BackendFailureKind::CleanupFailure => RuntimeFailureKind::CleanupIncomplete,

@@ -138,16 +138,20 @@ stage_capture_snapshot() {
     DETAIL="state=$(du -h "$state" | cut -f1) overlay=$(du -h "$overlay" | cut -f1)"
 }
 
-soma_run() {
-    local tag="$1"
+# Runs one command in a fresh sandbox and judges the envelope against an expected stdout regex.
+soma_run_command() {
+    local tag="$1" expect="$2"
+    shift 2
     SOMA_GENERATION_STORE="$STORE" \
     SOMA_HEAD_DIR="$HEAD_DIR" \
     SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
         ./target/release/soma --format json --backend kvm --state-root "$STATE_ROOT" \
-        run --memory-mib "$MEMORY_MIB" --storage-mib "$STORAGE_MIB" "$IMAGE" -- "${GUEST_COMMAND[@]}" \
+        run --memory-mib "$MEMORY_MIB" --storage-mib "$STORAGE_MIB" "$IMAGE" -- "$@" \
         >"$WORK/run-$tag.json" 2>"$WORK/run-$tag.err"
-    python3 ./scripts/end-to-end/inspect-run.py "$WORK/run-$tag.json" "$EXPECT"
+    python3 ./scripts/end-to-end/inspect-run.py "$WORK/run-$tag.json" "$expect"
 }
+
+soma_run() { soma_run_command "$1" "$EXPECT" "${GUEST_COMMAND[@]}"; }
 
 # Stage 5. Two sandboxes, one after the other, each running the command and reporting its cleanup.
 # Two rather than one because the first creates the durable state a fresh state root has never
@@ -180,6 +184,28 @@ stage_runner_files() {
     DETAIL="$(tail -1 "$transcript")"
 }
 
+# Stage 7. A 12 KB heredoc reaches the guest as one argument of `sh -lc`, the shape ComputeSDK's
+# cpu-burst bench sends as one command string, which was refused at 4096 bytes before (ADR 0051).
+stage_large_command() {
+    local lines=230 script heredoc
+    script="$(large_script "$lines")"
+    heredoc="$(soma_run_command heredoc "^heredoc lines *$(( lines + 1 ))\$" /bin/sh -lc "$script")" \
+        || { DETAIL="heredoc of ${#script} bytes: $heredoc"; return 1; }
+    DETAIL="heredoc of ${#script} bytes: $heredoc"
+}
+
+# A shell command that writes a script of `lines` padding lines through a heredoc, then runs it.
+large_script() {
+    local line
+    printf "cat > /tmp/soma-e2e-large.sh <<'SOMA_E2E_EOF'\n"
+    for (( line = 1; line <= $1; line++ )); do
+        printf '# padding line %04d of a script written by a heredoc\n' "$line"
+    done
+    # shellcheck disable=SC2016 # expanded by the guest's shell, not this one
+    printf 'echo "heredoc lines $(wc -l < /tmp/soma-e2e-large.sh)"\nSOMA_E2E_EOF\n'
+    printf 'sh /tmp/soma-e2e-large.sh\n'
+}
+
 # The three shared host surfaces a leak would show up on, sampled either side of the runs. An
 # empty table listing is ambiguous, because a host that holds many refuses to show them without
 # privilege, so the listing command's own status decides and an unreadable one never reads as empty.
@@ -201,7 +227,7 @@ probe() {
     return 0
 }
 
-# Stage 7. Nothing of the sandboxes outlived them.
+# Stage 8. Nothing of the sandboxes outlived them.
 stage_cleanup_proof() {
     probe after
     local checks="$WORK/cleanup-checks.tsv" leaked=0 notes=()
@@ -224,7 +250,7 @@ stage_cleanup_proof() {
     fi
     after="$(state_fingerprint)"
     if [[ "$after" == "$STATE_BASE" ]]; then
-        verdict state_root clean "$after, unchanged across the second run"
+        verdict state_root clean "$after, unchanged across every run after the first"
     else
         verdict state_root leaked "went from $STATE_BASE to $after across one run"
     fi
@@ -249,6 +275,7 @@ main() {
     run_stage capture_snapshot stage_capture_snapshot
     run_stage run_sandbox stage_run_sandbox
     run_stage runner_files stage_runner_files
+    run_stage large_command stage_large_command
     run_stage cleanup_proof stage_cleanup_proof
     local status=0
     summarize || status=1

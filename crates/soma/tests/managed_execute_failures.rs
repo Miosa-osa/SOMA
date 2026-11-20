@@ -104,6 +104,22 @@ fn a_command_the_runtime_would_not_take_leaves_the_sandbox_serving() {
 }
 
 #[test]
+fn a_command_the_guest_agent_cannot_decode_leaves_the_sandbox_serving() {
+    let mut sandbox = launched(Mode::GuestAgentOutdated);
+
+    let failure = sandbox.refused('4', 16 * 1024 * 1024);
+
+    assert_eq!(
+        failure.kind(),
+        RunFailureKind::Backend {
+            phase: FailurePhase::Command,
+            kind: BackendFailureKind::GuestAgentOutdated,
+        }
+    );
+    sandbox.still_serves_commands();
+}
+
+#[test]
 fn a_program_the_guest_cannot_start_leaves_the_sandbox_serving() {
     let mut sandbox = launched(Mode::SpawnFailed);
 
@@ -159,6 +175,7 @@ fn a_command_that_exhausted_its_output_allowance_leaves_the_sandbox_serving() {
 fn the_receipt_of_a_kept_sandbox_is_valid_and_says_nothing_was_released() {
     for (mode, digit) in [
         (Mode::WorkloadRejected, '4'),
+        (Mode::GuestAgentOutdated, '4'),
         (Mode::SpawnFailed, '5'),
         (Mode::Timeout, '6'),
         (Mode::OutputLimit, '7'),

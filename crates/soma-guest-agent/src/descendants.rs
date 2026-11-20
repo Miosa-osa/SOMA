@@ -94,9 +94,31 @@ pub fn other_pids() -> Vec<i32> {
         .unwrap_or_default()
 }
 
+/// Whether a `/proc/<pid>/stat` line describes a kernel thread (`PF_KTHREAD` in its flags).
+///
+/// A kernel thread ignores `SIGKILL` and never exits for a sweep, so a sweep that waited on one
+/// spent its whole budget on every command once a survivor list existed (SOMA#159).
+#[must_use]
+pub fn is_kernel_thread(stat: &str) -> bool {
+    const PF_KTHREAD: u64 = 0x0020_0000;
+    stat.rfind(')')
+        .and_then(|end| stat[end + 1..].split_whitespace().nth(6))
+        .and_then(|flags| flags.parse::<u64>().ok())
+        .is_some_and(|flags| flags & PF_KTHREAD != 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kernel_thread_is_told_apart_by_its_flags() {
+        let kthread = "2 (kthreadd) S 0 0 0 0 -1 2129984 0 0 0 0 0 0 0 0 20 0 1 0 1 0 0";
+        let process = "77 (sleep) S 1 77 77 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 9 0 0";
+        assert!(is_kernel_thread(kthread));
+        assert!(!is_kernel_thread(process));
+        assert!(!is_kernel_thread("garbage"));
+    }
 
     #[test]
     fn reserved_group_identifiers_are_never_signalled_or_awaited() {

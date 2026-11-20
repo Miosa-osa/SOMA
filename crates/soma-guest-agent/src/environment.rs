@@ -41,8 +41,10 @@ pub const ENVIRONMENT: &[(&str, &str)] = &[
 
 /// Maximum number of arguments the agent will pass to `execve`.
 pub const MAX_ARGUMENTS: usize = 64;
-/// Maximum byte length of the program path, one argument, or one environment name or value.
+/// Maximum byte length of the program path, or one environment name or value.
 pub const MAX_FIELD_BYTES: usize = 4096;
+/// Maximum byte length of one argument: 32 KiB, so a 12 KB shell script runs as one argument.
+pub const MAX_ARGUMENT_BYTES: usize = 32 * 1024;
 /// Maximum number of environment variables the agent will accept from one command.
 pub const MAX_ENVIRONMENT: usize = 64;
 

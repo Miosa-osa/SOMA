@@ -24,6 +24,8 @@ pub enum Mode {
     CommandFailure,
     /// The machine will not take the command at all, before running anything.
     WorkloadRejected,
+    /// The guest's agent cannot decode the command, so it was refused with nothing sent.
+    GuestAgentOutdated,
     /// The guest agent could not start the program, so no process ever ran.
     SpawnFailed,
     Timeout,
