@@ -57,6 +57,9 @@ check_repository_contract() {
     log "release packager tests"
     "${SCRIPT_DIR}/tests/package-release.sh"
 
+    log "build identity tests"
+    "${SCRIPT_DIR}/tests/build-identity.sh"
+
     log "end to end check contract tests"
     "${SCRIPT_DIR}/tests/end-to-end-check-contract.sh"
 

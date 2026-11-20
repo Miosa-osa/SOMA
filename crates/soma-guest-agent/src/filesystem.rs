@@ -30,7 +30,7 @@ use soma_guest::{FileFailure, FileOutcome, FileRequest, MAX_PATH_BYTES};
 /// The guest API level this agent speaks, answered at [`GUEST_API_PROBE`].
 ///
 /// Level 1 is the original file protocol. Level 2 adds stat, rename, and ranged operations.
-pub const GUEST_API_LEVEL: u8 = 2;
+pub const GUEST_API_LEVEL: u8 = soma_guest::GUEST_API_LEVEL;
 
 /// The virtual directory a host reads `<prefix><nonce>` under to learn the guest API level.
 ///

@@ -122,6 +122,21 @@ fn run() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    if soma_version::version_requested(std::env::args_os()) {
+        let protocols = [soma_version::Protocol::new(
+            "netd",
+            u32::from(soma_netd::PROTOCOL_VERSION),
+        )];
+        let speaks = soma_version::Speaks {
+            api: None,
+            protocols: &protocols,
+        };
+        print!(
+            "{}",
+            soma_version::report("soma-netd", &soma_version::build!(), &speaks)
+        );
+        return ExitCode::SUCCESS;
+    }
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {

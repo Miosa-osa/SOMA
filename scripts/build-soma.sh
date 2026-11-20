@@ -23,7 +23,7 @@ log() { printf '\n==> %s\n' "$1"; }
 
 build_cli() {
     log "building the soma command line"
-    cargo build --release -p soma-cli
+    ./scripts/build-identity.sh cargo build --release --locked -p soma-cli
 }
 
 build_agent() {

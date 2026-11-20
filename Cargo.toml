@@ -16,6 +16,7 @@ members = [
     "crates/soma-storage",
     "crates/soma-supervise",
     "crates/soma-template",
+    "crates/soma-version",
     "crates/soma-vmm",
 ]
 resolver = "3"
