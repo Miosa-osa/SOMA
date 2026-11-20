@@ -178,3 +178,6 @@ pub use config::LocalRuntimeConfig;
 pub use error::{LocalFailure, LocalFailureKind};
 pub use file_store::FileStateStore;
 pub use runtime::LocalRuntime;
+
+mod protocols;
+pub use protocols::PROTOCOLS;

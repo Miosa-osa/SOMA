@@ -60,6 +60,23 @@ fn run() -> i32 {
 }
 
 fn main() {
+    // The launcher passes one encoded descriptor manifest, never this word, so a version request
+    // can only come from an operator or the release packager.
+    if soma_version::version_requested(std::env::args_os()) {
+        let protocols = [soma_version::Protocol::new(
+            "vmm-control",
+            u32::from(soma_vmm::control::CONTROL_PROTOCOL_VERSION),
+        )];
+        let speaks = soma_version::Speaks {
+            api: None,
+            protocols: &protocols,
+        };
+        print!(
+            "{}",
+            soma_version::report("soma-vmm", &soma_version::build!(), &speaks)
+        );
+        return;
+    }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     std::process::exit(run());
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]

@@ -83,7 +83,8 @@ if [[ -e "$output_dir" ]]; then
     fail "client release output already exists: ${output_dir}"
 fi
 
-cargo build --release --locked --target "$release_target" -p soma-cli -p soma-mcp
+"$REPO_ROOT/scripts/build-identity.sh" \
+    cargo build --release --locked --target "$release_target" -p soma-cli -p soma-mcp
 binary_dir="${REPO_ROOT}/target/${release_target}/release"
 for binary in "$cli_binary" "$mcp_binary"; do
     if [[ ! -f "$binary_dir/$binary" ]]; then

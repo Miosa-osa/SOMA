@@ -122,6 +122,17 @@ impl SandboxFacade for LocalFacade {
         self.runtime.list_machines_reporting_unreadable()
     }
 
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        self.runtime.terminal_census()
+    }
+
+    fn release(
+        &mut self,
+        instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        self.runtime.release_machine(instance_id)
+    }
+
     fn stop(&mut self, request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
         let outcome = self.runtime.stop_machine(request)?;
         Ok(lifecycle(outcome.receipt()))

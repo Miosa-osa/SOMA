@@ -14,6 +14,9 @@ workspace = true
 name = "soma-vmm"
 path = "src/bin/soma-vmm/main.rs"
 
+[dependencies]
+soma-version = { path = "../soma-version", version = "=1.0.0-alpha.1" }
+
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 libc = "=0.2.190"
 soma = { path = "../soma", version = "=1.0.0-alpha.1" }
