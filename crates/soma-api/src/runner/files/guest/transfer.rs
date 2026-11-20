@@ -8,11 +8,7 @@
 
 use soma::{FileAnswer, FileKind, FileOperation, FileRefusal};
 
-<<<<<<< HEAD
 use super::{GuestFiles, Stop, ask, kind_of, staged::Staged, stat};
-=======
-use super::{GuestFiles, Stop, ask, kind_of, make_directory, remove, rename, set_mode, stat};
->>>>>>> origin/r3/soma-unified
 use crate::runner::files::path::GuestPath;
 
 /// The most one facade call moves.
@@ -152,7 +148,6 @@ fn replace(
     contents: &[u8],
     mode: u32,
 ) -> Result<(), Stop> {
-<<<<<<< HEAD
     let mut staged = Staged::begin(guest, path.clone())?;
     let published = staged
         .append(guest, contents)
@@ -165,23 +160,6 @@ fn replace(
 
 /// Writes `contents` from `start` in transfers, creating the file with the first one when asked.
 pub(super) fn write_ranges(
-=======
-    make_directory(guest, &path.parent())?;
-    let temporary = path.sibling(&temporary_name());
-    let published = write_ranges(guest, &temporary, 0, contents, true)
-        .and_then(|()| set_mode(guest, &temporary, mode))
-        .and_then(|()| rename(guest, &temporary, path));
-    if published.is_err() {
-        // Best effort: the sibling must not outlive the write, and its own removal failing
-        // changes nothing about why the write did.
-        let _removed = remove(guest, &temporary, false);
-    }
-    published
-}
-
-/// Writes `contents` from `start` in transfers, creating the file with the first one when asked.
-fn write_ranges(
->>>>>>> origin/r3/soma-unified
     guest: &mut dyn GuestFiles,
     path: &GuestPath,
     start: u64,
@@ -211,11 +189,7 @@ fn write_ranges(
 }
 
 /// One ranged read: the bytes and whether they reached the end of the file.
-<<<<<<< HEAD
 pub(crate) fn read_range(
-=======
-pub(super) fn read_range(
->>>>>>> origin/r3/soma-unified
     guest: &mut dyn GuestFiles,
     path: &GuestPath,
     offset: u64,
@@ -236,11 +210,7 @@ pub(super) fn read_range(
 }
 
 /// A name no caller chose and no two writes share, hidden as the platform's own staging files are.
-<<<<<<< HEAD
 pub(super) fn temporary_name() -> String {
-=======
-fn temporary_name() -> String {
->>>>>>> origin/r3/soma-unified
     let unique = uuid::Uuid::new_v4().simple().to_string();
     format!(".soma-write-{}", &unique[..16])
 }

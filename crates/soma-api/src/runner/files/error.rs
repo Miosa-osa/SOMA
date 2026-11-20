@@ -102,7 +102,6 @@ impl FileError {
         )
     }
 
-<<<<<<< HEAD
     /// A file larger than any route moves, in the platform's own words.
     pub(crate) fn exceeds(limit: &str) -> Self {
         Self::new(413, "FILE_TOO_LARGE", format!("file exceeds {limit} limit"))
@@ -122,8 +121,6 @@ impl FileError {
         )
     }
 
-=======
->>>>>>> origin/r3/soma-unified
     /// A platform route this runner does not serve.
     pub(crate) fn unserved(route: &str) -> Self {
         Self::new(

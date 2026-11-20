@@ -24,13 +24,10 @@ pub(crate) enum FileCall {
     Delete,
     /// `POST fs/chmod`: permission bits.
     Chmod,
-<<<<<<< HEAD
     /// `POST fs/upload`: a file from a `multipart/form-data` body, streamed into the guest.
     Upload,
     /// `GET fs/download`: a file's raw bytes, streamed out of the guest.
     Download,
-=======
->>>>>>> origin/r3/soma-unified
     /// A route of the platform's contract this runner does not serve, by its platform name.
     Unserved(&'static str),
 }
@@ -47,11 +44,8 @@ impl FileCall {
             Self::Rename => "rename",
             Self::Delete => "delete",
             Self::Chmod => "chmod",
-<<<<<<< HEAD
             Self::Upload => "upload",
             Self::Download => "download",
-=======
->>>>>>> origin/r3/soma-unified
             Self::Unserved(route) => route,
         }
     }
@@ -72,13 +66,8 @@ impl FileCall {
             ["mkdir"] if post => Self::MakeDirectory,
             ["rename"] if post => Self::Rename,
             ["chmod"] if post => Self::Chmod,
-<<<<<<< HEAD
             ["upload"] if post => Self::Upload,
             ["download"] if get => Self::Download,
-=======
-            ["upload"] if post => Self::Unserved("upload"),
-            ["download"] if get => Self::Unserved("download"),
->>>>>>> origin/r3/soma-unified
             ["write-batch" | "write-many"] if post => Self::Unserved("write-many"),
             ["copy"] if post => Self::Unserved("copy"),
             ["tree"] if get && files => Self::Unserved("tree"),
@@ -132,7 +121,6 @@ mod tests {
                 resolve(&Method::POST, prefix, &["chmod"]),
                 Some(FileCall::Chmod)
             );
-<<<<<<< HEAD
             assert_eq!(
                 resolve(&Method::POST, prefix, &["upload"]),
                 Some(FileCall::Upload)
@@ -141,8 +129,6 @@ mod tests {
                 resolve(&Method::GET, prefix, &["download"]),
                 Some(FileCall::Download)
             );
-=======
->>>>>>> origin/r3/soma-unified
         }
         assert_eq!(
             resolve(&Method::GET, "files", &["list"]),
