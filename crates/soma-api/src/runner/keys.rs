@@ -34,6 +34,9 @@ struct State {
     /// A revoke could not be applied: the table may still admit a revoked key, so creates are
     /// refused until a full snapshot has been applied again.
     resync_required: bool,
+    /// The live table was written since startup (a snapshot ended or a delta landed outside one),
+    /// so a key it lacks is one the control plane does not list, not one not heard of yet.
+    loaded: bool,
     /// Live sandbox counts per tenant. Kept outside the entries so that neither a snapshot nor
     /// a policy change forgets sandboxes that are running.
     counters: HashMap<String, Arc<AtomicI64>>,
@@ -139,6 +142,7 @@ impl KeyTable {
                     .ok_or(FeedViolation::UnopenedSnapshot)?;
                 state.live = staged;
                 state.resync_required = false;
+                state.loaded = true;
             }
             FeedEvent::KeyUpsert {
                 key_hash,
@@ -200,21 +204,23 @@ impl KeyTable {
     ///
     /// # Errors
     ///
-    /// Returns [`Refusal::Unauthorized`] for a missing, non-`msk_`, or unknown token, and
-    /// [`Refusal::Forbidden`] for a known key whose tenant may not use the runner.
+    /// Returns [`Refusal::Unauthorized`] for a missing, non-`msk_`, or unknown token,
+    /// [`Refusal::NotLoaded`] for a well-formed token before the feed has written the live table,
+    /// and [`Refusal::Forbidden`] for a known key whose tenant may not use the runner.
     pub fn admit(&self, authorization: Option<&str>) -> Result<Principal, Refusal> {
         let token = authorization
             .and_then(|value| value.strip_prefix("Bearer "))
             .filter(|token| token.starts_with("msk_"))
             .ok_or(Refusal::Unauthorized)?;
         let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let joined = self
-            .read()
-            .live
-            .keys
-            .get(&hash)
-            .cloned()
-            .ok_or(Refusal::Unauthorized)?;
+        let state = self.read();
+        let joined = state.live.keys.get(&hash).cloned();
+        let joined = joined.ok_or(if state.loaded {
+            Refusal::Unauthorized
+        } else {
+            Refusal::NotLoaded
+        })?;
+        drop(state);
         // A tenant the feed has published no policy for is refused, not assumed enabled: the
         // runner only ever serves tenants the control plane has positively turned on.
         let tenant = joined.tenant.clone().ok_or(Refusal::Forbidden)?;
@@ -275,8 +281,10 @@ impl State {
         Arc::clone(self.counters.entry(tenant_id.to_owned()).or_default())
     }
 
-    /// Where a data event lands: the snapshot being built, or the live table between snapshots.
+    /// Where a data event lands: the snapshot being built, or the live table between snapshots,
+    /// which a delta landing on it has then loaded.
     fn target(&mut self) -> &mut Entries {
+        self.loaded |= self.staging.is_none();
         self.staging.as_mut().unwrap_or(&mut self.live)
     }
 }
