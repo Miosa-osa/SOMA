@@ -8,9 +8,11 @@
 
 mod code;
 mod reply;
+mod version;
 
 pub use code::error_code;
 pub use reply::Reply;
+pub use version::PROTOCOL_VERSION;
 
 use soma_guest::ActivationReceipt;
 

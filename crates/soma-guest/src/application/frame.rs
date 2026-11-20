@@ -3,7 +3,7 @@ use crate::{Error, MAX_RECORD_PAYLOAD};
 use super::{HEADER_SIZE, OperationId};
 
 const MAGIC: &[u8; 4] = b"SOMA";
-const VERSION: u16 = 1;
+const VERSION: u16 = crate::APPLICATION_PROTOCOL_VERSION;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 #[repr(u8)]
