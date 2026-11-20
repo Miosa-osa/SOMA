@@ -6,8 +6,11 @@
 //! write that is several guest operations is one unit of work to the runner, which is what keeps
 //! its temporary sibling from outliving it.
 
+use soma::InstanceId;
+
 use crate::runner::{
     files::{self, Answer, FileCall, FileError, OnFacade, Params, ParamsRefused, Plan, Stop},
+    ids::SandboxId,
     keys::Principal,
     public_wire::PlatformError,
 };
@@ -42,6 +45,26 @@ impl Runner {
         }
     }
 
+    /// The most bytes a body handed on as it arrives may carry, or `None` for a request whose
+    /// body is read whole first.
+    ///
+    /// Only an upload from an admitted key is streamed, for the reason [`Self::body_limit`]
+    /// gives: an unadmitted one is read under the ordinary bound and refused unauthorized.
+    #[must_use]
+    pub fn streamed_limit(
+        &self,
+        method: &http::Method,
+        path: &str,
+        authorization: Option<&str>,
+    ) -> Option<u64> {
+        match route(method, path) {
+            Route::Files(_, FileCall::Upload) if self.keys.admit(authorization).is_ok() => {
+                Some(files::MAX_UPLOAD_BODY_BYTES)
+            }
+            _ => None,
+        }
+    }
+
     pub(super) async fn files(
         &self,
         principal: &Principal,
@@ -67,6 +90,26 @@ impl Runner {
         let Some(instance_id) = id.instance_id() else {
             return RunnerResponse::platform(&PlatformError::sandbox_not_found());
         };
+        let held = Hold {
+            id: &id,
+            tenant_id: &principal.key.tenant_id,
+            instance_id,
+        };
+        match call {
+            FileCall::Download => self.download(held, request, timing).await,
+            FileCall::Upload => self.upload(held, request, timing).await,
+            _ => self.planned(call, held.instance_id, request, timing).await,
+        }
+    }
+
+    /// A call whose whole body is in hand, performed on one facade lease.
+    async fn planned(
+        &self,
+        call: FileCall,
+        instance_id: InstanceId,
+        request: &RunnerRequest,
+        timing: &mut Timing,
+    ) -> RunnerResponse {
         let plan = match plan(call, request) {
             Ok(plan) => plan,
             Err(error) => return refused(&error),
@@ -100,13 +143,27 @@ fn plan(call: FileCall, request: &RunnerRequest) -> Result<Plan, FileError> {
     Plan::of(call, &params)
 }
 
+/// The sandbox a held file call reaches.
+pub(super) struct Hold<'a> {
+    pub(super) id: &'a SandboxId,
+    pub(super) tenant_id: &'a str,
+    pub(super) instance_id: InstanceId,
+}
+
 fn answer(call: FileCall, outcome: Result<Answer, Stop>) -> RunnerResponse {
     match outcome {
         Ok(Answer { status, body }) => RunnerResponse::new(status, body),
-        Err(Stop::Refused(refusal)) => refused(&files::refusal(call, refusal)),
+        Err(stop) => stopped(call, stop),
+    }
+}
+
+/// The answer for a call that stopped before it finished.
+pub(super) fn stopped(call: FileCall, stop: Stop) -> RunnerResponse {
+    match stop {
+        Stop::Refused(refusal) => refused(&files::refusal(call, refusal)),
         // The sandbox itself could not be reached: the same answer every per-sandbox route gives.
-        Err(Stop::Failed(failure)) => RunnerResponse::platform(&outcome::failure_error(&failure)),
-        Err(Stop::Unexpected) => {
+        Stop::Failed(failure) => RunnerResponse::platform(&outcome::failure_error(&failure)),
+        Stop::Unexpected => {
             eprintln!(
                 "soma-api: runner file call {} got an answer it never gets",
                 call.name()
@@ -116,6 +173,6 @@ fn answer(call: FileCall, outcome: Result<Answer, Stop>) -> RunnerResponse {
     }
 }
 
-fn refused(error: &FileError) -> RunnerResponse {
+pub(super) fn refused(error: &FileError) -> RunnerResponse {
     RunnerResponse::new(error.status, error.body())
 }

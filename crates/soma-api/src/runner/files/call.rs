@@ -24,6 +24,10 @@ pub(crate) enum FileCall {
     Delete,
     /// `POST fs/chmod`: permission bits.
     Chmod,
+    /// `POST fs/upload`: a file from a `multipart/form-data` body, streamed into the guest.
+    Upload,
+    /// `GET fs/download`: a file's raw bytes, streamed out of the guest.
+    Download,
     /// A route of the platform's contract this runner does not serve, by its platform name.
     Unserved(&'static str),
 }
@@ -40,6 +44,8 @@ impl FileCall {
             Self::Rename => "rename",
             Self::Delete => "delete",
             Self::Chmod => "chmod",
+            Self::Upload => "upload",
+            Self::Download => "download",
             Self::Unserved(route) => route,
         }
     }
@@ -60,8 +66,8 @@ impl FileCall {
             ["mkdir"] if post => Self::MakeDirectory,
             ["rename"] if post => Self::Rename,
             ["chmod"] if post => Self::Chmod,
-            ["upload"] if post => Self::Unserved("upload"),
-            ["download"] if get => Self::Unserved("download"),
+            ["upload"] if post => Self::Upload,
+            ["download"] if get => Self::Download,
             ["write-batch" | "write-many"] if post => Self::Unserved("write-many"),
             ["copy"] if post => Self::Unserved("copy"),
             ["tree"] if get && files => Self::Unserved("tree"),
@@ -114,6 +120,14 @@ mod tests {
             assert_eq!(
                 resolve(&Method::POST, prefix, &["chmod"]),
                 Some(FileCall::Chmod)
+            );
+            assert_eq!(
+                resolve(&Method::POST, prefix, &["upload"]),
+                Some(FileCall::Upload)
+            );
+            assert_eq!(
+                resolve(&Method::GET, prefix, &["download"]),
+                Some(FileCall::Download)
             );
         }
         assert_eq!(

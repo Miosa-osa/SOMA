@@ -183,3 +183,16 @@ const fn kind_name(kind: FileKind) -> &'static str {
         FileKind::File | FileKind::Other => "file",
     }
 }
+
+/// The `Content-Disposition` a download is sent with, as the platform's `send_raw/3` builds it:
+/// the file's own name, keeping only ASCII letters, digits, `_`, `.`, `-`, and spaces, at most
+/// 255 of them, and `download` when nothing is left.
+pub(crate) fn attachment(name: &str) -> String {
+    let kept: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-' | ' '))
+        .take(255)
+        .collect();
+    let name = if kept.is_empty() { "download" } else { &kept };
+    format!("attachment; filename=\"{name}\"")
+}

@@ -15,10 +15,12 @@ pub(crate) mod call;
 pub(crate) mod error;
 pub(crate) mod guest;
 pub(crate) mod mode;
+pub(crate) mod multipart;
 pub(crate) mod params;
 pub(crate) mod path;
 pub(crate) mod plan;
 pub(crate) mod run;
+pub(crate) mod upload;
 
 #[cfg(test)]
 pub(crate) mod tests;
@@ -29,6 +31,7 @@ pub(crate) use guest::{OnFacade, Stop};
 pub(crate) use params::{Params, ParamsRefused};
 pub(crate) use plan::{MAX_JSON_FILE_BYTES, Plan};
 pub(crate) use run::{Answer, refusal};
+pub(crate) use upload::MAX_UPLOAD_BODY_BYTES;
 
 /// The largest body a JSON write may carry: the largest file it moves, as base64, and room for
 /// the path and the JSON around it.

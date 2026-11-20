@@ -3,12 +3,15 @@ use std::{io, net::SocketAddr, sync::Arc, time::Instant};
 use bytes::{Buf, Bytes, BytesMut};
 
 use crate::runner::{
+    body::{self, StreamedBody},
     limits::{
         BODY_READ_TIMEOUT, IDLE_TIMEOUT, MAX_HEADER_BYTES, MAX_STREAMS_PER_CONNECTION, PerIp,
     },
     service::{Runner, RunnerRequest, RunnerResponse},
     tls::CertificateStore,
-    transport::{apply_headers, authorization, payload_too_large, request_timeout},
+    transport::{
+        apply_headers, authorization, journaled::cut_short, payload_too_large, request_timeout,
+    },
 };
 
 /// Binds the HTTP/3 endpoint on the public address.
@@ -66,20 +69,34 @@ async fn serve_h3_request(
     runner: &Runner,
 ) -> Result<(), h3::error::StreamError> {
     let received = Instant::now();
-    let (request, mut stream) = resolver.resolve_request().await?;
+    let (request, stream) = resolver.resolve_request().await?;
+    let (mut stream, mut incoming) = stream.split();
     let authorization = authorization(request.headers());
-    let limit = runner.body_limit(
+    let (method, path, key) = (
         request.method(),
         request.uri().path(),
         authorization.as_deref(),
     );
-    let body = match tokio::time::timeout(BODY_READ_TIMEOUT, read_body(&mut stream, limit)).await {
-        Ok(Ok(body)) => Some(body),
-        Ok(Err(error)) => return Err(error),
-        Err(_) => None,
+    // An upload is handed on as it arrives; every other body is read whole first.
+    let read = if let Some(limit) = runner.streamed_limit(method, path, key) {
+        let (sender, streamed) = StreamedBody::channel();
+        tokio::spawn(body::pump_h3(incoming, sender, limit));
+        Some(Ok((Bytes::new(), Some(streamed))))
+    } else {
+        let limit = runner.body_limit(method, path, key);
+        match tokio::time::timeout(BODY_READ_TIMEOUT, read_body(&mut incoming, limit)).await {
+            Ok(Ok(body)) => Some(body.map(|body| (body, None))),
+            Ok(Err(error)) => return Err(error),
+            Err(_) => None,
+        }
     };
-    let mut response = match body {
-        Some(Ok(body)) => {
+    let content_type = request
+        .headers()
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
+    let mut response = match read {
+        Some(Ok((body, streamed))) => {
             let (parts, ()) = request.into_parts();
             runner
                 .handle(RunnerRequest {
@@ -92,6 +109,8 @@ async fn serve_h3_request(
                     forwarded: false,
                     // HTTP/3 has no `Upgrade`; a tunnel needs HTTP/1.1.
                     upgrade: false,
+                    content_type,
+                    streamed,
                 })
                 .await
         }
@@ -105,6 +124,7 @@ async fn serve_h3_request(
     let entry = response.journal.take();
     let body = Bytes::from(std::mem::take(&mut response.body));
     let mut rest = response.stream.take();
+    let complete = response.complete.take();
     let sent = async {
         stream.send_response(head).await?;
         if !body.is_empty() || rest.is_none() {
@@ -114,6 +134,11 @@ async fn serve_h3_request(
             while let Some(chunk) = rest.recv().await {
                 stream.send_data(chunk).await?;
             }
+        }
+        // A stream its producer cut short is reset rather than finished, as on TCP.
+        if cut_short(complete.as_ref()) {
+            stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+            return Ok(());
         }
         stream.finish().await
     }
@@ -128,7 +153,7 @@ async fn serve_h3_request(
 
 /// Reads a request body up to the cap; an oversized body is answered, not read to the end.
 async fn read_body(
-    stream: &mut h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
+    stream: &mut h3::server::RequestStream<h3_quinn::RecvStream, Bytes>,
     limit: usize,
 ) -> Result<Result<Bytes, RunnerResponse>, h3::error::StreamError> {
     let mut body = BytesMut::new();
