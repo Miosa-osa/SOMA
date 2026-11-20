@@ -48,4 +48,20 @@ impl Runner {
             }
         }
     }
+
+    /// Forgets the network record of every sandbox this runner no longer holds at all.
+    ///
+    /// The record is made at create, before the launch. A destroy and a failed waiting create
+    /// forget it on their way out, but a launch that fails after an early answer leaves a
+    /// tombstone that the reaper's sweep drops later, and a create abandoned before its launch
+    /// drops its record outright; neither passes through anything that forgets. Run after the
+    /// sweep, this keeps the window table no larger than the sandbox table. The two tables are
+    /// read one after the other, never one inside the other's lock.
+    pub(in crate::runner::service) fn forget_gone_windows(&self) {
+        for id in self.windows.known() {
+            if !self.sandboxes.holds(&id) {
+                self.windows.forget(&id);
+            }
+        }
+    }
 }

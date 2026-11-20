@@ -153,6 +153,12 @@ impl Windows {
         self.lock().remove(id);
     }
 
+    /// Every sandbox the runner holds a record for, windowed or not.
+    #[must_use]
+    pub fn known(&self) -> Vec<SandboxId> {
+        self.lock().keys().cloned().collect()
+    }
+
     /// The sandboxes whose window has run out (or never finished opening), to be closed.
     #[must_use]
     pub fn expired(&self, now: Instant) -> Vec<SandboxId> {

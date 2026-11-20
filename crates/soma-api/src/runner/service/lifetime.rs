@@ -157,6 +157,8 @@ impl Runner {
     pub async fn reap(&self) {
         let now = Instant::now();
         self.sandboxes.sweep(now);
+        // A sandbox whose record is gone takes its network record with it.
+        self.forget_gone_windows();
         // A window that has run out is closed here, whether or not its caller is still around.
         self.close_expired_windows().await;
         let keys = &self.keys;
