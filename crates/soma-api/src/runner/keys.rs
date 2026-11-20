@@ -217,7 +217,12 @@ impl KeyTable {
         if !state.loaded {
             return Err(Refusal::NotLoaded);
         }
-        let joined = state.live.keys.get(&hash).cloned().ok_or(Refusal::Unauthorized)?;
+        let joined = state
+            .live
+            .keys
+            .get(&hash)
+            .cloned()
+            .ok_or(Refusal::Unauthorized)?;
         drop(state);
         // A tenant the feed has published no policy for is refused, not assumed enabled: the
         // runner only ever serves tenants the control plane has positively turned on.

@@ -247,5 +247,8 @@ async fn a_forward_to_a_runner_with_no_keys_yet_is_told_to_retry_not_refused() {
 
     assert_eq!(answered.status, 503, "{}", answered.body);
     assert_eq!(answered.body, serde_json::json!({"error": "feed_stale"}));
-    assert_eq!(answered.headers["soma-runner-url"], "https://b.run-us.miosa.ai");
+    assert_eq!(
+        answered.headers["soma-runner-url"],
+        "https://b.run-us.miosa.ai"
+    );
 }
