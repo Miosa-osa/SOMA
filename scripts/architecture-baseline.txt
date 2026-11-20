@@ -26,7 +26,7 @@
 ./crates/soma-local/src/backend/kvm/resize/memory.rs 598
 ./crates/soma-netd/src/bundle.rs 326
 ./crates/soma-netd/src/daemon.rs 624
-./crates/soma-netd/src/firewall/tests.rs 320
+./crates/soma-netd/src/firewall/tests.rs 310
 ./crates/soma-netd/src/ipam.rs 327
 ./crates/soma-netd/src/ledger.rs 323
 ./crates/soma-netd/src/reconcile.rs 482
