@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""cua-call: one request to the running cua-driver daemon over its Unix socket, as JSON.
+
+    cua-call <tool> [json-arguments]    {"method":"call","name":<tool>,"args":<json>}
+    cua-call --list                     {"method":"list"}
+    cua-call --describe <tool>          {"method":"describe","name":<tool>}
+
+It prints the daemon's one-line answer, {"ok":true,"result":...} or {"ok":false,"error":...}, and
+exits 0 only when "ok" is true. The driver's command line prints text meant for people; this
+prints the daemon's own JSON, so a caller can parse it. The daemon answers only a peer with its own
+uid, so run as root this re-runs itself as `ubuntu` first.
+"""
+
+import json, os, socket, sys
+
+USER = "ubuntu"
+SOCKET = "/home/ubuntu/.cache/cua-driver/cua-driver.sock"
+
+
+def as_desktop_user():
+    if os.geteuid() == 0:
+        os.execvp("runuser", ["runuser", "-u", USER, "--", sys.executable, os.path.abspath(__file__), *sys.argv[1:]])
+
+
+def request(arguments):
+    if not arguments:
+        raise SystemExit(__doc__)
+    if arguments[0] == "--list":
+        return {"method": "list"}
+    if arguments[0] == "--describe" and len(arguments) == 2:
+        return {"method": "describe", "name": arguments[1]}
+    args = json.loads(arguments[1]) if len(arguments) > 1 else {}
+    return {"method": "call", "name": arguments[0], "args": args}
+
+
+def main():
+    as_desktop_user()
+    message = json.dumps(request(sys.argv[1:])).encode() + b"\n"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+        stream.settimeout(120)
+        stream.connect(SOCKET)
+        stream.sendall(message)
+        answer = b""
+        while not answer.endswith(b"\n"):
+            chunk = stream.recv(1 << 20)
+            if not chunk:
+                break
+            answer += chunk
+    if not answer:
+        raise SystemExit("cua-call: the daemon closed the connection without an answer")
+    sys.stdout.write(answer.decode())
+    return 0 if json.loads(answer).get("ok") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

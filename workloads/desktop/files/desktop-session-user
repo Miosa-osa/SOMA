@@ -1,0 +1,86 @@
+#!/bin/bash
+#
+# The desktop session itself, run as `ubuntu` by desktop-session. Each step waits for the one before:
+#
+#   1. the session D-Bus at $XDG_RUNTIME_DIR/bus, where a login session would have it, so any later
+#      process (cua-driver, a command run through exec) finds it without being told;
+#   2. Xkasmvnc on :0, the X server and the VNC server in one process, with the flags MIOSA's
+#      Firecracker desktop uses (RFB over WebSocket on 6080, authentication left to the platform);
+#   3. the accessibility bus, which cua-driver reads the AT-SPI tree from;
+#   4. Xfce, until the panel and the desktop background are viewable;
+#   5. cua-driver serve, as this user, on its owner-only Unix socket.
+#
+# Each milestone is appended to $DESKTOP_STATE/milestones as "<name> <unix ns>". A step that does
+# not come up writes failed_<name>, which ends the launcher's wait at once.
+
+set -u
+
+STATE="${DESKTOP_STATE:?set by desktop-session}"
+mark() { printf '%s %s\n' "$1" "$(date +%s%N)" >>"$STATE/milestones"; }
+
+# wait_for <milestone> <tenths of a second> <command...>
+wait_for() {
+    local name="$1" tenths="$2" i
+    shift 2
+    for ((i = 0; i < tenths; i++)); do
+        if "$@" >/dev/null 2>&1; then
+            mark "$name"
+            return 0
+        fi
+        sleep 0.1
+    done
+    printf 'desktop-session-user: %s did not come up\n' "$name"
+    mark "failed_$name"
+    exit 1
+}
+
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+viewable() {
+    local name
+    for name in "$@"; do
+        xwininfo -display :0 -name "$name" 2>/dev/null | grep -q 'Map State: IsViewable' || return 1
+    done
+}
+
+trap 'kill 0' TERM INT
+
+mark session_start
+dbus-daemon --session --address="$DBUS_SESSION_BUS_ADDRESS" --nofork --nopidfile &
+wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus"
+
+# -publicIP: without it KasmVNC 1.4 asks public STUN servers for the machine's address before it
+# opens any port, and exits without a word when none answers, so a guest with no network would
+# never get a desktop. The address only feeds KasmVNC's optional UDP transport, which no viewer of
+# the platform uses; naming loopback keeps the guest from calling out.
+# -httpd: 6080 also serves KasmVNC's own web client, so a browser pointed at the port is a viewer.
+Xkasmvnc :0 \
+    -publicIP 127.0.0.1 \
+    -httpd /usr/share/kasmvnc/www \
+    -geometry 1920x1080 -depth 24 \
+    -websocketPort 6080 -SecurityTypes None -disableBasicAuth -interface 0.0.0.0 \
+    -AlwaysShared -AcceptSetDesktopSize=0 -AcceptKeyEvents -AcceptPointerEvents \
+    -SendCutText -AcceptCutText -PreferBandwidth -DynamicQualityMin=6 -DynamicQualityMax=9 \
+    -FrameRate=45 -BlacklistThreshold=0 -FreeKeyMappings &
+wait_for x_socket 150 test -S /tmp/.X11-unix/X0
+wait_for viewer_port 150 port_open 6080
+
+# Accessibility on for every toolkit the desktop may run: GTK 3 loads its AT-SPI bridge whenever the
+# accessibility bus answers; Qt and older GNOME libraries are told explicitly.
+export QT_ACCESSIBILITY=1 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 GNOME_ACCESSIBILITY=1
+gsettings set org.gnome.desktop.interface toolkit-accessibility true 2>/dev/null || true
+/usr/libexec/at-spi-bus-launcher --launch-immediately &
+wait_for a11y_bus 50 dbus-send --session --print-reply --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress
+
+startxfce4 &
+wait_for window_manager 200 pgrep -u "$(id -u)" -x xfwm4
+wait_for desktop_mapped 300 viewable xfce4-panel Desktop
+xset s off s noblank -dpms 2>/dev/null || true
+
+CUA_DRIVER_RS_TELEMETRY_ENABLED=0 CUA_DRIVER_RS_UPDATE_CHECK=0 \
+    /opt/cua-driver/cua-driver serve --permission-mode standard &
+wait_for driver_socket 150 test -S "$HOME/.cache/cua-driver/cua-driver.sock"
+mark session_ready
+printf 'desktop-session-user: ready on :0, viewer on 6080\n'
+
+# The session lives as long as its processes do.
+wait

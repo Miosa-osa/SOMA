@@ -1,0 +1,93 @@
+#!/bin/bash
+#
+# desktop-session: starts the desktop session of a SOMA desktop machine once, makes it survive the
+# end of the command that started it, and returns when it answers.
+#
+# A SOMA guest has no init system and its Generation snapshot holds no running process, so the
+# desktop starts after the machine is Ready, through one exec as root:
+#
+#   desktop-session            start (or report the running session) and print its milestones
+#
+# The guest agent kills every process when a command ends, except what /run/soma/survivors names.
+# A desktop cannot be named by process id, group or session: a terminal's shell and D-Bus activated
+# services start sessions of their own. So the session is started inside one cgroup, /desktop,
+# and the survivor line names the cgroup; everything born inside it is spared. The launcher joins
+# that cgroup only long enough to start the session and then leaves it, so its own exit is not
+# mistaken for part of the desktop.
+#
+# The output is one JSON line: the state, and every milestone the session reached, in
+# milliseconds since this launcher started (guest clock).
+
+set -euo pipefail
+
+USER_NAME=ubuntu
+STATE=/run/desktop
+CGROUP_ROOT=/sys/fs/cgroup
+CGROUP=desktop
+SURVIVORS=/run/soma/survivors
+SESSION=/usr/local/lib/desktop/desktop-session-user
+READY_TENTHS=600
+
+die() { printf 'desktop-session: %s\n' "$1" >&2; exit 1; }
+
+report() {
+    python3 - "$1" "$STATE" <<'PY'
+import json, sys
+state, directory = sys.argv[1], sys.argv[2]
+start = int(open(f"{directory}/start").read())
+milestones = {}
+for line in open(f"{directory}/milestones"):
+    name, stamp = line.split()
+    milestones[name] = round((int(stamp) - start) / 1e6, 1)
+print(json.dumps({"state": state, "session_ms": milestones.get("session_ready"), "milestones": milestones}))
+PY
+}
+
+[[ "$(id -u)" == 0 ]] || die "run as root (it is run through exec)"
+if [[ -S /tmp/.X11-unix/X0 && -f "$STATE/milestones" ]] && grep -q '^session_ready ' "$STATE/milestones"; then
+    report running
+    exit 0
+fi
+
+uid="$(id -u "$USER_NAME")"
+gid="$(id -g "$USER_NAME")"
+run="/run/user/$uid"
+install -d -m 0755 "$STATE"
+date +%s%N >"$STATE/start"
+install -m 0644 -o "$uid" -g "$gid" /dev/null "$STATE/milestones"
+install -d -m 0700 -o "$uid" -g "$gid" "$run"
+install -d -m 1777 /tmp/.X11-unix
+mountpoint -q /dev/shm || { mkdir -p /dev/shm; mount -t tmpfs -o mode=1777,size=512m tmpfs /dev/shm; }
+# The guest agent writes a fresh /etc/machine-id for every Instance, and the image links D-Bus's
+# copy to it; a guest whose agent wrote none gets one here rather than a shared one.
+[[ -s /etc/machine-id ]] || dbus-uuidgen >/etc/machine-id
+
+if ! mountpoint -q "$CGROUP_ROOT"; then
+    mount -t cgroup2 -o nosuid,nodev,noexec cgroup2 "$CGROUP_ROOT" ||
+        die "cgroup v2 is not available, so the desktop cannot survive the end of this command"
+fi
+mkdir -p "$CGROUP_ROOT/$CGROUP" "$(dirname "$SURVIVORS")"
+# Named before anything starts, so no process of the session can outrun the declaration.
+grep -qx "cgroup:/$CGROUP" "$SURVIVORS" 2>/dev/null || printf 'cgroup:/%s\n' "$CGROUP" >>"$SURVIVORS"
+printf '%s\n' "$$" >"$CGROUP_ROOT/$CGROUP/cgroup.procs"
+runuser -u "$USER_NAME" -- env -i HOME="/home/$USER_NAME" USER="$USER_NAME" LOGNAME="$USER_NAME" \
+    PATH=/usr/local/bin:/usr/bin:/bin LANG=C.UTF-8 DISPLAY=:0 XDG_RUNTIME_DIR="$run" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$run/bus" DESKTOP_STATE="$STATE" \
+    setsid "$SESSION" >"$STATE/session.log" 2>&1 </dev/null &
+printf '%s\n' "$$" >"$CGROUP_ROOT/cgroup.procs"
+
+for ((i = 0; i < READY_TENTHS; i++)); do
+    if grep -q '^session_ready ' "$STATE/milestones"; then
+        report ready
+        exit 0
+    fi
+    if grep -q '^failed_' "$STATE/milestones"; then
+        report failed
+        tail -40 "$STATE/session.log" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
+report timeout
+tail -40 "$STATE/session.log" >&2
+exit 1

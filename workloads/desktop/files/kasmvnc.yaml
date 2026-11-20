@@ -1,0 +1,24 @@
+desktop:
+  resolution:
+    width: 1920
+    height: 1080
+  allow_resize: true
+network:
+  # Plain WebSocket on 6080: TLS and authentication belong to whatever reaches the guest port
+  # (the platform's relay, through the SOMA tunnel), not to the guest.
+  protocol: http
+  websocket_port: 6080
+  ssl:
+    require_ssl: false
+    # The packaged defaults point at the snakeoil certificate, whose key the desktop user cannot
+    # read; with a certificate path set, 6080 turns into a TLS port that closes every connection.
+    # Empty paths keep it plain.
+    pem_certificate: ""
+    pem_key: ""
+runtime_configuration:
+  allow_client_to_override_kasm_server_settings: false
+encoding:
+  max_frame_rate: 30
+  rect_encoding_mode:
+    min_quality: 5
+    max_quality: 9

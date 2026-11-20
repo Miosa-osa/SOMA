@@ -1,0 +1,17 @@
+#!/bin/sh
+#
+# cua: runs the pinned cua-driver's own command line as `ubuntu`, with the desktop session's
+# environment and with telemetry and the update check off. The driver must run as the desktop
+# user: its socket answers only a peer with its own uid, and AT-SPI lives on that user's bus.
+#
+#   cua doctor        cua list-tools        cua describe click
+set -eu
+ENVIRONMENT="HOME=/home/ubuntu USER=ubuntu PATH=/usr/bin:/bin LANG=C.UTF-8 DISPLAY=:0 \
+XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+CUA_DRIVER_RS_TELEMETRY_ENABLED=0 CUA_DRIVER_RS_UPDATE_CHECK=0"
+if [ "$(id -un)" = ubuntu ]; then
+    # shellcheck disable=SC2086
+    exec env -i $ENVIRONMENT /opt/cua-driver/cua-driver "$@"
+fi
+# shellcheck disable=SC2086
+exec runuser -u ubuntu -- env -i $ENVIRONMENT /opt/cua-driver/cua-driver "$@"
