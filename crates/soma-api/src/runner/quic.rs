@@ -6,7 +6,7 @@ use crate::runner::{
     limits::{
         BODY_READ_TIMEOUT, IDLE_TIMEOUT, MAX_HEADER_BYTES, MAX_STREAMS_PER_CONNECTION, PerIp,
     },
-    service::{MAX_BODY_BYTES, Runner, RunnerRequest, RunnerResponse},
+    service::{Runner, RunnerRequest, RunnerResponse},
     tls::CertificateStore,
     transport::{apply_headers, authorization, payload_too_large, request_timeout},
 };
@@ -67,7 +67,13 @@ async fn serve_h3_request(
 ) -> Result<(), h3::error::StreamError> {
     let received = Instant::now();
     let (request, mut stream) = resolver.resolve_request().await?;
-    let body = match tokio::time::timeout(BODY_READ_TIMEOUT, read_body(&mut stream)).await {
+    let authorization = authorization(request.headers());
+    let limit = runner.body_limit(
+        request.method(),
+        request.uri().path(),
+        authorization.as_deref(),
+    );
+    let body = match tokio::time::timeout(BODY_READ_TIMEOUT, read_body(&mut stream, limit)).await {
         Ok(Ok(body)) => Some(body),
         Ok(Err(error)) => return Err(error),
         Err(_) => None,
@@ -79,7 +85,8 @@ async fn serve_h3_request(
                 .handle(RunnerRequest {
                     method: parts.method,
                     path: parts.uri.path().to_owned(),
-                    authorization: authorization(&parts.headers),
+                    query: parts.uri.query().map(str::to_owned),
+                    authorization,
                     body,
                     received,
                     forwarded: false,
@@ -122,10 +129,11 @@ async fn serve_h3_request(
 /// Reads a request body up to the cap; an oversized body is answered, not read to the end.
 async fn read_body(
     stream: &mut h3::server::RequestStream<h3_quinn::BidiStream<Bytes>, Bytes>,
+    limit: usize,
 ) -> Result<Result<Bytes, RunnerResponse>, h3::error::StreamError> {
     let mut body = BytesMut::new();
     while let Some(mut chunk) = stream.recv_data().await? {
-        if body.len() + chunk.remaining() > MAX_BODY_BYTES {
+        if body.len() + chunk.remaining() > limit {
             return Ok(Err(payload_too_large()));
         }
         while chunk.has_remaining() {

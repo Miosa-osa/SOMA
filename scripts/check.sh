@@ -60,6 +60,9 @@ check_repository_contract() {
     log "build identity tests"
     "${SCRIPT_DIR}/tests/build-identity.sh"
 
+    log "set-version tests"
+    "${SCRIPT_DIR}/tests/set-version.sh"
+
     log "end to end check contract tests"
     "${SCRIPT_DIR}/tests/end-to-end-check-contract.sh"
 
@@ -206,7 +209,7 @@ usage: scripts/check.sh [all|portable|linux|security|architecture|release|kvm]
   linux         Run Ubuntu x86_64 format, lint, test, and build checks.
   security      Run dependency, workflow, spelling, and secret checks.
   architecture  Run source-size, dash, workflow, evidence, and shell checks.
-  release       Validate, package, and checksum SOMA_RELEASE_TAG.
+  release       Validate, then build, assemble, and verify the Linux release of SOMA_RELEASE_TAG.
   kvm           Run the real KVM smoke test after strict host detection.
 EOF
 }

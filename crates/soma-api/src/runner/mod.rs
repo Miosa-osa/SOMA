@@ -15,6 +15,7 @@ pub mod config;
 pub mod control_plane;
 pub mod feed;
 pub mod feed_client;
+pub(crate) mod files;
 pub mod idle;
 pub mod ids;
 pub mod journal;
