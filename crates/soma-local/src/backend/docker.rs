@@ -13,8 +13,8 @@ use soma::{BackendFailure, BackendFailureKind, BackendKind};
 
 use super::{LocalFailure, clock::OperationClocks};
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(crate) use network::network_mode;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 pub(super) use probe::is_available;
 pub(super) use probe::probe;
 
