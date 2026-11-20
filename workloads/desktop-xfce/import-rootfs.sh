@@ -5,8 +5,15 @@
 # stage builds on.
 #
 # The file is attached read only and without journal replay, so the source image is never written.
-# Ownership, modes, extended attributes and file capabilities are carried by tar; the pseudo
-# filesystems a booted system mounts (/proc, /sys, /dev, /run) are empty in an image and stay empty.
+#
+# The archive is written in GNU format with ownership and modes only. A SOMA Generation carries no
+# extended attributes: its layer normalizer accepts no PAX record but path and linkpath, and GNU
+# tar's POSIX format (which --xattrs selects) writes atime and ctime records for every entry, so
+# such a layer is refused as Unsupported. File capabilities would therefore be lost, so the import
+# refuses a root filesystem that has any rather than dropping them unseen.
+#
+# What a running system leaves in /tmp, /run, /var/tmp, /dev, /proc and /sys is left out: the guest
+# agent gives every Instance fresh ones, and build leftovers there would only enlarge the lower.
 #
 # Usage (as root on a Linux host with Docker):
 #   workloads/desktop-xfce/import-rootfs.sh <rootfs.ext4> <image-tag>
@@ -41,7 +48,14 @@ MOUNT_POINT="$(mktemp -d "${TMPDIR:-/tmp}/desktop-rootfs.XXXXXXXX")"
 mount -o ro,loop,noload "$SOURCE" "$MOUNT_POINT"
 [[ -x "$MOUNT_POINT/bin/sh" || -L "$MOUNT_POINT/bin/sh" ]] || die "$SOURCE holds no /bin/sh; is it a root filesystem?"
 
+if command -v getcap >/dev/null; then
+    capabilities="$(getcap -r "$MOUNT_POINT" 2>/dev/null || true)"
+    [[ -z "$capabilities" ]] || die "files with capabilities, which a Generation cannot carry: $capabilities"
+fi
+
 printf '==> importing %s (%s used) as %s\n' "$SOURCE" "$(df -h --output=used "$MOUNT_POINT" | tail -1 | tr -d ' ')" "$TAG"
-tar --numeric-owner --xattrs --xattrs-include='*' --acls -C "$MOUNT_POINT" -cf - . \
-    | docker import - "$TAG" >/dev/null
+tar --format=gnu --numeric-owner -C "$MOUNT_POINT" \
+    --exclude='./tmp/*' --exclude='./run/*' --exclude='./var/tmp/*' \
+    --exclude='./dev/*' --exclude='./proc/*' --exclude='./sys/*' \
+    -cf - . | docker import - "$TAG" >/dev/null
 docker image inspect --format '{{.Id}} {{.Size}}' "$TAG"
