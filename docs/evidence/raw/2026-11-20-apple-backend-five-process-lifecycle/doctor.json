@@ -1,0 +1,1 @@
+{"schema":"soma.cli.v1","command":"doctor","status":"ok","result":{"backend":"macos","status":"probe_passed","supported_target":true,"runtime_ready":true,"production_ready":false,"runtime_version":"1.3.0","reason":"backend_probe_passed"},"error":null,"receipt":null}

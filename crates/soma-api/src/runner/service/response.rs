@@ -31,7 +31,8 @@ impl RunnerResponse {
         Self::refusal(429, "runtime_busy").header("retry-after", "0".to_owned())
     }
 
-    /// `503 feed_stale`: this runner's key table is too old to admit a create.
+    /// `503 feed_stale`: this runner's key table is too old to admit a create, or no snapshot has
+    /// filled it yet, so no call can be judged.
     pub(super) fn feed_stale() -> Self {
         Self::refusal(503, "feed_stale").header("retry-after", "0".to_owned())
     }

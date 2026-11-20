@@ -78,9 +78,14 @@ impl Peers {
     pub async fn forward(&self, tag: char, request: &RunnerRequest) -> Option<RunnerResponse> {
         let peer = self.peers.get(&tag)?;
         let mut sender = peer.sender().await?;
+        // The query is part of the request: a file read names its path there.
+        let uri = match &request.query {
+            Some(query) => format!("{}?{query}", request.path),
+            None => request.path.clone(),
+        };
         let mut outgoing = http::Request::builder()
             .method(request.method.clone())
-            .uri(request.path.as_str())
+            .uri(uri)
             .header(http::header::CONTENT_TYPE, "application/json");
         if let Some(authorization) = &request.authorization {
             outgoing = outgoing.header(http::header::AUTHORIZATION, authorization);

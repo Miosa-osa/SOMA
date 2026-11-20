@@ -18,6 +18,9 @@ mod exec_params_tests;
 #[cfg(test)]
 mod exec_refusal_tests;
 mod extend;
+mod files;
+#[cfg(test)]
+mod files_tests;
 #[cfg(test)]
 mod flow_tests;
 mod forward;
@@ -91,6 +94,8 @@ fn unreadable_ids(records: &[soma::UnreadableRecord]) -> String {
 pub struct RunnerRequest {
     pub method: http::Method,
     pub path: String,
+    /// The query string, without its `?`, when the request carried one.
+    pub query: Option<String>,
     pub authorization: Option<String>,
     pub body: Bytes,
     pub received: Instant,
@@ -202,6 +207,7 @@ impl Runner {
             | Route::EgressClose(..)
             | Route::Network(_)
             | Route::Tunnel(..)
+            | Route::Files(..)
             | Route::Forward(_) => {}
         }
         let started = Instant::now();
@@ -209,6 +215,7 @@ impl Runner {
             Ok(principal) => principal,
             Err(Refusal::Unauthorized) => return RunnerResponse::refusal(401, "unauthorized"),
             Err(Refusal::Forbidden) => return RunnerResponse::refusal(403, "forbidden"),
+            Err(Refusal::NotLoaded) => return RunnerResponse::feed_stale(),
         };
         let limit = principal
             .key
@@ -232,6 +239,7 @@ impl Runner {
             Route::Tunnel(id, port) => self.tunnel(&principal, id, port, request, timing).await,
             Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,
+            Route::Files(id, call) => self.files(&principal, id, call, request, timing).await,
             Route::EgressOpen(id) => {
                 self.open_egress(&principal, id, &request.body, timing)
                     .await

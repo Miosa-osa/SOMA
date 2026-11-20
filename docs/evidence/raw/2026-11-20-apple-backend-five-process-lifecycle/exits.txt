@@ -1,0 +1,10 @@
+doctor exit=0
+node22-run-1 exit=0
+node22-run-2 exit=0
+node22-run-3 exit=0
+ubuntu2404-run exit=0
+machine-1-launch exit=0
+machine-2-exec-write exit=0
+machine-3-exec-read exit=0
+machine-4-inspect exit=0
+machine-5-destroy exit=0
