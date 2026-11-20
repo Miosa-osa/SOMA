@@ -34,6 +34,9 @@ struct State {
     /// A revoke could not be applied: the table may still admit a revoked key, so creates are
     /// refused until a full snapshot has been applied again.
     resync_required: bool,
+    /// A snapshot has completed since startup, so a key the table lacks is one the control
+    /// plane does not list rather than one this runner has not heard of yet.
+    loaded: bool,
     /// Live sandbox counts per tenant. Kept outside the entries so that neither a snapshot nor
     /// a policy change forgets sandboxes that are running.
     counters: HashMap<String, Arc<AtomicI64>>,
@@ -139,6 +142,7 @@ impl KeyTable {
                     .ok_or(FeedViolation::UnopenedSnapshot)?;
                 state.live = staged;
                 state.resync_required = false;
+                state.loaded = true;
             }
             FeedEvent::KeyUpsert {
                 key_hash,
@@ -200,21 +204,21 @@ impl KeyTable {
     ///
     /// # Errors
     ///
-    /// Returns [`Refusal::Unauthorized`] for a missing, non-`msk_`, or unknown token, and
-    /// [`Refusal::Forbidden`] for a known key whose tenant may not use the runner.
+    /// Returns [`Refusal::Unauthorized`] for a missing, non-`msk_`, or unknown token,
+    /// [`Refusal::NotLoaded`] for a well-formed token before the first snapshot has completed,
+    /// and [`Refusal::Forbidden`] for a known key whose tenant may not use the runner.
     pub fn admit(&self, authorization: Option<&str>) -> Result<Principal, Refusal> {
         let token = authorization
             .and_then(|value| value.strip_prefix("Bearer "))
             .filter(|token| token.starts_with("msk_"))
             .ok_or(Refusal::Unauthorized)?;
         let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
-        let joined = self
-            .read()
-            .live
-            .keys
-            .get(&hash)
-            .cloned()
-            .ok_or(Refusal::Unauthorized)?;
+        let state = self.read();
+        if !state.loaded {
+            return Err(Refusal::NotLoaded);
+        }
+        let joined = state.live.keys.get(&hash).cloned().ok_or(Refusal::Unauthorized)?;
+        drop(state);
         // A tenant the feed has published no policy for is refused, not assumed enabled: the
         // runner only ever serves tenants the control plane has positively turned on.
         let tenant = joined.tenant.clone().ok_or(Refusal::Forbidden)?;

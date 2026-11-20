@@ -209,6 +209,7 @@ impl Runner {
             Ok(principal) => principal,
             Err(Refusal::Unauthorized) => return RunnerResponse::refusal(401, "unauthorized"),
             Err(Refusal::Forbidden) => return RunnerResponse::refusal(403, "forbidden"),
+            Err(Refusal::NotLoaded) => return RunnerResponse::feed_stale(),
         };
         let limit = principal
             .key
