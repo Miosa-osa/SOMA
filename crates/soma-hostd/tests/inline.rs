@@ -11,15 +11,18 @@ use support::{harness, intent, limits, op};
 
 #[test]
 fn an_inline_worker_is_labelled_on_demand_and_transfers_after_a_slow_construction() {
+    // The construction outlasts the claim deadline, so a deadline measured from the request's
+    // arrival would refuse the transfer. The deadline itself leaves the transfer two seconds
+    // after the win: with 200 ms a loaded host missed it once (ClaimDeadline at load 27).
     let harness = harness(Limits {
         target: 0,
-        claim_deadline: Duration::from_millis(200),
-        construction_deadline: Duration::from_secs(2),
+        claim_deadline: Duration::from_secs(2),
+        construction_deadline: Duration::from_secs(5),
         exhausted: ExhaustedBehavior::ConstructInline,
         ..limits(0, 1)
     });
     harness.pool.launcher().set_plan(FaultPlan {
-        construct_delay: Duration::from_millis(300),
+        construct_delay: Duration::from_millis(2_500),
         ..FaultPlan::default()
     });
     let claim = harness
