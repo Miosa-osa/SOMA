@@ -135,21 +135,26 @@ mod tests;
 #[cfg(test)]
 pub(crate) mod test_support {
     //! Points the agent at a file of a test's own, as the unprivileged user running it.
+    //!
+    //! The target belongs to the thread that set it. Every reader runs on the calling test's
+    //! thread (a direct command assembles its invocation there, and a terminal spawns its shell
+    //! there), so a pointed test sees its own file while a test running beside it still sees
+    //! the real path. A process-wide target let one test's persisted `PATH` reach the shell of a
+    //! terminal another test had opened, which then could not find `stty`.
 
+    use std::cell::RefCell;
+    use std::marker::PhantomData;
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, MutexGuard, PoisonError};
 
-    static TARGET: Mutex<Option<PathBuf>> = Mutex::new(None);
-    static SERIAL: Mutex<()> = Mutex::new(());
+    thread_local! {
+        static TARGET: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    }
 
     pub(super) fn target() -> Option<(&'static Path, u32)> {
-        let chosen = TARGET
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
+        let chosen = TARGET.with_borrow(Clone::clone);
         chosen.map(|path| {
             // The test's own directory is owned by the user running it, which stands in for
-            // root here. Leaked once per call, so the borrow outlives the lock.
+            // root here. Leaked once per call, so the path can be handed out as `'static`.
             let uid = path
                 .parent()
                 .and_then(|directory| std::fs::metadata(directory).ok())
@@ -158,20 +163,22 @@ pub(crate) mod test_support {
         })
     }
 
-    /// Holds the target for the length of one test; tests that use it run one at a time.
+    /// Holds the target for the length of one test, on the thread that pointed it.
     pub(crate) struct Pointed {
-        _serial: MutexGuard<'static, ()>,
+        // Not `Send`: the target lives on the pointing thread, so the guard must drop there.
+        _thread: PhantomData<*const ()>,
     }
 
     impl Drop for Pointed {
         fn drop(&mut self) {
-            *TARGET.lock().unwrap_or_else(PoisonError::into_inner) = None;
+            TARGET.set(None);
         }
     }
 
     pub(crate) fn point_at(path: &Path) -> Pointed {
-        let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-        *TARGET.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.to_path_buf());
-        Pointed { _serial: serial }
+        TARGET.set(Some(path.to_path_buf()));
+        Pointed {
+            _thread: PhantomData,
+        }
     }
 }
