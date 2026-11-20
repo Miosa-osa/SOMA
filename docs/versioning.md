@@ -178,8 +178,9 @@ A deployer pins from the manifest instead of a bare checksum:
 3. Extract `path` from the archive and refuse it unless its SHA-256 and byte size equal the pinned ones.
 4. After installing, read `soma-api --version` or `GET /v1/version` on the host and refuse the host unless it reports the pinned `release` and `commit`.
 
-To rebuild a released binary and compare it with its record, check out the commit with the pinned toolchain and repeat the packager's own invocation through `scripts/build-identity.sh`.
-Cargo unifies the features of every package in one invocation, so the invocation is part of the input: the host binaries are built together (`-p soma-api -p soma-hostd -p soma-netd -p soma-vmm`), the client binaries together (`-p soma-cli -p soma-mcp`), and the guest agent by `scripts/build-guest-agent.sh`.
+To rebuild a released binary and compare it with its record, check out the commit and run the packager itself, for example `SOMA_RELEASE_TAG=v1.0.0-alpha.2 scripts/package-host-release.sh`, then compare the new `.binaries.json` with the manifest.
+The packager is the reference build on purpose: Cargo unifies the features of every package in one invocation, so which packages are built together is part of the input, and the packager remaps the checkout and the Cargo home out of every path a binary embeds.
+The guest agent is built by `scripts/build-guest-agent.sh`, which does not remap paths yet, so its bytes still depend on the directory it was built in.
 
 ## Reading the version of a running host
 

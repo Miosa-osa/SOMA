@@ -56,7 +56,11 @@ for item in "$@"; do
     fi
 done
 if (( ${#packages[@]} > 0 )); then
-    "$REPO_ROOT/scripts/build-identity.sh" \
+    # Paths of this machine never reach a binary: the checkout and the Cargo home are remapped,
+    # so two machines building one commit with one toolchain produce the same bytes.
+    cargo_home="${CARGO_HOME:-${HOME}/.cargo}"
+    remap="--remap-path-prefix=${REPO_ROOT}=/soma --remap-path-prefix=${cargo_home}=/cargo"
+    RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }${remap}" "$REPO_ROOT/scripts/build-identity.sh" \
         cargo build --release --locked --target "$release_target" "${packages[@]}"
 fi
 
