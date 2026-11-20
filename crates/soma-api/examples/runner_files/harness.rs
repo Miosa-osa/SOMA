@@ -27,8 +27,8 @@ pub(super) const WORKERS: usize = 2;
 const TOKEN: &str = "msk_runner_files_proof";
 const TENANT: &str = "0b0c3a52-6a7e-4d39-9f1e-3c4d5e6f7a8b";
 
-/// The runner's configuration: `image` launched with no network, which a host without a network
-/// broker can give it.
+/// The runner's configuration: `image` launched at the facade's default shape with no public
+/// egress, which a host without a network broker can give it.
 pub(super) fn config(journal: &Path, image: &str) -> RunnerConfig {
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/runner");
     let document = serde_json::json!({
@@ -52,24 +52,13 @@ pub(super) fn config(journal: &Path, image: &str) -> RunnerConfig {
             "image": image,
             "template_id": "miosa-sandbox-soma",
             "public_egress": false,
-            "shape": {
-                "capabilities": {
-                    "network": {
-                        "profile": {"mode": "disabled"},
-                        "proxy": {"mode": "disabled"},
-                        "dns": {"mode": "denied"},
-                        "egress": "denied",
-                        "guest_addresses": {
-                            "ipv4": {"mode": "disabled"},
-                            "ipv6": {"mode": "disabled"}
-                        },
-                        "published_ports": []
-                    }
-                },
-                "memory_mib": 1024,
-                "vcpu_count": 1,
-                "storage_mib": 4096
-            }
+            // The facade's default shape, which the end to end check's `soma run` launches and
+            // its snapshot is captured at, so this launch restores that snapshot.
+            "shape": serde_json::to_value(soma::MachineShape::new(
+                soma::MachineShape::DEFAULT_VCPU_COUNT,
+                soma::MachineShape::DEFAULT_MEMORY_MIB,
+                soma::MachineShape::DEFAULT_STORAGE_MIB,
+            ).expect("the default shape")).expect("shape json")
         },
         "admission": WORKERS
     });
