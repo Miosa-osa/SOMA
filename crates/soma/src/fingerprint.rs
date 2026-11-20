@@ -35,12 +35,19 @@ pub(crate) fn launch(
     instance_id: &InstanceId,
     machine_name: Option<&MachineName>,
     shape: &MachineShape,
+    windowed: bool,
 ) -> RequestFingerprint {
     let mut encoder = CanonicalHash::new(b"soma.managed-launch.v2");
     workload_fields(&mut encoder, workload);
     encoder.field(b"instance_id", instance_id.as_str().as_bytes());
     machine_name_field(&mut encoder, machine_name);
     shape_fields(&mut encoder, shape);
+    // Added to the digest only when set, so every launch fingerprint taken before windowed
+    // egress existed, and every launch that does not ask for it, is unchanged. A replay of a
+    // windowed launch as a plain one (or the reverse) is a different request.
+    if windowed {
+        encoder.field(b"windowed_egress", b"1");
+    }
     encoder.finish()
 }
 

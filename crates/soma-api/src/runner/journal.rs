@@ -24,8 +24,10 @@ const WRITE_RETRY: Duration = Duration::from_secs(1);
 const WRITE_BUFFER_BYTES: usize = 256 * 1024;
 
 mod preparation;
+mod refusal;
 
 pub use preparation::LaunchPreparation;
+pub use refusal::RefusalKind;
 
 /// What one journal line records (contract C4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,6 +68,10 @@ pub struct Entry {
     /// Which path the launch took, on `create` lines the engine reported it for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<LaunchPreparation>,
+    /// Which refusal this was, on `create` lines that refused before launching. Both answer the
+    /// same status, so this is the only thing that tells them apart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<RefusalKind>,
 }
 
 /// One journal line in contract field order.

@@ -101,6 +101,11 @@ pub enum Route {
     /// Served by the connection, not by a handler: it needs no sandbox facade, so a burst that
     /// holds every facade cannot also block a caller trying to change what is prepared.
     Prewarm(bool),
+    /// `POST` plans, and with `apply` performs, the release of prepared Generations (ADR 0054).
+    ///
+    /// Served with a facade, because whether a Generation is still in use is what the durable
+    /// store's records say.
+    PrunePrepared,
     /// One durable data volume operation (ADR 0053 Step A).
     ///
     /// The read carries its volume id on the path and no body; the others carry a body and no id.
@@ -125,6 +130,7 @@ impl Route {
             Self::Resources(_, true) => "sandbox.resize",
             Self::Prewarm(false) => "prewarm.status",
             Self::Prewarm(true) => "prewarm.set",
+            Self::PrunePrepared => "prepared.prune",
             Self::Volume(operation, _) => operation.name(),
         }
     }
@@ -147,6 +153,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             Method::Put => Ok(Route::Prewarm(true)),
             _ => Err(ApiError::method_not_allowed()),
         },
+        ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),

@@ -6,7 +6,7 @@
 
 use std::{
     sync::{Arc, atomic::Ordering, mpsc},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use soma::{BackendFailureKind, TerminalStatus};
@@ -38,6 +38,21 @@ async fn exec(runner: &super::Runner, id: &str, body: &str) -> RunnerResponse {
 /// The tenant's live sandbox count on this runner, which every end of a sandbox gives back.
 fn slots(runner: &super::Runner) -> i64 {
     runner.keys().counter(TENANT).load(Ordering::Acquire)
+}
+
+/// Waits until `settled` holds, or fails with `what` once the deadline passes.
+///
+/// Some of a create finishes on another thread after the request is answered or dropped: the
+/// launch an early answer hands off, and what an abandoned create gives back. Reading such a
+/// result at one instant makes the test about how busy the machine running it is (a loaded CI
+/// runner missed a 200 ms window); waiting on the condition keeps it about the behaviour, and a
+/// result that never arrives still fails at the deadline.
+async fn settle(what: &str, mut settled: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled() {
+        assert!(Instant::now() < deadline, "{what}");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 }
 
 #[tokio::test]
@@ -88,7 +103,13 @@ async fn an_early_answer_reports_starting_and_a_later_call_waits_for_the_launch(
     let json = body_of(&created);
     let id = created_id(&created);
     assert_eq!(json["state"], "starting");
-    assert_eq!(engine.launches.load(Ordering::SeqCst), 1);
+    // The answer goes out once the launch holds a facade lease; the facade counts the launch on the
+    // lease's own thread, which may not have reached it yet.
+    settle(
+        "the launch the early answer handed off never reached the facade",
+        || engine.launches.load(Ordering::SeqCst) == 1,
+    )
+    .await;
     assert_eq!(
         runner.sandboxes().live(),
         1,
@@ -199,17 +220,10 @@ async fn an_abandoned_create_gives_its_tenant_slot_back() {
     // The slot comes back as the abandoned request is dropped, so this waits for it rather than
     // reading at one exact instant. What the test is about is a slot that is *never* given back,
     // and that one does not arrive however long this waits.
-    for _ in 0..20 {
-        if slots(&runner) == 0 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
-    assert_eq!(
-        slots(&runner),
-        0,
-        "an abandoned create must give its tenant slot back"
-    );
+    settle("an abandoned create must give its tenant slot back", || {
+        slots(&runner) == 0
+    })
+    .await;
 
     let _ = release.send(());
     let after = create(&runner, "{}").await;
@@ -239,16 +253,15 @@ async fn an_abandoned_create_takes_down_the_machine_it_was_building() {
     }
     let _ = release.send(());
 
-    for _ in 0..40 {
-        if engine.destroys.load(Ordering::SeqCst) > 0 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
+    settle(
+        "a machine whose create was abandoned must not be left running",
+        || engine.destroys.load(Ordering::SeqCst) > 0,
+    )
+    .await;
     assert_eq!(
         engine.destroys.load(Ordering::SeqCst),
         1,
-        "a machine whose create was abandoned must not be left running"
+        "the machine is destroyed exactly once"
     );
-    assert_eq!(slots(&runner), 0, "and the tenant slot must be back");
+    settle("and the tenant slot must be back", || slots(&runner) == 0).await;
 }

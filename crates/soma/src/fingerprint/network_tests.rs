@@ -135,7 +135,7 @@ fn fingerprints(policy: &NetworkPolicy) -> (RequestFingerprint, RequestFingerpri
     let limits = ExecutionLimits::new(30_000, 1_024).expect("limits");
     (
         run(&workload, &instance, None, &shape, &command, &limits),
-        launch(&workload, &instance, None, &shape),
+        launch(&workload, &instance, None, &shape, false),
     )
 }
 
@@ -182,4 +182,23 @@ fn named_proxy(id: &str, revision_digit: char) -> ProxyProfileSelector {
 
 fn revision(digit: char) -> ProfileRevision {
     ProfileRevision::parse(format!("sha256:{}", digit.to_string().repeat(64))).expect("revision")
+}
+
+#[test]
+fn a_windowed_launch_is_a_different_request_and_an_ordinary_one_is_unchanged() {
+    let workload = WorkloadIdentity::new(
+        OciDigest::parse(format!("sha256:{}", "a".repeat(64))).expect("digest"),
+        OciPlatform::linux_amd64(),
+        Some(GenerationId::new(format!("sha256:{}", "b".repeat(64))).expect("generation")),
+    );
+    let instance = InstanceId::new("22222222222222222222222222222222").expect("instance");
+    let shape = MachineShape::new(1, 1_024, 10_240).expect("shape");
+
+    let ordinary = launch(&workload, &instance, None, &shape, false);
+    let windowed = launch(&workload, &instance, None, &shape, true);
+
+    // A replay of a launch with the window flipped must not be answered as the same operation.
+    assert_ne!(ordinary, windowed);
+    assert_eq!(ordinary, launch(&workload, &instance, None, &shape, false));
+    assert_eq!(windowed, launch(&workload, &instance, None, &shape, true));
 }
