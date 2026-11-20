@@ -30,6 +30,18 @@ pub(crate) enum LocalBackend {
 type PreparedWorkload = Box<dyn Any + Send>;
 
 impl LocalBackend {
+    /// Whether this backend can give a machine the network `policy` describes, decided the way
+    /// its own launch decides it.
+    pub(crate) fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        match self {
+            Self::Docker(_) => docker::network_mode(policy).is_some(),
+            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+            Self::Macos(_) => macos::serves_network(policy),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.serves_network(policy),
+        }
+    }
+
     /// Opens one local backend.
     ///
     /// `host_directory` is where machines that must outlive this process are addressed. Only a
