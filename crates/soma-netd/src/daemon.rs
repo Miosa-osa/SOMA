@@ -58,6 +58,7 @@ mod delivery;
 mod egress;
 mod instance_lock;
 mod pacing;
+mod startup;
 mod teardown;
 
 use claim::{claim, fresh_id};
@@ -255,56 +256,12 @@ pub fn serve(
     // One broker per state root. A second process would see the first one's live pool as unowned
     // and reap it, and would unlink the first one's control socket.
     let _only_broker = InstanceLock::acquire(state_root(&state.broker)?)?;
-    // The pool a previous process prepared has no ledger owner. What to remove is decided now,
-    // before this process builds any bundle, so removal can run beside the listener without being
-    // able to name one of its own. A failure to decide must not stop egress brokering, so it is
-    // reported and the daemon starts anyway.
-    let plan = match crate::reconcile::reap_plan(&state.broker) {
-        Ok(plan) => plan,
-        Err(error) => {
-            eprintln!("soma-netd: start could not plan a reap of unassigned bundles: {error}");
-            crate::reconcile::ReapPlan::default()
-        }
-    };
-    // A window that was open when the previous broker ended has no timer and no record now, and the
-    // kernel kept its ruleset. Every bundle claimed with no egress is put back to that base before
-    // the first request is served, so a restart can only close, never leave open.
-    match crate::recover::restore_base_rulesets(&state.broker) {
-        Ok(report) => eprintln!(
-            "soma-netd: start restored {} denied bundle(s) to their base; forwarding switched off for [{}]; could not restore [{}]",
-            report.restored.len(),
-            report.forwarding_off.join(","),
-            report.failed.join(",")
-        ),
-        Err(error) => eprintln!(
-            "soma-netd: WARN: start could not read the ledger to restore denied bundles: {error}"
-        ),
-    }
+    let plan = startup::plan_reap(&state.broker);
+    startup::restore_bases(&state.broker);
     let listener = ControlListener::bind(socket, authority)?;
     let live = AtomicUsize::new(0);
     std::thread::scope(|scope| {
-        scope.spawn(|| {
-            let report = plan.execute(&state.broker, crate::reconcile::MAX_REAP_PER_START);
-            eprintln!(
-                "soma-netd: start reaped {} unassigned bundle(s); in use [{}]; failed [{}]; deferred {}",
-                report.removed.len(),
-                report.in_use.join(","),
-                report.failed.join(","),
-                report.deferred.len()
-            );
-            if !report.foreign.is_empty() {
-                eprintln!(
-                    "soma-netd: WARN: kernel objects with the broker's naming and no pin of ours were left alone (another broker, or a bundle whose pin is gone): [{}]",
-                    report.foreign.join(",")
-                );
-            }
-            if !report.failed.is_empty() {
-                eprintln!(
-                    "soma-netd: WARN: could not fully remove [{}]; they keep their pin and are retried at the next start",
-                    report.failed.join(",")
-                );
-            }
-        });
+        scope.spawn(|| startup::reap(&state.broker, plan));
         for _ in 0..PREPARE_WORKERS {
             scope.spawn(|| prepare_worker(&state));
         }
