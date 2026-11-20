@@ -34,6 +34,12 @@ impl LocalFacade {
             volumes: VolumeClient::from_env(),
         })
     }
+
+    /// Whether this facade's runtime can give a sandbox the network `policy` describes.
+    #[must_use]
+    pub fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        self.runtime.serves_network(policy)
+    }
 }
 
 impl SandboxFacade for LocalFacade {
@@ -116,6 +122,17 @@ impl SandboxFacade for LocalFacade {
         self.runtime.list_machines_reporting_unreadable()
     }
 
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        self.runtime.terminal_census()
+    }
+
+    fn release(
+        &mut self,
+        instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        self.runtime.release_machine(instance_id)
+    }
+
     fn stop(&mut self, request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {
         let outcome = self.runtime.stop_machine(request)?;
         Ok(lifecycle(outcome.receipt()))
@@ -135,6 +152,14 @@ impl SandboxFacade for LocalFacade {
         request: soma_local::ResizeRequest,
     ) -> Result<soma_local::ResizeOutcome, soma_local::ResizeFailure> {
         self.runtime.resize_machine(instance_id, request)
+    }
+
+    fn set_egress(
+        &mut self,
+        instance_id: &soma::InstanceId,
+        request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        self.runtime.set_egress_machine(instance_id, request)
     }
 
     fn tunnel(

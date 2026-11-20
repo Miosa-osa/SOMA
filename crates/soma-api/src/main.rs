@@ -1,24 +1,19 @@
-use std::{env, net::TcpListener, path::PathBuf, process, sync::Arc, time::Duration};
+use std::{env, net::TcpListener, process, sync::Arc, time::Duration};
 
 use soma_api::{
     ApiError, CREATE_ADMISSION_ENV, CreateAdmission, FacadePool, LocalFacade, SandboxFacade,
+    retention,
     runner::{self, RunnerConfig},
     serve_with_tunnels,
     tunnel::{TunnelPolicy, TunnelTable},
 };
 use soma_local::{BackendSelection, LocalRuntimeConfig};
 
-/// The address the service binds when none is given.
-///
-/// It binds loopback rather than every interface. This service has no finished authentication
-/// scheme, so a default that exposed it to a network would be a default that leaked sandboxes.
-const DEFAULT_LISTEN: &str = "127.0.0.1:8787";
+#[path = "main/options.rs"]
+mod options;
 
-/// Enough preopened runtimes for a public 100-way burst plus overlapping command requests.
-const DEFAULT_WORKERS: usize = 128;
+use options::Options;
 
-/// Prevents an accidental configuration from consuming unbounded host descriptors and threads.
-const MAXIMUM_WORKERS: usize = 1024;
 const POOL_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The argument the runtime re-enters this executable with to hold one machine.
@@ -28,23 +23,50 @@ const POOL_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 const MACHINE_HOST: &str = "machine-host";
 
 fn main() {
+    if soma_version::version_requested(env::args_os()) {
+        print!(
+            "{}",
+            soma_api::version::version_report(&soma_version::build!())
+        );
+        return;
+    }
     process::exit(run());
 }
 
-/// The report `soma-api --version` prints.
-fn version_report() -> String {
-    let speaks = soma_version::Speaks {
-        api: None,
-        protocols: soma_local::PROTOCOLS,
+/// Starts the public runner on facades leased from the request pool, or answers the exit status.
+///
+/// A runner whose machines would need a network this host cannot give is refused first, by the
+/// key that asked for it, so the configuration fails here rather than every create (SOMA#56).
+fn start_runner(config: RunnerConfig, pool: &FacadePool<LocalFacade>) -> Result<(), i32> {
+    let Some(lease) = pool.acquire_timeout(POOL_WAIT_TIMEOUT) else {
+        eprintln!("soma-api: the local sandbox runtime could not be opened");
+        return Err(69);
     };
-    soma_version::report("soma-api", &soma_version::build!(), &speaks)
+    if let Some(key) = config
+        .launch
+        .unservable_network(|policy| lease.serves_network(policy))
+    {
+        eprintln!(
+            "soma-api: {key} gives the runner's machines a network this host cannot serve; set \
+             it to false, or give this host an egress broker"
+        );
+        return Err(78);
+    }
+    drop(lease);
+    let runner_pool = pool.clone();
+    let opener: runner::FacadeOpener = Arc::new(move || {
+        runner_pool
+            .acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+            .ok_or_else(runtime_busy)
+    });
+    runner::spawn(config, opener).map(drop).map_err(|error| {
+        eprintln!("soma-api: the public runner could not start: {error}");
+        74
+    })
 }
 
 fn run() -> i32 {
-    if soma_version::version_requested(env::args_os()) {
-        print!("{}", version_report());
-        return 0;
-    }
     // A machine host is not a request this service serves: it becomes the process that holds one
     // sandbox. The runtime starts one by re-entering this executable, so every binary that opens
     // a hosted runtime has to answer here, before any listener exists. Without it this service
@@ -119,18 +141,13 @@ fn run() -> i32 {
         eprintln!("soma-api: the local sandbox runtime could not be opened");
         return 69;
     };
-    if let Some(config) = runner_config {
-        let runner_pool = pool.clone();
-        let opener: runner::FacadeOpener = Arc::new(move || {
-            runner_pool
-                .acquire_timeout(POOL_WAIT_TIMEOUT)
-                .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
-                .ok_or_else(runtime_busy)
-        });
-        if let Err(error) = runner::spawn(config, opener) {
-            eprintln!("soma-api: the public runner could not start: {error}");
-            return 74;
-        }
+    if let Some(config) = runner_config
+        && let Err(code) = start_runner(config, &pool)
+    {
+        return code;
+    }
+    if !start_record_sweep(pool.clone()) {
+        return 71;
     }
     eprintln!(
         "soma-api: listening on {} (at most {} concurrent creates)",
@@ -141,11 +158,27 @@ fn run() -> i32 {
         pool.acquire_timeout(POOL_WAIT_TIMEOUT)
             .ok_or_else(runtime_busy)
     };
-    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels).is_err() {
+    let build = soma_version::build!();
+    if serve_with_tunnels(&listener, open_facade, &admission, &tunnels, build).is_err() {
         eprintln!("soma-api: the listener stopped accepting connections");
         return 74;
     }
     0
+}
+
+/// Starts the sweep that releases terminal records (SOMA#127).
+///
+/// Records are released on the same rule whichever surface created them, so the sweep runs with
+/// or without the runner, on facades leased from the request pool.
+fn start_record_sweep(pool: FacadePool<LocalFacade>) -> bool {
+    let started = retention::spawn(move || {
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+    });
+    if started.is_err() {
+        eprintln!("soma-api: the terminal record sweep could not start");
+    }
+    started.is_ok()
 }
 
 const fn runtime_busy() -> ApiError {
@@ -155,101 +188,4 @@ const fn runtime_busy() -> ApiError {
         "the local sandbox runtime is at its bounded request capacity",
         true,
     )
-}
-
-#[derive(Clone, Debug)]
-struct Options {
-    listen: String,
-    backend: BackendSelection,
-    runtime: Option<PathBuf>,
-    state_root: Option<PathBuf>,
-    workers: usize,
-    /// The public runner's configuration file; the runner is off without one.
-    runner_config: Option<PathBuf>,
-}
-
-impl Options {
-    /// Parses the small fixed option set this binary accepts.
-    ///
-    /// The options are parsed by hand rather than with an argument-parsing crate: there are four
-    /// of them, none is positional, and a dependency added for four options is a dependency the
-    /// whole workspace then has to keep pinned and audited.
-    fn parse(arguments: impl Iterator<Item = String>) -> Option<Self> {
-        let mut options = Self {
-            listen: DEFAULT_LISTEN.to_owned(),
-            backend: BackendSelection::Auto,
-            runtime: None,
-            state_root: None,
-            workers: DEFAULT_WORKERS,
-            runner_config: None,
-        };
-        let mut arguments = arguments;
-        while let Some(argument) = arguments.next() {
-            let value = arguments.next()?;
-            match argument.as_str() {
-                "--listen" => options.listen = value,
-                "--backend" => options.backend = backend(&value)?,
-                "--runtime" => options.runtime = Some(PathBuf::from(value)),
-                "--state-root" => options.state_root = Some(PathBuf::from(value)),
-                "--runner-config" => options.runner_config = Some(PathBuf::from(value)),
-                "--workers" => {
-                    options.workers = value.parse().ok()?;
-                    if !(1..=MAXIMUM_WORKERS).contains(&options.workers) {
-                        return None;
-                    }
-                }
-                _ => return None,
-            }
-        }
-        Some(options)
-    }
-}
-
-fn backend(value: &str) -> Option<BackendSelection> {
-    match value {
-        "auto" => Some(BackendSelection::Auto),
-        "kvm" => Some(BackendSelection::Kvm),
-        "macos" => Some(BackendSelection::Macos),
-        "docker" => Some(BackendSelection::Docker),
-        _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::Options;
-
-    #[test]
-    fn rejects_an_option_without_a_value() {
-        assert!(Options::parse(["--listen".to_owned()].into_iter()).is_none());
-    }
-
-    #[test]
-    fn defaults_to_loopback_when_no_address_is_given() {
-        let options = Options::parse(std::iter::empty()).expect("empty arguments parse");
-
-        assert_eq!(options.listen, "127.0.0.1:8787");
-        assert_eq!(options.workers, 128);
-        assert!(
-            options.runner_config.is_none(),
-            "the public runner is off by default"
-        );
-    }
-
-    #[test]
-    fn accepts_a_bounded_worker_count() {
-        let options = Options::parse(["--workers".to_owned(), "100".to_owned()].into_iter())
-            .expect("bounded worker count parses");
-
-        assert_eq!(options.workers, 100);
-    }
-
-    #[test]
-    fn rejects_zero_or_unbounded_worker_counts() {
-        for count in ["0", "1025", "not-a-number"] {
-            assert!(
-                Options::parse(["--workers".to_owned(), count.to_owned()].into_iter()).is_none()
-            );
-        }
-    }
 }

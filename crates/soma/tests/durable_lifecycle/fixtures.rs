@@ -58,6 +58,14 @@ impl StateStore for FailingCasStore {
             .compare_exchange(instance_id, expected, replacement)
     }
 
+    fn release(
+        &mut self,
+        instance_id: &InstanceId,
+        expected: StateRevision,
+    ) -> Result<(), StateStoreFailure> {
+        self.inner.release(instance_id, expected)
+    }
+
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
         self.inner.list()
     }
@@ -92,6 +100,14 @@ impl StateStore for StaticStore {
         _expected: StateRevision,
         _replacement: StateRecord,
     ) -> Result<StateRevision, StateStoreFailure> {
+        Err(StateStoreFailure::new(StateStoreFailureKind::Conflict))
+    }
+
+    fn release(
+        &mut self,
+        _instance_id: &InstanceId,
+        _expected: StateRevision,
+    ) -> Result<(), StateStoreFailure> {
         Err(StateStoreFailure::new(StateStoreFailureKind::Conflict))
     }
 

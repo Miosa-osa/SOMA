@@ -23,6 +23,7 @@ mod profile;
 mod protected;
 mod protocol;
 mod transfer;
+#[cfg(target_os = "linux")]
 mod usage;
 
 #[cfg(target_os = "linux")]
@@ -48,7 +49,11 @@ mod nft;
 #[cfg(target_os = "linux")]
 mod reconcile;
 #[cfg(target_os = "linux")]
+mod recover;
+#[cfg(target_os = "linux")]
 mod release;
+#[cfg(target_os = "linux")]
+mod snapshot;
 #[cfg(target_os = "linux")]
 mod sysctl;
 #[cfg(target_os = "linux")]
@@ -77,9 +82,9 @@ pub use transfer::{MAX_HEADER, TransferHeader};
 #[cfg(target_os = "linux")]
 pub use activate::{ActivationEvidence, activate};
 #[cfg(target_os = "linux")]
-pub use bundle::{AssignFailure, Assigned, Broker, SterileBundle};
+pub use bundle::{AssignFailure, Assigned, Broker, EgressChange, SterileBundle};
 #[cfg(target_os = "linux")]
-pub use client::{BrokerClient, ClientError};
+pub use client::{BrokerClient, ClientError, EgressState};
 #[cfg(target_os = "linux")]
 pub use connect::{ConnectPlan, ConnectPorts};
 #[cfg(target_os = "linux")]
@@ -91,8 +96,11 @@ pub use namespace::{NetNamespace, Unpinned};
 #[cfg(target_os = "linux")]
 pub use reconcile::{
     Disposition, MAX_REAP_PER_START, ReapPlan, ReapReport, ReconcileReport, reap_plan,
-    reap_unassigned, reconcile,
+    reap_unassigned, reconcile, reconcile_with,
 };
+#[cfg(target_os = "linux")]
+pub use recover::{RestoreReport, restore_base_rulesets};
+#[cfg(target_os = "linux")]
 pub use release::{ReleaseEvidence, StepResult, release, release_record, release_sterile};
 #[cfg(target_os = "linux")]
 pub use transfer::{receive_tap, send_tap, seqpacket_pair};

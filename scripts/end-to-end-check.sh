@@ -27,6 +27,11 @@ cd "$REPO_ROOT" || exit 2
 source "$REPO_ROOT/scripts/end-to-end-record.sh"
 
 IMAGE="node:22"
+# The shape the Generation is built at and every run asks for. A run at any other storage size is
+# refused, and the command line's own default (10240 MiB) is a class profile version 1 does not
+# admit, so the two are stated together rather than left to two different defaults (SOMA#150).
+MEMORY_MIB=1024
+STORAGE_MIB=4096
 WORK=""
 FS_TOOLS="$REPO_ROOT/fs-tools"
 EXPECT="^v[0-9]"
@@ -109,7 +114,8 @@ stage_build() {
 
 # Stage 3. One OCI image compiled into a launchable Generation in a private prepared store.
 stage_prepare_generation() {
-    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" || return 1
+    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB" \
+        || return 1
     ENTRY="$(compgen -G "$STORE/ref-*" | head -1)"
     [[ -n "$ENTRY" && -d "$ENTRY" ]] || { DETAIL="no prepared entry was published"; return 1; }
     [[ -f "$ENTRY/candidate.somacan" ]] || { DETAIL="the entry has no candidate"; return 1; }
@@ -139,7 +145,7 @@ soma_run_command() {
     SOMA_HEAD_DIR="$HEAD_DIR" \
     SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
         ./target/release/soma --format json --backend kvm --state-root "$STATE_ROOT" \
-        run "$IMAGE" -- "$@" \
+        run --memory-mib "$MEMORY_MIB" --storage-mib "$STORAGE_MIB" "$IMAGE" -- "$@" \
         >"$WORK/run-$tag.json" 2>"$WORK/run-$tag.err"
     python3 ./scripts/end-to-end/inspect-run.py "$WORK/run-$tag.json" "$expect"
 }

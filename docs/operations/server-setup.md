@@ -113,7 +113,7 @@ at all. None of the three says so.
 silently, and ends with a measured result:
 
 ```sh
-./scripts/reproduce.sh --memory-mib 1024 --storage-mib 10240 --samples 25 \
+./scripts/reproduce.sh --memory-mib 1024 --storage-mib 4096 --samples 25 \
     --expect v22 node:22 -- /usr/local/bin/node --version
 ```
 
@@ -153,6 +153,9 @@ Prepare a small shell image and a Node runtime image:
 ```
 
 Each call exports the image to an OCI layout, compiles the Candidate in a private staging directory, and atomically publishes one new prepared-store entry.
+Without a shape the entry is built at 1024 MiB of memory and a 4096 MiB writable layer.
+The writable size must be a class the shape's compiler profile admits: one vCPU up to 3072 MiB is profile version 1, which admits 256, 1024, and 4096 MiB.
+The script asks before it exports anything, and stops naming the admitted sizes when the size is not one of them.
 The tool refuses to overwrite an existing entry.
 References are keyed by their SHA-256 digest so distinct registry references cannot collide through filename normalization.
 
@@ -166,11 +169,13 @@ export SOMA_GENERATION_STORE=/srv/soma/prepared
 export SOMA_HEAD_DIR=/srv/soma/heads              # on the XFS reflink volume
 
 # the empty sandbox: prove it boots and runs a command
-./target/release/soma --backend kvm run busybox:stable-musl -- /bin/busybox uname -a
+./target/release/soma --backend kvm run --storage-mib 4096 busybox:stable-musl -- /bin/busybox uname -a
 
 # the node sandbox: a real runtime, running inside the VM
-./target/release/soma --backend kvm run node:22 -- /usr/local/bin/node --version
+./target/release/soma --backend kvm run --storage-mib 4096 node:22 -- /usr/local/bin/node --version
 ```
+
+A run asks for the shape the entry was built at; `--storage-mib 4096` is stated because the command line's own default is 10240 MiB, which the entry was not built at.
 
 To serve the prepared hosted path, select the exact Generation and memory class before starting the API:
 
@@ -194,6 +199,13 @@ On Linux x86_64, `capture_snapshot` installs the captured objects, runs certific
 The public KVM resolver refuses Candidate-only entries and independently re-verifies the ready Generation and every bound artifact before machine creation.
 There is no environment-variable bypass for Candidate launch.
 
+## The public runner's network defaults
+
+A `--runner-config` gives its default shape the public internet unless `launch.public_egress` is `false`, and a `launch.large` block does the same unless its own `public_egress` is `false`.
+`launch.allow_unrestricted_egress` is off unless it is set.
+A host that cannot give one of those networks, such as a KVM host with no egress broker, refuses to start with exit status 78 and names the key, for example `soma-api: launch.public_egress gives the runner's machines a network this host cannot serve`.
+Set that key to `false` on an isolated host, or configure the broker.
+
 ## Releasing Generations a host no longer needs
 
 Do not delete entries from the prepared store by hand: `soma-api` holds every entry open.
@@ -208,6 +220,13 @@ The answer lists what is kept, what would be removed, and what is refused, each 
 Nothing changes until the same request is sent with `"apply": true`.
 Each family keeps its newest certified entry older than its pin as a rollback target; add `"keep_previous": false` to drop it in the families your `keep` list pins.
 [ADR 0054](../adr/0054-release-prepared-generations.md) states the keep rule and what refuses a removal.
+
+## Terminal sandbox records
+
+`soma-api` keeps a destroyed or failed sandbox's durable record for ten minutes, so an exact repeated request still gets its first answer, and then releases it.
+A sweep runs every minute; after a restart, records the earlier process left are released ten minutes after the first sweep.
+The runner's `/healthz` reports `state_records`, the records the state store held after the last sweep; a number that keeps growing is a store that is filling.
+[ADR 0055](../adr/0055-release-terminal-machine-records.md) states the rule.
 
 ## What this gives you, and what it does not
 

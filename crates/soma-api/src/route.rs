@@ -110,6 +110,10 @@ pub enum Route {
     ///
     /// The read carries its volume id on the path and no body; the others carry a body and no id.
     Volume(VolumeOperation, Option<String>),
+    /// `GET` reads the API version, the build identity, and the protocols this service speaks.
+    ///
+    /// Served by the connection, not by a handler: it needs no sandbox facade.
+    Version,
 }
 
 impl Route {
@@ -132,6 +136,7 @@ impl Route {
             Self::Prewarm(true) => "prewarm.set",
             Self::PrunePrepared => "prepared.prune",
             Self::Volume(operation, _) => operation.name(),
+            Self::Version => crate::version::VERSION_OPERATION,
         }
     }
 }
@@ -148,6 +153,10 @@ impl Route {
 pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     let segments = request.segments();
     match segments.as_slice() {
+        ["v1", "version"] => match request.method {
+            Method::Get => Ok(Route::Version),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         ["v1", "prewarm"] => match request.method {
             Method::Get => Ok(Route::Prewarm(false)),
             Method::Put => Ok(Route::Prewarm(true)),

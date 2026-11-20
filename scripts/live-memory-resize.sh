@@ -122,7 +122,10 @@ stage_build() {
 }
 
 stage_prepare_generation() {
-    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$BOOT_MIB" || return 1
+    # The launch below states no storage, so it asks for the command line's 10240 MiB default.
+    # The live-resize machine SOMA_PREPARE_CEILING_MIB selects (profile version 3) admits that
+    # class, so the entry is built at it; without a ceiling the prepare script refuses it by name.
+    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$BOOT_MIB" 10240 || return 1
     ENTRY="$(compgen -G "$STORE/ref-*" | head -1)"
     [[ -n "$ENTRY" && -f "$ENTRY/candidate.somacan" ]] || { DETAIL="no prepared entry"; return 1; }
     DETAIL="entry=$(basename "$ENTRY")"

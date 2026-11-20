@@ -23,11 +23,17 @@
 //! so every writer released with `Ok` had its write flushed by the completed
 //! sync. A writer that arrives while a sync is running waits for the next one
 //! rather than being released by a sync that may have started before its write.
+//!
+//! Nobody else is obliged to run that next sync, so the writer that needs it
+//! leads it: when the sync in flight ends without covering a waiting writer,
+//! the writer takes the leadership itself (issue #118). Before that, such a
+//! writer waited for some later writer to arrive and lead, and on a root where
+//! none did it waited forever.
 
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Condvar, Mutex, PoisonError},
     time::Duration,
 };
 
@@ -106,8 +112,20 @@ impl SyncBarrier {
         let mut batch = self.batch.lock().unwrap_or_else(PoisonError::into_inner);
         let mine = batch.arrived;
         batch.arrived += 1;
-        if batch.syncing {
-            return self.wait(batch, mine);
+        // A sync in flight may have taken its snapshot before this write, so its
+        // outcome is waited for: a sync that covered this writer releases it, and
+        // one that did not leaves it to lead the next sync below.
+        while batch.syncing {
+            batch = self
+                .released
+                .wait(batch)
+                .unwrap_or_else(PoisonError::into_inner);
+            if batch.synced > mine {
+                return Ok(());
+            }
+            if let Some(failure) = batch.failure {
+                return Err(failure);
+            }
         }
         batch.syncing = true;
         batch.failure = None;
@@ -133,22 +151,6 @@ impl SyncBarrier {
         drop(batch);
         self.released.notify_all();
         result
-    }
-
-    /// Waits until a sync that started after this writer arrived completes.
-    fn wait(&self, mut batch: MutexGuard<'_, Batch>, mine: u64) -> Result<(), StateStoreFailure> {
-        loop {
-            if batch.synced > mine {
-                return Ok(());
-            }
-            if let Some(failure) = batch.failure {
-                return Err(failure);
-            }
-            batch = self
-                .released
-                .wait(batch)
-                .unwrap_or_else(PoisonError::into_inner);
-        }
     }
 }
 

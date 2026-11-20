@@ -9,3 +9,4 @@ mod network;
 mod resolution;
 
 pub(crate) use adapter::{MacBackend, MacPreparedWorkload};
+pub(crate) use network::serves as serves_network;
