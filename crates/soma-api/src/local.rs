@@ -156,11 +156,12 @@ impl SandboxFacade for LocalFacade {
         self.runtime.set_egress_machine(instance_id, request)
     }
 
+    #[cfg(unix)]
     fn tunnel(
         &mut self,
         instance_id: &soma::InstanceId,
         port: u16,
-    ) -> Result<std::os::unix::net::UnixStream, soma_local::TunnelFailure> {
+    ) -> Result<crate::tunnel::GuestStream, soma_local::TunnelFailure> {
         self.runtime.tunnel_machine(instance_id, port)
     }
 

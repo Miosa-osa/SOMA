@@ -24,6 +24,7 @@ impl SandboxFacade for FakeFacade {
         }
     }
 
+    #[cfg(unix)]
     fn tunnel(
         &mut self,
         _instance_id: &soma::InstanceId,

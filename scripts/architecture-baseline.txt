@@ -10,7 +10,7 @@
 ./crates/soma-api/src/runner/config.rs 348
 ./crates/soma-api/src/runner/service/flow_tests.rs 301
 ./crates/soma-api/src/runner/transport.rs 330
-./crates/soma-api/src/tunnel.rs 491
+./crates/soma-api/src/tunnel.rs 314
 ./crates/soma-api/tests/runner/tunnel.rs 319
 ./crates/soma-api/tests/support/mod.rs 378
 ./crates/soma-generation/src/generation/contracts.rs 343
