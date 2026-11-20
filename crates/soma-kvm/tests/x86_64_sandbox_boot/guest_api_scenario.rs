@@ -33,7 +33,7 @@ pub(crate) fn probe_and_plants<'a>(
     eprintln!("[guest-api] probe -> {api:?}");
     check!(
         api == if want >= 2 {
-            GuestApi::Level(2)
+            GuestApi::Level(want)
         } else {
             GuestApi::Legacy
         },

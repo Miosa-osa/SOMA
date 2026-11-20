@@ -93,6 +93,9 @@ pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
 
 /// The highest guest API level this release speaks (ADR 0051).
 ///
-/// The guest agent answers it at the [`GUEST_API_PROBE_PREFIX`] probe, and a host sends a level 2
-/// request only to a guest that answered at least 2, so any host and guest pair interoperate.
-pub const GUEST_API_LEVEL: u8 = 2;
+/// The guest agent answers it at the [`GUEST_API_PROBE_PREFIX`] probe, and a host sends a request
+/// of a level only to a guest that answered at least that level, so any host and guest pair
+/// interoperate. Level 2 adds stat, rename, ranged files, and detailed listings. Level 3 accepts
+/// an argument up to [`MAX_ARGUMENT_BYTES`] bytes in one `Execute` record, where an older guest
+/// decodes at most [`LEVEL_TWO_ARGUMENT_BYTES`].
+pub const GUEST_API_LEVEL: u8 = 3;

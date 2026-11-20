@@ -55,7 +55,10 @@ These are deliberate, and a caller that exceeds one gets a named refusal, never 
   The command still travels as one `Execute` record, and the argument count (64) and the whole-command bound are unchanged.
   32768 is what one record carries beside the rest of a command: the body is 65481 bytes, and a 32768-byte argument with its two length bytes leaves 32711 for the fixed part, the program, the other arguments and the context.
   It is also the standard-input bound, so a script fits inline exactly when it fits on standard input.
-  An agent built before this amendment still decodes at most 4096 bytes per argument, and it ends the session on a record that carries more, so a larger argument works only on a Generation captured with an agent that has this bound.
+  An agent built before this amendment still decodes at most 4096 bytes per argument (`LEVEL_TWO_ARGUMENT_BYTES`), and it stops serving on a record that carries more, which would lose the sandbox.
+  So the new bound is guest API level 3, gated like the level 2 file operations: a command with an argument over 4096 bytes first learns the guest's level, once per session and only for such commands.
+  A guest below level 3 is refused with nothing sent and the sandbox kept: the runner answers `422 GUEST_AGENT_OUTDATED`, not retryable, with `sandbox_alive`, the field and the 4096-byte limit, and says the Generation must be captured again with a newer agent.
+  A larger argument therefore works only on a Generation captured with a level 3 agent.
 - The loopback `commands` route answers `413 command_too_large`, not retryable, and the message states both limits.
   The public runner already answered `413 RUNNER_COMMAND_TOO_LARGE` with the field and the limit.
   Before this change the loopback route answered a generic 400, and the control plane turned that into a retryable agent outage.
