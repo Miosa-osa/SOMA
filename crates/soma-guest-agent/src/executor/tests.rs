@@ -15,6 +15,7 @@ mod context;
 mod hostile;
 mod persisted;
 mod scheduling;
+mod waiting;
 
 /// Combined allowance the hostile fixtures are given before the limit closes them down.
 const HOSTILE_ALLOWANCE: u64 = 8 * 1024 * 1024;
