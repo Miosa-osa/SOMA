@@ -115,7 +115,10 @@ stage_build() {
 
 # Stage 3. One OCI image compiled into a launchable Generation in a private prepared store.
 stage_prepare_generation() {
-    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB" \
+    # The entry is cold boot only until the next stage captures its snapshot, which is the order
+    # this check runs in, so the prepare script's refusal of such an entry is accepted here.
+    SOMA_ALLOW_COLD_BOOT_ENTRY=1 \
+        ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB" \
         || return 1
     ENTRY="$(compgen -G "$STORE/ref-*" | head -1)"
     [[ -n "$ENTRY" && -d "$ENTRY" ]] || { DETAIL="no prepared entry was published"; return 1; }
