@@ -41,7 +41,7 @@ async fn an_oversize_command_is_refused_by_name_and_leaves_the_sandbox_usable() 
     let (runner, id) = recovered_runner(&engine).await;
     let path = format!("/api/v1/sandboxes/{id}/exec");
 
-    let command = format!("echo {}", "a".repeat(4_100));
+    let command = format!("echo {}", "a".repeat(soma_guest::MAX_ARGUMENT_BYTES));
     let refused = call(
         &runner,
         http::Method::POST,
@@ -62,6 +62,32 @@ async fn an_oversize_command_is_refused_by_name_and_leaves_the_sandbox_usable() 
 
     let fine = call(&runner, http::Method::POST, &path, r#"{"command":"true"}"#).await;
     assert_eq!(fine.status, 200, "the sandbox survived the refusal");
+    assert_eq!(engine.execs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_twelve_kilobyte_heredoc_reaches_the_machine() {
+    // The shape ComputeSDK's cpu-burst bench sends: a 12 KB heredoc in one `command` string,
+    // which this door refused at 4096 bytes.
+    let engine = Arc::new(Engine::default());
+    let (runner, id) = recovered_runner(&engine).await;
+    let heredoc = format!(
+        "cat > /tmp/w.js <<'EOF'\n{}\nEOF\nnode /tmp/w.js",
+        "// x\n".repeat(2_400)
+    );
+    let answer = call(
+        &runner,
+        http::Method::POST,
+        &format!("/api/v1/sandboxes/{id}/exec"),
+        &serde_json::json!({"command": heredoc}).to_string(),
+    )
+    .await;
+    assert_eq!(
+        answer.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&answer.body)
+    );
     assert_eq!(engine.execs.load(Ordering::SeqCst), 1);
 }
 

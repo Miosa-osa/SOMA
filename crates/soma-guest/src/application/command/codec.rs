@@ -14,8 +14,8 @@ use crate::Error;
 
 use super::super::frame::Reader;
 use super::{
-    CommandContext, GuestCommand, MAX_ARGUMENTS, MAX_ENVIRONMENT, MAX_FIELD_BYTES, MAX_STDIN_BYTES,
-    MAX_USER_BYTES,
+    CommandContext, GuestCommand, MAX_ARGUMENT_BYTES, MAX_ARGUMENTS, MAX_ENVIRONMENT,
+    MAX_FIELD_BYTES, MAX_STDIN_BYTES, MAX_USER_BYTES,
 };
 
 impl GuestCommand {
@@ -50,7 +50,7 @@ impl GuestCommand {
         }
         let mut arguments = Vec::with_capacity(argument_count);
         for _ in 0..argument_count {
-            arguments.push(reader.field(MAX_FIELD_BYTES)?.to_vec());
+            arguments.push(reader.field(MAX_ARGUMENT_BYTES)?.to_vec());
         }
         let context = decode_context(&mut reader)?;
         reader.finish()?;

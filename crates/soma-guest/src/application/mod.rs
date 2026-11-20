@@ -9,8 +9,9 @@ mod pty;
 mod terminal;
 
 pub use command::{
-    CommandContext, EnvironmentPair, FIXED_BODY_SIZE, GuestCommand, MAX_ARGUMENTS, MAX_ENVIRONMENT,
-    MAX_FIELD_BYTES, MAX_STDIN_BYTES, MAX_TIMEOUT_MILLIS, MAX_USER_BYTES,
+    CommandContext, EnvironmentPair, FIXED_BODY_SIZE, GuestCommand, MAX_ARGUMENT_BYTES,
+    MAX_ARGUMENTS, MAX_ENVIRONMENT, MAX_FIELD_BYTES, MAX_STDIN_BYTES, MAX_TIMEOUT_MILLIS,
+    MAX_USER_BYTES,
 };
 pub(crate) use filesystem::check_path;
 pub use filesystem::{

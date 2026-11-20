@@ -1,8 +1,8 @@
 //! The machine's exec contract, applied before a machine is asked to run anything.
 //!
 //! This runner's own request type used to admit commands the sandbox runtime cannot run: one
-//! argument of up to 128 KiB, up to 4096 of them. The guest protocol carries at most 4 KiB in any
-//! one field and 64 arguments in a whole command. A command between the two was admitted here and
+//! argument of up to 128 KiB, up to 4096 of them. The guest protocol carries at most 32 KiB in one
+//! argument, 4 KiB in any other field, and 64 arguments in a whole command of one record. A command between the two was admitted here and
 //! refused later, inside the engine, and an exec that failed after it was admitted was not read as
 //! a refusal there: the engine released the machine and wrote its terminal phase. The caller lost
 //! the sandbox, and read the answer as an agent outage.
@@ -15,7 +15,8 @@
 //! engine refuse the same commands.
 
 use soma_guest::{
-    FIXED_BODY_SIZE, MAX_ARGUMENTS, MAX_BODY_SIZE, MAX_FIELD_BYTES, MAX_TIMEOUT_MILLIS,
+    FIXED_BODY_SIZE, MAX_ARGUMENT_BYTES, MAX_ARGUMENTS, MAX_BODY_SIZE, MAX_FIELD_BYTES,
+    MAX_TIMEOUT_MILLIS,
 };
 
 use super::super::public_wire::PlatformError;
@@ -113,11 +114,11 @@ pub(super) fn admit_in(
     }
     if let Some(argument) = arguments
         .iter()
-        .find(|argument| argument.len() > MAX_FIELD_BYTES)
+        .find(|argument| argument.len() > MAX_ARGUMENT_BYTES)
     {
         return Err(Refusal::TooLarge {
             field: "argument",
-            limit: MAX_FIELD_BYTES,
+            limit: MAX_ARGUMENT_BYTES,
             actual: argument.len(),
         });
     }
@@ -208,10 +209,18 @@ fn context_bytes(context: &soma::CommandContext) -> usize {
 /// `limit` and `actual` are the bytes of one field when a field is named, and body bytes when the
 /// field is the whole `command`.
 fn too_large(field: &str, limit: usize, actual: usize) -> PlatformError {
+    let unit = if field == "argument count" {
+        ""
+    } else {
+        " bytes"
+    };
     PlatformError::new(
         413,
         "RUNNER_COMMAND_TOO_LARGE",
-        "the command exceeds the sandbox runtime's exec contract",
+        &format!(
+            "the command exceeds the sandbox runtime's exec contract: {field} is {actual}{unit}, \
+             the limit is {limit}{unit}"
+        ),
         false,
     )
     .with_details(serde_json::json!({"field": field, "limit": limit, "actual": actual}))

@@ -49,18 +49,24 @@ So a host must know what the guest can do before it sends a new tag, and no roll
 
 These are deliberate, and a caller that exceeds one gets a named refusal, never an outage.
 
-- The executable and each argument may be at most 4096 bytes (`MAX_FIELD_BYTES` in the guest protocol), and the whole command at most 65459 bytes counted the way the guest codec counts it (one record less its fixed part).
-  A shell command run as `sh -lc <command>` is one argument, so a shell script longer than 4096 bytes is refused.
+- The executable may be at most 4096 bytes (`MAX_FIELD_BYTES` in the guest protocol), each argument at most 32768 bytes (`MAX_ARGUMENT_BYTES`), and the whole command at most 65459 bytes counted the way the guest codec counts it (one record less its fixed part).
+  A shell command run as `sh -lc <command>` is one argument, so a shell script longer than 32768 bytes is refused.
+- Amended on 2026-11-20 ([SOMA#138](https://github.com/Miosa-osa/SOMA/issues/138)): the argument bound was 4096 bytes, and a real client sends a 12 KB script as one argument (ComputeSDK's `cpu-burst` bench sends its workload as one heredoc in one `command` string), so that client could not run at all.
+  The command still travels as one `Execute` record, and the argument count (64) and the whole-command bound are unchanged.
+  32768 is what one record carries beside the rest of a command: the body is 65481 bytes, and a 32768-byte argument with its two length bytes leaves 32711 for the fixed part, the program, the other arguments and the context.
+  It is also the standard-input bound, so a script fits inline exactly when it fits on standard input.
+  An agent built before this amendment still decodes at most 4096 bytes per argument, and it ends the session on a record that carries more, so a larger argument works only on a Generation captured with an agent that has this bound.
 - The loopback `commands` route answers `413 command_too_large`, not retryable, and the message states both limits.
   The public runner already answered `413 RUNNER_COMMAND_TOO_LARGE` with the field and the limit.
   Before this change the loopback route answered a generic 400, and the control plane turned that into a retryable agent outage.
-- The limit is not raised: a larger argument buys nothing a file or standard input does not, and it would move the jailed road's control packet (16 KiB, hex encoded, so about 8 KiB of command and standard input together) closer to its own bound.
+- The command is not carried past one record: a larger command buys nothing a file or standard input does not, and the jailed road's control packet (16 KiB, hex encoded, so about 8 KiB of command and standard input together) refuses a large command before its worker is addressed either way.
   Large payloads go on standard input (32 KiB on the resident road, bounded by the packet on the jailed road) or into a file through the file API.
 
 ## Long scripts
 
 A shell command longer than one argument is not a dead end for the control plane.
 The loopback `commands` route accepts `stdin` (base64, at most 32768 bytes decoded, `413 stdin_too_large` past it), and the control plane sends a command of 4097 to 32768 bytes as a short wrapper in `sh -lc` with the script on standard input.
+Since the amendment above, a script of up to 32768 bytes also runs inline on a Generation whose agent has the new bound; the wrapper keeps working on every Generation.
 The wrapper reads all of standard input into a private (mode 0600) file, runs it with `sh`, removes the file, and exits with the script's status.
 Reading it all first means the script's own standard input is at end of file, never its remaining lines, which is what a command run directly sees.
 Past 32768 bytes the control plane answers `422 COMMAND_TOO_LARGE`, not retryable, with that limit.
