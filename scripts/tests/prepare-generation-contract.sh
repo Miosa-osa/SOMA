@@ -113,6 +113,12 @@ mkdir -p "$WORK/store" "$WORK/tools"
 
 CEILING_MIB=""
 unset SOMA_PREPARE_CEILING_MIB
+# An unstated shape is 1024 MiB with a 4096 MiB writable layer, a class profile version 1 admits;
+# 10240 MiB is not one, so the documented first Generation could not be certified (SOMA#150).
+parse_args node:22 "$WORK/store" "$WORK/tools"
+[[ "$MEM_MIB" == "1024" && "$DISK_MIB" == "4096" ]] || \
+    { printf 'default shape is %s MiB / %s MiB\n' "$MEM_MIB" "$DISK_MIB" >&2; exit 1; }
+
 parse_args node:22 "$WORK/store" "$WORK/tools" 2048 10240
 [[ -z "$CEILING_MIB" ]] || { printf 'no ceiling was asked for but got %s\n' "$CEILING_MIB" >&2; exit 1; }
 
