@@ -18,10 +18,10 @@
 //!   nothing is left for a sync to make durable.
 //! - `verify` is the conformance proof that two clones of one template diverge without
 //!   touching the template or each other.
-//! - [`shard`] spreads head creation over several directories and `fan` spreads cloning over
+//! - `shard` spreads head creation over several directories and `fan` spreads cloning over
 //!   several independent physical copies of one template, because a cohort of a hundred
 //!   launches serializes on both objects and removing only one of them buys nothing.
-//! - [`lease`], [`release`], and [`reconcile`] own single-use head ownership, destruction, and
+//! - [`lease`], `release`, and `reconcile` own single-use head ownership, destruction, and
 //!   the audit of a head directory against the ownership ledger.
 //! - `bench` is the retained measurement matrix behind the on-demand versus prepared-head
 //!   decision in `docs/evidence`.
