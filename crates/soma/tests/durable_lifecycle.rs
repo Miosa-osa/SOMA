@@ -10,3 +10,5 @@ mod listing;
 mod persistence;
 #[path = "durable_lifecycle/recovery.rs"]
 mod recovery;
+#[path = "durable_lifecycle/release.rs"]
+mod release;

@@ -252,6 +252,11 @@ impl Runner {
         let age = millis(self.keys.feed_age(Instant::now()));
         // The prepared pool's depth is not observable through the facade; it is reported as
         // unknown rather than as a number that would mean something else.
-        RunnerResponse::new(200, public_wire::health(self.config.host_tag, age, None))
+        let records = crate::retention::last_sweep()
+            .map(|sweep| u64::try_from(sweep.records).unwrap_or(u64::MAX));
+        RunnerResponse::new(
+            200,
+            public_wire::health(self.config.host_tag, age, None, records),
+        )
     }
 }

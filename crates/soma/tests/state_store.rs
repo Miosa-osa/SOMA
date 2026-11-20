@@ -50,6 +50,34 @@ fn create_and_compare_exchange_conflicts_fail_closed() {
 }
 
 #[test]
+fn release_removes_only_the_revision_it_names_and_frees_the_key() {
+    let key = instance();
+    let mut store = MemoryStateStore::new();
+    let record = StateRecord::from_bytes(b"terminal".to_vec()).expect("record");
+    store.create(&key, record.clone()).expect("create");
+
+    let stale = store
+        .release(&key, StateRevision::new(2).expect("revision"))
+        .expect_err("a stale revision is not released");
+    assert_eq!(stale.kind(), StateStoreFailureKind::Conflict);
+    assert!(store.load(&key).expect("load").is_some());
+
+    store
+        .release(&key, StateRevision::INITIAL)
+        .expect("release the current revision");
+    assert!(store.load(&key).expect("load").is_none());
+    assert!(store.list().expect("list").is_empty());
+    let absent = store
+        .release(&key, StateRevision::INITIAL)
+        .expect_err("an absent key conflicts");
+    assert_eq!(absent.kind(), StateStoreFailureKind::Conflict);
+    assert_eq!(
+        store.create(&key, record).expect("create again"),
+        StateRevision::INITIAL
+    );
+}
+
+#[test]
 fn records_and_revisions_enforce_portable_bounds() {
     assert!(StateRecord::from_bytes(Vec::new()).is_err());
     assert!(StateRecord::from_bytes(vec![0; MAX_STATE_RECORD_BYTES]).is_ok());

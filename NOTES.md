@@ -975,3 +975,11 @@ and is not one.
 The create vocabulary already carries `wait`, which this runner accepts and ignores as the door it replaces
 did. `wait_ready` is a second name for a similar idea rather than a reuse of the first, and the adapter is
 the place to decide what `wait: false` means, not the runner.
+
+Terminal machine records were never removed, and at benchmark volume host-04's 2G state tmpfs filled
+(SOMA#127). The runner turned out never to read a terminal record: it mints a fresh operation for every call
+and answers a repeated destroy from its own ten-minute memory, so the only reader is a loopback caller
+replaying its own operation. That is why the retention window is ten minutes and why it is counted from the
+first sweep that saw the record terminal rather than from a time stored in the record: no record carries a
+wall-clock time, and counting from the sweep makes a restart wait a whole window instead of releasing
+everything at once. [ADR 0055](docs/adr/0055-release-terminal-machine-records.md) states the rule.
