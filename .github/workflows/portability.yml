@@ -66,14 +66,18 @@ jobs:
             brew install shellcheck
           fi
 
+      # The repository scripts use bash 4 features such as associative arrays,
+      # and the bash macOS ships in /bin is 3.2. Both steps resolve bash the way a
+      # script's `#!/usr/bin/env bash` line does.
       - name: Ensure bash 4 or later is available
         run: |
-          # The repository scripts use bash 4 features such as associative arrays,
-          # and the bash macOS ships in /bin is 3.2.
-          if ! bash -c '(( BASH_VERSINFO[0] >= 4 ))'; then
+          if ! /usr/bin/env bash -c '(( BASH_VERSINFO[0] >= 4 ))'; then
             brew install bash
+            printf '%s/bin\n' "$(brew --prefix)" >> "$GITHUB_PATH"
           fi
-          bash -c '(( BASH_VERSINFO[0] >= 4 ))'
+
+      - name: Require bash 4 or later
+        run: /usr/bin/env bash -c 'printf "%s\n" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 4 ))'
 
       - name: Require Apple Silicon
         run: test "$(uname -m)" = "arm64"
