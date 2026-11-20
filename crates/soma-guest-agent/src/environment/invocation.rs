@@ -10,7 +10,9 @@ use std::os::unix::ffi::OsStrExt as _;
 use soma_guest::{EnvironmentPair, GuestCommand};
 
 use super::user::{self, Credentials};
-use super::{MAX_ARGUMENTS, MAX_ENVIRONMENT, MAX_FIELD_BYTES, WORKING_DIRECTORY, merge};
+use super::{
+    MAX_ARGUMENT_BYTES, MAX_ARGUMENTS, MAX_ENVIRONMENT, MAX_FIELD_BYTES, WORKING_DIRECTORY, merge,
+};
 
 /// Argument vector, environment, directory, and account for one direct `execve` without any
 /// shell.
@@ -60,7 +62,7 @@ impl Invocation {
         }
         let mut arguments = Vec::with_capacity(command.arguments().len());
         for argument in command.arguments() {
-            if argument.len() > MAX_FIELD_BYTES || argument.contains(&0) {
+            if argument.len() > MAX_ARGUMENT_BYTES || argument.contains(&0) {
                 return Err(InvalidInvocation::Argument);
             }
             arguments.push(os_string(argument));

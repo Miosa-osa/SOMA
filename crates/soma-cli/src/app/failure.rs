@@ -218,6 +218,15 @@ pub(super) fn backend_failure_details(
             FailureBody::new("workload_rejected", "workload was rejected", false),
             ProcessExit::InvalidInput,
         ),
+        BackendFailureKind::GuestAgentOutdated => (
+            FailureBody::new(
+                "guest_agent_outdated",
+                "the sandbox's guest agent cannot carry this command; capture its Generation \
+                 again with a newer agent",
+                false,
+            ),
+            ProcessExit::InvalidInput,
+        ),
         BackendFailureKind::Timeout => failure_details(RunFailureKind::TimedOut),
         BackendFailureKind::OutputLimit => failure_details(RunFailureKind::OutputLimitExceeded),
         BackendFailureKind::CleanupFailure => failure_details(RunFailureKind::CleanupIncomplete),

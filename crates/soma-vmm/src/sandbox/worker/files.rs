@@ -121,7 +121,7 @@ pub(super) fn perform<'a>(
 }
 
 /// Lowercase hexadecimal text of random bytes, which is alphanumeric as a probe nonce must be.
-fn nonce_text(bytes: &[u8]) -> String {
+pub(super) fn nonce_text(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut text = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

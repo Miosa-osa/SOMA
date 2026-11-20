@@ -28,6 +28,7 @@ fn every_refusal_means_the_same_kind_on_both_sides() {
         BackendFailureKind::Unavailable,
         BackendFailureKind::ResourceConflict,
         BackendFailureKind::WorkloadRejected,
+        BackendFailureKind::GuestAgentOutdated,
         BackendFailureKind::IsolationFailure,
         BackendFailureKind::GuestFailure,
         BackendFailureKind::Timeout,

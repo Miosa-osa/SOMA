@@ -3,7 +3,7 @@
 //! The runner's request types and the machine's protocol are two doors into the same engine, and
 //! these tests are what keeps the two sets of bounds one set.
 
-use soma_guest::{MAX_ARGUMENTS, MAX_FIELD_BYTES};
+use soma_guest::{MAX_ARGUMENT_BYTES, MAX_ARGUMENTS, MAX_FIELD_BYTES};
 
 use super::exec_contract::{Refusal, admit, admit_in};
 
@@ -17,7 +17,7 @@ fn the_facade_type_and_the_machine_state_one_exec_contract() {
 
     assert_eq!(DirectCommand::MAX_EXECUTABLE_BYTES, MAX_FIELD_BYTES);
     assert_eq!(DirectCommand::MAX_ARGUMENTS, MAX_ARGUMENTS);
-    assert_eq!(DirectCommand::MAX_ARGUMENT_BYTES, MAX_FIELD_BYTES);
+    assert_eq!(DirectCommand::MAX_ARGUMENT_BYTES, MAX_ARGUMENT_BYTES);
     assert_eq!(
         DirectCommand::MAX_AGGREGATE_BYTES,
         MAX_BODY_SIZE - FIXED_BODY_SIZE
@@ -65,9 +65,20 @@ fn every_command_the_shared_type_admits_is_one_the_machine_can_be_asked_to_run()
         .is_err()
     );
 
-    // And the two countable bounds agree too.
-    assert!(DirectCommand::new("/bin/true", vec!["a".repeat(MAX_FIELD_BYTES + 1)]).is_err());
-    assert!(DirectCommand::new("/bin/true", vec!["x"; MAX_ARGUMENTS + 1]).is_err());
+    // And the two countable bounds agree too, on both sides of each.
+    for (arguments, admitted) in [
+        (vec!["a".repeat(MAX_ARGUMENT_BYTES)], true),
+        (vec!["a".repeat(MAX_ARGUMENT_BYTES + 1)], false),
+        (vec!["x".to_owned(); MAX_ARGUMENTS], true),
+        (vec!["x".to_owned(); MAX_ARGUMENTS + 1], false),
+    ] {
+        let borrowed: Vec<&str> = arguments.iter().map(String::as_str).collect();
+        assert_eq!(
+            DirectCommand::new("/bin/true", arguments.clone()).is_ok(),
+            admitted
+        );
+        assert_eq!(admit("/bin/true", &borrowed, 30_000).is_ok(), admitted);
+    }
 }
 
 #[test]

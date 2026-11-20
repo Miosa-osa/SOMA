@@ -48,11 +48,12 @@ mod secret;
 pub use activation::{ActivationChallenge, ActivationReceipt, ActivationScope};
 pub use application::{
     CommandContext, DetailedEntry, DirectoryEntry, EntryKind, EnvironmentPair, FIXED_BODY_SIZE,
-    FileFailure, FileOutcome, FileRequest, GuestCommand, GuestMessage, HostMessage, MAX_ARGUMENTS,
-    MAX_BODY_SIZE, MAX_CHUNK_BYTES, MAX_ENTRIES, MAX_ENVIRONMENT, MAX_FIELD_BYTES, MAX_FILE_MODE,
-    MAX_PATH_BYTES, MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS,
-    MAX_STDIN_BYTES, MAX_TIMEOUT_MILLIS, MAX_USER_BYTES, OperationId, OutputChunk, PtyFailure,
-    PtyOutcome, PtyRequest, PtySize, TerminalReport, TerminalStatus,
+    FileFailure, FileOutcome, FileRequest, GuestCommand, GuestMessage, HostMessage,
+    LEVEL_TWO_ARGUMENT_BYTES, MAX_ARGUMENT_BYTES, MAX_ARGUMENTS, MAX_BODY_SIZE, MAX_CHUNK_BYTES,
+    MAX_ENTRIES, MAX_ENVIRONMENT, MAX_FIELD_BYTES, MAX_FILE_MODE, MAX_PATH_BYTES,
+    MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS, MAX_STDIN_BYTES,
+    MAX_TIMEOUT_MILLIS, MAX_USER_BYTES, OperationId, OutputChunk, PtyFailure, PtyOutcome,
+    PtyRequest, PtySize, TerminalReport, TerminalStatus,
 };
 pub use binding::SessionBinding;
 pub use capture_warm::{
@@ -92,6 +93,9 @@ pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
 
 /// The highest guest API level this release speaks (ADR 0051).
 ///
-/// The guest agent answers it at the [`GUEST_API_PROBE_PREFIX`] probe, and a host sends a level 2
-/// request only to a guest that answered at least 2, so any host and guest pair interoperate.
-pub const GUEST_API_LEVEL: u8 = 2;
+/// The guest agent answers it at the [`GUEST_API_PROBE_PREFIX`] probe, and a host sends a request
+/// of a level only to a guest that answered at least that level, so any host and guest pair
+/// interoperate. Level 2 adds stat, rename, ranged files, and detailed listings. Level 3 accepts
+/// an argument up to [`MAX_ARGUMENT_BYTES`] bytes in one `Execute` record, where an older guest
+/// decodes at most [`LEVEL_TWO_ARGUMENT_BYTES`].
+pub const GUEST_API_LEVEL: u8 = 3;

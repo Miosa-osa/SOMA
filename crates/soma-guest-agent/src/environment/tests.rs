@@ -62,10 +62,20 @@ fn local_bounds_match_the_wire_contract() {
     // two are bound to each other here rather than left to two literals that happen to agree.
     assert_eq!(MAX_ARGUMENTS, soma_guest::MAX_ARGUMENTS);
     assert_eq!(MAX_FIELD_BYTES, soma_guest::MAX_FIELD_BYTES);
+    assert_eq!(super::MAX_ARGUMENT_BYTES, soma_guest::MAX_ARGUMENT_BYTES);
     assert_eq!(super::MAX_ENVIRONMENT, 64);
     let sixty_four: Vec<&[u8]> = vec![b"x"; 64];
     assert!(Invocation::from_command(&command(b"/bin/true", &sixty_four)).is_ok());
     assert!(GuestCommand::new(b"bin/true".to_vec(), vec![], 1, 1).is_err());
+}
+
+#[test]
+fn an_argument_as_long_as_the_wire_carries_reaches_execve_whole() {
+    // A shell script is one argument; the agent hands the kernel exactly what the record carried.
+    let script = vec![b's'; super::MAX_ARGUMENT_BYTES];
+    let invocation = Invocation::from_command(&command(b"/bin/sh", &[b"-lc".as_slice(), &script]))
+        .expect("an argument at the bound");
+    assert_eq!(invocation.arguments()[1].len(), super::MAX_ARGUMENT_BYTES);
 }
 
 #[test]

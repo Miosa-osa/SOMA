@@ -50,7 +50,7 @@ A frame or message a build does not understand is refused, never guessed at.
 | Name | Between | Owner | Where the number travels | Skew rule |
 | --- | --- | --- | --- | --- |
 | `guest-application` | the host runtime and the guest agent | `soma_guest::APPLICATION_PROTOCOL_VERSION` | the header of every frame | Exact. The agent is built into each Generation, so a new number needs Generations rebuilt with the new agent, and a host that must keep running older Generations has to accept both numbers before any Generation carries the new one. |
-| `guest-api` | the host runtime and the guest agent | `soma_guest::GUEST_API_LEVEL` | the agent's answer to the level probe of ADR 0051 | Either side may be newer: a host sends a level 2 request only to a guest that answered at least 2. |
+| `guest-api` | the host runtime and the guest agent | `soma_guest::GUEST_API_LEVEL` | the agent's answer to the level probe of ADR 0051 | Either side may be newer: a host sends a request of a level only to a guest that answered at least that level. Level 2 is stat, rename and ranged files; level 3 is an argument of up to 32 KiB in one `Execute` record (4 KiB before). |
 | `launch-page` | the host runtime and the guest agent | `soma_guest::LAUNCH_PAGE_SCHEMA_VERSION` | the launch page itself | Exact: the page layout is part of what a Generation is certified with. |
 | `hostd` | the local runtime and `soma-hostd` | `soma_hostd::protocol::PROTOCOL_VERSION` | not carried | Lockstep: a host runs the daemon and its clients from one release, and an unknown frame is answered with the `Protocol` failure code. |
 | `netd` | the local runtime or `soma-hostd`, and `soma-netd` | `soma_netd::PROTOCOL_VERSION` | not carried | Lockstep, as for `hostd`. |
@@ -220,7 +220,7 @@ profile: release
 target: x86_64-unknown-linux-gnu
 api: 1.0
 protocol.guest-application: 1
-protocol.guest-api: 2
+protocol.guest-api: 3
 protocol.launch-page: 3
 protocol.hostd: 1
 protocol.netd: 1

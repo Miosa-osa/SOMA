@@ -63,7 +63,8 @@ fn hostile_command_bodies_are_rejected_before_use() {
     too_many_arguments[51..53].copy_from_slice(&65_u16.to_be_bytes());
     malformed.push(too_many_arguments);
     let mut oversized_argument = valid.clone();
-    oversized_argument[53..55].copy_from_slice(&4097_u16.to_be_bytes());
+    let past_bound = u16::try_from(soma_guest::MAX_ARGUMENT_BYTES + 1).expect("a u16 length");
+    oversized_argument[53..55].copy_from_slice(&past_bound.to_be_bytes());
     malformed.push(oversized_argument);
     let mut trailing_body = valid.clone();
     trailing_body.push(0);
