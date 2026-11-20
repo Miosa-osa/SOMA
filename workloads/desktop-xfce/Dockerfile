@@ -6,6 +6,7 @@
 #
 #   at-spi2-core          the accessibility bus cua-driver reads the AT-SPI tree from
 #   x11-utils, procps     xwininfo and pgrep, which the session waits on
+#   libglib2.0-bin        gdbus, which `cua-driver doctor` probes the accessibility bus with
 #   cua-driver            the pinned release binary, checked against its published SHA-256, with
 #                         telemetry and the update check off for every caller
 #   the session launcher  soma-desktop-session, run once through exec after the machine is Ready
@@ -30,11 +31,11 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus libxkbcommon0 libxi6 \
-      procps x11-utils \
+      libglib2.0-bin procps x11-utils \
  && apt-get clean \
  && find /var/lib/apt/lists -type f -delete \
  && test -x /usr/libexec/at-spi-bus-launcher \
- && command -v Xkasmvnc startxfce4 xfce4-terminal dbus-daemon setpriv setsid pgrep xwininfo
+ && command -v Xkasmvnc startxfce4 xfce4-terminal dbus-daemon setpriv setsid pgrep xwininfo gdbus
 
 # cua-driver, pinned. 0.55.0 is the newest release with published binaries, SHA256SUMS and
 # Sigstore bundles: the cua-driver-rs-v0.56.0 tag (trycua/cua 9c75001355, 2026-11-20) has no
