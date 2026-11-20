@@ -31,6 +31,23 @@ fn main() {
     process::exit(run());
 }
 
+/// Refuses a runner whose machines would need a network this host cannot give, by the key that
+/// asked for it, so the configuration fails here rather than every create (SOMA#56).
+fn refuse_unservable_network(config: &RunnerConfig, pool: &FacadePool<LocalFacade>) -> Option<i32> {
+    let Some(lease) = pool.acquire_timeout(POOL_WAIT_TIMEOUT) else {
+        eprintln!("soma-api: the local sandbox runtime could not be opened");
+        return Some(69);
+    };
+    let key = config
+        .launch
+        .unservable_network(|policy| lease.serves_network(policy))?;
+    eprintln!(
+        "soma-api: {key} gives the runner's machines a network this host cannot serve; set it \
+         to false, or give this host an egress broker"
+    );
+    Some(78)
+}
+
 fn run() -> i32 {
     // A machine host is not a request this service serves: it becomes the process that holds one
     // sandbox. The runtime starts one by re-entering this executable, so every binary that opens
@@ -106,6 +123,12 @@ fn run() -> i32 {
         eprintln!("soma-api: the local sandbox runtime could not be opened");
         return 69;
     };
+    if let Some(code) = runner_config
+        .as_ref()
+        .and_then(|config| refuse_unservable_network(config, &pool))
+    {
+        return code;
+    }
     if let Some(config) = runner_config {
         let runner_pool = pool.clone();
         let opener: runner::FacadeOpener = Arc::new(move || {

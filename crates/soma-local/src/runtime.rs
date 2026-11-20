@@ -51,6 +51,15 @@ impl LocalRuntime {
         self.backend_kind
     }
 
+    /// Whether this runtime can give a Machine the network `policy` describes.
+    ///
+    /// A configuration whose machines would need a network the host cannot give is refused when
+    /// it is loaded, rather than by every launch (SOMA#56).
+    #[must_use]
+    pub fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        self.engine.backend().serves_network(policy)
+    }
+
     /// Whether a Machine this runtime launches outlives the process that launched it.
     #[must_use]
     pub const fn machine_hosting(&self) -> crate::MachineHosting {

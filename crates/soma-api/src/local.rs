@@ -34,6 +34,12 @@ impl LocalFacade {
             volumes: VolumeClient::from_env(),
         })
     }
+
+    /// Whether this facade's runtime can give a sandbox the network `policy` describes.
+    #[must_use]
+    pub fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        self.runtime.serves_network(policy)
+    }
 }
 
 impl SandboxFacade for LocalFacade {
