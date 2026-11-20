@@ -59,12 +59,16 @@ impl Runner {
         let Ok(params) = Params::read(request.query.as_deref(), b"") else {
             return refused(&FileError::invalid_query());
         };
-        let reader = request
+        // The form is looked at before the body is taken, so a request that is not one is
+        // refused without a byte of its body read.
+        let Some(reader) = request
             .content_type
             .as_deref()
-            .and_then(Multipart::for_content_type);
-        let chunks = request.streamed.as_ref().and_then(StreamedBody::take);
-        let (Some(reader), Some(chunks)) = (reader, chunks) else {
+            .and_then(Multipart::for_content_type)
+        else {
+            return refused(&FileError::missing_file());
+        };
+        let Some(chunks) = request.streamed.as_ref().and_then(StreamedBody::take) else {
             return refused(&FileError::missing_file());
         };
         let mut writing = None;

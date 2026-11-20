@@ -9,12 +9,18 @@
 //! The transport still bounds what it will carry, in total and in time: a body larger than the
 //! route accepts, or one that stops moving for as long as a whole body is allowed to take to
 //! arrive elsewhere, ends with a fault rather than a short body that would read as complete.
+//!
+//! The transport does not touch the body until the route takes it. A request the runner refuses
+//! first (another runner's sandbox, a sandbox that does not exist, a malformed form) is answered
+//! without a byte of its body read, so a client that sent `Expect: 100-continue` is never told
+//! to send a file nobody will read, and a proxy in front can still send the unread body
+//! somewhere else.
 
 use std::sync::{Arc, Mutex};
 
 use bytes::{Buf, Bytes};
 use http_body_util::BodyExt;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::runner::limits::BODY_READ_TIMEOUT;
 
@@ -37,20 +43,44 @@ pub type BodyChunk = Result<Bytes, BodyFault>;
 
 /// The receiving end of a streamed body; taken once, by the route that reads it.
 #[derive(Clone, Default)]
-pub struct StreamedBody(Arc<Mutex<Option<mpsc::Receiver<BodyChunk>>>>);
+pub struct StreamedBody(Arc<Mutex<Option<Taken>>>);
+
+type Taken = (mpsc::Receiver<BodyChunk>, oneshot::Sender<()>);
+
+/// The transport's end of a streamed body: a sender it may use once the route takes the body.
+#[derive(Debug)]
+pub struct Feeder {
+    sender: mpsc::Sender<BodyChunk>,
+    taken: oneshot::Receiver<()>,
+}
+
+impl Feeder {
+    /// Waits until the route takes the body; `None` when the request ended without taking it.
+    pub async fn wait(self) -> Option<mpsc::Sender<BodyChunk>> {
+        self.taken.await.ok().map(|()| self.sender)
+    }
+}
 
 impl StreamedBody {
-    /// A body and the sender its transport feeds.
+    /// A body and the feeder its transport fills it from.
     #[must_use]
-    pub fn channel() -> (mpsc::Sender<BodyChunk>, Self) {
+    pub fn channel() -> (Feeder, Self) {
         let (sender, receiver) = mpsc::channel(CHUNKS_IN_FLIGHT);
-        (sender, Self(Arc::new(Mutex::new(Some(receiver)))))
+        let (start, taken) = oneshot::channel();
+        (
+            Feeder { sender, taken },
+            Self(Arc::new(Mutex::new(Some((receiver, start))))),
+        )
     }
 
-    /// The chunks, for the one reader that takes them.
+    /// The chunks, for the one reader that takes them; taking them starts the transport.
     #[must_use]
     pub fn take(&self) -> Option<mpsc::Receiver<BodyChunk>> {
-        self.0.lock().map_or(None, |mut slot| slot.take())
+        let (receiver, start) = self.0.lock().ok()?.take()?;
+        // The transport may already have gone, with the request; then nothing will arrive and
+        // the reader sees the channel end.
+        let _started = start.send(());
+        Some(receiver)
     }
 }
 
@@ -60,12 +90,12 @@ impl std::fmt::Debug for StreamedBody {
     }
 }
 
-/// Feeds an HTTP/1.1 or HTTP/2 body into `sender` until it ends, faults, or its reader leaves.
-pub async fn pump_hyper(
-    mut body: hyper::body::Incoming,
-    sender: mpsc::Sender<BodyChunk>,
-    limit: u64,
-) {
+/// Feeds an HTTP/1.1 or HTTP/2 body to its reader, once taken, until it ends, faults, or its
+/// reader leaves.
+pub async fn pump_hyper(mut body: hyper::body::Incoming, feeder: Feeder, limit: u64) {
+    let Some(sender) = feeder.wait().await else {
+        return;
+    };
     let mut carried = 0_u64;
     loop {
         let chunk = match tokio::time::timeout(BODY_READ_TIMEOUT, body.frame()).await {
@@ -87,9 +117,12 @@ pub async fn pump_hyper(
 /// Feeds an HTTP/3 request body into `sender`, as [`pump_hyper`] does.
 pub async fn pump_h3(
     mut stream: h3::server::RequestStream<h3_quinn::RecvStream, Bytes>,
-    sender: mpsc::Sender<BodyChunk>,
+    feeder: Feeder,
     limit: u64,
 ) {
+    let Some(sender) = feeder.wait().await else {
+        return;
+    };
     let mut carried = 0_u64;
     loop {
         let chunk = match tokio::time::timeout(BODY_READ_TIMEOUT, stream.recv_data()).await {
@@ -131,9 +164,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_body_past_its_limit_ends_with_a_fault_rather_than_a_short_body() {
-        let (sender, body) = StreamedBody::channel();
+        let (feeder, body) = StreamedBody::channel();
         let mut receiver = body.take().expect("the first reader takes it");
         assert!(body.take().is_none(), "and only the first");
+        let sender = feeder.wait().await.expect("taken");
         let mut carried = 0;
         assert!(forward(&sender, Ok(Bytes::from_static(b"abc")), &mut carried, 4).await);
         assert!(!forward(&sender, Ok(Bytes::from_static(b"de")), &mut carried, 4).await);
@@ -143,9 +177,17 @@ mod tests {
 
     #[tokio::test]
     async fn a_reader_that_left_stops_the_transport() {
-        let (sender, body) = StreamedBody::channel();
+        let (feeder, body) = StreamedBody::channel();
         drop(body.take());
+        let sender = feeder.wait().await.expect("taken");
         let mut carried = 0;
         assert!(!forward(&sender, Ok(Bytes::from_static(b"a")), &mut carried, 10).await);
+    }
+
+    #[tokio::test]
+    async fn a_body_nobody_takes_is_never_read() {
+        let (feeder, body) = StreamedBody::channel();
+        drop(body);
+        assert!(feeder.wait().await.is_none());
     }
 }

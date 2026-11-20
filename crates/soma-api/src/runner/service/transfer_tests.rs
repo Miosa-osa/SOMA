@@ -48,8 +48,12 @@ async fn upload(
     body: Vec<u8>,
     chunk: usize,
 ) -> RunnerResponse {
-    let (sender, streamed) = StreamedBody::channel();
+    let (feeder, streamed) = StreamedBody::channel();
     let feeding = tokio::spawn(async move {
+        // As the transport does, nothing is sent until the route takes the body.
+        let Some(sender) = feeder.wait().await else {
+            return;
+        };
         for piece in body.chunks(chunk) {
             if sender
                 .send(Ok(Bytes::copy_from_slice(piece)))
