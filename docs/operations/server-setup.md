@@ -209,6 +209,13 @@ Nothing changes until the same request is sent with `"apply": true`.
 Each family keeps its newest certified entry older than its pin as a rollback target; add `"keep_previous": false` to drop it in the families your `keep` list pins.
 [ADR 0054](../adr/0054-release-prepared-generations.md) states the keep rule and what refuses a removal.
 
+## Terminal sandbox records
+
+`soma-api` keeps a destroyed or failed sandbox's durable record for ten minutes, so an exact repeated request still gets its first answer, and then releases it.
+A sweep runs every minute; after a restart, records the earlier process left are released ten minutes after the first sweep.
+The runner's `/healthz` reports `state_records`, the records the state store held after the last sweep; a number that keeps growing is a store that is filling.
+[ADR 0055](../adr/0055-release-terminal-machine-records.md) states the rule.
+
 ## What this gives you, and what it does not
 
 **What works today.** Hardware-isolated sandboxes restored from a certified snapshot and driven through the command line, MCP, or HTTP surfaces on a compatible KVM host, including a bounded prepared-machine HTTP path.

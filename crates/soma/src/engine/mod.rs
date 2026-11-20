@@ -9,6 +9,7 @@ mod managed_launch;
 mod managed_list;
 mod managed_pty;
 mod managed_receipt;
+mod managed_release;
 mod managed_state;
 mod managed_termination;
 mod managed_types;
@@ -21,6 +22,7 @@ pub use managed::{ManagedFailure, ManagedStateError, ReplayEvidence};
 pub use managed_file::{FileMachineRequest, MachineFile};
 pub use managed_list::{MachineListing, SandboxEntry, SandboxPhase, UnreadableRecord};
 pub use managed_pty::{MachinePty, PtyMachineRequest};
+pub use managed_release::{MachineRelease, TerminalCensus};
 pub use managed_types::{
     DestroyMachineRequest, ExecuteMachineRequest, InspectMachineRequest, LaunchMachineRequest,
     MachineDestroy, MachineExecution, MachineInspection, MachineLaunch, MachineStop,

@@ -141,7 +141,7 @@ fn of_active(
 }
 
 /// A record the store holds that could be read from disk but not decoded as a machine.
-const fn is_unreadable_record(kind: StateStoreFailureKind) -> bool {
+pub(super) const fn is_unreadable_record(kind: StateStoreFailureKind) -> bool {
     matches!(
         kind,
         StateStoreFailureKind::InvalidRecord

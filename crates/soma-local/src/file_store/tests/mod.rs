@@ -2,6 +2,7 @@ mod concurrency;
 mod durability;
 mod enumeration;
 mod recovery;
+mod release;
 #[cfg(unix)]
 mod security;
 

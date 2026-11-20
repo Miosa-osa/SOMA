@@ -10,12 +10,18 @@ pub(crate) struct TempRoot(PathBuf);
 
 impl TempRoot {
     pub(crate) fn new(label: &str) -> Self {
+        Self::under(&std::env::temp_dir(), label)
+    }
+
+    /// A root under `base` instead of the system temporary directory, for a test that needs a
+    /// particular filesystem.
+    pub(crate) fn under(base: &Path, label: &str) -> Self {
         let nonce = NEXT_ROOT.fetch_add(1, Ordering::Relaxed);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
+        let path = base.join(format!(
             "soma-local-test-{}-{label}-{nanos}-{nonce}",
             std::process::id()
         ));
