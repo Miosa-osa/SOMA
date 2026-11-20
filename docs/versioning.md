@@ -1,5 +1,19 @@
 # SOMA versioning and releases
 
+## The three versions
+
+SOMA has three kinds of version, and each has one owner in the code.
+
+| Version | Owner | Definition |
+| --- | --- | --- |
+| Release | `VERSION`, `[workspace.package]` in `Cargo.toml`, read in code as `soma_version::RELEASE` | The Semantic Versioning number of one tagged source tree, shared by every crate and every binary built from it. |
+| API | `soma_api::API_VERSION` | The `MAJOR.MINOR` of the HTTP surface `soma-api` serves under `/v1`, which every response names and a client may require. |
+| Protocol | one constant per protocol, in the crate that owns its encoding | The version of one wire protocol between two SOMA processes, which every binary that speaks it lists. |
+
+The release version says which source a binary came from, the API version says what a client of the service may rely on, and the protocol versions say which processes can talk to each other.
+They move independently: a release can leave the API and every protocol unchanged, and a protocol can change without changing the API.
+[The API surface](protocol/api-surface.md) records every API version and its compatibility rule.
+
 ## Version line
 
 SOMA follows Semantic Versioning 2.0.0.
@@ -35,6 +49,7 @@ A frame or message a build does not understand is refused, never guessed at.
 | `hostd` | the local runtime and `soma-hostd` | `soma_hostd::protocol::PROTOCOL_VERSION` | not carried | Lockstep: a host runs the daemon and its clients from one release, and an unknown frame is answered with the `Protocol` failure code. |
 | `netd` | the local runtime or `soma-hostd`, and `soma-netd` | `soma_netd::PROTOCOL_VERSION` | not carried | Lockstep, as for `hostd`. |
 | `vmm-control` | the jail supervisor and the `soma-vmm` worker | `soma_vmm::control::CONTROL_PROTOCOL_VERSION` | not carried | Lockstep: the worker is executed from the installed release for each launch. |
+| `runner` | the public runner in `soma-api` and the control plane | `soma_api::runner::control_plane::RUNNER_PROTOCOL_VERSION` | the `soma-runner-protocol` header of every feed and journal request | The control plane may be newer and must keep serving every version still installed on a host; a runner skips and logs a feed event it does not know, so new event kinds are additive. |
 
 The exchange between a client and its resident machine host has no number on purpose.
 A resident machine host outlives an upgrade of the binary that started it, so a newer client talking to an older host is the normal case.
@@ -87,15 +102,19 @@ commit-date: 2026-11-20T18:04:11Z
 source: clean
 profile: release
 target: x86_64-unknown-linux-gnu
+api: 1.0
 protocol.guest-application: 1
 protocol.guest-api: 2
 protocol.launch-page: 3
 protocol.hostd: 1
 protocol.netd: 1
+protocol.runner: 1
 ```
 
 The binaries are `soma`, `soma-mcp`, `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, and `soma-guest-agent`.
 The first line is for people and the `key: value` lines after it are a stable contract, which `soma_version::ParsedReport` reads back.
+`api` appears only for `soma-api`, and each binary lists only the protocols it speaks.
+A running `soma-api` reports the same facts at `GET /v1/version`.
 `source` is `clean` when every file Git does not ignore matched the commit, `dirty` when one did not, and `unknown` when the build was not told.
 A dirty build also marks its first line, as in `(2ec3789c4f1a-dirty 2026-11-20)`.
 `soma version --format json` carries the same facts in the `soma.cli.v1` envelope.

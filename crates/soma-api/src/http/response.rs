@@ -3,8 +3,9 @@ use std::io::{self, Write};
 /// One HTTP response: a status and a JSON body.
 ///
 /// The service has exactly one media type, so there is no content negotiation and no header map.
-/// Anything a caller could vary here would be a promise the service does not keep. The one
-/// optional header is `Retry-After`, which a refusal that should be retried elsewhere carries.
+/// Anything a caller could vary here would be a promise the service does not keep. Every response
+/// names the API version it was served under in `soma-api-version`, and the one optional header
+/// is `Retry-After`, which a refusal that should be retried elsewhere carries.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Response {
     pub status: u16,
@@ -60,10 +61,13 @@ impl Response {
              content-type: application/json\r\n\
              content-length: {}\r\n\
              cache-control: no-store\r\n\
-             connection: {connection}\r\n",
+             connection: {connection}\r\n\
+             {}: {}\r\n",
             self.status,
             reason(self.status),
             self.body.len(),
+            crate::version::API_VERSION_HEADER,
+            crate::version::API_VERSION,
         )?;
         if let Some(seconds) = self.retry_after_seconds {
             write!(response, "retry-after: {seconds}\r\n")?;
