@@ -26,7 +26,9 @@ concurrency:
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_TERM_COLOR: always
-  RELEASE_TAG_INPUT: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  # A pushed tag names itself. A manual run takes its input, which may be empty; the push case
+  # comes first because an empty input would make `a && b || c` fall through to the branch name.
+  RELEASE_TAG_INPUT: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
   RUST_BACKTRACE: "1"
   RUST_TOOLCHAIN: "1.98.0"
 
