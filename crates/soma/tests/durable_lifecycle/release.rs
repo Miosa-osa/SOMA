@@ -19,7 +19,7 @@ fn destroy(digit: char, instance_id: InstanceId) -> DestroyMachineRequest {
     DestroyMachineRequest::new(operation(digit), instance_id)
 }
 
-fn not_found<T: std::fmt::Debug>(result: Result<T, ManagedFailure>) -> bool {
+fn not_found<T: std::fmt::Debug>(result: &Result<T, ManagedFailure>) -> bool {
     matches!(
         result,
         Err(ManagedFailure::State(ManagedStateError::MachineNotFound))
@@ -86,9 +86,9 @@ fn a_destroy_replays_until_its_record_is_released_and_then_reads_as_never_create
 
     engine.release_machine(&instance()).expect("release");
 
-    assert!(not_found(engine.destroy_machine(destroy('2', instance()))));
-    assert!(not_found(engine.destroy_machine(destroy('4', instance()))));
-    assert!(not_found(engine.inspect_machine(
+    assert!(not_found(&engine.destroy_machine(destroy('2', instance()))));
+    assert!(not_found(&engine.destroy_machine(destroy('4', instance()))));
+    assert!(not_found(&engine.inspect_machine(
         InspectMachineRequest::new(operation('5'), instance())
     )));
     engine
