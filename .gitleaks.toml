@@ -5,3 +5,7 @@ useDefault = true
 [[allowlists]]
 description = "Throwaway TLS keys for the runner integration tests, issued by a test CA whose key was discarded"
 paths = ['''^crates/soma-api/tests/fixtures/runner/[a-z-]+-key\.pem$''']
+
+[[allowlists]]
+description = "The sample WebSocket key from RFC 6455 section 1.3, a public constant used to open a test upgrade"
+regexes = ['''dGhlIHNhbXBsZSBub25jZQ==''']
