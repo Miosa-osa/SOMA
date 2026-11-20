@@ -170,11 +170,12 @@ fn spawn(invocation: &Invocation, stdin: &[u8]) -> Result<Child, i32> {
     if let Some(credentials) = invocation.credentials() {
         builder.uid(credentials.uid).gid(credentials.gid);
     }
-    // The agent runs at `SCHED_FIFO` (see `crate::priority`), and a forked child inherits the
-    // policy across `execve`. The workload is dropped back to the default band before it starts so
-    // the agent always outranks the command it supervises, and a command that spins cannot hold
-    // the realtime band against the agent that would answer the next request.
-    crate::priority::reset_child_policy(&mut builder);
+    // No `pre_exec` hook, on purpose: any hook forces the standard library to `fork()` the agent,
+    // while without one a command that names no account is started with `posix_spawn`, which
+    // neither copies the agent's page tables nor leaves its pages copy-on-write. The workload
+    // still never starts in the agent's realtime band: the agent holds the band with
+    // `SCHED_RESET_ON_FORK`, so the kernel starts this child at the default policy (see
+    // `crate::priority`).
     let mut child = builder
         .spawn()
         .map_err(|error| error.raw_os_error().unwrap_or(libc::EIO))?;
