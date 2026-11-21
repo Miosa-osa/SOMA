@@ -6,7 +6,9 @@ use crate::{Backend, Milestone, MilestoneKind, StateStore, TerminalStatus};
 
 use super::{
     DestroyMachineRequest, Engine, MachineDestroy, MachineStop, ManagedFailure, RunFailureKind,
-    StopMachineRequest, managed_receipt::operation_failure,
+    StopMachineRequest,
+    machine_state::{DurableMachine, DurablePhase},
+    managed_receipt::operation_failure,
 };
 
 use self::{
@@ -83,6 +85,17 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             cleanup.evidence,
         );
         if !cleanup.complete {
+            // #173: the machine is still owned, so the record goes back to active and a later destroy
+            // retries it. Left terminating, every later request (a new operation id) answered 409 for good.
+            let mut back = DurableMachine::active(
+                instance_id.clone(),
+                admission.active.launch_receipt.clone(),
+            );
+            back.phase = DurablePhase::Active {
+                active: Box::new(admission.active.clone()),
+            };
+            // The cleanup failure is the answer; a store refusal here leaves the record as it was.
+            let _ = self.replace_machine(admission.revision, &back);
             return Err(ManagedFailure::operation(operation_failure(
                 cleanup
                     .failure_kind

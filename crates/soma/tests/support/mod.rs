@@ -34,6 +34,8 @@ pub enum Mode {
     CommandIdentityMismatch,
     NonMonotonicCommand,
     CleanupFailure,
+    /// The first cleanup fails part way; every later one succeeds.
+    CleanupFailsOnce,
     FailureTimeRegression,
     CleanupFailureTimeRegression,
     BinaryOutput,
