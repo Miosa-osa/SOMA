@@ -144,6 +144,65 @@ pub(super) fn pty(
 ///
 /// A socket nothing answers on is removed by the connect itself, so a host that died leaves no
 /// name behind for a second listing to report.
+/// Asks the owning host to confirm that guest execution is paused.
+pub(crate) fn pause(directory: &Path, instance: &InstanceId) -> Result<(), crate::PauseFailure> {
+    let call = Call::Pause {
+        instance_id: instance.clone(),
+    };
+    match ask(directory, instance, &call, CONTROL_CEILING) {
+        Ok(Answer::Paused) => Ok(()),
+        Ok(Answer::PauseRefused(failure)) => Err(failure),
+        Err(HostFailure::Absent) => Err(crate::PauseFailure::NotFound),
+        _ => Err(crate::PauseFailure::Unavailable),
+    }
+}
+
+/// Asks the owning host to confirm that guest execution is resumed.
+pub(crate) fn resume(directory: &Path, instance: &InstanceId) -> Result<(), crate::ResumeFailure> {
+    let call = Call::Resume {
+        instance_id: instance.clone(),
+    };
+    match ask(directory, instance, &call, CONTROL_CEILING) {
+        Ok(Answer::Resumed) => Ok(()),
+        Ok(Answer::ResumeRefused(failure)) => {
+            eprintln!("soma: owning host refused resident resume: {failure:?}");
+            Err(failure)
+        }
+        Err(HostFailure::Absent) => Err(crate::ResumeFailure::NotFound),
+        Err(HostFailure::Refused(kind)) => {
+            eprintln!("soma: resident resume host exchange failed: {kind:?}");
+            Err(crate::ResumeFailure::Unavailable)
+        }
+        Ok(_) => {
+            eprintln!("soma: owning host returned an unexpected resume receipt");
+            Err(crate::ResumeFailure::Unavailable)
+        }
+    }
+}
+
+/// Asks the owning host to durably checkpoint its running Instance.
+pub(crate) fn checkpoint(
+    directory: &Path,
+    instance: &InstanceId,
+    operation: &soma::OperationId,
+) -> Result<crate::CheckpointReceipt, crate::CheckpointFailure> {
+    let call = Call::Checkpoint {
+        instance_id: instance.clone(),
+        operation_id: operation.clone(),
+    };
+    let ceiling = super::checkpoint::CHECKPOINT_CEILING + CONTROL_CEILING;
+    match ask(directory, instance, &call, ceiling) {
+        Ok(Answer::Checkpointed(receipt))
+            if &receipt.instance_id == instance && &receipt.checkpoint_id == operation =>
+        {
+            Ok(receipt)
+        }
+        Ok(Answer::CheckpointRefused(failure)) => Err(failure),
+        Err(HostFailure::Absent) => Err(crate::CheckpointFailure::NotFound),
+        _ => Err(crate::CheckpointFailure::Unconfirmed),
+    }
+}
+
 /// Asks the host that holds `instance` to change its CPU and memory live.
 pub(crate) fn resize(
     directory: &Path,

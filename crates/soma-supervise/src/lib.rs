@@ -21,4 +21,7 @@ mod supervise;
 pub use capture::CAPTURE_LIMIT;
 pub use contained::{Contained, Output, TERMINATION_GRACE, Uncontained};
 #[cfg(target_os = "linux")]
-pub use handoff::{DescriptorHandoffError, receive_descriptors, send_descriptors};
+pub use handoff::{
+    DescriptorHandoffError, receive_descriptor_packet, receive_descriptors, send_descriptor_packet,
+    send_descriptors,
+};

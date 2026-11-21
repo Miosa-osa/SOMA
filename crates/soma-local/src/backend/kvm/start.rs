@@ -64,10 +64,13 @@ pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> Backen
         | SessionError::Execute
         | SessionError::File
         | SessionError::Pty
+        | SessionError::Pause
+        | SessionError::Resume
         | SessionError::Gone
         | SessionError::Poisoned => BackendFailureKind::GuestFailure,
         // Refused with nothing sent; the engine keeps the sandbox, as for any refusal before run.
         SessionError::GuestAgentOutdated => BackendFailureKind::GuestAgentOutdated,
+        SessionError::GuestPaused => BackendFailureKind::SandboxPaused,
     }
 }
 

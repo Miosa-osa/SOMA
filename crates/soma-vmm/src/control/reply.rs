@@ -1,4 +1,4 @@
-use crate::{Executed, Failure, Milestone, Ready, Stopped};
+use crate::{Executed, Failure, InstanceId, Milestone, Ready, Stopped};
 
 use super::field::hex;
 
@@ -13,6 +13,10 @@ pub enum Reply<'a> {
     Ready(&'a Ready),
     Executed(&'a Executed),
     Stopped(&'a Stopped),
+    Paused(InstanceId),
+    Resumed(InstanceId),
+    Checkpointed(InstanceId, [u8; 32]),
+    CheckpointUnconfirmed,
     Failure(&'a Failure),
     /// One bounded window of a completed command's output.
     Output(&'a [u8]),
@@ -53,6 +57,12 @@ impl Reply<'_> {
                 executed.stdout().len(),
                 executed.stderr().len(),
             ),
+            Self::Paused(instance) => format!("paused instance={}", hex(instance.as_bytes())),
+            Self::Resumed(instance) => format!("resumed instance={}", hex(instance.as_bytes())),
+            Self::Checkpointed(instance, digest) => {
+                format!("checkpointed {} {}", hex(instance.as_bytes()), hex(digest))
+            }
+            Self::CheckpointUnconfirmed => "checkpoint_unconfirmed".to_owned(),
             Self::Stopped(stopped) => format!(
                 "stopped operation={} instance={} acknowledged={} forced={} cleanup={:?} \
                  milestones={}",

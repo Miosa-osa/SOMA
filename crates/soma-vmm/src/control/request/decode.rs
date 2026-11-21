@@ -220,3 +220,39 @@ pub(super) fn decode_stop<'a>(
     end(tokens)?;
     Ok(Request::Stop(Stop::new(operation, instance)))
 }
+
+pub(super) fn decode_instance<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<InstanceId, ControlError> {
+    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    end(tokens)?;
+    Ok(instance)
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(super) fn decode_checkpoint<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<crate::sandbox::CheckpointSource, ControlError> {
+    let instance_id = identifier(tokens.next(), "instance")?;
+    InstanceId::new(instance_id).map_err(|_| ControlError::InvalidValue("instance"))?;
+    let candidate_id = identifier(tokens.next(), "candidate")?;
+    let root_digest =
+        soma_kvm::snapshot::Digest::from_bytes(identifier(tokens.next(), "root digest")?);
+    let version = number(tokens.next(), "machine contract")?;
+    let contract = soma_kvm::MachineContract::require(version)
+        .map_err(|_| ControlError::InvalidValue("machine contract"))?;
+    let has_overlay = match tokens.next() {
+        Some("0") => false,
+        Some("1") => true,
+        _ => return Err(ControlError::InvalidValue("overlay")),
+    };
+    end(tokens)?;
+    Ok(crate::sandbox::CheckpointSource {
+        instance_id,
+        candidate_id,
+        root_digest,
+        contract,
+        has_overlay,
+    })
+}

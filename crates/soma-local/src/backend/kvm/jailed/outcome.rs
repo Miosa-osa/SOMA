@@ -149,7 +149,9 @@ const fn refusal(kind: FailureKind) -> BackendFailureKind {
         | FailureKind::IdentityRepairFailed
         | FailureKind::NetworkRepairFailed
         | FailureKind::ReadinessProbeFailed
-        | FailureKind::ExecuteFailed => BackendFailureKind::GuestFailure,
+        | FailureKind::ExecuteFailed
+        | FailureKind::PauseFailed
+        | FailureKind::ResumeFailed => BackendFailureKind::GuestFailure,
         FailureKind::StopFailed => BackendFailureKind::CleanupFailure,
     }
 }

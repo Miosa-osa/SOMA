@@ -5,6 +5,7 @@
 //! them apart is what lets the two launch paths share this half without sharing the other.
 
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
 
 use soma_guest::{GuestApi, GuestCommand, OperationId, RepairedHostControl};
 use soma_kvm::head_reads::HeadSpan;
@@ -19,9 +20,8 @@ use super::{files, pty};
 
 /// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
 ///
-/// It reports how the loop ended, because the two endings finish the machine differently: a
-/// guest that acknowledged shutdown is left the grace to leave `KVM_RUN` on its own, and an
-/// aborted one is not given any.
+/// Reports how the loop ended so only a guest that acknowledged shutdown is given time to
+/// leave `KVM_RUN` on its own.
 pub(super) fn serve_commands(
     machine: &SandboxMachine,
     mut repaired: RepairedHostControl<HostIo<'_>>,
@@ -44,6 +44,17 @@ pub(super) fn serve_commands(
     // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
     // shut down exactly as an explicit shutdown would.
     while let Ok(request) = requests.recv() {
+        if machine.is_paused()
+            && !matches!(
+                request,
+                Request::Pause | Request::Resume | Request::Shutdown | Request::Abort
+            )
+        {
+            responses
+                .send(Response::GuestPaused)
+                .map_err(|_| SessionError::Gone)?;
+            continue;
+        }
         if let Request::Execute(command) | Request::ExecuteStreaming(command) = &request {
             let (next, admitted) = admit(repaired, command, &mut guest_api, responses)?;
             repaired = next;
@@ -65,19 +76,7 @@ pub(super) fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::Execute(command) => {
-                let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
-                let (next, outcome) = repaired
-                    .execute(operation, command)
-                    .map_err(|_| SessionError::Execute)?;
-                repaired = next;
-                machine.mark(Milestone::Execute);
-                responses
-                    .send(Response::Executed(Box::new(Completed {
-                        status: outcome.status(),
-                        stdout: outcome.stdout().to_vec(),
-                        stderr: outcome.stderr().to_vec(),
-                    })))
-                    .map_err(|_| SessionError::Gone)?;
+                repaired = run_command(machine, repaired, command, responses)?;
             }
             Request::ExecuteStreaming(command) => {
                 repaired = stream_command(machine, repaired, command, responses)?;
@@ -113,11 +112,47 @@ pub(super) fn serve_commands(
             // pool only ever sends this to a parked sterile worker, so reaching it here means
             // the session is being addressed by something that does not own it.
             Request::Assign(_) => return Err(SessionError::Execute),
+            Request::Pause => {
+                machine
+                    .pause(Duration::from_secs(2))
+                    .map_err(|_| SessionError::Pause)?;
+                responses
+                    .send(Response::Paused)
+                    .map_err(|_| SessionError::Gone)?;
+            }
+            Request::Resume => {
+                resume(machine)?;
+                responses
+                    .send(Response::Resumed)
+                    .map_err(|_| SessionError::Gone)?;
+            }
+            Request::Checkpoint(job) => {
+                responses
+                    .send(Response::Checkpointed(job.capture(machine).map(Box::new)))
+                    .map_err(|_| SessionError::Gone)?;
+            }
             Request::Shutdown => break,
             // The guest is not told. The session is abandoned with the machine, which the
             // caller finishes without waiting for a guest that was never asked to leave.
             Request::Abort => return Ok(Ending::Aborted),
         }
+    }
+    end_session(machine, repaired)
+}
+
+fn resume(machine: &SandboxMachine) -> Result<(), SessionError> {
+    machine.resume().map_err(|error| {
+        eprintln!("soma-vmm: resident resume failed: {error}");
+        SessionError::Resume
+    })
+}
+
+fn end_session(
+    machine: &SandboxMachine,
+    repaired: RepairedHostControl<HostIo<'_>>,
+) -> Result<Ending, SessionError> {
+    if machine.is_paused() {
+        return Ok(Ending::ReleasedWhilePaused);
     }
     let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
     repaired
@@ -149,6 +184,27 @@ fn admit<'a>(
             .map_err(|_| SessionError::Gone)?;
     }
     Ok((repaired, admitted))
+}
+
+fn run_command<'a>(
+    machine: &SandboxMachine,
+    repaired: RepairedHostControl<HostIo<'a>>,
+    command: GuestCommand,
+    responses: &Sender<Response>,
+) -> Result<RepairedHostControl<HostIo<'a>>, SessionError> {
+    let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
+    let (next, outcome) = repaired
+        .execute(operation, command)
+        .map_err(|_| SessionError::Execute)?;
+    machine.mark(Milestone::Execute);
+    responses
+        .send(Response::Executed(Box::new(Completed {
+            status: outcome.status(),
+            stdout: outcome.stdout().to_vec(),
+            stderr: outcome.stderr().to_vec(),
+        })))
+        .map_err(|_| SessionError::Gone)?;
+    Ok(next)
 }
 
 /// Runs one command and hands each output chunk to the owner as it arrives, then the result.

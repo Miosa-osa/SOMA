@@ -2,13 +2,17 @@
 #![forbid(unsafe_code)]
 
 mod backend;
+mod checkpoint;
 mod config;
 mod egress;
 mod error;
 mod file_store;
+mod pause;
 mod prewarm;
 mod prune;
 mod resize;
+pub use checkpoint::{CheckpointFailure, CheckpointReceipt};
+pub use pause::{PauseFailure, ResumeFailure};
 mod runtime;
 mod tunnel;
 

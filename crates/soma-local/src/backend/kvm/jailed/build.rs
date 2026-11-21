@@ -38,11 +38,12 @@ const WORKER_IDENTITY: Identity = Identity {
 /// this covers the VMM's stacks, device buffers, and the retained operation receipts.
 const HOST_OVERHEAD_BYTES: u64 = 512 * MIB;
 
-/// Descriptors beyond the manifest and the standard streams that the child may hold.
-///
-/// The launcher seals the table, so this only has to cover the slots the profile itself needs
-/// during setup rather than anything the machine opens later: it opens nothing.
-const NOFILE_SLACK: u32 = 16;
+/// Descriptors shared by one machine, including the standard streams and launcher slots,
+/// VM, interrupt and queue eventfds, and the device loop's epoll and wakeup descriptors.
+const MACHINE_FD_BUDGET: u32 = 32;
+
+/// Each vCPU holds a KVM descriptor and a duplicate of each of up to ten queue eventfds.
+const VCPU_FD_BUDGET: u32 = 12;
 
 /// Threads and processes one machine's jail may hold.
 ///
@@ -161,7 +162,8 @@ pub(super) fn spec(
     let roles = roles(overlay);
     let manifest =
         DescriptorManifest::new(roles).map_err(|_| BackendFailureKind::WorkloadRejected)?;
-    let slots = u32::try_from(manifest.roles().len()).unwrap_or(u32::MAX);
+    let slots =
+        u32::try_from(manifest.roles().len()).map_err(|_| BackendFailureKind::WorkloadRejected)?;
     Ok(JailSpec {
         identity: WORKER_IDENTITY,
         leaf: LeafName::new(&format!("soma-{}", instance.as_str()))
@@ -180,7 +182,7 @@ pub(super) fn spec(
             io_max: None,
         },
         rlimits: Rlimits {
-            nofile: slots.saturating_add(NOFILE_SLACK),
+            nofile: slots + MACHINE_FD_BUDGET + u32::from(vcpus.max(1)) * VCPU_FD_BUDGET,
             nproc: PIDS_MAX,
             // The private head is the only thing a machine writes, so its declared size is the
             // largest file this worker may ever produce.

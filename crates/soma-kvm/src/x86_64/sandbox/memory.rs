@@ -4,7 +4,7 @@
 //! it, and the device checks every request. So `set_requested_memory` is a request and
 //! `plugged_memory` is the answer, and the two meeting is what a resize is.
 
-use super::SandboxMachine;
+use super::{SandboxMachine, Stage};
 use crate::virtio::SizeError;
 
 impl SandboxMachine {
@@ -46,13 +46,13 @@ impl SandboxMachine {
             .map_or(0, |mem| mem.device().requested_size())
     }
 
-    /// Whether the machine is stopped for a checkpoint or fork right now.
+    /// Whether the machine has acknowledged that guest execution is paused.
     ///
     /// Plugged memory is not part of a snapshot, so a resize asked for while the guest is held
     /// for a capture would be lost or refused; callers answer busy instead.
     #[must_use]
     pub fn is_paused(&self) -> bool {
-        self.paused().is_some()
+        matches!(&*self.stage.borrow(), Stage::Paused(paused) if paused.complete)
     }
 
     /// The size of the memory device's region, or zero for a machine without one.

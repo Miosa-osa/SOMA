@@ -146,6 +146,22 @@ impl SandboxFacade for LocalFacade {
         Ok(lifecycle(outcome.receipt()))
     }
 
+    fn pause(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::PauseFailure> {
+        self.runtime.pause_machine(instance_id)
+    }
+
+    fn resume(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        self.runtime.resume_machine(instance_id)
+    }
+
+    fn checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        self.runtime.checkpoint_machine(instance, operation)
+    }
+
     fn resize(
         &mut self,
         instance_id: &soma::InstanceId,

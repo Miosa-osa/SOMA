@@ -209,6 +209,59 @@ impl LocalRuntime {
         crate::resize::resize_machine(directory, instance, request)
     }
 
+    /// Captures a running hosted Machine through its owning process.
+    ///
+    /// Repeating the same operation id returns the existing durable receipt.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner, capture, or publication failure.
+    pub fn checkpoint_machine(
+        &self,
+        instance: &soma::InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<crate::CheckpointReceipt, crate::CheckpointFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            let directory = self
+                .host_directory
+                .as_deref()
+                .ok_or(crate::CheckpointFailure::Unsupported)?;
+            crate::backend::checkpoint_machine(directory, instance, operation)
+        }
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        {
+            let _ = (instance, operation);
+            Err(crate::CheckpointFailure::Unsupported)
+        }
+    }
+
+    /// Pauses a hosted Machine after receiving confirmation from its owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure when the owner cannot confirm pause.
+    pub fn pause_machine(&self, instance: &soma::InstanceId) -> Result<(), crate::PauseFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::PauseFailure::Unavailable)?;
+        crate::pause::pause_machine(directory, instance)
+    }
+
+    /// Resumes a hosted Machine after receiving confirmation from its owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure when the owner cannot confirm resume.
+    pub fn resume_machine(&self, instance: &soma::InstanceId) -> Result<(), crate::ResumeFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::ResumeFailure::Unavailable)?;
+        crate::pause::resume_machine(directory, instance)
+    }
+
     /// Opens or closes the egress of a hosted Machine that was launched windowed.
     ///
     /// # Errors

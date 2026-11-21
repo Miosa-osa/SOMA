@@ -18,6 +18,8 @@ use soma_vmm::{
 
 use crate::{channel::Channel, exit};
 
+mod checkpoint;
+
 /// The request budget of one worker life.
 ///
 /// The Machine retains at most [`MAX_OPERATION_RECEIPTS`] terminal receipts, so a supervisor
@@ -40,8 +42,14 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
     };
     let mut buffer = [0u8; MAX_REQUEST_BYTES];
     for _ in 0..MAX_REQUESTS {
-        let Some(count) = control.receive(&mut buffer) else {
-            return exit::SUPERVISOR_GONE;
+        let (count, descriptors) = match control.receive(&mut buffer) {
+            Ok((0, _)) => return exit::SUPERVISOR_GONE,
+            Ok(packet) => packet,
+            Err(soma_supervise::DescriptorHandoffError::Protocol) => {
+                control.send(&Reply::Rejected("invalid control packet").encode());
+                continue;
+            }
+            Err(_) => return exit::SUPERVISOR_GONE,
         };
         let packet = String::from_utf8_lossy(&buffer[..count]).into_owned();
         let request = match Request::decode(&packet) {
@@ -52,6 +60,14 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
                 continue;
             }
         };
+        if let Request::Checkpoint(source) = request {
+            checkpoint::reply(&mut machine, control, source, descriptors);
+            continue;
+        }
+        if !descriptors.is_empty() {
+            control.send(&Reply::Rejected("unexpected control descriptors").encode());
+            continue;
+        }
         if let Some(status) = perform(&mut machine, control, manifest, request) {
             return status;
         }
@@ -88,6 +104,14 @@ fn perform(
                 Err(failure) => control.send(&Reply::Failure(&failure).encode()),
             }
         }
+        Request::Pause(instance) => match machine.pause(instance) {
+            Ok(()) => control.send(&Reply::Paused(instance).encode()),
+            Err(failure) => control.send(&Reply::Failure(&failure).encode()),
+        },
+        Request::Resume(instance) => match machine.resume(instance) {
+            Ok(()) => control.send(&Reply::Resumed(instance).encode()),
+            Err(failure) => control.send(&Reply::Failure(&failure).encode()),
+        },
         Request::Stop(stop) => match machine.stop(stop) {
             Ok(stopped) => {
                 control.send(&Reply::Stopped(&stopped).encode());
@@ -105,6 +129,7 @@ fn perform(
             Ok(answer) => control.send(&Reply::Pty(&answer).encode()),
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
+        Request::Checkpoint(_) => unreachable!("descriptor requests are handled at receive"),
         Request::Seal => control.send(&seal().encode()),
         Request::Shutdown(status) => return Some(status),
     }
@@ -115,7 +140,10 @@ fn perform(
 /// attestation and setup need are seccomp kills rather than errors.
 fn seal<'a>() -> Reply<'a> {
     match install_filter(Phase::SteadyState) {
-        Ok(()) => Reply::Sealed,
+        Ok(()) => {
+            soma_kvm::x86_64::retain_watchdog_handler_until_process_exit();
+            Reply::Sealed
+        }
         // A failed transition leaves the startup filter in place; the kernel installs a filter
         // atomically, so nothing partial can be running.
         Err(_) => Reply::Rejected("the steady-state filter could not be installed"),

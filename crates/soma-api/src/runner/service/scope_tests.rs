@@ -98,3 +98,68 @@ async fn the_tenant_default_timeout_applies_and_suspension_reaps() {
     assert_eq!(line["reason"], "suspended");
     assert_eq!(runner.sandboxes().live(), 0);
 }
+
+#[tokio::test]
+async fn resident_lifecycle_only_reaches_the_facade_for_the_owning_tenant() {
+    let engine = Arc::new(Engine::default());
+    let mine = SandboxId::mint('3');
+    let foreign = SandboxId::mint('3');
+    engine.listed.lock().expect("listed").extend([
+        labelled(&mine, TENANT),
+        labelled(&foreign, "5e6f7a8b-0000-4000-8000-000000000002"),
+    ]);
+    let runner = runner(&engine, r#""*""#, "null");
+    runner.recover_sandboxes().await;
+
+    for operation in ["pause", "resume"] {
+        let own = format!("/api/v1/sandboxes/{}/{operation}", mine.as_str());
+        let other = format!("/api/v1/sandboxes/{}/{operation}", foreign.as_str());
+        assert_eq!(
+            call(&runner, http::Method::POST, &other, "").await.status,
+            404
+        );
+        assert_eq!(
+            call(&runner, http::Method::POST, &own, "").await.status,
+            503
+        );
+        assert_eq!(
+            call(&runner, http::Method::POST, &own, r#"{"unexpected":true}"#)
+                .await
+                .status,
+            400
+        );
+    }
+}
+
+#[tokio::test]
+async fn checkpoint_checks_tenant_ownership_before_forwarding() {
+    let engine = Arc::new(Engine::default());
+    let own = SandboxId::mint('3');
+    let foreign = SandboxId::mint('3');
+    engine.listed.lock().expect("listed").extend([
+        labelled(&own, TENANT),
+        labelled(&foreign, "5e6f7a8b-0000-4000-8000-000000000002"),
+    ]);
+    let runner = runner(&engine, r#""*""#, "null");
+    runner.recover_sandboxes().await;
+    let path = |id: &SandboxId| format!("/api/v1/sandboxes/{}/checkpoints", id.as_str());
+    let body = r#"{"operation_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&foreign), body)
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), body)
+            .await
+            .status,
+        409
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), "{}")
+            .await
+            .status,
+        400
+    );
+}

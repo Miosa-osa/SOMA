@@ -1611,6 +1611,7 @@ name = "soma-local"
 version = "1.0.0-alpha.2"
 dependencies = [
  "libc",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
@@ -1713,6 +1714,7 @@ dependencies = [
  "soma-guest",
  "soma-jail",
  "soma-kvm",
+ "soma-supervise",
  "soma-version",
  "tempfile",
 ]

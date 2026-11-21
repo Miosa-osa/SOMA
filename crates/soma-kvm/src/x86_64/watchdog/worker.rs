@@ -31,6 +31,7 @@ const JOIN_POLL: Duration = Duration::from_millis(1);
 /// The channel, signal, pause flag, and exit ledger the watchdog shares with its worker.
 pub(super) struct Control<'a> {
     pub(super) signal: libc::c_int,
+    pub(super) configure_kvm_mask: bool,
     pub(super) pause: &'a AtomicBool,
     pub(super) sender: &'a SyncSender<WorkerEvent>,
     pub(super) ledger: &'a Arc<ExitLedger>,
@@ -45,11 +46,12 @@ pub(super) fn worker_main(
 ) {
     let Control {
         signal,
+        configure_kvm_mask,
         pause,
         sender,
         ledger,
     } = *control;
-    let result = match RunMaskGuard::install(&vcpu, signal) {
+    let result = match RunMaskGuard::install(configure_kvm_mask.then_some(&vcpu), signal) {
         Ok(mask) => {
             let result = if sender.send(WorkerEvent::Ready).is_ok() {
                 run::run(&mut vcpu, bus, mmio.as_deref_mut(), sentinel, pause, ledger)

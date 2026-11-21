@@ -1,6 +1,9 @@
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod checkpoint;
 mod execute;
 mod fault;
 mod launch;
+mod pause;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pty;
 mod stop;
@@ -68,6 +71,7 @@ enum State {
     New,
     Launching,
     Ready,
+    Paused,
     Failed,
     Stopped,
 }

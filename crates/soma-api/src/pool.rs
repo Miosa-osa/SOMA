@@ -192,6 +192,22 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().destroy(request)
     }
 
+    fn pause(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::PauseFailure> {
+        self.deref_mut().pause(instance_id)
+    }
+
+    fn resume(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        self.deref_mut().resume(instance_id)
+    }
+
+    fn checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        self.deref_mut().checkpoint(instance, operation)
+    }
+
     fn resize(
         &mut self,
         instance_id: &soma::InstanceId,

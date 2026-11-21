@@ -2,7 +2,7 @@
 //!
 //! The launcher seals a `SOCK_SEQPACKET` socket into the manifest slot, so one packet in is
 //! one request and one packet out is one reply, with no framing of our own to get wrong.
-//! Both `sendto` and `recvfrom` stay admitted after the steady-state filter narrows, which is
+//! Both `sendto` and `recvmsg` stay admitted after the steady-state filter narrows, which is
 //! why the worker keeps talking after it has sealed itself.
 
 #![allow(unsafe_code)]
@@ -30,14 +30,13 @@ impl Channel {
         unsafe { libc::send(self.descriptor, text.as_ptr().cast(), text.len(), 0) };
     }
 
-    /// Receives one packet into `buffer`, or `None` at end of stream.
-    ///
-    /// A packet longer than `buffer` is truncated by the kernel and then refused by the
-    /// request decoder, so an oversized packet can never be read as a shorter valid one.
-    pub fn receive(&self, buffer: &mut [u8]) -> Option<usize> {
-        // SAFETY: the pointer and length describe valid writable storage.
-        let received =
-            unsafe { libc::recv(self.descriptor, buffer.as_mut_ptr().cast(), buffer.len(), 0) };
-        usize::try_from(received).ok().filter(|count| *count > 0)
+    /// Receives one packet and any descriptor capabilities that arrived with it.
+    pub fn receive(
+        &self,
+        buffer: &mut [u8],
+    ) -> Result<(usize, Vec<std::os::fd::OwnedFd>), soma_supervise::DescriptorHandoffError> {
+        // SAFETY: the sealed descriptor table owns the connected control fd throughout service.
+        let fd = unsafe { std::os::fd::BorrowedFd::borrow_raw(self.descriptor) };
+        soma_supervise::receive_descriptor_packet(fd, buffer)
     }
 }

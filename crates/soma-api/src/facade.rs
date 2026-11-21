@@ -210,6 +210,37 @@ pub trait SandboxFacade {
         Err(TunnelFailure::Unavailable)
     }
 
+    /// Pauses guest execution and keeps the sandbox resident.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner's failure when no pause can be confirmed.
+    fn pause(&mut self, _instance_id: &InstanceId) -> Result<(), soma_local::PauseFailure> {
+        Err(soma_local::PauseFailure::Unavailable)
+    }
+
+    /// Resumes the exact hosted machine after the owning runtime confirms it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner's failure when no resume can be confirmed.
+    fn resume(&mut self, _instance_id: &InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        Err(soma_local::ResumeFailure::Unavailable)
+    }
+
+    /// Captures a running sandbox for the supplied operation identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns the ownership, capture, or publication failure.
+    fn checkpoint(
+        &mut self,
+        _instance: &soma::InstanceId,
+        _operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        Err(soma_local::CheckpointFailure::Unsupported)
+    }
+
     /// Changes the CPU and memory of one hosted sandbox live, and reports what is now true.
     /// An empty request changes nothing and reports the current values.
     ///

@@ -47,6 +47,9 @@ fn every_route() -> Vec<Route> {
         Route::GetSandbox(instance()),
         Route::StopSandbox(instance()),
         Route::RunCommand(instance()),
+        Route::PauseSandbox(instance()),
+        Route::ResumeSandbox(instance()),
+        Route::CheckpointSandbox(instance()),
         Route::Resources(instance(), false),
         Route::Tunnel(instance(), 8080),
         Route::Volume(VolumeOperation::Read, Some(VOLUME.to_owned())),
@@ -96,6 +99,9 @@ fn template(route: &Route) -> String {
         Route::PrunePrepared => "/v1/prepared/prune".to_owned(),
         Route::CreateSandbox | Route::ListSandboxes => "/v1/sandboxes".to_owned(),
         Route::GetSandbox(_) | Route::DestroySandbox(_) => "/v1/sandboxes/{instance}".to_owned(),
+        Route::PauseSandbox(_) => "/v1/sandboxes/{instance}/pause".to_owned(),
+        Route::ResumeSandbox(_) => "/v1/sandboxes/{instance}/resume".to_owned(),
+        Route::CheckpointSandbox(_) => "/v1/sandboxes/{instance}/checkpoints".to_owned(),
         Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
         Route::RunCommand(_) => "/v1/sandboxes/{instance}/commands".to_owned(),
         Route::Filesystem(_, operation) => {
@@ -170,6 +176,13 @@ fn surface() -> String {
     routes.sort();
     routes.dedup();
     lines.extend(routes);
+    let operation_field = format!(r#"{{"operation_id":"{INSTANCE}"}}"#);
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::CheckpointBody>(&operation_field)
+            .is_ok()
+    );
+    assert!(serde_json::from_str::<crate::handler::checkpoint::CheckpointBody>("{}").is_err());
+    lines.push("body CheckpointBody operation_id(required)".to_owned());
     for (name, accepted) in [
         ("ControlBody", fields::<ControlBody>()),
         ("CreateSandboxBody", fields::<CreateSandboxBody>()),

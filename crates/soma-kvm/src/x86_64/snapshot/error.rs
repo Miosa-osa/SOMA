@@ -13,7 +13,7 @@ use crate::snapshot::{
     device_state::DeviceStateError,
     inspection::InspectionError,
     kvm_state::KvmStateError,
-    manifest::ManifestError,
+    manifest::{CheckpointManifestError, ManifestError},
     memory::{MappingError, MemoryError},
     readiness::ReadinessRefusal,
     restore::RestoreOrderError,
@@ -47,7 +47,10 @@ pub enum SnapshotError {
     /// The authenticated readiness evidence was absent, spent, or did not authenticate.
     Readiness(ReadinessRefusal),
     /// A KVM ioctl failed while reading or installing state.
-    Ioctl { operation: &'static str, errno: i32 },
+    Ioctl {
+        operation: &'static str,
+        errno: i32,
+    },
     /// A KVM table was written only in part, so the state is neither old nor new.
     PartialTable {
         operation: &'static str,
@@ -59,7 +62,10 @@ pub enum SnapshotError {
     /// The vCPU carries nested-virtualization state, which version 1 refuses to certify.
     NestedStatePresent,
     /// A device negotiated something other than this implementation's feature allowlist.
-    FeatureNegotiation { slot: Slot, negotiated: u64 },
+    FeatureNegotiation {
+        slot: Slot,
+        negotiated: u64,
+    },
     /// A KVM state group could not be converted or encoded.
     KvmState(KvmStateError),
     /// A device state could not be converted or encoded.
@@ -75,6 +81,7 @@ pub enum SnapshotError {
     SlotRestore(SlotRestoreError),
     /// The manifest could not be built or decoded.
     Manifest(ManifestError),
+    CheckpointManifest(CheckpointManifestError),
     /// The three installed snapshot artifacts do not form one certified capture.
     Inspection(InspectionError),
     /// A section could not be built or decoded.
@@ -91,7 +98,9 @@ pub enum SnapshotError {
     MissingSection(&'static str),
     /// The memory device still has memory plugged, which a snapshot cannot carry. Unplug first:
     /// the hotplug region is not part of the memory object, so capturing now would lose it.
-    MemoryPlugged { plugged_bytes: u64 },
+    MemoryPlugged {
+        plugged_bytes: u64,
+    },
     /// The repair-point marker is absent or does not describe a pre-launch capture.
     RepairPointMarker,
     /// An artifact file operation failed.
@@ -158,6 +167,7 @@ impl fmt::Display for SnapshotError {
             ),
             Self::SlotRestore(error) => write!(formatter, "{error}"),
             Self::Manifest(error) => write!(formatter, "{error}"),
+            Self::CheckpointManifest(error) => write!(formatter, "{error}"),
             Self::Inspection(error) => write!(formatter, "{error}"),
             Self::Section(error) => write!(formatter, "{error}"),
             Self::Wire(error) => write!(formatter, "{error}"),
@@ -271,5 +281,11 @@ impl From<crate::snapshot::kvm_state::bindings::BindingError> for SnapshotError 
                 errno: 0,
             },
         }
+    }
+}
+
+impl From<CheckpointManifestError> for SnapshotError {
+    fn from(error: CheckpointManifestError) -> Self {
+        Self::CheckpointManifest(error)
     }
 }

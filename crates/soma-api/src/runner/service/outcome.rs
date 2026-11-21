@@ -136,6 +136,12 @@ fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
                 "limit": soma_guest::LEVEL_TWO_ARGUMENT_BYTES,
             }),
         ),
+        BackendFailureKind::SandboxPaused => alive(
+            409,
+            "SANDBOX_PAUSED",
+            "the sandbox is paused",
+            serde_json::Value::Null,
+        ),
         BackendFailureKind::ResourceConflict => PlatformError::new(
             409,
             "RESOURCE_CONFLICT",

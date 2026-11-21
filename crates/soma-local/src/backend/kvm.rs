@@ -1,4 +1,5 @@
 mod boot;
+mod checkpoint;
 mod claim;
 mod dispatch;
 mod egress;
@@ -33,6 +34,9 @@ use host::Role;
 pub(crate) use host::open_tunnel;
 pub(crate) use host::resize as resize_machine;
 pub(crate) use host::set_egress as set_egress_machine;
+pub(crate) use host::{
+    checkpoint as checkpoint_machine, pause as pause_machine, resume as resume_machine,
+};
 use network::BrokerConfiguration;
 use pool::{MachineKey, MachinePool};
 use runtime::Ownership;

@@ -120,7 +120,7 @@ fn body_for(check: ArgCheck, requests: &[u32]) -> Vec<Instruction> {
         ArgCheck::Any => vec![Instruction::ret(RET_ALLOW)],
         ArgCheck::Errno(code) => vec![Instruction::ret(RET_ERRNO | u32::from(code))],
         ArgCheck::ArgEqualsAny { index, values } => equals_any(index, values),
-        ArgCheck::IoctlAllowlist => equals_any(1, requests),
+        ArgCheck::IoctlAllowlist => ioctl_allowlist(requests),
         ArgCheck::Flags {
             index,
             forbidden,
@@ -131,10 +131,14 @@ fn body_for(check: ArgCheck, requests: &[u32]) -> Vec<Instruction> {
 
 /// `[LD hi][JEQ 0 ? kill][LD lo][JEQ v_i ? allow]...[RET KILL][RET ALLOW]`.
 fn equals_any(index: u8, values: &[u32]) -> Vec<Instruction> {
+    equals_extended(index, 0, values)
+}
+
+fn equals_extended(index: u8, high_word: u32, values: &[u32]) -> Vec<Instruction> {
     let count = u8::try_from(values.len()).expect("allowlist fits an eight-bit jump");
     let mut body = vec![
         Instruction::load(arg_high(index)),
-        Instruction::jump_eq(0, 0, count + 1),
+        Instruction::jump_eq(high_word, 0, count + 1),
         Instruction::load(arg_low(index)),
     ];
     for (position, value) in values.iter().enumerate() {
@@ -143,6 +147,25 @@ fn equals_any(index: u8, values: &[u32]) -> Vec<Instruction> {
     }
     body.push(Instruction::ret(RET_KILL_PROCESS));
     body.push(Instruction::ret(RET_ALLOW));
+    body
+}
+
+/// Linux receives an unsigned 32-bit ioctl request. GNU and musl use different C argument
+/// types, so permit an exact sign extension only for allowlisted words with bit 31 set.
+fn ioctl_allowlist(requests: &[u32]) -> Vec<Instruction> {
+    let negative: Vec<_> = requests
+        .iter()
+        .copied()
+        .filter(|request| request & (1 << 31) != 0)
+        .collect();
+    let signed = equals_extended(1, u32::MAX, &negative);
+    let skip = u8::try_from(signed.len()).expect("signed ioctl allowlist fits an eight-bit jump");
+    let mut body = vec![
+        Instruction::load(arg_high(1)),
+        Instruction::jump_eq(0, skip, 0),
+    ];
+    body.extend(signed);
+    body.extend(equals_any(1, requests));
     body
 }
 

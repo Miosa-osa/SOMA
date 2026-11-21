@@ -1,3 +1,5 @@
+pub(crate) mod checkpoint;
+mod pause;
 mod prepared;
 pub(crate) mod prewarm;
 mod support;
@@ -84,6 +86,13 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 Some(&snapshot.receipt),
             ))
         }
+        Route::PauseSandbox(instance_id) => {
+            pause::serve(facade, instance_id, body, pause::Transition::Pause)
+        }
+        Route::ResumeSandbox(instance_id) => {
+            pause::serve(facade, instance_id, body, pause::Transition::Resume)
+        }
+        Route::CheckpointSandbox(instance_id) => checkpoint::serve(facade, &instance_id, body),
         Route::StopSandbox(instance_id) => {
             let request = control_body(body)?.into_stop(instance_id.clone())?;
             let stop = request.operation_id().clone();

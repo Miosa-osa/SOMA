@@ -67,5 +67,6 @@ pub enum TerminalStatus {
 #[serde(rename_all = "snake_case")]
 pub enum MachineState {
     Ready,
+    Paused,
     Stopping,
 }

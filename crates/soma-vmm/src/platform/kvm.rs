@@ -47,6 +47,7 @@ pub(crate) struct KvmPlatform {
     /// This Instance's private head, held between the restore and the assignment that installs
     /// it. A sterile machine must not be holding one Instance's writable storage.
     overlay: Option<File>,
+    checkpoint_geometry: Option<([u8; 32], MachineContract, bool)>,
     /// The parked or serving sandbox.
     session: Option<Session>,
 }
@@ -58,10 +59,10 @@ impl KvmPlatform {
             resources: Some(MachineResources::adopt(manifest)?),
             overlay: None,
             session: None,
+            checkpoint_geometry: None,
         })
     }
 }
-
 impl Platform for KvmPlatform {
     fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure> {
         let Some(resources) = self.resources.take() else {
@@ -125,6 +126,11 @@ impl Platform for KvmPlatform {
         match Session::prepare(spec) {
             Ok(session) => {
                 self.session = Some(session);
+                self.checkpoint_geometry = Some((
+                    *launch.generation().id().as_bytes(),
+                    contract,
+                    declared.writable_disk(),
+                ));
                 RestoredMachine::from_observation(RestoreProgress::from_steps([
                     RestoreStep::ArtifactsVerified,
                     RestoreStep::MachineRestored,
@@ -243,6 +249,43 @@ impl Platform for KvmPlatform {
             .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
         session
             .pty(operation.clone())
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
+    fn checkpoint(
+        &mut self,
+        job: crate::sandbox::CheckpointJob,
+        deadline: Duration,
+    ) -> Result<soma_kvm::snapshot::Digest, crate::sandbox::CheckpointJobError> {
+        if self.checkpoint_geometry
+            != Some((
+                job.source.candidate_id,
+                job.source.contract,
+                job.source.has_overlay,
+            ))
+        {
+            return Err(crate::sandbox::CheckpointJobError::CaptureRefused);
+        }
+        self.session
+            .as_mut()
+            .ok_or(crate::sandbox::CheckpointJobError::SourceUnconfirmed)?
+            .checkpoint(job, deadline)
+            .map(|manifest| soma_kvm::snapshot::Digest::of(&manifest.encode()))
+    }
+
+    fn pause(&mut self) -> Result<(), PlatformFailure> {
+        self.session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?
+            .pause()
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
+    fn resume(&mut self) -> Result<(), PlatformFailure> {
+        self.session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?
+            .resume()
             .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
     }
 

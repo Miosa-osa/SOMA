@@ -51,6 +51,9 @@ pub(super) struct Live {
     pub(super) instance: InstanceId,
     /// Whichever process holds this Instance's machine.
     pub(super) held: Held,
+    pub(super) paused: bool,
+    pub(super) generation: soma::GenerationId,
+    pub(super) checkpoint_source: soma_vmm::sandbox::CheckpointSource,
     /// The network this Instance holds, released when its sandbox is.
     pub(super) egress: Egress,
     /// What this Instance was told its network is, reported again by every later observation.
@@ -131,6 +134,19 @@ impl KvmBackend {
         }
         let identity =
             LaunchIdentity::derive(instance).map_err(|kind| self.fail(operation, kind))?;
+        let checkpoint_source = soma_vmm::sandbox::CheckpointSource {
+            instance_id: identity.instance,
+            candidate_id: super::identity::generation_bytes(&prepared.id)
+                .map_err(|kind| self.fail(operation, kind))?,
+            root_digest: soma_kvm::snapshot::Digest::from_bytes(
+                *prepared.manifest.root.descriptor.digest.as_bytes(),
+            ),
+            contract: soma_kvm::MachineContract::require(
+                prepared.manifest.machine_contract.version,
+            )
+            .map_err(|_| self.fail(operation, BackendFailureKind::Unsupported))?,
+            has_overlay: prepared.manifest.device_set().overlay(),
+        };
         let policy = shape.capabilities().network_policy();
         // A request that needs egress is served by the broker or refused. It is never served by
         // the placeholder device, which would report a working network that drops every packet.
@@ -202,6 +218,9 @@ impl KvmBackend {
         self.live = Some(Live {
             instance: instance.clone(),
             held,
+            paused: false,
+            generation: prepared.id.clone(),
+            checkpoint_source,
             egress,
             network: observed.clone(),
             vcpus: booted_vcpus,

@@ -43,6 +43,23 @@ pub(crate) trait Platform: Send {
         Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn checkpoint(
+        &mut self,
+        _job: crate::sandbox::CheckpointJob,
+        _deadline: std::time::Duration,
+    ) -> Result<soma_kvm::snapshot::Digest, crate::sandbox::CheckpointJobError> {
+        Err(crate::sandbox::CheckpointJobError::CaptureRefused)
+    }
+
+    fn pause(&mut self) -> Result<(), PlatformFailure> {
+        Err(PlatformFailure::new(crate::Recovery::RepairHost))
+    }
+
+    fn resume(&mut self) -> Result<(), PlatformFailure> {
+        Err(PlatformFailure::new(crate::Recovery::RepairHost))
+    }
+
     fn stop(
         &mut self,
         stop: &Stop,

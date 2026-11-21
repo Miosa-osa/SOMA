@@ -1,4 +1,4 @@
-use crate::{Execute, Launch, Stop};
+use crate::{Execute, InstanceId, Launch, Stop};
 
 use super::{
     ControlError,
@@ -44,6 +44,13 @@ pub enum Request {
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Pty(super::PtyRequest),
     Stop(Stop),
+    /// Pause the matching machine and keep its state resident.
+    Pause(InstanceId),
+    /// Resume the exact resident machine.
+    Resume(InstanceId),
+    /// Capture the matching resident machine into file descriptors carried by this packet.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Checkpoint(crate::sandbox::CheckpointSource),
     /// Narrow the seccomp filter to its steady-state phase.
     Seal,
     /// Leave with this exit status.
@@ -80,6 +87,17 @@ impl Request {
                 hex(&serde_json::to_vec(request.operation())
                     .expect("terminal operation serializes")),
             ),
+            Self::Pause(instance) => format!("pause {}", hex(instance.as_bytes())),
+            Self::Resume(instance) => format!("resume {}", hex(instance.as_bytes())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Checkpoint(source) => format!(
+                "checkpoint {} {} {} {} {}",
+                hex(&source.instance_id),
+                hex(&source.candidate_id),
+                hex(source.root_digest.as_bytes()),
+                source.contract.version(),
+                u8::from(source.has_overlay),
+            ),
             Self::Stop(stop) => format!(
                 "stop {} {}",
                 hex(stop.operation_id().as_bytes()),
@@ -114,6 +132,10 @@ impl Request {
             "execute_in" => decode::decode_execute_in(&mut tokens).map(Self::Execute),
             "execute_stream" => decode::decode_execute_in(&mut tokens).map(Self::ExecuteStreaming),
             "stop" => decode_stop(&mut tokens),
+            "pause" => decode::decode_instance(&mut tokens).map(Self::Pause),
+            "resume" => decode::decode_instance(&mut tokens).map(Self::Resume),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "checkpoint" => decode::decode_checkpoint(&mut tokens).map(Self::Checkpoint),
             _ => Err(ControlError::UnknownRequest),
         }
     }

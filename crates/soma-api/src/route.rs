@@ -88,6 +88,9 @@ pub enum Route {
     ListSandboxes,
     GetSandbox(InstanceId),
     StopSandbox(InstanceId),
+    PauseSandbox(InstanceId),
+    ResumeSandbox(InstanceId),
+    CheckpointSandbox(InstanceId),
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
@@ -125,6 +128,9 @@ impl Route {
             Self::ListSandboxes => "sandbox.list",
             Self::GetSandbox(_) => "sandbox.get",
             Self::StopSandbox(_) => "sandbox.stop",
+            Self::PauseSandbox(_) => "sandbox.pause",
+            Self::ResumeSandbox(_) => "sandbox.resume",
+            Self::CheckpointSandbox(_) => "sandbox.checkpoint",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
@@ -176,6 +182,16 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
                 _ => Err(ApiError::method_not_allowed()),
             }
         }
+        ["v1", "sandboxes", instance, "pause"] => {
+            post_only(request, Route::PauseSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "sandboxes", instance, "resume"] => {
+            post_only(request, Route::ResumeSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "sandboxes", instance, "checkpoints"] => post_only(
+            request,
+            Route::CheckpointSandbox(path_instance_id(instance)?),
+        ),
         ["v1", "sandboxes", instance, "stop"] => {
             post_only(request, Route::StopSandbox(path_instance_id(instance)?))
         }

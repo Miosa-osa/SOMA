@@ -77,6 +77,37 @@ impl Held {
         }
     }
 
+    pub(super) fn pause(&mut self) -> Result<(), BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.pause().map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.pause(),
+        }
+    }
+
+    pub(super) fn resume(&mut self) -> Result<(), BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.resume().map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.resume(),
+        }
+    }
+
+    pub(super) fn checkpoint(
+        &mut self,
+        job: soma_vmm::sandbox::CheckpointJob,
+    ) -> Result<soma_kvm::snapshot::Digest, crate::CheckpointFailure> {
+        use soma_vmm::sandbox::CheckpointJobError;
+        match self {
+            Self::Resident(session) => session
+                .checkpoint(job, super::checkpoint::CHECKPOINT_CEILING)
+                .map(|manifest| soma_kvm::snapshot::Digest::of(&manifest.encode()))
+                .map_err(|error| match error {
+                    CheckpointJobError::CaptureRefused => crate::CheckpointFailure::CaptureRefused,
+                    CheckpointJobError::SourceUnconfirmed => crate::CheckpointFailure::Unconfirmed,
+                }),
+            Self::Jailed(jailed) => jailed.checkpoint(&job),
+        }
+    }
+
     /// Performs one filesystem operation on the machine, wherever it is.
     pub(super) fn file(
         &mut self,

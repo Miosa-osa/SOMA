@@ -77,6 +77,21 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             Ok(answer) => Answer::PtyAnswered { answer },
             Err(kind) => Answer::Refused(kind.into()),
         },
+        Call::Pause { instance_id } => match backend.pause_resident(&instance_id) {
+            Ok(()) => Answer::Paused,
+            Err(failure) => Answer::PauseRefused(failure),
+        },
+        Call::Resume { instance_id } => match backend.resume_resident(&instance_id) {
+            Ok(()) => Answer::Resumed,
+            Err(failure) => Answer::ResumeRefused(failure),
+        },
+        Call::Checkpoint {
+            instance_id,
+            operation_id,
+        } => match backend.checkpoint_resident(&instance_id, &operation_id) {
+            Ok(receipt) => Answer::Checkpointed(receipt),
+            Err(failure) => Answer::CheckpointRefused(failure),
+        },
         Call::Inspect { instance_id } => match backend.inspect_resident(&instance_id) {
             Ok((state, network)) => Answer::Inspected { state, network },
             Err(kind) => Answer::Refused(kind.into()),

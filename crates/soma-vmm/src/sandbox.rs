@@ -17,6 +17,7 @@
 //! once it narrows.
 
 mod assign;
+mod checkpoint;
 mod file;
 mod identity;
 mod io;
@@ -34,6 +35,7 @@ mod timeline;
 mod volume;
 mod worker;
 
+pub use checkpoint::{CheckpointJob, CheckpointJobError, CheckpointSource};
 pub use identity::{
     FIRST_GUEST_CID, GUEST_MAC, fresh16, guest_cid_for, link_down_network, now_unix_nanos,
 };

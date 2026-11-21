@@ -10,9 +10,11 @@
 
 mod anchors;
 mod build;
+mod checkpoint;
 mod command;
 mod control;
 mod outcome;
+mod pause;
 mod pty;
 
 use std::time::{Duration, Instant};
@@ -92,8 +94,14 @@ impl Jailed {
             launching.instance,
             devices.overlay(),
         )?;
-        let handle = soma_jail::launch(&spec, &anchors.host, opened.resources)
-            .map_err(|_| BackendFailureKind::IsolationFailure)?;
+        let handle =
+            soma_jail::launch(&spec, &anchors.host, opened.resources).map_err(|error| {
+                anchors.record(
+                    launching.instance.as_str(),
+                    &format!("jail launch refused: {error}"),
+                );
+                BackendFailureKind::IsolationFailure
+            })?;
         let mut jailed = Self {
             handle: Some(handle),
             control: control::Control::adopt(opened.control),
@@ -103,7 +111,7 @@ impl Jailed {
             poisoned: false,
         };
         jailed.attestation = jailed.admit(anchors, launching.instance)?;
-        jailed.perform_launch(launching, devices.overlay(), devices.net())?;
+        jailed.perform_launch(anchors, launching, devices.overlay(), devices.net())?;
         Ok(jailed)
     }
 
@@ -138,6 +146,7 @@ impl Jailed {
     /// startup-only syscall becomes a kill for the rest of the worker's life.
     fn perform_launch(
         &mut self,
+        anchors: &Anchors,
         launching: &Launching<'_>,
         overlay: bool,
         network: bool,
@@ -165,8 +174,26 @@ impl Jailed {
                 DeclaredDevices::new(overlay, network),
             ),
         ));
-        outcome::ready(&self.control.ask(&request, LAUNCH_CEILING)?)?;
-        outcome::sealed(&self.control.ask(&Request::Seal, ATTESTATION_CEILING)?)
+        let instance = launching.instance.as_str();
+        let reply = self
+            .control
+            .ask(&request, LAUNCH_CEILING)
+            .inspect_err(|error| {
+                anchors.record(
+                    instance,
+                    &format!("jailed launch exchange failed: {error:?}"),
+                );
+            })?;
+        if let soma_vmm::control::Outcome::Failure { detail, .. } = &reply {
+            anchors.record(instance, &format!("jailed worker refused launch: {detail}"));
+        }
+        outcome::ready(&reply)?;
+        self.control
+            .ask(&Request::Seal, ATTESTATION_CEILING)
+            .and_then(|reply| outcome::sealed(&reply))
+            .inspect_err(|error| {
+                anchors.record(instance, &format!("jailed worker did not seal: {error:?}"));
+            })
     }
 
     /// Whether this machine may still be addressed.

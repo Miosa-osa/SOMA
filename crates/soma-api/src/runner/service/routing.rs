@@ -105,7 +105,11 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
                 },
             )
         }
-        (&http::Method::POST, ["", id, "stop"]) if !id.is_empty() => forward(id, Method::Post),
+        (&http::Method::POST, ["", id, "stop" | "pause" | "resume" | "checkpoints"])
+            if !id.is_empty() =>
+        {
+            forward(id, Method::Post)
+        }
         (&http::Method::POST, ["", id, "filesystem" | "terminal", operation])
             if !id.is_empty() && !operation.is_empty() =>
         {

@@ -25,6 +25,7 @@ use soma_api::runner::{Backend, Journal, Runner};
 
 mod flow;
 mod harness;
+mod pause;
 
 fn main() -> ExitCode {
     // A hosted launch starts its machine host by re-entering this executable with

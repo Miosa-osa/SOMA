@@ -185,7 +185,8 @@ impl SandboxMachine {
                 serial_line: parts.serial_line,
                 irq: parts.irq,
                 notify: parts.notify,
-            }),
+            })
+            .into(),
             clock: parts.clock,
             timeline: Mutex::new(parts.timeline),
             head_reads: Mutex::new(None),

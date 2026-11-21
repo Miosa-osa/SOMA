@@ -235,6 +235,7 @@ pub(super) const fn terminal_status(status: TerminalStatus) -> Option<CommandSta
 const fn machine_state(state: soma::MachineState) -> MachineState {
     match state {
         soma::MachineState::Ready => MachineState::Ready,
+        soma::MachineState::Paused => MachineState::Paused,
         soma::MachineState::Stopping => MachineState::Stopping,
     }
 }

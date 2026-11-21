@@ -94,6 +94,9 @@ fn backend_error(kind: BackendFailureKind) -> ApiError {
             "backend capability is unavailable",
             false,
         ),
+        BackendFailureKind::SandboxPaused => {
+            ApiError::new(409, "sandbox_paused", "the sandbox is paused", false)
+        }
         BackendFailureKind::ResourceConflict => ApiError::new(
             409,
             "resource_conflict",

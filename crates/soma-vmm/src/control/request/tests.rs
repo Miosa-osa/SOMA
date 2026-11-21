@@ -106,6 +106,8 @@ fn every_request_round_trips() {
         Request::Launch(launch()),
         Request::Execute(execute()),
         Request::Stop(Stop::new(operation(), instance())),
+        Request::Pause(instance()),
+        Request::Resume(instance()),
         Request::Output(
             OutputWindow::new(operation(), OutputStream::Stderr, 1024, 4096).expect("window"),
         ),

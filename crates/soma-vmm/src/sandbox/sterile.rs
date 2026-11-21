@@ -107,9 +107,13 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         hotplug,
         volume_capacity_bytes: None,
     });
-    let Ok(sterile) = sterile else {
-        let _ignored = responses.send(Response::Failed(SessionError::Create));
-        return;
+    let sterile = match sterile {
+        Ok(sterile) => sterile,
+        Err(error) => {
+            eprintln!("soma-vmm: sterile snapshot restore failed: {error}");
+            let _ignored = responses.send(Response::Failed(SessionError::Create));
+            return;
+        }
     };
     // Announcing readiness to be claimed is the last thing that happens before the park. A
     // closed channel here means the pool went away while the machine was being built, so the

@@ -13,7 +13,7 @@
 #![allow(unsafe_code)]
 
 use std::io;
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd};
 use std::time::Duration;
 
 /// Why a control exchange did not complete.
@@ -127,6 +127,12 @@ impl ControlSocket {
             .ok_or(ControlError::Silent)?;
         buffer.truncate(count);
         String::from_utf8(buffer).map_err(|_| ControlError::Silent)
+    }
+}
+
+impl AsFd for ControlSocket {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.socket.as_fd()
     }
 }
 
