@@ -312,7 +312,8 @@ mod tests {
             String::from_utf8_lossy(&device_contract_statement(DeviceSet::FULL_WITH_MEM))
                 .contains("slot5 mmio=0xd0005000-0xd0005fff gsi=10 device=mem id=24")
         );
-        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 4), None);
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 4), Some(v3));
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 5), None);
     }
 
     #[test]
@@ -343,7 +344,9 @@ mod tests {
         assert_eq!(machine_contract_for(2), Some(machine_contract_v2()));
         assert_eq!(machine_contract_for(0), None);
         assert_eq!(machine_contract_for(3), Some(machine_contract_v3()));
-        assert_eq!(machine_contract_for(4), None);
+        assert_eq!(machine_contract_for(4), Some(machine_contract_v4()));
+        assert_eq!(machine_contract_for(5), None);
+        assert_ne!(machine_contract_v3(), machine_contract_v4());
         assert_ne!(machine_contract_v1(), machine_contract_v2());
         assert_ne!(machine_contract_v2(), machine_contract_v3());
         assert_eq!(machine_contract_v3().version, 3);
