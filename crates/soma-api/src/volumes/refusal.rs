@@ -41,7 +41,7 @@ pub const fn state_name(code: u8) -> &'static str {
 pub(super) fn refusal_for(code: u16) -> ApiError {
     match FailureCode::from_wire(code) {
         Some(FailureCode::VolumeMissing) => not_found(),
-        Some(FailureCode::VolumeBusy) => conflict("VolumeBusy", "the volume is attached elsewhere"),
+        Some(FailureCode::VolumeBusy) => conflict("VolumeBusy", "the volume is still in use"),
         Some(FailureCode::Conflict) => {
             conflict("Conflict", "a replayed operation carried a changed intent")
         }

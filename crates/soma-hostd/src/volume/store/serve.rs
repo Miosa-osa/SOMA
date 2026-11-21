@@ -166,6 +166,22 @@ impl VolumeStore for DirectoryVolumes {
         if existing.state == VolumeState::Deleting {
             return Err(VolumeError::Busy("a delete is in progress"));
         }
+        // This inode is held for the lifetime of a worker. Keep the lock until
+        // the detached sidecar and its ledger have both been published.
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.file(request.volume))
+            .map_err(|_| VolumeError::Ledger("the volume file could not be opened for detach"))?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(VolumeError::Busy("the volume is still in use"));
+            }
+            Err(fs::TryLockError::Error(_)) => {
+                return Err(VolumeError::Ledger("the volume lock could not be checked"));
+            }
+        }
         let detached = VolumeSidecar {
             state: VolumeState::Detached,
             last_transition_nanos: now_nanos(),
