@@ -13,14 +13,12 @@ resources:
     display: true
   # The applications whose windows an agent may read and act on, by executable. Window-scoped
   # tools (get_window_state, verify_state, a click by element) are refused for any other process.
-  # The terminal may also be launched; the desktop's own panel and background may not.
+  # The terminal may also be launched; the window manager may not.
   apps:
     - executable: /usr/bin/xfce4-terminal
       launch: true
       windows: all
-    - executable: /usr/bin/xfce4-panel
-      windows: all
-    - executable: /usr/bin/xfdesktop
+    - executable: /usr/bin/openbox
       windows: all
   # The one place the driver may write: screenshots asked for with screenshot_out_file. The
   # launcher creates it for the desktop user before the daemon starts; nothing else is writable.

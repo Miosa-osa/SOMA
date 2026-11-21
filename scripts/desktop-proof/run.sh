@@ -7,9 +7,9 @@
 #   run.sh <repo> <store> <reference> <work> <hold-seconds>
 #
 # In order: start soma-netd and soma-api; create one desktop sandbox through soma-api; run the
-# session launcher through exec while a viewer waits on the tunnel to guest port 6080; drive the
-# desktop with cua-driver through exec; measure viewer and agent click-to-paint; read idle memory;
-# destroy the sandbox; prove nothing was left behind.
+# session launcher through exec; drive the desktop with cua-driver through exec (screenshot, the
+# Openbox menu, the terminal); time the agent's click; read idle memory; destroy the sandbox; prove
+# nothing was left behind.
 
 set -euo pipefail
 
@@ -103,17 +103,11 @@ ready_at="$(ns)"
 INSTANCE="$(field 'd["result"]["instance_id"]')"
 record launch_to_ready_ms "$(( (ready_at - created_at) / 1000000 ))"
 
-log "session launcher through exec, viewer waiting on the tunnel"
-python3 "$PROOF/rfb_probe.py" first-frame --api "$API" --tenant "$TENANT" --instance "$INSTANCE" \
-    --deadline 60 >"$OUT/first-frame.json" 2>"$OUT/first-frame.err" &
-viewer=$!
+log "session launcher through exec"
 guest session-start /usr/local/sbin/soma-desktop-session start
 launcher_done="$(ns)"
 cp "$GUEST_OUT" "$OUT/session-start.json"
-wait "$viewer"
 record launcher_exec_ms "$(( (launcher_done - ready_at) / 1000000 ))"
-record ready_to_first_update_ms "$(( ($(field 'd["first_update_ns"]' "$OUT/first-frame.json") - ready_at) / 1000000 ))"
-record ready_to_first_frame_ms "$(( ($(field 'd["first_painted_ns"]' "$OUT/first-frame.json") - ready_at) / 1000000 ))"
 
 log "cua-driver doctor and the driver's own environment"
 guest doctor "$CALL" doctor
@@ -124,9 +118,10 @@ guest driver-environment /bin/sh -c \
     'tr "\0" "\n" < /proc/$(pgrep -f "cua-driver serve" | head -1)/environ | grep "^CUA_" | sort; cat /home/ubuntu/.cua-driver/config.json'
 cp "$GUEST_OUT" "$OUT/driver-environment.txt"
 
-log "agent: screenshot, a click that opens the Xfce desktop menu, the terminal"
+log "agent: screenshot, a click that opens the Openbox menu, the terminal"
 desktop_call desktop-state get_desktop_state "{\"max_image_dimension\":0,\"screenshot_out_file\":\"$CAPTURES/desktop.png\"}"
 fetch "$CAPTURES/desktop.png" "$OUT/desktop.png"
+record ready_to_first_screenshot_ms "$(( ($(ns) - ready_at) / 1000000 ))"
 desktop_call menu-click click '{"x":960,"y":540,"button":"right","target":{"kind":"desktop","display_id":"primary"}}'
 desktop_call menu-state get_desktop_state "{\"max_image_dimension\":0,\"screenshot_out_file\":\"$CAPTURES/menu.png\"}"
 fetch "$CAPTURES/menu.png" "$OUT/menu.png"
@@ -147,23 +142,17 @@ desktop_call terminal-tree get_window_state "{\"pid\":$TERMINAL_PID,\"window_id\
 desktop_call terminal-state get_desktop_state "{\"max_image_dimension\":0,\"screenshot_out_file\":\"$CAPTURES/terminal.png\"}"
 fetch "$CAPTURES/terminal.png" "$OUT/terminal.png"
 
-log "click-to-paint: viewer clicks through the tunnel, then agent clicks through exec"
-python3 "$PROOF/rfb_probe.py" click --api "$API" --tenant "$TENANT" --instance "$INSTANCE" \
-    --samples 20 --x 1400 --y 300 >"$OUT/viewer-click.json"
-# The agent's click is one exec request, sent exactly as any other caller would send it.
-python3 -c 'import json,sys; print(json.dumps({"executable": sys.argv[1], "arguments": ["call", "click", sys.argv[2]]}))' \
-    "$CALL" '{"x":1400,"y":300,"button":"right","target":{"kind":"desktop","display_id":"primary"}}' \
-    >"$OUT/agent-click.request"
-TRIGGER="curl -s -o /dev/null -H 'x-soma-tenant: $TENANT' -H 'content-type: application/json' --data-binary @$OUT/agent-click.request http://$API/v1/sandboxes/$INSTANCE/commands"
-for _ in 1 2 3 4 5; do
-    python3 "$PROOF/rfb_probe.py" trigger --api "$API" --tenant "$TENANT" --instance "$INSTANCE" \
-        --x 1400 --y 300 --command "$TRIGGER" >>"$OUT/agent-click.jsonl"
+log "agent click: five clicks, each one exec request, sent exactly as any other caller would send it"
+for i in 1 2 3 4 5; do
+    clicked_at="$(ns)"
+    desktop_call "agent-click-$i" click '{"x":1400,"y":300,"target":{"kind":"desktop","display_id":"primary"}}'
+    record agent_click_ms "$(( ($(ns) - clicked_at) / 1000000 ))"
 done
 
 log "idle memory after 30 s, and every connection the guest holds"
 sleep 30
-# Telemetry, update checks and KasmVNC's STUN query would all show here as a remote endpoint
-# that is not loopback; the viewer's own tunnel connection is the only expected remote peer.
+# Telemetry and update checks would show here as a remote endpoint that is not loopback; with no
+# viewer, the guest is expected to hold no remote connection at all.
 guest connections /bin/sh -c 'cat /proc/net/tcp /proc/net/udp'
 python3 "$PROOF/connections.py" "$GUEST_OUT" | tee "$OUT/guest-connections.txt"
 guest meminfo /bin/cat /proc/meminfo
@@ -171,11 +160,8 @@ cp "$GUEST_OUT" "$OUT/guest-meminfo.txt"
 record machine_host_rss_kib "$(machine_memory idle)"
 
 if (( HOLD > 0 )); then
-    log "holding the desktop for $HOLD s; viewer on http://$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1):16080/"
-    python3 "$PROOF/viewer_forward.py" --instance "$INSTANCE" --api "$API" --tenant "$TENANT" >"$OUT/viewer-forward.log" 2>&1 &
-    forward=$!
+    log "holding the desktop for $HOLD s (or until $WORK/release exists)"
     for _ in $(seq 1 "$HOLD"); do [[ -e "$WORK/release" ]] && break; sleep 1; done
-    kill "$forward" 2>/dev/null || true
 fi
 
 log "destroy"

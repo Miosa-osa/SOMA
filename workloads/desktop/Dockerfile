@@ -1,4 +1,4 @@
-# The SOMA desktop stage: an Xfce desktop with KasmVNC and the pinned cua-driver, for a SOMA guest.
+# The SOMA desktop stage: an Openbox desktop on Xorg's dummy screen and the pinned cua-driver, for a SOMA guest.
 #
 # A SOMA guest has no init system (PID 1 is the guest agent) and its Generation snapshot holds no
 # running process, so this stage adds no service unit and starts nothing. It adds what a desktop
@@ -12,16 +12,17 @@
 #   the session launcher  soma-desktop-session, run once through exec after the machine is Ready
 #   the warm list         /etc/soma/warm, so the session starts from cached pages
 #
-# The base is a desktop image that already carries Xfce 4, xfce4-terminal, dbus-x11 and KasmVNC
-# 1.4.0 (Xkasmvnc). Two bases are supported and the stage is the same for both:
+# The base is a desktop image that already carries Xorg with the dummy video driver, Openbox,
+# xfce4-terminal, dbus-x11 and the screen configuration at /etc/soma-desktop/xorg.conf.
+# Two bases are supported and the stage is the same for both:
 #
 #   an existing desktop root filesystem, imported with import-rootfs.sh:
-#     workloads/desktop-xfce/import-rootfs.sh <rootfs.ext4> desktop-rootfs:v17
-#     docker build --build-arg BASE_IMAGE=desktop-rootfs:v17 -t soma-desktop-xfce:1 workloads/desktop-xfce
+#     workloads/desktop/import-rootfs.sh <rootfs.ext4> desktop-rootfs:v17
+#     docker build --build-arg BASE_IMAGE=desktop-rootfs:v17 -t soma-desktop:2 workloads/desktop
 #
 #   the public base built from base.Dockerfile, which needs nothing outside this directory:
-#     docker build -f workloads/desktop-xfce/base.Dockerfile -t soma-desktop-base:1 workloads/desktop-xfce
-#     docker build --build-arg BASE_IMAGE=soma-desktop-base:1 -t soma-desktop-xfce:1 workloads/desktop-xfce
+#     docker build -f workloads/desktop/base.Dockerfile -t soma-desktop-base:2 workloads/desktop
+#     docker build --build-arg BASE_IMAGE=soma-desktop-base:2 -t soma-desktop:2 workloads/desktop
 #
 # Only instructions the classic builder understands are used, so no BuildKit is needed.
 ARG BASE_IMAGE
@@ -31,11 +32,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus libxkbcommon0 libxi6 \
-      libglib2.0-bin procps x11-utils \
+      libglib2.0-bin procps x11-utils x11-xserver-utils \
  && apt-get clean \
  && find /var/lib/apt/lists -type f -delete \
  && test -x /usr/libexec/at-spi-bus-launcher \
- && command -v Xkasmvnc startxfce4 xfce4-terminal dbus-daemon setpriv setsid pgrep xwininfo gdbus
+ && test -x /usr/lib/xorg/Xorg && test -f /etc/soma-desktop/xorg.conf \
+ && command -v openbox xfce4-terminal dbus-daemon setpriv setsid pgrep xprop xsetroot gdbus
 
 # cua-driver, pinned. 0.55.0 is the newest release with published binaries, SHA256SUMS and
 # Sigstore bundles: the cua-driver-rs-v0.56.0 tag (trycua/cua 9c75001355, 2026-11-20) has no
@@ -91,13 +93,13 @@ RUN rm -f /var/lib/dbus/machine-id /swapfile \
  && mkdir -p /var/lib/dbus \
  && ln -s /etc/machine-id /var/lib/dbus/machine-id
 
-# The page-cache warm list: the X server, Xfce, the terminal, the driver and every library they
+# The page-cache warm list: the X server, Openbox, the terminal, the driver and every library they
 # link, so a session started after a restore reads them from memory. The agent bounds a list at
 # 256 entries.
 RUN mkdir -p /etc/soma \
  && { \
-      for binary in /usr/bin/Xkasmvnc /usr/bin/xfwm4 /usr/bin/xfce4-panel /usr/bin/xfdesktop \
-                    /usr/bin/xfce4-session /usr/bin/xfsettingsd /usr/bin/xfce4-terminal \
+      for binary in /usr/lib/xorg/Xorg /usr/lib/xorg/modules/drivers/dummy_drv.so \
+                    /usr/bin/openbox /usr/bin/xfce4-terminal \
                     /usr/libexec/at-spi-bus-launcher /usr/libexec/at-spi2-registryd \
                     /usr/bin/dbus-daemon /opt/cua-driver/cua-driver; do \
         [ -e "$binary" ] || continue; \
@@ -105,4 +107,4 @@ RUN mkdir -p /etc/soma \
         ldd "$binary" | awk '/=> \//{print $3}'; \
       done; \
     } | awk '!seen[$0]++' | head -256 > /etc/soma/warm \
- && test "$(wc -l < /etc/soma/warm)" -gt 50
+ && test "$(wc -l < /etc/soma/warm)" -gt 30

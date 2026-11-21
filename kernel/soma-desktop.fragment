@@ -1,0 +1,14 @@
+# Desktop additions on top of soma-v1.fragment.
+#
+# A desktop viewer (Sunshine, the stream a human watches and drives) delivers the human's pointer
+# and keyboard through /dev/uinput: it creates virtual input devices and the X server reads them.
+# Version 1 has no input subsystem at all, so the viewer could only watch. The agent does not
+# need any of this: cua-driver injects through the X server's XTEST extension.
+#
+# Nothing is removed and nothing is reconfigured: this fragment only adds facilities, so a guest
+# that never opens /dev/uinput behaves exactly as the version 1 kernel does. The version 1 kernel
+# and its pinned config are untouched; the desktop Generation binds this kernel separately.
+CONFIG_INPUT=y
+CONFIG_INPUT_EVDEV=y
+CONFIG_INPUT_MISC=y
+CONFIG_INPUT_UINPUT=y
