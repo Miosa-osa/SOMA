@@ -77,10 +77,10 @@ fn every_version_two_bound_field_rejects_on_mismatch() {
 
 #[test]
 fn an_unknown_machine_contract_version_fails_closed() {
-    // Neither a command line nor a binding exists for version 5, so a manifest naming it matches
+    // Neither a command line nor a binding exists for version 6, so a manifest naming it matches
     // nothing and is refused rather than verified against some other contract's bytes.
     rejected(Incompatibility::CommandLine, |manifest| {
-        manifest.machine_contract.version = 5;
+        manifest.machine_contract.version = 6;
     });
 }
 
@@ -111,6 +111,26 @@ fn the_wide_contract_admits_sixteen_vcpus_and_is_bound_to_its_policy() {
         bound_error.incompatibility(),
         Some(Incompatibility::VcpuCount)
     );
+}
+
+#[test]
+fn the_32_gib_contract_admits_split_memory_and_rejects_larger_sizes() {
+    use crate::generation::contracts::{kernel_command_line_for, machine_contract_for};
+    let mut manifest = fixture::profile_v2();
+    let mut wide = CompilerProfile::v6();
+    wide.overlay_capacities = profile(2).overlay_capacities;
+    manifest.compiler_policy_version = wide.policy_version;
+    manifest.machine_contract = machine_contract_for(5).expect("32 GiB machine contract");
+    manifest.command_line =
+        kernel_command_line_for(manifest.device_set(), 5).expect("32 GiB command line");
+    manifest.shape.memory_bytes = 32 * 1024 * MIB;
+    assert_eq!(
+        require_profile(&manifest, &wide).map_err(|error| error.incompatibility()),
+        Ok(())
+    );
+    manifest.shape.memory_bytes += 4096;
+    let error = require_profile(&manifest, &wide).expect_err("above the 32 GiB ceiling");
+    assert_eq!(error.incompatibility(), Some(Incompatibility::MemorySize));
 }
 
 #[test]
