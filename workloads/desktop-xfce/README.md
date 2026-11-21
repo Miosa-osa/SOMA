@@ -4,7 +4,7 @@
 
 This directory turns a Linux desktop image into a SOMA Generation an agent can drive.
 A desktop is not a new kind of machine: it is an ordinary Generation (the same kernel, guest agent, devices and tunnel as every sandbox) at a desktop shape, whose session is started after the machine is Ready.
-The proof that it works end to end, with measurements, is [the M1 evidence record](../../docs/evidence/2026-11-20-desktop-generation-cua-m1.md).
+[The M1 evidence record](../../docs/evidence/2026-11-20-desktop-generation-cua-m1.md) has the measurements: launch, session start and the cua driver work; the human viewer through the tunnel does not connect yet.
 
 | Piece | What it is |
 | --- | --- |
