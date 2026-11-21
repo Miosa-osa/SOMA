@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# The checks use bash 4 features, and macOS ships bash 3.2 in /bin.
+if (( BASH_VERSINFO[0] < 4 )); then
+    printf 'scripts/check.sh needs bash 4 or later, found %s; on macOS: brew install bash\n' \
+        "${BASH_VERSION}" >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"

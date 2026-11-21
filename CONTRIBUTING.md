@@ -58,6 +58,8 @@ cargo test --workspace --all-features
 ```
 
 Run platform-neutral checks on macOS when useful, but label them accurately.
+On macOS, `./scripts/check.sh portable` needs bash 4 or later on `PATH` and `shellcheck`, because the bash in `/bin` is 3.2; `brew install bash shellcheck` provides both, and `rustup` installs the pinned toolchain from `rust-toolchain.toml`.
+`./scripts/bootstrap-macos.sh` installs only the pinned Apple container runtime for the Apple development backend, and names either check prerequisite it finds missing.
 A change that touches KVM, Linux memory mapping, seccomp, namespaces, cgroups, TAP networking, reflinks, or host cleanup also requires Ubuntu 24.04 x86_64 validation.
 Do not replace a missing Linux test with a macOS result.
 Portable client changes also require Linux, macOS, and Windows compile and behavior checks once those jobs are available.
