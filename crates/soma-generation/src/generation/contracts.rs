@@ -344,9 +344,15 @@ mod tests {
         assert_eq!(machine_contract_for(2), Some(machine_contract_v2()));
         assert_eq!(machine_contract_for(0), None);
         assert_eq!(machine_contract_for(3), Some(machine_contract_v3()));
-        assert_eq!(machine_contract_for(4), Some(machine_contract_v4()));
+        assert_eq!(
+            machine_contract_for(4),
+            Some(ContractBinding::of(4, MACHINE_CONTRACT_V4))
+        );
         assert_eq!(machine_contract_for(5), None);
-        assert_ne!(machine_contract_v3(), machine_contract_v4());
+        assert_ne!(
+            machine_contract_v3(),
+            ContractBinding::of(4, MACHINE_CONTRACT_V4)
+        );
         assert_ne!(machine_contract_v1(), machine_contract_v2());
         assert_ne!(machine_contract_v2(), machine_contract_v3());
         assert_eq!(machine_contract_v3().version, 3);
