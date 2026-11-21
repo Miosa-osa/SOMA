@@ -179,12 +179,11 @@ impl Platform for KvmPlatform {
             Ok(session) => {
                 self.session = Some(session);
                 self.network = network;
-                self.checkpoint_geometry =
-                    (volume_capacity_bytes.is_none() && self.network.is_none()).then_some((
-                        *launch.generation().id().as_bytes(),
-                        contract,
-                        declared.writable_disk(),
-                    ));
+                self.checkpoint_geometry = volume_capacity_bytes.is_none().then_some((
+                    *launch.generation().id().as_bytes(),
+                    contract,
+                    declared.writable_disk(),
+                ));
                 RestoredMachine::from_observation(RestoreProgress::from_steps([
                     RestoreStep::ArtifactsVerified,
                     RestoreStep::MachineRestored,

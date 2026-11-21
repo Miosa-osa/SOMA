@@ -83,7 +83,9 @@ impl From<SnapshotError> for CheckpointError {
 
 /// Pauses a running guest, captures its state into unpublished files, and resumes that guest.
 ///
-/// Capture requires idle device queues, link down, no attached data volume, and no plugged memory.
+/// Capture requires idle device queues, no attached data volume, and no plugged memory.
+/// The guest link is held down while state is captured and restored to its source setting before
+/// the source resumes, including after a rejected capture.
 /// The host must discard the staging files on error and authenticate the result before publication.
 ///
 /// # Errors
@@ -105,11 +107,14 @@ pub fn capture_checkpoint(
     sandbox
         .pause(request.grace)
         .map_err(CheckpointError::Pause)?;
+    let link_was_up = sandbox.network_link_up();
+    sandbox.set_network_link(false);
     let capture = sandbox
         .with_paused(|paused| capture_paused(paused, request, sandbox.hotplug_region()))
         .unwrap_or(Err(SnapshotError::NotQuiescent(
             "checkpoint did not reach a complete pause",
         )));
+    sandbox.set_network_link(link_was_up);
     if let Err(resume) = sandbox.resume() {
         return Err(CheckpointError::Resume {
             capture: capture.err(),
