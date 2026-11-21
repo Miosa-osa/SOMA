@@ -163,3 +163,63 @@ async fn checkpoint_checks_tenant_ownership_before_forwarding() {
         400
     );
 }
+
+#[tokio::test]
+async fn restore_verifies_the_durable_tenant_after_losing_its_registry() {
+    let engine = Arc::new(Engine::default());
+    let own = SandboxId::mint('3');
+    let foreign = SandboxId::mint('3');
+    let foreign_tenant = "5e6f7a8b-0000-4000-8000-000000000002";
+    engine
+        .listed
+        .lock()
+        .expect("listed")
+        .extend([labelled(&own, TENANT), labelled(&foreign, foreign_tenant)]);
+    let runner = runner(&engine, r#""*""#, "1");
+    assert_eq!(runner.sandboxes().live(), 0);
+    let path = |id: &SandboxId| format!("/api/v1/sandboxes/{}/restore", id.as_str());
+    let body = serde_json::json!({
+        "operation_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "checkpoint_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "image": "node:22",
+        "shape": soma::MachineShape::new(1, 1024, 256).unwrap(),
+        "name": format!("t-{foreign_tenant}"),
+    })
+    .to_string();
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&foreign), &body)
+            .await
+            .status,
+        404
+    );
+    assert!(
+        engine
+            .restore_names
+            .lock()
+            .expect("restore names")
+            .is_empty()
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), "{}")
+            .await
+            .status,
+        400
+    );
+    assert_eq!(
+        runner.sandboxes().live(),
+        0,
+        "failed attempt returns its reservation"
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), &body)
+            .await
+            .status,
+        200
+    );
+    assert_eq!(runner.sandboxes().live(), 1);
+    let seen = engine.restore_names.lock().expect("restore names");
+    assert_eq!(
+        seen.as_slice(),
+        &[Some(MachineName::parse(format!("t-{TENANT}")).unwrap())]
+    );
+}

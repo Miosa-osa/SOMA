@@ -48,6 +48,28 @@ impl Sandboxes {
         );
     }
 
+    /// Reserves an existing durable identity after the authenticated owner takes a slot.
+    /// Returns false if another request already established its registry entry.
+    pub(in crate::runner) fn reserve_restore(
+        &self,
+        id: SandboxId,
+        owner: Owner,
+        lifetime: Lifetime,
+    ) -> bool {
+        let clock = Clock::start(lifetime, owner.created);
+        let mut records = self.lock();
+        let std::collections::hash_map::Entry::Vacant(entry) = records.entry(id) else {
+            return false;
+        };
+        entry.insert(Record {
+            owner,
+            clock,
+            phase: Phase::Creating,
+            in_flight: 0,
+        });
+        true
+    }
+
     /// Marks a reserved sandbox as created and ready for commands.
     pub fn confirm(&self, id: &SandboxId) {
         if let Some(record) = self.lock().get_mut(id) {

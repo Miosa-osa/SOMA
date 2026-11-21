@@ -10,6 +10,7 @@ pub(super) enum Route<'a> {
     /// The same command, answered as server-sent events.
     ExecStream(&'a str),
     Destroy(&'a str),
+    Restore(&'a str),
     /// `GET .../{id}/tunnel/{port}`: an HTTP/1.1 upgrade to raw bytes to a guest port.
     Tunnel(&'a str, &'a str),
     /// `PATCH {"timeout": N}`: reset or extend the idle timer.
@@ -44,6 +45,7 @@ impl<'a> Route<'a> {
             Self::Exec(id)
             | Self::ExecStream(id)
             | Self::Destroy(id)
+            | Self::Restore(id)
             | Self::Extend(id)
             | Self::EgressOpen(id)
             | Self::EgressClose(id, _)
@@ -93,6 +95,7 @@ pub(super) fn route<'a>(method: &http::Method, path: &'a str) -> Route<'a> {
         }
         (&http::Method::GET, ["", id, "network"]) if !id.is_empty() => Route::Network(id),
         (&http::Method::DELETE, ["", id]) if !id.is_empty() => Route::Destroy(id),
+        (&http::Method::POST, ["", id, "restore"]) if !id.is_empty() => Route::Restore(id),
         (&http::Method::PATCH, ["", id]) if !id.is_empty() => Route::Extend(id),
         (&http::Method::GET, ["", id]) if !id.is_empty() => forward(id, Method::Get),
         (&http::Method::GET | &http::Method::PATCH, ["", id, "resources"]) if !id.is_empty() => {

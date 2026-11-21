@@ -38,6 +38,37 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         self.launch_managed(&request, None)
     }
 
+    /// Returns the recorded name used to check restore ownership after a runner restart.
+    /// # Errors
+    /// Returns the durable-store failure if ownership cannot be read.
+    pub fn restore_owner(
+        &mut self,
+        instance: &crate::InstanceId,
+    ) -> Result<Option<crate::MachineName>, ManagedFailure> {
+        use crate::{OperationKind, engine::machine_state::TerminalBasis};
+
+        let Some(stored) = self.load_machine(instance)? else {
+            return Ok(None);
+        };
+        let name = match stored.machine.phase {
+            DurablePhase::Terminal {
+                operation: OperationKind::Stop,
+                basis,
+                ..
+            } => match *basis {
+                TerminalBasis::Active { active } => active.machine_name().cloned(),
+                TerminalBasis::Launch { .. } => None,
+            },
+            DurablePhase::Launching {
+                intent,
+                prior_stop: Some(_),
+            } => intent.machine_name.clone(),
+            DurablePhase::Active { active } => active.machine_name().cloned(),
+            _ => None,
+        };
+        Ok(name)
+    }
+
     /// Restores a checkpoint created for the same stopped Instance.
     /// # Errors
     /// Returns a typed failure if the stopped record, admitted Generation, or checkpoint cannot

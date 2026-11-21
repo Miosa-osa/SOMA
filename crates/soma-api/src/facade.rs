@@ -91,6 +91,16 @@ pub trait SandboxFacade {
     fn launch(&mut self, request: LaunchMachineRequest)
     -> Result<LifecycleOutcome, ManagedFailure>;
 
+    /// Looks up the persisted ownership label for restore and exact replay.
+    /// # Errors
+    /// Returns a storage failure if ownership could not be verified.
+    fn restore_owner(
+        &mut self,
+        _instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        Ok(None)
+    }
+
     /// Restores a stopped sandbox from its own published checkpoint.
     /// # Errors
     /// Returns the managed restore refusal or launch failure.

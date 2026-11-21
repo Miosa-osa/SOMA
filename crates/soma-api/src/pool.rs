@@ -136,6 +136,13 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().launch(request)
     }
 
+    fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.deref_mut().restore_owner(instance)
+    }
+
     fn restore(
         &mut self,
         request: LaunchMachineRequest,

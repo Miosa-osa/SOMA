@@ -63,6 +63,25 @@ pub(super) fn restore<F: SandboxFacade + ?Sized>(
     instance: InstanceId,
     body: &[u8],
 ) -> Result<Response, ApiError> {
+    try_restore(facade, instance, body, None)
+}
+
+pub(crate) fn restore_as<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance: InstanceId,
+    body: &[u8],
+    owner: soma::MachineName,
+) -> Response {
+    try_restore(facade, instance, body, Some(owner))
+        .unwrap_or_else(|error| super::refuse("sandbox.restore", error))
+}
+
+fn try_restore<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance: InstanceId,
+    body: &[u8],
+    owner: Option<soma::MachineName>,
+) -> Result<Response, ApiError> {
     if !facade.hosts_addressable_sandboxes() {
         return Err(super::MissingCapability::DurableMachineHosting.error());
     }
@@ -71,7 +90,7 @@ pub(super) fn restore<F: SandboxFacade + ?Sized>(
         .map_err(|_| ApiError::invalid("the image reference is not a valid OCI reference"))?;
     let mut request =
         soma::LaunchMachineRequest::new(body.operation_id, instance, image, body.shape);
-    if let Some(name) = body.name {
+    if let Some(name) = owner.or(body.name) {
         request = request.with_name(name);
     }
     let result = facade

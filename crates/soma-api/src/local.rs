@@ -55,6 +55,13 @@ impl SandboxFacade for LocalFacade {
         Ok(lifecycle(outcome.receipt()))
     }
 
+    fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.runtime.restore_owner(instance)
+    }
+
     fn restore(
         &mut self,
         request: LaunchMachineRequest,

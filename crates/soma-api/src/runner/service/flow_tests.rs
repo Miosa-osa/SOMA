@@ -49,6 +49,7 @@ pub(super) struct Engine {
     /// the engine reports after it has taken an operation.
     pub(super) exec_refusal: Mutex<Option<BackendFailureKind>>,
     pub(super) listed: Mutex<Vec<SandboxEntry>>,
+    pub(super) restore_names: Mutex<Vec<Option<soma::MachineName>>>,
     /// How long each command takes, for tests of commands that outlast the idle timeout.
     pub(super) exec_delay: Mutex<Duration>,
     /// How long each terminal call takes, as a long `read` with `wait_ms` would.

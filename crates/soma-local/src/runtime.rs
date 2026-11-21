@@ -87,6 +87,16 @@ impl LocalRuntime {
         self.engine.launch_machine(request)
     }
 
+    /// Reads the persisted ownership label for a possibly recoverable Instance.
+    /// # Errors
+    /// Returns the durable-store failure if ownership cannot be read.
+    pub fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.engine.restore_owner(instance)
+    }
+
     /// Restores an existing stopped Instance from a published checkpoint.
     /// # Errors
     /// Returns the typed managed failure if restore could not be admitted or completed.

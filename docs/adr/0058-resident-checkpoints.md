@@ -85,3 +85,10 @@ The launcher gives the same lease to the new host process with the checkpoint ha
 The host releases its copy only after reporting Ready or completing cleanup.
 Once a new caller holds the lease, an exact retry may reap the abandoned host and restore from the same checkpoint and stopped record.
 A different operation cannot replay or take over an interrupted restore.
+
+## Authenticated runner
+
+The public runner exposes `POST /api/v1/sandboxes/{id}/restore` using its bearer-key and tenant checks.
+It supplies the tenant label from the authenticated principal, and the engine compares that label with the stopped record before admission.
+If the runner lost its in-memory entry, it checks the durable owner and reserves a tenant slot before attempting restore.
+A successful restore returns the sandbox to the runner's normal lifetime tracking.
