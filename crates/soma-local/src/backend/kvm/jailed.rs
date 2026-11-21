@@ -32,7 +32,7 @@ use soma_vmm::{
 
 pub(super) use anchors::Anchors;
 
-use super::identity::fresh16;
+use super::identity::{fresh16, instance_bytes};
 use super::prepared::PreparedGeneration;
 
 /// How long the worker has to attest its own containment before it is considered lost.
@@ -67,7 +67,7 @@ pub(super) struct Launching<'a> {
     pub(super) generation_bytes: [u8; 32],
     pub(super) memory_mib: u64,
     pub(super) disk_mib: u64,
-    pub(super) checkpoint: Option<&'a soma::OperationId>,
+    pub(super) checkpoint: Option<(&'a InstanceId, &'a soma::OperationId)>,
 }
 
 impl Jailed {
@@ -94,17 +94,13 @@ impl Jailed {
         )?;
         let checkpoint = launching
             .checkpoint
-            .map(|checkpoint| {
-                super::checkpoint::restore_artifacts(
-                    launching.instance,
-                    &launching.prepared.id,
-                    checkpoint,
-                )
-                .map_err(|error| match error {
-                    crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
-                    crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
-                    _ => BackendFailureKind::Unavailable,
-                })
+            .map(|(source, checkpoint)| {
+                super::checkpoint::restore_artifacts(source, &launching.prepared.id, checkpoint)
+                    .map_err(|error| match error {
+                        crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
+                        crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
+                        _ => BackendFailureKind::Unavailable,
+                    })
             })
             .transpose()?;
         let opened = build::open(
@@ -212,7 +208,16 @@ impl Jailed {
         let reply = match recovery {
             None => self.control.ask(&Request::Launch(launch), LAUNCH_CEILING),
             Some(recovery) => {
-                let request = Request::Recover(launch, *recovery.digest.as_bytes());
+                let digest = *recovery.digest.as_bytes();
+                let from = launching.checkpoint.map(|(source, _)| source);
+                let request = match from {
+                    Some(source) if source != launching.instance => {
+                        let source = VmmInstanceId::new(instance_bytes(source)?)
+                            .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+                        Request::Fork(launch, digest, source)
+                    }
+                    _ => Request::Recover(launch, digest),
+                };
                 let budget = super::checkpoint::CHECKPOINT_CEILING + LAUNCH_CEILING;
                 match recovery.overlay.as_ref() {
                     Some(overlay) => {

@@ -34,11 +34,7 @@ impl Workload for Observe {
     ) -> Result<(Session<'a>, Sample), String> {
         let (session, machine_id) = execute(session, &command(b"/bin/cat", &[b"/etc/machine-id"]))?;
         assert_eq!(machine_id.status, TerminalStatus::Exited(0));
-        let expected: String = self
-            .identity
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
+        let expected = format!("{:032x}", u128::from_be_bytes(self.identity));
         assert_eq!(
             String::from_utf8_lossy(&machine_id.stdout).trim_end(),
             expected

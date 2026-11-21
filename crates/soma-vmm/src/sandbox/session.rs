@@ -122,7 +122,10 @@ impl Session {
         boot: Boot,
         activate: &mut dyn FnMut(&ActivationReceipt) -> Result<Activation, SessionError>,
     ) -> Result<Self, SessionError> {
-        let launch_budget = if matches!(&boot.source, Source::ResidentCheckpoint(_)) {
+        let launch_budget = if matches!(
+            &boot.source,
+            Source::ResidentCheckpoint(_) | Source::CheckpointFork(_)
+        ) {
             // Recovery verifies every checkpoint byte and the private head before KVM runs.
             Duration::from_mins(15)
         } else {

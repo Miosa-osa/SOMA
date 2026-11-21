@@ -18,6 +18,7 @@ use super::{KvmPlatform, MachineResources, faults};
 pub(super) struct Selection {
     pub(super) digest: Digest,
     pub(super) saved_overlay: Option<File>,
+    pub(super) fork_from: Option<crate::InstanceId>,
 }
 
 impl KvmPlatform {
@@ -57,7 +58,7 @@ impl KvmPlatform {
             hypervisor: Hypervisor::Adopted(resources.kvm),
             root: resources.root,
             head: resources.overlay,
-            instance_id: instance,
+            instance_id: selection.fork_from.map_or(instance, |id| *id.as_bytes()),
             candidate_id: generation,
             state_digest: selection.digest,
             devices,
@@ -67,9 +68,14 @@ impl KvmPlatform {
             contract,
             hotplug,
         };
+        let source = if selection.fork_from.is_some() {
+            Source::CheckpointFork(Box::new(request))
+        } else {
+            Source::ResidentCheckpoint(Box::new(request))
+        };
         let session = Session::launch(
             Boot {
-                source: Source::ResidentCheckpoint(Box::new(request)),
+                source,
                 generation,
                 instance,
                 operation,

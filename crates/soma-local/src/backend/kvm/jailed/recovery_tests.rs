@@ -20,6 +20,7 @@ const script = `
 const marker = require('node:crypto').randomBytes(16).toString('hex');
 let counter = 0;
 setInterval(() => counter++, 5);
+process.on('SIGUSR2', () => { counter = 1_000_000; });
 require('node:net').createServer(socket => {
     socket.end([process.pid, marker, counter].join(' '));
 }).listen('/tmp/restore-rehearsal.sock');
@@ -127,7 +128,7 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
     assert_eq!(cleanup, soma::CleanupMethod::Graceful);
     assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
 
-    launching.checkpoint = Some(&checkpoint_id);
+    launching.checkpoint = Some((&instance, &checkpoint_id));
     let mut recovered = Jailed::launch(&anchors, &launching).expect("recover in a fresh jail");
     check_filters(&recovered);
     let recovered_pid = recovered.handle.as_ref().unwrap().pid();
@@ -166,3 +167,5 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
         ticks_after,
     );
 }
+
+mod fork;

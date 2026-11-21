@@ -66,7 +66,18 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
             continue;
         }
         if let Request::Recover(launch, digest) = request {
-            recovery::reply(&mut machine, control, launch, digest, descriptors);
+            recovery::reply(&mut machine, control, launch, digest, descriptors, None);
+            continue;
+        }
+        if let Request::Fork(launch, digest, source) = request {
+            recovery::reply(
+                &mut machine,
+                control,
+                launch,
+                digest,
+                descriptors,
+                Some(source),
+            );
             continue;
         }
         if !descriptors.is_empty() {
@@ -134,7 +145,7 @@ fn perform(
             Ok(answer) => control.send(&Reply::Pty(&answer).encode()),
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
-        Request::Checkpoint(_) | Request::Recover(..) => {
+        Request::Checkpoint(_) | Request::Recover(..) | Request::Fork(..) => {
             unreachable!("descriptor requests are handled at receive")
         }
         Request::Seal => control.send(&seal().encode()),

@@ -3,7 +3,7 @@
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::HostLaunchMaterial;
-use soma_kvm::x86_64::{RestoreRequest, SandboxMachine, prepare_checkpoint, restore};
+use soma_kvm::x86_64::{RestoreRequest, SandboxMachine, prepare_checkpoint, prepare_fork, restore};
 
 use super::super::session::{Request, Response, SessionError};
 use super::super::source::{Boot, Network, Source};
@@ -37,7 +37,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
     };
 
     match source {
-        Source::ResidentCheckpoint(request) => {
+        Source::ResidentCheckpoint(request) | Source::CheckpointFork(request) => {
             recover(*request, material, instance, operation, requests, responses);
         }
         Source::ColdBoot(config) => {
@@ -130,13 +130,15 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
 }
 
 fn matches_recovery_source(boot: &Boot) -> bool {
-    let Source::ResidentCheckpoint(request) = &boot.source else {
-        return true;
+    let (request, names_expected_instance) = match &boot.source {
+        Source::ResidentCheckpoint(request) => (request, request.instance_id == boot.instance),
+        Source::CheckpointFork(request) => (request, request.instance_id != boot.instance),
+        _ => return true,
     };
     boot.network.attachment.is_none()
         && boot.network.activation.is_none()
         && boot.secrets.is_empty()
-        && request.instance_id == boot.instance
+        && names_expected_instance
         && request.candidate_id == boot.generation
         && request.guest_cid == boot.guest_cid
         && boot.network.launch.vsock_cid() == boot.guest_cid
@@ -150,7 +152,18 @@ fn recover(
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) {
-    let prepared = match prepare_checkpoint(request) {
+    let source = request.instance_id;
+    let (prepared, material) = if source == instance {
+        (prepare_checkpoint(request), Ok(material))
+    } else {
+        let authority = material.for_fork(source);
+        (prepare_fork(request, instance), authority)
+    };
+    let Ok(material) = material else {
+        let _ignored = responses.send(Response::Failed(SessionError::LaunchPage));
+        return;
+    };
+    let prepared = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
             eprintln!("soma-vmm: checkpoint validation failed: {error}");
@@ -234,6 +247,19 @@ mod tests {
         boot.generation = [4; 32];
         assert!(!matches_recovery_source(&boot));
         boot.generation = [2; 32];
+        boot.guest_cid = 5;
+        assert!(!matches_recovery_source(&boot));
+    }
+    #[test]
+    fn a_checkpoint_fork_requires_a_distinct_destination_and_no_new_authority() {
+        let mut boot = recovery_boot();
+        let Source::ResidentCheckpoint(request) = boot.source else {
+            unreachable!();
+        };
+        boot.source = Source::CheckpointFork(request);
+        assert!(!matches_recovery_source(&boot));
+        boot.instance = [5; 16];
+        assert!(matches_recovery_source(&boot));
         boot.guest_cid = 5;
         assert!(!matches_recovery_source(&boot));
     }

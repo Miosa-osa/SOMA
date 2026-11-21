@@ -27,6 +27,8 @@ pub enum Request {
     Launch(Launch),
     /// Recover a stopped Instance against the authoritative checkpoint digest.
     Recover(Launch, [u8; 32]),
+    /// Fork from the named checkpoint source into the launch's new Instance.
+    Fork(Launch, [u8; 32], InstanceId),
     Execute(Execute),
     /// Run one command and send each output chunk back as it arrives, then the final reply.
     ///
@@ -75,6 +77,10 @@ impl Request {
             Self::Recover(launch, digest) => {
                 encode_launch(&format!("recover {}", hex(digest)), launch)
             }
+            Self::Fork(launch, digest, source) => encode_launch(
+                &format!("fork {} {}", hex(source.as_bytes()), hex(digest)),
+                launch,
+            ),
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
@@ -133,6 +139,13 @@ impl Request {
             "recover" => {
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
                 decode_launch(&mut tokens).map(|launch| Self::Recover(launch, digest))
+            }
+            "fork" => {
+                let source = super::field::identifier(tokens.next(), "checkpoint source")?;
+                let source = InstanceId::new(source)
+                    .map_err(|_| ControlError::InvalidValue("checkpoint source"))?;
+                let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
+                decode_launch(&mut tokens).map(|launch| Self::Fork(launch, digest, source))
             }
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

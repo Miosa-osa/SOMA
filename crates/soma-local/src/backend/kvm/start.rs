@@ -192,7 +192,7 @@ impl KvmBackend {
                 generation_bytes,
                 memory_mib,
                 disk_mib: storage_mib,
-                checkpoint: checkpoint.as_ref(),
+                checkpoint: checkpoint.as_ref().map(|checkpoint| (instance, checkpoint)),
             },
         ) {
             Ok(jailed) => Ok(Started {

@@ -20,13 +20,39 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
     ) -> Result<Ready, Failure> {
+        self.launch_checkpoint(launch, digest, saved_overlay, None)
+    }
+
+    /// Launches an authorized checkpoint in a fresh Instance with separate guest authority.
+    /// # Errors
+    /// Refuses a reused source identity or any invalid checkpoint.
+    pub fn fork(
+        &mut self,
+        launch: Launch,
+        digest: Digest,
+        saved_overlay: Option<std::fs::File>,
+        source: InstanceId,
+    ) -> Result<Ready, Failure> {
+        if source == launch.instance_id() {
+            return Err(super::fault::lifecycle_failure());
+        }
+        self.launch_checkpoint(launch, digest, saved_overlay, Some(source))
+    }
+
+    fn launch_checkpoint(
+        &mut self,
+        launch: Launch,
+        digest: Digest,
+        saved_overlay: Option<std::fs::File>,
+        fork_from: Option<InstanceId>,
+    ) -> Result<Ready, Failure> {
         if self.state != State::New
             || saved_overlay.is_some() != launch.generation().devices().writable_disk()
         {
             return Err(super::fault::lifecycle_failure());
         }
         self.platform
-            .configure_recovery(digest, saved_overlay)
+            .configure_recovery(digest, saved_overlay, fork_from)
             .map_err(|_| super::fault::lifecycle_failure())?;
         self.launch(launch)
     }

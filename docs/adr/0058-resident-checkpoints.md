@@ -104,3 +104,7 @@ The guest accepts a fork only after losing its captured idle control connection 
 It applies the destination hostname and machine ID, refreshes entropy and time, and authenticates a new control session.
 The guest keeps its workload processes, files, and scratch mounts.
 Host network authority and attached volumes are unavailable to this fork path.
+
+The sealed worker uses a distinct `fork` request naming the authorized source and the new launch, with the receipt digest.
+The broker opens the artifacts under the source identity and builds a private disk for the destination identity.
+Older workers reject the unfamiliar request before running any VM.

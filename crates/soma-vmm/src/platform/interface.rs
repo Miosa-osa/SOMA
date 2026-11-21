@@ -11,6 +11,7 @@ pub(crate) trait Platform: Send {
         &mut self,
         _digest: soma_kvm::snapshot::Digest,
         _saved_overlay: Option<std::fs::File>,
+        _fork_from: Option<crate::InstanceId>,
     ) -> Result<(), PlatformFailure> {
         Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
     }

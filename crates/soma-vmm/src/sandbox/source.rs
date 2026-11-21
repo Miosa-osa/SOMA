@@ -21,6 +21,8 @@ use super::pending::PendingActivation;
 pub enum Source {
     /// Recover the authorized stopped Instance with a fresh authenticated session.
     ResidentCheckpoint(Box<ResidentRestoreRequest>),
+    /// Fork an authorized checkpoint into the distinct Instance named by the boot.
+    CheckpointFork(Box<ResidentRestoreRequest>),
     /// Build a machine and boot the kernel.
     ColdBoot(SandboxConfig),
     /// Resume the captured machine, giving this Instance its own private head.

@@ -55,12 +55,12 @@ impl PreparedCheckpoint {
     /// Refuses launch material that names a different Instance and consumes the prepared VM
     /// if resume fails.
     pub fn resume(mut self, page: &[u8; LAUNCH_PAGE_SIZE]) -> Result<Restored, SnapshotError> {
-        let session = crate::snapshot::readiness::page_session(page)
-            .ok_or(crate::snapshot::readiness::ReadinessRefusal::Unbound)?;
         // The standard and fork pages share the identity offsets but use distinct schemas.
         const SCHEMA_OFFSET: std::ops::Range<usize> = 16..18;
         const RESTORE_SCHEMA: [u8; 2] = 3_u16.to_be_bytes();
         const FORK_SCHEMA: [u8; 2] = 4_u16.to_be_bytes();
+        let session = crate::snapshot::readiness::page_session(page)
+            .ok_or(crate::snapshot::readiness::ReadinessRefusal::Unbound)?;
         let schema = if self.fork {
             FORK_SCHEMA
         } else {
