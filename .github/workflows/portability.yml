@@ -1,6 +1,31 @@
 name: Portability
 
 on:
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - clippy.toml
+      - rust-toolchain.toml
+      - rustfmt.toml
+      - crates/**
+      - benchmarks/**
+      - scripts/**
+      - .github/workflows/portability.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - clippy.toml
+      - rust-toolchain.toml
+      - rustfmt.toml
+      - crates/**
+      - benchmarks/**
+      - scripts/**
+      - .github/workflows/portability.yml
+  # The weekly run catches runner image and upstream drift on a week with no change.
   schedule:
     - cron: "41 7 * * 1"
   workflow_dispatch:
@@ -28,6 +53,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The evidence check resolves every commit the claim ledger names, and a
+          # shallow checkout makes a commit that exists look missing.
+          fetch-depth: 0
 
       - name: Install pinned Rust toolchain
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -37,6 +65,22 @@ jobs:
           if ! command -v shellcheck >/dev/null 2>&1; then
             brew install shellcheck
           fi
+
+      # The repository scripts use bash 4 features such as associative arrays,
+      # and the bash macOS ships in /bin is 3.2. Both steps resolve bash the way a
+      # script's `#!/usr/bin/env bash` line does.
+      - name: Ensure bash 4 or later is available
+        run: |
+          if ! /usr/bin/env bash -c '(( BASH_VERSINFO[0] >= 4 ))'; then
+            brew install bash
+            printf '%s/bin\n' "$(brew --prefix)" >> "$GITHUB_PATH"
+          fi
+
+      - name: Require bash 4 or later
+        # The variables belong to the inner bash, the one found on PATH, so they stay unexpanded here.
+        run: |
+          # shellcheck disable=SC2016
+          /usr/bin/env bash -c 'printf "%s\n" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 4 ))'
 
       - name: Require Apple Silicon
         run: test "$(uname -m)" = "arm64"
@@ -74,10 +118,42 @@ jobs:
       - name: Test portable documentation
         run: cargo test --workspace --doc --locked
 
+      # Library docs only, as in `scripts/check.sh`: the `soma` library and the
+      # `soma` binary collide on one target/doc/soma path.
+      - name: Check portable rustdoc
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --workspace --lib --locked
+
       - name: Compile-check Windows ARM64 client
         run: |
           rustup target add aarch64-pc-windows-msvc --toolchain "$env:RUST_TOOLCHAIN"
           cargo check --workspace --all-targets --locked --target aarch64-pc-windows-msvc
+
+  linux-arm64:
+    name: Ubuntu 24.04 ARM64 native
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+
+      - name: Require ARM64
+        run: test "$(uname -m)" = "aarch64"
+
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test workspace
+        run: cargo test --workspace --all-targets --locked
+
+      - name: Test documentation
+        run: cargo test --workspace --doc --locked
 
   ubuntu-preview:
     name: Ubuntu 26.04 x86_64 preview
@@ -88,6 +164,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The evidence check resolves every commit the claim ledger names, and a
+          # shallow checkout makes a commit that exists look missing.
+          fetch-depth: 0
 
       - name: Install pinned Rust toolchain
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy

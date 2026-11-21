@@ -33,7 +33,12 @@ fi
 # repair-step timings on the guest console. Empty for the shipped agent.
 readonly FEATURES="${SOMA_GUEST_AGENT_FEATURES:-}"
 
-RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=static -C strip=symbols" \
+# The checkout and the Cargo home are remapped out of every path the agent embeds, so two
+# machines building one commit with one toolchain produce the same agent, and so the same
+# Generation identity. The release packager remaps the other binaries the same way.
+readonly CARGO_ROOT="${CARGO_HOME:-${HOME}/.cargo}"
+RUSTFLAGS="-C target-feature=+crt-static -C relocation-model=static -C strip=symbols \
+--remap-path-prefix=${REPO_ROOT}=/soma --remap-path-prefix=${CARGO_ROOT}=/cargo" \
     cargo build --locked --release --target "${TARGET}" -p soma-guest-agent \
     --features "${FEATURES}"
 

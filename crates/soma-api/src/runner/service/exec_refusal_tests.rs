@@ -41,7 +41,7 @@ async fn an_oversize_command_is_refused_by_name_and_leaves_the_sandbox_usable() 
     let (runner, id) = recovered_runner(&engine).await;
     let path = format!("/api/v1/sandboxes/{id}/exec");
 
-    let command = format!("echo {}", "a".repeat(4_100));
+    let command = format!("echo {}", "a".repeat(soma_guest::MAX_ARGUMENT_BYTES));
     let refused = call(
         &runner,
         http::Method::POST,
@@ -62,6 +62,32 @@ async fn an_oversize_command_is_refused_by_name_and_leaves_the_sandbox_usable() 
 
     let fine = call(&runner, http::Method::POST, &path, r#"{"command":"true"}"#).await;
     assert_eq!(fine.status, 200, "the sandbox survived the refusal");
+    assert_eq!(engine.execs.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_twelve_kilobyte_heredoc_reaches_the_machine() {
+    // The shape ComputeSDK's cpu-burst bench sends: a 12 KB heredoc in one `command` string,
+    // which this door refused at 4096 bytes.
+    let engine = Arc::new(Engine::default());
+    let (runner, id) = recovered_runner(&engine).await;
+    let heredoc = format!(
+        "cat > /tmp/w.js <<'EOF'\n{}\nEOF\nnode /tmp/w.js",
+        "// x\n".repeat(2_400)
+    );
+    let answer = call(
+        &runner,
+        http::Method::POST,
+        &format!("/api/v1/sandboxes/{id}/exec"),
+        &serde_json::json!({"command": heredoc}).to_string(),
+    )
+    .await;
+    assert_eq!(
+        answer.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&answer.body)
+    );
     assert_eq!(engine.execs.load(Ordering::SeqCst), 1);
 }
 
@@ -103,6 +129,43 @@ async fn a_command_the_machine_refused_leaves_the_sandbox_usable() {
 }
 
 #[tokio::test]
+async fn an_outdated_guest_agent_refuses_a_long_argument_by_name_and_keeps_the_sandbox() {
+    // The backend reports a command its guest's agent cannot decode, refused with nothing sent.
+    let engine = Arc::new(Engine::default());
+    let (runner, id) = recovered_runner(&engine).await;
+    let path = format!("/api/v1/sandboxes/{id}/exec");
+    *engine.exec_refusal.lock().expect("refusal") =
+        Some(soma::BackendFailureKind::GuestAgentOutdated);
+    let heredoc = format!("cat > /tmp/w.js <<'EOF'\n{}\nEOF", "// x\n".repeat(2_400));
+
+    let refused = call(
+        &runner,
+        http::Method::POST,
+        &path,
+        &serde_json::json!({"command": heredoc}).to_string(),
+    )
+    .await;
+    assert_eq!(refused.status, 422);
+    let body: serde_json::Value = serde_json::from_slice(&refused.body).expect("JSON");
+    assert_eq!(body["error"]["code"], "GUEST_AGENT_OUTDATED");
+    assert_eq!(body["error"]["retryable"], false);
+    assert_eq!(body["error"]["details"]["sandbox_alive"], true);
+    assert_eq!(
+        body["error"]["details"]["limit"],
+        soma_guest::LEVEL_TWO_ARGUMENT_BYTES
+    );
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("captured again with a newer agent")),
+        "{body}"
+    );
+
+    let fine = call(&runner, http::Method::POST, &path, r#"{"command":"true"}"#).await;
+    assert_eq!(fine.status, 200, "the sandbox survived the refusal");
+}
+
+#[tokio::test]
 async fn only_a_lost_machine_is_answered_as_an_agent_outage() {
     let engine = Arc::new(Engine::default());
     let (runner, id) = recovered_runner(&engine).await;
@@ -140,6 +203,11 @@ fn a_refused_command_is_not_reported_as_an_agent_outage() {
             "RESOURCE_CONFLICT",
         ),
         (BackendFailureKind::Unsupported, 501, "BACKEND_UNSUPPORTED"),
+        (
+            BackendFailureKind::GuestAgentOutdated,
+            422,
+            "GUEST_AGENT_OUTDATED",
+        ),
     ] {
         let error = failure_error(&ManagedFailure::Backend(kind));
         assert_eq!((error.status, error.code), (status, code), "{kind:?}");

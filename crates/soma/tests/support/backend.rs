@@ -183,6 +183,12 @@ impl Backend for TestBackend {
                 55,
             ));
         }
+        if mode == Mode::GuestAgentOutdated {
+            return Err(BackendFailure::new(
+                BackendFailureKind::GuestAgentOutdated,
+                55,
+            ));
+        }
         let status = match mode {
             Mode::Timeout => CommandStatus::TimedOut,
             Mode::CombinedOutputOverflow | Mode::OutputLimit => CommandStatus::OutputLimitExceeded,

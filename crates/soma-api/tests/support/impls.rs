@@ -24,6 +24,7 @@ impl SandboxFacade for FakeFacade {
         }
     }
 
+    #[cfg(unix)]
     fn tunnel(
         &mut self,
         _instance_id: &soma::InstanceId,
@@ -138,6 +139,17 @@ impl SandboxFacade for FakeFacade {
             self.sandboxes.clone(),
             self.unreadable.clone(),
         ))
+    }
+
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        unreachable!("only the record sweep releases records, and no route runs it")
+    }
+
+    fn release(
+        &mut self,
+        _instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        unreachable!("only the record sweep releases records, and no route runs it")
     }
 
     fn stop(&mut self, _request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

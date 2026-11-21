@@ -22,7 +22,7 @@ use super::{Runner, RunnerRequest, RunnerResponse, Timing, outcome};
 
 /// A guest connection waiting for the transport to finish the upgrade.
 pub struct TunnelHandoff {
-    pub guest: tokio::net::UnixStream,
+    pub guest: crate::tunnel::AsyncGuest,
     /// Held until the tunnel ends, so the table counts it for exactly as long as it lives.
     pub slot: TunnelSlot,
     pub idle: Duration,
@@ -105,10 +105,7 @@ impl Runner {
         match dialled {
             Ok((Ok(stream), call)) => {
                 timing.call = call;
-                let guest = stream
-                    .set_nonblocking(true)
-                    .and_then(|()| tokio::net::UnixStream::from_std(stream));
-                let Ok(guest) = guest else {
+                let Ok(guest) = crate::tunnel::into_async(stream) else {
                     return refusal(crate::facade::TunnelFailure::Unavailable.into());
                 };
                 let (sandboxes, touched) = (std::sync::Arc::clone(&self.sandboxes), id);

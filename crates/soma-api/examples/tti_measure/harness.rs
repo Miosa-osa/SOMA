@@ -142,10 +142,13 @@ pub(super) fn request(method: http::Method, path: &str, body: &str) -> RunnerReq
     RunnerRequest {
         method,
         path: path.to_owned(),
+        query: None,
         authorization: Some(format!("Bearer {TOKEN}")),
         body: Bytes::from(body.to_owned()),
         received: Instant::now(),
         forwarded: false,
         upgrade: false,
+        content_type: None,
+        streamed: None,
     }
 }

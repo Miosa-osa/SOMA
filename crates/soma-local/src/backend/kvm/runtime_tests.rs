@@ -64,7 +64,10 @@ fn no_configured_locator_keeps_the_in_process_lifecycle() {
 
 #[test]
 fn a_configured_host_runtime_that_is_not_serving_is_refused_rather_than_ignored() {
-    let absent = std::env::temp_dir().join("soma-local-no-such-hostd.sock");
+    // Inside a directory of this case's own, so the name is absent by construction rather than
+    // by the hope that nothing else ever created it.
+    let directory = tempfile::tempdir().expect("a temporary directory");
+    let absent = directory.path().join("no-such-hostd.sock");
     let error = Ownership::resolve(Some(absent.as_os_str()))
         .err()
         .expect("a configured Runtime that nothing serves is a failure");

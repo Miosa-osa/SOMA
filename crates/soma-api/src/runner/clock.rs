@@ -16,6 +16,14 @@ pub fn iso8601_micros(at: SystemTime) -> String {
     format!("{date}T{seconds}.{micros:06}Z")
 }
 
+/// Formats whole seconds since the epoch the way Elixir's `DateTime.from_unix!/1` followed by
+/// `DateTime.to_iso8601/1` renders them: no fractional digits and a `Z`.
+#[must_use]
+pub fn iso8601_seconds(seconds: u64) -> String {
+    let (date, time, _) = parts(UNIX_EPOCH + std::time::Duration::from_secs(seconds));
+    format!("{date}T{time}Z")
+}
+
 fn parts(at: SystemTime) -> (String, String, u32) {
     // An instant before 1970 is a broken host clock; it is rendered as the epoch rather than
     // failing a response or a journal line over it.
@@ -62,7 +70,7 @@ const fn civil_from_days(days: u64) -> (u64, u64, u64) {
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{iso8601_micros, rfc3339_millis};
+    use super::{iso8601_micros, iso8601_seconds, rfc3339_millis};
 
     #[test]
     fn formats_the_epoch() {
@@ -76,6 +84,12 @@ mod tests {
 
         assert_eq!(rfc3339_millis(at), "2026-10-02T17:04:05.123Z");
         assert_eq!(iso8601_micros(at), "2026-10-02T17:04:05.123456Z");
+    }
+
+    #[test]
+    fn formats_whole_seconds_without_a_fraction() {
+        assert_eq!(iso8601_seconds(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso8601_seconds(1_790_960_645), "2026-10-02T17:04:05Z");
     }
 
     #[test]

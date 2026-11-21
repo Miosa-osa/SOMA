@@ -51,6 +51,15 @@ impl LocalRuntime {
         self.backend_kind
     }
 
+    /// Whether this runtime can give a Machine the network `policy` describes.
+    ///
+    /// A configuration whose machines would need a network the host cannot give is refused when
+    /// it is loaded, rather than by every launch (SOMA#56).
+    #[must_use]
+    pub fn serves_network(&self, policy: &soma::NetworkPolicy) -> bool {
+        self.engine.backend().serves_network(policy)
+    }
+
     /// Whether a Machine this runtime launches outlives the process that launched it.
     #[must_use]
     pub const fn machine_hosting(&self) -> crate::MachineHosting {
@@ -170,6 +179,7 @@ impl LocalRuntime {
     /// # Errors
     ///
     /// Returns the typed [`crate::TunnelFailure`].
+    #[cfg(unix)]
     pub fn tunnel_machine(
         &self,
         instance: &soma::InstanceId,
@@ -199,6 +209,24 @@ impl LocalRuntime {
         crate::resize::resize_machine(directory, instance, request)
     }
 
+    /// Opens or closes the egress of a hosted Machine that was launched windowed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::EgressSetFailure`]; anything other than an outcome means the egress may
+    /// not be what was asked for.
+    pub fn set_egress_machine(
+        &self,
+        instance: &soma::InstanceId,
+        request: crate::EgressSetRequest,
+    ) -> Result<crate::EgressSetOutcome, crate::EgressSetFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::EgressSetFailure::Unavailable)?;
+        crate::egress::set_egress_machine(directory, instance, request)
+    }
+
     /// Gracefully attempts to stop and release one managed Machine.
     ///
     /// # Errors
@@ -221,6 +249,27 @@ impl LocalRuntime {
         request: DestroyMachineRequest,
     ) -> Result<MachineDestroy, ManagedFailure> {
         self.engine.destroy_machine(request)
+    }
+
+    /// Counts the durable records and names the ones that reached a terminal phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure when the store cannot be read.
+    pub fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        self.engine.terminal_census()
+    }
+
+    /// Releases the durable record of one Machine that reached a terminal phase.
+    ///
+    /// # Errors
+    ///
+    /// Returns the facade's typed managed failure.
+    pub fn release_machine(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        self.engine.release_machine(instance)
     }
 }
 

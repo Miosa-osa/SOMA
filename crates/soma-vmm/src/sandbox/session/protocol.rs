@@ -70,6 +70,9 @@ pub enum Response {
     Output(soma_guest::OutputSource, Vec<u8>),
     /// One command completed with its typed terminal status.
     Executed(Box<Completed>),
+    /// One command was refused with nothing sent: it carries an argument longer than this
+    /// guest's agent decodes. The session is untouched.
+    ExecuteRefused,
     /// One filesystem operation was performed and the guest answered it.
     FileAnswered(Box<soma::FileAnswer>),
     /// One terminal operation was performed and the guest answered it.
@@ -123,6 +126,12 @@ pub enum SessionError {
     Secret,
     /// A command could not be run over the session.
     Execute,
+    /// A command was refused with nothing sent, because it carries an argument longer than this
+    /// guest's agent decodes; its Generation must be captured again with a newer agent.
+    ///
+    /// Unlike every other variant this one does not end the session: nothing reached the guest,
+    /// so nothing about the session is uncertain.
+    GuestAgentOutdated,
     /// A filesystem operation could not be performed over the session.
     File,
     /// A terminal operation could not be performed over the session.

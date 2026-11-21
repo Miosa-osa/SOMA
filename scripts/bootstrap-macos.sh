@@ -117,3 +117,11 @@ fi
 
 printf 'SOMA macOS runtime is ready.\n'
 printf 'Runtime executable: %s\n' "$runtime_bin"
+
+# The runtime does not need these, but scripts/check.sh portable does.
+if ! /usr/bin/env bash -c '(( BASH_VERSINFO[0] >= 4 ))'; then
+    printf 'note: scripts/check.sh needs bash 4 or later on PATH; install it with: brew install bash\n'
+fi
+if ! command -v shellcheck >/dev/null 2>&1; then
+    printf 'note: scripts/check.sh needs shellcheck; install it with: brew install shellcheck\n'
+fi

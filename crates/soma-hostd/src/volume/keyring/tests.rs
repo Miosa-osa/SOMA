@@ -3,8 +3,6 @@
 use std::fs;
 use std::path::Path;
 
-use std::os::unix::fs::PermissionsExt as _;
-
 use super::*;
 
 fn volume() -> VolumeId {
@@ -23,11 +21,15 @@ fn the_master_key_is_created_root_only_and_reused_rather_than_replaced() {
     let master = directory.path().join("volume-master.key");
     let metadata = fs::metadata(&master).expect("the host key exists");
     assert_eq!(metadata.len(), KEY_LEN as u64);
-    assert_eq!(
-        metadata.permissions().mode() & 0o777,
-        0o600,
-        "the host key is readable by its owner alone"
-    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            metadata.permissions().mode() & 0o777,
+            0o600,
+            "the host key is readable by its owner alone"
+        );
+    }
 
     // A second seal uses the same master key and a fresh data key, so two volumes never
     // share one key even though one host key protects both.

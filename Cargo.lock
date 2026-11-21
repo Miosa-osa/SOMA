@@ -1254,9 +1254,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
  "bitflags 2.13.1",
  "errno",
@@ -1301,9 +1301,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "ring",
  "rustls-pki-types",
@@ -1472,7 +1472,7 @@ dependencies = [
 
 [[package]]
 name = "soma"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -1481,7 +1481,7 @@ dependencies = [
 
 [[package]]
 name = "soma-api"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "base64",
  "bytes",
@@ -1501,6 +1501,7 @@ dependencies = [
  "soma-guest",
  "soma-hostd",
  "soma-local",
+ "soma-version",
  "tokio",
  "tokio-rustls",
  "uuid",
@@ -1508,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "soma-cli"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "base64",
  "clap",
@@ -1516,12 +1517,13 @@ dependencies = [
  "serde_json",
  "soma",
  "soma-local",
+ "soma-version",
  "uuid",
 ]
 
 [[package]]
 name = "soma-generation"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -1542,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "soma-guest"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "snow",
  "zeroize",
@@ -1550,17 +1552,18 @@ dependencies = [
 
 [[package]]
 name = "soma-guest-agent"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "libc",
  "soma-guest",
+ "soma-version",
  "tempfile",
  "zeroize",
 ]
 
 [[package]]
 name = "soma-hostd"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.2.17",
@@ -1569,13 +1572,14 @@ dependencies = [
  "soma-guest",
  "soma-netd",
  "soma-storage",
+ "soma-version",
  "tempfile",
  "zeroize",
 ]
 
 [[package]]
 name = "soma-jail"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "kvm-bindings",
  "libc",
@@ -1585,7 +1589,7 @@ dependencies = [
 
 [[package]]
 name = "soma-kvm"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
@@ -1604,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "soma-local"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "libc",
  "serde",
@@ -1620,13 +1624,14 @@ dependencies = [
  "soma-netd",
  "soma-storage",
  "soma-supervise",
+ "soma-version",
  "soma-vmm",
  "tempfile",
 ]
 
 [[package]]
 name = "soma-macos"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "base64",
  "semver",
@@ -1636,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "soma-mcp"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "base64",
  "clap",
@@ -1647,6 +1652,7 @@ dependencies = [
  "serde_json",
  "soma",
  "soma-local",
+ "soma-version",
  "tokio",
  "tokio-util",
  "uuid",
@@ -1654,19 +1660,20 @@ dependencies = [
 
 [[package]]
 name = "soma-netd"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "libc",
  "sha2",
  "soma",
  "soma-guest",
  "soma-supervise",
+ "soma-version",
  "tempfile",
 ]
 
 [[package]]
 name = "soma-storage"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "cap-std",
  "libc",
@@ -1678,14 +1685,14 @@ dependencies = [
 
 [[package]]
 name = "soma-supervise"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "soma-template"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "sha2",
  "soma",
@@ -1693,8 +1700,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "soma-version"
+version = "1.0.0-alpha.2"
+
+[[package]]
 name = "soma-vmm"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "libc",
  "serde_json",
@@ -1702,6 +1713,7 @@ dependencies = [
  "soma-guest",
  "soma-jail",
  "soma-kvm",
+ "soma-version",
  "tempfile",
 ]
 
@@ -1790,9 +1802,9 @@ checksum = "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
 
 [[package]]
 name = "tokio"
-version = "1.53.2"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e95f91fcc7a621e8b030f6aa23c71fe9838ae2fb4d8118b75602a328f5144044"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",

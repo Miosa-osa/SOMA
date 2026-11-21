@@ -35,6 +35,22 @@ impl SandboxFacade for Fake {
         Ok(lifecycle())
     }
 
+    fn set_egress(
+        &mut self,
+        _: &soma::InstanceId,
+        request: soma_local::EgressSetRequest,
+    ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
+        self.0.egress_calls.lock().expect("calls").push(request);
+        match self.0.egress_script.lock().expect("script").pop_front() {
+            Some(scripted) => scripted,
+            None => Ok(soma_local::EgressSetOutcome {
+                open: request.open,
+                dns: request.dns,
+                changed: true,
+            }),
+        }
+    }
+
     fn inspect(&mut self, _: InspectMachineRequest) -> Result<SandboxSnapshot, ManagedFailure> {
         unreachable!("not a runner route")
     }
@@ -97,8 +113,16 @@ impl SandboxFacade for Fake {
         })
     }
 
-    fn file(&mut self, _: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
-        unreachable!("not a runner route")
+    fn file(&mut self, request: FileMachineRequest) -> Result<FileOutcome, ManagedFailure> {
+        use crate::runner::files::guest::GuestFiles as _;
+        let operation = request.operation().clone();
+        let name = operation.name();
+        let answer = self.0.guest.lock().expect("guest").perform(operation)?;
+        Ok(FileOutcome {
+            instance_id: lifecycle().instance_id,
+            operation: name,
+            answer,
+        })
     }
 
     fn terminal(&mut self, _: PtyMachineRequest) -> Result<TerminalOutcome, ManagedFailure> {
@@ -117,6 +141,17 @@ impl SandboxFacade for Fake {
         Ok(soma::MachineListing::new(
             self.0.listed.lock().expect("listed").clone(),
         ))
+    }
+
+    fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
+        unreachable!("the runner never releases records; the record sweep does")
+    }
+
+    fn release(
+        &mut self,
+        _instance_id: &soma::InstanceId,
+    ) -> Result<soma::MachineRelease, ManagedFailure> {
+        unreachable!("the runner never releases records; the record sweep does")
     }
 
     fn stop(&mut self, _: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure> {

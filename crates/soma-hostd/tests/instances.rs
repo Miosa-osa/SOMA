@@ -1,5 +1,7 @@
 //! The Host Runtime owns every Instance it launches, by identity, until a terminal operation.
 
+#![cfg(unix)]
+
 mod support;
 
 use soma_hostd::{ClaimError, InstanceError, Launched, MAX_LISTED, Page};

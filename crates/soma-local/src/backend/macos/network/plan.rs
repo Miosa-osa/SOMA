@@ -111,6 +111,12 @@ pub(in crate::backend::macos) fn prepare(
     })
 }
 
+/// Whether a launch can be given `policy`'s network, decided as [`prepare`] decides it for a
+/// policy that publishes no port.
+pub(crate) fn serves(policy: &NetworkPolicy) -> bool {
+    supports_portable_intent(policy) && attachment_and_dns(policy).is_ok()
+}
+
 fn supports_portable_intent(policy: &NetworkPolicy) -> bool {
     if !policy.proxy().is_disabled() {
         return false;

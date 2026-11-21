@@ -65,6 +65,14 @@ pub(in crate::backend::kvm) fn launch(
         admitted_at,
     } = request;
     if !channel::addressable(directory) {
+        // The answer is a typed refusal, and this line names the cause an operator can act on:
+        // the state root is too deep for a machine socket (SOMA#171).
+        eprintln!(
+            "soma: machine hosts cannot be addressed under {} ({} bytes): a socket path there \
+             passes the 108-byte limit, so use a shorter state root",
+            directory.display(),
+            directory.as_os_str().len()
+        );
         return Err(BackendFailureKind::Unsupported);
     }
     // A request the Generation can never give is refused before a prepared machine is claimed, so

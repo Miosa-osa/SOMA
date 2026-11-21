@@ -7,7 +7,15 @@
 //! nothing: the forwarding runner is only a pipe. A request that arrived forwarded is never
 //! forwarded again.
 
-use std::{collections::HashMap, io, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
@@ -28,7 +36,10 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 /// A forwarded body is relayed in chunks through a buffer this deep.
 const RELAY_BUFFER: usize = 16;
 /// The response headers a forwarded answer keeps.
-const RELAYED_HEADERS: [&str; 5] = [
+const RELAYED_HEADERS: [&str; 7] = [
+    // A download's name and length, so a relayed file arrives as the owner sent it.
+    "content-disposition",
+    "content-length",
     "content-type",
     "retry-after",
     "server-timing",
@@ -78,9 +89,14 @@ impl Peers {
     pub async fn forward(&self, tag: char, request: &RunnerRequest) -> Option<RunnerResponse> {
         let peer = self.peers.get(&tag)?;
         let mut sender = peer.sender().await?;
+        // The query is part of the request: a file read names its path there.
+        let uri = match &request.query {
+            Some(query) => format!("{}?{query}", request.path),
+            None => request.path.clone(),
+        };
         let mut outgoing = http::Request::builder()
             .method(request.method.clone())
-            .uri(request.path.as_str())
+            .uri(uri)
             .header(http::header::CONTENT_TYPE, "application/json");
         if let Some(authorization) = &request.authorization {
             outgoing = outgoing.header(http::header::AUTHORIZATION, authorization);
@@ -101,12 +117,25 @@ impl Peers {
             .collect();
         let (relay, stream) = tokio::sync::mpsc::channel(RELAY_BUFFER);
         let mut body = response.into_body();
+        // Only an answer the owner ended cleanly is ended cleanly here: one that broke off is cut
+        // short on this hop too, so the client sees the failure instead of a short body.
+        let complete = Arc::new(AtomicBool::new(false));
+        let ended = Arc::clone(&complete);
         tokio::spawn(async move {
-            while let Some(Ok(frame)) = body.frame().await {
-                if let Ok(data) = frame.into_data()
-                    && relay.send(data).await.is_err()
-                {
-                    break;
+            loop {
+                match body.frame().await {
+                    Some(Ok(frame)) => {
+                        if let Ok(data) = frame.into_data()
+                            && relay.send(data).await.is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Some(Err(_)) => return,
+                    None => {
+                        ended.store(true, Ordering::Release);
+                        return;
+                    }
                 }
             }
         });
@@ -117,6 +146,7 @@ impl Peers {
             stream: Some(stream),
             journal: None,
             tunnel: None,
+            complete: Some(complete),
         })
     }
 }

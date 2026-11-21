@@ -21,11 +21,14 @@ vmm-sys-util = "=0.15.0"
 kvm-ioctls = "=0.25.0"
 libc = "=0.2.190"
 
+[dev-dependencies]
+# Every test's scratch file is its own anonymous temporary file, on every target the tests build for.
+tempfile = "=3.27.0"
+
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 soma = { path = "../soma" }
 soma-generation = { path = "../soma-generation" }
 soma-guest = { path = "../soma-guest" }
-tempfile = "=3.27.0"
 
 [target.'cfg(all(target_os = "linux", target_arch = "aarch64"))'.dev-dependencies]
 kvm-bindings = "=0.14.1"

@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# The checks use bash 4 features, and macOS ships bash 3.2 in /bin.
+if (( BASH_VERSINFO[0] < 4 )); then
+    printf 'scripts/check.sh needs bash 4 or later, found %s; on macOS: brew install bash\n' \
+        "${BASH_VERSION}" >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 readonly SCRIPT_DIR
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
@@ -56,6 +63,12 @@ check_repository_contract() {
 
     log "release packager tests"
     "${SCRIPT_DIR}/tests/package-release.sh"
+
+    log "build identity tests"
+    "${SCRIPT_DIR}/tests/build-identity.sh"
+
+    log "set-version tests"
+    "${SCRIPT_DIR}/tests/set-version.sh"
 
     log "end to end check contract tests"
     "${SCRIPT_DIR}/tests/end-to-end-check-contract.sh"
@@ -203,7 +216,7 @@ usage: scripts/check.sh [all|portable|linux|security|architecture|release|kvm]
   linux         Run Ubuntu x86_64 format, lint, test, and build checks.
   security      Run dependency, workflow, spelling, and secret checks.
   architecture  Run source-size, dash, workflow, evidence, and shell checks.
-  release       Validate, package, and checksum SOMA_RELEASE_TAG.
+  release       Validate, then build, assemble, and verify the Linux release of SOMA_RELEASE_TAG.
   kvm           Run the real KVM smoke test after strict host detection.
 EOF
 }

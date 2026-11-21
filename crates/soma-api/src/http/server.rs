@@ -15,6 +15,7 @@ use crate::{
     route::{Route, resolve},
     tenant::{TENANT_HEADER, identify},
     tunnel::{self, Refusal, TunnelPolicy, TunnelTable},
+    version::{self, API_VERSION, API_VERSION_HEADER},
 };
 
 /// How long one connection may take to send its request or accept its response.
@@ -51,10 +52,15 @@ where
         open_facade,
         admission,
         &TunnelTable::new(TunnelPolicy::default()),
+        soma_version::Build::unknown(),
     )
 }
 
-/// [`serve`], with the policy and limits guest-port tunnels are held to.
+/// [`serve`], with the policy and limits guest-port tunnels are held to, and the identity of the
+/// build that `GET /v1/version` reports.
+///
+/// The binary passes the identity it was compiled with, so this library never reads the commit
+/// itself and does not recompile when only the commit changes.
 ///
 /// # Errors
 ///
@@ -64,6 +70,7 @@ pub fn serve_with_tunnels<M, F>(
     open_facade: M,
     admission: &CreateAdmission,
     tunnels: &Arc<TunnelTable>,
+    build: soma_version::Build,
 ) -> std::io::Result<()>
 where
     M: Fn() -> Result<F, ApiError> + Send + Sync + 'static,
@@ -78,7 +85,7 @@ where
         // The join handle is dropped on purpose. A connection that outlives the accept loop has
         // nothing left to report to it, and joining here would serialize the whole service.
         drop(thread::spawn(move || {
-            serve_connection(&stream, open_facade.as_ref(), &admission, &tunnels);
+            serve_connection(&stream, open_facade.as_ref(), &admission, &tunnels, &build);
         }));
     }
     Ok(())
@@ -93,6 +100,7 @@ fn serve_connection<M, F>(
     open_facade: &M,
     admission: &CreateAdmission,
     tunnels: &Arc<TunnelTable>,
+    build: &soma_version::Build,
 ) where
     M: Fn() -> Result<F, ApiError>,
     F: SandboxFacade,
@@ -113,6 +121,12 @@ fn serve_connection<M, F>(
                 return;
             }
         };
+        // A request that needs an API version this build does not serve is refused before any
+        // route runs, so it never reaches a handler that would answer it differently.
+        if let Some(refusal) = version::negotiate(&request) {
+            let _ignored = refusal.write_to(&mut &*stream);
+            return;
+        }
         if let Ok(Route::Tunnel(instance_id, port)) = resolve(&request) {
             // A tunnel takes the connection over: nothing else is read from it as HTTP.
             serve_tunnel(
@@ -128,6 +142,8 @@ fn serve_connection<M, F>(
         let response = if matches!(resolve(&request), Ok(Route::Prewarm(_))) {
             // Needs no facade: see the route's documentation.
             handle_prewarm(&request)
+        } else if matches!(resolve(&request), Ok(Route::Version)) {
+            version::handle_version(&request, build)
         } else {
             match admit(&request, admission) {
                 Ok(_permit) => match open_facade() {
@@ -208,7 +224,8 @@ fn serve_tunnel<M, F>(
         Err(failure) => return refuse(Refusal::from(failure).api_error()),
     };
     let answer = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nconnection: Upgrade\r\nupgrade: {}\r\n\r\n",
+        "HTTP/1.1 101 Switching Protocols\r\nconnection: Upgrade\r\nupgrade: {}\r\n\
+         {API_VERSION_HEADER}: {API_VERSION}\r\n\r\n",
         tunnel::UPGRADE_TOKEN
     );
     let mut writer = stream;

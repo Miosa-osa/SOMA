@@ -3,10 +3,11 @@
 # Walks the whole documented flow on one host and says which stage broke.
 #
 # Unit tests prove parts. This proves the join: host readiness, build, Generation compilation,
-# snapshot capture, a sandbox that runs a command through the public command line, and a cleanup
-# that left nothing behind. Every stage records passed, failed, or skipped with a bounded detail
-# string, results are written machine readable, and the summary names the first failing stage. A
-# failure is never worked around: later stages are marked skipped so the break stays visible.
+# snapshot capture, a sandbox that runs a command through the public command line, the platform's
+# file contract through the public runner, and a cleanup that left nothing behind. Every stage
+# records passed, failed, or skipped with a bounded detail string, results are written machine
+# readable, and the summary names the first failing stage. A failure is never worked around:
+# later stages are marked skipped so the break stays visible.
 # It never writes to a shared store, compiling its own Generation into its own work directory and
 # running against its own state root and head directory, so the cleanup proof can be exact.
 #
@@ -27,6 +28,11 @@ cd "$REPO_ROOT" || exit 2
 source "$REPO_ROOT/scripts/end-to-end-record.sh"
 
 IMAGE="node:22"
+# The shape the Generation is built at and every run asks for. A run at any other storage size is
+# refused, and the command line's own default (10240 MiB) is a class profile version 1 does not
+# admit, so the two are stated together rather than left to two different defaults (SOMA#150).
+MEMORY_MIB=1024
+STORAGE_MIB=4096
 WORK=""
 FS_TOOLS="$REPO_ROOT/fs-tools"
 EXPECT="^v[0-9]"
@@ -109,7 +115,11 @@ stage_build() {
 
 # Stage 3. One OCI image compiled into a launchable Generation in a private prepared store.
 stage_prepare_generation() {
-    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" || return 1
+    # The entry is cold boot only until the next stage captures its snapshot, which is the order
+    # this check runs in, so the prepare script's refusal of such an entry is accepted here.
+    SOMA_ALLOW_COLD_BOOT_ENTRY=1 \
+        ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB" \
+        || return 1
     ENTRY="$(compgen -G "$STORE/ref-*" | head -1)"
     [[ -n "$ENTRY" && -d "$ENTRY" ]] || { DETAIL="no prepared entry was published"; return 1; }
     [[ -f "$ENTRY/candidate.somacan" ]] || { DETAIL="the entry has no candidate"; return 1; }
@@ -131,16 +141,20 @@ stage_capture_snapshot() {
     DETAIL="state=$(du -h "$state" | cut -f1) overlay=$(du -h "$overlay" | cut -f1)"
 }
 
-soma_run() {
-    local tag="$1"
+# Runs one command in a fresh sandbox and judges the envelope against an expected stdout regex.
+soma_run_command() {
+    local tag="$1" expect="$2"
+    shift 2
     SOMA_GENERATION_STORE="$STORE" \
     SOMA_HEAD_DIR="$HEAD_DIR" \
     SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
         ./target/release/soma --format json --backend kvm --state-root "$STATE_ROOT" \
-        run "$IMAGE" -- "${GUEST_COMMAND[@]}" \
+        run --memory-mib "$MEMORY_MIB" --storage-mib "$STORAGE_MIB" "$IMAGE" -- "$@" \
         >"$WORK/run-$tag.json" 2>"$WORK/run-$tag.err"
-    python3 ./scripts/end-to-end/inspect-run.py "$WORK/run-$tag.json" "$EXPECT"
+    python3 ./scripts/end-to-end/inspect-run.py "$WORK/run-$tag.json" "$expect"
 }
+
+soma_run() { soma_run_command "$1" "$EXPECT" "${GUEST_COMMAND[@]}"; }
 
 # Stage 5. Two sandboxes, one after the other, each running the command and reporting its cleanup.
 # Two rather than one because the first creates the durable state a fresh state root has never
@@ -152,6 +166,49 @@ stage_run_sandbox() {
     STATE_BASE="$(state_fingerprint)"
     second="$(soma_run second)" || { DETAIL="second run: $second"; return 1; }
     DETAIL="first: $first | second: $second"
+}
+
+# Stage 6. The platform's file contract through the public runner, against a machine booted from
+# the same Generation: every call a client makes, a file larger than two transfers uploaded,
+# downloaded and read back byte for byte, and hashed by the guest itself. It runs before the
+# cleanup proof, so the head directory that proof inspects covers this sandbox too.
+stage_runner_files() {
+    cargo build --release -p soma-api --example runner_files || return 1
+    # A short name: a machine socket lives under this root, and a socket path over 108 bytes
+    # fails the launch as an unsupported backend (SOMA#171).
+    local state="$WORK/rf" transcript="$WORK/runner-files.txt"
+    mkdir -p "$state"
+    if ! SOMA_GENERATION_STORE="$STORE" \
+        SOMA_HEAD_DIR="$HEAD_DIR" \
+        SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+        ./target/release/examples/runner_files "$state" "$IMAGE" "$MEMORY_MIB" "$STORAGE_MIB" \
+        >"$transcript" 2>"$WORK/runner-files.err"; then
+        DETAIL="$(tail -1 "$WORK/runner-files.err")"
+        return 1
+    fi
+    DETAIL="$(tail -1 "$transcript")"
+}
+
+# Stage 7. A 12 KB heredoc reaches the guest as one argument of `sh -lc`, the shape ComputeSDK's
+# cpu-burst bench sends as one command string, which was refused at 4096 bytes before (ADR 0051).
+stage_large_command() {
+    local lines=230 script heredoc
+    script="$(large_script "$lines")"
+    heredoc="$(soma_run_command heredoc "^heredoc lines *$(( lines + 1 ))\$" /bin/sh -lc "$script")" \
+        || { DETAIL="heredoc of ${#script} bytes: $heredoc"; return 1; }
+    DETAIL="heredoc of ${#script} bytes: $heredoc"
+}
+
+# A shell command that writes a script of `lines` padding lines through a heredoc, then runs it.
+large_script() {
+    local line
+    printf "cat > /tmp/soma-e2e-large.sh <<'SOMA_E2E_EOF'\n"
+    for (( line = 1; line <= $1; line++ )); do
+        printf '# padding line %04d of a script written by a heredoc\n' "$line"
+    done
+    # shellcheck disable=SC2016 # expanded by the guest's shell, not this one
+    printf 'echo "heredoc lines $(wc -l < /tmp/soma-e2e-large.sh)"\nSOMA_E2E_EOF\n'
+    printf 'sh /tmp/soma-e2e-large.sh\n'
 }
 
 # The three shared host surfaces a leak would show up on, sampled either side of the runs. An
@@ -175,7 +232,7 @@ probe() {
     return 0
 }
 
-# Stage 6. Nothing of the sandbox outlived it.
+# Stage 8. Nothing of the sandboxes outlived them.
 stage_cleanup_proof() {
     probe after
     local checks="$WORK/cleanup-checks.tsv" leaked=0 notes=()
@@ -186,8 +243,10 @@ stage_cleanup_proof() {
         [[ "$2" != leaked ]] || leaked=1
     }
     local heads after
-    heads="$(find "$HEAD_DIR" -mindepth 1 | wc -l)"
-    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no entry"
+    # A head is a file. The empty shard directories (h00 to h15) are the head store's own layout,
+    # made once by the first launch that uses the sharded store, and are not a leak.
+    heads="$(find "$HEAD_DIR" -mindepth 1 ! -type d | wc -l)"
+    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no head file"
     else verdict overlay_heads leaked "$heads entries left in $HEAD_DIR"; fi
     differed processes "$WORK/procs.before" "$WORK/procs.after" "processes naming the state root"
     differed netns "$WORK/netns.before" "$WORK/netns.after" "network namespaces"
@@ -198,7 +257,7 @@ stage_cleanup_proof() {
     fi
     after="$(state_fingerprint)"
     if [[ "$after" == "$STATE_BASE" ]]; then
-        verdict state_root clean "$after, unchanged across the second run"
+        verdict state_root clean "$after, unchanged across every run after the first"
     else
         verdict state_root leaked "went from $STATE_BASE to $after across one run"
     fi
@@ -222,11 +281,13 @@ main() {
     run_stage prepare_generation stage_prepare_generation
     run_stage capture_snapshot stage_capture_snapshot
     run_stage run_sandbox stage_run_sandbox
+    run_stage runner_files stage_runner_files
+    run_stage large_command stage_large_command
     run_stage cleanup_proof stage_cleanup_proof
     local status=0
     summarize || status=1
     # The prepared store, heads, and state root are large; the results and logs are the record.
-    (( ! PURGE )) || rm -rf -- "$STORE" "$HEAD_DIR" "$STATE_ROOT"
+    (( ! PURGE )) || rm -rf -- "$STORE" "$HEAD_DIR" "$STATE_ROOT" "$WORK/runner-files-state"
     return "$status"
 }
 

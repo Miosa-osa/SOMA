@@ -8,31 +8,32 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
-soma = { path = "../soma", version = "=1.0.0-alpha.1" }
+soma = { path = "../soma", version = "=1.0.0-alpha.2" }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+soma-version = { path = "../soma-version", version = "=1.0.0-alpha.2" }
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
-soma-macos = { path = "../soma-macos", version = "=1.0.0-alpha.1" }
+soma-macos = { path = "../soma-macos", version = "=1.0.0-alpha.2" }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 sha2 = { version = "=0.11.0", default-features = false }
-soma-generation = { path = "../soma-generation", version = "=1.0.0-alpha.1" }
-soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
-soma-jail = { path = "../soma-jail", version = "=1.0.0-alpha.1" }
-soma-hostd = { path = "../soma-hostd", version = "=1.0.0-alpha.1" }
-soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.1" }
-soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.1" }
+soma-generation = { path = "../soma-generation", version = "=1.0.0-alpha.2" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.2" }
+soma-jail = { path = "../soma-jail", version = "=1.0.0-alpha.2" }
+soma-hostd = { path = "../soma-hostd", version = "=1.0.0-alpha.2" }
+soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.2" }
+soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.2" }
 libc = "=0.2.190"
-soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.1" }
-soma-vmm = { path = "../soma-vmm", version = "=1.0.0-alpha.1" }
-soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.1" }
+soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.2" }
+soma-vmm = { path = "../soma-vmm", version = "=1.0.0-alpha.2" }
+soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.2" }
 
 [dev-dependencies]
 # The portable facade's path rule is compared against the guest protocol's, and that
 # comparison is meaningful on every host the facade builds for, so the protocol crate is a
 # test dependency everywhere rather than only where a machine can be booted.
-soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.2" }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 tempfile = "=3.27.0"

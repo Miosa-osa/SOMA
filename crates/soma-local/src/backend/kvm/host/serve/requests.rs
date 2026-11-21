@@ -90,6 +90,13 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             Ok(outcome) => Answer::Resized(outcome),
             Err(failure) => Answer::ResizeRefused(failure),
         },
+        Call::SetEgress {
+            instance_id,
+            request,
+        } => match backend.set_egress_resident(&instance_id, request) {
+            Ok(outcome) => Answer::EgressSet(outcome),
+            Err(failure) => Answer::EgressRefused(failure),
+        },
         Call::Cleanup { .. }
         | Call::Shutdown
         | Call::Tunnel { .. }

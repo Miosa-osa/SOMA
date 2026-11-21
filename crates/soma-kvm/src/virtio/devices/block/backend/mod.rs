@@ -236,5 +236,5 @@ mod detached;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub use detached::Detached;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod reads_tests;

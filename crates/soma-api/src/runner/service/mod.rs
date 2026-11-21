@@ -3,10 +3,15 @@
 mod addressing;
 mod command;
 mod create;
+mod download;
 #[cfg(test)]
 mod early_tests;
+mod egress;
+#[cfg(test)]
+mod egress_flow_tests;
 #[cfg(test)]
 mod egress_tests;
+mod exchange;
 mod exec_contract;
 #[cfg(test)]
 mod exec_contract_agreement_tests;
@@ -15,6 +20,9 @@ mod exec_params_tests;
 #[cfg(test)]
 mod exec_refusal_tests;
 mod extend;
+mod files;
+#[cfg(test)]
+mod files_tests;
 #[cfg(test)]
 mod flow_tests;
 mod forward;
@@ -28,6 +36,7 @@ mod outcome_tests;
 mod params;
 mod ready;
 mod relay;
+mod response;
 mod routing;
 #[cfg(test)]
 mod scope_tests;
@@ -40,25 +49,29 @@ mod stream_tests;
 #[cfg(test)]
 mod tests;
 mod timing;
+#[cfg(test)]
+mod transfer_tests;
 mod tunnel;
+mod upload;
 
 use std::{sync::Arc, time::Instant};
 
-use bytes::Bytes;
 use soma::OciImage;
 
 use crate::runner::{
     backend::Backend,
     config::RunnerConfig,
-    journal::{Entry, Journal},
+    journal::Journal,
     keys::{KeyTable, Refusal},
     peers::Peers,
     public_wire::{self, PlatformError},
     rate_limit::RateLimiter,
     sandboxes::Sandboxes,
+    windows::Windows,
 };
 use crate::tunnel::TunnelTable;
 
+pub use exchange::{RunnerRequest, RunnerResponse};
 pub use tunnel::TunnelHandoff;
 
 use command::failure_code;
@@ -81,85 +94,12 @@ fn unreadable_ids(records: &[soma::UnreadableRecord]) -> String {
         .join(",")
 }
 
-/// One request, after the transport has read it, independent of HTTP version.
-#[derive(Clone, Debug)]
-pub struct RunnerRequest {
-    pub method: http::Method,
-    pub path: String,
-    pub authorization: Option<String>,
-    pub body: Bytes,
-    pub received: Instant,
-    /// Arrived from another runner over the private listener: never forwarded again.
-    pub forwarded: bool,
-    /// An HTTP/1.1 request that asked for `Connection: Upgrade` and `Upgrade: soma-tunnel`.
-    pub upgrade: bool,
-}
-
-/// One answer, plus the journal entry to write once it has been sent.
-#[derive(Debug)]
-pub struct RunnerResponse {
-    pub status: u16,
-    pub headers: Vec<(&'static str, String)>,
-    pub body: Vec<u8>,
-    /// A body that is still being produced (server-sent events, a forwarded answer); sent
-    /// after `body`, chunk by chunk, until the sender is dropped.
-    pub stream: Option<tokio::sync::mpsc::Receiver<Bytes>>,
-    pub journal: Option<Entry>,
-    /// A guest connection to pump after the `101` is sent; the transport owns the upgrade.
-    pub tunnel: Option<TunnelHandoff>,
-}
-
-impl RunnerResponse {
-    fn new(status: u16, body: Vec<u8>) -> Self {
-        Self {
-            status,
-            headers: Vec::new(),
-            body,
-            stream: None,
-            journal: None,
-            tunnel: None,
-        }
-    }
-
-    fn platform(error: &PlatformError) -> Self {
-        Self::new(error.status, error.body())
-    }
-
-    fn refusal(status: u16, code: &str) -> Self {
-        Self::new(status, public_wire::refusal(code))
-    }
-
-    /// The `503` that tells the SDK to retry on the next runner at once.
-    /// `429 runtime_busy`: this runner is at its admission cap; the SDK retries the next IP.
-    fn runtime_busy() -> Self {
-        Self::refusal(429, "runtime_busy").header("retry-after", "0".to_owned())
-    }
-
-    /// `503 feed_stale`: this runner's key table is too old to admit a create.
-    fn feed_stale() -> Self {
-        Self::refusal(503, "feed_stale").header("retry-after", "0".to_owned())
-    }
-
-    /// `503`: this runner could not claim a prepared sandbox.
-    ///
-    /// One constructor for the whole service, because a create's own failure and the same
-    /// failure read later by a call on a sandbox whose launch failed after its create had
-    /// answered must be the same answer, byte for byte.
-    fn create_unavailable() -> Self {
-        Self::new(503, public_wire::create_unavailable()).header("retry-after", "1".to_owned())
-    }
-
-    fn header(mut self, name: &'static str, value: String) -> Self {
-        self.headers.push((name, value));
-        self
-    }
-}
-
 /// The public runner: routing, admission, and the facade calls behind each route.
 pub struct Runner {
     config: Arc<RunnerConfig>,
     keys: Arc<KeyTable>,
     sandboxes: Arc<Sandboxes>,
+    windows: Windows,
     limiter: RateLimiter,
     backend: Backend,
     journal: Journal,
@@ -183,6 +123,7 @@ impl Runner {
             admission: tokio::sync::Semaphore::new(config.admission()),
             keys: Arc::new(KeyTable::new()),
             sandboxes: Arc::new(Sandboxes::new()),
+            windows: Windows::default(),
             limiter: RateLimiter::new(),
             config,
             backend,
@@ -237,7 +178,11 @@ impl Runner {
             | Route::Destroy(_)
             | Route::Extend(_)
             | Route::List
+            | Route::EgressOpen(_)
+            | Route::EgressClose(..)
+            | Route::Network(_)
             | Route::Tunnel(..)
+            | Route::Files(..)
             | Route::Forward(_) => {}
         }
         let started = Instant::now();
@@ -245,6 +190,7 @@ impl Runner {
             Ok(principal) => principal,
             Err(Refusal::Unauthorized) => return RunnerResponse::refusal(401, "unauthorized"),
             Err(Refusal::Forbidden) => return RunnerResponse::refusal(403, "forbidden"),
+            Err(Refusal::NotLoaded) => return RunnerResponse::feed_stale(),
         };
         let limit = principal
             .key
@@ -268,6 +214,15 @@ impl Runner {
             Route::Tunnel(id, port) => self.tunnel(&principal, id, port, request, timing).await,
             Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,
+            Route::Files(id, call) => self.files(&principal, id, call, request, timing).await,
+            Route::EgressOpen(id) => {
+                self.open_egress(&principal, id, &request.body, timing)
+                    .await
+            }
+            Route::EgressClose(id, window) => {
+                self.close_egress(&principal, id, window, timing).await
+            }
+            Route::Network(id) => self.network(&principal, id, timing).await,
             Route::Forward(forward) => {
                 self.forward(&principal, forward, &request.body, timing)
                     .await
@@ -280,6 +235,11 @@ impl Runner {
         let age = millis(self.keys.feed_age(Instant::now()));
         // The prepared pool's depth is not observable through the facade; it is reported as
         // unknown rather than as a number that would mean something else.
-        RunnerResponse::new(200, public_wire::health(self.config.host_tag, age, None))
+        let records = crate::retention::last_sweep()
+            .map(|sweep| u64::try_from(sweep.records).unwrap_or(u64::MAX));
+        RunnerResponse::new(
+            200,
+            public_wire::health(self.config.host_tag, age, None, records),
+        )
     }
 }

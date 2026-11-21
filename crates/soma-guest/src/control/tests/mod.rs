@@ -1,5 +1,6 @@
 mod host_api_gating;
 mod host_file;
+mod host_long_arguments;
 mod host_pty;
 mod host_ranged;
 mod host_secret;

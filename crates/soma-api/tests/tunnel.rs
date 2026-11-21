@@ -1,6 +1,9 @@
 //! `GET /v1/sandboxes/{id}/tunnel/{port}` on the loopback service: the real accept loop, a real
 //! client socket, and a fake facade whose guest echoes. The upgrade is proved at the byte level,
 //! because the point of the route is what happens to the connection after the `101`.
+//! Unix only: the facade's guest end is a Unix socket, and off unix no tunnel opens.
+
+#![cfg(unix)]
 
 #[allow(
     dead_code,
@@ -43,6 +46,7 @@ fn start(policy: TunnelPolicy, failure: Option<TunnelFailure>) -> (String, Arc<T
             open_facade,
             &CreateAdmission::new(NonZeroUsize::MIN),
             &served,
+            soma_version::Build::unknown(),
         )
     });
     (address, tunnels)

@@ -115,8 +115,8 @@ pub use virtio::{
     read_readable, service_queue, validate_size, validate_tx, walk_chain, write_writable,
 };
 
-pub use virtio::{FileBackend, OsEntropy};
 #[cfg(unix)]
+pub use virtio::{FileBackend, OsEntropy};
 pub use virtio::{
     MEM_BLOCK_SIZE, MEM_CONFIG_LEN, MEM_FEATURES, MEM_QUEUE_MAX, MEM_STATE_LEN, MEM_STATE_VERSION,
     MemCounters, MemDevice, MemState, RecordingBacking, RegionBacking, SizeError,
