@@ -216,9 +216,9 @@ pub(super) fn spec(
         rlimits: Rlimits {
             nofile: slots + MACHINE_FD_BUDGET + u32::from(vcpus.max(1)) * VCPU_FD_BUDGET,
             nproc: PIDS_MAX,
-            // The private head is the only thing a machine writes, so its declared size is the
-            // largest file this worker may ever produce.
-            fsize_bytes: disk_mib.saturating_mul(MIB).max(MIB),
+            // The broker may also pass a writable checkpoint descriptor for the guest RAM.
+            // Bound each file by the larger of the captured memory and the writable disk.
+            fsize_bytes: memory_mib.max(disk_mib).max(1).saturating_mul(MIB),
             address_space_bytes: None,
         },
         manifest,
