@@ -3,10 +3,11 @@
 # Walks the whole documented flow on one host and says which stage broke.
 #
 # Unit tests prove parts. This proves the join: host readiness, build, Generation compilation,
-# snapshot capture, a sandbox that runs a command through the public command line, and a cleanup
-# that left nothing behind. Every stage records passed, failed, or skipped with a bounded detail
-# string, results are written machine readable, and the summary names the first failing stage. A
-# failure is never worked around: later stages are marked skipped so the break stays visible.
+# snapshot capture, a sandbox that runs a command through the public command line, the platform's
+# file contract through the public runner, and a cleanup that left nothing behind. Every stage
+# records passed, failed, or skipped with a bounded detail string, results are written machine
+# readable, and the summary names the first failing stage. A failure is never worked around:
+# later stages are marked skipped so the break stays visible.
 # It never writes to a shared store, compiling its own Generation into its own work directory and
 # running against its own state root and head directory, so the cleanup proof can be exact.
 #
@@ -114,7 +115,10 @@ stage_build() {
 
 # Stage 3. One OCI image compiled into a launchable Generation in a private prepared store.
 stage_prepare_generation() {
-    ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB" \
+    # The entry is cold boot only until the next stage captures its snapshot, which is the order
+    # this check runs in, so the prepare script's refusal of such an entry is accepted here.
+    SOMA_ALLOW_COLD_BOOT_ENTRY=1 \
+        ./scripts/prepare-generation.sh "$IMAGE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB" \
         || return 1
     ENTRY="$(compgen -G "$STORE/ref-*" | head -1)"
     [[ -n "$ENTRY" && -d "$ENTRY" ]] || { DETAIL="no prepared entry was published"; return 1; }
@@ -164,7 +168,28 @@ stage_run_sandbox() {
     DETAIL="first: $first | second: $second"
 }
 
-# Stage 6. A 12 KB heredoc reaches the guest as one argument of `sh -lc`, the shape ComputeSDK's
+# Stage 6. The platform's file contract through the public runner, against a machine booted from
+# the same Generation: every call a client makes, a file larger than two transfers uploaded,
+# downloaded and read back byte for byte, and hashed by the guest itself. It runs before the
+# cleanup proof, so the head directory that proof inspects covers this sandbox too.
+stage_runner_files() {
+    cargo build --release -p soma-api --example runner_files || return 1
+    # A short name: a machine socket lives under this root, and a socket path over 108 bytes
+    # fails the launch as an unsupported backend (SOMA#171).
+    local state="$WORK/rf" transcript="$WORK/runner-files.txt"
+    mkdir -p "$state"
+    if ! SOMA_GENERATION_STORE="$STORE" \
+        SOMA_HEAD_DIR="$HEAD_DIR" \
+        SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+        ./target/release/examples/runner_files "$state" "$IMAGE" "$MEMORY_MIB" "$STORAGE_MIB" \
+        >"$transcript" 2>"$WORK/runner-files.err"; then
+        DETAIL="$(tail -1 "$WORK/runner-files.err")"
+        return 1
+    fi
+    DETAIL="$(tail -1 "$transcript")"
+}
+
+# Stage 7. A 12 KB heredoc reaches the guest as one argument of `sh -lc`, the shape ComputeSDK's
 # cpu-burst bench sends as one command string, which was refused at 4096 bytes before (ADR 0051).
 stage_large_command() {
     local lines=230 script heredoc
@@ -207,7 +232,7 @@ probe() {
     return 0
 }
 
-# Stage 7. Nothing of the sandboxes outlived them.
+# Stage 8. Nothing of the sandboxes outlived them.
 stage_cleanup_proof() {
     probe after
     local checks="$WORK/cleanup-checks.tsv" leaked=0 notes=()
@@ -218,8 +243,10 @@ stage_cleanup_proof() {
         [[ "$2" != leaked ]] || leaked=1
     }
     local heads after
-    heads="$(find "$HEAD_DIR" -mindepth 1 | wc -l)"
-    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no entry"
+    # A head is a file. The empty shard directories (h00 to h15) are the head store's own layout,
+    # made once by the first launch that uses the sharded store, and are not a leak.
+    heads="$(find "$HEAD_DIR" -mindepth 1 ! -type d | wc -l)"
+    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no head file"
     else verdict overlay_heads leaked "$heads entries left in $HEAD_DIR"; fi
     differed processes "$WORK/procs.before" "$WORK/procs.after" "processes naming the state root"
     differed netns "$WORK/netns.before" "$WORK/netns.after" "network namespaces"
@@ -254,12 +281,13 @@ main() {
     run_stage prepare_generation stage_prepare_generation
     run_stage capture_snapshot stage_capture_snapshot
     run_stage run_sandbox stage_run_sandbox
+    run_stage runner_files stage_runner_files
     run_stage large_command stage_large_command
     run_stage cleanup_proof stage_cleanup_proof
     local status=0
     summarize || status=1
     # The prepared store, heads, and state root are large; the results and logs are the record.
-    (( ! PURGE )) || rm -rf -- "$STORE" "$HEAD_DIR" "$STATE_ROOT"
+    (( ! PURGE )) || rm -rf -- "$STORE" "$HEAD_DIR" "$STATE_ROOT" "$WORK/runner-files-state"
     return "$status"
 }
 
