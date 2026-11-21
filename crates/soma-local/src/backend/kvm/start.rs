@@ -48,6 +48,7 @@ pub(super) struct Launching<'a> {
     pub(super) secrets: Vec<SecretFile>,
     /// This Instance's durable volume, absent when its Generation declares none.
     pub(super) volume: Option<soma::VolumeAttachment>,
+    pub(super) checkpoint: Option<OperationId>,
 }
 
 pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> BackendFailureKind {
@@ -95,6 +96,7 @@ impl KvmBackend {
             network,
             secrets,
             volume,
+            checkpoint: _,
         } = launching;
         self.register(operation, instance, identity.guest_cid)?;
         // The machine already exists, so this stamp separates the fresh authority this Launch
@@ -160,6 +162,7 @@ impl KvmBackend {
             network,
             secrets,
             volume,
+            checkpoint,
         } = launching;
         // A jailed machine is given no frame path and no secret, so a request that needs either
         // is refused rather than served by a machine that silently has neither.
@@ -189,7 +192,7 @@ impl KvmBackend {
                 generation_bytes,
                 memory_mib,
                 disk_mib: storage_mib,
-                checkpoint: None,
+                checkpoint: checkpoint.as_ref(),
             },
         ) {
             Ok(jailed) => Ok(Started {
@@ -223,6 +226,7 @@ impl KvmBackend {
             network,
             secrets,
             volume,
+            checkpoint: _,
         } = launching;
         let boot = boot_for(prepared, memory_mib, identity, network, secrets, volume)
             .map_err(|kind| self.fail(operation, kind))?;

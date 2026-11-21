@@ -91,6 +91,19 @@ pub trait SandboxFacade {
     fn launch(&mut self, request: LaunchMachineRequest)
     -> Result<LifecycleOutcome, ManagedFailure>;
 
+    /// Restores a stopped sandbox from its own published checkpoint.
+    /// # Errors
+    /// Returns the managed restore refusal or launch failure.
+    fn restore(
+        &mut self,
+        _request: LaunchMachineRequest,
+        _checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        Err(ManagedFailure::Backend(
+            soma::BackendFailureKind::Unsupported,
+        ))
+    }
+
     /// Reads back one managed sandbox by exact instance id.
     ///
     /// # Errors

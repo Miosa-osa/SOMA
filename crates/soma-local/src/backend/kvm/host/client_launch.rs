@@ -24,6 +24,7 @@ struct LaunchContext<'a> {
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
     windowed: bool,
+    checkpoint: Option<&'a OperationId>,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -42,6 +43,7 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
+    pub(in crate::backend::kvm) checkpoint: Option<&'a OperationId>,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -62,6 +64,7 @@ pub(in crate::backend::kvm) fn launch(
         shape,
         volume,
         windowed,
+        checkpoint,
         admitted_at,
     } = request;
     if !channel::addressable(directory) {
@@ -90,17 +93,22 @@ pub(in crate::backend::kvm) fn launch(
         handoff,
         output,
         ..
-    } = sterile::claim(
-        prepared,
-        prepared.manifest.shape.memory_bytes / (1024 * 1024),
-    )?;
+    } = if checkpoint.is_some() {
+        sterile::spawn_for_recovery()?
+    } else {
+        sterile::claim(
+            prepared,
+            prepared.manifest.shape.memory_bytes / (1024 * 1024),
+        )?
+    };
     let context = LaunchContext {
         operation_id,
         instance_id,
         socket,
-        skip_warm: in_flight.skip_warm(),
+        skip_warm: checkpoint.is_some() || in_flight.skip_warm(),
         volume,
         windowed,
+        checkpoint,
         admitted_at,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
@@ -161,6 +169,7 @@ fn handshake(
         // The volume's host path, certified by the store before the launch was admitted; the
         // file itself never crosses this wire.
         volume: context.volume.cloned(),
+        checkpoint: context.checkpoint.cloned(),
         operation_id: context.operation_id.clone(),
         instance_id: context.instance_id.clone(),
         reference: prepared.reference.clone(),

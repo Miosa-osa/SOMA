@@ -50,6 +50,7 @@ fn every_route() -> Vec<Route> {
         Route::PauseSandbox(instance()),
         Route::ResumeSandbox(instance()),
         Route::CheckpointSandbox(instance()),
+        Route::RestoreSandbox(instance()),
         Route::Resources(instance(), false),
         Route::Tunnel(instance(), 8080),
         Route::Volume(VolumeOperation::Read, Some(VOLUME.to_owned())),
@@ -102,6 +103,7 @@ fn template(route: &Route) -> String {
         Route::PauseSandbox(_) => "/v1/sandboxes/{instance}/pause".to_owned(),
         Route::ResumeSandbox(_) => "/v1/sandboxes/{instance}/resume".to_owned(),
         Route::CheckpointSandbox(_) => "/v1/sandboxes/{instance}/checkpoints".to_owned(),
+        Route::RestoreSandbox(_) => "/v1/sandboxes/{instance}/restore".to_owned(),
         Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
         Route::RunCommand(_) => "/v1/sandboxes/{instance}/commands".to_owned(),
         Route::Filesystem(_, operation) => {
@@ -191,6 +193,10 @@ fn surface() -> String {
         ("PrewarmTarget", fields::<soma_local::PrewarmTarget>()),
         ("PruneRequest", fields::<soma_local::PruneRequest>()),
         ("ResourcesBody", fields::<ResourcesBody>()),
+        (
+            "RestoreBody",
+            fields::<crate::handler::checkpoint::RestoreBody>(),
+        ),
         ("RunCommandBody", fields::<RunCommandBody>()),
         ("TerminalBody", fields::<TerminalBody>()),
     ] {

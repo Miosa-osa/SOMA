@@ -59,6 +59,20 @@ pub trait Backend: Send {
         request: LaunchRequest<'_, Self::PreparedWorkload>,
     ) -> Result<LaunchObservation, BackendFailure>;
 
+    /// Recreates the stopped Instance from its published checkpoint.
+    /// # Errors
+    /// Backends that cannot prove checkpoint restoration refuse the operation.
+    fn launch_checkpoint(
+        &mut self,
+        _request: LaunchRequest<'_, Self::PreparedWorkload>,
+        _checkpoint: &crate::OperationId,
+    ) -> Result<LaunchObservation, BackendFailure> {
+        Err(BackendFailure::new(
+            crate::BackendFailureKind::Unsupported,
+            0,
+        ))
+    }
+
     /// Executes one bounded direct command in an exact Instance.
     ///
     /// # Errors

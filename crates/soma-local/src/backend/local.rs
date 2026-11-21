@@ -121,6 +121,19 @@ impl Backend for LocalBackend {
         }
     }
 
+    fn launch_checkpoint(
+        &mut self,
+        request: LaunchRequest<'_, Self::PreparedWorkload>,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LaunchObservation, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Self::Kvm(backend) = self {
+            return backend.launch_using(&request, Some(checkpoint));
+        }
+        let _ = (request, checkpoint);
+        Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
     fn execute(
         &mut self,
         request: ExecutionRequest<'_>,

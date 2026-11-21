@@ -10,7 +10,7 @@ use crate::{
 use super::{
     Engine, FailurePhase, LaunchMachineRequest, MachineLaunch, ManagedFailure, ManagedStateError,
     RunFailureKind,
-    machine_state::{DurableMachine, LaunchIntent},
+    machine_state::{DurableMachine, DurablePhase, LaunchIntent},
     managed_receipt::{ManagedLaunch, operation_failure},
     run_evidence::{append_failure, append_launch, append_milestone, validate_launch},
 };
@@ -35,6 +35,38 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: LaunchMachineRequest,
     ) -> Result<MachineLaunch, ManagedFailure> {
+        self.launch_managed(&request, None)
+    }
+
+    /// Restores a checkpoint created for the same stopped Instance.
+    /// # Errors
+    /// Returns a typed failure if the stopped record, admitted Generation, or checkpoint cannot
+    /// be confirmed, or the backend cannot prove readiness.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn restore_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &crate::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        if request.operation_id == *checkpoint
+            || request.volume.is_some()
+            || request.windowed
+            || *request.shape.capabilities().network_policy() != crate::NetworkPolicy::isolated()
+        {
+            return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
+        }
+        self.launch_managed(&request, Some(checkpoint))
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "fresh launch and restore share the write-ahead transaction"
+    )]
+    fn launch_managed(
+        &mut self,
+        request: &LaunchMachineRequest,
+        checkpoint: Option<&crate::OperationId>,
+    ) -> Result<MachineLaunch, ManagedFailure> {
         let source_fingerprint = crate::fingerprint::source(&request.image);
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
         let resolution = match self.backend.resolve(crate::ResolutionRequest::new(
@@ -53,7 +85,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     RunFailureKind::ObservationMismatch
                 };
                 let receipt = launch_receipt(
-                    &request,
+                    request,
                     source_fingerprint.clone(),
                     WorkloadEvidence::Unresolved { source_fingerprint },
                     self.backend.kind(),
@@ -86,6 +118,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             &request.shape,
             request.windowed,
         );
+        let fingerprint = checkpoint.map_or_else(
+            || fingerprint.clone(),
+            |checkpoint| crate::fingerprint::restore(&fingerprint, checkpoint),
+        );
         let intent = LaunchIntent {
             operation_id: request.operation_id.clone(),
             machine_name: request.machine_name.clone(),
@@ -94,24 +130,31 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             backend: self.backend.kind(),
             request_fingerprint: fingerprint.clone(),
         };
-        let revision = match self.admit_launch(&request, &intent, resolved_at, &mut milestones)? {
-            LaunchAdmission::Proceed(revision) => revision,
+        let admission = if checkpoint.is_some() {
+            self.admit_restore(request, &intent)?
+        } else {
+            self.admit_launch(request, &intent, resolved_at, &mut milestones)?
+        };
+        let (revision, prior_stop) = match admission {
+            LaunchAdmission::Proceed(revision, prior_stop) => (revision, prior_stop),
             LaunchAdmission::Replay(receipt) => return Ok(MachineLaunch { receipt: *receipt }),
         };
 
-        let observation = self.backend.launch(
-            crate::LaunchRequest::new(
-                &request.operation_id,
-                &request.instance_id,
-                &workload,
-                &prepared,
-                &request.shape,
-            )
-            // The volume the host resolved for this Instance: a machine whose Generation
-            // declares one refuses to run without it.
-            .with_volume(request.volume.as_ref())
-            .with_windowed(request.windowed),
-        );
+        let backend_request = crate::LaunchRequest::new(
+            &request.operation_id,
+            &request.instance_id,
+            &workload,
+            &prepared,
+            &request.shape,
+        )
+        // The volume the host resolved for this Instance: a machine whose Generation
+        // declares one refuses to run without it.
+        .with_volume(request.volume.as_ref())
+        .with_windowed(request.windowed);
+        let observation = match checkpoint {
+            Some(checkpoint) => self.backend.launch_checkpoint(backend_request, checkpoint),
+            None => self.backend.launch(backend_request),
+        };
         let launch = match observation {
             Ok(observation) => validate_launch(
                 observation,
@@ -132,9 +175,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     RunFailureKind::ObservationMismatch
                 };
                 return Err(self.fail_launch(
-                    &request,
+                    request,
                     intent,
                     revision,
+                    prior_stop,
                     fingerprint,
                     workload,
                     milestones,
@@ -144,9 +188,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         };
         let Some(launch) = launch else {
             return Err(self.fail_launch(
-                &request,
+                request,
                 intent,
                 revision,
+                prior_stop,
                 fingerprint,
                 workload,
                 milestones,
@@ -155,7 +200,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         };
         append_launch(&mut milestones, launch.times);
         let receipt = launch_receipt(
-            &request,
+            request,
             fingerprint,
             WorkloadEvidence::Resolved { identity: workload },
             launch.backend,
@@ -164,7 +209,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             CleanupEvidence::not_owned(),
             TerminalStatus::Ready,
         );
-        let active = DurableMachine::active(request.instance_id.clone(), receipt.clone());
+        let mut active = DurableMachine::active(request.instance_id.clone(), receipt.clone());
+        if let (Some(previous), DurablePhase::Active { active }) = (prior_stop, &mut active.phase)
+            && let Some(previous_active) = previous.stopped_source(&intent)
+        {
+            active
+                .completed_executions
+                .clone_from(&previous_active.completed_executions);
+        }
         if let Err(failure) = self.replace_machine(revision, &active) {
             return Err(store_operation_failure(&failure, receipt));
         }

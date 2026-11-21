@@ -47,3 +47,40 @@ pub(super) fn serve<F: SandboxFacade + ?Sized>(
             })?;
     Ok(super::success(200, "sandbox.checkpoint", &receipt, None))
 }
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RestoreBody {
+    operation_id: OperationId,
+    checkpoint_id: OperationId,
+    image: String,
+    shape: soma::MachineShape,
+    name: Option<soma::MachineName>,
+}
+
+pub(super) fn restore<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance: InstanceId,
+    body: &[u8],
+) -> Result<Response, ApiError> {
+    if !facade.hosts_addressable_sandboxes() {
+        return Err(super::MissingCapability::DurableMachineHosting.error());
+    }
+    let body: RestoreBody = super::parse(body)?;
+    let image = soma::OciImage::parse(body.image)
+        .map_err(|_| ApiError::invalid("the image reference is not a valid OCI reference"))?;
+    let mut request =
+        soma::LaunchMachineRequest::new(body.operation_id, instance, image, body.shape);
+    if let Some(name) = body.name {
+        request = request.with_name(name);
+    }
+    let result = facade
+        .restore(request, &body.checkpoint_id)
+        .map_err(|failure| super::managed_error(&failure))?;
+    Ok(super::lifecycle(
+        "sandbox.restore",
+        "ready",
+        &result.instance_id,
+        &result.receipt,
+    ))
+}

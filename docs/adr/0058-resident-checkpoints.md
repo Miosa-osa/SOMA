@@ -57,3 +57,16 @@ The sealed-worker control request names recovery explicitly and carries the brok
 The state, RAM, root, and new writable head use the existing attested descriptor slots.
 When a writable head exists, the original overlay descriptor travels with the recovery request so the worker can reject aliasing independently.
 The worker only accepts recovery as its first launch and must confirm the fresh command session before the broker seals it.
+
+## Managed restore admission
+
+A managed restore request names the existing Instance, a published checkpoint operation, and a distinct restore operation.
+The engine admits it only from a confirmed stopped record for the same workload and machine shape.
+The durable store's revision comparison grants a single restore owner before contacting the machine host.
+The restored worker becomes addressable under the same Instance after the host confirms readiness.
+A duplicate must never initiate another launch or clean up an in-progress restore.
+The host launch handoff carries a checkpoint operation ID, never an artifact path.
+The host must reject recovery if it cannot use an isolated sealed worker, and older hosts must reject the unfamiliar handoff rather than perform a fresh launch.
+A restore skips ordinary post-launch warmup and begins without a claimed network, attached volume, or new launch secrets.
+The trusted host listener exposes restore as `POST /v1/sandboxes/{instance}/restore` with the checkpoint ID, restore operation ID, and workload request.
+The host compares the resolved Generation and workload request to the stopped record before opening the checkpoint.

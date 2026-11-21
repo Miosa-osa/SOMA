@@ -7,7 +7,7 @@ use crate::{
 
 pub(super) const STATE_SCHEMA_VERSION: u16 = 2;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub(in crate::engine) struct DurableMachine {
     pub(super) schema_version: u16,
     pub(in crate::engine) instance_id: InstanceId,
@@ -19,6 +19,8 @@ pub(in crate::engine) struct DurableMachine {
 pub(in crate::engine) enum DurablePhase {
     Launching {
         intent: Box<LaunchIntent>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prior_stop: Option<Box<DurableMachine>>,
     },
     Active {
         active: Box<ActiveMachine>,

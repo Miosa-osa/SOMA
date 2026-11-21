@@ -51,6 +51,16 @@ pub(crate) fn launch(
     encoder.finish()
 }
 
+pub(crate) fn restore(
+    launch: &RequestFingerprint,
+    checkpoint: &crate::OperationId,
+) -> RequestFingerprint {
+    let mut encoder = CanonicalHash::new(b"soma.managed-restore.v1");
+    encoder.field(b"launch", launch.as_str().as_bytes());
+    encoder.field(b"checkpoint", checkpoint.as_str().as_bytes());
+    encoder.finish()
+}
+
 pub(crate) fn execute(
     workload: &WorkloadIdentity,
     instance_id: &InstanceId,

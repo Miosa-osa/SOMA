@@ -87,6 +87,17 @@ impl LocalRuntime {
         self.engine.launch_machine(request)
     }
 
+    /// Restores an existing stopped Instance from a published checkpoint.
+    /// # Errors
+    /// Returns the typed managed failure if restore could not be admitted or completed.
+    pub fn restore_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.engine.restore_machine(request, checkpoint)
+    }
+
     /// Executes one bounded command in a durably managed Machine.
     ///
     /// # Errors

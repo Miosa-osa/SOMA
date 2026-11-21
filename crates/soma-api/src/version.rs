@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// The API version this build serves.
-pub const API_VERSION: ApiVersion = ApiVersion::new(1, 3);
+pub const API_VERSION: ApiVersion = ApiVersion::new(1, 4);
 
 /// The header that carries an API version: the one a response was served under, and the one a
 /// request needs, `MAJOR` or `MAJOR.MINOR`.

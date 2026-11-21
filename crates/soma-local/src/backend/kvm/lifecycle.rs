@@ -76,6 +76,7 @@ pub(in crate::backend::kvm) struct LaunchExtras {
     pub(in crate::backend::kvm) volume: Option<soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
+    pub(in crate::backend::kvm) checkpoint: Option<OperationId>,
 }
 
 impl KvmBackend {
@@ -100,7 +101,19 @@ impl KvmBackend {
         shape: &MachineShape,
         extras: LaunchExtras,
     ) -> Result<Launched, BackendFailure> {
-        let LaunchExtras { volume, windowed } = extras;
+        let LaunchExtras {
+            volume,
+            windowed,
+            checkpoint,
+        } = extras;
+        if checkpoint.is_some()
+            && (self.jail.is_none()
+                || volume.is_some()
+                || windowed
+                || *shape.capabilities().network_policy() != soma::NetworkPolicy::isolated())
+        {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        }
         // This Backend owns at most one sandbox. Assigning over a live one would drop its
         // Session, and dropping a Session shuts the guest down, so launching B would silently
         // destroy A without any Stop or Cleanup naming A.
@@ -201,6 +214,7 @@ impl KvmBackend {
             // The volume the host resolved, when the Generation declares one; a machine given
             // none refuses to start rather than serve an empty disk.
             volume,
+            checkpoint,
         };
         let Started {
             preparation,

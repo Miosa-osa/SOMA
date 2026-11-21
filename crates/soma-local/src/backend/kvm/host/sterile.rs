@@ -227,6 +227,11 @@ fn set_desired(wanted: Vec<Wanted>, generic: usize) {
     desired.generic = generic;
 }
 
+/// Gives a resident checkpoint a fresh machine host without a primed Generation.
+pub(super) fn spawn_for_recovery() -> Result<SterileHost, BackendFailureKind> {
+    spawn(None)
+}
+
 /// Claims one pre-spawned host, falling back to a synchronous spawn only after depletion.
 pub(super) fn claim(
     prepared: &PreparedGeneration,

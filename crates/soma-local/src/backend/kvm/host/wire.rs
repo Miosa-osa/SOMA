@@ -66,6 +66,9 @@ pub(super) struct LaunchWire {
     /// machine wants: a launch it cannot bind must not run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) volume: Option<soma::VolumeAttachment>,
+    /// Published checkpoint operation for this Instance, carried only for restore.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) checkpoint: Option<OperationId>,
     pub(super) operation_id: OperationId,
     pub(super) instance_id: InstanceId,
     /// The image reference the client resolved.

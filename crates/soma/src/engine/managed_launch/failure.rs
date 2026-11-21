@@ -18,6 +18,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         request: &LaunchMachineRequest,
         intent: LaunchIntent,
         revision: crate::StateRevision,
+        prior_stop: Option<Box<DurableMachine>>,
         fingerprint: crate::RequestFingerprint,
         workload: crate::WorkloadIdentity,
         mut milestones: Vec<Milestone>,
@@ -40,17 +41,23 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             TerminalStatus::Failed,
         );
         if cleanup.complete {
-            let mut terminal =
-                DurableMachine::launching(request.instance_id.clone(), intent.clone());
-            terminal.phase = DurablePhase::Terminal {
-                basis: Box::new(TerminalBasis::Launch {
-                    intent: Box::new(intent),
-                }),
-                operation: OperationKind::Launch,
-                operation_id: request.operation_id.clone(),
-                request_fingerprint: fingerprint,
-                receipt: Box::new(receipt.clone()),
-            };
+            let terminal = prior_stop.map_or_else(
+                || {
+                    let mut terminal =
+                        DurableMachine::launching(request.instance_id.clone(), intent.clone());
+                    terminal.phase = DurablePhase::Terminal {
+                        basis: Box::new(TerminalBasis::Launch {
+                            intent: Box::new(intent),
+                        }),
+                        operation: OperationKind::Launch,
+                        operation_id: request.operation_id.clone(),
+                        request_fingerprint: fingerprint,
+                        receipt: Box::new(receipt.clone()),
+                    };
+                    terminal
+                },
+                |stopped| *stopped,
+            );
             if let Err(failure) = self.replace_machine(revision, &terminal) {
                 return store_operation_failure(&failure, receipt);
             }

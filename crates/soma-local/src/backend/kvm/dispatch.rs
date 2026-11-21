@@ -28,6 +28,14 @@ impl KvmBackend {
         &mut self,
         request: &LaunchRequest<'_, Box<dyn Any + Send>>,
     ) -> Result<LaunchObservation, BackendFailure> {
+        self.launch_using(request, None)
+    }
+
+    pub(in crate::backend) fn launch_using(
+        &mut self,
+        request: &LaunchRequest<'_, Box<dyn Any + Send>>,
+        checkpoint: Option<&soma::OperationId>,
+    ) -> Result<LaunchObservation, BackendFailure> {
         let operation = request.operation_id();
         // The instant this operation was admitted, so a hosted launch can place the machine
         // host's own milestones on this process's timeline. See `host::launch`.
@@ -46,6 +54,7 @@ impl KvmBackend {
                 LaunchExtras {
                     volume: request.volume().cloned(),
                     windowed: request.windowed(),
+                    checkpoint: checkpoint.cloned(),
                 },
             )?,
             Some(directory) => host::launch(host::HostedLaunch {
@@ -56,6 +65,7 @@ impl KvmBackend {
                 shape: request.shape(),
                 volume: request.volume(),
                 windowed: request.windowed(),
+                checkpoint,
                 admitted_at,
             })
             .map_err(|kind| self.fail(operation, kind))?,

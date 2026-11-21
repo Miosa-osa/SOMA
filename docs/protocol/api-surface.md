@@ -58,6 +58,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.1 | sha256:4d51f97ae8a2eb9d45febe33e9fabe26b3d7efb2e731da4306006c5bb23252e0 | Added resident sandbox pause and the paused inspection state. |
 | 1.2 | sha256:4980e4a88be7043b08d0545246e4bd13f08bbfccc873b74a5ae3014002697099 | Added resident sandbox resume. |
 | 1.3 | sha256:51e8e76a2b494f652d01c0432a93fd4cd6f63ed236f46c003a24784671ed418d | Added resident sandbox checkpoint capture. |
+| 1.4 | sha256:72ef81e47b8bcd5f8a99584b709799b0e0482960580921a142b6d7f24f591e2e | Added same-sandbox restore from a published checkpoint. |
 
 ## Surface
 
@@ -65,7 +66,7 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.3
+api 1.4
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route GET /v1/prewarm prewarm.status
@@ -92,6 +93,7 @@ route POST /v1/sandboxes/{instance}/filesystem/stat sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/write sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/write_range sandbox.filesystem
 route POST /v1/sandboxes/{instance}/pause sandbox.pause
+route POST /v1/sandboxes/{instance}/restore sandbox.restore
 route POST /v1/sandboxes/{instance}/resume sandbox.resume
 route POST /v1/sandboxes/{instance}/stop sandbox.stop
 route POST /v1/sandboxes/{instance}/terminal/close sandbox.terminal
@@ -111,6 +113,7 @@ body PrewarmSetBody targets
 body PrewarmTarget reference count memory_mib
 body PruneRequest keep apply keep_previous
 body ResourcesBody cpu_count memory_mb operation_id
+body RestoreBody operation_id checkpoint_id image shape name
 body RunCommandBody executable arguments limits stdin operation_id
 body TerminalBody columns rows input wait_ms operation_id
 ```
@@ -125,3 +128,12 @@ New guest commands receive `409` while the instance remains resident and can be 
 `POST /v1/sandboxes/{instance}/resume` accepts an empty body or an empty JSON object.
 A successful response reports `running` for the same instance, and repeat resume has the same result.
 The runner applies its tenant ownership check before forwarding a resume request.
+
+## Restore a stopped sandbox
+
+`POST /v1/sandboxes/{instance}/restore` accepts `operation_id`, `checkpoint_id`, `image`, `shape`, and optional `name`.
+The workload fields must identify the original admitted Generation, shape, and name.
+The sandbox must have completed a stop and the checkpoint must belong to that sandbox.
+A successful response reports `ready` for the same Instance after the worker has authenticated and proved command readiness.
+Retry a completed restore with the same operation ID and checkpoint to get its original receipt.
+A different operation cannot restore over a live sandbox.

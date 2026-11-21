@@ -11,11 +11,61 @@ use crate::engine::{
 use super::receipt::launch_receipt;
 
 pub(super) enum LaunchAdmission {
-    Proceed(crate::StateRevision),
+    Proceed(crate::StateRevision, Option<Box<DurableMachine>>),
     Replay(Box<crate::ExecutionReceipt>),
 }
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
+    pub(super) fn admit_restore(
+        &mut self,
+        request: &LaunchMachineRequest,
+        intent: &LaunchIntent,
+    ) -> Result<LaunchAdmission, ManagedFailure> {
+        let stored = self
+            .load_machine(&request.instance_id)?
+            .ok_or(ManagedFailure::State(ManagedStateError::MachineNotFound))?;
+        match &stored.machine.phase {
+            DurablePhase::Active { active }
+                if active.launch_receipt.operation_id() == &request.operation_id
+                    && active.launch_receipt.request_fingerprint()
+                        == &intent.request_fingerprint =>
+            {
+                return Ok(LaunchAdmission::Replay(Box::new(
+                    active.launch_receipt.clone(),
+                )));
+            }
+            DurablePhase::Launching {
+                prior_stop: Some(_),
+                ..
+            } => {
+                // The current attempt may still own the host. A duplicate must never clean it up.
+                return Err(ManagedFailure::State(ManagedStateError::RecoveryRequired));
+            }
+            _ => {}
+        }
+        if stored.machine.stopped_source(intent).is_none() {
+            return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
+        }
+        let pending = DurableMachine::restoring(
+            request.instance_id.clone(),
+            intent.clone(),
+            stored.machine.clone(),
+        );
+        let revision = self
+            .replace_machine(stored.revision, &pending)
+            .map_err(|failure| {
+                if is_store_conflict(&failure) {
+                    ManagedFailure::State(ManagedStateError::OperationConflict)
+                } else {
+                    failure
+                }
+            })?;
+        Ok(LaunchAdmission::Proceed(
+            revision,
+            Some(Box::new(stored.machine)),
+        ))
+    }
+
     pub(super) fn admit_launch(
         &mut self,
         request: &LaunchMachineRequest,
@@ -25,7 +75,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     ) -> Result<LaunchAdmission, ManagedFailure> {
         let pending = DurableMachine::launching(request.instance_id.clone(), intent.clone());
         match self.create_machine(&pending) {
-            Ok(revision) => return Ok(LaunchAdmission::Proceed(revision)),
+            Ok(revision) => return Ok(LaunchAdmission::Proceed(revision, None)),
             Err(failure) if is_store_conflict(&failure) => {}
             Err(failure) => return Err(failure),
         }
@@ -35,7 +85,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 crate::StateStoreFailureKind::Conflict,
             ))?;
         match &stored.machine.phase {
-            DurablePhase::Launching { intent: existing } if existing.as_ref() == intent => {
+            DurablePhase::Launching {
+                intent: existing,
+                prior_stop: None,
+            } if existing.as_ref() == intent => {
                 let cleanup = self.perform_cleanup(
                     &existing.operation_id,
                     &request.instance_id,
@@ -68,7 +121,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     Milestone::new(MilestoneKind::Accepted, 0),
                     Milestone::new(MilestoneKind::WorkloadResolved, resolved_at),
                 ];
-                Ok(LaunchAdmission::Proceed(revision))
+                Ok(LaunchAdmission::Proceed(revision, None))
             }
             DurablePhase::Active { active }
                 if active.launch_receipt.operation_id() == &request.operation_id

@@ -136,6 +136,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().launch(request)
     }
 
+    fn restore(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.deref_mut().restore(request, checkpoint)
+    }
+
     fn inspect(
         &mut self,
         request: InspectMachineRequest,
