@@ -92,3 +92,15 @@ The public runner exposes `POST /api/v1/sandboxes/{id}/restore` using its bearer
 It supplies the tenant label from the authenticated principal, and the engine compares that label with the stopped record before admission.
 If the runner lost its in-memory entry, it checks the durable owner and reserves a tenant slot before attempting restore.
 A successful restore returns the sandbox to the runner's normal lifetime tracking.
+
+## Fork a resident checkpoint
+
+A fork has an authorized source Instance and a distinct, newly allocated destination Instance.
+The checkpoint's manifest must match the source and the prepared Generation, and the destination receives its own private writable disk and copy-on-write RAM.
+The fork launch page uses schema 4 with the source Instance covered by the page digest.
+Ordinary launches and same-Instance restores continue to use schema 3.
+An older guest agent rejects the fork page.
+The guest accepts a fork only after losing its captured idle control connection and only when the page names that captured Instance and Generation.
+It applies the destination hostname and machine ID, refreshes entropy and time, and authenticates a new control session.
+The guest keeps its workload processes, files, and scratch mounts.
+Host network authority and attached volumes are unavailable to this fork path.

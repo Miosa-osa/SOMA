@@ -76,7 +76,7 @@ pub use self::{
         CheckpointError, CheckpointRequest, CheckpointTargets, PreparedCheckpoint,
         ResidentRestoreRequest, RestoreFacts, RestoreRequest, Restored, SnapshotError,
         SnapshotObjects, SnapshotPaths, Sterile, SterileRequest, VerifiedCapture, capture,
-        capture_checkpoint, inspect_capture_artifacts, prepare_checkpoint, restore,
+        capture_checkpoint, inspect_capture_artifacts, prepare_checkpoint, prepare_fork, restore,
         restore_sterile,
     },
     timing::PhaseTiming,

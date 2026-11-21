@@ -71,8 +71,9 @@ pub(crate) use handshake::{
     InitiatorAwaitingResponse, InitiatorHandshake, ResponderHandshake, ResponderPendingResponse,
 };
 pub use launch_page::{
-    DeliveredHostLaunchMaterial, GuestLaunchMaterial, GuestSessionMaterial, HostLaunchMaterial,
-    LAUNCH_PAGE_GUEST_ADDRESS, LAUNCH_PAGE_SCHEMA_VERSION, LAUNCH_PAGE_SIZE, LaunchNetwork,
+    DeliveredHostLaunchMaterial, FORK_LAUNCH_PAGE_SCHEMA_VERSION, GuestLaunchMaterial,
+    GuestSessionMaterial, HostLaunchMaterial, LAUNCH_PAGE_GUEST_ADDRESS,
+    LAUNCH_PAGE_SCHEMA_VERSION, LAUNCH_PAGE_SIZE, LaunchNetwork,
 };
 pub(crate) use record::AuthenticatedSession;
 pub use record::MAX_RECORD_PAYLOAD;

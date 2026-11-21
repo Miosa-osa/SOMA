@@ -11,6 +11,10 @@ use soma_kvm::{
     },
 };
 
+#[path = "resident/fork.rs"]
+mod fork;
+pub use fork::verify as verify_fork;
+
 use crate::{
     x86_64_sandbox_boot_session as session,
     x86_64_sandbox_boot_sparse::clone_head,
@@ -25,6 +29,7 @@ const marker = require('node:crypto').randomBytes(16).toString('hex');
 let ticks = 0;
 const sample = () => [process.pid, marker, ticks].join(' ');
 setInterval(() => ticks++, 5);
+process.on('SIGUSR2', () => { ticks = 1_000_000; });
 require('node:net').createServer(c => c.end(sample())).listen('/tmp/resident-recovery.sock');
 ";
 const START: &[u8] = br"

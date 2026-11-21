@@ -265,6 +265,14 @@ mod live {
     }
 
     #[test]
+    #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, a fork-capable guest agent, and a node:22 OCI layout"]
+    fn forks_of_a_running_checkpoint_have_independent_memory_disks_and_identity() {
+        require_kvm();
+        let fixture = fixture::shared();
+        crate::x86_64_snapshot_restore_resident::verify_fork(&fixture);
+    }
+
+    #[test]
     #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
     fn two_restores_of_one_snapshot_are_independent_instances() {
         require_kvm();

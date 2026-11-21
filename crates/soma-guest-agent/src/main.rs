@@ -175,6 +175,10 @@ mod agent {
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
         ));
+        if material.fork_from().is_some() {
+            console::report("fork authority rejected on a cold launch");
+            pid1::poweroff();
+        }
         let binding = *material.binding();
         let network = material.network();
         let hostname = identity::hostname(binding.instance());
@@ -227,18 +231,25 @@ mod agent {
         }
         let mut binding = binding;
         destroy(&lifecycle::serve(controller, prepared, || {
-            reconnect(&mut binding)
+            reconnect(&mut binding, declared.overlay)
         }))
     }
 
     fn reconnect(
         binding: &mut soma_guest::SessionBinding,
+        writable_root: bool,
     ) -> Result<GuestControl<control::StreamIo<std::os::unix::net::UnixStream>>, Fault> {
         let material = launch_page::consume_if_present()
             .map_err(|_| Fault::LaunchPage)?
             .ok_or(Fault::Control)?;
         let next = *material.binding();
-        if next.instance() != binding.instance()
+        let fork_from = material.fork_from();
+        let identity_allowed = match fork_from {
+            None => next.instance() == binding.instance(),
+            Some(from) => from == binding.instance() && next.instance() != binding.instance(),
+        };
+        let forking = fork_from.is_some();
+        if !identity_allowed
             || next.generation() != binding.generation()
             || next.operation() == binding.operation()
         {
@@ -249,6 +260,10 @@ mod agent {
         let session = material
             .reseed_with(|seed| entropy::repair(seed, deadline))
             .map_err(|_| Fault::Entropy)?;
+        if forking {
+            identity::repair_hostname(next.instance(), writable_root)
+                .map_err(|_| Fault::Identity)?;
+        }
         identity::set_clock(network.time_sample_nanos()).map_err(|_| Fault::Identity)?;
         let transport =
             control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)

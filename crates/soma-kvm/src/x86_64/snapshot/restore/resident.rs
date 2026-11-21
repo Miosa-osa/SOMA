@@ -1,4 +1,4 @@
-//! Verify and rebuild a stopped Instance from its resident checkpoint.
+//! Verify and rebuild a resident checkpoint for restore or fork.
 
 use std::{fs::File, os::unix::fs::MetadataExt as _};
 
@@ -42,6 +42,7 @@ pub struct ResidentRestoreRequest {
 pub struct PreparedCheckpoint {
     restored: Restored,
     instance_id: [u8; 16],
+    fork: bool,
 }
 
 impl PreparedCheckpoint {
@@ -56,7 +57,16 @@ impl PreparedCheckpoint {
     pub fn resume(mut self, page: &[u8; LAUNCH_PAGE_SIZE]) -> Result<Restored, SnapshotError> {
         let session = crate::snapshot::readiness::page_session(page)
             .ok_or(crate::snapshot::readiness::ReadinessRefusal::Unbound)?;
-        if session.0 != self.instance_id {
+        // The standard and fork pages share the identity offsets but use distinct schemas.
+        const SCHEMA_OFFSET: std::ops::Range<usize> = 16..18;
+        const RESTORE_SCHEMA: [u8; 2] = 3_u16.to_be_bytes();
+        const FORK_SCHEMA: [u8; 2] = 4_u16.to_be_bytes();
+        let schema = if self.fork {
+            FORK_SCHEMA
+        } else {
+            RESTORE_SCHEMA
+        };
+        if page[SCHEMA_OFFSET] != schema || session.0 != self.instance_id {
             return Err(SnapshotError::NotQuiescent(
                 "reconnect authority names a different Instance",
             ));
@@ -78,6 +88,33 @@ impl PreparedCheckpoint {
 /// first typed machine setup error.
 pub fn prepare_checkpoint(
     request: ResidentRestoreRequest,
+) -> Result<PreparedCheckpoint, SnapshotError> {
+    let instance_id = request.instance_id;
+    prepare_for(request, instance_id)
+}
+
+/// Forks a resident checkpoint into a newly allocated destination Instance.
+///
+/// The trusted broker authorizes access to the source and supplies a separate writable head for
+/// every destination. Each fork uses a fresh destination CID and independently authenticates.
+///
+/// # Errors
+/// Refuses a missing or reused Instance identity or any incompatible checkpoint artifact.
+pub fn prepare_fork(
+    request: ResidentRestoreRequest,
+    destination: [u8; 16],
+) -> Result<PreparedCheckpoint, SnapshotError> {
+    if destination == [0; 16] || destination == request.instance_id {
+        return Err(SnapshotError::NotQuiescent(
+            "a checkpoint fork requires a different nonzero Instance",
+        ));
+    }
+    prepare_for(request, destination)
+}
+
+fn prepare_for(
+    request: ResidentRestoreRequest,
+    destination: [u8; 16],
 ) -> Result<PreparedCheckpoint, SnapshotError> {
     let ResidentRestoreRequest {
         mut objects,
@@ -154,7 +191,8 @@ pub fn prepare_checkpoint(
     .assign(head, None, guest_cid, None, None)?;
     Ok(PreparedCheckpoint {
         restored,
-        instance_id,
+        instance_id: destination,
+        fork: destination != instance_id,
     })
 }
 

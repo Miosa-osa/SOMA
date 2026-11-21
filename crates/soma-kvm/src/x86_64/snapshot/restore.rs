@@ -16,7 +16,7 @@ mod sections;
 mod sterile;
 
 pub use handle::Restored;
-pub use resident::{PreparedCheckpoint, ResidentRestoreRequest, prepare_checkpoint};
+pub use resident::{PreparedCheckpoint, ResidentRestoreRequest, prepare_checkpoint, prepare_fork};
 
 use std::cell::Cell;
 
