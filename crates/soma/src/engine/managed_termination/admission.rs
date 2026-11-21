@@ -31,7 +31,26 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let revision = stored.revision;
         match stored.machine.phase {
             DurablePhase::Active { active } => {
-                self.begin_termination(revision, operation_id, instance_id, mode, active)
+                ensure_backend(&active, self.backend.kind())?;
+                let workload = active.workload().ok_or(ManagedFailure::StateStore(
+                    crate::StateStoreFailureKind::Corrupt,
+                ))?;
+                let fingerprint = mode.fingerprint(workload, instance_id);
+                let terminating = durable_with_phase(
+                    instance_id,
+                    DurablePhase::Terminating {
+                        active: active.clone(),
+                        operation: mode.operation(),
+                        operation_id: operation_id.clone(),
+                        request_fingerprint: fingerprint.clone(),
+                    },
+                );
+                let revision = self.replace_machine(revision, &terminating)?;
+                Ok(TerminationAdmission::Proceed(TerminationContext {
+                    revision,
+                    active: *active,
+                    fingerprint,
+                }))
             }
             DurablePhase::Terminating {
                 active,
@@ -91,47 +110,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             DurablePhase::Terminal { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::MachineStopped))
             }
-            // A destroy whose cleanup stopped part way left this record terminating (#173).
-            // A later destroy takes it over and finishes it; cleanup accepts a machine already gone.
-            DurablePhase::Terminating { active, .. }
-                if mode.operation() == crate::OperationKind::Destroy =>
-            {
-                self.begin_termination(revision, operation_id, instance_id, mode, active)
-            }
             DurablePhase::Terminating { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::OperationConflict))
             }
         }
-    }
-
-    fn begin_termination(
-        &mut self,
-        revision: crate::StateRevision,
-        operation_id: &crate::OperationId,
-        instance_id: &crate::InstanceId,
-        mode: TerminationMode,
-        active: Box<ActiveMachine>,
-    ) -> Result<TerminationAdmission, ManagedFailure> {
-        ensure_backend(&active, self.backend.kind())?;
-        let workload = active.workload().ok_or(ManagedFailure::StateStore(
-            crate::StateStoreFailureKind::Corrupt,
-        ))?;
-        let fingerprint = mode.fingerprint(workload, instance_id);
-        let terminating = durable_with_phase(
-            instance_id,
-            DurablePhase::Terminating {
-                active: active.clone(),
-                operation: mode.operation(),
-                operation_id: operation_id.clone(),
-                request_fingerprint: fingerprint.clone(),
-            },
-        );
-        let revision = self.replace_machine(revision, &terminating)?;
-        Ok(TerminationAdmission::Proceed(TerminationContext {
-            revision,
-            active: *active,
-            fingerprint,
-        }))
     }
 }
 

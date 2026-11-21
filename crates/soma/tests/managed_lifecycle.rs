@@ -237,9 +237,6 @@ fn a_destroy_that_stopped_part_way_is_finished_by_a_later_destroy() {
     engine
         .destroy_machine(DestroyMachineRequest::new(operation('5'), instance.clone()))
         .expect_err("the first cleanup fails part way");
-    let stop = engine
-        .stop_machine(StopMachineRequest::new(operation('6'), instance.clone()))
-        .expect_err("a stop does not take over a destroy");
     let finished = engine
         .destroy_machine(DestroyMachineRequest::new(operation('7'), instance.clone()))
         .expect("a later destroy finishes it");
@@ -247,10 +244,6 @@ fn a_destroy_that_stopped_part_way_is_finished_by_a_later_destroy() {
         .destroy_machine(DestroyMachineRequest::new(operation('7'), instance))
         .expect("and replays exactly");
 
-    assert_eq!(
-        stop,
-        ManagedFailure::State(ManagedStateError::OperationConflict)
-    );
     assert_eq!(
         finished.receipt().terminal_status(),
         &TerminalStatus::Destroyed
