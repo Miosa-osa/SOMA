@@ -387,7 +387,11 @@ mod tests {
             machine_contract_for(5),
             Some(ContractBinding::of(5, MACHINE_CONTRACT_V5))
         );
-        assert_eq!(machine_contract_for(6), None);
+        assert_eq!(
+            machine_contract_for(6),
+            Some(ContractBinding::of(6, MACHINE_CONTRACT_V6))
+        );
+        assert_eq!(machine_contract_for(7), None);
         assert_ne!(
             machine_contract_v3(),
             ContractBinding::of(4, MACHINE_CONTRACT_V4)
