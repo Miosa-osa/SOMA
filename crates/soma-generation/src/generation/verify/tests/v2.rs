@@ -77,11 +77,40 @@ fn every_version_two_bound_field_rejects_on_mismatch() {
 
 #[test]
 fn an_unknown_machine_contract_version_fails_closed() {
-    // Neither a command line nor a binding exists for version 4, so a manifest naming it matches
+    // Neither a command line nor a binding exists for version 5, so a manifest naming it matches
     // nothing and is refused rather than verified against some other contract's bytes.
     rejected(Incompatibility::CommandLine, |manifest| {
-        manifest.machine_contract.version = 4;
+        manifest.machine_contract.version = 5;
     });
+}
+
+#[test]
+fn the_wide_contract_admits_sixteen_vcpus_and_is_bound_to_its_policy() {
+    use crate::generation::contracts::{kernel_command_line_for, machine_contract_for};
+    let mut manifest = fixture::profile_v2();
+    manifest.machine_contract = machine_contract_for(4).expect("wide machine contract");
+    manifest.command_line =
+        kernel_command_line_for(fixture::devices(), 4).expect("wide kernel command line");
+    manifest.shape.vcpu_count = 16;
+    let old_error = require_profile(&manifest, &profile(2)).expect_err("old policy refuses v4");
+    assert_eq!(
+        old_error.incompatibility(),
+        Some(Incompatibility::ContractStatement)
+    );
+
+    let mut wide = CompilerProfile::v5();
+    wide.overlay_capacities = profile(2).overlay_capacities;
+    manifest.compiler_policy_version = wide.policy_version;
+    assert_eq!(
+        require_profile(&manifest, &wide).map_err(|error| error.incompatibility()),
+        Ok(())
+    );
+    manifest.shape.vcpu_count = 17;
+    let bound_error = require_profile(&manifest, &wide).expect_err("too many vCPUs");
+    assert_eq!(
+        bound_error.incompatibility(),
+        Some(Incompatibility::VcpuCount)
+    );
 }
 
 #[test]
