@@ -90,7 +90,7 @@ fn the_wide_contract_admits_sixteen_vcpus_and_is_bound_to_its_policy() {
     let mut manifest = fixture::profile_v2();
     manifest.machine_contract = machine_contract_for(4).expect("wide machine contract");
     manifest.command_line =
-        kernel_command_line_for(fixture::devices(), 4).expect("wide kernel command line");
+        kernel_command_line_for(manifest.device_set(), 4).expect("wide kernel command line");
     manifest.shape.vcpu_count = 16;
     let old_error = require_profile(&manifest, &profile(2)).expect_err("old policy refuses v4");
     assert_eq!(
