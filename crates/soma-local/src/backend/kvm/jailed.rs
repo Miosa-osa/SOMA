@@ -99,7 +99,12 @@ impl Jailed {
         network: Option<(File, NetworkLaunch<'_>)>,
     ) -> Result<Self, BackendFailureKind> {
         let devices = launching.prepared.manifest.device_set();
-        if network.is_some() && (!devices.net() || launching.checkpoint.is_some()) {
+        if network.is_some()
+            && (!devices.net()
+                || launching
+                    .checkpoint
+                    .is_some_and(|(source, _)| source != launching.instance))
+        {
             return Err(BackendFailureKind::WorkloadRejected);
         }
         let (tap, activation) = network.map_or((None, None), |(tap, activation)| {
@@ -239,7 +244,13 @@ impl Jailed {
         let instance = launching.instance.as_str();
         let reply = match recovery {
             None => match activation {
-                Some((channel, network)) => self.connected_launch(launch, &channel, network),
+                Some((channel, network)) => self.connected_launch(
+                    &Request::Launch(launch),
+                    None,
+                    &channel,
+                    network,
+                    LAUNCH_CEILING,
+                ),
                 None => self.control.ask(&Request::Launch(launch), LAUNCH_CEILING),
             },
             Some(recovery) => {
@@ -254,12 +265,16 @@ impl Jailed {
                     _ => Request::Recover(launch, digest),
                 };
                 let budget = super::checkpoint::CHECKPOINT_CEILING + LAUNCH_CEILING;
-                match recovery.overlay.as_ref() {
-                    Some(overlay) => {
+                let overlay = recovery.overlay.as_ref();
+                match (activation, overlay) {
+                    (Some((channel, network)), overlay) => {
+                        self.connected_launch(&request, overlay, &channel, network, budget)
+                    }
+                    (None, Some(overlay)) => {
                         self.control
                             .ask_with_files(&request, &[overlay.as_fd()], budget)
                     }
-                    None => self.control.ask(&request, budget),
+                    (None, None) => self.control.ask(&request, budget),
                 }
             }
         }
@@ -287,23 +302,29 @@ impl Jailed {
 
     fn connected_launch(
         &self,
-        launch: Launch,
+        request: &Request,
+        overlay: Option<&File>,
         channel: &ActivationChannel,
         network: NetworkLaunch<'_>,
+        budget: Duration,
     ) -> Result<Outcome, BackendFailureKind> {
         let began = Instant::now();
         channel
             .offer(network.launch, &network.pending)
             .map_err(|_| BackendFailureKind::GuestFailure)?;
-        self.control.tell(&Request::Launch(launch))?;
+        if let Some(overlay) = overlay {
+            self.control.tell_with_files(request, &[overlay.as_fd()])?;
+        } else {
+            self.control.tell(request)?;
+        }
         channel
-            .confirm(LAUNCH_CEILING.saturating_sub(began.elapsed()), |receipt| {
+            .confirm(budget.saturating_sub(began.elapsed()), |receipt| {
                 network.egress.activate_sealed(receipt)
             })
             .map_err(|_| BackendFailureKind::GuestFailure)?;
         let text = self
             .control
-            .receive(LAUNCH_CEILING.saturating_sub(began.elapsed()))?;
+            .receive(budget.saturating_sub(began.elapsed()))?;
         Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
     }
 

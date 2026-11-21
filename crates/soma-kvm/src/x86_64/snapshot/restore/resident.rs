@@ -46,6 +46,12 @@ pub struct PreparedCheckpoint {
 }
 
 impl PreparedCheckpoint {
+    /// Attaches a freshly leased network while the restored machine is stopped.
+    /// The link remains closed until the authenticated session enables it.
+    pub fn attach_network(&self, network: crate::x86_64::NetworkAttachment) {
+        self.restored.machine.attach_network(network);
+    }
+
     /// Starts the captured processors with fresh reconnect authority and the network link down.
     ///
     /// The returned VM must still prove its new authenticated session.

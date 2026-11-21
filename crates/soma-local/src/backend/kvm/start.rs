@@ -172,7 +172,8 @@ impl KvmBackend {
         let network = match (network.attachment, network.activation) {
             (None, None) => None,
             (Some(attachment), Some(pending))
-                if checkpoint.is_none() && attachment.mac == network.launch.mac() =>
+                if checkpoint.is_none_or(|(source, _)| source == instance)
+                    && attachment.mac == network.launch.mac() =>
             {
                 Some((
                     attachment.tap,

@@ -3,8 +3,11 @@
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::HostLaunchMaterial;
-use soma_kvm::x86_64::{RestoreRequest, SandboxMachine, prepare_checkpoint, prepare_fork, restore};
+use soma_kvm::x86_64::{
+    NetworkAttachment, RestoreRequest, SandboxMachine, prepare_checkpoint, prepare_fork, restore,
+};
 
+use super::super::pending::PendingActivation;
 use super::super::session::{Request, Response, SessionError};
 use super::super::source::{Boot, Network, Source};
 use super::drive::{drive_checkpoint, drive_cold, drive_restored};
@@ -38,7 +41,15 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
 
     match source {
         Source::ResidentCheckpoint(request) | Source::CheckpointFork(request) => {
-            recover(*request, material, instance, operation, requests, responses);
+            recover(
+                *request,
+                material,
+                instance,
+                operation,
+                (attachment, activation),
+                requests,
+                responses,
+            );
         }
         Source::ColdBoot(config) => {
             let Ok(mut sandbox) = SandboxMachine::create(config) else {
@@ -130,13 +141,21 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
 }
 
 fn matches_recovery_source(boot: &Boot) -> bool {
-    let (request, names_expected_instance) = match &boot.source {
-        Source::ResidentCheckpoint(request) => (request, request.instance_id == boot.instance),
-        Source::CheckpointFork(request) => (request, request.instance_id != boot.instance),
+    let (request, names_expected_instance, admit_network) = match &boot.source {
+        Source::ResidentCheckpoint(request) => (
+            request,
+            request.instance_id == boot.instance,
+            request.devices.net(),
+        ),
+        Source::CheckpointFork(request) => (request, request.instance_id != boot.instance, false),
         _ => return true,
     };
-    boot.network.attachment.is_none()
-        && boot.network.activation.is_none()
+    let network_valid = match (&boot.network.attachment, &boot.network.activation) {
+        (None, None) => true,
+        (Some(attachment), Some(_)) => admit_network && attachment.mac == boot.network.launch.mac(),
+        _ => false,
+    };
+    network_valid
         && boot.secrets.is_empty()
         && names_expected_instance
         && request.candidate_id == boot.generation
@@ -149,6 +168,7 @@ fn recover(
     material: HostLaunchMaterial,
     instance: [u8; 16],
     operation: [u8; 16],
+    network: (Option<NetworkAttachment>, Option<PendingActivation>),
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) {
@@ -171,6 +191,10 @@ fn recover(
             return;
         }
     };
+    let (attachment, activation) = network;
+    if let Some(attachment) = attachment {
+        prepared.attach_network(attachment);
+    }
     let mut restored = None;
     let delivered = material.deliver_with(|page| {
         restored = Some(prepared.resume(page)?);
@@ -181,7 +205,11 @@ fn recover(
         return;
     };
     let outcome = drive_checkpoint(
-        &restored, delivered, instance, operation, requests, responses,
+        &restored,
+        delivered,
+        (instance, operation, activation),
+        requests,
+        responses,
     );
     report(restored.machine, outcome, responses, instance);
 }

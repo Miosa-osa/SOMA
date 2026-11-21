@@ -78,19 +78,27 @@ pub fn drive_restored(
 pub(super) fn drive_checkpoint(
     restored: &Restored,
     delivered: soma_guest::DeliveredHostLaunchMaterial,
-    instance: [u8; 16],
-    operation: [u8; 16],
+    identity: ([u8; 16], [u8; 16], Option<PendingActivation>),
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
 ) -> Result<Ending, SessionError> {
+    let (instance, operation, activation) = identity;
     let nonce = super::files::nonce_text(&super::super::identity::fresh16());
     let (repaired, api) = reach_session(&restored.machine, delivered)?
         .probe_guest_api(nonce.as_bytes())
         .map_err(|_| SessionError::Ready)?;
-    if api == soma_guest::GuestApi::Legacy {
+    if api == soma_guest::GuestApi::Legacy || (activation.is_some() && !api.has_network_recovery())
+    {
         return Err(SessionError::Ready);
     }
     confirm_ready(restored, &repaired, instance, operation)?;
+    open_network(
+        &restored.machine,
+        &repaired,
+        activation,
+        requests,
+        responses,
+    )?;
     serve_commands(&restored.machine, repaired, requests, responses, &[])
 }
 

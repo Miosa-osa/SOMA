@@ -241,14 +241,16 @@ mod agent {
             console::report(&line);
         }
         let mut binding = binding;
+        let mut current_network = declared.net.then_some(network);
         destroy(&lifecycle::serve(controller, prepared, || {
-            reconnect(&mut binding, declared.overlay)
+            reconnect(&mut binding, declared.overlay, &mut current_network)
         }))
     }
 
     fn reconnect(
         binding: &mut soma_guest::SessionBinding,
         writable_root: bool,
+        current_network: &mut Option<soma_guest::LaunchNetwork>,
     ) -> Result<GuestControl<control::StreamIo<std::os::unix::net::UnixStream>>, Fault> {
         let material = launch_page::consume_if_present()
             .map_err(|_| Fault::LaunchPage)?
@@ -276,6 +278,11 @@ mod agent {
                 .map_err(|_| Fault::Identity)?;
         }
         identity::set_clock(network.time_sample_nanos()).map_err(|_| Fault::Identity)?;
+        if let Some(previous) = current_network {
+            network_repair::reconnect(previous, &network, &identity::hostname(next.instance()))
+                .map_err(|_| Fault::Network)?;
+            *previous = network;
+        }
         let transport =
             control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
                 .map_err(|_| Fault::Transport)?;

@@ -73,6 +73,39 @@ impl KvmPlatform {
         })
     }
 }
+fn network_for_cid(
+    resources: Option<(File, ActivationChannel)>,
+    guest_cid: u32,
+) -> Result<(Network, Option<ActivationChannel>), SessionError> {
+    let Some((tap, channel)) = resources else {
+        let launch = link_down_network(guest_cid).ok_or(SessionError::Create)?;
+        return Ok((
+            Network {
+                launch,
+                attachment: None,
+                activation: None,
+            },
+            None,
+        ));
+    };
+    let (launch, pending) = channel.read_offer()?;
+    if launch.vsock_cid() != guest_cid {
+        return Err(SessionError::Network);
+    }
+    let attachment = NetworkAttachment {
+        tap,
+        mac: launch.mac(),
+    };
+    Ok((
+        Network {
+            launch,
+            attachment: Some(attachment),
+            activation: Some(pending),
+        },
+        Some(channel),
+    ))
+}
+
 impl Platform for KvmPlatform {
     fn configure_recovery(
         &mut self,
@@ -96,9 +129,6 @@ impl Platform for KvmPlatform {
             return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
         };
         if let Some(selection) = self.recovery.take() {
-            if resources.network.is_some() {
-                return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
-            }
             return self.restore_checkpoint(launch, resources, selection);
         }
         let declared = launch.generation().devices();
@@ -209,34 +239,8 @@ impl Platform for KvmPlatform {
         };
         let instance = *launch.instance_id().as_bytes();
         let guest_cid = guest_cid_for(instance);
-        let (network, activation) = match self.network.take() {
-            Some((tap, channel)) => {
-                let (network, pending) = channel.read_offer().map_err(faults::readiness)?;
-                if network.vsock_cid() != guest_cid {
-                    return Err(faults::readiness(SessionError::Network));
-                }
-                (
-                    Network {
-                        launch: network,
-                        attachment: Some(NetworkAttachment {
-                            tap,
-                            mac: network.mac(),
-                        }),
-                        activation: Some(pending),
-                    },
-                    Some(channel),
-                )
-            }
-            None => (
-                Network {
-                    launch: link_down_network(guest_cid)
-                        .ok_or_else(|| faults::readiness(SessionError::Create))?,
-                    attachment: None,
-                    activation: None,
-                },
-                None,
-            ),
-        };
+        let (network, activation) =
+            network_for_cid(self.network.take(), guest_cid).map_err(faults::readiness)?;
         let assignment = Assignment {
             overlay,
             volume: self.volume.take().map(AssignmentVolume::Descriptor),

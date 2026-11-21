@@ -48,14 +48,22 @@ impl Control {
         files: &[BorrowedFd<'_>],
         within: Duration,
     ) -> Result<Outcome, BackendFailureKind> {
+        self.tell_with_files(request, files)?;
+        let text = self.receive(within)?;
+        Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
+    }
+
+    pub(super) fn tell_with_files(
+        &self,
+        request: &Request,
+        files: &[BorrowedFd<'_>],
+    ) -> Result<(), BackendFailureKind> {
         soma_supervise::send_descriptor_packet(
             self.socket.as_fd(),
             request.encode().as_bytes(),
             files,
         )
-        .map_err(|_| BackendFailureKind::Unavailable)?;
-        let text = self.receive(within)?;
-        Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
+        .map_err(|_| BackendFailureKind::Unavailable)
     }
 
     /// Sends one request and does not wait for an answer.

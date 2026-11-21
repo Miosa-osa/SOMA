@@ -10,10 +10,10 @@ use soma_kvm::{
 use crate::{
     Launch, Recovery,
     platform::{RestoreFailure, RestoreProgress, RestoreStep, RestoredMachine},
-    sandbox::{Boot, Network, Session, Source, guest_cid_for, link_down_network},
+    sandbox::{Boot, Session, SessionError, Source, guest_cid_for},
 };
 
-use super::{KvmPlatform, MachineResources, faults};
+use super::{KvmPlatform, MachineResources, faults, network_for_cid};
 
 pub(super) struct Selection {
     pub(super) digest: Digest,
@@ -31,7 +31,11 @@ impl KvmPlatform {
         let invalid = || RestoreFailure::at_restore(Recovery::DoNotRetry);
         let spec = launch.generation().machine();
         let declared = launch.generation().devices();
-        if declared.volume_capacity().is_some() || resources.volume.is_some() {
+        if declared.volume_capacity().is_some()
+            || resources.volume.is_some()
+            || (resources.network.is_some()
+                && (!declared.network() || selection.fork_from.is_some()))
+        {
             return Err(invalid());
         }
         let contract = MachineContract::require(spec.contract().get()).map_err(|_| invalid())?;
@@ -51,7 +55,8 @@ impl KvmPlatform {
         let instance = *launch.instance_id().as_bytes();
         let operation = *launch.operation_id().as_bytes();
         let guest_cid = guest_cid_for(instance);
-        let network = link_down_network(guest_cid).ok_or_else(invalid)?;
+        let (network, activation) = network_for_cid(resources.network, guest_cid)
+            .map_err(|error| RestoreFailure::at_restore(faults::restore_recovery(error)))?;
         let request = ResidentRestoreRequest {
             objects: SnapshotObjects::adopt(
                 resources.state,
@@ -83,14 +88,15 @@ impl KvmPlatform {
                 instance,
                 operation,
                 guest_cid,
-                network: Network {
-                    launch: network,
-                    attachment: None,
-                    activation: None,
-                },
+                network,
                 secrets: Vec::new(),
             },
-            &mut |_| Err(crate::sandbox::SessionError::Network),
+            &mut |receipt| {
+                activation
+                    .as_ref()
+                    .ok_or(SessionError::Network)?
+                    .ask(receipt)
+            },
         )
         .map_err(|error| RestoreFailure::at_restore(faults::restore_recovery(error)))?;
         self.session = Some(session);
