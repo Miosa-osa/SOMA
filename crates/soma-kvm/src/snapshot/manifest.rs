@@ -41,6 +41,19 @@ use super::{
     wire::{Reader, Writer},
 };
 
+/// Shared architecture data after the owning format has been decoded.
+#[derive(Clone, Copy)]
+pub(crate) struct StateView<'a> {
+    pub header: &'a ManifestHeader,
+    sections: &'a [Section],
+}
+
+impl<'a> StateView<'a> {
+    pub fn section(self, role: SectionRole) -> Option<&'a Section> {
+        self.sections.iter().find(|section| section.role() == role)
+    }
+}
+
 pub const MAGIC: [u8; 8] = *b"SOMASNP\0";
 pub const SCHEMA_VERSION: u16 = 2;
 
@@ -124,6 +137,13 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    pub(crate) fn state(&self) -> StateView<'_> {
+        StateView {
+            header: &self.header,
+            sections: &self.sections,
+        }
+    }
+
     /// Builds a manifest from a header and sections in strictly ascending role order.
     ///
     /// # Errors

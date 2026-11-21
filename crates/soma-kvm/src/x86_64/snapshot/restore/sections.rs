@@ -8,7 +8,7 @@ use super::super::error::SnapshotError;
 use crate::snapshot::{
     device_state::{DeviceSpecific, DeviceState},
     kvm_state::{ClockState, IrqRoutingState, IrqchipState, PitState, VcpuState, VmState},
-    manifest::Manifest,
+    manifest::StateView,
     section::SectionRole,
 };
 use crate::virtio::{DeviceSet, Slot};
@@ -32,7 +32,7 @@ impl Sections {
     /// Compatibility has already refused a manifest whose section set disagrees with that, so a
     /// missing section here is a malformed snapshot rather than a smaller machine.
     pub(super) fn read(
-        manifest: &Manifest,
+        manifest: StateView<'_>,
         devices: DeviceSet,
         vcpus: u16,
     ) -> Result<Self, SnapshotError> {
@@ -62,7 +62,7 @@ impl Sections {
     }
 }
 
-pub(super) fn section(manifest: &Manifest, role: SectionRole) -> Result<&[u8], SnapshotError> {
+pub(super) fn section(manifest: StateView<'_>, role: SectionRole) -> Result<&[u8], SnapshotError> {
     manifest
         .section(role)
         .map(crate::snapshot::section::Section::payload)

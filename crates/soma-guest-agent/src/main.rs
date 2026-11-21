@@ -225,7 +225,41 @@ mod agent {
         for line in timings::lines() {
             console::report(&line);
         }
-        destroy(&lifecycle::serve(controller, prepared))
+        let mut binding = binding;
+        destroy(&lifecycle::serve(controller, prepared, || {
+            reconnect(&mut binding)
+        }))
+    }
+
+    fn reconnect(
+        binding: &mut soma_guest::SessionBinding,
+    ) -> Result<GuestControl<control::StreamIo<std::os::unix::net::UnixStream>>, Fault> {
+        let material = launch_page::consume_if_present()
+            .map_err(|_| Fault::LaunchPage)?
+            .ok_or(Fault::Control)?;
+        let next = *material.binding();
+        if next.instance() != binding.instance()
+            || next.generation() != binding.generation()
+            || next.operation() == binding.operation()
+        {
+            return Err(Fault::Control);
+        }
+        let network = material.network();
+        let deadline = Instant::now() + ENTROPY_BUDGET;
+        let session = material
+            .reseed_with(|seed| entropy::repair(seed, deadline))
+            .map_err(|_| Fault::Entropy)?;
+        identity::set_clock(network.time_sample_nanos()).map_err(|_| Fault::Identity)?;
+        let transport =
+            control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
+                .map_err(|_| Fault::Transport)?;
+        let deadline = Instant::now() + HANDSHAKE_BUDGET;
+        let connected =
+            GuestControl::connect(session, transport, deadline).map_err(|_| Fault::Control)?;
+        let ready = lifecycle::prepare_before(connected, deadline)?;
+        *binding = next;
+        console::report("resident control session reconnected");
+        Ok(ready)
     }
 
     fn advance<S: State, T>(step: Step<S, T>) -> (Controller<S>, T) {

@@ -188,7 +188,7 @@ fn reset_session_directory(directory: &str, options: &str) -> Result<(), Identit
     .map_err(|error| IdentityError::SessionState(error.0))
 }
 
-fn set_clock(time_sample_nanos: u64) -> Result<(), IdentityError> {
+pub(crate) fn set_clock(time_sample_nanos: u64) -> Result<(), IdentityError> {
     let (seconds, nanos) = timespec(time_sample_nanos);
     let time = libc::timespec {
         tv_sec: seconds,

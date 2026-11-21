@@ -14,10 +14,7 @@
 use std::fs::File;
 
 use super::{GuestLayout, GuestRam, RamMapping, SnapshotError};
-use crate::snapshot::{
-    manifest::Manifest,
-    memory::{MappingError, PrivateMapping},
-};
+use crate::snapshot::memory::{MappingError, PrivateMapping};
 use crate::x86_64::error::MachineError;
 use crate::x86_64::sandbox::{Milestone, Timeline};
 
@@ -31,10 +28,9 @@ const PREFAULT_MEMORY: &str = "SOMA_KVM_PREFAULT_MEMORY";
 /// Returns the typed failure of mapping or laying out the memory object.
 pub(super) fn map(
     memory: &File,
-    manifest: &Manifest,
+    size: u64,
     timeline: &mut Timeline,
 ) -> Result<GuestRam, SnapshotError> {
-    let size = manifest.header().memory.size();
     let layout = GuestLayout::new(size).map_err(MachineError::from)?;
     let mapping = PrivateMapping::map(memory, size)?;
     if std::env::var_os(PREFAULT_MEMORY).is_some() {

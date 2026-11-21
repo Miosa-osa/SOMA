@@ -39,7 +39,8 @@ pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;
 pub use objects::SnapshotObjects;
 pub use restore::{
-    RestoreFacts, RestoreRequest, Restored, Sterile, SterileRequest, restore, restore_sterile,
+    PreparedCheckpoint, ResidentRestoreRequest, RestoreFacts, RestoreRequest, Restored, Sterile,
+    SterileRequest, prepare_checkpoint, restore, restore_sterile,
 };
 
 pub(in crate::x86_64) use platform::write_routing;

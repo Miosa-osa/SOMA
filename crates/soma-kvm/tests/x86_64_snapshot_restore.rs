@@ -75,6 +75,10 @@ mod x86_64_snapshot_restore_instance;
 mod x86_64_snapshot_restore_workload;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_snapshot_restore/resident.rs"]
+mod x86_64_snapshot_restore_resident;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_snapshot_restore/capability.rs"]
 mod x86_64_snapshot_restore_capability;
 
@@ -250,6 +254,14 @@ mod live {
             restored.output.0,
             restored.output.1,
         );
+    }
+
+    #[test]
+    #[ignore = "requires /dev/kvm, the pinned kernel, erofs-utils, the static guest agent, and a node:22 OCI layout"]
+    fn restores_process_execution_after_the_original_instance_shuts_down() {
+        require_kvm();
+        let fixture = fixture::shared();
+        crate::x86_64_snapshot_restore_resident::verify(&fixture);
     }
 
     #[test]

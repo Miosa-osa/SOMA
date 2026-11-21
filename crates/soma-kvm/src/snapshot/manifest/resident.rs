@@ -64,6 +64,13 @@ pub struct CheckpointManifest {
 }
 
 impl CheckpointManifest {
+    pub(crate) fn state(&self) -> super::StateView<'_> {
+        super::StateView {
+            header: &self.header,
+            sections: &self.sections,
+        }
+    }
+
     /// Constructs a typed resident checkpoint manifest from canonical sections.
     ///
     /// # Errors

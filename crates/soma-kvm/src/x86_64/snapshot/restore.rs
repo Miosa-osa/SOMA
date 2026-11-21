@@ -11,10 +11,12 @@ mod devices;
 mod guest_memory;
 mod handle;
 mod readiness;
+mod resident;
 mod sections;
 mod sterile;
 
 pub use handle::Restored;
+pub use resident::{PreparedCheckpoint, ResidentRestoreRequest, prepare_checkpoint};
 
 use std::cell::Cell;
 

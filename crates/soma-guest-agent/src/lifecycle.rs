@@ -6,7 +6,8 @@
 use std::time::{Duration, Instant};
 
 use soma_guest::{
-    ControlError, ControlIo, GuestCommand, GuestControl, GuestRequest, TerminalStatus,
+    ControlError, ControlFailureClass, ControlIo, GuestCommand, GuestControl, GuestRequest,
+    TerminalStatus,
 };
 
 use crate::executor::{self, ExecutorFault, OutputSink, SinkFault};
@@ -104,10 +105,15 @@ fn run_command<I: ControlIo>(
 ///
 /// Returns the fault that must poison the guest.
 pub fn prepare<I: ControlIo>(control: GuestControl<I>) -> Result<GuestControl<I>, Fault> {
-    let (control, request) = timings::measure(Step::RequestWait, || {
-        control.next_request(Instant::now() + IDLE_CEILING)
-    })
-    .map_err(|_| Fault::Control)?;
+    prepare_before(control, Instant::now() + IDLE_CEILING)
+}
+
+pub(crate) fn prepare_before<I: ControlIo>(
+    control: GuestControl<I>,
+    deadline: Instant,
+) -> Result<GuestControl<I>, Fault> {
+    let (control, request) = timings::measure(Step::RequestWait, || control.next_request(deadline))
+        .map_err(|_| Fault::Control)?;
     if !matches!(request, GuestRequest::Prepare { .. }) {
         return Err(Fault::Control);
     }
@@ -121,6 +127,7 @@ pub fn prepare<I: ControlIo>(control: GuestControl<I>) -> Result<GuestControl<I>
 pub fn serve<I: ControlIo>(
     controller: Controller<Ready>,
     control: GuestControl<I>,
+    mut reconnect: impl FnMut() -> Result<GuestControl<I>, Fault>,
 ) -> Controller<Poisoned> {
     let mut controller = controller;
     let mut control = control;
@@ -129,8 +136,17 @@ pub fn serve<I: ControlIo>(
     // that the loop owns it for exactly as long as it owns the session.
     let mut terminal = Terminal::new();
     loop {
-        let Ok((next, request)) = control.next_request(Instant::now() + IDLE_CEILING) else {
-            return controller.poison(Fault::Control);
+        let (next, request) = match control.next_request(Instant::now() + IDLE_CEILING) {
+            Ok(request) => request,
+            Err(error) if error.class() == ControlFailureClass::Io => match reconnect() {
+                Ok(connected) => {
+                    terminal = Terminal::new();
+                    control = connected;
+                    continue;
+                }
+                Err(fault) => return controller.poison(fault),
+            },
+            Err(_) => return controller.poison(Fault::Control),
         };
         match request {
             GuestRequest::Execute { command, .. } => {

@@ -33,3 +33,19 @@ Restore must validate the expected tenant, source Instance, Generation and artif
 An ordinary Generation restore may never read resident checkpoint state.
 Same-instance recovery and fork have separate authority and identity requirements.
 Restoring or forking may not duplicate host handles, guest control credentials, or network authority.
+
+## Same-Instance restore
+
+The broker supplies the expected Instance and Generation IDs, the published state digest, and private open artifacts.
+The resident entry point checks compatibility and hashes the state, RAM, immutable root, and private writable head against the captured records before creating the VM.
+It verifies that the private writable head is a different inode from the saved overlay.
+The restored VM retains the Instance identity and starts without network authority.
+The prepared VM is not an authenticated session or a Ready result.
+A worker must publish fresh reconnect material and verify an authenticated command before reporting readiness.
+
+The adjacently stored guest agent must support authenticated reconnect before the runtime can accept a restored Instance.
+When its previous idle transport closes, the agent checks once for a new launch page that the broker installed before the vCPU ran.
+The page must name the same Generation and Instance and a new operation.
+The agent rotates entropy and corrects wall time, preserves the guest's files and process state, and authenticates a fresh session.
+An absent page, an invalid binding, or any handshake failure ends the guest.
+Protocol and authentication failures on the old channel never enter reconnect.
