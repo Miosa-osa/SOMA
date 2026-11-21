@@ -89,7 +89,15 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
         shape = shape.with_capabilities(Capabilities::isolated().with_network_access());
     }
     // A ceiling makes this the live-resize machine; the build derives its hotplug region from it.
-    let profile = if persistence_requested()? {
+    let persistence = persistence_requested()?;
+    let profile = if args.vcpus > soma_kvm::V2_MAX_VCPUS {
+        if persistence || args.inputs.ceiling_mib.is_some() {
+            return Err(
+                "the wide CPU profile uses fixed memory and an ephemeral writable disk".into(),
+            );
+        }
+        CompilerProfile::v5()
+    } else if persistence {
         CompilerProfile::v4()
     } else if args.inputs.ceiling_mib.is_some() {
         CompilerProfile::v3()

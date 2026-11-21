@@ -73,7 +73,7 @@ pub use cmdline::{
 };
 pub use contract::{
     MEMORY_STEP_BYTES, MIN_MEMORY_BYTES, MachineContract, UnknownContractVersion,
-    V1_MAX_MEMORY_BYTES, V1_MAX_VCPUS, V2_MAX_MEMORY_BYTES, V2_MAX_VCPUS,
+    V1_MAX_MEMORY_BYTES, V1_MAX_VCPUS, V2_MAX_MEMORY_BYTES, V2_MAX_VCPUS, V4_MAX_VCPUS,
 };
 
 pub use virtio::{

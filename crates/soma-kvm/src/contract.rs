@@ -24,10 +24,14 @@ pub const V1_VERSION: u16 = 1;
 pub const V2_VERSION: u16 = 2;
 /// Version number of the multi-vCPU contract that adds the virtio-mem device.
 pub const V3_VERSION: u16 = 3;
+/// Version number of the 16-vCPU machine contract.
+pub const V4_VERSION: u16 = 4;
 /// The one vCPU version 1 admits.
 pub const V1_MAX_VCPUS: u16 = 1;
 /// The eight vCPUs version 2 admits.
-pub const V2_MAX_VCPUS: u16 = mptable::MAX_PROCESSORS;
+pub const V2_MAX_VCPUS: u16 = 8;
+/// The sixteen vCPUs version 4 admits.
+pub const V4_MAX_VCPUS: u16 = mptable::MAX_PROCESSORS;
 /// The three-gigabyte guest RAM ceiling version 1 admits.
 pub const V1_MAX_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024;
 /// The sixteen-gigabyte guest RAM ceiling version 2 admits.
@@ -72,6 +76,8 @@ pub enum MachineContract {
     /// Version 2 plus a virtio-mem device (the device set's memory slot), so memory can be
     /// plugged and unplugged live.
     V3,
+    /// The fixed-memory MP table machine with up to sixteen processors.
+    V4,
 }
 
 /// A contract version this implementation does not implement.
@@ -95,7 +101,7 @@ impl std::error::Error for UnknownContractVersion {}
 
 impl MachineContract {
     /// Every contract this implementation understands, oldest first.
-    pub const ALL: [Self; 3] = [Self::V1, Self::V2, Self::V3];
+    pub const ALL: [Self; 4] = [Self::V1, Self::V2, Self::V3, Self::V4];
 
     /// The contract's version number.
     #[must_use]
@@ -104,6 +110,7 @@ impl MachineContract {
             Self::V1 => V1_VERSION,
             Self::V2 => V2_VERSION,
             Self::V3 => V3_VERSION,
+            Self::V4 => V4_VERSION,
         }
     }
 
@@ -114,6 +121,7 @@ impl MachineContract {
             V1_VERSION => Some(Self::V1),
             V2_VERSION => Some(Self::V2),
             V3_VERSION => Some(Self::V3),
+            V4_VERSION => Some(Self::V4),
             _ => None,
         }
     }
@@ -136,6 +144,7 @@ impl MachineContract {
         match self {
             Self::V1 => V1_MAX_VCPUS,
             Self::V2 | Self::V3 => V2_MAX_VCPUS,
+            Self::V4 => V4_MAX_VCPUS,
         }
     }
 
@@ -150,7 +159,7 @@ impl MachineContract {
     pub const fn max_memory_bytes(self) -> u64 {
         match self {
             Self::V1 => V1_MAX_MEMORY_BYTES,
-            Self::V2 | Self::V3 => V2_MAX_MEMORY_BYTES,
+            Self::V2 | Self::V3 | Self::V4 => V2_MAX_MEMORY_BYTES,
         }
     }
 
@@ -165,14 +174,14 @@ impl MachineContract {
     pub const fn base_arguments(self) -> &'static [&'static str] {
         match self {
             Self::V1 => &V1_BASE_ARGUMENTS,
-            Self::V2 | Self::V3 => &V2_BASE_ARGUMENTS,
+            Self::V2 | Self::V3 | Self::V4 => &V2_BASE_ARGUMENTS,
         }
     }
 
     /// Whether the machine writes an Intel MP table into guest memory before the guest runs.
     #[must_use]
     pub const fn writes_mp_table(self) -> bool {
-        matches!(self, Self::V2 | Self::V3)
+        !matches!(self, Self::V1)
     }
 
     /// Whether the machine has a virtio-mem device that can plug and unplug guest memory.
@@ -209,7 +218,7 @@ mod tests {
             );
         }
         assert_eq!(MachineContract::from_version(0), None);
-        assert_eq!(MachineContract::from_version(4), None);
+        assert_eq!(MachineContract::from_version(5), None);
         assert_eq!(
             MachineContract::require(9),
             Err(UnknownContractVersion { version: 9 })

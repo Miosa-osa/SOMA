@@ -1,6 +1,8 @@
 //! The machine bounds one compiler-policy version admits, and the versions this compiler has
 //! limits for.
 
+use super::profile::WIDE_CPU_POLICY_VERSION;
+
 /// The machine bounds one compiler-policy version admits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProfileLimits {
@@ -23,6 +25,10 @@ impl ProfileLimits {
             // machine plus another one, so their bounds are version 2's.
             2..=4 => Some(Self {
                 max_vcpus: soma_kvm::V2_MAX_VCPUS,
+                max_memory_mib: 16 * 1024,
+            }),
+            WIDE_CPU_POLICY_VERSION => Some(Self {
+                max_vcpus: soma_kvm::V4_MAX_VCPUS,
                 max_memory_mib: 16 * 1024,
             }),
             _ => None,

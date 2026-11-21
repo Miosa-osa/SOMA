@@ -124,6 +124,7 @@ pub fn verify_kernel_config_for(
     let text = std::str::from_utf8(text).map_err(|_| invalid())?;
     let mut enabled = Vec::new();
     let mut physical_start = None;
+    let mut nr_cpus = None;
     for line in text.lines() {
         let line = line.trim_end();
         if line.is_empty() || line.starts_with('#') {
@@ -135,6 +136,9 @@ pub fn verify_kernel_config_for(
         }
         if key == PHYSICAL_START {
             physical_start = Some(parse_hex(value)?);
+        }
+        if key == "CONFIG_NR_CPUS" {
+            nr_cpus = Some(value.parse::<u16>().map_err(|_| invalid())?);
         }
         if value == "y" {
             enabled.push(key);
@@ -152,7 +156,15 @@ pub fn verify_kernel_config_for(
             return Err(unsupported());
         }
     }
-    if policy_version >= LIVE_RESIZE_POLICY_VERSION && !enabled.contains(&MEMORY_HOTPLUG) {
+    if (LIVE_RESIZE_POLICY_VERSION..super::request::WIDE_CPU_POLICY_VERSION)
+        .contains(&policy_version)
+        && !enabled.contains(&MEMORY_HOTPLUG)
+    {
+        return Err(unsupported());
+    }
+    if policy_version == super::request::WIDE_CPU_POLICY_VERSION
+        && nr_cpus.unwrap_or(0) < soma_kvm::V4_MAX_VCPUS
+    {
         return Err(unsupported());
     }
     if enabled.contains(&MEMORY_HOTPLUG) {

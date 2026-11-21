@@ -45,6 +45,8 @@ const XL_WRITABLE_CLASS_BYTES: u64 = 40 * GIB;
 /// `vdc` slot in its device vocabulary, so version 4 declares the volume in the Generation's
 /// device contract, binds the same machine contract as version 3, and writes manifest group 17.
 pub const PERSISTENCE_POLICY_VERSION: u16 = 4;
+/// The compiler policy for the fixed-memory machine with up to sixteen processors.
+pub const WIDE_CPU_POLICY_VERSION: u16 = 5;
 
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
@@ -149,6 +151,16 @@ impl CompilerProfile {
         }
     }
 
+    /// Returns the profile for machine contract version 4.
+    #[must_use]
+    pub fn v5() -> Self {
+        Self {
+            policy_version: WIDE_CPU_POLICY_VERSION,
+            machine_contract: MachineContract::V4,
+            ..Self::v2()
+        }
+    }
+
     /// This profile with a different hotplug region: the ceiling minus the boot memory.
     ///
     /// Only a profile whose machine has the memory device admits a non-zero region; `validate`
@@ -176,6 +188,7 @@ impl CompilerProfile {
             // and restore path, so a host admits a Generation built under it.
             3 => Some(Self::v3()),
             PERSISTENCE_POLICY_VERSION => Some(Self::v4()),
+            WIDE_CPU_POLICY_VERSION => Some(Self::v5()),
             _ => None,
         }
     }
@@ -190,6 +203,7 @@ impl CompilerProfile {
     fn machine_is_policy(&self) -> bool {
         match self.policy_version {
             PERSISTENCE_POLICY_VERSION => self.machine_contract == MachineContract::V3,
+            WIDE_CPU_POLICY_VERSION => self.machine_contract == MachineContract::V4,
             version => self.machine_contract.version() == version,
         }
     }

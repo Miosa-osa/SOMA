@@ -69,19 +69,13 @@ pub(super) fn section(manifest: StateView<'_>, role: SectionRole) -> Result<&[u8
         .ok_or(SnapshotError::MissingSection(match role {
             SectionRole::VmState => "VmState",
             SectionRole::Vcpu0 => "Vcpu0",
-            SectionRole::Vcpu1
-            | SectionRole::Vcpu2
-            | SectionRole::Vcpu3
-            | SectionRole::Vcpu4
-            | SectionRole::Vcpu5
-            | SectionRole::Vcpu6
-            | SectionRole::Vcpu7 => "Vcpu",
             SectionRole::Irqchip => "Irqchip",
             SectionRole::IrqRouting => "IrqRouting",
             SectionRole::KvmClock => "KvmClock",
             SectionRole::Pit => "Pit",
             SectionRole::RepairPointMarker => "RepairPointMarker",
             SectionRole::HotplugRegion => "HotplugRegion",
+            role if role.vcpu_index().is_some() => "Vcpu",
             _ => "Device",
         }))
 }

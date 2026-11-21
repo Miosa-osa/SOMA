@@ -64,6 +64,7 @@ pub struct CheckpointManifest {
 }
 
 impl CheckpointManifest {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     pub(crate) fn state(&self) -> super::StateView<'_> {
         super::StateView {
             header: &self.header,
