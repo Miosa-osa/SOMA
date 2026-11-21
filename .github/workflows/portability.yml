@@ -77,7 +77,10 @@ jobs:
           fi
 
       - name: Require bash 4 or later
-        run: /usr/bin/env bash -c 'printf "%s\n" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 4 ))'
+        # The variables belong to the inner bash, the one found on PATH, so they stay unexpanded here.
+        run: |
+          # shellcheck disable=SC2016
+          /usr/bin/env bash -c 'printf "%s\n" "$BASH_VERSION"; (( BASH_VERSINFO[0] >= 4 ))'
 
       - name: Require Apple Silicon
         run: test "$(uname -m)" = "arm64"
