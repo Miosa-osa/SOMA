@@ -189,6 +189,7 @@ impl KvmBackend {
                 generation_bytes,
                 memory_mib,
                 disk_mib: storage_mib,
+                checkpoint: None,
             },
         ) {
             Ok(jailed) => Ok(Started {

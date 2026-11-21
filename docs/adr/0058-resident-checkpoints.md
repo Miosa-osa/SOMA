@@ -52,3 +52,8 @@ Protocol and authentication failures on the old channel never enter reconnect.
 
 The VMM worker admits this path as a separate source and enters the same authenticated command loop used by ordinary sandboxes.
 It refuses an Instance, Generation, or CID different from the authorized restore request and refuses a network attachment or new launch secrets on this path.
+
+The sealed-worker control request names recovery explicitly and carries the broker's expected state digest.
+The state, RAM, root, and new writable head use the existing attested descriptor slots.
+When a writable head exists, the original overlay descriptor travels with the recovery request so the worker can reject aliasing independently.
+The worker only accepts recovery as its first launch and must confirm the fresh command session before the broker seals it.

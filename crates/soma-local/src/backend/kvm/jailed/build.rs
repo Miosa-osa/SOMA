@@ -17,7 +17,7 @@ use soma_jail::{
 
 use super::anchors::Anchors;
 use crate::backend::kvm::boot::private_head_from;
-use crate::backend::kvm::{claim, prepared::PreparedGeneration};
+use crate::backend::kvm::{checkpoint::RestoreArtifacts, claim, prepared::PreparedGeneration};
 
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;
@@ -73,6 +73,12 @@ pub(super) struct Opened {
     pub(super) resources: Resources,
     /// The supervisor's end of the control socket.
     pub(super) control: ControlSocket,
+    pub(super) recovery: Option<Recovery>,
+}
+
+pub(super) struct Recovery {
+    pub(super) digest: soma_kvm::snapshot::Digest,
+    pub(super) overlay: Option<File>,
 }
 
 /// Opens every resource one jailed machine is built from.
@@ -81,6 +87,7 @@ pub(super) fn open(
     prepared: &PreparedGeneration,
     instance: &InstanceId,
     overlay: bool,
+    checkpoint: Option<RestoreArtifacts>,
 ) -> Result<Opened, BackendFailureKind> {
     fn unavailable<E>(_: E) -> BackendFailureKind {
         BackendFailureKind::Unavailable
@@ -93,25 +100,49 @@ pub(super) fn open(
     let root = prepared
         .open_artifact(&prepared.manifest.root.descriptor)
         .map_err(unavailable)?;
-    let (memory_descriptor, overlay_descriptor, state_descriptor) =
-        claim::snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
-    let memory = prepared
-        .open_artifact(&memory_descriptor)
-        .map_err(unavailable)?;
-    let state = prepared
-        .open_artifact(&state_descriptor)
-        .map_err(unavailable)?;
-    // The head is this Instance's private disk, cloned from the snapshot's own quiesced
-    // template and unlinked before it is handed over, so nothing on the filesystem outlives
-    // the machine that owns it and no name for it ever reaches the jail.
-    let head = overlay
-        .then(|| {
-            let template = prepared
-                .open_artifact(&overlay_descriptor)
-                .map_err(unavailable)?;
-            private_head_from(template, instance)
-        })
-        .transpose()?;
+    let (memory, state, head, recovery) = if let Some(checkpoint) = checkpoint {
+        if checkpoint.overlay.is_some() != overlay {
+            return Err(BackendFailureKind::WorkloadRejected);
+        }
+        let head = checkpoint
+            .overlay
+            .as_ref()
+            .map(|template| {
+                let template = template.try_clone().map_err(unavailable)?;
+                private_head_from(template, instance)
+            })
+            .transpose()?;
+        (
+            checkpoint.memory,
+            checkpoint.state,
+            head,
+            Some(Recovery {
+                digest: checkpoint.digest,
+                overlay: checkpoint.overlay,
+            }),
+        )
+    } else {
+        let (memory_descriptor, overlay_descriptor, state_descriptor) =
+            claim::snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
+        let memory = prepared
+            .open_artifact(&memory_descriptor)
+            .map_err(unavailable)?;
+        let state = prepared
+            .open_artifact(&state_descriptor)
+            .map_err(unavailable)?;
+        // The head is this Instance's private disk, cloned from the snapshot's own quiesced
+        // template and unlinked before it is handed over, so nothing on the filesystem outlives
+        // the machine that owns it and no name for it ever reaches the jail.
+        let head = overlay
+            .then(|| {
+                let template = prepared
+                    .open_artifact(&overlay_descriptor)
+                    .map_err(unavailable)?;
+                private_head_from(template, instance)
+            })
+            .transpose()?;
+        (memory, state, head, None)
+    };
     // The worker's end is created here rather than by the worker, which is the whole point
     // of the split: a jailed process may not create, bind, or accept a socket, and this one
     // never has to.
@@ -148,6 +179,7 @@ pub(super) fn open(
             descriptors,
         },
         control: supervisor,
+        recovery,
     })
 }
 

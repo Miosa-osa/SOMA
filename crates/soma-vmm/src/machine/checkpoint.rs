@@ -4,11 +4,33 @@ use soma_kvm::snapshot::Digest;
 
 use super::{Machine, State};
 use crate::{
-    InstanceId,
+    Failure, InstanceId, Launch, Ready,
     sandbox::{CheckpointJob, CheckpointJobError},
 };
 
 impl Machine {
+    /// Launches the authorized checkpoint on a worker with no existing Instance.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a used worker and any invalid checkpoint or unauthenticated recovery.
+    pub fn recover(
+        &mut self,
+        launch: Launch,
+        digest: Digest,
+        saved_overlay: Option<std::fs::File>,
+    ) -> Result<Ready, Failure> {
+        if self.state != State::New
+            || saved_overlay.is_some() != launch.generation().devices().writable_disk()
+        {
+            return Err(super::fault::lifecycle_failure());
+        }
+        self.platform
+            .configure_recovery(digest, saved_overlay)
+            .map_err(|_| super::fault::lifecycle_failure())?;
+        self.launch(launch)
+    }
+
     /// Captures the running Instance into broker-owned descriptors.
     ///
     /// # Errors

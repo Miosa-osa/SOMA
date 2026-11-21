@@ -19,6 +19,7 @@ use soma_vmm::{
 use crate::{channel::Channel, exit};
 
 mod checkpoint;
+mod recovery;
 
 /// The request budget of one worker life.
 ///
@@ -62,6 +63,10 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
         };
         if let Request::Checkpoint(source) = request {
             checkpoint::reply(&mut machine, control, source, descriptors);
+            continue;
+        }
+        if let Request::Recover(launch, digest) = request {
+            recovery::reply(&mut machine, control, launch, digest, descriptors);
             continue;
         }
         if !descriptors.is_empty() {
@@ -129,7 +134,9 @@ fn perform(
             Ok(answer) => control.send(&Reply::Pty(&answer).encode()),
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
-        Request::Checkpoint(_) => unreachable!("descriptor requests are handled at receive"),
+        Request::Checkpoint(_) | Request::Recover(..) => {
+            unreachable!("descriptor requests are handled at receive")
+        }
         Request::Seal => control.send(&seal().encode()),
         Request::Shutdown(status) => return Some(status),
     }

@@ -17,13 +17,16 @@ mod outcome;
 mod pause;
 mod pty;
 
-use std::time::{Duration, Instant};
+use std::{
+    os::fd::AsFd as _,
+    time::{Duration, Instant},
+};
 
 use soma::{BackendFailureKind, CleanupMethod, InstanceId};
 use soma_jail::{JailHandle, ProbeReport};
 use soma_vmm::control::Request;
 use soma_vmm::{
-    DeclaredDevices, DiskBytes, Generation, GenerationId, HotplugBytes,
+    ContractVersion, DeclaredDevices, DiskBytes, Generation, GenerationId, HotplugBytes,
     InstanceId as VmmInstanceId, Launch, MachineSpec, MemoryBytes, OperationId, Stop, VcpuCount,
 };
 
@@ -64,6 +67,7 @@ pub(super) struct Launching<'a> {
     pub(super) generation_bytes: [u8; 32],
     pub(super) memory_mib: u64,
     pub(super) disk_mib: u64,
+    pub(super) checkpoint: Option<&'a soma::OperationId>,
 }
 
 impl Jailed {
@@ -88,11 +92,27 @@ impl Jailed {
             launching.disk_mib,
             devices.overlay(),
         )?;
+        let checkpoint = launching
+            .checkpoint
+            .map(|checkpoint| {
+                super::checkpoint::restore_artifacts(
+                    launching.instance,
+                    &launching.prepared.id,
+                    checkpoint,
+                )
+                .map_err(|error| match error {
+                    crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
+                    crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
+                    _ => BackendFailureKind::Unavailable,
+                })
+            })
+            .transpose()?;
         let opened = build::open(
             anchors,
             launching.prepared,
             launching.instance,
             devices.overlay(),
+            checkpoint,
         )?;
         let handle =
             soma_jail::launch(&spec, &anchors.host, opened.resources).map_err(|error| {
@@ -111,7 +131,13 @@ impl Jailed {
             poisoned: false,
         };
         jailed.attestation = jailed.admit(anchors, launching.instance)?;
-        jailed.perform_launch(anchors, launching, devices.overlay(), devices.net())?;
+        jailed.perform_launch(
+            anchors,
+            launching,
+            devices.overlay(),
+            devices.net(),
+            opened.recovery,
+        )?;
         Ok(jailed)
     }
 
@@ -150,12 +176,18 @@ impl Jailed {
         launching: &Launching<'_>,
         overlay: bool,
         network: bool,
+        recovery: Option<build::Recovery>,
     ) -> Result<(), BackendFailureKind> {
         let mut machine = MachineSpec::new(
-            VcpuCount::new(1).map_err(|_| BackendFailureKind::WorkloadRejected)?,
+            VcpuCount::new(launching.prepared.manifest.shape.vcpu_count)
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
             MemoryBytes::new(launching.memory_mib.saturating_mul(MIB))
                 .map_err(|_| BackendFailureKind::WorkloadRejected)?,
             DiskBytes::new(launching.disk_mib.saturating_mul(MIB).max(MIB))
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
+        )
+        .with_contract(
+            ContractVersion::new(launching.prepared.manifest.machine_contract.version)
                 .map_err(|_| BackendFailureKind::WorkloadRejected)?,
         );
         // The region is declared by the Generation, so a launch carries it only when it did.
@@ -164,8 +196,10 @@ impl Jailed {
                 HotplugBytes::new(bytes).map_err(|_| BackendFailureKind::WorkloadRejected)?,
             );
         }
-        let request = Request::Launch(Launch::new(
-            OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?,
+        let operation =
+            OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?;
+        let launch = Launch::new(
+            operation,
             self.instance,
             Generation::new(
                 GenerationId::new(launching.generation_bytes)
@@ -173,21 +207,36 @@ impl Jailed {
                 machine,
                 DeclaredDevices::new(overlay, network),
             ),
-        ));
+        );
         let instance = launching.instance.as_str();
-        let reply = self
-            .control
-            .ask(&request, LAUNCH_CEILING)
-            .inspect_err(|error| {
-                anchors.record(
-                    instance,
-                    &format!("jailed launch exchange failed: {error:?}"),
-                );
-            })?;
+        let reply = match recovery {
+            None => self.control.ask(&Request::Launch(launch), LAUNCH_CEILING),
+            Some(recovery) => {
+                let request = Request::Recover(launch, *recovery.digest.as_bytes());
+                let budget = super::checkpoint::CHECKPOINT_CEILING + LAUNCH_CEILING;
+                match recovery.overlay.as_ref() {
+                    Some(overlay) => {
+                        self.control
+                            .ask_with_files(&request, &[overlay.as_fd()], budget)
+                    }
+                    None => self.control.ask(&request, budget),
+                }
+            }
+        }
+        .inspect_err(|error| {
+            anchors.record(
+                instance,
+                &format!("jailed launch exchange failed: {error:?}"),
+            );
+        })?;
         if let soma_vmm::control::Outcome::Failure { detail, .. } = &reply {
             anchors.record(instance, &format!("jailed worker refused launch: {detail}"));
         }
         outcome::ready(&reply)?;
+        if !matches!(reply, soma_vmm::control::Outcome::Ready { operation_id } if operation_id == operation)
+        {
+            return Err(BackendFailureKind::GuestFailure);
+        }
         self.control
             .ask(&Request::Seal, ATTESTATION_CEILING)
             .and_then(|reply| outcome::sealed(&reply))
@@ -282,5 +331,7 @@ impl Drop for Jailed {
     }
 }
 
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod streaming_tests;

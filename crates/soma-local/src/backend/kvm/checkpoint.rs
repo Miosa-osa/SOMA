@@ -163,8 +163,49 @@ fn read_published(
     Ok(Some(receipt))
 }
 
+pub(super) struct RestoreArtifacts {
+    pub(super) state: File,
+    pub(super) memory: File,
+    pub(super) overlay: Option<File>,
+    pub(super) digest: Digest,
+}
+
+/// Opens the files named by a previously published checkpoint receipt.
+pub(super) fn restore_artifacts(
+    instance: &InstanceId,
+    generation: &GenerationId,
+    checkpoint: &OperationId,
+) -> Result<RestoreArtifacts, CheckpointFailure> {
+    let path = configured_root()?.join(format!("{}.{}", instance.as_str(), checkpoint.as_str()));
+    let receipt = read_published(&path, instance, generation, checkpoint)?
+        .ok_or(CheckpointFailure::NotFound)?;
+    let parsed = GenerationId::new(receipt.state_digest).map_err(|_| CheckpointFailure::Storage)?;
+    let digest = generation_bytes(&parsed).map_err(|_| CheckpointFailure::Storage)?;
+    Ok(RestoreArtifacts {
+        state: open_private(&path.join(STATE))?,
+        memory: open_private(&path.join(MEMORY))?,
+        overlay: receipt
+            .overlay_digest
+            .is_some()
+            .then(|| open_private(&path.join(OVERLAY)))
+            .transpose()?,
+        digest: Digest::from_bytes(digest),
+    })
+}
+
 fn read_bounded(path: &Path) -> Result<Vec<u8>, CheckpointFailure> {
     let mut bytes = Vec::new();
+    let file = open_private(path)?;
+    file.take(METADATA_LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CheckpointFailure::Storage)?;
+    if bytes.len() as u64 > METADATA_LIMIT {
+        return Err(CheckpointFailure::Storage);
+    }
+    Ok(bytes)
+}
+
+fn open_private(path: &Path) -> Result<File, CheckpointFailure> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
@@ -174,13 +215,7 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, CheckpointFailure> {
     if !meta.is_file() || meta.mode() & 0o077 != 0 {
         return Err(CheckpointFailure::Storage);
     }
-    file.take(METADATA_LIMIT + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|_| CheckpointFailure::Storage)?;
-    if bytes.len() as u64 > METADATA_LIMIT {
-        return Err(CheckpointFailure::Storage);
-    }
-    Ok(bytes)
+    Ok(file)
 }
 
 fn file_len(path: &Path) -> Result<Option<u64>, CheckpointFailure> {

@@ -25,6 +25,8 @@ pub enum Request {
     /// request is admitted before [`Request::Seal`] and is a seccomp kill after it.
     Attest,
     Launch(Launch),
+    /// Recover a stopped Instance against the authoritative checkpoint digest.
+    Recover(Launch, [u8; 32]),
     Execute(Execute),
     /// Run one command and send each output chunk back as it arrives, then the final reply.
     ///
@@ -69,7 +71,10 @@ impl Request {
     pub fn encode(&self) -> String {
         match self {
             Self::Attest => "attest".to_owned(),
-            Self::Launch(launch) => encode_launch(launch),
+            Self::Launch(launch) => encode_launch("launch", launch),
+            Self::Recover(launch, digest) => {
+                encode_launch(&format!("recover {}", hex(digest)), launch)
+            }
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
@@ -124,7 +129,11 @@ impl Request {
             "attest" => decode::end(tokens).map(|()| Self::Attest),
             "seal" => decode::end(tokens).map(|()| Self::Seal),
             "shutdown" => decode::decode_shutdown(&mut tokens),
-            "launch" => decode_launch(&mut tokens),
+            "launch" => decode_launch(&mut tokens).map(Self::Launch),
+            "recover" => {
+                let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
+                decode_launch(&mut tokens).map(|launch| Self::Recover(launch, digest))
+            }
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "pty" => decode::decode_pty(&mut tokens),
@@ -141,11 +150,11 @@ impl Request {
     }
 }
 
-fn encode_launch(launch: &Launch) -> String {
+fn encode_launch(verb: &str, launch: &Launch) -> String {
     let machine = launch.generation().machine();
     let devices = launch.generation().devices();
     let mut text = format!(
-        "launch {} {} {} {} {} {} {} {} {}",
+        "{verb} {} {} {} {} {} {} {} {} {}",
         hex(launch.operation_id().as_bytes()),
         hex(launch.instance_id().as_bytes()),
         hex(launch.generation().id().as_bytes()),

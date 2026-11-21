@@ -6,6 +6,15 @@ use super::{
 };
 
 pub(crate) trait Platform: Send {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn configure_recovery(
+        &mut self,
+        _digest: soma_kvm::snapshot::Digest,
+        _saved_overlay: Option<std::fs::File>,
+    ) -> Result<(), PlatformFailure> {
+        Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
+    }
+
     /// Verifies the exact Generation and restores one private machine as one cohesive operation.
     fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure>;
 

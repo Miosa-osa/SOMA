@@ -11,6 +11,7 @@
 //! reported as the half it happened in rather than as one indivisible launch.
 
 mod faults;
+mod recovery;
 mod resources;
 
 use std::fs::File;
@@ -47,6 +48,8 @@ pub(crate) struct KvmPlatform {
     /// This Instance's private head, held between the restore and the assignment that installs
     /// it. A sterile machine must not be holding one Instance's writable storage.
     overlay: Option<File>,
+    recovery: Option<recovery::Selection>,
+    recovered: bool,
     checkpoint_geometry: Option<([u8; 32], MachineContract, bool)>,
     /// The parked or serving sandbox.
     session: Option<Session>,
@@ -60,14 +63,34 @@ impl KvmPlatform {
             overlay: None,
             session: None,
             checkpoint_geometry: None,
+            recovery: None,
+            recovered: false,
         })
     }
 }
 impl Platform for KvmPlatform {
+    fn configure_recovery(
+        &mut self,
+        digest: soma_kvm::snapshot::Digest,
+        saved_overlay: Option<File>,
+    ) -> Result<(), PlatformFailure> {
+        if digest.is_zero() || self.resources.is_none() || self.recovery.is_some() {
+            return Err(PlatformFailure::new(Recovery::DoNotRetry));
+        }
+        self.recovery = Some(recovery::Selection {
+            digest,
+            saved_overlay,
+        });
+        Ok(())
+    }
+
     fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure> {
         let Some(resources) = self.resources.take() else {
             return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
         };
+        if let Some(selection) = self.recovery.take() {
+            return self.restore_checkpoint(launch, resources, selection);
+        }
         let declared = launch.generation().devices();
         let overlay_capacity_bytes = declared
             .writable_disk()
@@ -147,6 +170,9 @@ impl Platform for KvmPlatform {
         launch: &Launch,
         _restored: RestoredMachine,
     ) -> Result<ReadyAuthenticatedGuest, ReadinessFailure> {
+        if self.recovered && self.session.is_some() {
+            return Ok(ReadyAuthenticatedGuest::authenticated());
+        }
         let overlay = self.overlay.take();
         let Some(session) = self.session.as_mut() else {
             return Err(faults::readiness(SessionError::Create));

@@ -29,7 +29,7 @@ pub(super) fn decode_shutdown<'a>(
 
 pub(super) fn decode_launch<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
-) -> Result<Request, ControlError> {
+) -> Result<Launch, ControlError> {
     let operation = OperationId::new(identifier(tokens.next(), "operation")?)
         .map_err(|_| ControlError::InvalidValue("operation"))?;
     let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
@@ -59,11 +59,11 @@ pub(super) fn decode_launch<'a>(
         machine = machine.with_hotplug(hotplug);
     }
     let devices = DeclaredDevices::new(overlay, network);
-    Ok(Request::Launch(Launch::new(
+    Ok(Launch::new(
         operation,
         instance,
         Generation::new(generation, machine, devices),
-    )))
+    ))
 }
 
 /// Decodes a declaration flag, which is written as a digit so the packet stays one line of

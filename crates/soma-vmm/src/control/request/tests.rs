@@ -104,6 +104,7 @@ fn every_request_round_trips() {
         Request::Seal,
         Request::Shutdown(-1),
         Request::Launch(launch()),
+        Request::Recover(launch(), [5; 32]),
         Request::Execute(execute()),
         Request::Stop(Stop::new(operation(), instance())),
         Request::Pause(instance()),
