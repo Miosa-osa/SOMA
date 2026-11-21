@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Compiles a desktop image (workloads/desktop-xfce) into a captured, launchable Generation.
+# Compiles a desktop image (workloads/desktop) into a captured, launchable Generation.
 #
 # A desktop Generation is an ordinary SOMA Generation: the same kernel, guest agent and devices as
-# every other, at a desktop shape, with a network device so the viewer port can be tunnelled to.
+# every other, at a desktop shape, with a network device so a guest port (a later viewer) can be tunnelled to.
 # This script does the three steps that turn a local image into one, and refuses to stop halfway:
 #
 #   1. save the image from the local Docker daemon to an archive (skopeo cannot read the daemon of
@@ -25,7 +25,7 @@
 #   medium  4 vCPUs, 8192 MiB, 20480 MiB writable
 #
 # Example:
-#   scripts/desktop-generation.sh soma-desktop-xfce:1 soma-desktop:small-1 /srv/soma/prepared /srv/soma/fs-tools
+#   scripts/desktop-generation.sh soma-desktop:2 soma-desktop:small-2 /srv/soma/prepared /srv/soma/fs-tools
 
 set -euo pipefail
 
@@ -59,7 +59,7 @@ esac
 readonly CAPTURE_BIN="$REPO_ROOT/target/release/examples/capture_snapshot"
 [[ -x "$CAPTURE_BIN" ]] || die "no capture tool; build it: cargo build --release -p soma-local --example capture_snapshot"
 command -v docker >/dev/null || die "docker is required to read the local image"
-docker image inspect "$IMAGE" >/dev/null 2>&1 || die "no local image $IMAGE; build workloads/desktop-xfce first"
+docker image inspect "$IMAGE" >/dev/null 2>&1 || die "no local image $IMAGE; build workloads/desktop first"
 docker run --rm --network none --entrypoint /bin/sh "$IMAGE" -c \
     'test -x /usr/local/sbin/soma-desktop-session && test -x /opt/cua-driver/cua-driver' ||
     die "$IMAGE is not a desktop image: it has no soma-desktop-session or cua-driver"
@@ -88,7 +88,7 @@ log "capturing the snapshot at $MEMORY_MIB MiB"
 [[ -f "$ENTRY/snapshot/state.somasnap" && -s "$ENTRY/generation.id" ]] ||
     die "the capture did not certify $ENTRY; it would cold boot"
 grep -q 'soma.net=eth0' <(tr -c '[:print:]' '\n' <"$ENTRY/candidate.somacan") ||
-    die "$ENTRY has no network device, so its viewer port could never be tunnelled to"
+    die "$ENTRY has no network device, so no guest port could ever be tunnelled to"
 
 log "done"
 printf '  reference:  %s\n  entry:      %s\n  generation: %s\n  shape:      %s vCPUs, %s MiB, %s MiB writable\n' \
