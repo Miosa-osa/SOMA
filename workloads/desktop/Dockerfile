@@ -62,11 +62,42 @@ RUN set -e; \
       echo 'a non-MIT cua component is in the image' >&2; exit 1; \
     fi
 
+# The viewer: Sunshine (captures and encodes the screen, software H.264) and moonlight-web (the
+# browser client, relaying over WebSockets), both pinned by the SHA-256 of their release assets.
+# udev and the libinput driver let Xorg take the pointer and keyboard Sunshine creates through
+# /dev/uinput (the desktop kernel variant has it); the desktop user joins the input group to read
+# them. python3 runs the build-time pairing only.
+ARG SUNSHINE_VERSION=2026.914.233613
+ARG SUNSHINE_SHA256=c38e9c705f650f8705f61702717e99bec34044c5028fcb8f23a08fe041292c21
+ARG MOONLIGHT_WEB_VERSION=3.0.2
+ARG MOONLIGHT_WEB_SHA256=4b6de5c1c35553e9d35bd67a3343ebd01f67d0a4216116c09b78b12adccc03df
+RUN set -e; \
+    deb="sunshine_${SUNSHINE_VERSION}-1+ubuntu24.04_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://github.com/LizardByte/Sunshine/releases/download/v${SUNSHINE_VERSION}/${deb}"; \
+    echo "${SUNSHINE_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    curl -fsSL --retry 3 -o /tmp/moonlight-web.tar.gz \
+      "https://github.com/MrCreativ3001/moonlight-web-stream/releases/download/v${MOONLIGHT_WEB_VERSION}/moonlight-web-x86_64-unknown-linux-gnu.tar.gz"; \
+    echo "${MOONLIGHT_WEB_SHA256}  /tmp/moonlight-web.tar.gz" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}" udev xserver-xorg-input-libinput python3; \
+    mkdir -p /opt/moonlight-web; \
+    tar -C /opt/moonlight-web --strip-components=1 -xzf /tmp/moonlight-web.tar.gz; \
+    chmod 0755 /opt/moonlight-web/web-server; \
+    rm -f "/tmp/${deb}" /tmp/moonlight-web.tar.gz; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    usermod -aG input ubuntu; \
+    command -v sunshine; test -x /lib/systemd/systemd-udevd
+
 COPY session/cua-driver-wrapper.sh /usr/local/bin/cua-driver
 COPY session/soma-desktop-session.sh /usr/local/sbin/soma-desktop-session
 COPY session/soma-desktop-call.sh /usr/local/bin/soma-desktop-call
 COPY session/session.sh /usr/local/libexec/soma-desktop/session.sh
 COPY session/cua-capabilities.yaml /etc/soma-desktop/cua-capabilities.yaml
+COPY viewer/viewer.sh /usr/local/libexec/soma-desktop/viewer.sh
+COPY viewer/pair.py /usr/local/libexec/soma-desktop/pair.py
+COPY viewer/sunshine.conf /home/ubuntu/.config/sunshine/sunshine.conf
 
 # Telemetry and update checks off in the persisted preference too, for the desktop user and root,
 # and asserted: the wrapper must export both switches and both files must say false.
@@ -108,3 +139,17 @@ RUN mkdir -p /etc/soma \
       done; \
     } | awk '!seen[$0]++' | head -256 > /etc/soma/warm \
  && test "$(wc -l < /etc/soma/warm)" -gt 30
+
+# The viewer's own state, made once: moonlight-web's configuration (WebSockets only, so no public
+# STUN server is ever asked; its data in the desktop user's home), then the pairing itself.
+RUN chmod 0755 /usr/local/libexec/soma-desktop/viewer.sh /usr/local/libexec/soma-desktop/pair.py \
+ && mkdir -p /home/ubuntu/.config/moonlight-web \
+ && mkdir -p /tmp/mlw-gen && cd /tmp/mlw-gen && /opt/moonlight-web/web-server config generate >/dev/null \
+ && python3 -c 'import json; c = json.load(open("/tmp/mlw-gen/server/config.json")); c["data_storage"]["path"] = "/home/ubuntu/.config/moonlight-web/data.json"; c["webrtc"]["ice_servers"] = []; json.dump(c, open("/home/ubuntu/.config/moonlight-web/config.json", "w"), indent=2)' \
+ && cd / && rm -r -f /tmp/mlw-gen \
+ && chown -R ubuntu:ubuntu /home/ubuntu/.config \
+ && setpriv --reuid="$(id -u ubuntu)" --regid="$(id -g ubuntu)" --init-groups \
+      env HOME=/home/ubuntu LANG=C.UTF-8 python3 /usr/local/libexec/soma-desktop/pair.py \
+ && test -s /home/ubuntu/.config/moonlight-web/data.json \
+ && grep -q '"named_devices"' /home/ubuntu/.config/sunshine/sunshine_state.json \
+ && rm -rf /tmp/.X11-unix /tmp/.X0-lock /tmp/soma-viewer-pair
