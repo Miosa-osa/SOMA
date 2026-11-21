@@ -65,6 +65,8 @@ const MIB: u64 = 1024 * 1024;
 const DEFAULT_TTL_SECONDS: u64 = 3600;
 /// The guest RAM above which the shape targets compiler profile version 2.
 const V2_MEMORY_MIB: u64 = 3 * 1024;
+/// The large fixed disk class selects its own compiler policy.
+const LARGE_STORAGE_MIB: u64 = 160 * 1024;
 
 struct Args {
     reference: String,
@@ -91,13 +93,16 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
     // A ceiling makes this the live-resize machine; the build derives its hotplug region from it.
     let persistence = persistence_requested()?;
     let large_memory = args.memory_mib > soma_kvm::V2_MAX_MEMORY_BYTES / (1024 * 1024);
-    let profile = if large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
+    let large_storage = args.storage_mib == LARGE_STORAGE_MIB;
+    let profile = if large_storage || large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
         if persistence || args.inputs.ceiling_mib.is_some() {
             return Err(
                 "the requested machine uses fixed memory and an ephemeral writable disk".into(),
             );
         }
-        if large_memory {
+        if large_storage {
+            CompilerProfile::v7()
+        } else if large_memory {
             CompilerProfile::v6()
         } else {
             CompilerProfile::v5()

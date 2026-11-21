@@ -49,6 +49,8 @@ pub const PERSISTENCE_POLICY_VERSION: u16 = 4;
 pub const WIDE_CPU_POLICY_VERSION: u16 = 5;
 /// The compiler policy for the 32 GiB fixed-memory machine.
 pub const WIDE_MEMORY_POLICY_VERSION: u16 = 6;
+/// The compiler policy that also admits a 160 GiB writable disk.
+pub const LARGE_DISK_POLICY_VERSION: u16 = 7;
 
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
@@ -173,6 +175,15 @@ impl CompilerProfile {
         }
     }
 
+    /// Returns the fixed-memory profile with a 160 GiB writable disk class.
+    #[must_use]
+    pub fn v7() -> Self {
+        let mut profile = Self::v6();
+        profile.policy_version = LARGE_DISK_POLICY_VERSION;
+        profile.overlay_capacities.push(160 * GIB);
+        profile
+    }
+
     /// This profile with a different hotplug region: the ceiling minus the boot memory.
     ///
     /// Only a profile whose machine has the memory device admits a non-zero region; `validate`
@@ -202,6 +213,7 @@ impl CompilerProfile {
             PERSISTENCE_POLICY_VERSION => Some(Self::v4()),
             WIDE_CPU_POLICY_VERSION => Some(Self::v5()),
             WIDE_MEMORY_POLICY_VERSION => Some(Self::v6()),
+            LARGE_DISK_POLICY_VERSION => Some(Self::v7()),
             _ => None,
         }
     }
@@ -217,7 +229,9 @@ impl CompilerProfile {
         match self.policy_version {
             PERSISTENCE_POLICY_VERSION => self.machine_contract == MachineContract::V3,
             WIDE_CPU_POLICY_VERSION => self.machine_contract == MachineContract::V4,
-            WIDE_MEMORY_POLICY_VERSION => self.machine_contract == MachineContract::V5,
+            WIDE_MEMORY_POLICY_VERSION | LARGE_DISK_POLICY_VERSION => {
+                self.machine_contract == MachineContract::V5
+            }
             version => self.machine_contract.version() == version,
         }
     }

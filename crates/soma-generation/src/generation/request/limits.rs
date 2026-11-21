@@ -1,7 +1,9 @@
 //! The machine bounds one compiler-policy version admits, and the versions this compiler has
 //! limits for.
 
-use super::profile::{WIDE_CPU_POLICY_VERSION, WIDE_MEMORY_POLICY_VERSION};
+use super::profile::{
+    LARGE_DISK_POLICY_VERSION, WIDE_CPU_POLICY_VERSION, WIDE_MEMORY_POLICY_VERSION,
+};
 
 /// The machine bounds one compiler-policy version admits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +33,7 @@ impl ProfileLimits {
                 max_vcpus: soma_kvm::V4_MAX_VCPUS,
                 max_memory_mib: 16 * 1024,
             }),
-            WIDE_MEMORY_POLICY_VERSION => Some(Self {
+            WIDE_MEMORY_POLICY_VERSION | LARGE_DISK_POLICY_VERSION => Some(Self {
                 max_vcpus: soma_kvm::V4_MAX_VCPUS,
                 max_memory_mib: soma_kvm::V5_MAX_MEMORY_BYTES / (1024 * 1024),
             }),

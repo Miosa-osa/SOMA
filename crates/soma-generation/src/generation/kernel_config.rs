@@ -164,7 +164,9 @@ pub fn verify_kernel_config_for(
     }
     if matches!(
         policy_version,
-        super::request::WIDE_CPU_POLICY_VERSION | super::request::WIDE_MEMORY_POLICY_VERSION
+        super::request::WIDE_CPU_POLICY_VERSION
+            | super::request::WIDE_MEMORY_POLICY_VERSION
+            | super::request::LARGE_DISK_POLICY_VERSION
     ) && nr_cpus.unwrap_or(0) < soma_kvm::V4_MAX_VCPUS
     {
         return Err(unsupported());
