@@ -119,13 +119,13 @@ pub(crate) fn delete_table(name: &str) -> Result<bool, Error> {
     apply(&format!("delete table inet {name}\n")).map(|()| true)
 }
 
-/// Flushes every conntrack entry of one zone in the calling thread's namespace.
+/// Flushes entries whose original direction uses the bundle's zone.
 pub(crate) fn flush_zone(zone: ConntrackZone) -> Result<(), Error> {
     let zone = zone.get().to_string();
     let output = Invocation {
         tool: Tool::Conntrack,
         program: CONNTRACK,
-        arguments: &["-D", "-w", &zone],
+        arguments: &["-D", "--orig-zone", &zone],
         deadline: DEADLINE,
     }
     .run("")?;

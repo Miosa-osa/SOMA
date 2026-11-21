@@ -56,6 +56,13 @@ pub struct CpuMax {
     pub period_us: u64,
 }
 
+impl CpuMax {
+    pub(crate) const fn is_valid(self) -> bool {
+        // A quota can exceed one period when the worker may run on more than one CPU.
+        self.quota_us >= 1_000 && self.period_us >= 1_000 && self.period_us <= 1_000_000
+    }
+}
+
 /// Optional `io.max` bound for one block device.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IoMax {
@@ -130,7 +137,7 @@ impl fmt::Display for SpecError {
             Self::MemoryMaxZero => write!(formatter, "memory.max must be nonzero"),
             Self::CpuMaxInvalid => write!(
                 formatter,
-                "cpu.max quota and period must be nonzero and quota must not exceed period"
+                "cpu.max requires a quota of at least 1000 and a period of 1000..=1000000"
             ),
             Self::PidsMaxZero => write!(formatter, "pids.max must be nonzero"),
             Self::IoMaxInvalid => write!(formatter, "io.max must bound at least one dimension"),
@@ -162,11 +169,7 @@ impl JailSpec {
         if self.limits.memory_max_bytes == 0 {
             return Err(SpecError::MemoryMaxZero);
         }
-        let CpuMax {
-            quota_us,
-            period_us,
-        } = self.limits.cpu_max;
-        if quota_us == 0 || period_us == 0 || quota_us > period_us {
+        if !self.limits.cpu_max.is_valid() {
             return Err(SpecError::CpuMaxInvalid);
         }
         if self.limits.pids_max == 0 {

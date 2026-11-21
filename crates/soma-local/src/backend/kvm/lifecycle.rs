@@ -51,6 +51,9 @@ pub(super) struct Live {
     pub(super) instance: InstanceId,
     /// Whichever process holds this Instance's machine.
     pub(super) held: Held,
+    pub(super) paused: bool,
+    pub(super) generation: soma::GenerationId,
+    pub(super) checkpoint_source: soma_vmm::sandbox::CheckpointSource,
     /// The network this Instance holds, released when its sandbox is.
     pub(super) egress: Egress,
     /// What this Instance was told its network is, reported again by every later observation.
@@ -68,11 +71,12 @@ pub(super) struct Live {
 /// What a launch carries besides the Generation and the shape.
 ///
 /// Gathered so that adding one more fact does not add one more argument to every launch.
-pub(in crate::backend::kvm) struct LaunchExtras {
+pub(in crate::backend::kvm) struct LaunchExtras<'a> {
     /// The durable volume the host resolved, when the Generation declares one.
     pub(in crate::backend::kvm) volume: Option<soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
+    pub(in crate::backend::kvm) checkpoint: Option<(&'a InstanceId, &'a OperationId)>,
 }
 
 impl KvmBackend {
@@ -95,9 +99,22 @@ impl KvmBackend {
         instance: &InstanceId,
         prepared: &PreparedGeneration,
         shape: &MachineShape,
-        extras: LaunchExtras,
+        extras: LaunchExtras<'_>,
     ) -> Result<Launched, BackendFailure> {
-        let LaunchExtras { volume, windowed } = extras;
+        let LaunchExtras {
+            volume,
+            windowed,
+            checkpoint,
+        } = extras;
+        if checkpoint.is_some_and(|(source, _)| {
+            self.jail.is_none()
+                || volume.is_some()
+                || windowed
+                || (source != instance
+                    && *shape.capabilities().network_policy() != soma::NetworkPolicy::isolated())
+        }) {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        }
         // This Backend owns at most one sandbox. Assigning over a live one would drop its
         // Session, and dropping a Session shuts the guest down, so launching B would silently
         // destroy A without any Stop or Cleanup naming A.
@@ -131,6 +148,19 @@ impl KvmBackend {
         }
         let identity =
             LaunchIdentity::derive(instance).map_err(|kind| self.fail(operation, kind))?;
+        let checkpoint_source = soma_vmm::sandbox::CheckpointSource {
+            instance_id: identity.instance,
+            candidate_id: super::identity::generation_bytes(&prepared.id)
+                .map_err(|kind| self.fail(operation, kind))?,
+            root_digest: soma_kvm::snapshot::Digest::from_bytes(
+                *prepared.manifest.root.descriptor.digest.as_bytes(),
+            ),
+            contract: soma_kvm::MachineContract::require(
+                prepared.manifest.machine_contract.version,
+            )
+            .map_err(|_| self.fail(operation, BackendFailureKind::Unsupported))?,
+            has_overlay: prepared.manifest.device_set().overlay(),
+        };
         let policy = shape.capabilities().network_policy();
         // A request that needs egress is served by the broker or refused. It is never served by
         // the placeholder device, which would report a working network that drops every packet.
@@ -185,6 +215,7 @@ impl KvmBackend {
             // The volume the host resolved, when the Generation declares one; a machine given
             // none refuses to start rather than serve an empty disk.
             volume,
+            checkpoint,
         };
         let Started {
             preparation,
@@ -192,7 +223,7 @@ impl KvmBackend {
             launched,
             head_reads,
         } = if self.jail.is_some() {
-            self.launch_in_a_jail(operation, launching)?
+            self.launch_in_a_jail(operation, launching, &mut egress)?
         } else {
             match claimed {
                 Some(claimed) => self.assign_claimed(operation, launching, &mut egress, claimed)?,
@@ -202,6 +233,9 @@ impl KvmBackend {
         self.live = Some(Live {
             instance: instance.clone(),
             held,
+            paused: false,
+            generation: prepared.id.clone(),
+            checkpoint_source,
             egress,
             network: observed.clone(),
             vcpus: booted_vcpus,

@@ -3,6 +3,8 @@ pub enum BackendFailureKind {
     Unsupported,
     Unavailable,
     ResourceConflict,
+    /// The request was refused because the sandbox is paused.
+    SandboxPaused,
     WorkloadRejected,
     /// The sandbox's guest agent cannot decode this command (an argument longer than it carries),
     /// so it was refused with nothing sent; the sandbox is kept, and its Generation must be

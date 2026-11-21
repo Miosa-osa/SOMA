@@ -95,7 +95,7 @@ pub(crate) struct RunMaskGuard {
 
 impl RunMaskGuard {
     #[allow(unsafe_code)]
-    pub(crate) fn install(vcpu: &VcpuFd, signal: c_int) -> Result<Self, MachineError> {
+    pub(crate) fn install(vcpu: Option<&VcpuFd>, signal: c_int) -> Result<Self, MachineError> {
         if mem::size_of::<sigset_t>() < KERNEL_MASK_BYTES {
             return Err(MachineError::invalid(
                 Phase::Run,
@@ -118,14 +118,19 @@ impl RunMaskGuard {
                 return Err(MachineError::last_os(Phase::Run));
             }
             let guard = Self { original };
-            let mut run_mask = [0_u8; KERNEL_MASK_BYTES];
-            ptr::copy_nonoverlapping(
-                (&raw const blocked).cast::<u8>(),
-                run_mask.as_mut_ptr(),
-                KERNEL_MASK_BYTES,
-            );
-            clear_bit(&mut run_mask, signal)?;
-            set_kvm_signal_mask(vcpu, &run_mask)?;
+            // The KVM mask belongs to the descriptor. The original worker set it at
+            // launch, before the steady-state filter, so a resident resume only blocks the
+            // watchdog signal on the replacement Linux thread.
+            if let Some(vcpu) = vcpu {
+                let mut run_mask = [0_u8; KERNEL_MASK_BYTES];
+                ptr::copy_nonoverlapping(
+                    (&raw const blocked).cast::<u8>(),
+                    run_mask.as_mut_ptr(),
+                    KERNEL_MASK_BYTES,
+                );
+                clear_bit(&mut run_mask, signal)?;
+                set_kvm_signal_mask(vcpu, &run_mask)?;
+            }
             Ok(guard)
         }
     }
@@ -146,7 +151,7 @@ impl Drop for RunMaskGuard {
 pub(crate) fn kick(worker: &JoinHandle<()>, signal: c_int) -> Result<(), MachineError> {
     // SAFETY: The unconsumed JoinHandle keeps the target pthread valid, and the process handler
     // for `signal` stays installed until after the thread is joined.
-    let result = unsafe { libc::pthread_kill(worker.as_pthread_t(), signal) };
+    let result = unsafe { libc::pthread_kill(worker.as_pthread_t() as libc::pthread_t, signal) };
     if result == 0 {
         Ok(())
     } else {
@@ -178,13 +183,14 @@ fn set_kvm_signal_mask(vcpu: &VcpuFd, mask: &[u8; KERNEL_MASK_BYTES]) -> Result<
     // SAFETY: The calling thread exclusively owns `vcpu`. KVM reads the four-byte length header
     // and the following eight declared bytes from `payload`, which outlives the call. The
     // request number is the checked `_IOW` encoding, and the return value is inspected.
-    let result = unsafe {
-        libc::ioctl(
-            vcpu.as_raw_fd(),
-            kvm_set_signal_mask_request() as libc::c_ulong,
-            payload.as_ptr().cast::<c_void>(),
-        )
-    };
+    #[cfg(target_env = "musl")]
+    let request = kvm_set_signal_mask_request()
+        .try_into()
+        .map_err(|_| MachineError::invalid(Phase::Run, "signal mask request overflow"))?;
+    #[cfg(not(target_env = "musl"))]
+    let request = kvm_set_signal_mask_request();
+    let result =
+        unsafe { libc::ioctl(vcpu.as_raw_fd(), request, payload.as_ptr().cast::<c_void>()) };
     if result == 0 {
         Ok(())
     } else {

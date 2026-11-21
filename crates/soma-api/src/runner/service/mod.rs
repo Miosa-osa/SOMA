@@ -25,6 +25,7 @@ mod files;
 mod files_tests;
 #[cfg(test)]
 mod flow_tests;
+mod fork;
 mod forward;
 #[cfg(test)]
 mod idle_tests;
@@ -37,6 +38,7 @@ mod params;
 mod ready;
 mod relay;
 mod response;
+mod restore;
 mod routing;
 #[cfg(test)]
 mod scope_tests;
@@ -176,6 +178,8 @@ impl Runner {
             | Route::Exec(_)
             | Route::ExecStream(_)
             | Route::Destroy(_)
+            | Route::Restore(_)
+            | Route::Fork(_)
             | Route::Extend(_)
             | Route::List
             | Route::EgressOpen(_)
@@ -211,6 +215,8 @@ impl Runner {
                     .await
             }
             Route::Destroy(id) => self.destroy(&principal, id, timing).await,
+            Route::Restore(id) => self.restore(&principal, id, &request.body, timing).await,
+            Route::Fork(id) => self.fork(&principal, id, &request.body, timing).await,
             Route::Tunnel(id, port) => self.tunnel(&principal, id, port, request, timing).await,
             Route::Extend(id) => self.extend(&principal, id, &request.body, timing).await,
             Route::List => self.list(&principal, timing).await,

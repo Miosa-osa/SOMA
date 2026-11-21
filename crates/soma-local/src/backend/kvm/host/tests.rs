@@ -29,6 +29,7 @@ fn every_refusal_means_the_same_kind_on_both_sides() {
         BackendFailureKind::ResourceConflict,
         BackendFailureKind::WorkloadRejected,
         BackendFailureKind::GuestAgentOutdated,
+        BackendFailureKind::SandboxPaused,
         BackendFailureKind::IsolationFailure,
         BackendFailureKind::GuestFailure,
         BackendFailureKind::Timeout,
@@ -153,6 +154,8 @@ fn launch_wire(skip_warm: bool) -> LaunchWire {
 
 fn launch_wire_with(skip_warm: bool, windowed: bool) -> LaunchWire {
     LaunchWire {
+        checkpoint: None,
+        fork_source: None,
         volume: None,
         socket: "/run/soma/one.sock".into(),
         operation_id: OperationId::new(ONE).expect("operation"),

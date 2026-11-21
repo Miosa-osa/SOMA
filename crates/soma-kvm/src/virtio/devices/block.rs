@@ -174,6 +174,20 @@ impl BlockDevice {
         self.activated
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn flush_checkpoint(&mut self) -> Result<(), backend::BackendError> {
+        self.backend.flush()
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) fn read_checkpoint(
+        &mut self,
+        offset: u64,
+        buffer: &mut [u8],
+    ) -> Result<usize, backend::BackendError> {
+        self.backend.read_at(offset, buffer)
+    }
+
     fn config_bytes(&self) -> [u8; BLOCK_CONFIG_LEN] {
         let mut raw = [0u8; BLOCK_CONFIG_LEN];
         raw[0..8].copy_from_slice(&self.capacity_sectors.to_le_bytes());

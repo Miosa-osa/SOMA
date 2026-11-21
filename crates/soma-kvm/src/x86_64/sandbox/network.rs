@@ -44,6 +44,14 @@ impl SandboxMachine {
         }
     }
 
+    /// Whether the guest's network link was open before the machine was paused.
+    pub(crate) fn network_link_up(&self) -> bool {
+        self.shared
+            .lock()
+            .net()
+            .is_some_and(|net| net.device().link_up())
+    }
+
     /// The host descriptor the device thread watches for inbound frames.
     pub(in crate::x86_64) fn net_backend_fd(&self) -> Option<RawFd> {
         self.shared

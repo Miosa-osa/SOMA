@@ -203,6 +203,16 @@ pub(super) fn fresh_record(
             }
             device.snapshot_state()
         }
+        (DeviceKind::VolumeBlock, DeviceSpecific::Block(block)) => {
+            let device = devices.volume.as_ref().ok_or_else(mismatch)?;
+            if !device.is_placeholder()
+                || device.capacity_sectors() != block.capacity_sectors
+                || device.blk_size() != block.block_size
+            {
+                return Err(mismatch());
+            }
+            device.snapshot_state()
+        }
         (DeviceKind::Net, DeviceSpecific::Net { mac, link_up }) => {
             let device = devices.net.as_ref().ok_or_else(mismatch)?;
             if device.mac() != mac || device.link_up() != link_up || link_up {

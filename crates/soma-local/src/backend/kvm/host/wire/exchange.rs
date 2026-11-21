@@ -66,6 +66,16 @@ pub(in crate::backend::kvm::host) enum Call {
         instance_id: InstanceId,
         operation: PtyOperation,
     },
+    Pause {
+        instance_id: InstanceId,
+    },
+    Resume {
+        instance_id: InstanceId,
+    },
+    Checkpoint {
+        instance_id: InstanceId,
+        operation_id: soma::OperationId,
+    },
     Inspect {
         instance_id: InstanceId,
     },
@@ -155,6 +165,12 @@ pub(in crate::backend::kvm::host) enum Answer {
     PtyAnswered {
         answer: PtyAnswer,
     },
+    Paused,
+    PauseRefused(crate::PauseFailure),
+    Resumed,
+    ResumeRefused(crate::ResumeFailure),
+    Checkpointed(crate::CheckpointReceipt),
+    CheckpointRefused(crate::CheckpointFailure),
     Inspected {
         state: MachineState,
         network: EffectiveNetwork,

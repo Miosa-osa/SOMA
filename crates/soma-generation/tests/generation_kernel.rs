@@ -200,7 +200,7 @@ fn a_live_resize_policy_requires_the_memory_device_driver() {
     let resize = format!(
         "{good}CONFIG_MEMORY_HOTPLUG=y\nCONFIG_MEMORY_HOTREMOVE=y\nCONFIG_MIGRATION=y\nCONFIG_VIRTIO_MEM=y\n"
     );
-    // Policy 3 and later describe a machine with the memory device, so the kernel needs its driver.
+    // Policies 3 and 4 describe a machine with the memory device.
     assert!(verify_kernel_config_for(3, resize.as_bytes()).is_ok());
     assert!(verify_kernel_config_for(4, resize.as_bytes()).is_ok());
     for policy in [3_u16, 4] {
@@ -234,4 +234,19 @@ fn a_live_resize_policy_requires_the_memory_device_driver() {
         assert!(verify_kernel_config_for(policy, resize.as_bytes()).is_ok());
     }
     assert!(verify_kernel_config(good.as_bytes()).is_ok());
+}
+
+#[test]
+fn a_sixteen_processor_machine_requires_a_wide_kernel() {
+    let good = kernel_config();
+    let legacy = format!("{good}CONFIG_NR_CPUS=8\n");
+    let wide = format!("{good}CONFIG_NR_CPUS=16\n");
+    assert!(verify_kernel_config_for(2, legacy.as_bytes()).is_ok());
+    assert_eq!(
+        verify_kernel_config_for(5, legacy.as_bytes())
+            .unwrap_err()
+            .kind(),
+        CompileErrorKind::Unsupported,
+    );
+    assert!(verify_kernel_config_for(5, wide.as_bytes()).is_ok());
 }

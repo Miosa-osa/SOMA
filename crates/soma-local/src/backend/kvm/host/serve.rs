@@ -13,6 +13,7 @@ mod requests;
 
 use std::{
     io,
+    os::fd::OwnedFd,
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
     sync::{
@@ -57,6 +58,7 @@ pub(super) fn serve_machine(
     request: &LaunchWire,
     prepared: &prepared::PreparedGeneration,
     mut backend: KvmBackend,
+    restore_lease: &mut Option<OwnedFd>,
 ) -> i32 {
     let instance = request.instance_id.clone();
     // The launch is timed from the moment this process received it, not from the first milestone
@@ -68,15 +70,22 @@ pub(super) fn serve_machine(
     let joined = super::live_cgroup::join(&instance);
     let mut launched = match launch(&mut backend, request, prepared) {
         Ok(launched) => launched,
-        Err(kind) => return refuse(kind),
+        Err(kind) => {
+            let _ignored = std::fs::remove_file(socket);
+            return refuse(kind);
+        }
     };
     launched.live_cgroup = joined.report();
     if channel::write_line(&mut io::stdout(), &Ready::Launched(launched)).is_err() {
         // The client is gone and will never address this Instance, so the machine it asked for
         // must not outlive the answer it never received.
         let _ignored = backend.cleanup_resident(&instance, Force::Immediately);
+        let _ignored = std::fs::remove_file(socket);
         return REFUSED;
     }
+    // The caller still owns a lease until its durable commit. A subsequent retry can now
+    // contact this host by Instance socket if the caller exits without committing.
+    drop(restore_lease.take());
     // After the launch has answered, so the create pays nothing for it, and before the first
     // request is accepted, so no request is ever interleaved with it.
     if !request.skip_warm {
@@ -104,6 +113,12 @@ fn launch(
             LaunchExtras {
                 volume: request.volume.clone(),
                 windowed: request.windowed,
+                checkpoint: request.checkpoint.as_ref().map(|checkpoint| {
+                    (
+                        request.fork_source.as_ref().unwrap_or(&request.instance_id),
+                        checkpoint,
+                    )
+                }),
             },
         )
         .map_err(|failure| failure.kind())
@@ -164,6 +179,9 @@ fn answer_until_released(
             let released = matches!(answer, Answer::Cleaned { .. });
             let _ignored = channel::write_line(&mut stream, &answer);
             if released {
+                // Release the address before the old host confirms EOF. The same Instance can
+                // bind immediately after this exchange, and only one host owns its pathname.
+                let _ignored = std::fs::remove_file(socket);
                 // The caller waits for this connection to close. It closes here, once the guest
                 // can no longer run, rather than when the VM's memory has been returned.
                 drop(stream);
@@ -179,6 +197,7 @@ fn answer_until_released(
     // Nothing more is coming, so this host releases what it still holds rather than keeping a
     // machine alive that no process can reach.
     let _ignored = backend.cleanup_resident(instance, Force::Immediately);
+    let _ignored = std::fs::remove_file(socket);
     held::finish_released();
     RELEASED
 }

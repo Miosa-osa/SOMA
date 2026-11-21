@@ -24,8 +24,8 @@ use std::fmt;
 pub const MP_TABLE_ADDRESS: u64 = 0x000f_0000;
 /// Upper bound on the encoded table, so the region never reaches the loader gap.
 pub const MP_TABLE_MAX_BYTES: usize = 1024;
-/// The largest processor count a version 2 machine admits.
-pub const MAX_PROCESSORS: u16 = 8;
+/// The largest processor count this table encoder can describe.
+pub const MAX_PROCESSORS: u16 = 16;
 
 /// Bytes of the floating pointer structure.
 pub const FLOATING_POINTER_BYTES: usize = 16;

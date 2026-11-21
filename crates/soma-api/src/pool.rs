@@ -136,6 +136,30 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().launch(request)
     }
 
+    fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.deref_mut().restore_owner(instance)
+    }
+
+    fn restore(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.deref_mut().restore(request, checkpoint)
+    }
+
+    fn fork(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.deref_mut().fork(request, source, checkpoint)
+    }
+
     fn inspect(
         &mut self,
         request: InspectMachineRequest,
@@ -190,6 +214,22 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         request: DestroyMachineRequest,
     ) -> Result<LifecycleOutcome, ManagedFailure> {
         self.deref_mut().destroy(request)
+    }
+
+    fn pause(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::PauseFailure> {
+        self.deref_mut().pause(instance_id)
+    }
+
+    fn resume(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        self.deref_mut().resume(instance_id)
+    }
+
+    fn checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        self.deref_mut().checkpoint(instance, operation)
     }
 
     fn resize(

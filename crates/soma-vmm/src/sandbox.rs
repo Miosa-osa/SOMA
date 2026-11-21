@@ -17,6 +17,7 @@
 //! once it narrows.
 
 mod assign;
+mod checkpoint;
 mod file;
 mod identity;
 mod io;
@@ -26,6 +27,7 @@ mod operations;
 mod operations_tests;
 mod pending;
 mod pty;
+mod sealed_activation;
 mod secrets;
 mod session;
 mod source;
@@ -34,11 +36,13 @@ mod timeline;
 mod volume;
 mod worker;
 
+pub use checkpoint::{CheckpointJob, CheckpointJobError, CheckpointSource};
 pub use identity::{
     FIRST_GUEST_CID, GUEST_MAC, fresh16, guest_cid_for, link_down_network, now_unix_nanos,
 };
 pub use memory::{MemoryControl, MemoryError, MemoryLevel, NoMemoryDevice};
 pub use pending::PendingActivation;
+pub use sealed_activation::ActivationChannel;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use session::PTY_CEILING;
 pub use session::{
@@ -46,6 +50,6 @@ pub use session::{
     Teardown,
 };
 pub use source::{Boot, Network, Source};
-pub use sterile::{Assignment, SterileSpec};
+pub use sterile::{Assignment, AssignmentVolume, SterileSpec};
 pub use timeline::dump as dump_timeline;
 pub use worker::{ColdBootInputs, config as cold_boot_config};

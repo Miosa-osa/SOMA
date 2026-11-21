@@ -11,7 +11,6 @@ use super::*;
 ///
 /// Returns the first typed failure; every resource acquired before it is released in reverse
 /// ownership order as the partially built machine unwinds.
-#[allow(clippy::too_many_lines)]
 pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError> {
     let SterileRequest {
         mut objects,
@@ -26,25 +25,106 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         verify_artifacts,
         hotplug,
     } = request;
-    let mut timeline = Timeline::new();
-    let mut sequence = RestoreSequence::start();
-    let kvm = hypervisor
-        .handle()
-        .map_err(|error| MachineError::os(Phase::Restore, error))?;
+    let timeline = Timeline::new();
+    let kvm = open_kvm(hypervisor)?;
     let state_bytes = objects.state_bytes()?;
-    let snapshot = Digest::of(&state_bytes);
     let manifest = Manifest::decode(&state_bytes)?;
-    // The device set comes from the Generation being launched, never from the snapshot: a set
-    // read out of the artifact would agree with itself, and the point of the check is that the
-    // machine this host means to build and the machine the snapshot describes are the same one.
-    let profile = profile::host_profile(&kvm, memory_bytes, vcpus, contract, devices)?;
-    compatibility::check(&profile, &manifest)?;
-    compatibility::check_hotplug(hotplug, &manifest)?;
-    let state = Sections::read(&manifest, devices, vcpus)?;
-    let repair_point_line = marker::decode(section(&manifest, SectionRole::RepairPointMarker)?)?;
+    let declared = devices::Declared {
+        overlay_capacity_bytes,
+        volume_capacity_bytes,
+        set: devices,
+        contract,
+    };
+    let state = validate_state(
+        &kvm,
+        manifest.state(),
+        memory_bytes,
+        vcpus,
+        declared,
+        hotplug,
+    )?;
+    let repair_point_line =
+        marker::decode(section(manifest.state(), SectionRole::RepairPointMarker)?)?;
     if verify_artifacts {
         verify(&mut objects, &manifest, &state)?;
     }
+    let facts = facts(
+        manifest.state(),
+        Digest::of(&state_bytes),
+        repair_point_line,
+        &state,
+    )?;
+    let (machine, sequence) = rebuild(
+        kvm,
+        root,
+        objects.memory(),
+        &state,
+        &facts,
+        declared,
+        hotplug,
+        timeline,
+    )?;
+    Ok(Sterile {
+        machine,
+        facts,
+        sequence,
+    })
+}
+
+pub(super) fn open_kvm(hypervisor: Hypervisor) -> Result<kvm_ioctls::Kvm, SnapshotError> {
+    Ok(hypervisor
+        .handle()
+        .map_err(|error| MachineError::os(Phase::Restore, error))?)
+}
+
+pub(super) fn validate_state(
+    kvm: &kvm_ioctls::Kvm,
+    manifest: crate::snapshot::manifest::StateView<'_>,
+    memory_bytes: u64,
+    vcpus: u16,
+    declared: devices::Declared,
+    hotplug: Option<crate::memory_layout::HotplugRegion>,
+) -> Result<Sections, SnapshotError> {
+    let profile = profile::host_profile(kvm, memory_bytes, vcpus, declared.contract, declared.set)?;
+    compatibility::check_state(&profile, manifest)?;
+    compatibility::check_state_hotplug(hotplug, manifest)?;
+    Sections::read(manifest, declared.set, vcpus)
+}
+
+pub(super) fn facts(
+    manifest: crate::snapshot::manifest::StateView<'_>,
+    snapshot: Digest,
+    repair_point_line: Vec<u8>,
+    state: &Sections,
+) -> Result<SterileFacts, SnapshotError> {
+    Ok(SterileFacts {
+        snapshot,
+        candidate_id: *manifest.header.candidate_id.as_bytes(),
+        memory_bytes: manifest.header.memory.size(),
+        repair_point_line,
+        mac: net_mac(state.slot(Slot::Net))?,
+        captured_cid: vsock_cid(state.slot(Slot::Vsock))?,
+        vcpus: manifest.header.vcpu_count,
+    })
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "all inputs are validated by the format-specific entry point"
+)]
+pub(super) fn rebuild(
+    kvm: kvm_ioctls::Kvm,
+    root: std::fs::File,
+    memory: &std::fs::File,
+    state: &Sections,
+    facts: &SterileFacts,
+    declared: devices::Declared,
+    hotplug: Option<crate::memory_layout::HotplugRegion>,
+    mut timeline: Timeline,
+) -> Result<(SandboxMachine, RestoreSequence), SnapshotError> {
+    let mut sequence = RestoreSequence::start();
+    let devices = declared.set;
+    let contract = declared.contract;
     sequence.complete(RestoreStep::ValidateManifest)?;
     timeline.mark(Milestone::ValidateManifest);
 
@@ -54,7 +134,7 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::CreateVm)?;
     timeline.mark(Milestone::CreateVm);
 
-    let mut ram = guest_memory::map(objects.memory(), &manifest, &mut timeline)?;
+    let mut ram = guest_memory::map(memory, facts.memory_bytes, &mut timeline)?;
     // The region is never in the memory object, so it restores empty from its geometry alone.
     if let Some(region) = hotplug {
         ram.attach_hotplug(region)?;
@@ -76,21 +156,17 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
     sequence.complete(RestoreStep::RegisterMemorySlots)?;
     timeline.mark(Milestone::RegisterSlots);
 
-    let mac = net_mac(state.slot(Slot::Net))?;
-    let captured_cid = vsock_cid(state.slot(Slot::Vsock))?;
     machine.recreate_platform(&state.vm, &state.routing)?;
     timeline.mark(Milestone::Platform);
     let bus = recreate_devices(
         &machine,
         root,
-        &state,
-        &Identity { mac, captured_cid },
-        devices::Declared {
-            overlay_capacity_bytes,
-            volume_capacity_bytes,
-            set: devices,
-            contract,
+        state,
+        &Identity {
+            mac: facts.mac,
+            captured_cid: facts.captured_cid,
         },
+        declared,
     )?;
     sequence.complete(RestoreStep::RecreateIrqchipAndDevices)?;
     timeline.mark(Milestone::Devices);
@@ -146,17 +222,5 @@ pub fn restore_sterile(request: SterileRequest) -> Result<Sterile, SnapshotError
         timeline,
         cmdline: crate::cmdline::compose_generation_for(devices, contract),
     })?;
-    Ok(Sterile {
-        machine,
-        facts: SterileFacts {
-            snapshot,
-            candidate_id: *manifest.header().candidate_id.as_bytes(),
-            memory_bytes: manifest.header().memory.size(),
-            repair_point_line,
-            mac,
-            captured_cid,
-            vcpus: manifest.header().vcpu_count,
-        },
-        sequence,
-    })
+    Ok((machine, sequence))
 }

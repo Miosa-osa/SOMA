@@ -163,3 +163,14 @@ fn a_policy_three_compile_declares_no_volume() {
         "policy 3 still verifies"
     );
 }
+
+#[test]
+fn a_fixed_memory_compile_satisfies_the_profile_it_was_built_under() {
+    let profile = CompilerProfile::v5();
+    let (revision, workload) = inputs(&profile);
+    let manifest = build(&revision, &workload, &profile);
+
+    assert!(!revision.device_set().mem());
+    assert_eq!(revision.device_set(), manifest.device_set());
+    assert_eq!(verdict(&manifest, &profile), None);
+}

@@ -37,6 +37,12 @@ impl GuestApi {
         matches!(self, Self::Level(level) if level >= 2)
     }
 
+    /// Whether this guest installs fresh network identity when reconnecting a checkpoint.
+    #[must_use]
+    pub const fn has_network_recovery(self) -> bool {
+        matches!(self, Self::Level(level) if level >= 4)
+    }
+
     /// Whether this guest accepts an argument up to [`crate::MAX_ARGUMENT_BYTES`] in one
     /// `Execute` record, which is level 3; an older one decodes at most
     /// [`crate::LEVEL_TWO_ARGUMENT_BYTES`].

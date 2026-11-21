@@ -51,10 +51,13 @@ pub enum Launched {
     },
 }
 
+const LIFECYCLE_SHARDS: usize = 256;
+
 /// The private owner of every live Instance of one Host.
 pub struct Runtime<L: WorkerLauncher, R: ResourceBroker> {
     pool: Arc<Pool<L, R>>,
     live: Mutex<LiveTable>,
+    lifecycle: [Mutex<()>; LIFECYCLE_SHARDS],
 }
 
 impl<L: WorkerLauncher, R: ResourceBroker> Runtime<L, R> {
@@ -64,6 +67,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Runtime<L, R> {
         Self {
             pool,
             live: Mutex::new(LiveTable::default()),
+            lifecycle: std::array::from_fn(|_| Mutex::new(())),
         }
     }
 
@@ -106,6 +110,15 @@ impl<L: WorkerLauncher, R: ResourceBroker> Runtime<L, R> {
                 .inspect(worker)
                 .is_some_and(|view| !view.phase.is_terminal())
         });
+    }
+
+    /// Serializes the ownership check, worker assignment, and teardown for one Instance.
+    /// This lock is separate from the live table, so lookup and listing need not wait for I/O.
+    fn lock_lifecycle(&self, instance: InstanceId) -> MutexGuard<'_, ()> {
+        let shard = usize::from(instance.as_bytes()[15]);
+        self.lifecycle[shard]
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub(crate) fn bind(&self, view: InstanceView) -> InstanceView {

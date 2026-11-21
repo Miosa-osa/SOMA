@@ -38,6 +38,14 @@ mod timing;
 mod vcpu;
 mod watchdog;
 
+/// Keeps the watchdog signal installed until this dedicated VMM process exits.
+///
+/// Call after entering a steady-state filter that forbids changing signal handlers.
+/// The launch must have already installed the handler.
+pub fn retain_watchdog_handler_until_process_exit() {
+    watchdog::retain_process_handler();
+}
+
 use kvm_bindings::{KVM_PIT_SPEAKER_DUMMY, kvm_pit_config};
 use kvm_ioctls::{Kvm, VcpuFd, VmFd};
 
@@ -65,8 +73,10 @@ pub use self::{
     serial::SerialCounters,
     snapshot::{
         Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CaptureRequest,
-        RestoreFacts, RestoreRequest, Restored, SnapshotError, SnapshotObjects, SnapshotPaths,
-        Sterile, SterileRequest, VerifiedCapture, capture, inspect_capture_artifacts, restore,
+        CheckpointError, CheckpointRequest, CheckpointTargets, PreparedCheckpoint,
+        ResidentRestoreRequest, RestoreFacts, RestoreRequest, Restored, SnapshotError,
+        SnapshotObjects, SnapshotPaths, Sterile, SterileRequest, VerifiedCapture, capture,
+        capture_checkpoint, inspect_capture_artifacts, prepare_checkpoint, prepare_fork, restore,
         restore_sterile,
     },
     timing::PhaseTiming,

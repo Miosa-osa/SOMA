@@ -82,20 +82,13 @@ fn programs_assemble_deterministically() {
     let steady = program_for(Phase::SteadyState);
     assert!(startup.len() > steady.len());
     assert_ne!(startup.fingerprint(), steady.fingerprint());
-    println!(
-        "GOLDEN startup {} {:#018x} steady {} {:#018x}",
-        startup.len(),
-        startup.fingerprint(),
-        steady.len(),
-        steady.fingerprint()
-    );
     assert_eq!(
         (startup.len(), startup.fingerprint()),
-        (222, 0x40b7_c33a_9001_c79b)
+        (248, 0x0a7f_432a_726c_408b)
     );
     assert_eq!(
         (steady.len(), steady.fingerprint()),
-        (136, 0x5a7e_7f52_4fbf_f350)
+        (176, 0xd94b_986b_b822_76d1)
     );
 }
 
@@ -234,6 +227,55 @@ fn clone_admits_threads_only_and_clone3_reports_enosys() {
             bpf::RET_ERRNO | u32::from(policy::ENOSYS)
         );
     }
+}
+
+#[test]
+fn set_clock_uses_the_linux_request_and_remains_startup_only() {
+    let ioctl = nr("ioctl");
+    let args = |request| [0, request, 0, 0, 0, 0];
+    assert_eq!(run(Phase::Startup, ioctl, args(0x4030_ae7b)), ALLOW);
+    assert_eq!(run(Phase::Startup, ioctl, args(0x4030_ae7d)), KILL);
+    assert_eq!(run(Phase::SteadyState, ioctl, args(0x4030_ae7b)), KILL);
+}
+
+#[test]
+fn ioctl_musl_sign_extension_preserves_the_exact_request_and_phase() {
+    let signed = |request: u32| u64::from(request) | (u64::from(u32::MAX) << 32);
+    let args = |request| [0, request, 0, 0, 0, 0];
+    let cpuid = 0xc008_ae05;
+    let set_irqchip = 0x8208_ae63;
+    assert_eq!(
+        run(Phase::Startup, nr("ioctl"), args(signed(cpuid))),
+        bpf::RET_ALLOW
+    );
+    assert_eq!(
+        run(Phase::SteadyState, nr("ioctl"), args(signed(cpuid))),
+        bpf::RET_ALLOW
+    );
+    assert_eq!(
+        run(Phase::Startup, nr("ioctl"), args(signed(set_irqchip))),
+        bpf::RET_ALLOW
+    );
+    assert_eq!(
+        run(Phase::SteadyState, nr("ioctl"), args(signed(set_irqchip))),
+        bpf::RET_KILL_PROCESS
+    );
+    assert_eq!(
+        run(Phase::Startup, nr("ioctl"), args(signed(0xc008_ae06))),
+        bpf::RET_KILL_PROCESS
+    );
+    assert_eq!(
+        run(Phase::Startup, nr("ioctl"), args(signed(0x0000_ae03))),
+        bpf::RET_KILL_PROCESS
+    );
+    assert_eq!(
+        run(
+            Phase::Startup,
+            nr("ioctl"),
+            args(u64::from(cpuid) | (1 << 32))
+        ),
+        bpf::RET_KILL_PROCESS
+    );
 }
 
 #[test]

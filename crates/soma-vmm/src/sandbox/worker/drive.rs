@@ -66,18 +66,55 @@ pub fn drive_restored(
     // the secrets are placed after the resume and never appear in the captured state.
     let repaired = super::super::secrets::place(repaired, inputs.secrets)?;
 
-    let evidence = SessionEvidence::new(instance, operation, repaired.session_transcript())
-        .map_err(|_| SessionError::Ready)?;
-    let demand = restored.readiness_demand().ok_or(SessionError::Ready)?;
-    let receipt = demand.attest(&evidence);
-    restored.ready(&receipt).map_err(|_| SessionError::Ready)?;
-    machine.mark(Milestone::Ready);
+    confirm_ready(restored, &repaired, instance, operation)?;
     // The window this recorder is about closes here. Everything the guest reads after Ready is a
     // request it chose to make, not a cost of the launch, and would pollute the warm set.
     let head_reads = head_reads::seal(reads);
 
     open_network(machine, &repaired, activation, requests, responses)?;
     serve_commands(machine, repaired, requests, responses, &head_reads)
+}
+
+pub(super) fn drive_checkpoint(
+    restored: &Restored,
+    delivered: soma_guest::DeliveredHostLaunchMaterial,
+    identity: ([u8; 16], [u8; 16], Option<PendingActivation>),
+    requests: &Receiver<Request>,
+    responses: &Sender<Response>,
+) -> Result<Ending, SessionError> {
+    let (instance, operation, activation) = identity;
+    let nonce = super::files::nonce_text(&super::super::identity::fresh16());
+    let (repaired, api) = reach_session(&restored.machine, delivered)?
+        .probe_guest_api(nonce.as_bytes())
+        .map_err(|_| SessionError::Ready)?;
+    if api == soma_guest::GuestApi::Legacy || (activation.is_some() && !api.has_network_recovery())
+    {
+        return Err(SessionError::Ready);
+    }
+    confirm_ready(restored, &repaired, instance, operation)?;
+    open_network(
+        &restored.machine,
+        &repaired,
+        activation,
+        requests,
+        responses,
+    )?;
+    serve_commands(&restored.machine, repaired, requests, responses, &[])
+}
+
+fn confirm_ready(
+    restored: &Restored,
+    repaired: &RepairedHostControl<HostIo<'_>>,
+    instance: [u8; 16],
+    operation: [u8; 16],
+) -> Result<(), SessionError> {
+    let evidence = SessionEvidence::new(instance, operation, repaired.session_transcript())
+        .map_err(|_| SessionError::Ready)?;
+    let demand = restored.readiness_demand().ok_or(SessionError::Ready)?;
+    let receipt = demand.attest(&evidence);
+    restored.ready(&receipt).map_err(|_| SessionError::Ready)?;
+    restored.machine.mark(Milestone::Ready);
+    Ok(())
 }
 
 /// The steps both paths share between publishing the launch page and holding a repaired session.

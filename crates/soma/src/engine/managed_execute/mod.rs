@@ -160,9 +160,9 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
 /// the middle of or one whose state nobody observed, and an unknown machine is released.
 const fn refusal_disposition(kind: BackendFailureKind) -> CommandDisposition {
     match kind {
-        BackendFailureKind::WorkloadRejected | BackendFailureKind::GuestAgentOutdated => {
-            CommandDisposition::RefusedBeforeRun
-        }
+        BackendFailureKind::WorkloadRejected
+        | BackendFailureKind::GuestAgentOutdated
+        | BackendFailureKind::SandboxPaused => CommandDisposition::RefusedBeforeRun,
         _ => CommandDisposition::Unobserved,
     }
 }

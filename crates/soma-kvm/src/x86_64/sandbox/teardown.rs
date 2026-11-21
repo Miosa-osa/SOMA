@@ -73,6 +73,8 @@ impl SandboxMachine {
         let exit = machine_exit(&reports);
         let vcpus: Vec<Result<GuestExit, MachineError>> =
             reports.iter().map(|report| report.result.clone()).collect();
+        // A pause returns live vCPU descriptors. Close them before their VM and RAM.
+        drop(reports);
         let Self {
             machine,
             shared,
@@ -127,7 +129,7 @@ impl SandboxMachine {
     }
 
     fn stop(&mut self, exit_deadline: Duration) -> (Vec<RunReport>, EventLoopReport, bool) {
-        let stage = std::mem::replace(&mut self.stage, Stage::Stopped);
+        let stage = std::mem::replace(self.stage.get_mut(), Stage::Stopped);
         let (reports, devices) = match stage {
             Stage::Running(running) => {
                 let Running {
@@ -176,8 +178,16 @@ impl SandboxMachine {
                 )
             }
             Stage::Paused(paused) => {
-                let Paused { reports, devices } = *paused;
-                (reports, devices)
+                let Paused {
+                    reports, devices, ..
+                } = *paused;
+                let report = devices.map_or_else(EventLoopReport::default, |devices| {
+                    let (report, mut notify, mut irq) = devices.release();
+                    notify.unregister(&self.machine.vm);
+                    irq.unregister(&self.machine.vm);
+                    report
+                });
+                (reports, report)
             }
             Stage::Stopped => (
                 never_ran("sandbox already stopped"),

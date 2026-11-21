@@ -97,13 +97,36 @@ pub fn repair(network: &LaunchNetwork, hostname: &str) -> Result<(), NetworkErro
     let loopback = get_flags(&socket, LOOPBACK, NetworkStep::LinkUp)?;
     set_flags(&socket, LOOPBACK, loopback | up, NetworkStep::LinkUp)?;
     set_flags(&socket, INTERFACE, flags | up, NetworkStep::LinkUp)?;
-    add_default_route(&socket, network.gateway())?;
+    change_default_route(&socket, network.gateway(), true)?;
     fs::write(RESOLV_CONF, resolver_file(network.resolver()))
         .and_then(|()| fs::write(HOSTS_FILE, hosts_file(hostname, network.address())))
         .map_err(|error| NetworkError {
             step: NetworkStep::Resolver,
             errno: error.raw_os_error().unwrap_or(0),
         })
+}
+
+/// Replaces the address, route, and resolver of one authenticated restored network.
+///
+/// # Errors
+/// Returns the first failed interface or route change with its errno.
+pub fn reconnect(
+    previous: &LaunchNetwork,
+    network: &LaunchNetwork,
+    hostname: &str,
+) -> Result<(), NetworkError> {
+    let same_link = previous.mac() == network.mac()
+        && previous.address() == network.address()
+        && previous.prefix_length() == network.prefix_length()
+        && previous.gateway() == network.gateway()
+        && previous.resolver() == network.resolver();
+    if same_link {
+        return Ok(());
+    }
+    target::require(target::COMPILED)?;
+    let socket = control_socket()?;
+    change_default_route(&socket, previous.gateway(), false)?;
+    repair(network, hostname)
 }
 
 /// Raises loopback and installs nothing else, for a machine with no network device.
@@ -208,7 +231,7 @@ fn set_flags(
     )
 }
 
-fn add_default_route(socket: &OwnedFd, gateway: [u8; 4]) -> Result<(), NetworkError> {
+fn change_default_route(socket: &OwnedFd, gateway: [u8; 4], add: bool) -> Result<(), NetworkError> {
     let mut route = RouteEntry {
         pad1: 0,
         dst: [0; 16],
@@ -229,20 +252,27 @@ fn add_default_route(socket: &OwnedFd, gateway: [u8; 4]) -> Result<(), NetworkEr
     route.dst[..16].copy_from_slice(&inet_data([0; 4])[..16]);
     route.genmask[..16].copy_from_slice(&inet_data([0; 4])[..16]);
     route.gateway[..16].copy_from_slice(&inet_data(gateway)[..16]);
-    // SAFETY: `SIOCADDRT` reads exactly one `struct rtentry`; `route` is a valid local with the
-    // 120-byte x86_64 layout asserted by the tests and a null device pointer.
+    let operation = if add {
+        libc::SIOCADDRT
+    } else {
+        libc::SIOCDELRT
+    };
+    // SAFETY: both operations read one `struct rtentry` with the verified target layout.
     let result = unsafe {
         libc::ioctl(
             socket.as_raw_fd(),
-            ioctl::request(libc::SIOCADDRT),
+            ioctl::request(operation),
             &raw const route,
         )
     };
     if result == 0 {
-        Ok(())
-    } else {
-        Err(failure(NetworkStep::Route))
+        return Ok(());
     }
+    let error = failure(NetworkStep::Route);
+    if !add && error.errno == libc::ESRCH {
+        return Ok(());
+    }
+    Err(error)
 }
 
 fn failure(step: NetworkStep) -> NetworkError {

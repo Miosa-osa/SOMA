@@ -5,7 +5,7 @@
 //! always assembled on this side, from the request it made and the facts the machine reported,
 //! timed by this process's own clock.
 
-use std::{any::Any, path::PathBuf};
+use std::{any::Any, fs::File, path::PathBuf};
 
 use soma::{
     BackendFailure, BackendFailureKind, CleanupObservation, CleanupReason, CleanupRequest,
@@ -28,6 +28,28 @@ impl KvmBackend {
         &mut self,
         request: &LaunchRequest<'_, Box<dyn Any + Send>>,
     ) -> Result<LaunchObservation, BackendFailure> {
+        self.launch_using(request, None)
+    }
+
+    pub(in crate::backend) fn acquire_restore(
+        &self,
+        instance: &InstanceId,
+    ) -> Result<File, BackendFailure> {
+        let directory = self
+            .hosted_directory()
+            .ok_or(BackendFailure::new(BackendFailureKind::Unsupported, 0))?;
+        let root = directory
+            .parent()
+            .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
+        crate::file_store::restore_lease(root, instance)
+            .map_err(|kind| BackendFailure::new(kind, 0))
+    }
+
+    pub(in crate::backend) fn launch_using(
+        &mut self,
+        request: &LaunchRequest<'_, Box<dyn Any + Send>>,
+        restore: Option<host::LaunchHandoff<'_>>,
+    ) -> Result<LaunchObservation, BackendFailure> {
         let operation = request.operation_id();
         // The instant this operation was admitted, so a hosted launch can place the machine
         // host's own milestones on this process's timeline. See `host::launch`.
@@ -38,6 +60,9 @@ impl KvmBackend {
             .downcast_ref::<PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
         let launched = match self.hosted_directory() {
+            None if restore.is_some() => {
+                return Err(self.fail(operation, BackendFailureKind::Unsupported));
+            }
             None => self.launch_resident(
                 operation,
                 request.instance_id(),
@@ -46,6 +71,7 @@ impl KvmBackend {
                 LaunchExtras {
                     volume: request.volume().cloned(),
                     windowed: request.windowed(),
+                    checkpoint: None,
                 },
             )?,
             Some(directory) => host::launch(host::HostedLaunch {
@@ -56,6 +82,7 @@ impl KvmBackend {
                 shape: request.shape(),
                 volume: request.volume(),
                 windowed: request.windowed(),
+                restore,
                 admitted_at,
             })
             .map_err(|kind| self.fail(operation, kind))?,
@@ -188,14 +215,15 @@ impl KvmBackend {
         let operation = request.operation_id();
         let started = self.clocks.elapsed_ns(operation);
         let instance = request.instance_id().clone();
-        // A forced destroy ends the machine without asking the guest. Every other reason asks
-        // first, because a release the caller described as graceful must have been one.
+        // Rollback and uncertain command cleanup require a forced receipt, even if this
+        // particular guest would answer a graceful shutdown request.
         let force = match request.reason() {
-            CleanupReason::ForcedDestroy => Force::Immediately,
-            CleanupReason::RunCompleted
-            | CleanupReason::GracefulStop
+            CleanupReason::ForcedDestroy
             | CleanupReason::Rollback
-            | CleanupReason::UncertainCommandTermination => Force::OnlyIfTheGuestWillNotLeave,
+            | CleanupReason::UncertainCommandTermination => Force::Immediately,
+            CleanupReason::RunCompleted | CleanupReason::GracefulStop => {
+                Force::OnlyIfTheGuestWillNotLeave
+            }
         };
         let outcome = match self.hosted_directory() {
             None => self.cleanup_resident(&instance, force),

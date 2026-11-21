@@ -42,6 +42,7 @@ fn a_binding_opens_the_volume_attached_to_its_instance_and_reports_this_starts_r
 
     // A stop leaves the volume detached, and a start is what reattaches it: the binding accepts
     // a detached volume this Instance owns and says attached before any machine exists.
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
     volumes.detach(&detach(1, 1, 2)).expect("detach");
     assert_eq!(
         volumes.inspect(volume(1)).expect("exists").state,

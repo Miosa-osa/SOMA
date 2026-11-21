@@ -10,6 +10,10 @@ mod profile;
 
 pub use limits::ProfileLimits;
 pub use profile::{DEFAULT_HOTPLUG_BYTES, HOTPLUG_BLOCK_BYTES};
+pub(super) use profile::{
+    GUEST_CACHE_POLICY_VERSION, LARGE_DISK_POLICY_VERSION, WIDE_CPU_POLICY_VERSION,
+    WIDE_MEMORY_POLICY_VERSION,
+};
 
 const MIB: u64 = 1024 * 1024;
 const GIB: u64 = 1024 * MIB;

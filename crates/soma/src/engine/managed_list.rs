@@ -97,7 +97,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         stored: &VersionedMachine,
     ) -> Option<SandboxEntry> {
         let (phase, launch) = match &stored.machine.phase {
-            DurablePhase::Launching { intent } => (
+            DurablePhase::Launching { intent, .. } => (
                 SandboxPhase::Launching,
                 (
                     intent.backend,

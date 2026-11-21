@@ -206,6 +206,10 @@ pub(super) fn backend_failure_details(
             ),
             ProcessExit::CapabilityUnavailable,
         ),
+        BackendFailureKind::SandboxPaused => (
+            FailureBody::new("sandbox_paused", "the sandbox is paused", false),
+            ProcessExit::Conflict,
+        ),
         BackendFailureKind::ResourceConflict => (
             FailureBody::new(
                 "resource_conflict",

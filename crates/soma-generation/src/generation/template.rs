@@ -280,18 +280,17 @@ impl TemplateRevision {
     /// device whose link can never come up is a cost with no capability behind it.
     #[must_use]
     pub fn device_set(&self) -> DeviceSet {
+        let profile = CompilerProfile::from_policy_version(self.profile_version);
         DeviceSet::new(
             self.writable_storage_bytes() > 0,
             NetworkPolicyClass::of(self.network_policy()) != NetworkPolicyClass::Isolated,
         )
-        // Compiler policy 3 is the one whose machine has the memory device.
-        .with_mem(self.profile_version >= 3)
-        // The durable volume follows the same rule: the profile version decides it, so a revision
-        // and every manifest compiled from it declare one device set.
-        .with_volume(
-            CompilerProfile::from_policy_version(self.profile_version)
-                .is_some_and(|profile| profile.persistence.enabled),
+        .with_mem(
+            profile
+                .as_ref()
+                .is_some_and(|profile| profile.machine_contract.has_memory_device()),
         )
+        .with_volume(profile.is_some_and(|profile| profile.persistence.enabled))
     }
 }
 

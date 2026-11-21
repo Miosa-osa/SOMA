@@ -73,6 +73,11 @@ const FEATURES_EDX_HTT: u32 = 1 << 28;
 /// Cache type, level, self-initialising, and fully-associative bits; everything above them
 /// counts cores and threads and is pinned to one.
 const CACHE_EAX_KEPT: u32 = 0x0000_3fff;
+const CACHE_TYPE_MASK: u32 = 0x1f;
+const CACHE_LEVEL_SHIFT: u32 = 5;
+const CACHE_LEVEL_MASK: u32 = 0x7;
+/// Eight ways, one partition, and 64 bytes per line, in CPUID's minus-one encoding.
+const CACHE_GEOMETRY_EBX: u32 = (7 << 22) | 63;
 /// `CPUID.8000001D:EAX[7:5]`, one cache's level.
 const AMD_CACHE_LEVEL: u32 = 0x7 << AMD_CACHE_LEVEL_SHIFT;
 /// Where one cache's level sits in `EAX`.
@@ -119,7 +124,7 @@ impl GuestMachine {
 
     /// Whether this machine states the leaves a host will not state for it.
     const fn states_its_own_processors(self) -> bool {
-        matches!(self.contract, MachineContract::V2 | MachineContract::V3)
+        self.contract.writes_mp_table()
     }
 
     /// The processors in this machine, less one, which is how the leaves count them. A machine
@@ -174,8 +179,7 @@ pub(crate) fn apply_template(
             }
             LEAF_CACHE => {
                 entry.eax &= CACHE_EAX_KEPT;
-                entry.ebx = 0;
-                entry.ecx = 0;
+                (entry.ebx, entry.ecx) = cache_geometry(entry.eax, machine.contract());
             }
             LEAF_TOPOLOGY | LEAF_TOPOLOGY_V2 => entry.edx = u32::from(apic_id),
             LEAF_AMD_CACHE => {
@@ -235,4 +239,17 @@ fn amd_cache_sharing(eax: u32, machine: GuestMachine) -> u32 {
         3 => machine.threads_less_one(),
         _ => (eax & AMD_CACHE_SHARING) >> AMD_CACHE_SHARING_SHIFT,
     }
+}
+
+/// Give userspace a usable alignment while keeping the template independent of host cache sizes.
+fn cache_geometry(eax: u32, contract: MachineContract) -> (u32, u32) {
+    if contract != MachineContract::V6 || eax & CACHE_TYPE_MASK == 0 {
+        return (0, 0);
+    }
+    let sets = match (eax >> CACHE_LEVEL_SHIFT) & CACHE_LEVEL_MASK {
+        1 => 64,   // 32 KiB
+        2 => 512,  // 256 KiB
+        _ => 4096, // 2 MiB
+    };
+    (CACHE_GEOMETRY_EBX, sets - 1)
 }

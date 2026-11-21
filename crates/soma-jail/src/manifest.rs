@@ -33,9 +33,13 @@ pub enum DescriptorRole {
     Tap,
     RootDisk,
     OverlayHead,
+    /// The certified writable file of this Instance's separately managed volume.
+    DataVolume,
     Artifact(ArtifactKind),
     /// The `SOCK_SEQPACKET` control socket.
     Control,
+    /// A connected socket for negotiating activation with the supervisor that holds the TAP lease.
+    NetworkActivation,
     Log,
     /// An eventfd slot for irqfd or ioeventfd wiring.
     Event,
@@ -57,10 +61,10 @@ impl DescriptorRole {
     pub fn expected_kinds(self) -> &'static [DescriptorKind] {
         match self {
             Self::Kvm | Self::Tap => &[DescriptorKind::CharDevice],
-            Self::RootDisk | Self::OverlayHead | Self::Artifact(_) => {
+            Self::RootDisk | Self::OverlayHead | Self::DataVolume | Self::Artifact(_) => {
                 &[DescriptorKind::RegularFile]
             }
-            Self::Control => &[DescriptorKind::Socket],
+            Self::Control | Self::NetworkActivation => &[DescriptorKind::Socket],
             Self::Log => &[
                 DescriptorKind::Socket,
                 DescriptorKind::RegularFile,
@@ -77,27 +81,31 @@ impl DescriptorRole {
             Self::Tap => "tap",
             Self::RootDisk => "root-disk",
             Self::OverlayHead => "overlay-head",
+            Self::DataVolume => "data-volume",
             Self::Artifact(ArtifactKind::Kernel) => "artifact.kernel",
             Self::Artifact(ArtifactKind::Initramfs) => "artifact.initramfs",
             Self::Artifact(ArtifactKind::MemorySnapshot) => "artifact.memory-snapshot",
             Self::Artifact(ArtifactKind::DeviceState) => "artifact.device-state",
             Self::Control => "control",
+            Self::NetworkActivation => "network-activation",
             Self::Log => "log",
             Self::Event => "event",
         }
     }
 
     fn from_token(token: &str) -> Option<Self> {
-        const ALL: [DescriptorRole; 11] = [
+        const ALL: [DescriptorRole; 13] = [
             DescriptorRole::Kvm,
             DescriptorRole::Tap,
             DescriptorRole::RootDisk,
             DescriptorRole::OverlayHead,
+            DescriptorRole::DataVolume,
             DescriptorRole::Artifact(ArtifactKind::Kernel),
             DescriptorRole::Artifact(ArtifactKind::Initramfs),
             DescriptorRole::Artifact(ArtifactKind::MemorySnapshot),
             DescriptorRole::Artifact(ArtifactKind::DeviceState),
             DescriptorRole::Control,
+            DescriptorRole::NetworkActivation,
             DescriptorRole::Log,
             DescriptorRole::Event,
         ];
@@ -153,6 +161,7 @@ impl DescriptorManifest {
         }
         for singleton in [
             DescriptorRole::Control,
+            DescriptorRole::NetworkActivation,
             DescriptorRole::Kvm,
             DescriptorRole::Tap,
         ] {

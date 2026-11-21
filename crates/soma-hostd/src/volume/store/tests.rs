@@ -115,6 +115,7 @@ fn a_class_below_the_volume_own_is_refused() {
 fn a_detach_is_recorded_and_idempotent() {
     let (work, volumes) = store();
     volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
     let detached = volumes.detach(&detach(1, 9, 2)).expect("detaches");
     assert_eq!(detached.state, VolumeState::Detached);
     assert_eq!(
@@ -122,6 +123,29 @@ fn a_detach_is_recorded_and_idempotent() {
         VolumeState::Detached
     );
     assert_eq!(record_count(work.path(), volume(1)), 6);
+}
+
+#[test]
+fn detach_keeps_a_live_volume_attached_until_its_worker_releases_the_lock() {
+    let (work, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    let worker = fs::File::create(volumes.file(volume(1))).expect("volume file");
+    worker.try_lock().expect("worker owns the volume");
+    let request = detach(1, 9, 2);
+    assert_eq!(
+        volumes.detach(&request),
+        Err(VolumeError::Busy("the volume is still in use"))
+    );
+    assert_eq!(
+        volumes.inspect(volume(1)).expect("attached").state,
+        VolumeState::Attached
+    );
+    assert_eq!(record_count(work.path(), volume(1)), 4);
+    drop(worker);
+    assert_eq!(
+        volumes.detach(&request).expect("retry after stop").state,
+        VolumeState::Detached
+    );
 }
 
 #[test]

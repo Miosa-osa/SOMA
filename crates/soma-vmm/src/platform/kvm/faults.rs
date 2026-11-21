@@ -33,9 +33,11 @@ pub(super) const fn execute_recovery(error: SessionError) -> Recovery {
         | SessionError::Gone
         | SessionError::Execute
         | SessionError::File
-        | SessionError::Pty => Recovery::ReplaceMachine,
+        | SessionError::Pty
+        | SessionError::Pause
+        | SessionError::Resume => Recovery::ReplaceMachine,
         // Nothing was sent and the session stands, but this guest refuses the same command again.
-        SessionError::GuestAgentOutdated => Recovery::DoNotRetry,
+        SessionError::GuestAgentOutdated | SessionError::GuestPaused => Recovery::DoNotRetry,
         _ => Recovery::RepairHost,
     }
 }
@@ -63,6 +65,9 @@ pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
         SessionError::Ready
         | SessionError::Execute
         | SessionError::GuestAgentOutdated
+        | SessionError::Pause
+        | SessionError::Resume
+        | SessionError::GuestPaused
         | SessionError::File
         | SessionError::Pty
         | SessionError::Gone

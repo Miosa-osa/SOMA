@@ -12,13 +12,13 @@ use super::{
     artifacts::{self, SnapshotPaths, Staging},
     device,
     error::{Artifact, SnapshotError},
-    platform, profile, quiesce, vcpu,
+    profile, quiesce,
+    vm_state::PausedVmState,
 };
 use crate::snapshot::{
     Digest,
     capture::{CaptureStep, Quiesce, QuiescePrecondition},
     device_state::DeviceState,
-    kvm_state::{MemorySlot, VmState},
     manifest::{Manifest, PageSize},
     memory::{MemoryDescriptor, MemoryError},
 };
@@ -26,7 +26,6 @@ use crate::virtio::Slot;
 use crate::x86_64::{
     cpuid::GuestMachine,
     error::{MachineError, Phase},
-    layout::{self, GuestLayout},
     sandbox::SandboxMachine,
 };
 
@@ -34,7 +33,7 @@ use crate::x86_64::{
 // no ordering, so keeping it apart is what stops the read order below being read as part of it.
 use manifest::{Parts, build};
 
-mod manifest;
+pub(super) mod manifest;
 
 /// Bytes copied out of guest RAM per pass.
 const CHUNK: usize = 1 << 20;
@@ -113,7 +112,7 @@ pub fn capture(
     quiesced.prove(QuiescePrecondition::DeviceWorkDrained)?;
     quiesced.prove(QuiescePrecondition::OverlayFlushed)?;
     quiesced.prove(QuiescePrecondition::VcpuPaused)?;
-
+    let hotplug = sandbox.hotplug_region();
     let paused = sandbox
         .paused()
         .ok_or(SnapshotError::NotQuiescent("the machine is not paused"))?;
@@ -136,35 +135,13 @@ pub fn capture(
         .into());
     }
     let mut sequence = quiesced.begin_capture()?;
-    // The certified memory-slot layout is derived from the captured RAM size, so a restore
-    // re-derives the same ranges rather than trusting a list read out of the artifact.
-    let layout = GuestLayout::new(paused.ram_bytes).map_err(MachineError::from)?;
-    let slots = layout
-        .regions()
-        .iter()
-        .map(|region| MemorySlot {
-            slot: region.slot,
-            guest_address: region.guest_start,
-            size: region.size,
-            memory_offset: region.host_offset,
-        })
-        .collect();
-    let vm_state = VmState::new(slots, layout::TSS_ADDRESS, 0)?;
-    sequence.complete(CaptureStep::ReadVmState)?;
-    let vcpu_states = paused
-        .vcpus
-        .iter()
-        .map(|vcpu| vcpu::read(paused.kvm, vcpu))
-        .collect::<Result<Vec<_>, SnapshotError>>()?;
-    sequence.complete(CaptureStep::ReadVcpuState)?;
-    let irqchip = platform::read_irqchip(paused.vm)?;
-    sequence.complete(CaptureStep::ReadIrqchip)?;
-    let routing = platform::owned_routing();
-    sequence.complete(CaptureStep::ReadIrqRouting)?;
-    let clock = platform::read_clock(paused.vm)?;
-    sequence.complete(CaptureStep::ReadClock)?;
-    let pit = platform::read_pit(paused.vm)?;
-    sequence.complete(CaptureStep::ReadPit)?;
+    let machine = PausedVmState::read(
+        paused.kvm,
+        paused.vm,
+        &paused.vcpus,
+        paused.ram_bytes,
+        |step| sequence.complete(step).map_err(SnapshotError::from),
+    )?;
 
     let live = bus.snapshot_all();
     let root_digest = artifacts::hash(Artifact::Root, request.root)?;
@@ -236,18 +213,18 @@ pub fn capture(
 
     let manifest = build(
         &request,
-        &vm_state,
-        &vcpu_states,
+        &machine.vm,
+        &machine.vcpus,
         &Parts {
             contract: request.contract,
             cpu_template,
-            irqchip: &irqchip,
-            routing: &routing,
-            clock: &clock,
-            pit: &pit,
+            irqchip: &machine.irqchip,
+            routing: &machine.routing,
+            clock: &machine.clock,
+            pit: &machine.pit,
             devices: &devices,
             device_set,
-            hotplug: sandbox.hotplug_region(),
+            hotplug,
             memory: MemoryDescriptor::new(
                 memory.running_digest(),
                 memory.written(),

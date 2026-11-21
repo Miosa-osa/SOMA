@@ -36,6 +36,15 @@ pub struct World {
 
 impl World {
     pub fn build() -> Self {
+        Self::start(false)
+    }
+
+    /// Keeps connections open through the window transition and lets TCP acknowledge the probes.
+    pub fn with_held_connections() -> Self {
+        Self::start(true)
+    }
+
+    fn start(hold_connections: bool) -> Self {
         let _ = Command::new("ip").args(["netns", "del", NAME]).output();
         for args in [
             vec!["netns", "add", NAME],
@@ -82,10 +91,15 @@ impl World {
             let stop = Arc::clone(&stop);
             let peers = Arc::clone(&peers);
             threads.push(thread::spawn(move || {
+                let mut held_connections = Vec::new();
                 while !stop.load(Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((mut stream, peer)) => {
                             peers.lock().expect("peers").push(peer);
+                            if hold_connections {
+                                held_connections.push(stream);
+                                continue;
+                            }
                             let _ = stream.write_all(b"world");
                             let mut sink = [0; 64];
                             let _ = stream.read(&mut sink);

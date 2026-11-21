@@ -158,14 +158,19 @@ pub fn early_init(deadline: Instant) -> Result<Declared, BootFailure> {
     } else {
         LOWER_MOUNT
     };
-    // The volume is composed before the pseudo filesystems move and the root is entered, so its
-    // binds are inside the root the guest ends up in rather than on the way it left.
-    if declared.volume {
-        volume::compose(root)?;
-    }
     move_mounts(root)?;
     switch_root(root)?;
     Ok(declared)
+}
+
+/// Mounts the Generation's persistent paths after launch has bound the real volume.
+/// # Errors
+/// Returns the first failed device or mount check for a declared workspace volume.
+pub fn mount_workspace(declared: Declared) -> Result<(), BootFailure> {
+    if declared.volume {
+        volume::compose()?;
+    }
+    Ok(())
 }
 
 fn mount_pseudo(

@@ -17,7 +17,7 @@ use soma_jail::{
 
 use super::anchors::Anchors;
 use crate::backend::kvm::boot::private_head_from;
-use crate::backend::kvm::{claim, prepared::PreparedGeneration};
+use crate::backend::kvm::{checkpoint::RestoreArtifacts, claim, prepared::PreparedGeneration};
 
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;
@@ -38,11 +38,12 @@ const WORKER_IDENTITY: Identity = Identity {
 /// this covers the VMM's stacks, device buffers, and the retained operation receipts.
 const HOST_OVERHEAD_BYTES: u64 = 512 * MIB;
 
-/// Descriptors beyond the manifest and the standard streams that the child may hold.
-///
-/// The launcher seals the table, so this only has to cover the slots the profile itself needs
-/// during setup rather than anything the machine opens later: it opens nothing.
-const NOFILE_SLACK: u32 = 16;
+/// Descriptors shared by one machine, including the standard streams and launcher slots,
+/// VM, interrupt and queue eventfds, and the device loop's epoll and wakeup descriptors.
+const MACHINE_FD_BUDGET: u32 = 32;
+
+/// Each vCPU holds a KVM descriptor and a duplicate of each of up to ten queue eventfds.
+const VCPU_FD_BUDGET: u32 = 12;
 
 /// Threads and processes one machine's jail may hold.
 ///
@@ -53,7 +54,7 @@ const PIDS_MAX: u32 = 32;
 const CPU_PERIOD_US: u64 = 100_000;
 
 /// The descriptor roles one jailed machine receives, in manifest order.
-pub(super) fn roles(overlay: bool) -> Vec<DescriptorRole> {
+fn roles(overlay: bool, volume: bool, network: bool) -> Vec<DescriptorRole> {
     let mut roles = vec![
         DescriptorRole::Kvm,
         DescriptorRole::RootDisk,
@@ -62,6 +63,12 @@ pub(super) fn roles(overlay: bool) -> Vec<DescriptorRole> {
     ];
     if overlay {
         roles.push(DescriptorRole::OverlayHead);
+    }
+    if volume {
+        roles.push(DescriptorRole::DataVolume);
+    }
+    if network {
+        roles.extend([DescriptorRole::Tap, DescriptorRole::NetworkActivation]);
     }
     roles.push(DescriptorRole::Control);
     roles
@@ -72,6 +79,13 @@ pub(super) struct Opened {
     pub(super) resources: Resources,
     /// The supervisor's end of the control socket.
     pub(super) control: ControlSocket,
+    pub(super) activation: Option<ControlSocket>,
+    pub(super) recovery: Option<Recovery>,
+}
+
+pub(super) struct Recovery {
+    pub(super) digest: soma_kvm::snapshot::Digest,
+    pub(super) overlay: Option<File>,
 }
 
 /// Opens every resource one jailed machine is built from.
@@ -80,6 +94,9 @@ pub(super) fn open(
     prepared: &PreparedGeneration,
     instance: &InstanceId,
     overlay: bool,
+    checkpoint: Option<RestoreArtifacts>,
+    volume: Option<File>,
+    tap: Option<File>,
 ) -> Result<Opened, BackendFailureKind> {
     fn unavailable<E>(_: E) -> BackendFailureKind {
         BackendFailureKind::Unavailable
@@ -92,25 +109,49 @@ pub(super) fn open(
     let root = prepared
         .open_artifact(&prepared.manifest.root.descriptor)
         .map_err(unavailable)?;
-    let (memory_descriptor, overlay_descriptor, state_descriptor) =
-        claim::snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
-    let memory = prepared
-        .open_artifact(&memory_descriptor)
-        .map_err(unavailable)?;
-    let state = prepared
-        .open_artifact(&state_descriptor)
-        .map_err(unavailable)?;
-    // The head is this Instance's private disk, cloned from the snapshot's own quiesced
-    // template and unlinked before it is handed over, so nothing on the filesystem outlives
-    // the machine that owns it and no name for it ever reaches the jail.
-    let head = overlay
-        .then(|| {
-            let template = prepared
-                .open_artifact(&overlay_descriptor)
-                .map_err(unavailable)?;
-            private_head_from(template, instance)
-        })
-        .transpose()?;
+    let (memory, state, head, recovery) = if let Some(checkpoint) = checkpoint {
+        if checkpoint.overlay.is_some() != overlay {
+            return Err(BackendFailureKind::WorkloadRejected);
+        }
+        let head = checkpoint
+            .overlay
+            .as_ref()
+            .map(|template| {
+                let template = template.try_clone().map_err(unavailable)?;
+                private_head_from(template, instance)
+            })
+            .transpose()?;
+        (
+            checkpoint.memory,
+            checkpoint.state,
+            head,
+            Some(Recovery {
+                digest: checkpoint.digest,
+                overlay: checkpoint.overlay,
+            }),
+        )
+    } else {
+        let (memory_descriptor, overlay_descriptor, state_descriptor) =
+            claim::snapshot(prepared).ok_or(BackendFailureKind::Unavailable)?;
+        let memory = prepared
+            .open_artifact(&memory_descriptor)
+            .map_err(unavailable)?;
+        let state = prepared
+            .open_artifact(&state_descriptor)
+            .map_err(unavailable)?;
+        // The head is this Instance's private disk, cloned from the snapshot's own quiesced
+        // template and unlinked before it is handed over, so nothing on the filesystem outlives
+        // the machine that owns it and no name for it ever reaches the jail.
+        let head = overlay
+            .then(|| {
+                let template = prepared
+                    .open_artifact(&overlay_descriptor)
+                    .map_err(unavailable)?;
+                private_head_from(template, instance)
+            })
+            .transpose()?;
+        (memory, state, head, None)
+    };
     // The worker's end is created here rather than by the worker, which is the whole point
     // of the split: a jailed process may not create, bind, or accept a socket, and this one
     // never has to.
@@ -131,6 +172,17 @@ pub(super) fn open(
     if let Some(head) = head {
         descriptors.push((DescriptorRole::OverlayHead, OwnedFd::from(head)));
     }
+    if let Some(volume) = volume {
+        descriptors.push((DescriptorRole::DataVolume, OwnedFd::from(volume)));
+    }
+    let activation = if let Some(tap) = tap {
+        let (broker, worker) = ControlSocket::pair().map_err(unavailable)?;
+        descriptors.push((DescriptorRole::Tap, OwnedFd::from(tap)));
+        descriptors.push((DescriptorRole::NetworkActivation, worker));
+        Some(broker)
+    } else {
+        None
+    };
     descriptors.push((DescriptorRole::Control, worker));
 
     Ok(Opened {
@@ -147,6 +199,8 @@ pub(super) fn open(
             descriptors,
         },
         control: supervisor,
+        activation,
+        recovery,
     })
 }
 
@@ -157,11 +211,14 @@ pub(super) fn spec(
     memory_mib: u64,
     disk_mib: u64,
     overlay: bool,
+    volume_bytes: Option<std::num::NonZeroU64>,
+    network: bool,
 ) -> Result<JailSpec, BackendFailureKind> {
-    let roles = roles(overlay);
+    let roles = roles(overlay, volume_bytes.is_some(), network);
     let manifest =
         DescriptorManifest::new(roles).map_err(|_| BackendFailureKind::WorkloadRejected)?;
-    let slots = u32::try_from(manifest.roles().len()).unwrap_or(u32::MAX);
+    let slots =
+        u32::try_from(manifest.roles().len()).map_err(|_| BackendFailureKind::WorkloadRejected)?;
     Ok(JailSpec {
         identity: WORKER_IDENTITY,
         leaf: LeafName::new(&format!("soma-{}", instance.as_str()))
@@ -180,11 +237,15 @@ pub(super) fn spec(
             io_max: None,
         },
         rlimits: Rlimits {
-            nofile: slots.saturating_add(NOFILE_SLACK),
+            nofile: slots + MACHINE_FD_BUDGET + u32::from(vcpus.max(1)) * VCPU_FD_BUDGET,
             nproc: PIDS_MAX,
-            // The private head is the only thing a machine writes, so its declared size is the
-            // largest file this worker may ever produce.
-            fsize_bytes: disk_mib.saturating_mul(MIB).max(MIB),
+            // The broker may also pass a writable checkpoint descriptor for the guest RAM.
+            // The head, volume, and captured guest RAM can each be a different size.
+            fsize_bytes: memory_mib
+                .max(disk_mib)
+                .max(1)
+                .saturating_mul(MIB)
+                .max(volume_bytes.map_or(0, std::num::NonZeroU64::get)),
             address_space_bytes: None,
         },
         manifest,

@@ -16,6 +16,7 @@ use crate::{
 
 pub(super) fn fold(
     entries: &mut BTreeMap<WorkerId, WorkerLedgerEntry>,
+    seq: u64,
     record: &Record,
 ) -> Result<(), LedgerError> {
     let invariant = LedgerError::Invariant {
@@ -70,6 +71,7 @@ pub(super) fn fold(
             entry.instance = record.instance;
             entry.resources = record.resources;
             entry.was_assigned = true;
+            entry.assigned_sequence = Some(seq);
         }
         RecordKind::Running => entry.phase = Phase::Running,
         RecordKind::Destroying => entry.phase = Phase::Destroying,
@@ -129,6 +131,7 @@ fn fresh(record: &Record) -> WorkerLedgerEntry {
         identity: record.identity,
         last_step: None,
         was_assigned: false,
+        assigned_sequence: None,
         suspect: false,
         records: 1,
     }

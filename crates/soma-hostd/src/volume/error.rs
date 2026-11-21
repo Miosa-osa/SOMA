@@ -10,7 +10,7 @@ use std::fmt;
 pub enum VolumeError {
     /// No sidecar and no file name this volume.
     Missing(&'static str),
-    /// The volume is attached to another Instance, or a delete is in progress.
+    /// The volume is in use, attached to another Instance, or being deleted.
     Busy(&'static str),
     /// The offline repair could not make the file consistent.
     FsckFailed(&'static str),

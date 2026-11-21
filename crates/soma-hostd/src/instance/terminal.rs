@@ -34,6 +34,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Runtime<L, R> {
     /// Returns [`InstanceError::Unknown`] when no live Instance and no durable record carries
     /// the identity, or the pool's refusal when the worker cannot yet be released.
     pub fn destroy(&self, instance: InstanceId) -> Result<TerminalReceipt, InstanceError> {
+        let _lifecycle = self.lock_lifecycle(instance);
         let Some(live) = self.locked().get(instance) else {
             return self.recorded_terminal(instance);
         };
@@ -67,7 +68,8 @@ impl<L: WorkerLauncher, R: ResourceBroker> Runtime<L, R> {
             .map_err(InstanceError::Ledger)?;
         let entry = entries
             .values()
-            .find(|entry| entry.instance == Some(instance))
+            .filter(|entry| entry.instance == Some(instance))
+            .max_by_key(|entry| entry.assigned_sequence)
             .ok_or(InstanceError::Unknown(instance))?;
         Ok(TerminalReceipt {
             instance,

@@ -50,10 +50,18 @@ pub enum SectionRole {
     /// Geometry of the optional hotplug region; present only on a machine that has one.
     HotplugRegion,
     RepairPointMarker,
+    Vcpu8,
+    Vcpu9,
+    Vcpu10,
+    Vcpu11,
+    Vcpu12,
+    Vcpu13,
+    Vcpu14,
+    Vcpu15,
 }
 
 impl SectionRole {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 30] = [
         Self::VmState,
         Self::Vcpu0,
         Self::Irqchip,
@@ -76,13 +84,20 @@ impl SectionRole {
         Self::Device6,
         Self::HotplugRegion,
         Self::RepairPointMarker,
+        Self::Vcpu8,
+        Self::Vcpu9,
+        Self::Vcpu10,
+        Self::Vcpu11,
+        Self::Vcpu12,
+        Self::Vcpu13,
+        Self::Vcpu14,
+        Self::Vcpu15,
     ];
 
     /// The role of one vCPU's state section.
     ///
-    /// The codes stay contiguous and ascending, which the canonical section sequence requires,
-    /// so the second and later processors take the codes immediately after the timer rather than
-    /// renumbering a role version 1 already published.
+    /// The additional vCPUs use fresh section codes after the existing roles so older snapshots
+    /// retain their original bytes and section ordering.
     #[must_use]
     pub const fn vcpu(index: u16) -> Option<Self> {
         match index {
@@ -94,6 +109,14 @@ impl SectionRole {
             5 => Some(Self::Vcpu5),
             6 => Some(Self::Vcpu6),
             7 => Some(Self::Vcpu7),
+            8 => Some(Self::Vcpu8),
+            9 => Some(Self::Vcpu9),
+            10 => Some(Self::Vcpu10),
+            11 => Some(Self::Vcpu11),
+            12 => Some(Self::Vcpu12),
+            13 => Some(Self::Vcpu13),
+            14 => Some(Self::Vcpu14),
+            15 => Some(Self::Vcpu15),
             _ => None,
         }
     }
@@ -110,6 +133,14 @@ impl SectionRole {
             Self::Vcpu5 => Some(5),
             Self::Vcpu6 => Some(6),
             Self::Vcpu7 => Some(7),
+            Self::Vcpu8 => Some(8),
+            Self::Vcpu9 => Some(9),
+            Self::Vcpu10 => Some(10),
+            Self::Vcpu11 => Some(11),
+            Self::Vcpu12 => Some(12),
+            Self::Vcpu13 => Some(13),
+            Self::Vcpu14 => Some(14),
+            Self::Vcpu15 => Some(15),
             _ => None,
         }
     }
@@ -139,6 +170,14 @@ impl SectionRole {
             Self::Device6 => 0x0016,
             Self::HotplugRegion => 0x0018,
             Self::RepairPointMarker => 0x0020,
+            Self::Vcpu8 => 0x0021,
+            Self::Vcpu9 => 0x0022,
+            Self::Vcpu10 => 0x0023,
+            Self::Vcpu11 => 0x0024,
+            Self::Vcpu12 => 0x0025,
+            Self::Vcpu13 => 0x0026,
+            Self::Vcpu14 => 0x0027,
+            Self::Vcpu15 => 0x0028,
         }
     }
 
@@ -155,16 +194,12 @@ impl SectionRole {
     /// Generation, so the compatibility check requires exactly its own sections.
     #[must_use]
     pub const fn is_required(self) -> bool {
+        if let Some(index) = self.vcpu_index() {
+            return index == 0;
+        }
         !matches!(
             self,
             Self::Pit
-                | Self::Vcpu1
-                | Self::Vcpu2
-                | Self::Vcpu3
-                | Self::Vcpu4
-                | Self::Vcpu5
-                | Self::Vcpu6
-                | Self::Vcpu7
                 | Self::Device1
                 | Self::Device2
                 | Self::Device5

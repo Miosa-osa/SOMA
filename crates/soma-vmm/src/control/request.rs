@@ -1,4 +1,4 @@
-use crate::{Execute, Launch, Stop};
+use crate::{Execute, InstanceId, Launch, Stop};
 
 use super::{
     ControlError,
@@ -25,6 +25,10 @@ pub enum Request {
     /// request is admitted before [`Request::Seal`] and is a seccomp kill after it.
     Attest,
     Launch(Launch),
+    /// Recover a stopped Instance against the authoritative checkpoint digest.
+    Recover(Launch, [u8; 32]),
+    /// Fork from the named checkpoint source into the launch's new Instance.
+    Fork(Launch, [u8; 32], InstanceId),
     Execute(Execute),
     /// Run one command and send each output chunk back as it arrives, then the final reply.
     ///
@@ -43,7 +47,16 @@ pub enum Request {
     /// Perform one bounded terminal exchange against the live guest session.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Pty(super::PtyRequest),
+    /// Run one filesystem operation over the attached private socket.
+    File(InstanceId),
     Stop(Stop),
+    /// Pause the matching machine and keep its state resident.
+    Pause(InstanceId),
+    /// Resume the exact resident machine.
+    Resume(InstanceId),
+    /// Capture the matching resident machine into file descriptors carried by this packet.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Checkpoint(crate::sandbox::CheckpointSource),
     /// Narrow the seccomp filter to its steady-state phase.
     Seal,
     /// Leave with this exit status.
@@ -62,7 +75,17 @@ impl Request {
     pub fn encode(&self) -> String {
         match self {
             Self::Attest => "attest".to_owned(),
-            Self::Launch(launch) => encode_launch(launch),
+            Self::Launch(launch) => match launch.generation().devices().volume_capacity() {
+                Some(capacity) => encode_launch(&format!("launch_volume {capacity}"), launch),
+                None => encode_launch("launch", launch),
+            },
+            Self::Recover(launch, digest) => {
+                encode_launch(&format!("recover {}", hex(digest)), launch)
+            }
+            Self::Fork(launch, digest, source) => encode_launch(
+                &format!("fork {} {}", hex(source.as_bytes()), hex(digest)),
+                launch,
+            ),
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
@@ -79,6 +102,18 @@ impl Request {
                 hex(request.instance_id().as_bytes()),
                 hex(&serde_json::to_vec(request.operation())
                     .expect("terminal operation serializes")),
+            ),
+            Self::File(instance) => format!("file {}", hex(instance.as_bytes())),
+            Self::Pause(instance) => format!("pause {}", hex(instance.as_bytes())),
+            Self::Resume(instance) => format!("resume {}", hex(instance.as_bytes())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Checkpoint(source) => format!(
+                "checkpoint {} {} {} {} {}",
+                hex(&source.instance_id),
+                hex(&source.candidate_id),
+                hex(source.root_digest.as_bytes()),
+                source.contract.version(),
+                u8::from(source.has_overlay),
             ),
             Self::Stop(stop) => format!(
                 "stop {} {}",
@@ -106,7 +141,24 @@ impl Request {
             "attest" => decode::end(tokens).map(|()| Self::Attest),
             "seal" => decode::end(tokens).map(|()| Self::Seal),
             "shutdown" => decode::decode_shutdown(&mut tokens),
-            "launch" => decode_launch(&mut tokens),
+            "launch" => decode_launch(&mut tokens, None).map(Self::Launch),
+            "launch_volume" => {
+                let capacity = super::field::number(tokens.next(), "volume capacity")?;
+                let capacity = std::num::NonZeroU64::new(capacity)
+                    .ok_or(ControlError::InvalidValue("volume capacity"))?;
+                decode_launch(&mut tokens, Some(capacity)).map(Self::Launch)
+            }
+            "recover" => {
+                let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
+                decode_launch(&mut tokens, None).map(|launch| Self::Recover(launch, digest))
+            }
+            "fork" => {
+                let source = super::field::identifier(tokens.next(), "checkpoint source")?;
+                let source = InstanceId::new(source)
+                    .map_err(|_| ControlError::InvalidValue("checkpoint source"))?;
+                let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
+                decode_launch(&mut tokens, None).map(|launch| Self::Fork(launch, digest, source))
+            }
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "pty" => decode::decode_pty(&mut tokens),
@@ -114,16 +166,21 @@ impl Request {
             "execute_in" => decode::decode_execute_in(&mut tokens).map(Self::Execute),
             "execute_stream" => decode::decode_execute_in(&mut tokens).map(Self::ExecuteStreaming),
             "stop" => decode_stop(&mut tokens),
+            "pause" => decode::decode_instance(&mut tokens).map(Self::Pause),
+            "file" => decode::decode_instance(&mut tokens).map(Self::File),
+            "resume" => decode::decode_instance(&mut tokens).map(Self::Resume),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "checkpoint" => decode::decode_checkpoint(&mut tokens).map(Self::Checkpoint),
             _ => Err(ControlError::UnknownRequest),
         }
     }
 }
 
-fn encode_launch(launch: &Launch) -> String {
+fn encode_launch(verb: &str, launch: &Launch) -> String {
     let machine = launch.generation().machine();
     let devices = launch.generation().devices();
     let mut text = format!(
-        "launch {} {} {} {} {} {} {} {} {}",
+        "{verb} {} {} {} {} {} {} {} {} {}",
         hex(launch.operation_id().as_bytes()),
         hex(launch.instance_id().as_bytes()),
         hex(launch.generation().id().as_bytes()),

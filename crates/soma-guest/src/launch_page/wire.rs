@@ -10,16 +10,20 @@ use super::{
 
 const DOMAIN: &[u8; 16] = b"SOMA-LAUNCH-PAGE";
 pub(super) const PAGE_SCHEMA_VERSION: u16 = 3;
+pub(super) const FORK_SCHEMA_VERSION: u16 = 4;
 const DIGEST_SIZE: usize = 32;
 pub(super) const ENTROPY_SIZE: usize = 64;
 pub(super) const RESPONDER_SECRET_SIZE: usize = 32;
 pub(super) const NETWORK_OFFSET: usize = 16 + 2 + 2 + 32 + 16 + 16 + 32 + 32 + ENTROPY_SIZE;
 pub(super) const RESPONDER_OFFSET: usize = NETWORK_OFFSET + network::ENCODED_SIZE;
 pub(super) const DIGEST_OFFSET: usize = RESPONDER_OFFSET + RESPONDER_SECRET_SIZE;
+#[cfg(test)]
 pub(super) const ENCODED_SIZE: usize = DIGEST_OFFSET + DIGEST_SIZE;
+const FORK_SOURCE_SIZE: usize = 16;
 
 pub(super) struct DecodedPage {
     pub(super) binding: SessionBinding,
+    pub(super) fork_from: Option<[u8; 16]>,
     pub(super) psk: InstancePsk,
     pub(super) entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
     pub(super) network: LaunchNetwork,
@@ -28,6 +32,7 @@ pub(super) struct DecodedPage {
 
 pub(super) struct PageFields<'a> {
     pub(super) binding: &'a SessionBinding,
+    pub(super) fork_from: Option<[u8; 16]>,
     pub(super) psk: &'a [u8; 32],
     pub(super) entropy: &'a [u8; ENTROPY_SIZE],
     pub(super) network: LaunchNetwork,
@@ -37,6 +42,7 @@ pub(super) struct PageFields<'a> {
 pub(super) fn encode(page: &mut [u8; LAUNCH_PAGE_SIZE], fields: &PageFields<'_>) {
     let PageFields {
         binding,
+        fork_from,
         psk,
         entropy,
         network,
@@ -44,7 +50,12 @@ pub(super) fn encode(page: &mut [u8; LAUNCH_PAGE_SIZE], fields: &PageFields<'_>)
     } = *fields;
     let mut cursor = 0;
     write(page, &mut cursor, DOMAIN);
-    write(page, &mut cursor, &PAGE_SCHEMA_VERSION.to_be_bytes());
+    let version = if fork_from.is_some() {
+        FORK_SCHEMA_VERSION
+    } else {
+        PAGE_SCHEMA_VERSION
+    };
+    write(page, &mut cursor, &version.to_be_bytes());
     write(page, &mut cursor, &AUTH_PROFILE.to_be_bytes());
     write(page, &mut cursor, binding.generation());
     write(page, &mut cursor, binding.instance());
@@ -55,8 +66,14 @@ pub(super) fn encode(page: &mut [u8; LAUNCH_PAGE_SIZE], fields: &PageFields<'_>)
     debug_assert_eq!(cursor, NETWORK_OFFSET);
     network.encode(&mut page[NETWORK_OFFSET..RESPONDER_OFFSET]);
     page[RESPONDER_OFFSET..DIGEST_OFFSET].copy_from_slice(responder);
-    let digest = digest(&page[..DIGEST_OFFSET]);
-    page[DIGEST_OFFSET..ENCODED_SIZE].copy_from_slice(&digest);
+    let digest_offset = if let Some(source) = fork_from {
+        page[DIGEST_OFFSET..DIGEST_OFFSET + FORK_SOURCE_SIZE].copy_from_slice(&source);
+        DIGEST_OFFSET + FORK_SOURCE_SIZE
+    } else {
+        DIGEST_OFFSET
+    };
+    let digest = digest(&page[..digest_offset]);
+    page[digest_offset..digest_offset + DIGEST_SIZE].copy_from_slice(&digest);
 }
 
 pub(super) fn decode(page: &[u8]) -> Result<DecodedPage, Error> {
@@ -65,7 +82,10 @@ pub(super) fn decode(page: &[u8]) -> Result<DecodedPage, Error> {
     }
     let mut reader = Reader::new(page);
     reader.take(16)?;
-    if reader.u16()? != PAGE_SCHEMA_VERSION || reader.u16()? != AUTH_PROFILE {
+    let version = reader.u16()?;
+    if !matches!(version, PAGE_SCHEMA_VERSION | FORK_SCHEMA_VERSION)
+        || reader.u16()? != AUTH_PROFILE
+    {
         return Err(Error::LaunchPageRejected);
     }
     let generation = reader.array()?;
@@ -76,13 +96,17 @@ pub(super) fn decode(page: &[u8]) -> Result<DecodedPage, Error> {
     let entropy = reader.secret_array()?;
     let network = LaunchNetwork::decode(reader.take(network::ENCODED_SIZE)?)?;
     let responder = reader.secret_array::<RESPONDER_SECRET_SIZE>()?;
+    let fork_from = (version == FORK_SCHEMA_VERSION)
+        .then(|| reader.array::<FORK_SOURCE_SIZE>())
+        .transpose()?;
+    let digest_offset = reader.cursor;
     let stored_digest: [u8; DIGEST_SIZE] = reader.array()?;
-    if reader.cursor != ENCODED_SIZE
-        || page[ENCODED_SIZE..].iter().any(|byte| *byte != 0)
+    if fork_from.is_some_and(|source| source == [0; 16] || source == instance)
+        || page[reader.cursor..].iter().any(|byte| *byte != 0)
         || psk.iter().all(|byte| *byte == 0)
         || entropy.iter().all(|byte| *byte == 0)
         || responder.iter().all(|byte| *byte == 0)
-        || !constant_time_equal(&stored_digest, &digest(&page[..DIGEST_OFFSET]))
+        || !constant_time_equal(&stored_digest, &digest(&page[..digest_offset]))
     {
         return Err(Error::LaunchPageRejected);
     }
@@ -93,6 +117,7 @@ pub(super) fn decode(page: &[u8]) -> Result<DecodedPage, Error> {
         ResponderPrivateKey::from_owned(responder).map_err(|_| Error::LaunchPageRejected)?;
     Ok(DecodedPage {
         binding,
+        fork_from,
         psk,
         entropy,
         network,

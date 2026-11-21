@@ -66,6 +66,12 @@ pub(super) struct LaunchWire {
     /// machine wants: a launch it cannot bind must not run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) volume: Option<soma::VolumeAttachment>,
+    /// Published checkpoint operation for this Instance, carried only for restore.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) checkpoint: Option<OperationId>,
+    /// Source Instance of a fork. Same-Instance restores omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) fork_source: Option<InstanceId>,
     pub(super) operation_id: OperationId,
     pub(super) instance_id: InstanceId,
     /// The image reference the client resolved.
@@ -175,6 +181,7 @@ pub(super) enum Refusal {
     Unsupported,
     Unavailable,
     ResourceConflict,
+    SandboxPaused,
     WorkloadRejected,
     GuestAgentOutdated,
     IsolationFailure,
@@ -190,6 +197,7 @@ impl From<BackendFailureKind> for Refusal {
             BackendFailureKind::Unsupported => Self::Unsupported,
             BackendFailureKind::Unavailable => Self::Unavailable,
             BackendFailureKind::ResourceConflict => Self::ResourceConflict,
+            BackendFailureKind::SandboxPaused => Self::SandboxPaused,
             BackendFailureKind::WorkloadRejected => Self::WorkloadRejected,
             BackendFailureKind::GuestAgentOutdated => Self::GuestAgentOutdated,
             BackendFailureKind::IsolationFailure => Self::IsolationFailure,
@@ -207,6 +215,7 @@ impl From<Refusal> for BackendFailureKind {
             Refusal::Unsupported => Self::Unsupported,
             Refusal::Unavailable => Self::Unavailable,
             Refusal::ResourceConflict => Self::ResourceConflict,
+            Refusal::SandboxPaused => Self::SandboxPaused,
             Refusal::WorkloadRejected => Self::WorkloadRejected,
             Refusal::GuestAgentOutdated => Self::GuestAgentOutdated,
             Refusal::IsolationFailure => Self::IsolationFailure,

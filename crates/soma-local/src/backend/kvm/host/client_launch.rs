@@ -1,6 +1,7 @@
 //! Parent-side claim and launch handshake for one resident machine host.
 
 use std::{
+    fs::File,
     io::BufReader,
     os::fd::AsFd as _,
     os::unix::net::UnixStream,
@@ -17,6 +18,13 @@ use super::{
 };
 use crate::backend::kvm::prepared::PreparedGeneration;
 
+#[derive(Clone, Copy)]
+pub(in crate::backend) struct LaunchHandoff<'a> {
+    pub(in crate::backend) checkpoint: Option<&'a OperationId>,
+    pub(in crate::backend) fork_source: Option<&'a InstanceId>,
+    pub(in crate::backend) lease: &'a File,
+}
+
 struct LaunchContext<'a> {
     operation_id: &'a OperationId,
     instance_id: &'a InstanceId,
@@ -24,6 +32,7 @@ struct LaunchContext<'a> {
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
     windowed: bool,
+    restore: Option<LaunchHandoff<'a>>,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -42,6 +51,7 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
+    pub(in crate::backend::kvm) restore: Option<LaunchHandoff<'a>>,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -62,6 +72,7 @@ pub(in crate::backend::kvm) fn launch(
         shape,
         volume,
         windowed,
+        restore,
         admitted_at,
     } = request;
     if !channel::addressable(directory) {
@@ -90,17 +101,22 @@ pub(in crate::backend::kvm) fn launch(
         handoff,
         output,
         ..
-    } = sterile::claim(
-        prepared,
-        prepared.manifest.shape.memory_bytes / (1024 * 1024),
-    )?;
+    } = if restore.is_some() {
+        sterile::spawn_for_recovery()?
+    } else {
+        sterile::claim(
+            prepared,
+            prepared.manifest.shape.memory_bytes / (1024 * 1024),
+        )?
+    };
     let context = LaunchContext {
         operation_id,
         instance_id,
         socket,
-        skip_warm: in_flight.skip_warm(),
+        skip_warm: restore.is_some() || in_flight.skip_warm(),
         volume,
         windowed,
+        restore,
         admitted_at,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
@@ -161,6 +177,10 @@ fn handshake(
         // The volume's host path, certified by the store before the launch was admitted; the
         // file itself never crosses this wire.
         volume: context.volume.cloned(),
+        checkpoint: context.restore.and_then(|lease| lease.checkpoint.cloned()),
+        fork_source: context
+            .restore
+            .and_then(|recovery| recovery.fork_source.cloned()),
         operation_id: context.operation_id.clone(),
         instance_id: context.instance_id.clone(),
         reference: prepared.reference.clone(),
@@ -182,7 +202,8 @@ fn handshake(
             .map_err(|_| BackendFailureKind::Unavailable)?;
         let borrowed = artifacts
             .iter()
-            .map(std::fs::File::as_fd)
+            .map(File::as_fd)
+            .chain(context.restore.map(|recovery| recovery.lease.as_fd()))
             .collect::<Vec<_>>();
         soma_supervise::send_descriptors(handoff.as_fd(), &borrowed)
             .map_err(|_| BackendFailureKind::Unavailable)?;

@@ -1,9 +1,8 @@
 //! How a sandbox that reached Ready stopped serving, and how it is released.
 //!
-//! The two endings are not the same promise. A guest that acknowledged shutdown is waited on to
-//! leave `KVM_RUN` by itself, while an aborted one was never asked and is kicked out at once.
-//! The difference is decided here, because this is the only place that knows both the outcome
-//! and the machine it must finish.
+//! A guest that acknowledged shutdown is given time to leave `KVM_RUN`.
+//! An aborted guest is kicked out immediately, and a paused guest has already left.
+//! This is the only place that knows both the outcome and the machine it must finish.
 
 use std::sync::mpsc::Sender;
 use std::time::Duration;
@@ -17,6 +16,8 @@ use super::super::session::{EXIT_GRACE, Response, SessionError};
 pub enum Ending {
     /// The guest acknowledged a shutdown and is leaving `KVM_RUN` on its own.
     ShutDown,
+    /// The guest was already paused when the owner ended the session.
+    ReleasedWhilePaused,
     /// The owner abandoned the guest without asking it, so nothing waits for it to leave.
     Aborted,
 }
@@ -60,7 +61,7 @@ pub fn report(
 /// would spend the whole grace on a guest idling in its command loop before the kick ended it.
 const fn exit_grace(outcome: Result<Ending, SessionError>) -> Duration {
     match outcome {
-        Ok(Ending::Aborted) => Duration::ZERO,
+        Ok(Ending::Aborted | Ending::ReleasedWhilePaused) => Duration::ZERO,
         Ok(Ending::ShutDown) | Err(_) => EXIT_GRACE,
     }
 }

@@ -104,8 +104,12 @@ fn every_request_round_trips() {
         Request::Seal,
         Request::Shutdown(-1),
         Request::Launch(launch()),
+        Request::Recover(launch(), [5; 32]),
+        Request::Fork(launch(), [5; 32], InstanceId::new([9; 16]).unwrap()),
         Request::Execute(execute()),
         Request::Stop(Stop::new(operation(), instance())),
+        Request::Pause(instance()),
+        Request::Resume(instance()),
         Request::Output(
             OutputWindow::new(operation(), OutputStream::Stderr, 1024, 4096).expect("window"),
         ),
@@ -168,4 +172,26 @@ fn terminal_requests_round_trip_binary_input_without_logging_it() {
     let encoded = request.encode();
     assert!(encoded.is_ascii() && !encoded.contains('\n'));
     assert_eq!(Request::decode(&encoded), Ok(request));
+}
+
+#[test]
+fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unchanged() {
+    use std::num::NonZeroU64;
+    let normal = launch();
+    let generation = normal.generation();
+    let capacity = NonZeroU64::new(10 * 1024 * 1024 * 1024).unwrap();
+    let persistent = Request::Launch(Launch::new(
+        normal.operation_id(),
+        normal.instance_id(),
+        Generation::new(
+            generation.id(),
+            generation.machine(),
+            generation.devices().with_volume_capacity(capacity),
+        ),
+    ));
+    let encoded = persistent.encode();
+    assert_eq!(Request::decode(&encoded), Ok(persistent));
+    assert!(encoded.starts_with("launch_volume 10737418240 "));
+    assert!(Request::Launch(normal).encode().starts_with("launch "));
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
 }
