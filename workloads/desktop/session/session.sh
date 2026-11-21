@@ -64,7 +64,7 @@ wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 # session state, and it opens no virtual terminal.
 /usr/lib/xorg/Xorg :0 \
     -config /etc/soma-desktop/xorg.conf \
-    -logfile "$STATE/Xorg.log" \
+    -logfile "$STATE/logs/Xorg.log" \
     -nolisten tcp \
     -noreset \
     -novtswitch \

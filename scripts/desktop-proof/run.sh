@@ -107,6 +107,15 @@ log "session launcher through exec"
 guest session-start /usr/local/sbin/soma-desktop-session start
 launcher_done="$(ns)"
 cp "$GUEST_OUT" "$OUT/session-start.json"
+if [[ "$(field 'd["state"]' "$OUT/session-start.json")" != ready ]]; then
+    # The session's own logs say why; the sandbox is destroyed on the way out.
+    guest session-logs /bin/sh -c 'tail -40 /run/soma-desktop/session.log /run/soma-desktop/logs/*.log'
+    cp "$GUEST_OUT" "$OUT/session-logs.txt"
+    cat "$OUT/session-logs.txt" >&2
+    api destroy DELETE "/v1/sandboxes/$INSTANCE"
+    printf 'the desktop session did not become ready\n' >&2
+    exit 1
+fi
 record launcher_exec_ms "$(( (launcher_done - ready_at) / 1000000 ))"
 
 log "cua-driver doctor and the driver's own environment"
