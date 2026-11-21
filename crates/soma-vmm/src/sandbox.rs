@@ -27,6 +27,7 @@ mod operations;
 mod operations_tests;
 mod pending;
 mod pty;
+mod sealed_activation;
 mod secrets;
 mod session;
 mod source;
@@ -41,6 +42,7 @@ pub use identity::{
 };
 pub use memory::{MemoryControl, MemoryError, MemoryLevel, NoMemoryDevice};
 pub use pending::PendingActivation;
+pub use sealed_activation::ActivationChannel;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use session::PTY_CEILING;
 pub use session::{

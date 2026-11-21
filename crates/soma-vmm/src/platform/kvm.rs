@@ -20,12 +20,12 @@ use std::time::Duration;
 use soma_guest::GuestCommand;
 use soma_jail::DescriptorManifest;
 use soma_kvm::memory_layout::{GuestLayout, HotplugRegion};
-use soma_kvm::x86_64::{GuestExit, Hypervisor, SnapshotObjects};
+use soma_kvm::x86_64::{GuestExit, Hypervisor, NetworkAttachment, SnapshotObjects};
 use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::sandbox::{
-    Assignment, AssignmentVolume, Network, Session, SessionError, SterileSpec, guest_cid_for,
-    link_down_network,
+    ActivationChannel, Assignment, AssignmentVolume, Network, Session, SessionError, SterileSpec,
+    guest_cid_for, link_down_network,
 };
 use crate::{Execute, Launch, Recovery, Stop};
 
@@ -50,6 +50,7 @@ pub(crate) struct KvmPlatform {
     /// it. A sterile machine must not be holding one Instance's writable storage.
     overlay: Option<File>,
     volume: Option<File>,
+    network: Option<(File, ActivationChannel)>,
     recovery: Option<recovery::Selection>,
     recovered: bool,
     checkpoint_geometry: Option<([u8; 32], MachineContract, bool)>,
@@ -64,6 +65,7 @@ impl KvmPlatform {
             resources: Some(MachineResources::adopt(manifest)?),
             overlay: None,
             volume: None,
+            network: None,
             session: None,
             checkpoint_geometry: None,
             recovery: None,
@@ -94,9 +96,15 @@ impl Platform for KvmPlatform {
             return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
         };
         if let Some(selection) = self.recovery.take() {
+            if resources.network.is_some() {
+                return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
+            }
             return self.restore_checkpoint(launch, resources, selection);
         }
         let declared = launch.generation().devices();
+        if resources.network.is_some() && !declared.network() {
+            return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
+        }
         let volume_capacity_bytes = declared.volume_capacity().map(std::num::NonZeroU64::get);
         let actual_volume_bytes = resources
             .volume
@@ -119,6 +127,7 @@ impl Platform for KvmPlatform {
             root,
             overlay,
             volume,
+            network,
         } = resources;
         self.overlay = overlay;
         self.volume = volume;
@@ -169,11 +178,13 @@ impl Platform for KvmPlatform {
         match Session::prepare(spec) {
             Ok(session) => {
                 self.session = Some(session);
-                self.checkpoint_geometry = volume_capacity_bytes.is_none().then_some((
-                    *launch.generation().id().as_bytes(),
-                    contract,
-                    declared.writable_disk(),
-                ));
+                self.network = network;
+                self.checkpoint_geometry =
+                    (volume_capacity_bytes.is_none() && self.network.is_none()).then_some((
+                        *launch.generation().id().as_bytes(),
+                        contract,
+                        declared.writable_disk(),
+                    ));
                 RestoredMachine::from_observation(RestoreProgress::from_steps([
                     RestoreStep::ArtifactsVerified,
                     RestoreStep::MachineRestored,
@@ -199,8 +210,33 @@ impl Platform for KvmPlatform {
         };
         let instance = *launch.instance_id().as_bytes();
         let guest_cid = guest_cid_for(instance);
-        let Some(network) = link_down_network(guest_cid) else {
-            return Err(faults::readiness(SessionError::Create));
+        let (network, activation) = match self.network.take() {
+            Some((tap, channel)) => {
+                let (network, pending) = channel.read_offer().map_err(faults::readiness)?;
+                if network.vsock_cid() != guest_cid {
+                    return Err(faults::readiness(SessionError::Network));
+                }
+                (
+                    Network {
+                        launch: network,
+                        attachment: Some(NetworkAttachment {
+                            tap,
+                            mac: network.mac(),
+                        }),
+                        activation: Some(pending),
+                    },
+                    Some(channel),
+                )
+            }
+            None => (
+                Network {
+                    launch: link_down_network(guest_cid)
+                        .ok_or_else(|| faults::readiness(SessionError::Create))?,
+                    attachment: None,
+                    activation: None,
+                },
+                None,
+            ),
         };
         let assignment = Assignment {
             overlay,
@@ -209,18 +245,15 @@ impl Platform for KvmPlatform {
             instance,
             operation: *launch.operation_id().as_bytes(),
             guest_cid,
-            network: Network {
-                launch: network,
-                // A jailed machine is given no frame path and no activation, so its one network
-                // device keeps the link-down placeholder it was captured with and carries
-                // nothing. An Instance that asked for egress is refused before a jail is built
-                // rather than served by a device that drops every packet.
-                attachment: None,
-                activation: None,
-            },
+            network,
             secrets: Vec::new(),
         };
-        match session.assign(assignment, &mut |_receipt| Err(SessionError::Network)) {
+        match session.assign(assignment, &mut |receipt| {
+            activation
+                .as_ref()
+                .ok_or(SessionError::Network)?
+                .ask(receipt)
+        }) {
             Ok(()) => Ok(ReadyAuthenticatedGuest::authenticated()),
             Err(error) => Err(faults::readiness(error)),
         }

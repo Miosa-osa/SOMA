@@ -54,7 +54,7 @@ const PIDS_MAX: u32 = 32;
 const CPU_PERIOD_US: u64 = 100_000;
 
 /// The descriptor roles one jailed machine receives, in manifest order.
-pub(super) fn roles(overlay: bool, volume: bool) -> Vec<DescriptorRole> {
+fn roles(overlay: bool, volume: bool, network: bool) -> Vec<DescriptorRole> {
     let mut roles = vec![
         DescriptorRole::Kvm,
         DescriptorRole::RootDisk,
@@ -67,6 +67,9 @@ pub(super) fn roles(overlay: bool, volume: bool) -> Vec<DescriptorRole> {
     if volume {
         roles.push(DescriptorRole::DataVolume);
     }
+    if network {
+        roles.extend([DescriptorRole::Tap, DescriptorRole::NetworkActivation]);
+    }
     roles.push(DescriptorRole::Control);
     roles
 }
@@ -76,6 +79,7 @@ pub(super) struct Opened {
     pub(super) resources: Resources,
     /// The supervisor's end of the control socket.
     pub(super) control: ControlSocket,
+    pub(super) activation: Option<ControlSocket>,
     pub(super) recovery: Option<Recovery>,
 }
 
@@ -92,6 +96,7 @@ pub(super) fn open(
     overlay: bool,
     checkpoint: Option<RestoreArtifacts>,
     volume: Option<File>,
+    tap: Option<File>,
 ) -> Result<Opened, BackendFailureKind> {
     fn unavailable<E>(_: E) -> BackendFailureKind {
         BackendFailureKind::Unavailable
@@ -170,6 +175,14 @@ pub(super) fn open(
     if let Some(volume) = volume {
         descriptors.push((DescriptorRole::DataVolume, OwnedFd::from(volume)));
     }
+    let activation = if let Some(tap) = tap {
+        let (broker, worker) = ControlSocket::pair().map_err(unavailable)?;
+        descriptors.push((DescriptorRole::Tap, OwnedFd::from(tap)));
+        descriptors.push((DescriptorRole::NetworkActivation, worker));
+        Some(broker)
+    } else {
+        None
+    };
     descriptors.push((DescriptorRole::Control, worker));
 
     Ok(Opened {
@@ -186,6 +199,7 @@ pub(super) fn open(
             descriptors,
         },
         control: supervisor,
+        activation,
         recovery,
     })
 }
@@ -198,8 +212,9 @@ pub(super) fn spec(
     disk_mib: u64,
     overlay: bool,
     volume_bytes: Option<std::num::NonZeroU64>,
+    network: bool,
 ) -> Result<JailSpec, BackendFailureKind> {
-    let roles = roles(overlay, volume_bytes.is_some());
+    let roles = roles(overlay, volume_bytes.is_some(), network);
     let manifest =
         DescriptorManifest::new(roles).map_err(|_| BackendFailureKind::WorkloadRejected)?;
     let slots =

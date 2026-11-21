@@ -11,7 +11,7 @@ use soma_guest::SecretFile;
 use soma_vmm::sandbox::{Network, Session, SessionError};
 
 use super::held::Held;
-use super::jailed::{Anchors, Jailed, Launching as JailedLaunching};
+use super::jailed::{Anchors, Jailed, Launching as JailedLaunching, NetworkLaunch};
 
 use super::{
     KvmBackend,
@@ -138,11 +138,12 @@ impl KvmBackend {
         &mut self,
         operation: &OperationId,
         launching: Launching<'_>,
+        egress: &mut Egress,
     ) -> Result<Started, BackendFailure> {
         let Some(anchors) = self.jail.take() else {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         };
-        let outcome = self.build_in_a_jail(operation, launching, &anchors);
+        let outcome = self.build_in_a_jail(operation, launching, egress, &anchors);
         self.jail = Some(anchors);
         outcome
     }
@@ -151,6 +152,7 @@ impl KvmBackend {
         &mut self,
         operation: &OperationId,
         launching: Launching<'_>,
+        egress: &mut Egress,
         anchors: &Anchors,
     ) -> Result<Started, BackendFailure> {
         let Launching {
@@ -164,11 +166,26 @@ impl KvmBackend {
             volume,
             checkpoint,
         } = launching;
-        // A jailed machine is given no frame path and no secret, so a request that needs either
-        // is refused rather than served by a machine that silently has neither.
-        if network.attachment.is_some() || network.activation.is_some() || !secrets.is_empty() {
+        if !secrets.is_empty() {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
+        let network = match (network.attachment, network.activation) {
+            (None, None) => None,
+            (Some(attachment), Some(pending))
+                if checkpoint.is_none() && attachment.mac == network.launch.mac() =>
+            {
+                Some((
+                    attachment.tap,
+                    NetworkLaunch {
+                        launch: network.launch,
+                        pending,
+                        operation: identity.operation,
+                        egress,
+                    },
+                ))
+            }
+            _ => return Err(self.fail(operation, BackendFailureKind::Unsupported)),
+        };
         // Only a Generation with a captured machine can be restored from descriptors; a cold
         // boot would need the kernel and initramfs this descriptor table has no roles for.
         if claim::snapshot(prepared).is_none() {
@@ -190,6 +207,7 @@ impl KvmBackend {
                 checkpoint,
                 volume: volume.as_ref(),
             },
+            network,
         ) {
             Ok(jailed) => Ok(Started {
                 preparation: PreparationClass::OnDemand,

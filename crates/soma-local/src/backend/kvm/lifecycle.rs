@@ -222,7 +222,7 @@ impl KvmBackend {
             launched,
             head_reads,
         } = if self.jail.is_some() {
-            self.launch_in_a_jail(operation, launching)?
+            self.launch_in_a_jail(operation, launching, &mut egress)?
         } else {
             match claimed {
                 Some(claimed) => self.assign_claimed(operation, launching, &mut egress, claimed)?,

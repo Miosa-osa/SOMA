@@ -31,6 +31,7 @@ fn sealed_forks_keep_independent_identities_memory_and_disks() {
                 checkpoint: origin,
                 volume: None,
             },
+            None,
         )
         .expect("launch the sealed worker")
     };

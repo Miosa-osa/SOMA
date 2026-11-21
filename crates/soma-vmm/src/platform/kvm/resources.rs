@@ -15,7 +15,9 @@
 use std::fs::File;
 use std::os::fd::{FromRawFd as _, OwnedFd};
 
-use soma_jail::{ArtifactKind, DescriptorManifest, DescriptorRole};
+use soma_jail::{ArtifactKind, ControlSocket, DescriptorManifest, DescriptorRole};
+
+use crate::sandbox::ActivationChannel;
 
 /// The open handles one jailed machine is built from.
 pub(crate) struct MachineResources {
@@ -30,6 +32,7 @@ pub(crate) struct MachineResources {
     pub(crate) overlay: Option<File>,
     /// An independently managed volume, transferred only for a persistent launch.
     pub(crate) volume: Option<File>,
+    pub(crate) network: Option<(File, ActivationChannel)>,
 }
 
 impl MachineResources {
@@ -48,6 +51,17 @@ impl MachineResources {
         )?;
         let root = own(manifest, DescriptorRole::RootDisk)?;
         let overlay = own(manifest, DescriptorRole::OverlayHead);
+        let network = match (
+            own(manifest, DescriptorRole::Tap),
+            own(manifest, DescriptorRole::NetworkActivation),
+        ) {
+            (None, None) => None,
+            (Some(tap), Some(control)) => Some((
+                File::from(tap),
+                ActivationChannel::new(ControlSocket::adopt(control)),
+            )),
+            _ => return None,
+        };
         Some(Self {
             kvm,
             state: File::from(state),
@@ -55,6 +69,7 @@ impl MachineResources {
             root: File::from(root),
             overlay: overlay.map(File::from),
             volume: own(manifest, DescriptorRole::DataVolume).map(File::from),
+            network,
         })
     }
 

@@ -49,6 +49,7 @@ fn sealed_worker_reopens_its_workspace_after_graceful_stop() {
                 checkpoint: None,
                 volume: Some(&volume),
             },
+            None,
         )
         .expect("launch sealed worker with certified volume")
     };

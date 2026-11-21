@@ -91,7 +91,11 @@ pub(super) fn expect_slot(
     if expected_device.is_some_and(|device| device_numbers(stat.st_rdev) != device) {
         return Err(DescriptorError::Device { slot });
     }
-    if role == DescriptorRole::Control && depth == VerificationDepth::Launcher {
+    if matches!(
+        role,
+        DescriptorRole::Control | DescriptorRole::NetworkActivation
+    ) && depth == VerificationDepth::Launcher
+    {
         expect_seqpacket(slot)?;
     }
     Ok(())

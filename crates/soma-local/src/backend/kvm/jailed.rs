@@ -18,13 +18,16 @@ mod pause;
 mod pty;
 
 use std::{
+    fs::File,
     os::fd::AsFd as _,
     time::{Duration, Instant},
 };
 
 use soma::{BackendFailureKind, CleanupMethod, InstanceId};
+use soma_guest::LaunchNetwork;
 use soma_jail::{JailHandle, ProbeReport};
-use soma_vmm::control::Request;
+use soma_vmm::control::{Outcome, Request};
+use soma_vmm::sandbox::{ActivationChannel, PendingActivation};
 use soma_vmm::{
     ContractVersion, DeclaredDevices, DiskBytes, Generation, GenerationId, HotplugBytes,
     InstanceId as VmmInstanceId, Launch, MachineSpec, MemoryBytes, OperationId, Stop, VcpuCount,
@@ -33,6 +36,7 @@ use soma_vmm::{
 pub(super) use anchors::Anchors;
 
 use super::identity::{fresh16, instance_bytes};
+use super::network::Egress;
 use super::prepared::PreparedGeneration;
 
 /// How long the worker has to attest its own containment before it is considered lost.
@@ -71,6 +75,14 @@ pub(super) struct Launching<'a> {
     pub(super) volume: Option<&'a soma::VolumeAttachment>,
 }
 
+/// The network identity bound by the supervisor to an already claimed TAP.
+pub(super) struct NetworkLaunch<'a> {
+    pub(super) launch: LaunchNetwork,
+    pub(super) pending: PendingActivation,
+    pub(super) operation: [u8; 16],
+    pub(super) egress: &'a mut Egress,
+}
+
 impl Jailed {
     /// Builds the jail, hands it the machine's descriptors, and returns once it is Ready.
     ///
@@ -84,8 +96,15 @@ impl Jailed {
     pub(super) fn launch(
         anchors: &Anchors,
         launching: &Launching<'_>,
+        network: Option<(File, NetworkLaunch<'_>)>,
     ) -> Result<Self, BackendFailureKind> {
         let devices = launching.prepared.manifest.device_set();
+        if network.is_some() && (!devices.net() || launching.checkpoint.is_some()) {
+            return Err(BackendFailureKind::WorkloadRejected);
+        }
+        let (tap, activation) = network.map_or((None, None), |(tap, activation)| {
+            (Some(tap), Some(activation))
+        });
         let (volume, volume_bytes) = super::jailed_volume::open(launching)?;
         let spec = build::spec(
             launching.instance,
@@ -94,6 +113,7 @@ impl Jailed {
             launching.disk_mib,
             devices.overlay(),
             volume_bytes,
+            tap.is_some(),
         )?;
         let checkpoint = launching
             .checkpoint
@@ -113,6 +133,7 @@ impl Jailed {
             devices.overlay(),
             checkpoint,
             volume,
+            tap,
         )?;
         let handle =
             soma_jail::launch(&spec, &anchors.host, opened.resources).map_err(|error| {
@@ -135,7 +156,12 @@ impl Jailed {
         if let Some(capacity) = volume_bytes {
             declared = declared.with_volume_capacity(capacity);
         }
-        jailed.perform_launch(anchors, launching, declared, opened.recovery)?;
+        let activation = match (opened.activation, activation) {
+            (None, None) => None,
+            (Some(channel), Some(network)) => Some((ActivationChannel::new(channel), network)),
+            _ => return Err(BackendFailureKind::IsolationFailure),
+        };
+        jailed.perform_launch(anchors, launching, declared, opened.recovery, activation)?;
         Ok(jailed)
     }
 
@@ -174,6 +200,7 @@ impl Jailed {
         launching: &Launching<'_>,
         devices: DeclaredDevices,
         recovery: Option<build::Recovery>,
+        activation: Option<(ActivationChannel, NetworkLaunch<'_>)>,
     ) -> Result<(), BackendFailureKind> {
         let mut machine = MachineSpec::new(
             VcpuCount::new(launching.prepared.manifest.shape.vcpu_count)
@@ -193,8 +220,12 @@ impl Jailed {
                 HotplugBytes::new(bytes).map_err(|_| BackendFailureKind::WorkloadRejected)?,
             );
         }
-        let operation =
-            OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?;
+        let operation = OperationId::new(
+            activation
+                .as_ref()
+                .map_or_else(fresh16, |(_, network)| network.operation),
+        )
+        .map_err(|_| BackendFailureKind::WorkloadRejected)?;
         let launch = Launch::new(
             operation,
             self.instance,
@@ -207,7 +238,10 @@ impl Jailed {
         );
         let instance = launching.instance.as_str();
         let reply = match recovery {
-            None => self.control.ask(&Request::Launch(launch), LAUNCH_CEILING),
+            None => match activation {
+                Some((channel, network)) => self.connected_launch(launch, &channel, network),
+                None => self.control.ask(&Request::Launch(launch), LAUNCH_CEILING),
+            },
             Some(recovery) => {
                 let digest = *recovery.digest.as_bytes();
                 let from = launching.checkpoint.map(|(source, _)| source);
@@ -249,6 +283,28 @@ impl Jailed {
             .inspect_err(|error| {
                 anchors.record(instance, &format!("jailed worker did not seal: {error:?}"));
             })
+    }
+
+    fn connected_launch(
+        &self,
+        launch: Launch,
+        channel: &ActivationChannel,
+        network: NetworkLaunch<'_>,
+    ) -> Result<Outcome, BackendFailureKind> {
+        let began = Instant::now();
+        channel
+            .offer(network.launch, &network.pending)
+            .map_err(|_| BackendFailureKind::GuestFailure)?;
+        self.control.tell(&Request::Launch(launch))?;
+        channel
+            .confirm(LAUNCH_CEILING.saturating_sub(began.elapsed()), |receipt| {
+                network.egress.activate_sealed(receipt)
+            })
+            .map_err(|_| BackendFailureKind::GuestFailure)?;
+        let text = self
+            .control
+            .receive(LAUNCH_CEILING.saturating_sub(began.elapsed()))?;
+        Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
     }
 
     /// Whether this machine may still be addressed.

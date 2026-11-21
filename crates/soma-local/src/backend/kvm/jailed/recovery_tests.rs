@@ -92,7 +92,8 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
         checkpoint: None,
         volume: None,
     };
-    let mut original = Jailed::launch(&anchors, &launching).expect("launch original in its jail");
+    let mut original =
+        Jailed::launch(&anchors, &launching, None).expect("launch original in its jail");
     check_filters(&original);
     let pid = original.handle.as_ref().unwrap().pid();
     let node = b"/usr/local/bin/node";
@@ -130,7 +131,8 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
     assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
 
     launching.checkpoint = Some((&instance, &checkpoint_id));
-    let mut recovered = Jailed::launch(&anchors, &launching).expect("recover in a fresh jail");
+    let mut recovered =
+        Jailed::launch(&anchors, &launching, None).expect("recover in a fresh jail");
     check_filters(&recovered);
     let recovered_pid = recovered.handle.as_ref().unwrap().pid();
     assert_ne!(pid, recovered_pid);
