@@ -172,6 +172,63 @@ fn destroying_an_instance_twice_returns_the_same_terminal_receipt() {
 }
 
 #[test]
+fn concurrent_operations_cannot_launch_two_workers_for_one_instance() {
+    let harness = harness(limits(2, 6));
+    harness.pool.replenish_blocking().expect("replenish");
+    let runtime = &harness.runtime;
+    let gate = std::sync::Barrier::new(2);
+    let first = intent(9);
+    let mut second = first.clone();
+    second.operation = op(90);
+
+    let results = std::thread::scope(|scope| {
+        let first = scope.spawn(|| {
+            gate.wait();
+            runtime.launch(&first)
+        });
+        let second = scope.spawn(|| {
+            gate.wait();
+            runtime.launch(&second)
+        });
+        [first.join().expect("first"), second.join().expect("second")]
+    });
+
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert!(
+        results.iter().any(
+            |result| matches!(result, Err(InstanceError::Occupied { instance: id, .. }) if *id == instance(9)),
+        ),
+        "{results:?}",
+    );
+    assert_eq!(runtime.live(), 1);
+    assert_eq!(harness.pool.broker().leased_heads(), 1);
+}
+
+#[test]
+fn a_stopped_instance_relaunches_with_a_fresh_worker_and_terminal_receipt() {
+    let harness = harness(limits(2, 6));
+    harness.pool.replenish_blocking().expect("replenish");
+    let first = live(harness.runtime.launch(&intent(8)).expect("first launch"));
+    let first_stop = harness.runtime.destroy(instance(8)).expect("first stop");
+    assert!(first_stop.complete);
+
+    let mut restart = intent(8);
+    restart.operation = op(80);
+    let second = live(harness.runtime.launch(&restart).expect("restart"));
+    assert_ne!(second.worker, first.worker);
+    assert_eq!(harness.runtime.get(instance(8)), Some(second));
+
+    let second_stop = harness.runtime.destroy(instance(8)).expect("second stop");
+    assert!(second_stop.complete);
+    assert_eq!(second_stop.worker, second.worker);
+    assert_eq!(harness.runtime.destroy(instance(8)), Ok(second_stop));
+    assert_eq!(
+        harness.runtime.launch(&intent(8)),
+        Err(InstanceError::Terminated(instance(8))),
+    );
+}
+
+#[test]
 fn an_instance_whose_worker_is_gone_is_reclaimed_instead_of_being_listed() {
     let harness = harness(limits(2, 6));
     harness.pool.replenish_blocking().expect("replenish");

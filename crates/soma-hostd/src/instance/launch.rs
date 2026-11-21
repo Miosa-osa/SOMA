@@ -19,6 +19,7 @@ impl<L: WorkerLauncher, R: ResourceBroker> Runtime<L, R> {
     /// Returns the typed refusal; a replay of the same operation returns the same Instance,
     /// and a changed intent under that operation conflicts without any effect.
     pub fn launch(&self, intent: &AssignmentIntent) -> Result<Launched, InstanceError> {
+        let _lifecycle = self.lock_lifecycle(intent.instance);
         self.reclaim();
         let fingerprint = intent.fingerprint();
         if let Some(live) = self.locked().get(intent.instance) {
