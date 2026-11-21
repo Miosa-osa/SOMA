@@ -24,6 +24,8 @@ use self::{
     lock::open_lock,
     revision::{commit_revision, prune_superseded, read_record, remove_revisions, scan_revisions},
 };
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use lock::restore_lease;
 
 /// A process-safe, revisioned local store rooted at an explicit caller-owned directory.
 ///

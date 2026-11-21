@@ -70,3 +70,18 @@ The host must reject recovery if it cannot use an isolated sealed worker, and ol
 A restore skips ordinary post-launch warmup and begins without a claimed network, attached volume, or new launch secrets.
 The trusted host listener exposes restore as `POST /v1/sandboxes/{instance}/restore` with the checkpoint ID, restore operation ID, and workload request.
 The host compares the resolved Generation and workload request to the stopped record before opening the checkpoint.
+
+## Retention
+
+A published checkpoint keeps its stopped Instance record and its exact prepared Generation eligible for restore.
+The terminal record sweep consults the checkpoint directory before releasing a stopped record, and prepared-Generation pruning includes each published checkpoint as a holder.
+Both checks operate on atomically published directories and fail closed when checkpoint metadata cannot be read.
+Files still being staged do not hold a terminal record or a Generation.
+
+## Interrupted restore
+
+A restore holds an exclusive host-local lease from admission through durable Ready publication.
+The launcher gives the same lease to the new host process with the checkpoint handoff so the lease cannot disappear if the API exits before that host binds its Instance socket.
+The host releases its copy only after reporting Ready or completing cleanup.
+Once a new caller holds the lease, an exact retry may reap the abandoned host and restore from the same checkpoint and stopped record.
+A different operation cannot replay or take over an interrupted restore.

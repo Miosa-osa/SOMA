@@ -59,6 +59,19 @@ pub trait Backend: Send {
         request: LaunchRequest<'_, Self::PreparedWorkload>,
     ) -> Result<LaunchObservation, BackendFailure>;
 
+    /// Takes this host's exclusive restore lease for the Instance.
+    /// # Errors
+    /// Returns a typed refusal if restore is unavailable or another request owns the lease.
+    fn acquire_restore(
+        &self,
+        _instance: &InstanceId,
+    ) -> Result<Box<dyn std::any::Any + Send>, BackendFailure> {
+        Err(BackendFailure::new(
+            crate::BackendFailureKind::Unsupported,
+            0,
+        ))
+    }
+
     /// Recreates the stopped Instance from its published checkpoint.
     /// # Errors
     /// Backends that cannot prove checkpoint restoration refuse the operation.
@@ -66,11 +79,23 @@ pub trait Backend: Send {
         &mut self,
         _request: LaunchRequest<'_, Self::PreparedWorkload>,
         _checkpoint: &crate::OperationId,
+        _lease: &(dyn std::any::Any + Send),
     ) -> Result<LaunchObservation, BackendFailure> {
         Err(BackendFailure::new(
             crate::BackendFailureKind::Unsupported,
             0,
         ))
+    }
+
+    /// Whether published checkpoints still depend on this stopped Instance record.
+    /// # Errors
+    /// Backends with checkpoint storage report a typed failure when they cannot inspect it.
+    fn retains_stopped_checkpoint(
+        &self,
+        _instance: &InstanceId,
+        _generation: &crate::GenerationId,
+    ) -> Result<bool, BackendFailure> {
+        Ok(false)
     }
 
     /// Executes one bounded direct command in an exact Instance.

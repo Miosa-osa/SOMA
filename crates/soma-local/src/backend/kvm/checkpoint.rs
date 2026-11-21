@@ -1,5 +1,7 @@
 //! Descriptor staging and durable publication for resident checkpoints.
 
+pub(super) mod retention;
+
 use std::{
     fs::{self, DirBuilder, File, OpenOptions},
     io::{ErrorKind, Read as _, Write as _},

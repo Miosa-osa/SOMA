@@ -55,7 +55,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         {
             return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
         }
-        self.launch_managed(&request, Some(checkpoint))
+        let lease = self
+            .backend
+            .acquire_restore(&request.instance_id)
+            .map_err(|failure| ManagedFailure::Backend(failure.kind()))?;
+        self.launch_managed(&request, Some((checkpoint, lease.as_ref())))
     }
 
     #[allow(
@@ -65,7 +69,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     fn launch_managed(
         &mut self,
         request: &LaunchMachineRequest,
-        checkpoint: Option<&crate::OperationId>,
+        restore: Option<(&crate::OperationId, &(dyn std::any::Any + Send))>,
     ) -> Result<MachineLaunch, ManagedFailure> {
         let source_fingerprint = crate::fingerprint::source(&request.image);
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
@@ -118,10 +122,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             &request.shape,
             request.windowed,
         );
-        let fingerprint = checkpoint.map_or_else(
-            || fingerprint.clone(),
-            |checkpoint| crate::fingerprint::restore(&fingerprint, checkpoint),
-        );
+        let fingerprint = match restore {
+            Some((checkpoint, _)) => crate::fingerprint::restore(&fingerprint, checkpoint),
+            None => fingerprint,
+        };
         let intent = LaunchIntent {
             operation_id: request.operation_id.clone(),
             machine_name: request.machine_name.clone(),
@@ -130,8 +134,8 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             backend: self.backend.kind(),
             request_fingerprint: fingerprint.clone(),
         };
-        let admission = if checkpoint.is_some() {
-            self.admit_restore(request, &intent)?
+        let admission = if restore.is_some() {
+            self.admit_restore(request, &intent, resolved_at, &mut milestones)?
         } else {
             self.admit_launch(request, &intent, resolved_at, &mut milestones)?
         };
@@ -151,8 +155,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         // declares one refuses to run without it.
         .with_volume(request.volume.as_ref())
         .with_windowed(request.windowed);
-        let observation = match checkpoint {
-            Some(checkpoint) => self.backend.launch_checkpoint(backend_request, checkpoint),
+        let observation = match restore {
+            Some((checkpoint, lease)) => {
+                self.backend
+                    .launch_checkpoint(backend_request, checkpoint, lease)
+            }
             None => self.backend.launch(backend_request),
         };
         let launch = match observation {

@@ -121,17 +121,49 @@ impl Backend for LocalBackend {
         }
     }
 
+    fn acquire_restore(
+        &self,
+        instance: &InstanceId,
+    ) -> Result<Box<dyn Any + Send>, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Self::Kvm(backend) = self {
+            return backend
+                .acquire_restore(instance)
+                .map(|lease| Box::new(lease) as Box<dyn Any + Send>);
+        }
+        let _ = instance;
+        Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
     fn launch_checkpoint(
         &mut self,
         request: LaunchRequest<'_, Self::PreparedWorkload>,
         checkpoint: &soma::OperationId,
+        lease: &(dyn Any + Send),
     ) -> Result<LaunchObservation, BackendFailure> {
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         if let Self::Kvm(backend) = self {
-            return backend.launch_using(&request, Some(checkpoint));
+            let lease = lease
+                .downcast_ref::<std::fs::File>()
+                .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
+            return backend.launch_using(&request, Some((checkpoint, lease)));
         }
-        let _ = (request, checkpoint);
+        let _ = (request, checkpoint, lease);
         Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
+    fn retains_stopped_checkpoint(
+        &self,
+        instance: &InstanceId,
+        generation: &soma::GenerationId,
+    ) -> Result<bool, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if matches!(self, Self::Kvm(_)) {
+            return kvm::retains_stopped_checkpoint(instance, generation)
+                .map_err(|_| BackendFailure::new(BackendFailureKind::Unavailable, 0));
+        }
+        let _ = (instance, generation);
+        Ok(false)
     }
 
     fn execute(

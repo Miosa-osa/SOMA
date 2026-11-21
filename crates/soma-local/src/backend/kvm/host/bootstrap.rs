@@ -2,7 +2,7 @@
 
 use std::{
     io::{self, BufReader},
-    os::fd::AsFd as _,
+    os::fd::{AsFd as _, OwnedFd},
     path::Path,
 };
 
@@ -36,15 +36,19 @@ pub(crate) fn host_machine(expected_socket: Option<&Path>) -> i32 {
 fn serve_on_demand(
     expected_socket: Option<&Path>,
     request: &LaunchWire,
-    descriptors: Vec<std::os::fd::OwnedFd>,
+    mut descriptors: Vec<OwnedFd>,
 ) -> i32 {
     if expected_socket.is_some_and(|expected| expected != request.socket) {
         return REFUSED;
     }
-    let socket = request.socket.clone();
-    let Ok(listener) = channel::bind(&socket) else {
-        return REFUSED;
-    };
+    // The handoff carries the duplicate of the caller's lease after the normal artifacts.
+    let mut restore_lease = None;
+    if request.checkpoint.is_some() {
+        let Some(lease) = descriptors.pop() else {
+            return REFUSED;
+        };
+        restore_lease = Some(lease);
+    }
     let Ok(prepared) = prepared::from_handoff(
         request.reference.clone(),
         &request.generation_id,
@@ -56,9 +60,18 @@ fn serve_on_demand(
     let Ok(backend) = KvmBackend::machine_host() else {
         return refuse(BackendFailureKind::Unavailable);
     };
-    let status = serve_machine(&listener, &socket, request, &prepared, backend);
-    let _ignored = std::fs::remove_file(socket);
-    status
+    let socket = request.socket.clone();
+    let Ok(listener) = channel::bind(&socket) else {
+        return REFUSED;
+    };
+    serve_machine(
+        &listener,
+        &socket,
+        request,
+        &prepared,
+        backend,
+        &mut restore_lease,
+    )
 }
 
 fn serve_primed(
@@ -99,7 +112,5 @@ fn serve_primed(
     let Ok(listener) = channel::bind(&socket) else {
         return REFUSED;
     };
-    let status = serve_machine(&listener, &socket, &request, &prepared, backend);
-    let _ignored = std::fs::remove_file(socket);
-    status
+    serve_machine(&listener, &socket, &request, &prepared, backend, &mut None)
 }

@@ -267,8 +267,7 @@ pub(super) fn inspect(
 ///
 /// The host releases everything it owns before it answers, and closes only on its way out, so a
 /// close observed after the evidence is the point at which nothing of this Instance is left in
-/// any process. The socket is then removed, because an Instance with no host must not leave a
-/// name behind that a later lookup would report as one.
+/// any process owns a running guest. The host removes its socket before closing the connection.
 pub(super) fn cleanup(
     directory: &Path,
     instance: &InstanceId,
@@ -285,6 +284,5 @@ pub(super) fn cleanup(
         _ => return Err(HostFailure::Refused(BackendFailureKind::CleanupFailure)),
     };
     await_close(&mut stream)?;
-    let _ignored = std::fs::remove_file(channel::socket_path(directory, instance));
     Ok(evidence)
 }

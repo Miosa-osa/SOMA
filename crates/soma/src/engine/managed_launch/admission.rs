@@ -20,6 +20,8 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: &LaunchMachineRequest,
         intent: &LaunchIntent,
+        resolved_at: u64,
+        milestones: &mut Vec<Milestone>,
     ) -> Result<LaunchAdmission, ManagedFailure> {
         let stored = self
             .load_machine(&request.instance_id)?
@@ -35,11 +37,28 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 )));
             }
             DurablePhase::Launching {
-                prior_stop: Some(_),
-                ..
-            } => {
-                // The current attempt may still own the host. A duplicate must never clean it up.
-                return Err(ManagedFailure::State(ManagedStateError::RecoveryRequired));
+                intent: existing,
+                prior_stop: Some(stopped),
+            } if existing.as_ref() == intent => {
+                // Admission runs with the exclusive restore lease. No earlier request or
+                // half-started host can still begin a launch on this Instance.
+                let cleanup = self.perform_cleanup(
+                    &intent.operation_id,
+                    &request.instance_id,
+                    CleanupReason::Rollback,
+                    milestones,
+                );
+                if !cleanup.complete {
+                    return Err(ManagedFailure::State(ManagedStateError::RecoveryRequired));
+                }
+                *milestones = vec![
+                    Milestone::new(MilestoneKind::Accepted, 0),
+                    Milestone::new(MilestoneKind::WorkloadResolved, resolved_at),
+                ];
+                return Ok(LaunchAdmission::Proceed(
+                    stored.revision,
+                    Some(stopped.clone()),
+                ));
             }
             _ => {}
         }
