@@ -37,7 +37,7 @@ start_runtime() {
     local address gateway
     address="$(ip -4 -o addr show dev eth0 | awk '{print $4}' | cut -d/ -f1)"
     gateway="$(ip -4 route show default | awk '{print $3}')"
-    mkdir -p /run/soma-netd
+    install -d -m 0750 -o 0 -g 0 /run/soma-netd  # soma-netd refuses any other mode for its socket directory
     "$REPO/target/release/soma-netd" --uplink eth0 --socket-group 0 --lifecycle-uid 0 \
         --reconcile-uid 0 --connect-ports 6080 --resolver 1.1.1.1 \
         --host-address "$address" --host-address "$gateway" >"$OUT/netd.log" 2>&1 &
