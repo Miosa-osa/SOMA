@@ -179,7 +179,7 @@ stage_runner_files() {
     if ! SOMA_GENERATION_STORE="$STORE" \
         SOMA_HEAD_DIR="$HEAD_DIR" \
         SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
-        ./target/release/examples/runner_files "$state" "$IMAGE" \
+        ./target/release/examples/runner_files "$state" "$IMAGE" "$MEMORY_MIB" "$STORAGE_MIB" \
         >"$transcript" 2>"$WORK/runner-files.err"; then
         DETAIL="$(tail -1 "$WORK/runner-files.err")"
         return 1
