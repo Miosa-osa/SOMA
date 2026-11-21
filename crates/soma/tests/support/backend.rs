@@ -75,6 +75,11 @@ impl TestBackend {
     fn record(&self, name: &'static str) {
         self.calls.lock().expect("call log poisoned").push(name);
     }
+
+    fn count(&self, name: &str) -> usize {
+        let calls = self.calls.lock().expect("call log poisoned");
+        calls.iter().filter(|c| **c == name).count()
+    }
 }
 
 impl Backend for TestBackend {
@@ -252,7 +257,8 @@ impl Backend for TestBackend {
         if matches!(
             self.mode,
             Mode::CleanupFailure | Mode::CleanupFailureTimeRegression
-        ) {
+        ) || (self.mode == Mode::CleanupFailsOnce && self.count("cleanup") == 1)
+        {
             let occurred_at = if self.mode == Mode::CleanupFailureTimeRegression {
                 35
             } else {
