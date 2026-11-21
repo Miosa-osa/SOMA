@@ -61,10 +61,10 @@ wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
 # Xorg with the dummy driver is the screen: a frame buffer in memory, no device, no VNC. It runs as
 # the desktop user, so it is started directly (not through the setuid wrapper) with its log in the
-# session state, and it opens no virtual terminal.
+# user's runtime directory, and it opens no virtual terminal.
 /usr/lib/xorg/Xorg :0 \
     -config /etc/soma-desktop/xorg.conf \
-    -logfile "$STATE/Xorg.log" \
+    -logfile "$XDG_RUNTIME_DIR/Xorg.log" \
     -nolisten tcp \
     -noreset \
     -novtswitch \

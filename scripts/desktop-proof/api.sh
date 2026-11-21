@@ -55,6 +55,11 @@ for stream in ("stdout", "stderr"):
 PY
     GUEST_EXIT="$(field 'd["result"]["execution"].get("exited", {}).get("code", "none") if d.get("result") else "error"')"
     GUEST_OUT="${LAST%.response}.stdout"
+    if [[ "$STATUS" != 200 || "$GUEST_EXIT" != 0 ]]; then
+        printf 'guest step %s failed (HTTP %s, exit %s); see %s\n' \
+            "$name" "$STATUS" "$GUEST_EXIT" "$LAST" >&2
+        return 1
+    fi
 }
 
 # fetch <guest path> <local file>: reads one file out of the sandbox through the filesystem API.
@@ -63,11 +68,15 @@ fetch() {
     python3 - "$LAST" "$2" <<'PY'
 import base64, json, sys
 envelope = json.load(open(sys.argv[1]))
-result = envelope["result"]
-content = result.get("content") or result.get("data") or ""
-if isinstance(content, dict):
-    content = content.get("data", "")
-open(sys.argv[2], "wb").write(base64.b64decode(content))
+result = envelope.get("result") or {}
+content = result.get("content")
+if envelope.get("status") != "ok" or not isinstance(content, dict) or content.get("encoding") != "base64":
+    raise SystemExit(f"guest file read failed; see {sys.argv[1]}")
+data = base64.b64decode(content["data"], validate=True)
+if len(data) != content.get("byte_length"):
+    raise SystemExit(f"guest file read length mismatch; see {sys.argv[1]}")
+with open(sys.argv[2], "wb") as output:
+    output.write(data)
 PY
 }
 
