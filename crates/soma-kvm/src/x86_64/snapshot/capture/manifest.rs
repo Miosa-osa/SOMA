@@ -38,10 +38,12 @@ pub(in crate::x86_64::snapshot) fn build(
     parts: &Parts<'_>,
 ) -> Result<Manifest, SnapshotError> {
     let (header, mut sections) = build_parts(request.candidate_id, vm_state, vcpu_states, parts)?;
-    sections.push(Section::new(
+    let marker = Section::new(
         SectionRole::RepairPointMarker,
         marker::encode(&request.repair_point_line),
-    )?);
+    )?;
+    let index = sections.partition_point(|section| section.role().code() < marker.role().code());
+    sections.insert(index, marker);
     Ok(Manifest::new(header, sections)?)
 }
 
@@ -87,8 +89,8 @@ pub(in crate::x86_64::snapshot) fn build_parts(
         Section::new(SectionRole::KvmClock, parts.clock.encode())?,
         Section::new(SectionRole::Pit, parts.pit.encode())?,
     ];
-    // The second and later processors take the codes immediately after the timer, so the
-    // sequence stays ascending without renumbering a role version 1 already published.
+    // vCPU roles added after the original eight sort after the device roles. Stable
+    // numeric codes keep the original layout readable by every newer runtime.
     for (index, state) in vcpu_states.iter().enumerate().skip(1) {
         let role = SectionRole::vcpu(
             u16::try_from(index).map_err(|_| SnapshotError::NotQuiescent("vCPU index overflow"))?,
@@ -105,5 +107,6 @@ pub(in crate::x86_64::snapshot) fn build_parts(
     if let Some(region) = parts.hotplug {
         sections.push(crate::snapshot::hotplug::section(region)?);
     }
+    sections.sort_unstable_by_key(|section| section.role().code());
     Ok((header, sections))
 }
