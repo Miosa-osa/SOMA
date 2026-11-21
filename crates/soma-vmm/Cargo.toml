@@ -15,14 +15,14 @@ name = "soma-vmm"
 path = "src/bin/soma-vmm/main.rs"
 
 [dependencies]
-soma-version = { path = "../soma-version", version = "=1.0.0-alpha.1" }
+soma-version = { path = "../soma-version", version = "=1.0.0-alpha.2" }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 libc = "=0.2.190"
-soma = { path = "../soma", version = "=1.0.0-alpha.1" }
-soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.1" }
-soma-jail = { path = "../soma-jail", version = "=1.0.0-alpha.1" }
-soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.1" }
+soma = { path = "../soma", version = "=1.0.0-alpha.2" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.2" }
+soma-jail = { path = "../soma-jail", version = "=1.0.0-alpha.2" }
+soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.2" }
 serde_json = "=1.0.151"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
