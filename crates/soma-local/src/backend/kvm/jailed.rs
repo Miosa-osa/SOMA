@@ -68,6 +68,7 @@ pub(super) struct Launching<'a> {
     pub(super) memory_mib: u64,
     pub(super) disk_mib: u64,
     pub(super) checkpoint: Option<(&'a InstanceId, &'a soma::OperationId)>,
+    pub(super) volume: Option<&'a soma::VolumeAttachment>,
 }
 
 impl Jailed {
@@ -85,12 +86,14 @@ impl Jailed {
         launching: &Launching<'_>,
     ) -> Result<Self, BackendFailureKind> {
         let devices = launching.prepared.manifest.device_set();
+        let (volume, volume_bytes) = super::jailed_volume::open(launching)?;
         let spec = build::spec(
             launching.instance,
             launching.prepared.manifest.shape.vcpu_count,
             launching.memory_mib,
             launching.disk_mib,
             devices.overlay(),
+            volume_bytes,
         )?;
         let checkpoint = launching
             .checkpoint
@@ -109,6 +112,7 @@ impl Jailed {
             launching.instance,
             devices.overlay(),
             checkpoint,
+            volume,
         )?;
         let handle =
             soma_jail::launch(&spec, &anchors.host, opened.resources).map_err(|error| {
@@ -127,13 +131,11 @@ impl Jailed {
             poisoned: false,
         };
         jailed.attestation = jailed.admit(anchors, launching.instance)?;
-        jailed.perform_launch(
-            anchors,
-            launching,
-            devices.overlay(),
-            devices.net(),
-            opened.recovery,
-        )?;
+        let mut declared = DeclaredDevices::new(devices.overlay(), devices.net());
+        if let Some(capacity) = volume_bytes {
+            declared = declared.with_volume_capacity(capacity);
+        }
+        jailed.perform_launch(anchors, launching, declared, opened.recovery)?;
         Ok(jailed)
     }
 
@@ -170,8 +172,7 @@ impl Jailed {
         &mut self,
         anchors: &Anchors,
         launching: &Launching<'_>,
-        overlay: bool,
-        network: bool,
+        devices: DeclaredDevices,
         recovery: Option<build::Recovery>,
     ) -> Result<(), BackendFailureKind> {
         let mut machine = MachineSpec::new(
@@ -201,7 +202,7 @@ impl Jailed {
                 GenerationId::new(launching.generation_bytes)
                     .map_err(|_| BackendFailureKind::WorkloadRejected)?,
                 machine,
-                DeclaredDevices::new(overlay, network),
+                devices,
             ),
         );
         let instance = launching.instance.as_str();

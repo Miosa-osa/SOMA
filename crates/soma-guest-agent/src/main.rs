@@ -114,6 +114,10 @@ mod agent {
     const TRANSPORT_BUDGET: Duration = Duration::from_secs(10);
     const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the guest's capture, assignment, repair, and Ready ordering stays explicit"
+    )]
     pub fn run() -> ! {
         pid1::install_panic_hook();
         if !pid1::is_pid1() {
@@ -178,6 +182,13 @@ mod agent {
         if material.fork_from().is_some() {
             console::report("fork authority rejected on a cold launch");
             pid1::poweroff();
+        }
+        if let Err(failure) = boot::mount_workspace(declared) {
+            console::report(&format!(
+                "workspace mount failed at {:?} errno {}",
+                failure.step, failure.errno
+            ));
+            destroy(&controller.poison(Fault::Boot));
         }
         let binding = *material.binding();
         let network = material.network();

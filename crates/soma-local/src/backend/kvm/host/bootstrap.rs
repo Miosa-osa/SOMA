@@ -50,7 +50,7 @@ fn serve_on_demand(
     }
     // The handoff carries the duplicate of the caller's lease after the normal artifacts.
     let mut restore_lease = None;
-    if request.checkpoint.is_some() {
+    if request.checkpoint.is_some() || request.volume.is_some() {
         let Some(lease) = descriptors.pop() else {
             return REFUSED;
         };
@@ -109,7 +109,7 @@ fn serve_primed(
     let Some(request) = channel::read_line::<LaunchWire>(input) else {
         return REFUSED;
     };
-    if request.checkpoint.is_some() || request.fork_source.is_some() {
+    if request.checkpoint.is_some() || request.fork_source.is_some() || request.volume.is_some() {
         return refuse(BackendFailureKind::Unsupported);
     }
     if request.reference != prepared.reference

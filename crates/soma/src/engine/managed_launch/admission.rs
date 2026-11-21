@@ -16,6 +16,39 @@ pub(super) enum LaunchAdmission {
 }
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
+    pub(super) fn admit_workspace_start(
+        &mut self,
+        request: &LaunchMachineRequest,
+        intent: &LaunchIntent,
+        legacy_fingerprint: &crate::RequestFingerprint,
+        resolved_at: u64,
+        milestones: &mut Vec<Milestone>,
+    ) -> Result<LaunchAdmission, ManagedFailure> {
+        let Some(stored) = self.load_machine(&request.instance_id)? else {
+            return self.admit_launch(request, intent, resolved_at, milestones);
+        };
+        match stored.machine.phase {
+            DurablePhase::Terminal {
+                operation: OperationKind::Stop,
+                ..
+            } => {
+                let Some(active) = stored.machine.stopped_source(intent) else {
+                    return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
+                };
+                let allocation = active.launch_receipt.request_fingerprint();
+                if allocation != &intent.request_fingerprint && allocation != legacy_fingerprint {
+                    return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
+                }
+                self.admit_restore(request, intent, resolved_at, milestones)
+            }
+            DurablePhase::Launching {
+                prior_stop: Some(_),
+                ..
+            } => self.admit_restore(request, intent, resolved_at, milestones),
+            _ => self.admit_launch(request, intent, resolved_at, milestones),
+        }
+    }
+
     pub(super) fn admit_restore(
         &mut self,
         request: &LaunchMachineRequest,

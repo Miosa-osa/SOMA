@@ -28,13 +28,14 @@ pub(crate) struct MachineResources {
     pub(crate) root: File,
     /// This Instance's private writable head, absent for a Generation with no writable storage.
     pub(crate) overlay: Option<File>,
+    /// An independently managed volume, transferred only for a persistent launch.
+    pub(crate) volume: Option<File>,
 }
 
 impl MachineResources {
     /// Adopts the manifest slots this machine needs, or `None` when one of them is absent.
     ///
-    /// The overlay is the only optional role: a Generation that declared no writable storage
-    /// has no head, and the launch that names one is refused by the restore rather than here.
+    /// The overlay and durable volume are optional according to the certified machine shape.
     pub(crate) fn adopt(manifest: &DescriptorManifest) -> Option<Self> {
         let kvm = own(manifest, DescriptorRole::Kvm)?;
         let state = own(
@@ -53,6 +54,7 @@ impl MachineResources {
             memory: File::from(memory),
             root: File::from(root),
             overlay: overlay.map(File::from),
+            volume: own(manifest, DescriptorRole::DataVolume).map(File::from),
         })
     }
 

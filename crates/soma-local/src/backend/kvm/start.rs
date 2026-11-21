@@ -169,11 +169,6 @@ impl KvmBackend {
         if network.attachment.is_some() || network.activation.is_some() || !secrets.is_empty() {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
-        // A jail's descriptor table carries the head and not a volume, so a Generation that
-        // declares one is refused here rather than started with an empty disk.
-        if volume.is_some() {
-            return Err(self.fail(operation, BackendFailureKind::Unsupported));
-        }
         // Only a Generation with a captured machine can be restored from descriptors; a cold
         // boot would need the kernel and initramfs this descriptor table has no roles for.
         if claim::snapshot(prepared).is_none() {
@@ -193,6 +188,7 @@ impl KvmBackend {
                 memory_mib,
                 disk_mib: storage_mib,
                 checkpoint,
+                volume: volume.as_ref(),
             },
         ) {
             Ok(jailed) => Ok(Started {

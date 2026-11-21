@@ -41,7 +41,7 @@ use soma::{
 };
 
 pub(crate) use bootstrap::host_machine;
-pub(in crate::backend) use client_launch::CheckpointHandoff;
+pub(in crate::backend) use client_launch::LaunchHandoff;
 pub(super) use client_launch::{HostedLaunch, launch};
 pub(super) use command::{execute, execute_streaming};
 pub(in crate::backend::kvm) use live_cgroup::under_root_lock;

@@ -19,8 +19,8 @@ use super::{
 use crate::backend::kvm::prepared::PreparedGeneration;
 
 #[derive(Clone, Copy)]
-pub(in crate::backend) struct CheckpointHandoff<'a> {
-    pub(in crate::backend) checkpoint: &'a OperationId,
+pub(in crate::backend) struct LaunchHandoff<'a> {
+    pub(in crate::backend) checkpoint: Option<&'a OperationId>,
     pub(in crate::backend) fork_source: Option<&'a InstanceId>,
     pub(in crate::backend) lease: &'a File,
 }
@@ -32,7 +32,7 @@ struct LaunchContext<'a> {
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
     windowed: bool,
-    restore: Option<CheckpointHandoff<'a>>,
+    restore: Option<LaunchHandoff<'a>>,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -51,7 +51,7 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
-    pub(in crate::backend::kvm) restore: Option<CheckpointHandoff<'a>>,
+    pub(in crate::backend::kvm) restore: Option<LaunchHandoff<'a>>,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -177,7 +177,7 @@ fn handshake(
         // The volume's host path, certified by the store before the launch was admitted; the
         // file itself never crosses this wire.
         volume: context.volume.cloned(),
-        checkpoint: context.restore.map(|recovery| recovery.checkpoint.clone()),
+        checkpoint: context.restore.and_then(|lease| lease.checkpoint.cloned()),
         fork_source: context
             .restore
             .and_then(|recovery| recovery.fork_source.cloned()),

@@ -31,6 +31,9 @@ impl KvmPlatform {
         let invalid = || RestoreFailure::at_restore(Recovery::DoNotRetry);
         let spec = launch.generation().machine();
         let declared = launch.generation().devices();
+        if declared.volume_capacity().is_some() || resources.volume.is_some() {
+            return Err(invalid());
+        }
         let contract = MachineContract::require(spec.contract().get()).map_err(|_| invalid())?;
         let memory_bytes = spec.memory().get();
         let hotplug = spec

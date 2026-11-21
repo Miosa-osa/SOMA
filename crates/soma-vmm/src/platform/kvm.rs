@@ -24,7 +24,8 @@ use soma_kvm::x86_64::{GuestExit, Hypervisor, SnapshotObjects};
 use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::sandbox::{
-    Assignment, Network, Session, SessionError, SterileSpec, guest_cid_for, link_down_network,
+    Assignment, AssignmentVolume, Network, Session, SessionError, SterileSpec, guest_cid_for,
+    link_down_network,
 };
 use crate::{Execute, Launch, Recovery, Stop};
 
@@ -48,6 +49,7 @@ pub(crate) struct KvmPlatform {
     /// This Instance's private head, held between the restore and the assignment that installs
     /// it. A sterile machine must not be holding one Instance's writable storage.
     overlay: Option<File>,
+    volume: Option<File>,
     recovery: Option<recovery::Selection>,
     recovered: bool,
     checkpoint_geometry: Option<([u8; 32], MachineContract, bool)>,
@@ -61,6 +63,7 @@ impl KvmPlatform {
         Some(Self {
             resources: Some(MachineResources::adopt(manifest)?),
             overlay: None,
+            volume: None,
             session: None,
             checkpoint_geometry: None,
             recovery: None,
@@ -94,6 +97,17 @@ impl Platform for KvmPlatform {
             return self.restore_checkpoint(launch, resources, selection);
         }
         let declared = launch.generation().devices();
+        let volume_capacity_bytes = declared.volume_capacity().map(std::num::NonZeroU64::get);
+        let actual_volume_bytes = resources
+            .volume
+            .as_ref()
+            .map(File::metadata)
+            .transpose()
+            .map_err(|_| RestoreFailure::at_restore(Recovery::DoNotRetry))?
+            .map(|metadata| metadata.len());
+        if volume_capacity_bytes != actual_volume_bytes {
+            return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
+        }
         let overlay_capacity_bytes = declared
             .writable_disk()
             .then(|| resources.overlay_capacity_bytes())
@@ -104,8 +118,10 @@ impl Platform for KvmPlatform {
             memory,
             root,
             overlay,
+            volume,
         } = resources;
         self.overlay = overlay;
+        self.volume = volume;
         let machine = launch.generation().machine();
         // The contract arrives as the portable version the parent stated, and a version this
         // build does not implement is refused here rather than restored as the wrong machine.
@@ -145,13 +161,15 @@ impl Platform for KvmPlatform {
             vcpus,
             contract,
             devices: DeviceSet::new(declared.writable_disk(), declared.network())
-                .with_mem(hotplug.is_some()),
+                .with_mem(hotplug.is_some())
+                .with_volume(volume_capacity_bytes.is_some()),
             hotplug,
+            volume_capacity_bytes,
         };
         match Session::prepare(spec) {
             Ok(session) => {
                 self.session = Some(session);
-                self.checkpoint_geometry = Some((
+                self.checkpoint_geometry = volume_capacity_bytes.is_none().then_some((
                     *launch.generation().id().as_bytes(),
                     contract,
                     declared.writable_disk(),
@@ -186,11 +204,7 @@ impl Platform for KvmPlatform {
         };
         let assignment = Assignment {
             overlay,
-            // A jailed machine is given no volume yet: the jail's descriptor table carries the
-            // head, and a volume reaches a machine over the resident path. A Generation that
-            // declares one therefore refuses to start inside a jail rather than serve an empty
-            // disk, which is the fail-closed direction until the jail carries it.
-            volume: None,
+            volume: self.volume.take().map(AssignmentVolume::Descriptor),
             generation: *launch.generation().id().as_bytes(),
             instance,
             operation: *launch.operation_id().as_bytes(),

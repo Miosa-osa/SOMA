@@ -90,6 +90,7 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
         memory_mib: prepared.manifest.shape.memory_bytes / (1024 * 1024),
         disk_mib: prepared.manifest.template.writable_storage_bytes / (1024 * 1024),
         checkpoint: None,
+        volume: None,
     };
     let mut original = Jailed::launch(&anchors, &launching).expect("launch original in its jail");
     check_filters(&original);
@@ -169,3 +170,4 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
 }
 
 mod fork;
+mod workspace;

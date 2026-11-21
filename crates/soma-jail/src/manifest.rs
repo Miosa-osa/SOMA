@@ -33,6 +33,8 @@ pub enum DescriptorRole {
     Tap,
     RootDisk,
     OverlayHead,
+    /// The certified writable file of this Instance's separately managed volume.
+    DataVolume,
     Artifact(ArtifactKind),
     /// The `SOCK_SEQPACKET` control socket.
     Control,
@@ -57,7 +59,7 @@ impl DescriptorRole {
     pub fn expected_kinds(self) -> &'static [DescriptorKind] {
         match self {
             Self::Kvm | Self::Tap => &[DescriptorKind::CharDevice],
-            Self::RootDisk | Self::OverlayHead | Self::Artifact(_) => {
+            Self::RootDisk | Self::OverlayHead | Self::DataVolume | Self::Artifact(_) => {
                 &[DescriptorKind::RegularFile]
             }
             Self::Control => &[DescriptorKind::Socket],
@@ -77,6 +79,7 @@ impl DescriptorRole {
             Self::Tap => "tap",
             Self::RootDisk => "root-disk",
             Self::OverlayHead => "overlay-head",
+            Self::DataVolume => "data-volume",
             Self::Artifact(ArtifactKind::Kernel) => "artifact.kernel",
             Self::Artifact(ArtifactKind::Initramfs) => "artifact.initramfs",
             Self::Artifact(ArtifactKind::MemorySnapshot) => "artifact.memory-snapshot",
@@ -88,11 +91,12 @@ impl DescriptorRole {
     }
 
     fn from_token(token: &str) -> Option<Self> {
-        const ALL: [DescriptorRole; 11] = [
+        const ALL: [DescriptorRole; 12] = [
             DescriptorRole::Kvm,
             DescriptorRole::Tap,
             DescriptorRole::RootDisk,
             DescriptorRole::OverlayHead,
+            DescriptorRole::DataVolume,
             DescriptorRole::Artifact(ArtifactKind::Kernel),
             DescriptorRole::Artifact(ArtifactKind::Initramfs),
             DescriptorRole::Artifact(ArtifactKind::MemorySnapshot),

@@ -48,6 +48,6 @@ pub use session::{
     Teardown,
 };
 pub use source::{Boot, Network, Source};
-pub use sterile::{Assignment, SterileSpec};
+pub use sterile::{Assignment, AssignmentVolume, SterileSpec};
 pub use timeline::dump as dump_timeline;
 pub use worker::{ColdBootInputs, config as cold_boot_config};

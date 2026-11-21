@@ -21,10 +21,14 @@ use self::{
     receipt::{launch_receipt, store_operation_failure},
 };
 
-struct CheckpointLaunch<'a> {
-    checkpoint: &'a crate::OperationId,
-    fork_source: Option<&'a crate::InstanceId>,
-    lease: &'a (dyn std::any::Any + Send),
+#[derive(Clone, Copy)]
+enum LockedLaunch<'a> {
+    Workspace(&'a (dyn std::any::Any + Send)),
+    Checkpoint {
+        checkpoint: &'a crate::OperationId,
+        fork_source: Option<&'a crate::InstanceId>,
+        lease: &'a (dyn std::any::Any + Send),
+    },
 }
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
@@ -42,6 +46,13 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: LaunchMachineRequest,
     ) -> Result<MachineLaunch, ManagedFailure> {
+        if request.volume.is_some() {
+            let lease = self
+                .backend
+                .acquire_restore(&request.instance_id)
+                .map_err(|failure| ManagedFailure::Backend(failure.kind()))?;
+            return self.launch_managed(&request, Some(LockedLaunch::Workspace(lease.as_ref())));
+        }
         self.launch_managed(&request, None)
     }
 
@@ -108,7 +119,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             .map_err(|failure| ManagedFailure::Backend(failure.kind()))?;
         self.launch_managed(
             request,
-            Some(CheckpointLaunch {
+            Some(LockedLaunch::Checkpoint {
                 checkpoint,
                 fork_source,
                 lease: lease.as_ref(),
@@ -123,7 +134,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     fn launch_managed(
         &mut self,
         request: &LaunchMachineRequest,
-        recovery: Option<CheckpointLaunch<'_>>,
+        locked: Option<LockedLaunch<'_>>,
     ) -> Result<MachineLaunch, ManagedFailure> {
         let source_fingerprint = crate::fingerprint::source(&request.image);
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
@@ -176,15 +187,29 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             &request.shape,
             request.windowed,
         );
-        let fingerprint = match &recovery {
-            Some(recovery) => match recovery.fork_source {
-                Some(source) => {
-                    self.validate_fork_source(source, request, &workload)?;
-                    crate::fingerprint::fork(&fingerprint, recovery.checkpoint, source)
-                }
-                None => crate::fingerprint::restore(&fingerprint, recovery.checkpoint),
-            },
-            None => fingerprint,
+        let unbound_fingerprint = fingerprint;
+        let fingerprint = match &locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: Some(source),
+                ..
+            }) => {
+                self.validate_fork_source(source, request, &workload)?;
+                crate::fingerprint::fork(&unbound_fingerprint, checkpoint, source)
+            }
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: None,
+                ..
+            }) => crate::fingerprint::restore(&unbound_fingerprint, checkpoint),
+            Some(LockedLaunch::Workspace(_)) => {
+                let volume = request
+                    .volume
+                    .as_ref()
+                    .ok_or(ManagedFailure::State(ManagedStateError::OperationConflict))?;
+                crate::fingerprint::workspace(&unbound_fingerprint, &volume.id)
+            }
+            None => unbound_fingerprint.clone(),
         };
         let intent = LaunchIntent {
             operation_id: request.operation_id.clone(),
@@ -194,13 +219,18 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             backend: self.backend.kind(),
             request_fingerprint: fingerprint.clone(),
         };
-        let admission = if recovery
-            .as_ref()
-            .is_some_and(|source| source.fork_source.is_none())
-        {
-            self.admit_restore(request, &intent, resolved_at, &mut milestones)?
-        } else {
-            self.admit_launch(request, &intent, resolved_at, &mut milestones)?
+        let admission = match &locked {
+            Some(LockedLaunch::Checkpoint {
+                fork_source: None, ..
+            }) => self.admit_restore(request, &intent, resolved_at, &mut milestones)?,
+            Some(LockedLaunch::Workspace(_)) => self.admit_workspace_start(
+                request,
+                &intent,
+                &unbound_fingerprint,
+                resolved_at,
+                &mut milestones,
+            )?,
+            _ => self.admit_launch(request, &intent, resolved_at, &mut milestones)?,
         };
         let (revision, prior_stop) = match admission {
             LaunchAdmission::Proceed(revision, prior_stop) => (revision, prior_stop),
@@ -218,13 +248,17 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         // declares one refuses to run without it.
         .with_volume(request.volume.as_ref())
         .with_windowed(request.windowed);
-        let observation = match recovery {
-            Some(recovery) => self.backend.launch_checkpoint(
-                backend_request,
-                recovery.checkpoint,
-                recovery.fork_source,
-                recovery.lease,
-            ),
+        let observation = match locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source,
+                lease,
+            }) => self
+                .backend
+                .launch_checkpoint(backend_request, checkpoint, fork_source, lease),
+            Some(LockedLaunch::Workspace(lease)) => {
+                self.backend.launch_workspace(backend_request, lease)
+            }
             None => self.backend.launch(backend_request),
         };
         let launch = match observation {

@@ -11,6 +11,7 @@ mod host;
 mod hotplug;
 mod identity;
 mod jailed;
+mod jailed_volume;
 mod lifecycle;
 mod network;
 mod pool;
@@ -31,7 +32,7 @@ use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
 pub(super) use checkpoint::retention::retains_stopped_checkpoint;
-pub(super) use host::CheckpointHandoff;
+pub(super) use host::LaunchHandoff;
 use host::Role;
 pub(crate) use host::open_tunnel;
 pub(crate) use host::resize as resize_machine;

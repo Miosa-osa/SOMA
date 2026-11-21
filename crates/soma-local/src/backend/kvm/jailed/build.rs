@@ -54,7 +54,7 @@ const PIDS_MAX: u32 = 32;
 const CPU_PERIOD_US: u64 = 100_000;
 
 /// The descriptor roles one jailed machine receives, in manifest order.
-pub(super) fn roles(overlay: bool) -> Vec<DescriptorRole> {
+pub(super) fn roles(overlay: bool, volume: bool) -> Vec<DescriptorRole> {
     let mut roles = vec![
         DescriptorRole::Kvm,
         DescriptorRole::RootDisk,
@@ -63,6 +63,9 @@ pub(super) fn roles(overlay: bool) -> Vec<DescriptorRole> {
     ];
     if overlay {
         roles.push(DescriptorRole::OverlayHead);
+    }
+    if volume {
+        roles.push(DescriptorRole::DataVolume);
     }
     roles.push(DescriptorRole::Control);
     roles
@@ -88,6 +91,7 @@ pub(super) fn open(
     instance: &InstanceId,
     overlay: bool,
     checkpoint: Option<RestoreArtifacts>,
+    volume: Option<File>,
 ) -> Result<Opened, BackendFailureKind> {
     fn unavailable<E>(_: E) -> BackendFailureKind {
         BackendFailureKind::Unavailable
@@ -163,6 +167,9 @@ pub(super) fn open(
     if let Some(head) = head {
         descriptors.push((DescriptorRole::OverlayHead, OwnedFd::from(head)));
     }
+    if let Some(volume) = volume {
+        descriptors.push((DescriptorRole::DataVolume, OwnedFd::from(volume)));
+    }
     descriptors.push((DescriptorRole::Control, worker));
 
     Ok(Opened {
@@ -190,8 +197,9 @@ pub(super) fn spec(
     memory_mib: u64,
     disk_mib: u64,
     overlay: bool,
+    volume_bytes: Option<std::num::NonZeroU64>,
 ) -> Result<JailSpec, BackendFailureKind> {
-    let roles = roles(overlay);
+    let roles = roles(overlay, volume_bytes.is_some());
     let manifest =
         DescriptorManifest::new(roles).map_err(|_| BackendFailureKind::WorkloadRejected)?;
     let slots =
@@ -217,8 +225,12 @@ pub(super) fn spec(
             nofile: slots + MACHINE_FD_BUDGET + u32::from(vcpus.max(1)) * VCPU_FD_BUDGET,
             nproc: PIDS_MAX,
             // The broker may also pass a writable checkpoint descriptor for the guest RAM.
-            // Bound each file by the larger of the captured memory and the writable disk.
-            fsize_bytes: memory_mib.max(disk_mib).max(1).saturating_mul(MIB),
+            // The head, volume, and captured guest RAM can each be a different size.
+            fsize_bytes: memory_mib
+                .max(disk_mib)
+                .max(1)
+                .saturating_mul(MIB)
+                .max(volume_bytes.map_or(0, std::num::NonZeroU64::get)),
             address_space_bytes: None,
         },
         manifest,

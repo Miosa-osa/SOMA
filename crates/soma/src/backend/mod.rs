@@ -59,13 +59,27 @@ pub trait Backend: Send {
         request: LaunchRequest<'_, Self::PreparedWorkload>,
     ) -> Result<LaunchObservation, BackendFailure>;
 
-    /// Takes this host's exclusive restore lease for the Instance.
+    /// Takes this host's exclusive recoverable launch lease for the Instance.
     /// # Errors
     /// Returns a typed refusal if restore is unavailable or another request owns the lease.
     fn acquire_restore(
         &self,
         _instance: &InstanceId,
     ) -> Result<Box<dyn std::any::Any + Send>, BackendFailure> {
+        Err(BackendFailure::new(
+            crate::BackendFailureKind::Unsupported,
+            0,
+        ))
+    }
+
+    /// Starts a Machine with its certified workspace disk, holding the Instance launch lease.
+    /// # Errors
+    /// Returns a typed refusal when the backend cannot prove a leased workspace start.
+    fn launch_workspace(
+        &mut self,
+        _request: LaunchRequest<'_, Self::PreparedWorkload>,
+        _lease: &(dyn std::any::Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
         Err(BackendFailure::new(
             crate::BackendFailureKind::Unsupported,
             0,

@@ -73,7 +73,10 @@ impl Request {
     pub fn encode(&self) -> String {
         match self {
             Self::Attest => "attest".to_owned(),
-            Self::Launch(launch) => encode_launch("launch", launch),
+            Self::Launch(launch) => match launch.generation().devices().volume_capacity() {
+                Some(capacity) => encode_launch(&format!("launch_volume {capacity}"), launch),
+                None => encode_launch("launch", launch),
+            },
             Self::Recover(launch, digest) => {
                 encode_launch(&format!("recover {}", hex(digest)), launch)
             }
@@ -135,17 +138,23 @@ impl Request {
             "attest" => decode::end(tokens).map(|()| Self::Attest),
             "seal" => decode::end(tokens).map(|()| Self::Seal),
             "shutdown" => decode::decode_shutdown(&mut tokens),
-            "launch" => decode_launch(&mut tokens).map(Self::Launch),
+            "launch" => decode_launch(&mut tokens, None).map(Self::Launch),
+            "launch_volume" => {
+                let capacity = super::field::number(tokens.next(), "volume capacity")?;
+                let capacity = std::num::NonZeroU64::new(capacity)
+                    .ok_or(ControlError::InvalidValue("volume capacity"))?;
+                decode_launch(&mut tokens, Some(capacity)).map(Self::Launch)
+            }
             "recover" => {
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
-                decode_launch(&mut tokens).map(|launch| Self::Recover(launch, digest))
+                decode_launch(&mut tokens, None).map(|launch| Self::Recover(launch, digest))
             }
             "fork" => {
                 let source = super::field::identifier(tokens.next(), "checkpoint source")?;
                 let source = InstanceId::new(source)
                     .map_err(|_| ControlError::InvalidValue("checkpoint source"))?;
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
-                decode_launch(&mut tokens).map(|launch| Self::Fork(launch, digest, source))
+                decode_launch(&mut tokens, None).map(|launch| Self::Fork(launch, digest, source))
             }
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

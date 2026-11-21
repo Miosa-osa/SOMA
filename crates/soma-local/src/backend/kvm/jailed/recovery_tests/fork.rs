@@ -29,6 +29,7 @@ fn sealed_forks_keep_independent_identities_memory_and_disks() {
                 memory_mib: prepared.manifest.shape.memory_bytes / (1024 * 1024),
                 disk_mib: prepared.manifest.template.writable_storage_bytes / (1024 * 1024),
                 checkpoint: origin,
+                volume: None,
             },
         )
         .expect("launch the sealed worker")

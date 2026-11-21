@@ -1,18 +1,14 @@
 //! The durable data volume, for a machine that declared one.
 //!
-//! Everything here runs only when the Generation declared a durable volume. The device is
-//! verified and mounted before the root is entered, and the persistent paths are bind mounted
-//! from it into the composed root, so a workload that writes them writes the volume and a stop
-//! that keeps the disk keeps them.
-//! The mount is deliberately not lazy: it happens here, inside the early-init sequence, before
-//! the guest can report that it is running, so a start can never answer that a sandbox is up
-//! before its own data is visible.
+//! Captures reach the repair point with an empty volume slot and no filesystem mounted from it.
+//! The guest first reads the assigned device after it accepts fresh launch authority.
+//! Every persistent path must be mounted before the guest can report readiness.
 
-use std::fs;
+use std::{fs, io, os::fd::AsRawFd as _};
 
 use crate::mounts;
 
-use super::superblock::{Identity, classify_identity, ext4_superblock_ok, read_superblock};
+use super::superblock::{ext4_superblock_ok, verify_superblock};
 use super::{BootFailure, BootStep, VOLUME_DEVICE, failure};
 
 /// Where the durable volume is mounted for the composed root to bind from.
@@ -39,21 +35,14 @@ const MS_LAZYTIME: libc::c_ulong = 1 << 25;
 /// # Errors
 ///
 /// Returns the first failed step; the caller reports it and powers off.
-pub(super) fn compose(root: &str) -> Result<(), BootFailure> {
-    match classify_identity(&read_superblock(VOLUME_DEVICE), ext4_superblock_ok) {
-        Identity::Filesystem => {}
-        // A capture attaches the placeholder, which has no capacity to read. The device is in the
-        // Generation's manifest and carries nothing, so there is nothing to mount, and skipping it
-        // is what keeps a snapshot free of cached state from the volume: the invariant that lets a
-        // later start bind a real file to the same device.
-        Identity::Placeholder => return Ok(()),
-        Identity::Refused(errno) => {
-            return Err(BootFailure {
-                step: BootStep::VolumeIdentity,
-                errno,
-            });
-        }
-    }
+pub(super) fn compose() -> Result<(), BootFailure> {
+    // Linux may already have buffered partition probes from early boot's empty device.
+    // Flush them now that the worker has assigned this Instance's backing file.
+    let file =
+        fs::File::open(VOLUME_DEVICE).map_err(|error| failure(BootStep::VolumeIdentity, &error))?;
+    discard_placeholder_cache(&file).map_err(|error| failure(BootStep::VolumeIdentity, &error))?;
+    drop(file);
+    verify_superblock(BootStep::VolumeIdentity, VOLUME_DEVICE, ext4_superblock_ok)?;
     fs::create_dir_all(VOLUME_MOUNT).map_err(|error| failure(BootStep::VolumeMount, &error))?;
     mounts::mount(
         VOLUME_DEVICE,
@@ -67,7 +56,7 @@ pub(super) fn compose(root: &str) -> Result<(), BootFailure> {
         errno: errno.0,
     })?;
     for path in PERSISTENCE_PATHS {
-        bind_path(root, path)?;
+        bind_path(path)?;
     }
     Ok(())
 }
@@ -77,16 +66,27 @@ pub(super) fn compose(root: &str) -> Result<(), BootFailure> {
 /// Both ends are created when they are absent rather than assumed, because an OCI image is not
 /// required to carry `/workspace` or `/opt/user`; a target that cannot be created fails the boot
 /// rather than silently leaving the path on the ephemeral root.
-fn bind_path(root: &str, path: &str) -> Result<(), BootFailure> {
+fn bind_path(path: &str) -> Result<(), BootFailure> {
     let step = BootStep::VolumeBind;
     let source = format!("{VOLUME_MOUNT}{path}");
-    let target = format!("{root}{path}");
     fs::create_dir_all(&source).map_err(|error| failure(step, &error))?;
-    fs::create_dir_all(&target).map_err(|error| failure(step, &error))?;
-    mounts::bind(&source, &target).map_err(|errno| BootFailure {
+    fs::create_dir_all(path).map_err(|error| failure(step, &error))?;
+    mounts::bind(&source, path).map_err(|errno| BootFailure {
         step,
         errno: errno.0,
     })
+}
+
+#[allow(unsafe_code)]
+fn discard_placeholder_cache(device: &fs::File) -> io::Result<()> {
+    const BLKFLSBUF: libc::c_ulong = 0x1261;
+    // SAFETY: BLKFLSBUF takes no pointer or other argument and the open file owns the fd.
+    let result = unsafe { libc::ioctl(device.as_raw_fd(), crate::ioctl::request(BLKFLSBUF)) };
+    if result < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

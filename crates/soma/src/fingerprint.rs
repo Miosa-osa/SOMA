@@ -51,6 +51,13 @@ pub(crate) fn launch(
     encoder.finish()
 }
 
+pub(crate) fn workspace(launch: &RequestFingerprint, volume_id: &[u8; 16]) -> RequestFingerprint {
+    let mut encoder = CanonicalHash::new(b"soma.managed-workspace.v1");
+    encoder.field(b"launch", launch.as_str().as_bytes());
+    encoder.field(b"volume", volume_id);
+    encoder.finish()
+}
+
 pub(crate) fn restore(
     launch: &RequestFingerprint,
     checkpoint: &crate::OperationId,

@@ -173,3 +173,25 @@ fn terminal_requests_round_trip_binary_input_without_logging_it() {
     assert!(encoded.is_ascii() && !encoded.contains('\n'));
     assert_eq!(Request::decode(&encoded), Ok(request));
 }
+
+#[test]
+fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unchanged() {
+    use std::num::NonZeroU64;
+    let normal = launch();
+    let generation = normal.generation();
+    let capacity = NonZeroU64::new(10 * 1024 * 1024 * 1024).unwrap();
+    let persistent = Request::Launch(Launch::new(
+        normal.operation_id(),
+        normal.instance_id(),
+        Generation::new(
+            generation.id(),
+            generation.machine(),
+            generation.devices().with_volume_capacity(capacity),
+        ),
+    ));
+    let encoded = persistent.encode();
+    assert_eq!(Request::decode(&encoded), Ok(persistent));
+    assert!(encoded.starts_with("launch_volume 10737418240 "));
+    assert!(Request::Launch(normal).encode().starts_with("launch "));
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+}

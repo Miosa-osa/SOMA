@@ -135,6 +135,29 @@ impl Backend for LocalBackend {
         Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
     }
 
+    fn launch_workspace(
+        &mut self,
+        request: LaunchRequest<'_, Self::PreparedWorkload>,
+        lease: &(dyn Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Self::Kvm(backend) = self {
+            let lease = lease
+                .downcast_ref::<std::fs::File>()
+                .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
+            return backend.launch_using(
+                &request,
+                Some(kvm::LaunchHandoff {
+                    checkpoint: None,
+                    fork_source: None,
+                    lease,
+                }),
+            );
+        }
+        let _ = (request, lease);
+        Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
     fn launch_checkpoint(
         &mut self,
         request: LaunchRequest<'_, Self::PreparedWorkload>,
@@ -149,8 +172,8 @@ impl Backend for LocalBackend {
                 .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
             return backend.launch_using(
                 &request,
-                Some(kvm::CheckpointHandoff {
-                    checkpoint,
+                Some(kvm::LaunchHandoff {
+                    checkpoint: Some(checkpoint),
                     fork_source,
                     lease,
                 }),

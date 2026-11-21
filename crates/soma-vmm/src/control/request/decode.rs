@@ -3,6 +3,8 @@
 //! Every value is checked by the contract constructor it feeds rather than by this module, so
 //! a request that decodes is always one the Machine may be asked to perform.
 
+use std::num::NonZeroU64;
+
 use crate::{
     Argument, ContractVersion, DeclaredDevices, DiskBytes, Execute, ExecuteContext,
     ExecutionLimits, Generation, GenerationId, HotplugBytes, InstanceId, Launch, MachineSpec,
@@ -29,6 +31,7 @@ pub(super) fn decode_shutdown<'a>(
 
 pub(super) fn decode_launch<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
+    volume_capacity: Option<NonZeroU64>,
 ) -> Result<Launch, ControlError> {
     let operation = OperationId::new(identifier(tokens.next(), "operation")?)
         .map_err(|_| ControlError::InvalidValue("operation"))?;
@@ -58,7 +61,10 @@ pub(super) fn decode_launch<'a>(
     if let Some(hotplug) = hotplug {
         machine = machine.with_hotplug(hotplug);
     }
-    let devices = DeclaredDevices::new(overlay, network);
+    let mut devices = DeclaredDevices::new(overlay, network);
+    if let Some(capacity) = volume_capacity {
+        devices = devices.with_volume_capacity(capacity);
+    }
     Ok(Launch::new(
         operation,
         instance,
