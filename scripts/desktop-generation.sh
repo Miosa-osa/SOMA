@@ -2,8 +2,9 @@
 #
 # Compiles a desktop image (workloads/desktop) into a captured, launchable Generation.
 #
-# A desktop Generation is an ordinary SOMA Generation: the same kernel, guest agent and devices as
-# every other, at a desktop shape, with a network device so a guest port (a later viewer) can be tunnelled to.
+# A desktop Generation is an ordinary SOMA Generation: the same guest agent and devices as every
+# other, on the desktop kernel variant (version 1 plus input and uinput), at a desktop shape,
+# with a network device so a guest port (the viewer) can be tunnelled to.
 # This script does the three steps that turn a local image into one, and refuses to stop halfway:
 #
 #   1. save the image from the local Docker daemon to an archive (skopeo cannot read the daemon of
@@ -59,6 +60,9 @@ esac
 readonly CAPTURE_BIN="$REPO_ROOT/target/release/examples/capture_snapshot"
 [[ -x "$CAPTURE_BIN" ]] || die "no capture tool; build it: cargo build --release -p soma-local --example capture_snapshot"
 command -v docker >/dev/null || die "docker is required to read the local image"
+# The desktop binds the desktop kernel variant (input and uinput, for the viewer), not version 1.
+KERNEL="${SOMA_KERNEL:-$(compgen -G "kernel/out-desktop/vmlinux-*-soma-desktop" | head -1 || true)}"
+[[ -n "$KERNEL" && -f "$KERNEL" ]] || die "no desktop kernel; run kernel/build-variant.sh desktop first"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "no local image $IMAGE; build workloads/desktop first"
 docker run --rm --network none --entrypoint /bin/sh "$IMAGE" -c \
     'test -x /usr/local/sbin/soma-desktop-session && test -x /opt/cua-driver/cua-driver' ||
@@ -75,6 +79,7 @@ docker save -o "$ARCHIVE" "$IMAGE"
 log "compiling $REFERENCE at $SHAPE ($VCPUS vCPUs, $MEMORY_MIB MiB, $STORAGE_MIB MiB writable)"
 # The capture below is what makes this entry restore rather than cold boot, so the prepare step is
 # allowed to end on a cold-boot-only entry and this script is the one that refuses to.
+SOMA_KERNEL="$KERNEL" \
 SOMA_IMAGE_SOURCE="docker-archive:$ARCHIVE" \
 SOMA_PREPARE_VCPUS="$VCPUS" \
 SOMA_PREPARE_NETWORK=public_internet \
