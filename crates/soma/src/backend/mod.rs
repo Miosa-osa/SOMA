@@ -72,13 +72,17 @@ pub trait Backend: Send {
         ))
     }
 
-    /// Recreates the stopped Instance from its published checkpoint.
+    /// Launches from a published checkpoint.
+    ///
+    /// A source Instance denotes a fork into the requested destination; its absence denotes
+    /// recovery of the original stopped Instance.
     /// # Errors
     /// Backends that cannot prove checkpoint restoration refuse the operation.
     fn launch_checkpoint(
         &mut self,
         _request: LaunchRequest<'_, Self::PreparedWorkload>,
         _checkpoint: &crate::OperationId,
+        _fork_source: Option<&InstanceId>,
         _lease: &(dyn std::any::Any + Send),
     ) -> Result<LaunchObservation, BackendFailure> {
         Err(BackendFailure::new(

@@ -155,6 +155,7 @@ fn launch_wire(skip_warm: bool) -> LaunchWire {
 fn launch_wire_with(skip_warm: bool, windowed: bool) -> LaunchWire {
     LaunchWire {
         checkpoint: None,
+        fork_source: None,
         volume: None,
         socket: "/run/soma/one.sock".into(),
         operation_id: OperationId::new(ONE).expect("operation"),

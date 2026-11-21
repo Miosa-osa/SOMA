@@ -61,6 +61,18 @@ pub(crate) fn restore(
     encoder.finish()
 }
 
+pub(crate) fn fork(
+    launch: &RequestFingerprint,
+    checkpoint: &crate::OperationId,
+    source: &InstanceId,
+) -> RequestFingerprint {
+    let mut encoder = CanonicalHash::new(b"soma.managed-fork.v1");
+    encoder.field(b"launch", launch.as_str().as_bytes());
+    encoder.field(b"source", source.as_str().as_bytes());
+    encoder.field(b"checkpoint", checkpoint.as_str().as_bytes());
+    encoder.finish()
+}
+
 pub(crate) fn execute(
     workload: &WorkloadIdentity,
     instance_id: &InstanceId,

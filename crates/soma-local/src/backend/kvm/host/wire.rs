@@ -69,6 +69,9 @@ pub(super) struct LaunchWire {
     /// Published checkpoint operation for this Instance, carried only for restore.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) checkpoint: Option<OperationId>,
+    /// Source Instance of a fork. Same-Instance restores omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) fork_source: Option<InstanceId>,
     pub(super) operation_id: OperationId,
     pub(super) instance_id: InstanceId,
     /// The image reference the client resolved.

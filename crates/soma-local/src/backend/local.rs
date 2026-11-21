@@ -139,6 +139,7 @@ impl Backend for LocalBackend {
         &mut self,
         request: LaunchRequest<'_, Self::PreparedWorkload>,
         checkpoint: &soma::OperationId,
+        fork_source: Option<&InstanceId>,
         lease: &(dyn Any + Send),
     ) -> Result<LaunchObservation, BackendFailure> {
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -146,9 +147,16 @@ impl Backend for LocalBackend {
             let lease = lease
                 .downcast_ref::<std::fs::File>()
                 .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
-            return backend.launch_using(&request, Some((checkpoint, lease)));
+            return backend.launch_using(
+                &request,
+                Some(kvm::CheckpointHandoff {
+                    checkpoint,
+                    fork_source,
+                    lease,
+                }),
+            );
         }
-        let _ = (request, checkpoint, lease);
+        let _ = (request, checkpoint, fork_source, lease);
         Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
     }
 

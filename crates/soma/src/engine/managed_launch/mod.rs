@@ -1,5 +1,6 @@
 mod admission;
 mod failure;
+mod fork;
 mod receipt;
 
 use crate::{
@@ -19,6 +20,12 @@ use self::{
     admission::LaunchAdmission,
     receipt::{launch_receipt, store_operation_failure},
 };
+
+struct CheckpointLaunch<'a> {
+    checkpoint: &'a crate::OperationId,
+    fork_source: Option<&'a crate::InstanceId>,
+    lease: &'a (dyn std::any::Any + Send),
+}
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
     /// Launches a managed Machine after durably recording its intent.
@@ -79,6 +86,15 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         request: LaunchMachineRequest,
         checkpoint: &crate::OperationId,
     ) -> Result<MachineLaunch, ManagedFailure> {
+        self.launch_from_checkpoint(&request, checkpoint, None)
+    }
+
+    fn launch_from_checkpoint(
+        &mut self,
+        request: &LaunchMachineRequest,
+        checkpoint: &crate::OperationId,
+        fork_source: Option<&crate::InstanceId>,
+    ) -> Result<MachineLaunch, ManagedFailure> {
         if request.operation_id == *checkpoint
             || request.volume.is_some()
             || request.windowed
@@ -90,7 +106,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             .backend
             .acquire_restore(&request.instance_id)
             .map_err(|failure| ManagedFailure::Backend(failure.kind()))?;
-        self.launch_managed(&request, Some((checkpoint, lease.as_ref())))
+        self.launch_managed(
+            request,
+            Some(CheckpointLaunch {
+                checkpoint,
+                fork_source,
+                lease: lease.as_ref(),
+            }),
+        )
     }
 
     #[allow(
@@ -100,7 +123,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     fn launch_managed(
         &mut self,
         request: &LaunchMachineRequest,
-        restore: Option<(&crate::OperationId, &(dyn std::any::Any + Send))>,
+        recovery: Option<CheckpointLaunch<'_>>,
     ) -> Result<MachineLaunch, ManagedFailure> {
         let source_fingerprint = crate::fingerprint::source(&request.image);
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
@@ -153,8 +176,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             &request.shape,
             request.windowed,
         );
-        let fingerprint = match restore {
-            Some((checkpoint, _)) => crate::fingerprint::restore(&fingerprint, checkpoint),
+        let fingerprint = match &recovery {
+            Some(recovery) => match recovery.fork_source {
+                Some(source) => {
+                    self.validate_fork_source(source, request, &workload)?;
+                    crate::fingerprint::fork(&fingerprint, recovery.checkpoint, source)
+                }
+                None => crate::fingerprint::restore(&fingerprint, recovery.checkpoint),
+            },
             None => fingerprint,
         };
         let intent = LaunchIntent {
@@ -165,7 +194,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             backend: self.backend.kind(),
             request_fingerprint: fingerprint.clone(),
         };
-        let admission = if restore.is_some() {
+        let admission = if recovery
+            .as_ref()
+            .is_some_and(|source| source.fork_source.is_none())
+        {
             self.admit_restore(request, &intent, resolved_at, &mut milestones)?
         } else {
             self.admit_launch(request, &intent, resolved_at, &mut milestones)?
@@ -186,11 +218,13 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         // declares one refuses to run without it.
         .with_volume(request.volume.as_ref())
         .with_windowed(request.windowed);
-        let observation = match restore {
-            Some((checkpoint, lease)) => {
-                self.backend
-                    .launch_checkpoint(backend_request, checkpoint, lease)
-            }
+        let observation = match recovery {
+            Some(recovery) => self.backend.launch_checkpoint(
+                backend_request,
+                recovery.checkpoint,
+                recovery.fork_source,
+                recovery.lease,
+            ),
             None => self.backend.launch(backend_request),
         };
         let launch = match observation {

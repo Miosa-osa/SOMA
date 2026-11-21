@@ -103,3 +103,25 @@ fn try_restore<F: SandboxFacade + ?Sized>(
         &result.receipt,
     ))
 }
+
+pub(crate) fn fork_as<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    request: soma::LaunchMachineRequest,
+    source: &InstanceId,
+    checkpoint: &OperationId,
+    sandbox_id: &str,
+) -> Response {
+    match facade.fork(request, source, checkpoint) {
+        Ok(result) => super::success(
+            200,
+            "sandbox.fork",
+            &serde_json::json!({
+                "sandbox_id": sandbox_id,
+                "state": "ready",
+                "receipt": result.receipt,
+            }),
+            None,
+        ),
+        Err(failure) => super::refuse("sandbox.fork", super::managed_error(&failure)),
+    }
+}

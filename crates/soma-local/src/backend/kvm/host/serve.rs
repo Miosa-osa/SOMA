@@ -113,7 +113,12 @@ fn launch(
             LaunchExtras {
                 volume: request.volume.clone(),
                 windowed: request.windowed,
-                checkpoint: request.checkpoint.clone(),
+                checkpoint: request.checkpoint.as_ref().map(|checkpoint| {
+                    (
+                        request.fork_source.as_ref().unwrap_or(&request.instance_id),
+                        checkpoint,
+                    )
+                }),
             },
         )
         .map_err(|failure| failure.kind())

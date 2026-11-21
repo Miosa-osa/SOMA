@@ -108,3 +108,18 @@ Host network authority and attached volumes are unavailable to this fork path.
 The sealed worker uses a distinct `fork` request naming the authorized source and the new launch, with the receipt digest.
 The broker opens the artifacts under the source identity and builds a private disk for the destination identity.
 Older workers reject the unfamiliar request before running any VM.
+
+The host handoff carries a fork source Instance only alongside the checkpoint operation and the destination lease.
+A fork with a missing checkpoint or a source equal to its destination is refused before creating an Instance socket.
+An older host rejects the unfamiliar fork field instead of treating it as a same-Instance restore.
+A primed host cannot accept either checkpoint operation because the handoff for a primed host carries no recovery lease.
+
+The managed engine validates the source's durable owner, workload identity, Generation, and shape before admitting the destination.
+It accepts an active source or a source with a confirmed Stop receipt.
+The destination lease covers its own write-ahead record and hosted launch; the source remains untouched.
+A fork request fingerprint binds the ordinary destination launch to the source and checkpoint.
+
+The authenticated runner exposes `POST /api/v1/sandboxes/{source}/fork` on the source host.
+The destination ID is derived from the tenant, source, and fork operation ID so a replay addresses the original destination.
+A new destination reserves a tenant slot and a replay of an active destination holds its existing slot.
+The server derives the durable owner label from the authenticated principal and accepts no owner label in the request body.

@@ -137,3 +137,9 @@ The sandbox must have completed a stop and the checkpoint must belong to that sa
 A successful response reports `ready` for the same Instance after the worker has authenticated and proved command readiness.
 Retry a completed restore with the same operation ID and checkpoint to get its original receipt.
 A different operation cannot restore over a live sandbox.
+
+The authenticated runner accepts `POST /api/v1/sandboxes/{source}/fork` with `operation_id`, `checkpoint_id`, `image`, and the exact checkpoint source `shape`.
+It returns the destination `sandbox_id` and launch receipt once the fork is ready.
+Retry with the same operation ID and request on the same source to address the same destination.
+The source may be active or stopped.
+The request must use the source owner's bearer key and an isolated shape.

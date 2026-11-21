@@ -108,6 +108,18 @@ impl LocalRuntime {
         self.engine.restore_machine(request, checkpoint)
     }
 
+    /// Forks a checkpoint into a distinct durably managed Machine with the same owner.
+    /// # Errors
+    /// Returns the typed managed failure if the fork could not be admitted or completed.
+    pub fn fork_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.engine.fork_machine(request, source, checkpoint)
+    }
+
     /// Executes one bounded command in a durably managed Machine.
     ///
     /// # Errors

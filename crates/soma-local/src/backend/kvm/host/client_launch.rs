@@ -18,6 +18,13 @@ use super::{
 };
 use crate::backend::kvm::prepared::PreparedGeneration;
 
+#[derive(Clone, Copy)]
+pub(in crate::backend) struct CheckpointHandoff<'a> {
+    pub(in crate::backend) checkpoint: &'a OperationId,
+    pub(in crate::backend) fork_source: Option<&'a InstanceId>,
+    pub(in crate::backend) lease: &'a File,
+}
+
 struct LaunchContext<'a> {
     operation_id: &'a OperationId,
     instance_id: &'a InstanceId,
@@ -25,7 +32,7 @@ struct LaunchContext<'a> {
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
     windowed: bool,
-    restore: Option<(&'a OperationId, &'a File)>,
+    restore: Option<CheckpointHandoff<'a>>,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -44,7 +51,7 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
-    pub(in crate::backend::kvm) restore: Option<(&'a OperationId, &'a File)>,
+    pub(in crate::backend::kvm) restore: Option<CheckpointHandoff<'a>>,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -170,7 +177,10 @@ fn handshake(
         // The volume's host path, certified by the store before the launch was admitted; the
         // file itself never crosses this wire.
         volume: context.volume.cloned(),
-        checkpoint: context.restore.map(|(checkpoint, _)| checkpoint.clone()),
+        checkpoint: context.restore.map(|recovery| recovery.checkpoint.clone()),
+        fork_source: context
+            .restore
+            .and_then(|recovery| recovery.fork_source.cloned()),
         operation_id: context.operation_id.clone(),
         instance_id: context.instance_id.clone(),
         reference: prepared.reference.clone(),
@@ -193,7 +203,7 @@ fn handshake(
         let borrowed = artifacts
             .iter()
             .map(File::as_fd)
-            .chain(context.restore.map(|(_, lease)| lease.as_fd()))
+            .chain(context.restore.map(|recovery| recovery.lease.as_fd()))
             .collect::<Vec<_>>();
         soma_supervise::send_descriptors(handoff.as_fd(), &borrowed)
             .map_err(|_| BackendFailureKind::Unavailable)?;

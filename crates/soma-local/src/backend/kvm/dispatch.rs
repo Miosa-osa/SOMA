@@ -48,7 +48,7 @@ impl KvmBackend {
     pub(in crate::backend) fn launch_using(
         &mut self,
         request: &LaunchRequest<'_, Box<dyn Any + Send>>,
-        restore: Option<(&soma::OperationId, &File)>,
+        restore: Option<host::CheckpointHandoff<'_>>,
     ) -> Result<LaunchObservation, BackendFailure> {
         let operation = request.operation_id();
         // The instant this operation was admitted, so a hosted launch can place the machine

@@ -41,6 +41,13 @@ fn serve_on_demand(
     if expected_socket.is_some_and(|expected| expected != request.socket) {
         return REFUSED;
     }
+    if request
+        .fork_source
+        .as_ref()
+        .is_some_and(|source| request.checkpoint.is_none() || source == &request.instance_id)
+    {
+        return REFUSED;
+    }
     // The handoff carries the duplicate of the caller's lease after the normal artifacts.
     let mut restore_lease = None;
     if request.checkpoint.is_some() {
@@ -102,6 +109,9 @@ fn serve_primed(
     let Some(request) = channel::read_line::<LaunchWire>(input) else {
         return REFUSED;
     };
+    if request.checkpoint.is_some() || request.fork_source.is_some() {
+        return refuse(BackendFailureKind::Unsupported);
+    }
     if request.reference != prepared.reference
         || request.generation_id != prepared.id
         || request.shape.memory_mib() < plan.memory_mib

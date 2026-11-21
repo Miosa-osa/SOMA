@@ -31,6 +31,7 @@ use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
 pub(super) use checkpoint::retention::retains_stopped_checkpoint;
+pub(super) use host::CheckpointHandoff;
 use host::Role;
 pub(crate) use host::open_tunnel;
 pub(crate) use host::resize as resize_machine;

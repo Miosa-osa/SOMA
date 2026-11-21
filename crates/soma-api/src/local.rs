@@ -71,6 +71,16 @@ impl SandboxFacade for LocalFacade {
         Ok(lifecycle(outcome.receipt()))
     }
 
+    fn fork(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        let outcome = self.runtime.fork_machine(request, source, checkpoint)?;
+        Ok(lifecycle(outcome.receipt()))
+    }
+
     fn inspect(
         &mut self,
         request: InspectMachineRequest,

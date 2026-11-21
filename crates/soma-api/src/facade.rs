@@ -114,6 +114,20 @@ pub trait SandboxFacade {
         ))
     }
 
+    /// Forks a checkpoint into a separate managed sandbox.
+    /// # Errors
+    /// Returns a typed refusal if the backend cannot establish the fork.
+    fn fork(
+        &mut self,
+        _request: LaunchMachineRequest,
+        _source: &soma::InstanceId,
+        _checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        Err(ManagedFailure::Backend(
+            soma::BackendFailureKind::Unsupported,
+        ))
+    }
+
     /// Reads back one managed sandbox by exact instance id.
     ///
     /// # Errors

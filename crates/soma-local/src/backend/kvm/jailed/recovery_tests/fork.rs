@@ -37,17 +37,7 @@ fn sealed_forks_keep_independent_identities_memory_and_disks() {
     check_filters(&original);
     let node = b"/usr/local/bin/node";
     execute(&mut original, node, &[b"-e", START]);
-    let sample = |machine: &mut Jailed| {
-        let output = execute(machine, node, &[b"-e", SAMPLE]);
-        let text = std::str::from_utf8(&output).unwrap();
-        let mut words = text.split_ascii_whitespace();
-        (
-            words.next().unwrap().to_owned(),
-            words.next().unwrap().to_owned(),
-            words.next().unwrap().parse::<u64>().unwrap(),
-        )
-    };
-    let parent_sample = sample(&mut original);
+    let parent_sample = sample_resident_process(&mut original);
     let mut held = Held::Jailed(Box::new(original));
     let receipt = checkpoint::perform(
         &mut held,
@@ -92,9 +82,9 @@ fn sealed_forks_keep_independent_identities_memory_and_disks() {
     assert_eq!(file(&mut worker_a), b"branch-a");
     assert_eq!(file(&mut worker_b), b"branch-b");
     assert_eq!(file(&mut source_worker), b"saved");
-    let a = sample(&mut worker_a);
-    let b = sample(&mut worker_b);
-    let source = sample(&mut source_worker);
+    let a = sample_resident_process(&mut worker_a);
+    let b = sample_resident_process(&mut worker_b);
+    let source = sample_resident_process(&mut source_worker);
     for fork in [&a, &b, &source] {
         assert_eq!(fork.0, parent_sample.0);
         assert_eq!(fork.1, parent_sample.1);
@@ -134,4 +124,15 @@ fn verify_worker_identities(workers: [(&mut Jailed, &InstanceId); 3]) -> Vec<i32
     worker_pids.dedup();
     assert_eq!(worker_pids.len(), 3);
     worker_pids
+}
+
+fn sample_resident_process(machine: &mut Jailed) -> (String, String, u64) {
+    let output = execute(machine, b"/usr/local/bin/node", &[b"-e", SAMPLE]);
+    let text = std::str::from_utf8(&output).unwrap();
+    let mut words = text.split_ascii_whitespace();
+    (
+        words.next().unwrap().to_owned(),
+        words.next().unwrap().to_owned(),
+        words.next().unwrap().parse().unwrap(),
+    )
 }

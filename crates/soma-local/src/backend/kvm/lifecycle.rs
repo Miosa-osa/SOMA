@@ -71,12 +71,12 @@ pub(super) struct Live {
 /// What a launch carries besides the Generation and the shape.
 ///
 /// Gathered so that adding one more fact does not add one more argument to every launch.
-pub(in crate::backend::kvm) struct LaunchExtras {
+pub(in crate::backend::kvm) struct LaunchExtras<'a> {
     /// The durable volume the host resolved, when the Generation declares one.
     pub(in crate::backend::kvm) volume: Option<soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
-    pub(in crate::backend::kvm) checkpoint: Option<OperationId>,
+    pub(in crate::backend::kvm) checkpoint: Option<(&'a InstanceId, &'a OperationId)>,
 }
 
 impl KvmBackend {
@@ -99,7 +99,7 @@ impl KvmBackend {
         instance: &InstanceId,
         prepared: &PreparedGeneration,
         shape: &MachineShape,
-        extras: LaunchExtras,
+        extras: LaunchExtras<'_>,
     ) -> Result<Launched, BackendFailure> {
         let LaunchExtras {
             volume,

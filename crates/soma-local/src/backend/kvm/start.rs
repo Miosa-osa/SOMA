@@ -48,7 +48,7 @@ pub(super) struct Launching<'a> {
     pub(super) secrets: Vec<SecretFile>,
     /// This Instance's durable volume, absent when its Generation declares none.
     pub(super) volume: Option<soma::VolumeAttachment>,
-    pub(super) checkpoint: Option<OperationId>,
+    pub(super) checkpoint: Option<(&'a InstanceId, &'a OperationId)>,
 }
 
 pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> BackendFailureKind {
@@ -192,7 +192,7 @@ impl KvmBackend {
                 generation_bytes,
                 memory_mib,
                 disk_mib: storage_mib,
-                checkpoint: checkpoint.as_ref().map(|checkpoint| (instance, checkpoint)),
+                checkpoint,
             },
         ) {
             Ok(jailed) => Ok(Started {
