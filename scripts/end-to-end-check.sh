@@ -243,8 +243,10 @@ stage_cleanup_proof() {
         [[ "$2" != leaked ]] || leaked=1
     }
     local heads after
-    heads="$(find "$HEAD_DIR" -mindepth 1 | wc -l)"
-    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no entry"
+    # A head is a file. The empty shard directories (h00 to h15) are the head store's own layout,
+    # made once by the first launch that uses the sharded store, and are not a leak.
+    heads="$(find "$HEAD_DIR" -mindepth 1 ! -type d | wc -l)"
+    if (( heads == 0 )); then verdict overlay_heads clean "the head directory holds no head file"
     else verdict overlay_heads leaked "$heads entries left in $HEAD_DIR"; fi
     differed processes "$WORK/procs.before" "$WORK/procs.after" "processes naming the state root"
     differed netns "$WORK/netns.before" "$WORK/netns.after" "network namespaces"
