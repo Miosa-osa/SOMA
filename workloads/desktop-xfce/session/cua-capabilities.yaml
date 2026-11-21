@@ -1,0 +1,62 @@
+# The cua-driver capability manifest of a SOMA desktop (manifest version 3).
+#
+# The daemon runs in `standard` permission mode with this manifest as its ceiling: a tool or a
+# resource that is not listed here is refused, whatever a caller asks. It lists exactly what the
+# platform's desktop contract maps onto (screen, pointer, keyboard, windows, clipboard, the
+# accessibility tree, launching apps) plus the state checks an agent verifies its actions with.
+# Recording, scripting (run_script, run_steps), browser control and process termination are left
+# out on purpose: they are later, separately reviewed additions. Names are the driver's own
+# (`cua-driver list-tools`); a name it does not know or lists twice stops the daemon at start.
+version: 3
+resources:
+  desktop:
+    display: true
+  # The applications whose windows an agent may read and act on, by executable. Window-scoped
+  # tools (get_window_state, verify_state, a click by element) are refused for any other process.
+  # The terminal may also be launched; the desktop's own panel and background may not.
+  apps:
+    - executable: /usr/bin/xfce4-terminal
+      launch: true
+      windows: all
+    - executable: /usr/bin/xfce4-panel
+      windows: all
+    - executable: /usr/bin/xfdesktop
+      windows: all
+  # The one place the driver may write: screenshots asked for with screenshot_out_file. The
+  # launcher creates it for the desktop user before the daemon starts; nothing else is writable.
+  files:
+    write:
+      - dir: /run/soma-desktop/captures
+allow:
+  tools:
+    - get_desktop_state
+    - get_screen_size
+    - get_window_state
+    - get_cursor_position
+    - zoom
+    - click
+    - double_click
+    - right_click
+    - move_cursor
+    - drag
+    - mouse_drag
+    - mouse_button_down
+    - mouse_button_up
+    - scroll
+    - type_text
+    - press_key
+    - hotkey
+    - set_value
+    - verify_state
+    - invoke_menu
+    - list_windows
+    - list_apps
+    - launch_app
+    - bring_to_front
+    - set_window_frame
+    - clipboard_read
+    - clipboard_write
+    - start_session
+    - end_session
+    - get_session
+    - list_sessions
