@@ -93,6 +93,12 @@ impl KvmBackend {
         let live = self
             .live_for(instance)
             .ok_or(crate::CheckpointFailure::NotFound)?;
+        // The checkpoint records the launch policy, but it cannot restore a window's
+        // current posture or deadline. Capture must refuse before it can publish state
+        // that a later fixed-policy restore might reopen.
+        if live.windowed {
+            return Err(crate::CheckpointFailure::Unsupported);
+        }
         super::super::checkpoint::perform(
             &mut live.held,
             instance,
