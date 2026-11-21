@@ -174,7 +174,9 @@ stage_run_sandbox() {
 # cleanup proof, so the head directory that proof inspects covers this sandbox too.
 stage_runner_files() {
     cargo build --release -p soma-api --example runner_files || return 1
-    local state="$WORK/runner-files-state" transcript="$WORK/runner-files.txt"
+    # A short name: a machine socket lives under this root, and a socket path over 108 bytes
+    # fails the launch as an unsupported backend (SOMA#171).
+    local state="$WORK/rf" transcript="$WORK/runner-files.txt"
     mkdir -p "$state"
     if ! SOMA_GENERATION_STORE="$STORE" \
         SOMA_HEAD_DIR="$HEAD_DIR" \
