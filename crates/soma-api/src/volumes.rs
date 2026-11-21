@@ -165,14 +165,14 @@ impl VolumeClient {
 
 /// Builds the daemon frame one request carries.
 fn request_for(operation: VolumeOperation, body: &VolumeBody) -> Result<Request, VolumeFailure> {
-    let operation_id =
-        HostOperation::from_hex(&body.operation_id).map_err(|_| VolumeFailure::Malformed)?;
-    let fingerprint = RequestFingerprint::from_hex(&body.request_fingerprint)
-        .map_err(|_| VolumeFailure::Malformed)?;
     let volume = HostVolume::from_hex(&body.volume_id).map_err(|_| VolumeFailure::Malformed)?;
     if operation == VolumeOperation::Read {
         return Ok(Request::VolumeRead { volume });
     }
+    let operation_id =
+        HostOperation::from_hex(&body.operation_id).map_err(|_| VolumeFailure::Malformed)?;
+    let fingerprint = RequestFingerprint::from_hex(&body.request_fingerprint)
+        .map_err(|_| VolumeFailure::Malformed)?;
     let instance =
         HostInstance::from_hex(&body.instance_id).map_err(|_| VolumeFailure::Malformed)?;
     let frame = DetachFrame {
