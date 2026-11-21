@@ -1472,7 +1472,7 @@ dependencies = [
 
 [[package]]
 name = "soma"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -1481,7 +1481,7 @@ dependencies = [
 
 [[package]]
 name = "soma-api"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "base64",
  "bytes",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "soma-cli"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "base64",
  "clap",
@@ -1523,7 +1523,7 @@ dependencies = [
 
 [[package]]
 name = "soma-generation"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "soma-guest"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "snow",
  "zeroize",
@@ -1552,7 +1552,7 @@ dependencies = [
 
 [[package]]
 name = "soma-guest-agent"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "libc",
  "soma-guest",
@@ -1563,7 +1563,7 @@ dependencies = [
 
 [[package]]
 name = "soma-hostd"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "chacha20poly1305",
  "getrandom 0.2.17",
@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "soma-jail"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "kvm-bindings",
  "libc",
@@ -1589,7 +1589,7 @@ dependencies = [
 
 [[package]]
 name = "soma-kvm"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "kvm-bindings",
  "kvm-ioctls",
@@ -1608,7 +1608,7 @@ dependencies = [
 
 [[package]]
 name = "soma-local"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "libc",
  "serde",
@@ -1631,7 +1631,7 @@ dependencies = [
 
 [[package]]
 name = "soma-macos"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "base64",
  "semver",
@@ -1641,7 +1641,7 @@ dependencies = [
 
 [[package]]
 name = "soma-mcp"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "base64",
  "clap",
@@ -1660,7 +1660,7 @@ dependencies = [
 
 [[package]]
 name = "soma-netd"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "libc",
  "sha2",
@@ -1673,7 +1673,7 @@ dependencies = [
 
 [[package]]
 name = "soma-storage"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "cap-std",
  "libc",
@@ -1685,14 +1685,14 @@ dependencies = [
 
 [[package]]
 name = "soma-supervise"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "soma-template"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "sha2",
  "soma",
@@ -1701,11 +1701,11 @@ dependencies = [
 
 [[package]]
 name = "soma-version"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 
 [[package]]
 name = "soma-vmm"
-version = "1.0.0-alpha.2"
+version = "1.0.0-alpha.3"
 dependencies = [
  "libc",
  "serde_json",
