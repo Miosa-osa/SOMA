@@ -1,0 +1,20 @@
+
+==> starting soma-netd and soma-api
+
+==> launch to Ready: 5 launches of soma-desktop:small-1, each destroyed at once
+POST /v1/sandboxes -> 201 in 0.070885 s
+DELETE /v1/sandboxes/ba7b80b9734d4285a3eb45eac2122ecb -> 200 in 0.124514 s
+POST /v1/sandboxes -> 201 in 0.035148 s
+DELETE /v1/sandboxes/a4f5ff38e32d4577b80a480b07908b08 -> 200 in 0.129300 s
+POST /v1/sandboxes -> 201 in 0.034785 s
+DELETE /v1/sandboxes/224c073098c14ef4b1d5193f5ab3c1d1 -> 200 in 0.139866 s
+POST /v1/sandboxes -> 201 in 0.035260 s
+DELETE /v1/sandboxes/0540783b19074bc8acea45c483ec9f32 -> 200 in 0.132433 s
+POST /v1/sandboxes -> 201 in 0.033284 s
+DELETE /v1/sandboxes/9d1ada0439ad402484dd534200da681d -> 200 in 0.128162 s
+
+==> create: soma-desktop:small-1 at the small shape
+POST /v1/sandboxes -> 201 in 0.034151 s
+
+==> session launcher through exec, viewer waiting on the tunnel
+POST /v1/sandboxes/fe99ce24d52f4fdb84ecf51aecf1bd44/commands -> 200 in 1.783779 s
