@@ -47,6 +47,8 @@ pub enum Request {
     /// Perform one bounded terminal exchange against the live guest session.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Pty(super::PtyRequest),
+    /// Run one filesystem operation over the attached private socket.
+    File(InstanceId),
     Stop(Stop),
     /// Pause the matching machine and keep its state resident.
     Pause(InstanceId),
@@ -101,6 +103,7 @@ impl Request {
                 hex(&serde_json::to_vec(request.operation())
                     .expect("terminal operation serializes")),
             ),
+            Self::File(instance) => format!("file {}", hex(instance.as_bytes())),
             Self::Pause(instance) => format!("pause {}", hex(instance.as_bytes())),
             Self::Resume(instance) => format!("resume {}", hex(instance.as_bytes())),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -164,6 +167,7 @@ impl Request {
             "execute_stream" => decode::decode_execute_in(&mut tokens).map(Self::ExecuteStreaming),
             "stop" => decode_stop(&mut tokens),
             "pause" => decode::decode_instance(&mut tokens).map(Self::Pause),
+            "file" => decode::decode_instance(&mut tokens).map(Self::File),
             "resume" => decode::decode_instance(&mut tokens).map(Self::Resume),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "checkpoint" => decode::decode_checkpoint(&mut tokens).map(Self::Checkpoint),

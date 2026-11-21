@@ -49,6 +49,14 @@ pub(crate) trait Platform: Send {
     }
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn file(
+        &mut self,
+        _operation: soma::FileOperation,
+    ) -> Result<soma::FileAnswer, PlatformFailure> {
+        Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn pty(&mut self, _operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure> {
         Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
     }

@@ -13,6 +13,7 @@ mod build;
 mod checkpoint;
 mod command;
 mod control;
+mod file;
 mod outcome;
 mod pause;
 mod pty;

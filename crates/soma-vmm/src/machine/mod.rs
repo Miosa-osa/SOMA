@@ -2,6 +2,8 @@
 mod checkpoint;
 mod execute;
 mod fault;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod file;
 mod launch;
 mod pause;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

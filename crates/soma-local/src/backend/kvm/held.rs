@@ -115,8 +115,7 @@ impl Held {
     ) -> Result<FileAnswer, BackendFailureKind> {
         match self {
             Self::Resident(session) => session.file(operation).map_err(failure_kind),
-            // The jailed control protocol does not carry portable filesystem requests yet.
-            Self::Jailed(_) => Err(BackendFailureKind::Unsupported),
+            Self::Jailed(jailed) => jailed.file(operation),
         }
     }
 

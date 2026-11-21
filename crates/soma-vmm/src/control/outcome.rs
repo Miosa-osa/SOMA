@@ -32,6 +32,7 @@ pub enum Outcome {
     Resumed(InstanceId),
     Checkpointed(InstanceId, [u8; 32]),
     CheckpointUnconfirmed,
+    FileComplete(InstanceId),
     /// The machine stopped and proved its cleanup.
     Stopped {
         guest_acknowledged: bool,
@@ -80,6 +81,7 @@ impl Outcome {
             "stopped" => stopped(rest),
             "paused" => resident_instance(rest).map(Self::Paused),
             "resumed" => resident_instance(rest).map(Self::Resumed),
+            "file_complete" => resident_instance(rest).map(Self::FileComplete),
             "checkpointed" => checkpointed(rest),
             "checkpoint_unconfirmed" => {
                 field::end(rest.split_whitespace()).map(|()| Self::CheckpointUnconfirmed)

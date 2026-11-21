@@ -320,6 +320,19 @@ impl Platform for KvmPlatform {
         ))
     }
 
+    fn file(
+        &mut self,
+        operation: soma::FileOperation,
+    ) -> Result<soma::FileAnswer, PlatformFailure> {
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
+        session
+            .file(operation)
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
     fn pty(&mut self, operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure> {
         let session = self
             .session

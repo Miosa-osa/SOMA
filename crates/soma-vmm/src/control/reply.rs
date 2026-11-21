@@ -17,6 +17,7 @@ pub enum Reply<'a> {
     Resumed(InstanceId),
     Checkpointed(InstanceId, [u8; 32]),
     CheckpointUnconfirmed,
+    FileComplete(InstanceId),
     Failure(&'a Failure),
     /// One bounded window of a completed command's output.
     Output(&'a [u8]),
@@ -63,6 +64,9 @@ impl Reply<'_> {
                 format!("checkpointed {} {}", hex(instance.as_bytes()), hex(digest))
             }
             Self::CheckpointUnconfirmed => "checkpoint_unconfirmed".to_owned(),
+            Self::FileComplete(instance) => {
+                format!("file_complete instance={}", hex(instance.as_bytes()))
+            }
             Self::Stopped(stopped) => format!(
                 "stopped operation={} instance={} acknowledged={} forced={} cleanup={:?} \
                  milestones={}",
