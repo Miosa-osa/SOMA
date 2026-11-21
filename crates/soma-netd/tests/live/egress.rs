@@ -46,7 +46,7 @@ fn bring_up(broker: &Broker, seed: u8, activated: bool) -> (Assigned, Guest) {
 fn tracked(zone: Option<u16>) -> usize {
     let mut command = Command::new(CONNTRACK);
     if let Some(zone) = zone {
-        command.args(["-L", "-w", &zone.to_string()]);
+        command.args(["-L", "--orig-zone", &zone.to_string()]);
     } else {
         command.arg("-C");
     }
