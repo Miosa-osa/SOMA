@@ -9,7 +9,8 @@ The sandbox was destroyed and left no file in the head directory and no process 
 
 ## How it was run
 
-The run was made on `miosa-host-12` (96 threads, x86_64, Linux 7.0.0-43-generic, `/dev/kvm`) at `b9280c0`, from a scratch directory of its own.
+The run was made on `miosa-host-12` (96 threads, x86_64, Linux 7.0.0-43-generic, `/dev/kvm`), from a scratch directory of its own.
+It was first run by hand on the pull request's branch, and then on 2026-11-21 through `scripts/end-to-end-check.sh` at `84583b7`, the merged commit on `r3/soma-unified`; that run is the one this record stands on (see "Through the end-to-end check" below).
 A `node:22` Generation was prepared at 1024 MiB of memory and 4096 MiB of storage and certified by capturing its snapshot:
 
 ```sh
@@ -52,7 +53,7 @@ stat deleted     404     0.451 ms
 destroy          200    43.254 ms
 runner files: every call answered as the contract requires; 9437261 bytes uploaded, downloaded and read back identical, sha256 bbd5c18d25c13ea0443030332c69a4becef352e3f11bd02156d5a87c6abf9531 in the guest
 heads_left=16
-b9280c0e17a5aa02074ed2212aae60428020abde
+(the branch commit of the first hand run)
 Linux 7.0.0-43-generic x86_64
 96
 ```
@@ -63,6 +64,20 @@ Linux 7.0.0-43-generic x86_64
 
 - It is one sample of each call on one host and one Generation, so no time above is a measurement of anything; the times are printed so a reader can see which calls moved data.
 - The machine had no network: the runner launched it with no public egress, because this host has no network broker.
-- It was not run through `scripts/end-to-end-check.sh`, whose `runner_files` stage runs this same example.
-  At `b9280c0` that script stops before the stage on this host for reasons outside this change: `prepare-generation.sh` refuses to finish without `SOMA_ALLOW_COLD_BOOT_ENTRY=1` although the next stage captures the snapshot, and at the default 10240 MiB of storage `capture_snapshot` fails with `Generation compilation failed during VerifyGeneration: Unsupported (overlay template capacity)`.
 - Nothing here reached the runner over the network or through the platform's routing; that routing is the platform's work.
+
+## Through the end-to-end check
+
+`scripts/end-to-end-check.sh --fs-tools <fs-tools>` at `84583b7` on `miosa-host-12`, as an unprivileged user, ended with every stage passed (rc=0 after 497 s):
+
+```text
+passed host_setup          kvm=ok virt=ok cgroup2=ok skopeo=ok cargo=ok python3=ok docker=ok musl=ok fs_tools=ok head_fs=xfs
+passed prepare_generation  candidate=1547B store=6.5G
+passed capture_snapshot    state=12K overlay=4.0G
+passed run_sandbox         stdout='v22.23.5' exit=0 isolation=hardware_virtual_machine ready=25.2ms finished=89.3ms
+passed runner_files        every call answered as the contract requires; 9437261 bytes uploaded, downloaded and read back identical, sha256 bbd5c18d25c13ea0443030332c69a4becef352e3f11bd02156d5a87c6abf9531 in the guest
+passed large_command       heredoc of 12329 bytes: stdout='heredoc lines 231' exit=0
+passed cleanup_proof       overlay_heads=clean processes=clean netns=clean nftables=unverified state_root=clean
+```
+
+`nftables=unverified`: the unprivileged user could not list the tables, so nothing was compared there.
