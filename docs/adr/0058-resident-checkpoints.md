@@ -49,3 +49,6 @@ The page must name the same Generation and Instance and a new operation.
 The agent rotates entropy and corrects wall time, preserves the guest's files and process state, and authenticates a fresh session.
 An absent page, an invalid binding, or any handshake failure ends the guest.
 Protocol and authentication failures on the old channel never enter reconnect.
+
+The VMM worker admits this path as a separate source and enters the same authenticated command loop used by ordinary sandboxes.
+It refuses an Instance, Generation, or CID different from the authorized restore request and refuses a network attachment or new launch secrets on this path.

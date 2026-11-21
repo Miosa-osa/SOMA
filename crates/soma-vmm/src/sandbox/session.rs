@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use soma_guest::ActivationReceipt;
 
-use super::source::Boot;
+use super::source::{Boot, Source};
 use super::worker::serve;
 
 mod protocol;
@@ -122,6 +122,12 @@ impl Session {
         boot: Boot,
         activate: &mut dyn FnMut(&ActivationReceipt) -> Result<Activation, SessionError>,
     ) -> Result<Self, SessionError> {
+        let launch_budget = if matches!(&boot.source, Source::ResidentCheckpoint(_)) {
+            // Recovery verifies every checkpoint byte and the private head before KVM runs.
+            Duration::from_mins(15)
+        } else {
+            BOOT_DEADLINE
+        };
         let (request_tx, request_rx) = channel();
         let (response_tx, response_rx) = channel();
         let thread = std::thread::Builder::new()
@@ -136,7 +142,7 @@ impl Session {
             pending: None,
             head_reads: Vec::new(),
         };
-        match session.await_response(BOOT_DEADLINE + EXIT_GRACE) {
+        match session.await_response(launch_budget + EXIT_GRACE) {
             Ok(Response::Ready { head_reads }) => {
                 session.head_reads = head_reads;
                 Ok(session)
