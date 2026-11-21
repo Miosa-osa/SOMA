@@ -94,7 +94,19 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
     let persistence = persistence_requested()?;
     let large_memory = args.memory_mib > soma_kvm::V2_MAX_MEMORY_BYTES / (1024 * 1024);
     let large_storage = args.storage_mib == LARGE_STORAGE_MIB;
-    let profile = if large_storage || large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
+    let guest_cache = match std::env::var("SOMA_PREPARE_COMPILER_POLICY").as_deref() {
+        Ok("8") => true,
+        Err(std::env::VarError::NotPresent) => false,
+        _ => return Err("SOMA_PREPARE_COMPILER_POLICY must be 8 when set".into()),
+    };
+    let profile = if guest_cache {
+        if persistence || args.inputs.ceiling_mib.is_some() {
+            return Err(
+                "compiler policy 8 requires fixed memory and an ephemeral writable disk".into(),
+            );
+        }
+        CompilerProfile::v8()
+    } else if large_storage || large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
         if persistence || args.inputs.ceiling_mib.is_some() {
             return Err(
                 "the requested machine uses fixed memory and an ephemeral writable disk".into(),

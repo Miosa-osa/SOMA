@@ -28,6 +28,8 @@ pub const V3_VERSION: u16 = 3;
 pub const V4_VERSION: u16 = 4;
 /// Version number of the 32 GiB fixed-memory machine contract.
 pub const V5_VERSION: u16 = 5;
+/// Version number of the machine with a guest cache geometry.
+pub const V6_VERSION: u16 = 6;
 /// The one vCPU version 1 admits.
 pub const V1_MAX_VCPUS: u16 = 1;
 /// The eight vCPUs version 2 admits.
@@ -84,6 +86,8 @@ pub enum MachineContract {
     V4,
     /// The fixed-memory machine with up to sixteen processors and 32 GiB of RAM.
     V5,
+    /// Version 5 with fixed, usable cache geometry in guest CPUID.
+    V6,
 }
 
 /// A contract version this implementation does not implement.
@@ -107,7 +111,7 @@ impl std::error::Error for UnknownContractVersion {}
 
 impl MachineContract {
     /// Every contract this implementation understands, oldest first.
-    pub const ALL: [Self; 5] = [Self::V1, Self::V2, Self::V3, Self::V4, Self::V5];
+    pub const ALL: [Self; 6] = [Self::V1, Self::V2, Self::V3, Self::V4, Self::V5, Self::V6];
 
     /// The contract's version number.
     #[must_use]
@@ -118,6 +122,7 @@ impl MachineContract {
             Self::V3 => V3_VERSION,
             Self::V4 => V4_VERSION,
             Self::V5 => V5_VERSION,
+            Self::V6 => V6_VERSION,
         }
     }
 
@@ -130,6 +135,7 @@ impl MachineContract {
             V3_VERSION => Some(Self::V3),
             V4_VERSION => Some(Self::V4),
             V5_VERSION => Some(Self::V5),
+            V6_VERSION => Some(Self::V6),
             _ => None,
         }
     }
@@ -152,7 +158,7 @@ impl MachineContract {
         match self {
             Self::V1 => V1_MAX_VCPUS,
             Self::V2 | Self::V3 => V2_MAX_VCPUS,
-            Self::V4 | Self::V5 => V4_MAX_VCPUS,
+            Self::V4 | Self::V5 | Self::V6 => V4_MAX_VCPUS,
         }
     }
 
@@ -168,7 +174,7 @@ impl MachineContract {
         match self {
             Self::V1 => V1_MAX_MEMORY_BYTES,
             Self::V2 | Self::V3 | Self::V4 => V2_MAX_MEMORY_BYTES,
-            Self::V5 => V5_MAX_MEMORY_BYTES,
+            Self::V5 | Self::V6 => V5_MAX_MEMORY_BYTES,
         }
     }
 
@@ -183,7 +189,7 @@ impl MachineContract {
     pub const fn base_arguments(self) -> &'static [&'static str] {
         match self {
             Self::V1 => &V1_BASE_ARGUMENTS,
-            Self::V2 | Self::V3 | Self::V4 | Self::V5 => &V2_BASE_ARGUMENTS,
+            Self::V2 | Self::V3 | Self::V4 | Self::V5 | Self::V6 => &V2_BASE_ARGUMENTS,
         }
     }
 
@@ -227,7 +233,7 @@ mod tests {
             );
         }
         assert_eq!(MachineContract::from_version(0), None);
-        assert_eq!(MachineContract::from_version(6), None);
+        assert_eq!(MachineContract::from_version(7), None);
         assert_eq!(
             MachineContract::require(9),
             Err(UnknownContractVersion { version: 9 })

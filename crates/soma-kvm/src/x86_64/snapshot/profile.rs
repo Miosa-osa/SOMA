@@ -85,6 +85,7 @@ const fn contract_domain(contract: MachineContract) -> &'static [u8] {
         MachineContract::V3 => b"SOMA-x86_64-machine-contract-v3\0",
         MachineContract::V4 => b"SOMA-x86_64-machine-contract-v4\0",
         MachineContract::V5 => b"SOMA-x86_64-machine-contract-v5\0",
+        MachineContract::V6 => b"SOMA-x86_64-machine-contract-v6\0",
     }
 }
 
@@ -187,6 +188,7 @@ pub(in crate::x86_64) fn cpu_template(
         MachineContract::V3 => b"SOMA-cpu-template-v3\0".as_slice(),
         MachineContract::V4 => b"SOMA-cpu-template-v4\0".as_slice(),
         MachineContract::V5 => b"SOMA-cpu-template-v5\0".as_slice(),
+        MachineContract::V6 => b"SOMA-cpu-template-v6\0".as_slice(),
     });
     for entry in entries.entries() {
         for word in [

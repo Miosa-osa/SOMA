@@ -77,10 +77,10 @@ fn every_version_two_bound_field_rejects_on_mismatch() {
 
 #[test]
 fn an_unknown_machine_contract_version_fails_closed() {
-    // Neither a command line nor a binding exists for version 6, so a manifest naming it matches
+    // Neither a command line nor a binding exists for version 7, so a manifest naming it matches
     // nothing and is refused rather than verified against some other contract's bytes.
     rejected(Incompatibility::CommandLine, |manifest| {
-        manifest.machine_contract.version = 6;
+        manifest.machine_contract.version = 7;
     });
 }
 

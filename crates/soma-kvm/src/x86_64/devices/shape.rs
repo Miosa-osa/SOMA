@@ -26,9 +26,11 @@ pub(super) const VOLUME_SERIAL: &[u8] = b"soma-volume";
 pub(crate) const fn block_transfer(contract: MachineContract) -> TransferShape {
     match contract {
         MachineContract::V1 => TransferShape::Undeclared,
-        MachineContract::V2 | MachineContract::V3 | MachineContract::V4 | MachineContract::V5 => {
-            TransferShape::Declared
-        }
+        MachineContract::V2
+        | MachineContract::V3
+        | MachineContract::V4
+        | MachineContract::V5
+        | MachineContract::V6 => TransferShape::Declared,
     }
 }
 

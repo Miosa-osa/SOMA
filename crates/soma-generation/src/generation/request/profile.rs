@@ -51,6 +51,8 @@ pub const WIDE_CPU_POLICY_VERSION: u16 = 5;
 pub const WIDE_MEMORY_POLICY_VERSION: u16 = 6;
 /// The compiler policy that also admits a 160 GiB writable disk.
 pub const LARGE_DISK_POLICY_VERSION: u16 = 7;
+/// The compiler policy for the machine with fixed guest cache geometry.
+pub const GUEST_CACHE_POLICY_VERSION: u16 = 8;
 
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
@@ -184,6 +186,19 @@ impl CompilerProfile {
         profile
     }
 
+    /// Returns the fixed-memory profile with valid cache alignment in guest CPUID.
+    #[must_use]
+    pub fn v8() -> Self {
+        let mut profile = Self::v7();
+        profile.policy_version = GUEST_CACHE_POLICY_VERSION;
+        profile.machine_contract = MachineContract::V6;
+        profile
+            .overlay_capacities
+            .extend([DEFAULT_WRITABLE_CLASS_BYTES, XL_WRITABLE_CLASS_BYTES]);
+        profile.overlay_capacities.sort_unstable();
+        profile
+    }
+
     /// This profile with a different hotplug region: the ceiling minus the boot memory.
     ///
     /// Only a profile whose machine has the memory device admits a non-zero region; `validate`
@@ -214,6 +229,7 @@ impl CompilerProfile {
             WIDE_CPU_POLICY_VERSION => Some(Self::v5()),
             WIDE_MEMORY_POLICY_VERSION => Some(Self::v6()),
             LARGE_DISK_POLICY_VERSION => Some(Self::v7()),
+            GUEST_CACHE_POLICY_VERSION => Some(Self::v8()),
             _ => None,
         }
     }
@@ -232,6 +248,7 @@ impl CompilerProfile {
             WIDE_MEMORY_POLICY_VERSION | LARGE_DISK_POLICY_VERSION => {
                 self.machine_contract == MachineContract::V5
             }
+            GUEST_CACHE_POLICY_VERSION => self.machine_contract == MachineContract::V6,
             version => self.machine_contract.version() == version,
         }
     }

@@ -12,6 +12,7 @@ fn each_profile_declares_the_bounds_of_its_own_contract() {
         CompilerProfile::v5(),
         CompilerProfile::v6(),
         CompilerProfile::v7(),
+        CompilerProfile::v8(),
     ] {
         let contract = profile.machine_contract;
         let limits = ProfileLimits::for_version(profile.policy_version)
@@ -38,6 +39,8 @@ fn each_profile_declares_the_bounds_of_its_own_contract() {
     assert!(CompilerProfile::v5().validate().is_ok());
     assert_eq!(CompilerProfile::v6().machine_contract, MachineContract::V5);
     assert!(CompilerProfile::v6().validate().is_ok());
+    assert_eq!(CompilerProfile::v8().machine_contract, MachineContract::V6);
+    assert!(CompilerProfile::v8().validate().is_ok());
 }
 
 #[test]
@@ -88,7 +91,7 @@ fn the_v4_profile_declares_the_durable_volume_over_version_threes_machine() {
     );
     // A version this build knows is admitted, and no earlier profile changes at all.
     assert_eq!(
-        CompilerProfile::from_policy_version(8),
+        CompilerProfile::from_policy_version(9),
         None,
         "a version with no profile is refused rather than admitted under the wrong one"
     );
