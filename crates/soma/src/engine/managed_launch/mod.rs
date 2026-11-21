@@ -109,7 +109,9 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         if request.operation_id == *checkpoint
             || request.volume.is_some()
             || request.windowed
-            || *request.shape.capabilities().network_policy() != crate::NetworkPolicy::isolated()
+            || (fork_source.is_some()
+                && *request.shape.capabilities().network_policy()
+                    != crate::NetworkPolicy::isolated())
         {
             return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
         }
