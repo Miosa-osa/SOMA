@@ -113,6 +113,11 @@ pub(super) fn serve(
 
 /// Copies bytes between the caller and the guest until either side closes.
 fn pump(caller: UnixStream, guest: TcpStream, activity: Arc<AtomicU64>, started: Instant) {
+    // The host request timeout only applies to reading the command. The outer
+    // tunnel owns the idle policy once this socket carries guest traffic.
+    if caller.set_read_timeout(None).is_err() {
+        return;
+    }
     let (Ok(caller_read), Ok(guest_read)) = (caller.try_clone(), guest.try_clone()) else {
         return;
     };
@@ -222,6 +227,32 @@ mod tests {
         assert_eq!(&echoed, b"ping");
         // Closing the caller's end closes the guest's: the echo server reads end of stream.
         stream.shutdown(Shutdown::Both).expect("shutdown");
+    }
+
+    #[test]
+    fn the_host_request_deadline_does_not_close_an_idle_tunnel() {
+        let (mut client, host) = UnixStream::pair().expect("host connection");
+        host.set_read_timeout(Some(Duration::from_millis(40)))
+            .expect("set request deadline");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("bound test");
+        let guest = TcpStream::connect(echo_server()).expect("guest connection");
+        pump(host, guest, Arc::new(AtomicU64::new(0)), Instant::now());
+
+        let mut response = [0_u8; 4];
+        client.write_all(b"ping").expect("first write");
+        client.read_exact(&mut response).expect("first echo");
+        assert_eq!(&response, b"ping");
+
+        thread::sleep(Duration::from_millis(150));
+        client
+            .write_all(b"pong")
+            .expect("write after request deadline");
+        client
+            .read_exact(&mut response)
+            .expect("echo after request deadline");
+        assert_eq!(&response, b"pong");
     }
 
     #[test]
