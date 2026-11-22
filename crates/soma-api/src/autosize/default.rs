@@ -50,12 +50,26 @@ pub fn is_default() -> bool {
 
 /// Records that `instance` was turned off on purpose, so default sizing leaves it alone.
 pub fn turn_off(instance: &InstanceId) {
+    turn_off_quiet(instance);
+    super::saved::save();
+}
+
+/// [`turn_off`] without saving, for restoring what was saved.
+pub(super) fn turn_off_quiet(instance: &InstanceId) {
     turned_off().insert(instance.as_str().to_owned());
 }
 
 /// Forgets a deliberate turn-off, because the sandbox was given a range again.
 pub fn turn_on(instance: &InstanceId) {
-    turned_off().remove(instance.as_str());
+    let removed = turned_off().remove(instance.as_str());
+    if removed {
+        super::saved::save();
+    }
+}
+
+/// The sandboxes turned off on purpose, for saving.
+pub(super) fn turned_off_now() -> std::collections::BTreeSet<String> {
+    turned_off().iter().cloned().collect()
 }
 
 /// The range a sandbox gets when nobody named one: one processor up to what it booted with, and
@@ -90,9 +104,15 @@ pub fn enrol<F: SandboxFacade + ?Sized>(facade: &mut F) {
         .filter(|entry| matches!(entry.phase(), SandboxPhase::Active | SandboxPhase::Executing))
         .map(|entry| entry.instance_id().clone())
         .collect();
-    {
+    let forgot = {
         let live: HashSet<&str> = running.iter().map(InstanceId::as_str).collect();
-        turned_off().retain(|instance| live.contains(instance.as_str()));
+        let mut off = turned_off();
+        let before = off.len();
+        off.retain(|instance| live.contains(instance.as_str()));
+        off.len() != before
+    };
+    if forgot {
+        super::saved::save();
     }
     for instance in running {
         let known = sandboxes().contains_key(instance.as_str());

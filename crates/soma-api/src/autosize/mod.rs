@@ -12,6 +12,7 @@ mod decide;
 mod default;
 mod guest;
 mod route;
+mod saved;
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{LazyLock, Mutex, PoisonError};
@@ -26,6 +27,7 @@ use guest::measure;
 pub use decide::{Policy, Sample};
 pub use default::{DEFAULT_ENV, is_default, set_default, setting_is_on};
 pub use route::{AutosizeBody, serve};
+pub use saved::{FILE as SAVED_FILE, remember_in};
 
 use crate::facade::SandboxFacade;
 
@@ -65,8 +67,14 @@ fn sandboxes() -> std::sync::MutexGuard<'static, HashMap<String, Entry>> {
     SANDBOXES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Turns automatic sizing on for `instance` with `policy`, or off with `None`.
+/// Turns automatic sizing on for `instance` with `policy`, or off with `None`, and saves it.
 pub fn set(instance: &InstanceId, policy: Option<Policy>) {
+    set_quiet(instance, policy);
+    saved::save();
+}
+
+/// [`set`] without saving, for restoring what was saved.
+fn set_quiet(instance: &InstanceId, policy: Option<Policy>) {
     let mut all = sandboxes();
     match policy {
         Some(policy) => {
@@ -160,6 +168,7 @@ pub fn tick<F: SandboxFacade + ?Sized>(facade: &mut F, instance: &InstanceId) {
         // The sandbox is gone: it was destroyed, stopped, or suspended, so its sizing ends with it.
         Err(soma_local::ResizeFailure::NotFound) => {
             sandboxes().remove(instance.as_str());
+            saved::save();
             return;
         }
         Err(soma_local::ResizeFailure::Unavailable) => {
