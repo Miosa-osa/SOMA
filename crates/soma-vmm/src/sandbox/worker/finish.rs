@@ -31,11 +31,11 @@ pub enum Ending {
 /// `KVM_RUN` at once, where a guest that acknowledged shutdown is waited on to leave by itself.
 pub fn report(
     mut sandbox: SandboxMachine,
-    outcome: Result<Ending, SessionError>,
+    outcome: &Result<Ending, SessionError>,
     responses: &Sender<Response>,
     instance: [u8; 16],
 ) {
-    let grace = exit_grace(&outcome);
+    let grace = exit_grace(outcome);
     match outcome {
         // The machine was paused and read, and the owner already has the Suspension's members;
         // only the release is left, and nobody waits on it.
@@ -56,7 +56,7 @@ pub fn report(
             // A failed sandbox never reaches cleanup, so this is the only chance to keep what it
             // recorded. The caller still receives the same typed failure.
             super::super::timeline::dump_failure(&hex(instance), &evidence, &format!("{error:?}"));
-            let _ignored = responses.send(Response::Failed(error));
+            let _ignored = responses.send(Response::Failed(*error));
         }
     }
 }

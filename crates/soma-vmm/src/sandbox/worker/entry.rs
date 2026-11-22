@@ -52,7 +52,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 secrets: &secrets,
             };
             let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
-            report(sandbox, outcome, responses, instance);
+            report(sandbox, &outcome, responses, instance);
         }
         Source::Restore {
             objects,
@@ -130,7 +130,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 let read = (suspend_disks, generation, contract);
                 answer_suspension(&mut restored.machine, target, read, responses);
             }
-            report(restored.machine, outcome, responses, instance);
+            report(restored.machine, &outcome, responses, instance);
         }
     }
 }

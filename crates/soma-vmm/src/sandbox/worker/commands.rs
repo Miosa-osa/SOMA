@@ -116,12 +116,9 @@ pub(super) fn serve_commands(
             Request::Assign(_) => return Err(SessionError::Execute),
             Request::Shutdown => break,
             Request::Suspend(target) => {
-                let (next, suspended) =
-                    suspend(repaired, target, suspendable, &mut guest_api, responses)?;
-                match (next, suspended) {
-                    (Some(next), None) => repaired = next,
-                    (_, Some(ending)) => return Ok(ending),
-                    (None, None) => return Err(SessionError::Suspend),
+                match suspend(repaired, target, suspendable, &mut guest_api, responses)? {
+                    SuspendStep::Refused(untouched) => repaired = untouched,
+                    SuspendStep::Suspended(ending) => return Ok(ending),
                 }
             }
             // The guest is not told. The session is abandoned with the machine, which the
@@ -196,6 +193,12 @@ fn stream_command<'a>(
     Ok(repaired)
 }
 
+/// What one Suspend request left: the untouched session, or the ending that leaves the loop.
+enum SuspendStep<'a> {
+    Refused(RepairedHostControl<HostIo<'a>>),
+    Suspended(Ending),
+}
+
 /// Suspends the session, or refuses with nothing sent and hands the untouched session back.
 ///
 /// A guest below API level 4 would refuse Suspend and poison its session, and a cold-booted
@@ -206,7 +209,7 @@ fn suspend<'a>(
     suspendable: bool,
     guest_api: &mut Option<GuestApi>,
     responses: &Sender<Response>,
-) -> Result<(Option<RepairedHostControl<HostIo<'a>>>, Option<Ending>), SessionError> {
+) -> Result<SuspendStep<'a>, SessionError> {
     let (repaired, level) = if suspendable {
         let (next, level) = repaired
             .ensure_guest_api(guest_api, || files::nonce_text(&fresh16()).into_bytes())
@@ -219,11 +222,11 @@ fn suspend<'a>(
         responses
             .send(Response::SuspendRefused)
             .map_err(|_| SessionError::Gone)?;
-        return Ok((Some(repaired), None));
+        return Ok(SuspendStep::Refused(repaired));
     }
     let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
     repaired
         .suspend(operation)
         .map_err(|_| SessionError::Suspend)?;
-    Ok((None, Some(Ending::Suspended(target))))
+    Ok(SuspendStep::Suspended(Ending::Suspended(target)))
 }
