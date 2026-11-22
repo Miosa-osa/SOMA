@@ -16,7 +16,7 @@
   </theme>
   <desktops><number>4</number><firstdesk>1</firstdesk><names><name>1</name><name>2</name><name>3</name><name>4</name></names><popupTime>600</popupTime></desktops>
   <!-- Room for the top bar; the dock floats over windows like a launcher. -->
-  <margins><top>34</top><bottom>0</bottom><left>0</left><right>0</right></margins>
+  <margins><top>32</top><bottom>0</bottom><left>0</left><right>0</right></margins>
   <resize><drawContents>yes</drawContents><popupShow>Never</popupShow></resize>
   <keyboard>
     <keybind key="A-Tab"><action name="NextWindow"/></keybind>

@@ -80,12 +80,40 @@ Without the driver, `xdotool` works on display `:0`:
 - Logins persist: Chrome keeps its profile in `~/.config/google-chrome` and restores the last session.
 - To script Chrome directly, start it with `google-chrome --remote-debugging-port=9222` and use the DevTools protocol on `127.0.0.1:9222`.
 
+## Doing several things at once
+
+One machine can run several computer-use tasks at the same time. There are two tools for it.
+
+**Workspaces (on the screen the person sees).** The desktop has four workspaces, numbered 1 to 4 on the top bar.
+- Keep each task's windows on its own workspace, for example 1 for email, 2 for the CRM, 3 for research, 4 for posting.
+- Switch: `xdotool set_desktop <0-3>`, or Ctrl+Alt+Left/Right. Move a window: `xdotool set_desktop_for_window <window-id> <0-3>`, or Ctrl+Alt+Shift+Left/Right.
+- Only the workspace on show is drawn, so screenshots see only that one.
+  Use workspaces to keep one agent's work tidy, or for tasks a person switches between.
+
+**Extra screens (for agents working in parallel).** For two or more agents doing visual work at the same time, give each its own screen:
+
+```
+miosa-screen start 1      # prints DISPLAY=:1 viewer_port=6081
+miosa-screen start 2      # DISPLAY=:2, port 6082
+miosa-screen list
+miosa-screen stop 2
+```
+
+- Every app you start with `DISPLAY=:1` opens on screen 1: `DISPLAY=:1 google-chrome --user-data-dir=$HOME/.config/chrome-screen1 &`.
+  Use a separate Chrome profile per screen so two agents do not share tabs. Accounts signed in on one profile stay in that profile.
+- Screenshots: `DISPLAY=:1 scrot -o /tmp/s1.png`. Input: `DISPLAY=:1 xdotool ...`. cua-driver: start one per screen with `DISPLAY=:1 cua-driver serve`.
+- A person can watch screen N through viewer port 6080+N.
+- Screens 1 to 3 plus the desktop make four agents at once on one machine.
+  Each screen costs about 60 MB of memory plus what runs on it, and the machine grows its processors and memory to fit.
+
+A good pattern: one coordinating agent splits the work, starts a screen per worker, gives each worker its DISPLAY, and collects the results.
+
 ## The desktop
 
-- Four workspaces: Ctrl+Alt+Left/Right switches; add Shift to take the window along. `xdotool set_desktop <0-3>` from a shell.
-- Search any app: Alt+Space. Terminal: Ctrl+Alt+T. Snap a window: Super+Left/Right; maximise: Super+Up.
+- Search any app: Alt+Space. Terminal: Ctrl+Alt+T. Snap a window: Super+Left/Right; maximise: Super+Up. Screenshot to `~/Pictures/Screenshots`: the Print key.
 - Wallpaper: `pcmanfm --profile miosa --set-wallpaper=<file> --wallpaper-mode=crop`, or the Wallpapers app.
-- The top bar shows live CPU and memory. This computer resizes itself: processors and memory grow under load and shrink when idle, so a busy build gets room without being asked.
+- The top bar shows live CPU, memory, disk and network; click it for System (charts and the busiest processes).
+- This computer resizes itself: processors and memory grow under load and shrink when idle, so a busy build gets room without being asked.
 
 ## Good manners on a shared screen
 

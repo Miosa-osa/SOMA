@@ -55,6 +55,9 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
+GLib.set_prgname("miosa-apps")
+GLib.set_application_name("Apps")
+
 CSS = b"""
 window, .main { background: #0c0e16; color: #e8ebf5; }
 headerbar { background: #121522; border: none; box-shadow: none; padding: 6px 12px; }
@@ -77,10 +80,23 @@ headerbar { background: #121522; border: none; box-shadow: none; padding: 6px 12
 .remove { background: transparent; color: #8d95ad; border: none; padding: 2px 6px; font: 9pt Inter; box-shadow: none; }
 .remove:hover { color: #ff8a80; }
 .tag { font: 500 9pt Inter; color: #7d859b; }
+.cost { font: 500 8.5pt "JetBrains Mono"; color: #6f7894; margin-top: 3px; }
 .busy { color: #8fa8ff; font: 500 9.5pt Inter; }
 .failed { color: #ff8a80; font: 500 9.5pt Inter; }
 flowbox, flowboxchild { background: transparent; }
 """
+
+
+def icon_image(icon, size):
+    """An app's icon: a file path (agent logos) or a name from the icon theme."""
+    if icon.startswith("/") and os.path.exists(icon):
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon, size, size, True)
+        return Gtk.Image.new_from_pixbuf(pix)
+    theme = Gtk.IconTheme.get_default()
+    image = Gtk.Image.new_from_icon_name(icon if theme.has_icon(icon) else "application-x-executable", Gtk.IconSize.DIALOG)
+    image.set_pixel_size(size)
+    return image
 
 
 def styled(widget, cls):
@@ -93,17 +109,20 @@ class Card(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         self.app, self.win = app, win
         styled(self, "card")
-        self.set_size_request(380, 0)
-        theme = Gtk.IconTheme.get_default()
-        icon = app["icon"] if theme.has_icon(app["icon"]) else "application-x-executable"
-        image = Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.DIALOG)
-        image.set_pixel_size(48)
+        self.set_size_request(400, 0)
+        image = icon_image(app["icon"], 48)
         self.pack_start(image, False, False, 0)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         text.set_valign(Gtk.Align.CENTER)
         text.pack_start(styled(Gtk.Label(label=app["name"], xalign=0), "name"), False, False, 0)
         about = Gtk.Label(label=app["about"], xalign=0, wrap=True, max_width_chars=30)
         text.pack_start(styled(about, "about"), False, False, 0)
+        if app.get("disk"):
+            cost = Gtk.Label(xalign=0, wrap=True, max_width_chars=34)
+            cost.set_markup(f"<span>Disk {GLib.markup_escape_text(app['disk'])}  ·  RAM {GLib.markup_escape_text(app['ram'])}"
+                            f"  ·  CPU {GLib.markup_escape_text(app['cpu'])}</span>")
+            cost.set_tooltip_text("Estimates: disk once installed, memory and processor while it runs")
+            text.pack_start(styled(cost, "cost"), False, False, 0)
         self.pack_start(text, True, True, 0)
         self.action = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         self.action.set_valign(Gtk.Align.CENTER)

@@ -16,6 +16,9 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
 
+GLib.set_prgname("miosa-wallpapers")
+GLib.set_application_name("Wallpapers")
+
 SYSTEM = "/usr/share/backgrounds/miosa"
 OWN = os.path.expanduser("~/Pictures/Wallpapers")
 CACHE = os.path.expanduser("~/.cache/miosa-wallpapers")
@@ -181,6 +184,10 @@ class App(Gtk.Window):
         self.tiles = []
         self.known = collections()
         self.fill()
+        # Drop pictures anywhere on the window (from Files or the desktop) to add them.
+        self.drag_dest_set(Gtk.DestDefaults.ALL, [], Gdk.DragAction.COPY)
+        self.drag_dest_add_uri_targets()
+        self.connect("drag-data-received", self.dropped)
 
     def section(self, title, folder, empty, files=None):
         head = Gtk.Label(label=title.upper(), xalign=0)
@@ -227,7 +234,7 @@ class App(Gtk.Window):
             self.section(group, SYSTEM, "", darks + lights)
         if not groups:
             self.section("MIOSA", SYSTEM, "No MIOSA wallpapers found.")
-        self.section("Yours", OWN, "Pictures you add appear here.")
+        self.section("Yours", OWN, "Drop pictures here, or use Add your own. They are kept in ~/Pictures/Wallpapers.")
         self.show_all()
 
     def apply(self, path):
@@ -239,6 +246,23 @@ class App(Gtk.Window):
         self.selected = path
         for tile in self.tiles:
             tile.area.queue_draw()
+
+    def dropped(self, _widget, _context, _x, _y, data, _info, _time):
+        from urllib.parse import unquote, urlparse
+        paths = [unquote(urlparse(uri).path) for uri in data.get_uris() if uri.startswith("file://")]
+        self.copy_in([p for p in paths if p.lower().endswith(PICTURES)])
+
+    def copy_in(self, sources):
+        added = []
+        os.makedirs(OWN, exist_ok=True)
+        for src in sources:
+            dest = os.path.join(OWN, os.path.basename(src))
+            if os.path.abspath(src) != os.path.abspath(dest):
+                shutil.copy2(src, dest)
+            added.append(dest)
+        if added:
+            self.fill()
+            self.apply(added[-1])
 
     def add_own(self, _button):
         dialog = Gtk.FileChooserDialog(

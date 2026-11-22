@@ -1,21 +1,25 @@
-/* The MIOSA search: a centred glass panel, like Spotlight. Opened by the bar's Search and Alt+Space. */
+/* MIOSA Search: a centred glass panel with a large field and app icons, like Spotlight.
+   Opened by Search on the top bar and by Alt+Space. */
 * {
     font: "Inter 12";
-    bg: #12151fe6;
-    line: #ffffff1f;
-    text: #e9ecf4;
+    bg: #12151fe8;
+    field: #ffffff12;
+    line: #ffffff22;
+    text: #eef1f8;
     dim: #8d95ad;
-    pick: #3b5bdb;
+    pick: #ffffff1c;
+    accent: #6b8cff;
     background-color: transparent;
     text-color: @text;
 }
-window { width: 640px; location: north; y-offset: 160px; border: 1px; border-color: @line; border-radius: 16px; background-color: @bg; padding: 10px; }
-mainbox { spacing: 8px; }
-inputbar { padding: 12px 14px; border-radius: 10px; background-color: #ffffff0f; children: [ prompt, entry ]; spacing: 10px; }
-prompt { text-color: @dim; }
-entry { placeholder: "Search apps"; placeholder-color: @dim; }
-listview { lines: 7; spacing: 2px; scrollbar: false; }
-element { padding: 9px 12px; border-radius: 9px; spacing: 12px; }
-element selected { background-color: @pick; }
-element-icon { size: 26px; }
+window { width: 680px; location: north; y-offset: 140px; border: 1px; border-color: @line; border-radius: 18px; background-color: @bg; padding: 14px; }
+mainbox { spacing: 10px; children: [ inputbar, message, listview ]; }
+inputbar { padding: 14px 16px; border-radius: 12px; background-color: @field; children: [ icon-search, entry ]; spacing: 12px; }
+icon-search { expand: false; filename: "system-search"; size: 22px; vertical-align: 0.5; }
+entry { font: "Inter 16"; placeholder: "Search apps and actions"; placeholder-color: @dim; vertical-align: 0.5; cursor-color: @accent; }
+message { padding: 4px 8px; }
+listview { lines: 8; spacing: 2px; scrollbar: false; fixed-height: false; }
+element { padding: 10px 12px; border-radius: 10px; spacing: 14px; }
+element selected { background-color: @pick; border: 0 0 0 3px; border-color: @accent; }
+element-icon { size: 30px; vertical-align: 0.5; }
 element-text { vertical-align: 0.5; }

@@ -11,12 +11,13 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 USER_NAME=ubuntu
-IDS=(docker vscode sublime nodejs python go rust java gh postgres dbeaver postman tmux neovim
-     claude-code codex gemini
-     brave firefox tailscale filezilla
+IDS=(docker vscode sublime nodejs python go rust java gh miosa-cli postgres dbeaver postman tmux neovim
+     claude-code codex gemini hermes osa pi opencode aider goose amp
+     postgres-server redis mysql
+     brave firefox tor duckduckgo tailscale filezilla
      signal telegram zoom discord
      libreoffice obsidian keepassxc
-     gimp inkscape blender obs kdenlive audacity vlc ffmpeg yt-dlp)
+     gimp inkscape blender krita freecad godot threejs obs kdenlive shotcut audacity vlc ffmpeg yt-dlp)
 
 mode=install
 case "${1:-}" in
@@ -50,6 +51,9 @@ github_deb() {
     [[ "$url" == https://* ]] || { echo "no .deb in the latest $1 release" >&2; return 1; }
     deb_url "$url"
 }
+# Agents that install into the user's own folder (~/.local) run their official installer as the user.
+as_user() { runuser -u "$USER_NAME" -- bash -lc "export PATH=\$HOME/.local/bin:\$PATH; $1"; }
+as_user_has() { runuser -u "$USER_NAME" -- bash -lc "export PATH=\$HOME/.local/bin:\$HOME/.opencode/bin:\$PATH; command -v $1" >/dev/null 2>&1; }
 npm_global() { [[ -x /usr/local/bin/npm ]] || "$0" nodejs; /usr/local/bin/npm install -g --silent "$@"; }
 # desktop_entry ID NAME EXEC ICON: a launcher for apps unpacked into /opt.
 desktop_entry() {
@@ -97,6 +101,36 @@ recipe() {
         claude-code) installed() { have claude; }; add() { npm_global @anthropic-ai/claude-code; } ;;
         codex) installed() { have codex; }; add() { npm_global @openai/codex; } ;;
         gemini) installed() { have gemini; }; add() { npm_global @google/gemini-cli; } ;;
+        hermes) installed() { as_user_has hermes; }
+            add() { apt_install curl ca-certificates git python3; as_user 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'; } ;;
+        osa) installed() { as_user_has osa; }
+            add() { apt_install curl ca-certificates; as_user 'curl -fsSL https://raw.githubusercontent.com/Miosa-osa/OSA/main/scripts/install.sh | sh'; } ;;
+        pi) installed() { have pi; }; add() { npm_global --ignore-scripts @earendil-works/pi-coding-agent; } ;;
+        opencode) installed() { as_user_has opencode; }
+            add() { apt_install curl ca-certificates; as_user 'curl -fsSL https://opencode.ai/v2/install | bash'; } ;;
+        aider) installed() { as_user_has aider; }
+            add() { apt_install pipx python3-venv; as_user 'pipx install aider-chat'; } ;;
+        goose) installed() { as_user_has goose; }
+            add() { apt_install curl ca-certificates bzip2 libxcb1; as_user 'curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash'; } ;;
+        amp) installed() { have amp; }; add() { npm_global @sourcegraph/amp; } ;;
+        miosa-cli) installed() { have miosa; }
+            add() { apt_install curl ca-certificates; curl -fsSL https://raw.githubusercontent.com/Miosa-osa/miosa-cli-go/main/install.sh | INSTALL_DIR=/usr/local/bin sh; } ;;
+        postgres-server) installed() { [[ -d /usr/lib/postgresql ]] && have pg_ctlcluster; }; PKGS=(postgresql)
+            add() { apt_install postgresql; pg_ctlcluster --skip-systemctl-redirect "$(ls /usr/lib/postgresql)" main start || true; } ;;
+        redis) installed() { have redis-server; }; PKGS=(redis-server)
+            add() { apt_install redis-server; (redis-server --daemonize yes >/dev/null 2>&1) || true; } ;;
+        mysql) installed() { have mariadbd || have mysqld; }; PKGS=(mariadb-server)
+            add() { apt_install mariadb-server; (mysqld_safe >/dev/null 2>&1 &); } ;;
+        tor) installed() { have torbrowser-launcher; }; PKGS=(torbrowser-launcher); add() { apt_install torbrowser-launcher; } ;;
+        duckduckgo) installed() { [[ -f /usr/share/applications/miosa-duckduckgo.desktop ]]; }
+            add() { desktop_entry duckduckgo DuckDuckGo "google-chrome --app=https://duckduckgo.com" /usr/share/miosa-apps/icons/duckduckgo.png; } ;;
+        threejs) installed() { [[ -f "/home/$USER_NAME/Projects/threejs-starter/package.json" ]]; }
+            add() { [[ -x /usr/local/bin/npm ]] || "$0" nodejs
+                as_user 'mkdir -p ~/Projects && cd ~/Projects && npx --yes create-vite@latest threejs-starter --template vanilla && cd threejs-starter && npm install --silent && npm install --silent three'; } ;;
+        godot) installed() { have godot3; }; PKGS=(godot3); add() { apt_install "${PKGS[@]}"; } ;;
+        krita) installed() { have krita; }; PKGS=(krita); add() { apt_install "${PKGS[@]}"; } ;;
+        shotcut) installed() { have shotcut; }; PKGS=(shotcut); add() { apt_install "${PKGS[@]}"; } ;;
+        freecad) installed() { have freecad; }; PKGS=(freecad); add() { apt_install "${PKGS[@]}"; } ;;
         brave) installed() { have brave-browser; }; PKGS=(brave-browser)
             add() { key_repo brave https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
                 "deb [arch=amd64 signed-by=/etc/apt/keyrings/brave.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main"

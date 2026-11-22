@@ -54,7 +54,7 @@ COPY look/backgrounds/brand.py look/backgrounds/duotone.py /
 COPY look/backgrounds/gray /gray
 COPY look/brand/miosa-logo.png /miosa-logo.png
 RUN python3 /brand.py /src /miosa-logo.png /out && python3 /duotone.py /gray /miosa-logo.png /out \
- && rm -f /out/sheet.jpg && test "$(ls /out/*.jpg | wc -l)" -eq 36
+ && rm -f /out/sheet.jpg && test "$(ls /out/*.jpg | wc -l)" -eq 52
 
 FROM ${BASE_IMAGE}
 
@@ -263,6 +263,11 @@ COPY look/apps/catalog.json /usr/share/miosa-apps/catalog.json
 COPY look/apps/install /usr/local/libexec/miosa-apps/install
 COPY look/apps/miosa-apps /usr/local/bin/miosa-apps
 COPY look/apps/miosa-apps.desktop /usr/share/applications/miosa-apps.desktop
+COPY look/apps/icons/ /usr/share/miosa-apps/icons/
+# System (charts of what the machine uses), the bar's readout, and extra screens for parallel agents.
+COPY look/system/miosa-system look/system/miosa-screen /usr/local/bin/
+COPY look/system/readout.sh /usr/local/libexec/soma-desktop/readout.sh
+COPY look/system/miosa-system.desktop /usr/share/applications/miosa-system.desktop
 # The guide agents read first, in the home folder and beside the system's other desktop files.
 COPY look/agents/AGENTS.md /home/ubuntu/AGENTS.md
 COPY look/agents/AGENTS.md /etc/soma-desktop/AGENTS.md
@@ -288,6 +293,9 @@ RUN mkdir -p /etc/dconf/profile \
  && sed -i 's/^Name=.*/Name=Terminal/' /home/ubuntu/Desktop/xfce4-terminal.desktop \
  && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' /home/ubuntu/Desktop/google-chrome.desktop \
  && chmod 0755 /usr/local/bin/miosa-wallpapers /usr/local/bin/miosa-apps /usr/local/libexec/miosa-apps/install \
+      /usr/local/bin/miosa-system /usr/local/bin/miosa-screen /usr/local/libexec/soma-desktop/readout.sh \
+ && sed -i 's/^Name=.*/Name=Files/; s/^GenericName=.*/GenericName=Files/; /^Name\[/d; /^GenericName\[/d' /usr/share/applications/pcmanfm.desktop \
+ && sed -i 's/^Name=.*/Name=Terminal/; /^Name\[/d' /usr/share/applications/xfce4-terminal.desktop \
  && printf 'ubuntu ALL=(root) NOPASSWD: /usr/local/libexec/miosa-apps/install\n' > /etc/sudoers.d/miosa-apps \
  && chmod 0440 /etc/sudoers.d/miosa-apps && visudo -cf /etc/sudoers.d/miosa-apps \
  && install -m 0755 /usr/share/applications/miosa-apps.desktop /home/ubuntu/Desktop/miosa-apps.desktop \
