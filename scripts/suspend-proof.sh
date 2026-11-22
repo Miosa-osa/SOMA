@@ -90,6 +90,8 @@ INSTANCE="$(field 'd["result"]["instance_id"]')"
 record create_s "$SECONDS_TAKEN"
 
 log "starting a counter, writing a file and a tmpfs value"
+# The script runs in the guest, so its expansions are the guest shell's.
+# shellcheck disable=SC2016
 guest start /bin/sh -c 'mkdir -p /run/proof && cat /proc/sys/kernel/random/uuid > /run/proof/tmpfs-value
 cat /run/proof/tmpfs-value > /root/disk-value && sync
 setsid nohup sh -c "i=0; while :; do i=\$((i+1)); echo \$i > /run/proof/counter; sleep 0.2; done" >/dev/null 2>&1 &
@@ -125,6 +127,8 @@ INSTANCE="$RESUMED"
 record resume_s "$SECONDS_TAKEN"
 check "the resumed sandbox is a new Instance" "$([[ "$RESUMED" != "$SUSPENDED" ]] && echo new || echo same)" new
 
+# The script runs in the guest, so its expansions are the guest shell's.
+# shellcheck disable=SC2016
 guest after /bin/sh -c 'cat /run/proof/tmpfs-value; cat /run/proof/counter; cat /run/proof/counter.pid
 kill -0 "$(cat /run/proof/counter.pid)" && echo alive; sleep 1; cat /run/proof/counter; cat /root/disk-value'
 check "the command ran" "$GUEST_EXIT" 0
