@@ -17,6 +17,18 @@ from viewer import Tunnel
 PORT = 6080
 
 
+def dechunk(body):
+    """The body of a chunked HTTP/1.1 answer, without its size lines."""
+    out = b""
+    while body:
+        size_line, _, body = body.partition(b"\r\n")
+        size = int(size_line.split(b";")[0] or b"0", 16)
+        if size == 0:
+            break
+        out, body = out + body[:size], body[size + 2:]
+    return out
+
+
 def http_get(args, path):
     started = time.monotonic()
     tunnel = Tunnel(args.api, args.tenant, args.instance, PORT)
@@ -30,6 +42,8 @@ def http_get(args, path):
         data += chunk
     head, _, body = data.partition(b"\r\n\r\n")
     status = int(head.split(b" ", 2)[1]) if head.startswith(b"HTTP/") else None
+    if b"transfer-encoding: chunked" in head.lower():
+        body = dechunk(body)
     return status, body, round((opened - started) * 1000, 1), round((time.monotonic() - started) * 1000, 1)
 
 
