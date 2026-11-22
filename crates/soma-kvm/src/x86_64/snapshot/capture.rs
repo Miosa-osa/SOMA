@@ -199,7 +199,13 @@ pub fn capture(
 
     let live = bus.snapshot_all();
     let t_root = Instant::now();
-    let root_digest = artifacts::hash(Artifact::Root, request.root)?;
+    // A Suspension resumes over the very root its Generation names, which the resume checks by
+    // the Generation's identity, so re-hashing the root on every suspension would only cost time.
+    let root_digest = if suspension {
+        artifacts::UNHASHED
+    } else {
+        artifacts::hash(Artifact::Root, request.root)?
+    };
     let root_ms = t_root.elapsed().as_millis();
     // A machine always has at least one processor and its contract admits at most eight, so the
     // count fits the field a template states it in; anything else is a machine this capture
