@@ -267,6 +267,14 @@ impl LocalRuntime {
                 return Err(failure.into());
             }
         };
+        // A read that started and failed ends the Instance with a Failed receipt: the machine is
+        // gone and there is nothing to seal.
+        if suspended.receipt().terminal_status() != &soma::TerminalStatus::Suspended {
+            let _ignored = std::fs::remove_dir_all(&staging);
+            return Err(crate::SuspensionFailure::Lost(Box::new(
+                suspended.receipt().clone(),
+            )));
+        }
         self.suspensions
             .seal(id, &staging, request, suspended.receipt())
     }

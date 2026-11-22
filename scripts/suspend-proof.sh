@@ -54,6 +54,7 @@ check() {
 
 log "starting a private soma-api on $SOMA_PROOF_API"
 SOMA_GENERATION_STORE="$STORE" SOMA_HEAD_DIR="$WORK/heads" \
+    SOMA_MACHINE_HOST_LOG="$OUT/machine-host.log" \
     "$REPO_ROOT/target/release/soma-api" --listen "$SOMA_PROOF_API" --backend kvm \
     --state-root "$WORK/state" --workers 8 >"$OUT/soma-api.log" 2>&1 &
 API_PID=$!
@@ -84,13 +85,13 @@ INSTANCE="$(field 'd["result"]["instance_id"]')"
 record create_s "$SECONDS_TAKEN"
 
 log "starting a counter, writing a file and a tmpfs value"
-guest start sh -c 'mkdir -p /run/proof && cat /proc/sys/kernel/random/uuid > /run/proof/tmpfs-value
+guest start /bin/sh -c 'mkdir -p /run/proof && cat /proc/sys/kernel/random/uuid > /run/proof/tmpfs-value
 cat /run/proof/tmpfs-value > /root/disk-value && sync
 setsid nohup sh -c "i=0; while :; do i=\$((i+1)); echo \$i > /run/proof/counter; sleep 0.2; done" >/dev/null 2>&1 &
 echo $! > /run/proof/counter.pid; sleep 1; cat /run/proof/counter.pid'
 check "the counter started" "$GUEST_EXIT" 0
 COUNTER_PID="$(tr -d '[:space:]' <"$GUEST_OUT")"
-guest before sh -c 'cat /run/proof/tmpfs-value; cat /run/proof/counter; cat /proc/uptime'
+guest before /bin/sh -c 'cat /run/proof/tmpfs-value; cat /run/proof/counter; cat /proc/uptime'
 TMPFS_VALUE="$(sed -n 1p "$GUEST_OUT")"
 COUNT_BEFORE="$(sed -n 2p "$GUEST_OUT")"
 
@@ -104,7 +105,7 @@ record sealed_bytes "$(field 'd["result"]["sealed_bytes"]')"
 check "the receipt says Suspended" "$(field 'd["receipt"]["terminal_status"]')" suspended
 SUSPENDED="$INSTANCE"
 INSTANCE=""
-api old-gone POST "/v1/sandboxes/$SUSPENDED/commands" '{"executable":"true"}'
+api old-gone POST "/v1/sandboxes/$SUSPENDED/commands" '{"executable":"/bin/true"}'
 check "the suspended sandbox runs nothing" "$([[ "$STATUS" =~ ^4 ]] && echo refused || echo "$STATUS")" refused
 find "$WORK/state/suspensions" -maxdepth 3 -name '*.raw' >"$OUT/plaintext-after-seal.txt"
 check "no plaintext member is left after sealing" "$(wc -l <"$OUT/plaintext-after-seal.txt")" 0
@@ -118,7 +119,7 @@ INSTANCE="$RESUMED"
 record resume_s "$SECONDS_TAKEN"
 check "the resumed sandbox is a new Instance" "$([[ "$RESUMED" != "$SUSPENDED" ]] && echo new || echo same)" new
 
-guest after sh -c 'cat /run/proof/tmpfs-value; cat /run/proof/counter; cat /run/proof/counter.pid
+guest after /bin/sh -c 'cat /run/proof/tmpfs-value; cat /run/proof/counter; cat /run/proof/counter.pid
 kill -0 "$(cat /run/proof/counter.pid)" && echo alive; sleep 1; cat /run/proof/counter; cat /root/disk-value'
 check "the command ran" "$GUEST_EXIT" 0
 check "the tmpfs value survived" "$(sed -n 1p "$GUEST_OUT")" "$TMPFS_VALUE"

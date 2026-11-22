@@ -178,6 +178,18 @@ fn refusal(failure: &SuspensionFailure) -> ApiError {
         SuspensionFailure::NoImage => ApiError::invalid(
             "the suspension kept no image; name the image the sandbox was created from",
         ),
+        SuspensionFailure::Lost(receipt) => {
+            eprintln!(
+                "soma-api: suspension of {} failed after the read began; the sandbox has ended",
+                receipt.instance_id().as_str()
+            );
+            ApiError::new(
+                500,
+                "suspension_failed",
+                "the sandbox could not be read into a suspension and has ended",
+                false,
+            )
+        }
         SuspensionFailure::Store(detail) => {
             // The detail can name host paths, so it goes to the service log and not to the caller.
             eprintln!("soma-api: suspension store: {detail}");

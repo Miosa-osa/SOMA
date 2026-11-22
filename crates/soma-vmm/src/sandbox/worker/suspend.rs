@@ -57,5 +57,10 @@ pub fn read(
         contract,
         point: CapturePoint::Acknowledged,
     };
-    capture(machine, request, Instant::now() + CAPTURE_CEILING).map_err(|_| SessionError::Suspend)
+    capture(machine, request, Instant::now() + CAPTURE_CEILING).map_err(|error| {
+        // The typed answer carries no detail, so the reason is written where the machine host's
+        // log goes (SOMA_MACHINE_HOST_LOG), for the operator who has to explain a lost machine.
+        eprintln!("soma: suspension capture failed: {error}");
+        SessionError::Suspend
+    })
 }

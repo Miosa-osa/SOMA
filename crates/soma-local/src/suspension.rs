@@ -75,6 +75,8 @@ pub enum SuspensionFailure {
     OtherHost,
     /// Neither the request nor the Suspension names an image to resume from.
     NoImage,
+    /// The read started and failed: the Instance has ended, and its receipt says Failed.
+    Lost(Box<ExecutionReceipt>),
     /// The Instance was suspended but the store refused the members; they are gone.
     Store(String),
 }
