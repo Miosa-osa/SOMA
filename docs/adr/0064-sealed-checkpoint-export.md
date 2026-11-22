@@ -17,3 +17,10 @@ The backup transport owns encryption, remote object names, authorization for the
 Off-host backups can survive removal of the local checkpoint during transfer without introducing another on-host copy.
 An incompatible host can reject a VM restore while the workspace remains available for a separate cold recovery.
 The capture format and the requirements for restoring it are unchanged.
+
+## Host command
+
+The local `soma checkpoint-export` command reads the capture receipt from standard input and streams one named artifact to standard output.
+The consumer supplies the authorized machine name and an explicit broker state directory.
+A nonzero exit requires the consumer to abandon the staged output, even if some bytes have already been written.
+The command never opens a network listener or chooses a remote destination.

@@ -1,3 +1,5 @@
+mod checkpoints;
+
 use soma::{
     Backend as _, BackendKind, DestroyMachineRequest, Engine, ExecuteMachineRequest,
     FileMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
@@ -243,92 +245,6 @@ impl LocalRuntime {
             .as_deref()
             .ok_or(crate::ResizeFailure::Unavailable)?;
         crate::resize::resize_machine(directory, instance, request)
-    }
-
-    /// Captures a running hosted Machine through its owning process.
-    ///
-    /// Repeating the same operation id returns the existing durable receipt.
-    ///
-    /// # Errors
-    ///
-    /// Returns the owner, capture, or publication failure.
-    pub fn checkpoint_machine(
-        &self,
-        instance: &soma::InstanceId,
-        operation: &soma::OperationId,
-    ) -> Result<crate::CheckpointReceipt, crate::CheckpointFailure> {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        {
-            let directory = self
-                .host_directory
-                .as_deref()
-                .ok_or(crate::CheckpointFailure::Unsupported)?;
-            crate::backend::checkpoint_machine(directory, instance, operation)
-        }
-        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-        {
-            let _ = (instance, operation);
-            Err(crate::CheckpointFailure::Unsupported)
-        }
-    }
-
-    /// Opens the encrypted contents of one authorized capture for an off-host backup.
-    ///
-    /// # Errors
-    ///
-    /// Refuses a missing or different owner, an active restore, an unencrypted checkpoint
-    /// store, or any mismatch against the full checkpoint receipt supplied by the caller.
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    pub fn open_checkpoint_export(
-        &mut self,
-        owner: &soma::MachineName,
-        expected: &crate::CheckpointReceipt,
-    ) -> Result<crate::CheckpointExport, crate::CheckpointFailure> {
-        use crate::CheckpointFailure;
-
-        if self.host_directory.is_none() {
-            return Err(CheckpointFailure::Unsupported);
-        }
-        let _lease = crate::file_store::restore_lease(&self.state_root, &expected.instance_id)
-            .map_err(|_| CheckpointFailure::Unconfirmed)?;
-        let recorded = self
-            .engine
-            .restore_owner(&expected.instance_id)
-            .map_err(|_| CheckpointFailure::Unconfirmed)?;
-        if recorded.as_ref() != Some(owner) {
-            return Err(CheckpointFailure::NotFound);
-        }
-        crate::backend::open_export(expected)
-    }
-
-    /// Releases a published checkpoint by its exact sandbox, operation and state digest.
-    ///
-    /// # Errors
-    ///
-    /// Refuses unconfigured storage, an active restore, a mismatched receipt, or an
-    /// unconfirmed storage operation.
-    pub fn discard_checkpoint(
-        &self,
-        instance: &soma::InstanceId,
-        checkpoint: &soma::OperationId,
-        state_digest: &soma::GenerationId,
-    ) -> Result<(), crate::CheckpointFailure> {
-        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-        {
-            let state_root = self
-                .host_directory
-                .as_deref()
-                .and_then(std::path::Path::parent)
-                .ok_or(crate::CheckpointFailure::Unsupported)?;
-            let _lease = crate::file_store::restore_lease(state_root, instance)
-                .map_err(|_| crate::CheckpointFailure::Unconfirmed)?;
-            crate::backend::discard_checkpoint(instance, checkpoint, state_digest)
-        }
-        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-        {
-            let _ = (instance, checkpoint, state_digest);
-            Err(crate::CheckpointFailure::Unsupported)
-        }
     }
 
     /// Runs a workspace attach or detach transaction on the running Instance's owner.

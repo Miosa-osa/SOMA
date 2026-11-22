@@ -3,12 +3,16 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
 mod backend;
+mod checkpoint;
 mod file;
 mod network;
 mod pty;
 mod resize;
 
 pub use backend::BackendSelection;
+use checkpoint::CheckpointExportArgs;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use checkpoint::ExportArtifact;
 pub use file::{FileArgs, FileCommand, FilePathArgs};
 pub use network::{DnsInput, EgressInput, NetworkArgs, ProtocolInput};
 pub use pty::{PtyArgs, PtyCommand, PtyTargetArgs};
@@ -54,6 +58,8 @@ pub enum RootCommand {
     Doctor(DoctorArgs),
     /// Print the SOMA command-line contract version.
     Version,
+    /// Stream one verified checkpoint artifact, reading the capture receipt from stdin.
+    CheckpointExport(CheckpointExportArgs),
     /// Hold one durable machine for the launch that started this process.
     ///
     /// This is not a user-facing operation. A managed launch re-enters this executable here so
