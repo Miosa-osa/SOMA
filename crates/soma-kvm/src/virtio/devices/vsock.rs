@@ -191,7 +191,7 @@ impl VsockDevice {
     }
 
     /// Drops what is left of the connection a suspended guest acknowledged on (ADR 0034); a
-    /// restore resets the transport anyway ([`Self::after_restore`]).
+    /// restore resets the transport anyway.
     pub fn retire_for_suspension(&mut self) {
         self.clear_transient();
     }
