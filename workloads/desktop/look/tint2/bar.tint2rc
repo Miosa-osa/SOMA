@@ -56,10 +56,17 @@ execp_padding = 8 2 8
 execp_background_id = 2
 execp_centered = 1
 
-taskbar_mode = single_desktop
+taskbar_mode = multi_desktop
 taskbar_padding = 12 0 4
 taskbar_background_id = 0
-taskbar_name = 0
+taskbar_name = 1
+taskbar_name_padding = 9 2
+taskbar_name_background_id = 2
+taskbar_name_active_background_id = 3
+taskbar_name_font = Inter Medium 10
+taskbar_name_font_color = #8d97ad 100
+taskbar_name_active_font_color = #ffffff 100
+taskbar_active_background_id = 0
 taskbar_hide_inactive_tasks = 0
 taskbar_distribute_size = 0
 task_icon = 1
@@ -78,7 +85,7 @@ mouse_left = toggle_iconify
 mouse_middle = close
 
 execp = new
-execp_command = printf 'Settings\n'
+execp_command = printf 'Wallpapers\n'
 execp_interval = 0
 execp_has_icon = 0
 execp_font = Inter 10
@@ -86,7 +93,7 @@ execp_font_color = #d6e0ec 100
 execp_padding = 10 2 10
 execp_background_id = 2
 execp_centered = 1
-execp_lclick_command = pcmanfm --profile miosa --desktop-pref
+execp_lclick_command = miosa-wallpapers
 
 clock_lclick_command = gsimplecal
 time1_format = %a, %b %d  %H:%M

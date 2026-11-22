@@ -47,7 +47,9 @@ trap 'exit 0' TERM INT
 if command -v voxl >/dev/null; then
     voxl --port="$PORT" --enable-basic-auth=false --title="MIOSA Desktop" \
         --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
-        --enable-resize=true --audio-enabled=false >"$STATE/logs/voxl.log" 2>&1 &
+        --enable-resize=true --audio-enabled=false --framerate=30 \
+        --crf=20 --min-kbps=6000 --paintover-crf=10 --paintover-burst=6 --paintover-delay-ms=100 \
+        >"$STATE/logs/voxl.log" 2>&1 &
     wait_port viewer_port "$PORT" || exit 1
     mark viewer_ready
     wait -n

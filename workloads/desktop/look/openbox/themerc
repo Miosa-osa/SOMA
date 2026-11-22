@@ -1,28 +1,27 @@
-# MIOSA: a flat dark Openbox theme for SOMA desktops. Thin title bars, no gradients.
-border.width: 1
-padding.width: 8
-padding.height: 8
+# MIOSA: a dark Openbox theme for SOMA desktops: red, yellow and green round buttons on the left
+# (PNG images beside this file), the title centred, no border; the compositor rounds the corners.
+border.width: 0
+padding.width: 10
+padding.height: 9
 window.handle.width: 0
 window.client.padding.width: 0
 window.client.padding.height: 0
-window.active.border.color: #506781
+window.active.border.color: #2a3142
 window.inactive.border.color: #1d2129
 window.active.title.bg: flat solid
-window.active.title.bg.color: #233247
+window.active.title.bg.color: #171b26
 window.inactive.title.bg: flat solid
-window.inactive.title.bg.color: #192434
+window.inactive.title.bg.color: #12151e
 window.active.label.bg: parentrelative
 window.inactive.label.bg: parentrelative
-window.active.label.text.color: #e8eaf0
-window.inactive.label.text.color: #aabbd1
-window.label.text.justify: left
+window.active.label.text.color: #e9ecf4
+window.inactive.label.text.color: #7d859b
+window.label.text.justify: center
 window.active.button.unpressed.bg: parentrelative
 window.active.button.unpressed.image.color: #cdd9e8
-window.active.button.hover.bg: flat solid
-window.active.button.hover.bg.color: #344962
+window.active.button.hover.bg: parentrelative
 window.active.button.hover.image.color: #ffffff
-window.active.button.pressed.bg: flat solid
-window.active.button.pressed.bg.color: #405974
+window.active.button.pressed.bg: parentrelative
 window.active.button.pressed.image.color: #ffffff
 window.inactive.button.unpressed.bg: parentrelative
 window.inactive.button.unpressed.image.color: #aabbd1

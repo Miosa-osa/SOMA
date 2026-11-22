@@ -1047,3 +1047,9 @@ The default two-vCPU, 4 GiB RAM and 10 GiB disk template uses policy 8.
 
 The Linux release carries an installer that verifies a private staged entry against its approved OCI reference and Generation ID.
 Installation publishes a complete directory in one same-filesystem move and refuses replacement of an existing reference.
+
+## 2026-11-22 - Xvfb and the MIOSA desktop viewer
+
+The MIOSA qualification branch uses the Xvfb framebuffer and the desktop assets from the desktop appearance branch.
+The session starts the authenticated desktop API after the CUA socket is ready.
+The owner-authorized viewer still starts on demand through its separate supervisor, with the desktop branch's encoding parameters applied there.

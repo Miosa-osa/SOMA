@@ -59,9 +59,13 @@ dbus-daemon --session --address="$BUS" --nofork --nopidfile &
 export DBUS_SESSION_BUS_ADDRESS="$BUS"
 wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
-# KasmVNC provides the X screen and its diagnostic viewer on 6082.
-# SOMA_DESKTOP_SCREEN=xorg selects the dummy Xorg display instead.
-if [[ "${SOMA_DESKTOP_SCREEN:-kasmvnc}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
+# Xvfb exposes its framebuffer in shared memory for the on-demand viewer.
+# SOMA_DESKTOP_SCREEN can also select the diagnostic KasmVNC or dummy Xorg screen.
+screen=${SOMA_DESKTOP_SCREEN:-xvfb}
+if [[ "$screen" == xvfb ]] && command -v Xvfb >/dev/null; then
+    Xvfb :0 -screen 0 "${SOMA_DESKTOP_GEOMETRY:-1920x1080}x24" -shmem -ac -nolisten tcp -noreset \
+        +extension RANDR +extension RENDER +extension XTEST >"$STATE/logs/xvfb.log" 2>&1 &
+elif [[ "$screen" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
     Xkasmvnc :0 \
         -publicIP 127.0.0.1 \
         -httpd /usr/share/kasmvnc/www \
@@ -114,10 +118,20 @@ wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -
 # drag-to-select and the right-click menu, and its Desktop Settings let a person pick or add any
 # wallpaper. If it cannot start, hsetroot paints the MIOSA wallpaper instead (-root: the screen
 # server has no XINERAMA, so hsetroot would otherwise find no monitor to draw on).
-pcmanfm --profile miosa --desktop >"$STATE/logs/desktop.log" 2>&1 &
+# Kept running: if it ever stops, the picture it left on the root window is gone but still named
+# there, and a new one would draw from it and stop too, so the names are cleared first.
+(
+    while :; do
+        xprop -root -remove _XROOTPMAP_ID 2>/dev/null
+        xprop -root -remove _XROOTMAP_ID 2>/dev/null
+        xprop -root -remove ESETROOT_PMAP_ID 2>/dev/null
+        pcmanfm --profile miosa --desktop >>"$STATE/logs/desktop.log" 2>&1
+        sleep 1
+    done
+) &
 sleep 1
 pgrep -u "$(id -u)" -x pcmanfm >/dev/null \
-    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-dark.jpg >/dev/null 2>&1 \
+    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-aurora.jpg >/dev/null 2>&1 \
     || xsetroot -solid '#0a0b14' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
