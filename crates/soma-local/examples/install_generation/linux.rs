@@ -45,7 +45,8 @@ pub(super) fn install(
     let root = Path::new(root);
     let root_metadata = directory(root)?;
     let owner = root_metadata.uid();
-    let observer_group = (root_metadata.mode() & 0o050 == 0o050).then(|| root_metadata.gid());
+    // A setgid prepared root opts into sharing its inventory with that group.
+    let observer_group = (root_metadata.mode() & 0o2050 == 0o2050).then(|| root_metadata.gid());
     let root = root.canonicalize()?;
     let incoming = root.join(".incoming");
     let incoming_metadata = directory(&incoming)?;
@@ -207,12 +208,12 @@ fn share_inventory(entry: &Path, group: Option<u32>) -> io::Result<()> {
     for name in ["publication.json", "reference", "generation.id"] {
         let path = entry.join(name);
         chown(&path, None, Some(group))?;
-        let mode = fs::metadata(&path)?.mode() & 0o777 | 0o040;
+        let mode = (fs::metadata(&path)?.mode() & 0o777) | 0o040;
         fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
         File::open(path)?.sync_all()?;
     }
     chown(entry, None, Some(group))?;
-    let mode = fs::metadata(entry)?.mode() & 0o777 | 0o010;
+    let mode = (fs::metadata(entry)?.mode() & 0o777) | 0o010;
     fs::set_permissions(entry, fs::Permissions::from_mode(mode))
 }
 
