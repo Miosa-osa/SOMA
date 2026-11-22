@@ -39,6 +39,7 @@ use host::Role;
 pub(crate) use host::open_tunnel;
 pub(crate) use host::resize as resize_machine;
 pub(crate) use host::set_egress as set_egress_machine;
+pub(crate) use host::workspace as change_workspace;
 pub(crate) use host::{
     checkpoint as checkpoint_machine, pause as pause_machine, resume as resume_machine,
 };

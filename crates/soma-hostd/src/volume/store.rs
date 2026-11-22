@@ -195,8 +195,24 @@ impl DirectoryVolumes {
         let bytes = sidecar
             .encode()
             .map_err(|_| VolumeError::Ledger("sidecar"))?;
-        fs::write(directory.join(SIDECAR_FILE), bytes)
-            .map_err(|_| VolumeError::Ledger("sidecar write"))
+        let staging = directory.join(".sidecar.pending");
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&staging)
+            .map_err(|_| VolumeError::Ledger("sidecar staging"))?;
+        file.write_all(&bytes)
+            .and_then(|()| file.sync_all())
+            .map_err(|_| VolumeError::Ledger("sidecar write"))?;
+        drop(file);
+        fs::rename(staging, directory.join(SIDECAR_FILE))
+            .map_err(|_| VolumeError::Ledger("sidecar publication"))?;
+        #[cfg(unix)]
+        fs::File::open(&directory)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| VolumeError::Ledger("sidecar directory sync"))?;
+        Ok(())
     }
 
     /// Records one transition in the durable write-ahead records.
@@ -242,6 +258,7 @@ impl VolumeRepair for CleanRepair {
 #[cfg(target_os = "linux")]
 mod checkpoint;
 mod serve;
+mod workspace;
 
 #[cfg(test)]
 mod tests;

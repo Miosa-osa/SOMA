@@ -286,3 +286,70 @@ fn a_refused_create_is_a_typed_refusal_and_leaves_no_attached_volume() {
 mod binding;
 mod encryption;
 mod keyring;
+
+#[test]
+fn live_workspace_publishes_only_after_the_worker_holds_the_disk() {
+    let (_home, volumes) = store();
+    let initial = attach(1, 9, 1, 10);
+    volumes.attach(&initial).expect("create");
+    volumes.detach(&detach(1, 9, 2)).expect("detach");
+    let reattach = attach(1, 9, 3, 10);
+    let binding = volumes.stage_live_attach(&reattach).expect("stage");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Detached
+    );
+    assert!(matches!(
+        volumes.commit_live_attach(&reattach),
+        Err(VolumeError::Busy(_))
+    ));
+    let worker = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(binding.path)
+        .unwrap();
+    worker.try_lock().unwrap();
+    volumes
+        .commit_live_attach(&reattach)
+        .expect("worker lock confirmed");
+    volumes.commit_live_attach(&reattach).expect("replay");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Attached
+    );
+    assert!(matches!(
+        volumes.destroy(volume(1)),
+        Err(VolumeError::Busy(_))
+    ));
+    assert!(matches!(
+        volumes.validate_live_detach(&detach(1, 8, 4)),
+        Err(VolumeError::Busy(_))
+    ));
+    drop(worker);
+    volumes
+        .validate_live_detach(&detach(1, 9, 5))
+        .expect("owner");
+    volumes.detach(&detach(1, 9, 5)).expect("publish detach");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Detached
+    );
+}
+
+#[test]
+fn a_live_attach_cannot_change_the_workspace_geometry_or_owner() {
+    let (_home, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).unwrap();
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(1, 9, 2, 20)),
+        Err(VolumeError::ChangedIntent)
+    ));
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(1, 8, 3, 10)),
+        Err(VolumeError::Busy(_))
+    ));
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(8, 9, 4, 10)),
+        Err(VolumeError::Missing(_))
+    ));
+}

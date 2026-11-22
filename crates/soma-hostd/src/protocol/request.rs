@@ -124,6 +124,12 @@ pub enum Request {
     },
     /// Copy a certified checkpoint disk for a distinct Instance.
     VolumeCloneCheckpoint(CheckpointVolumeRequest),
+    /// Prepare the already-owned disk for a hot attach without publishing the binding.
+    WorkspaceStage(AttachFrame),
+    /// Publish an attachment after the authenticated guest mounted the disk.
+    WorkspaceCommit(AttachFrame),
+    /// Check ownership and operation intent before the guest is asked to unmount.
+    WorkspaceAdmitDetach(DetachFrame),
 }
 
 impl Request {
@@ -191,6 +197,18 @@ impl Request {
                 out.push(14);
                 out.extend_from_slice(instance.as_bytes());
             }
+            Self::WorkspaceStage(frame) => {
+                out.push(16);
+                frame.encode_into(&mut out);
+            }
+            Self::WorkspaceCommit(frame) => {
+                out.push(17);
+                frame.encode_into(&mut out);
+            }
+            Self::WorkspaceAdmitDetach(frame) => {
+                out.push(18);
+                frame.encode_into(&mut out);
+            }
             Self::VolumeCloneCheckpoint(frame) => {
                 out.push(15);
                 volumes::encode_checkpoint(frame, &mut out);
@@ -242,6 +260,9 @@ impl Request {
                 instance: instance()?,
             }),
             (15, _) => volumes::decode_checkpoint(bytes).map(Self::VolumeCloneCheckpoint),
+            (16, _) => AttachFrame::decode(bytes).map(Self::WorkspaceStage),
+            (17, _) => AttachFrame::decode(bytes).map(Self::WorkspaceCommit),
+            (18, _) => DetachFrame::decode(bytes).map(Self::WorkspaceAdmitDetach),
             _ => Err(ProtocolError("request")),
         }
     }

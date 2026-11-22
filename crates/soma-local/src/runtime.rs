@@ -302,6 +302,25 @@ impl LocalRuntime {
         }
     }
 
+    /// Runs a workspace attach or detach transaction on the running Instance's owner.
+    ///
+    /// # Errors
+    ///
+    /// Refuses unavailable hosting, an unsupported guest, an active mount holder or an
+    /// uncertain handoff.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn change_workspace(
+        &self,
+        instance: &soma::InstanceId,
+        request: &soma_hostd::Request,
+    ) -> Result<soma_hostd::Reply, soma::BackendFailureKind> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(soma::BackendFailureKind::Unsupported)?;
+        crate::backend::change_workspace(directory, instance, request)
+    }
+
     /// Pauses a hosted Machine after receiving confirmation from its owner.
     ///
     /// # Errors

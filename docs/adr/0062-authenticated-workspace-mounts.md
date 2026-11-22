@@ -27,4 +27,10 @@ Checkpoint and suspension requests are refused while the workspace slot is offli
 The existing private machine-host socket accepts a workspace command for the exact Instance and its already-owned volume.
 It resolves the attachment from hostd instead of accepting a path.
 The supervisor validates the capacity, opens the file without following symlinks, and transfers its locked descriptor to the jailed worker.
-The public volume API still needs a durable attach and detach transaction around this operation.
+The native volume API sends every running Instance's attach or detach to this private machine host.
+Before detaching, the host validates the operation and owner, then asks the worker to unmount the filesystem and release the disk.
+After the worker releases the disk, the volume store checks its lock and publishes the detached sidecar.
+Before reattaching, the store verifies the original owner, tenant, Generation and disk class, then repairs the disk without publishing a new sidecar.
+The store marks the disk attached only after the worker confirms the mount and holds the lock.
+If publication fails, the caller gets a failure and can retry against the same running worker without repeating its mount or unmount.
+A locked disk cannot be erased through the volume store.

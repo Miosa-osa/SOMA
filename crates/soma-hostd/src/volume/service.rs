@@ -114,6 +114,37 @@ pub struct DetachOutcome {
 
 /// The volume lifecycle seam the daemon drives.
 pub trait VolumeStore {
+    /// Validates and repairs the workspace this running Instance already owns.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a missing workspace, wrong owner or unsuccessful offline repair.
+    fn stage_live_attach(&self, _request: &AttachRequest) -> Result<VolumeBinding, VolumeError> {
+        Err(VolumeError::Missing(
+            "live workspace attachment is unavailable",
+        ))
+    }
+
+    /// Records a successful mount after the worker holds the locked backing.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unlocked file or a workspace whose owner or intent differs.
+    fn commit_live_attach(&self, _request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
+        Err(VolumeError::Missing(
+            "live workspace attachment is unavailable",
+        ))
+    }
+
+    /// Checks the requested ownership and operation identity before guest unmount.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unknown workspace, a conflicting owner, or a changed operation.
+    fn validate_live_detach(&self, _request: &DetachRequest) -> Result<VolumeState, VolumeError> {
+        Err(VolumeError::Missing("live workspace detach is unavailable"))
+    }
+
     /// Copies and binds a saved disk without modifying the disk it was captured from.
     ///
     /// # Errors

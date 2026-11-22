@@ -19,7 +19,7 @@ use crate::{InstanceId, VolumeId};
 const GIB: u64 = 1 << 30;
 
 /// The refusal one unusable repair produces, shared by the attach and the start paths.
-fn refusal(outcome: RepairOutcome) -> VolumeError {
+pub(super) fn refusal(outcome: RepairOutcome) -> VolumeError {
     match outcome {
         RepairOutcome::Refused => {
             VolumeError::RepairRefused("the volume needs a repair beyond the policy")
@@ -52,6 +52,18 @@ impl VolumeStore for DirectoryVolumes {
         request: &crate::volume::CheckpointVolumeRequest,
     ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
         self.copy_checkpoint(request)
+    }
+
+    fn stage_live_attach(&self, request: &AttachRequest) -> Result<VolumeBinding, VolumeError> {
+        self.stage_workspace(request)
+    }
+
+    fn commit_live_attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
+        self.publish_workspace(request)
+    }
+
+    fn validate_live_detach(&self, request: &DetachRequest) -> Result<VolumeState, VolumeError> {
+        self.admit_workspace_detach(request)
     }
 
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
@@ -232,6 +244,24 @@ impl VolumeStore for DirectoryVolumes {
             // replay after a lost answer succeeds rather than reporting a volume nobody owns.
             return Ok(());
         }
+        // Do not unlink a disk while a live workspace owns its file description.
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.file(volume));
+        let _guard = match locked {
+            Ok(file) => match file.try_lock() {
+                Ok(()) => Some(file),
+                Err(fs::TryLockError::WouldBlock) => {
+                    return Err(VolumeError::Busy("the volume is still in use"));
+                }
+                Err(fs::TryLockError::Error(_)) => {
+                    return Err(VolumeError::Ledger("the volume lock could not be checked"));
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(VolumeError::Ledger("the volume could not be opened")),
+        };
         self.transition(VolumeRecordKind::DestroyBegin, volume)?;
         let directory = self.directory(volume);
         fs::remove_dir_all(&directory).map_err(|_| VolumeError::Ledger("volume unlink"))?;

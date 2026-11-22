@@ -166,7 +166,10 @@ impl VolumeClient {
 }
 
 /// Builds the daemon frame one request carries.
-fn request_for(operation: VolumeOperation, body: &VolumeBody) -> Result<Request, VolumeFailure> {
+pub(crate) fn request_for(
+    operation: VolumeOperation,
+    body: &VolumeBody,
+) -> Result<Request, VolumeFailure> {
     let volume = HostVolume::from_hex(&body.volume_id).map_err(|_| VolumeFailure::Malformed)?;
     if operation == VolumeOperation::Read {
         return Ok(Request::VolumeRead { volume });
@@ -221,7 +224,7 @@ fn exchange(_socket: &std::path::Path, _request: &Request) -> Result<Reply, Volu
 }
 
 /// Renders one daemon reply as the report the control plane reads.
-fn report_for(
+pub(crate) fn report_for(
     operation: VolumeOperation,
     body: &VolumeBody,
     reply: &Reply,
@@ -238,13 +241,7 @@ fn report_for(
             device: VOLUME_DEVICE,
             state: state_name(*state),
             ready: *state == 1,
-            fsck: Some(FsckReport {
-                ran: true,
-                repaired: *repair == 2,
-                exit_code: i32::from(*exit_code),
-                tool: "e2fsck",
-                receipt_id: None,
-            }),
+            fsck: (*repair != 0).then(|| FsckReport::from_codes(*repair, *exit_code)),
         }),
         Reply::VolumeDetached { state, .. }
         | Reply::VolumeDestroyed { state, .. }

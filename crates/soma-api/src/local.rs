@@ -1,7 +1,7 @@
 use soma::{
     DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileMachineRequest,
-    InspectMachineRequest, LaunchMachineRequest, MachineListing, ManagedFailure, ManagedStateError,
-    PtyMachineRequest, StopMachineRequest,
+    InspectMachineRequest, LaunchMachineRequest, MachineListing, ManagedFailure, PtyMachineRequest,
+    StopMachineRequest,
 };
 use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
@@ -41,6 +41,8 @@ impl LocalFacade {
         self.runtime.serves_network(policy)
     }
 }
+
+mod workspace;
 
 impl SandboxFacade for LocalFacade {
     fn hosts_addressable_sandboxes(&self) -> bool {
@@ -264,23 +266,11 @@ impl SandboxFacade for LocalFacade {
         operation: VolumeOperation,
         body: &VolumeBody,
     ) -> Result<VolumeReport, VolumeFailure> {
-        if operation == VolumeOperation::Attach && self.volumes.configured() {
-            let operation_id = soma::OperationId::new(body.operation_id.clone())
-                .map_err(|_| VolumeFailure::Malformed)?;
-            let instance_id = soma::InstanceId::new(body.instance_id.clone())
-                .map_err(|_| VolumeFailure::Malformed)?;
-            match self
-                .runtime
-                .inspect_machine(InspectMachineRequest::new(operation_id, instance_id))
-            {
-                Err(ManagedFailure::State(
-                    ManagedStateError::MachineNotFound | ManagedStateError::MachineStopped,
-                )) => {}
-                Ok(_) | Err(ManagedFailure::State(_)) => {
-                    return Err(VolumeFailure::RequiresStopped);
-                }
-                Err(_) => return Err(VolumeFailure::Transport),
-            }
+        if matches!(operation, VolumeOperation::Attach | VolumeOperation::Detach)
+            && self.volumes.configured()
+            && let Some(report) = self.live_workspace(operation, body)?
+        {
+            return Ok(report);
         }
         self.volumes.call(operation, body)
     }

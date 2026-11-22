@@ -64,35 +64,36 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
         Request::Get { instance } => super::lifecycle::get(runtime, instance),
         Request::List { after } => super::lifecycle::list(runtime, after),
         Request::Destroy { instance } => super::lifecycle::destroy(runtime, instance),
-        Request::VolumeAttach(frame) => match volumes.attach(&AttachRequest {
-            operation: frame.operation,
-            instance: frame.instance,
-            volume: frame.volume,
-            fingerprint: frame.fingerprint,
-            size_class_gib: frame.size_class_gib,
-            generation: frame.generation,
-            tenant: frame.tenant,
-        }) {
-            Ok(outcome) => Reply::VolumeAttached {
-                volume: outcome.volume,
-                state: outcome.state.code(),
-                repair: outcome.repair.map_or(0, |receipt| receipt.outcome.code()),
-                exit_code: outcome.repair.map_or(0, |receipt| receipt.exit_code),
-            },
-            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
-        },
-        Request::VolumeDetach(frame) => match volumes.detach(&DetachRequest {
-            operation: frame.operation,
-            instance: frame.instance,
-            volume: frame.volume,
-            fingerprint: frame.fingerprint,
-        }) {
+        Request::VolumeAttach(frame) => volume_attached(volumes.attach(&attach_request(frame))),
+        Request::VolumeDetach(frame) => match volumes.detach(&detach_request(frame)) {
             Ok(outcome) => Reply::VolumeDetached {
                 volume: outcome.volume,
                 state: outcome.state.code(),
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+        Request::WorkspaceStage(frame) => match volumes.stage_live_attach(&attach_request(frame)) {
+            Ok(binding) => Reply::VolumeOpened {
+                volume: binding.volume,
+                size_class_gib: binding.size_class_gib,
+                repair: binding.repair.outcome.code(),
+                exit_code: binding.repair.exit_code,
+                path: binding.path.to_string_lossy().into_owned(),
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
+        Request::WorkspaceCommit(frame) => {
+            volume_attached(volumes.commit_live_attach(&attach_request(frame)))
+        }
+        Request::WorkspaceAdmitDetach(frame) => {
+            match volumes.validate_live_detach(&detach_request(frame)) {
+                Ok(state) => Reply::VolumeOwned {
+                    volume: frame.volume,
+                    state: state.code(),
+                },
+                Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+            }
+        }
         Request::VolumeDestroy(frame) => match volumes.destroy(frame.volume) {
             Ok(()) => Reply::VolumeDestroyed {
                 volume: frame.volume,
@@ -137,6 +138,39 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+    }
+}
+
+fn attach_request(frame: crate::AttachFrame) -> AttachRequest {
+    AttachRequest {
+        operation: frame.operation,
+        instance: frame.instance,
+        volume: frame.volume,
+        fingerprint: frame.fingerprint,
+        size_class_gib: frame.size_class_gib,
+        generation: frame.generation,
+        tenant: frame.tenant,
+    }
+}
+
+fn detach_request(frame: crate::DetachFrame) -> DetachRequest {
+    DetachRequest {
+        operation: frame.operation,
+        instance: frame.instance,
+        volume: frame.volume,
+        fingerprint: frame.fingerprint,
+    }
+}
+
+fn volume_attached(result: Result<crate::AttachOutcome, crate::volume::VolumeError>) -> Reply {
+    match result {
+        Ok(outcome) => Reply::VolumeAttached {
+            volume: outcome.volume,
+            state: outcome.state.code(),
+            repair: outcome.repair.map_or(0, |receipt| receipt.outcome.code()),
+            exit_code: outcome.repair.map_or(0, |receipt| receipt.exit_code),
+        },
+        Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
     }
 }
 

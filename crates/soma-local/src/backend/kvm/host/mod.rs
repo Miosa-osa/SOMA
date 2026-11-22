@@ -145,6 +145,27 @@ pub(super) fn pty(
 ///
 /// A socket nothing answers on is removed by the connect itself, so a host that died leaves no
 /// name behind for a second listing to report.
+/// Sends an attachment or detachment for the owning process to serialize.
+pub(crate) fn workspace(
+    directory: &Path,
+    instance: &InstanceId,
+    request: &soma_hostd::Request,
+) -> Result<soma_hostd::Reply, BackendFailureKind> {
+    let request = Call::Workspace {
+        instance_id: instance.clone(),
+        request: request.encode(),
+    };
+    match ask(directory, instance, &request, CONTROL_CEILING) {
+        Ok(Answer::WorkspaceVolume(reply)) => {
+            soma_hostd::Reply::decode(&reply).map_err(|_| BackendFailureKind::GuestFailure)
+        }
+        Ok(Answer::Refused(kind)) => Err(kind.into()),
+        Err(HostFailure::Refused(kind)) => Err(kind),
+        Ok(_) => Err(BackendFailureKind::GuestFailure),
+        Err(HostFailure::Absent) => Err(BackendFailureKind::Unavailable),
+    }
+}
+
 /// Asks the owning host to confirm that guest execution is paused.
 pub(crate) fn pause(directory: &Path, instance: &InstanceId) -> Result<(), crate::PauseFailure> {
     let call = Call::Pause {
