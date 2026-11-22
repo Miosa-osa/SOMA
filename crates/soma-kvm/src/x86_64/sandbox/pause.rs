@@ -222,60 +222,18 @@ mod tests {
     #[test]
     #[ignore = "requires a Linux x86_64 host with accessible /dev/kvm"]
     fn live_pause_freezes_guest_registers_and_memory() {
-        use std::{
-            fs::File,
-            io::{Seek as _, Write as _},
-            time::{Duration, Instant},
-        };
+        use std::time::{Duration, Instant};
 
-        use super::{GuestExit, SandboxMachine};
+        use super::super::testing::spinning_machine;
+        use super::GuestExit;
+        use crate::MachineContract;
         use crate::virtio::{GuestAddress, GuestMemory as _};
-        use crate::x86_64::{
-            DeviceIdentity, EXPECTED_SERIAL, SandboxConfig, SandboxDisks,
-            elf::synthetic::SyntheticElf, guest::HALT_PROGRAM, layout::KERNEL_START,
-        };
-        use crate::{DeviceSet, MachineContract};
+        use crate::x86_64::{EXPECTED_SERIAL, layout::KERNEL_START};
 
         const GRACE: Duration = Duration::from_secs(2);
-        let entry = u32::try_from(KERNEL_START).unwrap();
-        let counter_address = entry + 256;
-
-        let mut elf = SyntheticElf::kernel(entry);
-        let mut program = HALT_PROGRAM[..HALT_PROGRAM.len() - 1].to_vec();
-        // Replace hlt with a spin loop that increments a word in guest memory.
-        program.extend([0xff, 0x05]); // inc dword ptr [address]
-        program.extend(counter_address.to_le_bytes());
-        program.extend([0xeb, 0xf8]); // jmp back to inc
-        elf.segments[0].data = program;
-        let mut kernel = tempfile::tempfile().unwrap();
-        kernel.write_all(&elf.build()).unwrap();
-        kernel.rewind().unwrap();
-        let initramfs = tempfile::tempfile().unwrap();
-        initramfs.set_len(4096).unwrap();
-        let root = tempfile::NamedTempFile::new().unwrap();
-        root.as_file().set_len(4096).unwrap();
-
         let contract = MachineContract::V1;
-        let mut machine = SandboxMachine::create(SandboxConfig {
-            kernel,
-            initramfs,
-            disks: SandboxDisks {
-                root: File::open(root.path()).unwrap(),
-                overlay: None,
-                volume: None,
-                volume_placeholder: false,
-            },
-            identity: DeviceIdentity {
-                guest_cid: 3,
-                guest_mac: [0x02, 0x53, 0x4f, 0x4d, 0x41, 0x01],
-            },
-            ram_bytes: contract.min_memory_bytes(),
-            vcpus: 1,
-            contract,
-            devices: DeviceSet::new(false, false),
-            hotplug: None,
-        })
-        .expect("create KVM guest");
+        let entry = u32::try_from(KERNEL_START).unwrap();
+        let (mut machine, counter_address) = spinning_machine(None);
         assert!(machine.pause(GRACE).is_err());
         machine.watch_console(EXPECTED_SERIAL);
         machine.start().expect("boot the same guest");

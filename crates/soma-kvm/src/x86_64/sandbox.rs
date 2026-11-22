@@ -15,6 +15,8 @@ pub(in crate::x86_64) mod pause;
 pub(in crate::x86_64) mod restored;
 mod start;
 mod teardown;
+#[cfg(test)]
+mod testing;
 mod workspace;
 
 use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
