@@ -125,6 +125,24 @@ impl Backend for TestBackend {
         ))
     }
 
+    fn acquire_restore(
+        &self,
+        _instance: &InstanceId,
+    ) -> Result<Box<dyn std::any::Any + Send>, BackendFailure> {
+        Ok(Box::new(()))
+    }
+
+    fn launch_checkpoint(
+        &mut self,
+        request: soma::LaunchRequest<'_, Self::PreparedWorkload>,
+        _checkpoint: &soma::OperationId,
+        _fork_source: Option<&InstanceId>,
+        _lease: &(dyn std::any::Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
+        self.record("launch_checkpoint");
+        self.launch(request)
+    }
+
     fn liveness(&mut self, _instance_id: &InstanceId) -> SandboxLiveness {
         self.record("liveness");
         SandboxLiveness::Live

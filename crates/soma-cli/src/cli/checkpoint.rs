@@ -25,6 +25,10 @@ pub struct CheckpointImportArgs {
     #[arg(long, value_name = "NAME")]
     pub owner: String,
 
+    /// Reserve recovery on a replacement broker after authenticating and fencing the source.
+    #[arg(long)]
+    pub recover_absent: bool,
+
     /// The private checkpoint directory on the configured encrypted mount.
     #[arg(long, value_name = "PATH")]
     pub bundle: std::path::PathBuf,

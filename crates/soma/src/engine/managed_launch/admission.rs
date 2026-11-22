@@ -98,7 +98,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             }
             _ => {}
         }
-        if stored.machine.stopped_source(intent).is_none() {
+        if !stored.machine.permits_checkpoint_restore(intent)
+            || (checkpoint.is_none()
+                && matches!(stored.machine.phase, DurablePhase::Recovery { .. }))
+        {
             return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
         }
         let pending = DurableMachine::restoring(

@@ -36,6 +36,10 @@ pub(in crate::engine) enum DurablePhase {
         operation_id: OperationId,
         request_fingerprint: RequestFingerprint,
     },
+    Recovery {
+        source: Box<RecoverySource>,
+        installed: bool,
+    },
     Terminal {
         basis: Box<TerminalBasis>,
         operation: OperationKind,
@@ -50,6 +54,16 @@ pub(in crate::engine) enum DurablePhase {
 pub(in crate::engine) enum TerminalBasis {
     Launch { intent: Box<LaunchIntent> },
     Active { active: Box<ActiveMachine> },
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::engine) struct RecoverySource {
+    pub(in crate::engine) owner: MachineName,
+    pub(in crate::engine) checkpoint: OperationId,
+    pub(in crate::engine) generation: crate::GenerationId,
+    pub(in crate::engine) receipt_digest: crate::GenerationId,
+    pub(in crate::engine) backend: BackendKind,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

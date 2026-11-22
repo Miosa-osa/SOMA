@@ -61,6 +61,47 @@ impl LocalRuntime {
         crate::backend::install_import(stage, expected)
     }
 
+    /// Installs a verified backup and reserves recovery authority for an absent Instance.
+    ///
+    /// The caller must authenticate the backup owner and fence the original Instance.
+    ///
+    /// # Errors
+    ///
+    /// Refuses conflicting state, unsupported storage, or an unverified checkpoint.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn recover_absent_checkpoint(
+        &mut self,
+        owner: &soma::MachineName,
+        expected: &crate::CheckpointReceipt,
+        stage: &std::path::Path,
+    ) -> Result<(), crate::CheckpointFailure> {
+        use crate::CheckpointFailure;
+        let lease = self.checkpoint_lease(expected)?;
+        let digest = receipt_digest(expected)?;
+        // Validate the stage before claiming a fresh machine ID. An interrupted install can
+        // already have consumed the stage, so verification also accepts the exact native target.
+        let publication = crate::backend::verify_import(stage, expected)?;
+        let result = self
+            .engine
+            .install_recovery_source(
+                &expected.instance_id,
+                owner,
+                &expected.checkpoint_id,
+                &expected.generation_id,
+                &digest,
+                || publication.install(),
+            )
+            .map_err(|error| match error {
+                soma::ManagedFailure::State(soma::ManagedStateError::OperationConflict)
+                | soma::ManagedFailure::StateStore(soma::StateStoreFailureKind::Conflict) => {
+                    CheckpointFailure::CaptureRefused
+                }
+                _ => CheckpointFailure::Unconfirmed,
+            })?;
+        drop(lease);
+        result
+    }
+
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn authorize_checkpoint(
         &mut self,
@@ -69,11 +110,7 @@ impl LocalRuntime {
     ) -> Result<std::fs::File, crate::CheckpointFailure> {
         use crate::CheckpointFailure;
 
-        if self.host_directory.is_none() {
-            return Err(CheckpointFailure::Unsupported);
-        }
-        let lease = crate::file_store::restore_lease(&self.state_root, &expected.instance_id)
-            .map_err(|_| CheckpointFailure::Unconfirmed)?;
+        let lease = self.checkpoint_lease(expected)?;
         let recorded = self
             .engine
             .restore_owner(&expected.instance_id)
@@ -81,7 +118,33 @@ impl LocalRuntime {
         if recorded.as_ref() != Some(owner) {
             return Err(CheckpointFailure::NotFound);
         }
+        let digest = receipt_digest(expected)?;
+        if !self
+            .engine
+            .permits_checkpoint_transfer(
+                &expected.instance_id,
+                &expected.checkpoint_id,
+                &expected.generation_id,
+                &digest,
+            )
+            .map_err(|_| CheckpointFailure::Unconfirmed)?
+        {
+            return Err(CheckpointFailure::NotFound);
+        }
         Ok(lease)
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn checkpoint_lease(
+        &self,
+        expected: &crate::CheckpointReceipt,
+    ) -> Result<std::fs::File, crate::CheckpointFailure> {
+        use crate::CheckpointFailure;
+        if self.host_directory.is_none() {
+            return Err(CheckpointFailure::Unsupported);
+        }
+        crate::file_store::restore_lease(&self.state_root, &expected.instance_id)
+            .map_err(|_| CheckpointFailure::Unconfirmed)
     }
 
     /// Releases a published checkpoint by its exact sandbox, operation and state digest.
@@ -113,4 +176,15 @@ impl LocalRuntime {
             Err(crate::CheckpointFailure::Unsupported)
         }
     }
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn receipt_digest(
+    expected: &crate::CheckpointReceipt,
+) -> Result<soma::GenerationId, crate::CheckpointFailure> {
+    let bytes =
+        serde_json::to_vec(expected).map_err(|_| crate::CheckpointFailure::CaptureRefused)?;
+    let digest = soma_kvm::snapshot::Digest::of(&bytes);
+    soma::GenerationId::new(format!("sha256:{digest}"))
+        .map_err(|_| crate::CheckpointFailure::CaptureRefused)
 }

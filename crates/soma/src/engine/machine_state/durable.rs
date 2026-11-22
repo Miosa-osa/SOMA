@@ -5,8 +5,8 @@ use crate::{
 };
 
 use super::{
-    ActiveMachine, DurableMachine, DurablePhase, LaunchIntent, TerminalBasis, VersionedMachine,
-    corrupt, model::STATE_SCHEMA_VERSION,
+    ActiveMachine, DurableMachine, DurablePhase, LaunchIntent, RecoverySource, TerminalBasis,
+    VersionedMachine, corrupt, model::STATE_SCHEMA_VERSION,
 };
 
 #[derive(Deserialize)]
@@ -60,6 +60,44 @@ impl DurableMachine {
                 prior_stop: Some(Box::new(stopped)),
             },
         }
+    }
+
+    pub(in crate::engine) fn recovery(
+        instance_id: InstanceId,
+        source: RecoverySource,
+        installed: bool,
+    ) -> Self {
+        Self {
+            schema_version: STATE_SCHEMA_VERSION,
+            instance_id,
+            phase: DurablePhase::Recovery {
+                source: Box::new(source),
+                installed,
+            },
+        }
+    }
+
+    pub(in crate::engine) fn permits_checkpoint_restore(&self, intent: &LaunchIntent) -> bool {
+        if let DurablePhase::Recovery {
+            source,
+            installed: true,
+        } = &self.phase
+        {
+            let expected = crate::fingerprint::launch(
+                &intent.workload,
+                &self.instance_id,
+                Some(&source.owner),
+                &intent.requested_shape,
+                false,
+            );
+            return source.backend == intent.backend
+                && Some(&source.generation) == intent.workload.generation_id()
+                && Some(&source.owner) == intent.machine_name.as_ref()
+                && source.checkpoint != intent.operation_id
+                && crate::fingerprint::restore(&expected, &source.checkpoint)
+                    == intent.request_fingerprint;
+        }
+        self.stopped_source(intent).is_some()
     }
 
     pub(in crate::engine) fn stopped_source(
@@ -140,7 +178,7 @@ impl DurableMachine {
             DurablePhase::Launching { intent, prior_stop } => {
                 if let Some(stopped) = prior_stop
                     && (stopped.instance_id != self.instance_id
-                        || stopped.stopped_source(intent).is_none())
+                        || !stopped.permits_checkpoint_restore(intent))
                 {
                     return Err(corrupt());
                 }
@@ -160,6 +198,7 @@ impl DurableMachine {
                 }
                 active.validate(&self.instance_id)
             }
+            DurablePhase::Recovery { .. } => Ok(()),
             DurablePhase::Terminal {
                 basis,
                 operation,

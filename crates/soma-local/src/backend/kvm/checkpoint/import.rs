@@ -11,24 +11,56 @@ pub(crate) fn install_import(
     stage: &Path,
     expected: &CheckpointReceipt,
 ) -> Result<(), CheckpointFailure> {
+    verify_import(stage, expected)?.install()
+}
+
+pub(crate) struct VerifiedImport<'a> {
+    root: std::path::PathBuf,
+    target: std::path::PathBuf,
+    stage: Option<&'a Path>,
+}
+
+impl VerifiedImport<'_> {
+    pub(crate) fn install(self) -> Result<(), CheckpointFailure> {
+        let Some(stage) = self.stage else {
+            return sync_directory(&self.root);
+        };
+        let parent = stage.parent().ok_or(CheckpointFailure::Storage)?;
+        rename_new(stage, &self.target)?;
+        sync_directory(&self.root)?;
+        sync_directory(parent)
+    }
+}
+
+pub(crate) fn verify_import<'a>(
+    stage: &'a Path,
+    expected: &CheckpointReceipt,
+) -> Result<VerifiedImport<'a>, CheckpointFailure> {
     let root = configured_root()?;
     require_encrypted(&root)?;
     let target = published_path(&root, expected);
     match fs::symlink_metadata(&target) {
-        Ok(_) => return validate_bundle(&target, expected).and_then(|()| sync_directory(&root)),
+        Ok(_) => {
+            validate_bundle(&target, expected)?;
+            return Ok(VerifiedImport {
+                root,
+                target,
+                stage: None,
+            });
+        }
         Err(error) if error.kind() == ErrorKind::NotFound => {}
         Err(_) => return Err(CheckpointFailure::Storage),
     }
-
     if !stage.is_absolute() {
         return Err(CheckpointFailure::CaptureRefused);
     }
     require_encrypted(stage)?;
     validate_bundle(stage, expected)?;
-    let parent = stage.parent().ok_or(CheckpointFailure::Storage)?;
-    rename_new(stage, &target)?;
-    sync_directory(&root)?;
-    sync_directory(parent)
+    Ok(VerifiedImport {
+        root,
+        target,
+        stage: Some(stage),
+    })
 }
 
 fn validate_bundle(path: &Path, expected: &CheckpointReceipt) -> Result<(), CheckpointFailure> {

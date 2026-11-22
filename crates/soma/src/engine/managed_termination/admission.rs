@@ -107,7 +107,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             DurablePhase::Launching { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::RecoveryRequired))
             }
-            DurablePhase::Terminal { .. } => {
+            DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::MachineStopped))
             }
             DurablePhase::Terminating { .. } => {

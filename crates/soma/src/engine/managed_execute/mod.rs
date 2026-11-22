@@ -202,7 +202,7 @@ fn durable_with_phase(instance_id: &crate::InstanceId, phase: DurablePhase) -> D
                 unreachable!("managed active transitions retain launch evidence")
             }
         },
-        DurablePhase::Launching { .. } => {
+        DurablePhase::Launching { .. } | DurablePhase::Recovery { .. } => {
             unreachable!("managed active transitions retain launch evidence")
         }
     };

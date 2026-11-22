@@ -1117,3 +1117,9 @@ An off-host publisher must keep the output unpublished until the whole capture h
 The host-local import command verifies the durable owner, frozen receipt, encrypted mount, and artifact digests before the existing checkpoint path becomes visible.
 Installation uses the same Instance restore lease as native recovery and never replaces another publication.
 Replays check the installed bytes against the expected receipt.
+
+## Recovery on a replacement broker
+
+A host-local import can reserve an absent Instance after Compute fences the original placement.
+The durable reservation exposes the owner only after the original capture receipt and encrypted artifacts are verified and published.
+The recovery transaction admits the same Instance and checkpoint, reuses ordinary restore readiness checks, and retains the reservation across failure.

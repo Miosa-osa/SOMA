@@ -2,6 +2,7 @@ mod admission;
 mod failure;
 mod fork;
 mod receipt;
+mod recovery;
 
 use crate::{
     Backend, CleanupEvidence, Milestone, MilestoneKind, StateStore, TerminalStatus,
@@ -82,6 +83,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 prior_stop: Some(_),
             } => intent.machine_name.clone(),
             DurablePhase::Active { active } => active.machine_name().cloned(),
+            DurablePhase::Recovery {
+                source,
+                installed: true,
+            } => Some(source.owner.clone()),
             _ => None,
         };
         Ok(name)

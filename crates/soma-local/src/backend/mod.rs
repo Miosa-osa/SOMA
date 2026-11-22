@@ -30,7 +30,7 @@ pub(crate) use kvm::{
     checkpoint_machine, pause_machine, resize_machine, resume_machine, set_egress_machine,
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(crate) use kvm::{discard_checkpoint, install_import, open_export};
+pub(crate) use kvm::{discard_checkpoint, install_import, open_export, verify_import};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
     prewarm_machine_hosts, prewarm_status, prune_prepared, set_prewarm_targets, start_prewarm,

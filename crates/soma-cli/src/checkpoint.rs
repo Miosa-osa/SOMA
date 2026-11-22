@@ -35,9 +35,12 @@ fn execute_on_host(cli: &Cli) -> Result<ProcessExit, ProcessExit> {
     let mut runtime = LocalRuntime::open(config).map_err(|_| ProcessExit::BackendFailure)?;
     let arguments = match &cli.command {
         RootCommand::CheckpointImport(args) => {
-            runtime
-                .import_checkpoint(&owner, &receipt, &args.bundle)
-                .map_err(checkpoint_failure)?;
+            if args.recover_absent {
+                runtime.recover_absent_checkpoint(&owner, &receipt, &args.bundle)
+            } else {
+                runtime.import_checkpoint(&owner, &receipt, &args.bundle)
+            }
+            .map_err(checkpoint_failure)?;
             return Ok(ProcessExit::Success);
         }
         RootCommand::CheckpointExport(args) => args,
@@ -101,7 +104,7 @@ fn execute_on_host(cli: &Cli) -> Result<ProcessExit, ProcessExit> {
             let _ = (&args.owner, args.artifact);
         }
         RootCommand::CheckpointImport(args) => {
-            let _ = (&args.owner, &args.bundle);
+            let _ = (&args.owner, &args.bundle, args.recover_absent);
         }
         _ => {}
     }

@@ -5,7 +5,7 @@ mod export;
 mod import;
 pub(crate) use export::open_export;
 pub use export::{CheckpointArtifact, CheckpointExport};
-pub(crate) use import::install_import;
+pub(crate) use import::{install_import, verify_import};
 mod restore;
 pub(super) mod retention;
 pub(crate) use discard::discard_checkpoint;
