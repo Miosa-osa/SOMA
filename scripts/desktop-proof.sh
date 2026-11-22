@@ -3,9 +3,8 @@
 # Repeats the whole desktop proof (milestone M1 of the cua desktop design) with one command.
 #
 # Given a desktop Generation compiled by scripts/desktop-generation.sh, it launches one desktop
-# sandbox through soma-api, starts its session through exec, looks at it through the SOMA tunnel to
-# guest port 6080 the way a viewer would, drives it with cua-driver through exec, measures, destroys
-# it and checks that nothing was left behind. soma-netd and soma-api run in a privileged container
+# sandbox through soma-api, starts its session through exec, drives it with cua-driver through exec
+# the way an agent would, measures, destroys it and checks that nothing was left behind. soma-netd and soma-api run in a privileged container
 # with their own network namespace (scripts/desktop-proof/runtime.Dockerfile), so the host's own
 # network configuration is not changed; the container is removed at the end.
 #
@@ -15,8 +14,7 @@
 # Usage:
 #   scripts/desktop-proof.sh --store DIR --reference REF --work DIR [--hold SECONDS] [--keep]
 #
-#   --hold SECONDS  keep the desktop up that long (or until <work>/release exists) with a viewer
-#                   that serves KasmVNC's web client through the tunnel on <container>:16080
+#   --hold SECONDS  keep the desktop up that long (or until <work>/release exists)
 #   --keep          leave the runtime container running afterwards, for inspection
 #
 # Everything the proof saw is written under <work>/results: every API request and response, the

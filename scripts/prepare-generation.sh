@@ -103,8 +103,10 @@ reference_key() {
 }
 
 resolve_inputs() {
-    KERNEL="$(compgen -G "$REPO_ROOT/kernel/out/vmlinux-*-soma-v1" | head -1 || true)"
-    [[ -n "$KERNEL" ]] || die "no built kernel under kernel/out; run build-soma.sh first"
+    # SOMA_KERNEL binds a kernel variant (kernel/build-variant.sh) instead of version 1; its
+    # final.config beside it is what the compiler records.
+    KERNEL="${SOMA_KERNEL:-$(compgen -G "$REPO_ROOT/kernel/out/vmlinux-*-soma-v1" | head -1 || true)}"
+    [[ -n "$KERNEL" && -f "$KERNEL" ]] || die "no built kernel ${SOMA_KERNEL:-under kernel/out}; run build-soma.sh first"
     KERNEL_CONFIG="$(dirname "$KERNEL")/final.config"
     [[ -f "$KERNEL_CONFIG" ]] || KERNEL_CONFIG="$REPO_ROOT/kernel/config-x86_64-soma-v1"
     [[ -f "$KERNEL_CONFIG" ]] || die "kernel configuration not found beside the kernel"

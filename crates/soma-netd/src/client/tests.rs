@@ -121,3 +121,23 @@ fn a_broker_that_answers_nothing_is_a_protocol_failure() {
     let error = exchange(|_| ()).expect_err("no answer");
     assert_eq!(error, ClientError::Protocol);
 }
+
+/// A dialed guest socket is pumped with blocking reads, so it must not arrive non-blocking the
+/// way a TAP does: a non-blocking one read "nothing yet" as an error and the tunnel closed
+/// milliseconds after it opened (#176).
+#[test]
+fn a_dialed_guest_socket_arrives_blocking() {
+    let bundle = BundleId::new([3; 16]).expect("bundle");
+    let generation = CleanupGeneration::new(2).expect("generation");
+    let (client, broker) = seqpacket_pair().expect("pair");
+    let file = tempfile::tempfile().expect("file");
+    send_tap(broker.as_fd(), &header(bundle, generation), file.as_fd()).expect("sent");
+    reply_only(&broker, &Reply::Connected { bundle, generation });
+    let instance = InstanceId::new([1; 16]).expect("instance");
+    let socket = BrokerClient { socket: client }
+        .connect_guest(instance, bundle, generation, 6080)
+        .expect("connected");
+    // SAFETY: `F_GETFL` takes no pointer argument.
+    let flags = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_GETFL) };
+    assert_eq!(flags & libc::O_NONBLOCK, 0);
+}

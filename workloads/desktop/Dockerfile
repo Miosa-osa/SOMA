@@ -1,4 +1,4 @@
-# The SOMA desktop stage: an Xfce desktop with KasmVNC and the pinned cua-driver, for a SOMA guest.
+# The SOMA desktop stage: an Openbox desktop on Xorg's dummy screen and the pinned cua-driver, for a SOMA guest.
 #
 # A SOMA guest has no init system (PID 1 is the guest agent) and its Generation snapshot holds no
 # running process, so this stage adds no service unit and starts nothing. It adds what a desktop
@@ -12,16 +12,17 @@
 #   the session launcher  soma-desktop-session, run once through exec after the machine is Ready
 #   the warm list         /etc/soma/warm, so the session starts from cached pages
 #
-# The base is a desktop image that already carries Xfce 4, xfce4-terminal, dbus-x11 and KasmVNC
-# 1.4.0 (Xkasmvnc). Two bases are supported and the stage is the same for both:
+# The base is a desktop image that already carries Xorg with the dummy video driver, Openbox,
+# xfce4-terminal, dbus-x11 and the screen configuration at /etc/soma-desktop/xorg.conf.
+# Two bases are supported and the stage is the same for both:
 #
 #   an existing desktop root filesystem, imported with import-rootfs.sh:
-#     workloads/desktop-xfce/import-rootfs.sh <rootfs.ext4> desktop-rootfs:v17
-#     docker build --build-arg BASE_IMAGE=desktop-rootfs:v17 -t soma-desktop-xfce:1 workloads/desktop-xfce
+#     workloads/desktop/import-rootfs.sh <rootfs.ext4> desktop-rootfs:v17
+#     docker build --build-arg BASE_IMAGE=desktop-rootfs:v17 -t soma-desktop:2 workloads/desktop
 #
 #   the public base built from base.Dockerfile, which needs nothing outside this directory:
-#     docker build -f workloads/desktop-xfce/base.Dockerfile -t soma-desktop-base:1 workloads/desktop-xfce
-#     docker build --build-arg BASE_IMAGE=soma-desktop-base:1 -t soma-desktop-xfce:1 workloads/desktop-xfce
+#     docker build -f workloads/desktop/base.Dockerfile -t soma-desktop-base:2 workloads/desktop
+#     docker build --build-arg BASE_IMAGE=soma-desktop-base:2 -t soma-desktop:2 workloads/desktop
 #
 # Only instructions the classic builder understands are used, so no BuildKit is needed.
 ARG BASE_IMAGE
@@ -31,11 +32,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends at-spi2-core ca-certificates curl dbus libxkbcommon0 libxi6 \
-      libglib2.0-bin procps x11-utils \
+      libglib2.0-bin procps x11-utils x11-xserver-utils \
  && apt-get clean \
  && find /var/lib/apt/lists -type f -delete \
  && test -x /usr/libexec/at-spi-bus-launcher \
- && command -v Xkasmvnc startxfce4 xfce4-terminal dbus-daemon setpriv setsid pgrep xwininfo gdbus
+ && test -x /usr/lib/xorg/Xorg && test -f /etc/soma-desktop/xorg.conf \
+ && command -v openbox xfce4-terminal dbus-daemon setpriv setsid pgrep xprop xsetroot gdbus
 
 # cua-driver, pinned. 0.55.0 is the newest release with published binaries, SHA256SUMS and
 # Sigstore bundles: the cua-driver-rs-v0.56.0 tag (trycua/cua 9c75001355, 2026-11-20) has no
@@ -60,11 +62,42 @@ RUN set -e; \
       echo 'a non-MIT cua component is in the image' >&2; exit 1; \
     fi
 
+# The viewer: Sunshine (captures and encodes the screen, software H.264) and moonlight-web (the
+# browser client, relaying over WebSockets), both pinned by the SHA-256 of their release assets.
+# udev and the libinput driver let Xorg take the pointer and keyboard Sunshine creates through
+# /dev/uinput (the desktop kernel variant has it); the desktop user joins the input group to read
+# them. python3 runs the build-time pairing only.
+ARG SUNSHINE_VERSION=2026.914.233613
+ARG SUNSHINE_SHA256=c38e9c705f650f8705f61702717e99bec34044c5028fcb8f23a08fe041292c21
+ARG MOONLIGHT_WEB_VERSION=3.0.2
+ARG MOONLIGHT_WEB_SHA256=4b6de5c1c35553e9d35bd67a3343ebd01f67d0a4216116c09b78b12adccc03df
+RUN set -e; \
+    deb="sunshine_${SUNSHINE_VERSION}-1+ubuntu24.04_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://github.com/LizardByte/Sunshine/releases/download/v${SUNSHINE_VERSION}/${deb}"; \
+    echo "${SUNSHINE_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    curl -fsSL --retry 3 -o /tmp/moonlight-web.tar.gz \
+      "https://github.com/MrCreativ3001/moonlight-web-stream/releases/download/v${MOONLIGHT_WEB_VERSION}/moonlight-web-x86_64-unknown-linux-gnu.tar.gz"; \
+    echo "${MOONLIGHT_WEB_SHA256}  /tmp/moonlight-web.tar.gz" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}" udev xserver-xorg-input-libinput python3; \
+    mkdir -p /opt/moonlight-web; \
+    tar -C /opt/moonlight-web --strip-components=1 -xzf /tmp/moonlight-web.tar.gz; \
+    chmod 0755 /opt/moonlight-web/web-server; \
+    rm -f "/tmp/${deb}" /tmp/moonlight-web.tar.gz; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    usermod -aG input ubuntu; \
+    command -v sunshine; test -x /lib/systemd/systemd-udevd
+
 COPY session/cua-driver-wrapper.sh /usr/local/bin/cua-driver
 COPY session/soma-desktop-session.sh /usr/local/sbin/soma-desktop-session
 COPY session/soma-desktop-call.sh /usr/local/bin/soma-desktop-call
 COPY session/session.sh /usr/local/libexec/soma-desktop/session.sh
 COPY session/cua-capabilities.yaml /etc/soma-desktop/cua-capabilities.yaml
+COPY viewer/viewer.sh /usr/local/libexec/soma-desktop/viewer.sh
+COPY viewer/pair.py /usr/local/libexec/soma-desktop/pair.py
+COPY viewer/sunshine.conf /home/ubuntu/.config/sunshine/sunshine.conf
 
 # Telemetry and update checks off in the persisted preference too, for the desktop user and root,
 # and asserted: the wrapper must export both switches and both files must say false.
@@ -91,13 +124,13 @@ RUN rm -f /var/lib/dbus/machine-id /swapfile \
  && mkdir -p /var/lib/dbus \
  && ln -s /etc/machine-id /var/lib/dbus/machine-id
 
-# The page-cache warm list: the X server, Xfce, the terminal, the driver and every library they
+# The page-cache warm list: the X server, Openbox, the terminal, the driver and every library they
 # link, so a session started after a restore reads them from memory. The agent bounds a list at
 # 256 entries.
 RUN mkdir -p /etc/soma \
  && { \
-      for binary in /usr/bin/Xkasmvnc /usr/bin/xfwm4 /usr/bin/xfce4-panel /usr/bin/xfdesktop \
-                    /usr/bin/xfce4-session /usr/bin/xfsettingsd /usr/bin/xfce4-terminal \
+      for binary in /usr/lib/xorg/Xorg /usr/lib/xorg/modules/drivers/dummy_drv.so \
+                    /usr/bin/openbox /usr/bin/xfce4-terminal \
                     /usr/libexec/at-spi-bus-launcher /usr/libexec/at-spi2-registryd \
                     /usr/bin/dbus-daemon /opt/cua-driver/cua-driver; do \
         [ -e "$binary" ] || continue; \
@@ -105,4 +138,18 @@ RUN mkdir -p /etc/soma \
         ldd "$binary" | awk '/=> \//{print $3}'; \
       done; \
     } | awk '!seen[$0]++' | head -256 > /etc/soma/warm \
- && test "$(wc -l < /etc/soma/warm)" -gt 50
+ && test "$(wc -l < /etc/soma/warm)" -gt 30
+
+# The viewer's own state, made once: moonlight-web's configuration (WebSockets only, so no public
+# STUN server is ever asked; its data in the desktop user's home), then the pairing itself.
+RUN chmod 0755 /usr/local/libexec/soma-desktop/viewer.sh /usr/local/libexec/soma-desktop/pair.py \
+ && mkdir -p /home/ubuntu/.config/moonlight-web \
+ && mkdir -p /tmp/mlw-gen && cd /tmp/mlw-gen && /opt/moonlight-web/web-server config generate >/dev/null \
+ && python3 -c 'import json; c = json.load(open("/tmp/mlw-gen/server/config.json")); c["data_storage"]["path"] = "/home/ubuntu/.config/moonlight-web/data.json"; c["webrtc"]["ice_servers"] = []; json.dump(c, open("/home/ubuntu/.config/moonlight-web/config.json", "w"), indent=2)' \
+ && cd / && rm -r -f /tmp/mlw-gen \
+ && chown -R ubuntu:ubuntu /home/ubuntu/.config \
+ && setpriv --reuid="$(id -u ubuntu)" --regid="$(id -g ubuntu)" --init-groups \
+      env HOME=/home/ubuntu LANG=C.UTF-8 python3 /usr/local/libexec/soma-desktop/pair.py \
+ && test -s /home/ubuntu/.config/moonlight-web/data.json \
+ && grep -q '"named_devices"' /home/ubuntu/.config/sunshine/sunshine_state.json \
+ && rm -rf /tmp/.X11-unix /tmp/.X0-lock /tmp/soma-viewer-pair

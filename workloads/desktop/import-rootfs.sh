@@ -16,10 +16,10 @@
 # agent gives every Instance fresh ones, and build leftovers there would only enlarge the lower.
 #
 # Usage (as root on a Linux host with Docker):
-#   workloads/desktop-xfce/import-rootfs.sh <rootfs.ext4> <image-tag>
+#   workloads/desktop/import-rootfs.sh <rootfs.ext4> <image-tag>
 #
 # Example:
-#   workloads/desktop-xfce/import-rootfs.sh /srv/images/ubuntu-24.04-desktop.ext4 desktop-rootfs:v17
+#   workloads/desktop/import-rootfs.sh /srv/images/ubuntu-24.04-desktop.ext4 desktop-rootfs:v17
 
 set -euo pipefail
 

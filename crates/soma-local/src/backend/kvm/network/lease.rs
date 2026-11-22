@@ -230,8 +230,11 @@ impl Lease {
         ) {
             return Err(ClientError::Protocol);
         }
-        self.connection
-            .connect_guest(self.instance, self.bundle, self.generation, port)
+        // A dial gets its own connection: the claim's has been silent since the launch and the
+        // broker closes idle ones, so a later tunnel died on a broken pipe (#176). The broker
+        // authenticates the new one by the same kernel identity.
+        let client = BrokerClient::connect(&self.socket)?;
+        client.connect_guest(self.instance, self.bundle, self.generation, port)
     }
 
     pub(super) fn release(&mut self) -> Released {

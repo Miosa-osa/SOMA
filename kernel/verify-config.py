@@ -54,11 +54,22 @@ def main():
     parser.add_argument("--pinned", required=True)
     parser.add_argument("--final", required=True)
     parser.add_argument("--required", required=True)
+    parser.add_argument(
+        "--variant-fragment",
+        help="a kernel variant's fragment: each symbol it sets may differ from the contract, and "
+        "only to exactly the value the fragment gives it; every such override is printed",
+    )
     args = parser.parse_args()
 
     pinned = parse(args.pinned)
     final = parse(args.final)
     required = parse(args.required)
+    if args.variant_fragment:
+        overrides = parse(args.variant_fragment)
+        for symbol, value in sorted(overrides.items()):
+            if symbol in required and required[symbol] != value:
+                print(f"variant override: {symbol}={value} (contract v1 says {required[symbol]})")
+                required[symbol] = value
 
     problems = compare("pinned", pinned, final, treat_absent_as_n=False)
     problems += compare("required", required, final, treat_absent_as_n=True)
