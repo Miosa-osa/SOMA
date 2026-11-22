@@ -22,10 +22,23 @@ pub(super) struct Members {
 ///
 /// # Errors
 ///
-/// Returns [`BackendFailureKind::Unavailable`] when a member is missing or unreadable; the
+/// Returns [`BackendFailureKind::WorkloadRejected`] when the members were taken from another
+/// Generation and [`BackendFailureKind::Unavailable`] when one is missing or unreadable; the
 /// directory is removed either way.
-pub(super) fn open(directory: &Path, overlay: bool) -> Result<Members, BackendFailureKind> {
-    let opened = open_members(directory, overlay);
+pub(super) fn open(
+    directory: &Path,
+    generation: [u8; 32],
+    overlay: bool,
+) -> Result<Members, BackendFailureKind> {
+    // Members captured over one Generation's root must never run over another's.
+    let named = std::fs::read_to_string(directory.join(crate::RESUME_GENERATION_FILE))
+        .map_err(|_| BackendFailureKind::Unavailable)?;
+    let expected: String = generation.iter().map(|byte| format!("{byte:02x}")).collect();
+    let opened = if named.trim() == expected {
+        open_members(directory, overlay)
+    } else {
+        Err(BackendFailureKind::WorkloadRejected)
+    };
     let _ignored = std::fs::remove_dir_all(directory);
     opened
 }

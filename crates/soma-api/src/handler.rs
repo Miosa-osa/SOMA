@@ -1,6 +1,7 @@
 mod prepared;
 pub(crate) mod prewarm;
 mod support;
+pub(crate) mod suspension;
 mod volume;
 mod volumes;
 use support::{control_body, optional_body, parse, refuse, success};
@@ -35,13 +36,22 @@ pub use prewarm::handle_prewarm;
 /// unidentified caller learns only that it is unidentified, and cannot use the difference between
 /// a 404 and a 405 to map the service's surface.
 pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> Response {
-    if let Err(error) = identify(request.header(TENANT_HEADER)) {
-        return refuse("request", error);
-    }
+    let tenant = match identify(request.header(TENANT_HEADER)) {
+        Ok(tenant) => tenant,
+        Err(error) => return refuse("request", error),
+    };
     match resolve(request) {
         Ok(route) => {
             let operation = route.operation();
-            dispatch(facade, route, &request.body).unwrap_or_else(|error| refuse(operation, error))
+            let served = match route {
+                Route::SuspendSandbox(instance_id) => {
+                    suspension::suspend(facade, &instance_id, tenant.as_str(), &request.body)
+                }
+                Route::ResumeSuspension(id) => suspension::resume(facade, &id, &request.body),
+                Route::DestroySuspension(id) => suspension::destroy(facade, &id),
+                route => dispatch(facade, route, &request.body),
+            };
+            served.unwrap_or_else(|error| refuse(operation, error))
         }
         Err(error) => refuse("request", error),
     }
@@ -126,6 +136,10 @@ fn dispatch<F: SandboxFacade + ?Sized>(
         // Served by the connection before a facade is opened, through `handle_prewarm`. This
         // function serves sandboxes, so only that one path can change what is prepared.
         Route::Prewarm(_) | Route::Version => Err(ApiError::not_found()),
+        // Served by `handle` before this match, because they need the caller's tenant.
+        Route::SuspendSandbox(_) | Route::ResumeSuspension(_) | Route::DestroySuspension(_) => {
+            Err(ApiError::not_found())
+        }
         Route::PrunePrepared => prepared::prune(facade, operation, body),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;

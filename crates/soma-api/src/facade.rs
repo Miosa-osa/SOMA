@@ -183,6 +183,44 @@ pub trait SandboxFacade {
     /// Returns the facade's typed managed failure.
     fn stop(&mut self, request: StopMachineRequest) -> Result<LifecycleOutcome, ManagedFailure>;
 
+    /// Reads one running sandbox into a sealed Suspension and ends it (ADR 0034).
+    ///
+    /// The default refuses as unsupported, which leaves the sandbox running.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed suspension failure.
+    fn suspend(
+        &mut self,
+        _request: &soma_local::SuspendRequest,
+    ) -> Result<soma_local::Suspended, soma_local::SuspensionFailure> {
+        Err(unsupported_suspension())
+    }
+
+    /// Resumes a Suspension as a new sandbox, then destroys the Suspension.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed suspension failure; the Suspension is kept when nothing resumed.
+    fn resume(
+        &mut self,
+        _request: &soma_local::ResumeRequest,
+    ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
+        Err(unsupported_suspension())
+    }
+
+    /// Discards a Suspension without resuming it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed suspension failure.
+    fn discard_suspension(
+        &mut self,
+        _suspension_id: &str,
+    ) -> Result<(), soma_local::SuspensionFailure> {
+        Err(unsupported_suspension())
+    }
+
     /// Force-destroys one managed sandbox.
     ///
     /// # Errors
@@ -279,4 +317,11 @@ pub trait SandboxFacade {
     fn volume_binding(&mut self, _instance: &str) -> Result<VolumeBinding, VolumeFailure> {
         Err(VolumeFailure::Unconfigured)
     }
+}
+
+/// The answer of a facade that cannot suspend: the sandbox keeps running.
+const fn unsupported_suspension() -> soma_local::SuspensionFailure {
+    soma_local::SuspensionFailure::Managed(ManagedFailure::Backend(
+        soma::BackendFailureKind::Unsupported,
+    ))
 }

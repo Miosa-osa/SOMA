@@ -68,18 +68,45 @@ pub(super) fn boot_for(
     // A prepared entry may carry a snapshot taken once for the whole Generation: this launch
     // then resumes that machine instead of booting a kernel.
     let guest_cid = identity.guest_cid;
-    let source = if let Some(directory) = resume {
-        // A resume restores the Suspension's own members (ADR 0034): its memory and state, and
-        // its private head, which is this Instance's head as it was and is never cloned. The
-        // Generation still names the root, the devices, the shape and the contract, and the
-        // restore refuses members that disagree with them.
-        let members = resume::open(directory, devices.overlay())?;
+    // A resume restores the Suspension's own members (ADR 0034): its memory and state, and its
+    // private head, which is this Instance's head as it was and is never cloned. A Generation
+    // snapshot clones its head from the sterile overlay template. Either way the Generation
+    // names the root, the devices, the shape and the contract, and the restore refuses members
+    // that disagree with them.
+    let restored = if let Some(directory) = resume {
+        let members = resume::open(directory, generation_bytes(&prepared.id)?, devices.overlay())?;
+        Some((
+            SnapshotObjects::adopt(members.state, members.memory, None),
+            members.overlay,
+        ))
+    } else if let SnapshotBinding::Captured {
+        memory,
+        overlay: snapshot_overlay,
+        state,
+        ..
+    } = manifest.snapshot
+    {
+        let overlay = devices
+            .overlay()
+            .then(|| open(&snapshot_overlay).and_then(|file| private_head_from(file, instance)))
+            .transpose()?;
+        Some((
+            SnapshotObjects::adopt(open(&state)?, open(&memory)?, None),
+            overlay,
+        ))
+    } else {
+        None
+    };
+    let source = if let Some((objects, overlay)) = restored {
+        // The volume device is declared from the Instance's own file, which the launch opened:
+        // there is no placeholder artifact to carry, because a file the store certified already
+        // states the class the guest is told.
         Source::Restore {
-            objects: SnapshotObjects::adopt(members.state, members.memory, None),
+            objects,
             hypervisor: Hypervisor::Device,
             disks: SandboxDisks {
                 root,
-                overlay: members.overlay,
+                overlay,
                 volume: None,
                 volume_placeholder: false,
             },
@@ -89,40 +116,6 @@ pub(super) fn boot_for(
             vcpus,
             contract,
             hotplug,
-        }
-    } else if let SnapshotBinding::Captured {
-        memory,
-        overlay: snapshot_overlay,
-        state,
-        ..
-    } = manifest.snapshot
-    {
-        {
-            // The restore clones its head from the snapshot's sterile overlay template.
-            let overlay = devices
-                .overlay()
-                .then(|| open(&snapshot_overlay).and_then(|file| private_head_from(file, instance)))
-                .transpose()?;
-            let objects = SnapshotObjects::adopt(open(&state)?, open(&memory)?, None);
-            // The volume device is declared from the Instance's own file, which the launch
-            // opened: there is no placeholder artifact to carry, because a file the store
-            // certified already states the class the guest is told.
-            Source::Restore {
-                objects,
-                hypervisor: Hypervisor::Device,
-                disks: SandboxDisks {
-                    root,
-                    overlay,
-                    volume: None,
-                    volume_placeholder: false,
-                },
-                volume,
-                devices,
-                memory_bytes: memory_mib * MIB,
-                vcpus,
-                contract,
-                hotplug,
-            }
         }
     } else {
         {

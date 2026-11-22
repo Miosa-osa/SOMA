@@ -12,6 +12,7 @@ use crate::{
 
 pub struct LocalRuntime {
     engine: Engine<LocalBackend, FileStateStore>,
+    suspensions: crate::suspension::Suspensions,
     host_directory: Option<std::path::PathBuf>,
     configured_backend: BackendSelection,
     backend_kind: BackendKind,
@@ -31,10 +32,12 @@ impl LocalRuntime {
         let (backend, configured_backend) =
             LocalBackend::open(config.backend, config.runtime, host_directory.clone())?;
         let backend_kind = backend.kind();
+        let suspensions = crate::suspension::Suspensions::at(&config.state_root);
         let state = FileStateStore::open(config.state_root)
             .map_err(|failure| LocalFailure::new(LocalFailureKind::StateStore(failure.kind())))?;
         Ok(Self {
             engine: Engine::with_state_store(backend, state),
+            suspensions,
             host_directory,
             configured_backend,
             backend_kind,
@@ -237,6 +240,64 @@ impl LocalRuntime {
         request: StopMachineRequest,
     ) -> Result<MachineStop, ManagedFailure> {
         self.engine.stop_machine(request)
+    }
+
+    /// Reads one managed Machine into a sealed Suspension and ends it (ADR 0034).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::SuspensionFailure::Managed`] with `Backend(Unsupported)` when the
+    /// Machine cannot be suspended, in which case it keeps running; any other failure after the
+    /// read began has ended it.
+    pub fn suspend_machine(
+        &mut self,
+        request: &crate::SuspendRequest,
+    ) -> Result<crate::Suspended, crate::SuspensionFailure> {
+        let (id, staging) = self
+            .suspensions
+            .stage()
+            .map_err(|error| crate::SuspensionFailure::Store(error.to_string()))?;
+        let suspended = match self
+            .engine
+            .suspend_machine(&crate::suspension::engine_request(request, &staging))
+        {
+            Ok(suspended) => suspended,
+            Err(failure) => {
+                let _ignored = std::fs::remove_dir_all(&staging);
+                return Err(failure.into());
+            }
+        };
+        self.suspensions
+            .seal(id, &staging, request, suspended.receipt())
+    }
+
+    /// Resumes a Suspension as a new managed Machine, then destroys the Suspension.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure; the Suspension is kept whenever no Machine resumed from it.
+    pub fn resume_machine(
+        &mut self,
+        request: &crate::ResumeRequest,
+    ) -> Result<MachineLaunch, crate::SuspensionFailure> {
+        let opened = self.suspensions.open(request)?;
+        let launched = self.engine.launch_machine(opened.launch(request));
+        // The launch removes the members once it holds them; a refusal before that leaves them.
+        let _ignored = std::fs::remove_dir_all(&opened.directory);
+        let launch = launched?;
+        // One Suspension resumes once: a second Instance from the same members would share a
+        // private head's history and every secret the first one held.
+        let _ignored = self.suspensions.destroy(&opened.id.hex());
+        Ok(launch)
+    }
+
+    /// Destroys a Suspension without resuming it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure when the identity is malformed or the store refuses.
+    pub fn destroy_suspension(&self, suspension_id: &str) -> Result<(), crate::SuspensionFailure> {
+        self.suspensions.destroy(suspension_id)
     }
 
     /// Force-destroys and releases one managed Machine.
