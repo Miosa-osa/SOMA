@@ -63,6 +63,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.6 | sha256:fa26972026e9710aab6687a90ff1fb4a9fcd01adb120917fa2b0d5f2899bbdf0 | Added identity-bound cleanup of a consumed checkpoint. |
 | 1.7 | sha256:3818d9888def5ba6aa9470c51a3787a5114042814b97e82166d0af5c0c96aee5 | Added host-local fork with a committed child identity. |
 | 1.8 | sha256:808fa360e5a55aa579529c77855446e86052fda23319be920a43b7c8ef220d2c | Integrates encrypted suspension, host capacity reporting, and live autosizing with resident lifecycle operations. |
+| 1.9 | sha256:08a30a24261d22a1753fc6aa8447ef4254443061284fb6830007f09f5f1f82d4 | Adds volume-bound checkpoint receipts and same-sandbox mounted restore with reconciliation after broker interruption. |
 
 The upstream development branch numbered these additions 1.1 through 1.3 before integration.
 The integrated API continues the resident lifecycle sequence and serves both sets of routes starting at 1.8.
@@ -73,7 +74,7 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.8
+api 1.9
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route DELETE /v1/suspensions/{suspension} suspension.destroy
@@ -159,6 +160,7 @@ Retry a completed restore with the same operation ID and checkpoint to get its o
 A different operation cannot restore over a live sandbox.
 
 A newly captured checkpoint with a mounted workspace includes `volume.bytes`, `volume.digest`, and `volume.volume_id` in its receipt.
+Clients that will release a mounted sandbox for memory-preserving restore require API 1.9 before sending Stop.
 Same-instance mounted recovery requires the recorded volume to belong to the stopped instance and be detached on the host's encrypted data mount.
 The host stages the saved workspace, verifies the restored worker, and then attaches the restored backing under the same volume ID.
 The prior backing retains writes made after the checkpoint and is available to the host's offline rollback transaction.
