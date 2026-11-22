@@ -87,8 +87,9 @@ wait_for window_manager 200 pgrep -u "$(id -u)" -x openbox || exit 1
 wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id"' || exit 1
 # The MIOSA look: a dark gradient behind everything, the top bar and the dock. Each is cosmetic, so
 # a part that fails to start leaves a working desktop rather than no desktop.
-hsetroot -add '#151a2a' -add '#0b0d12' -gradient 160 >/dev/null 2>&1 \
+hsetroot -cover /usr/share/soma-desktop/wallpaper.png >/dev/null 2>&1 \
     || xsetroot -solid '#0b0d12' 2>/dev/null || true
+picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/dock.tint2rc >"$STATE/logs/dock.log" 2>&1 &

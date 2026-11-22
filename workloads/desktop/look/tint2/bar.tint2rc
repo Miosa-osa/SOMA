@@ -1,8 +1,8 @@
 # The top bar: the MIOSA mark and the open windows on the left, the clock on the right.
 rounded = 0
 border_width = 0
-background_color = #0e1016 100
-border_color = #0e1016 100
+background_color = #0e1016 88
+border_color = #0e1016 0
 background_color_hover = #0e1016 100
 border_color_hover = #0e1016 100
 background_color_pressed = #0e1016 100
@@ -40,7 +40,7 @@ panel_layer = top
 panel_monitor = all
 strut_policy = follow_size
 panel_window_name = miosa-bar
-disable_transparency = 1
+disable_transparency = 0
 font_shadow = 0
 mouse_effects = 1
 

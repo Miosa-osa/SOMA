@@ -153,12 +153,12 @@ RUN set -e; \
       "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/${deb}"; \
     echo "${CHROME_SHA256}  /tmp/${deb}" | sha256sum -c -; \
     apt-get update; \
-    apt-get install -y --no-install-recommends "/tmp/${deb}" tint2 hsetroot thunar \
+    apt-get install -y --no-install-recommends "/tmp/${deb}" tint2 hsetroot thunar picom \
       fonts-inter fonts-jetbrains-mono yaru-theme-gtk yaru-theme-icon; \
     rm -f "/tmp/${deb}" /etc/apt/sources.list.d/google-chrome.list; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
-    command -v google-chrome-stable tint2 hsetroot thunar
+    command -v google-chrome-stable tint2 hsetroot thunar picom
 COPY look/openbox/themerc /usr/share/themes/MIOSA/openbox-3/themerc
 COPY look/openbox/rc.xml /etc/soma-desktop/openbox.xml
 COPY look/openbox/menu.xml /etc/soma-desktop/menu.xml
@@ -167,8 +167,13 @@ COPY look/terminal/terminalrc /home/ubuntu/.config/xfce4/terminal/terminalrc
 COPY look/gtk/settings.ini /home/ubuntu/.config/gtk-3.0/settings.ini
 COPY look/chrome/miosa.json /etc/opt/chrome/policies/managed/miosa.json
 COPY look/brand/miosa-icon.png /usr/share/soma-desktop/miosa-icon.png
+COPY look/compositor/picom.conf /etc/soma-desktop/picom.conf
+COPY look/wallpaper/make.py /tmp/make-wallpaper.py
 COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
-RUN printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
+RUN python3 /tmp/make-wallpaper.py /usr/share/soma-desktop/wallpaper.png \
+ && rm -f /tmp/make-wallpaper.py \
+ && test -s /usr/share/soma-desktop/wallpaper.png \
+ && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
       > /usr/local/bin/google-chrome \
  && chmod 0755 /usr/local/bin/google-chrome \
  && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' \

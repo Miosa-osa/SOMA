@@ -1,8 +1,8 @@
 # The dock: a floating rounded launcher centered at the bottom of the screen.
 rounded = 14
 border_width = 1
-background_color = #14161d 100
-border_color = #2a2f3a 100
+background_color = #14161d 82
+border_color = #3a3f52 70
 background_color_hover = #14161d 100
 border_color_hover = #2a2f3a 100
 background_color_pressed = #14161d 100
@@ -31,7 +31,7 @@ panel_layer = top
 panel_monitor = all
 strut_policy = none
 panel_window_name = miosa-dock
-disable_transparency = 1
+disable_transparency = 0
 mouse_effects = 1
 mouse_hover_icon_asb = 100 0 12
 
