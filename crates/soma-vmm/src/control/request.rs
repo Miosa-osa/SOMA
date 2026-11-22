@@ -86,7 +86,11 @@ impl Request {
                 None => encode_launch("launch", launch),
             },
             Self::Recover(launch, digest) => {
-                encode_launch(&format!("recover {}", hex(digest)), launch)
+                let verb = launch.generation().devices().volume_capacity().map_or_else(
+                    || "recover".to_owned(),
+                    |capacity| format!("recover_volume {capacity}"),
+                );
+                encode_launch(&format!("{verb} {}", hex(digest)), launch)
             }
             Self::Fork(launch, digest, source) => {
                 let verb = launch.generation().devices().volume_capacity().map_or_else(
@@ -167,9 +171,14 @@ impl Request {
                 let capacity = decode::volume_capacity(tokens.next())?;
                 decode_launch(&mut tokens, Some(capacity)).map(Self::Launch)
             }
-            "recover" => {
+            verb @ ("recover" | "recover_volume") => {
+                let capacity = if verb == "recover_volume" {
+                    Some(decode::volume_capacity(tokens.next())?)
+                } else {
+                    None
+                };
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
-                decode_launch(&mut tokens, None).map(|launch| Self::Recover(launch, digest))
+                decode_launch(&mut tokens, capacity).map(|launch| Self::Recover(launch, digest))
             }
             verb @ ("fork" | "fork_volume") => {
                 let capacity = if verb == "fork_volume" {

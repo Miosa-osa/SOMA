@@ -17,6 +17,10 @@ pub const PROTOCOLS: &[Protocol] = &[
     Protocol::new("launch-page", soma_guest::LAUNCH_PAGE_SCHEMA_VERSION as u32),
     Protocol::new("hostd", soma_hostd::protocol::PROTOCOL_VERSION as u32),
     Protocol::new("netd", soma_netd::PROTOCOL_VERSION as u32),
+    Protocol::new(
+        "vmm-control",
+        soma_vmm::control::CONTROL_PROTOCOL_VERSION as u32,
+    ),
 ];
 
 /// Every protocol this build of the local runtime speaks: none, off the Linux KVM engine.

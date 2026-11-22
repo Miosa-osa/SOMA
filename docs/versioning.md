@@ -61,6 +61,7 @@ A frame or message a build does not understand is refused, never guessed at.
 
 Hostd protocol 3 adds fixed workspace restore stage, publish, and abort requests.
 The broker and host daemon must both support those requests for same-instance recovery of a mounted workspace.
+Worker control protocol 3 carries the certified volume capacity on the same-instance recovery request.
 
 The guest API level is the one protocol number a host learns at run time, from the agent's answer to the probe of ADR 0051, because a guest agent is built into each Generation and can be older or newer than its host.
 Each level is defined once, here, and `soma_guest::GUEST_API_LEVEL` is the highest level this release speaks.

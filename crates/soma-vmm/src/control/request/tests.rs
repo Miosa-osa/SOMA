@@ -209,6 +209,16 @@ fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unch
             .starts_with("launch ")
     );
     assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    let recovery = Request::Recover(persistent_launch.clone(), [7; 32]);
+    let encoded = recovery.encode();
+    assert_eq!(Request::decode(&encoded), Ok(recovery));
+    assert!(encoded.starts_with("recover_volume 10737418240 "));
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    assert!(
+        Request::Recover(normal.clone(), [7; 32])
+            .encode()
+            .starts_with("recover ")
+    );
     let source = InstanceId::new([9; 16]).unwrap();
     let fork = Request::Fork(persistent_launch, [7; 32], source);
     let encoded = fork.encode();

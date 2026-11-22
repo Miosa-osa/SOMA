@@ -41,4 +41,4 @@ pub use window::{MAX_OUTPUT_WINDOW_BYTES, MAX_REPLY_BYTES, OutputStream, OutputW
 /// installed release, because the worker is started from that release's binary for each launch,
 /// so the two ends never differ. The number names the packet layout in `--version` and in the
 /// compatibility table of `docs/versioning.md`, and it changes whenever a packet's layout does.
-pub const CONTROL_PROTOCOL_VERSION: u16 = 2;
+pub const CONTROL_PROTOCOL_VERSION: u16 = 3;
