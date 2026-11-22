@@ -1095,3 +1095,13 @@ Checkpoint recovery stages and verifies a replacement on the encrypted volume fi
 Publication requires the recovered worker's disk lock and preserves the previous backing before switching the active path.
 An explicit stopped-workspace rollback retains the displaced backing and any later writes.
 The native broker must still bind these transitions to its restore lease, attachment state, and readiness publication.
+
+## 2026-11-22 - Mounted checkpoint recovery through the native broker
+
+New mounted checkpoint receipts identify the workspace that was attached at capture.
+Same-instance recovery requires that identity and stages the verified disk under the original workspace while the broker holds the Instance restore lease.
+The worker control request carries the certified disk capacity, just as the boot and fork requests do.
+The broker waits for authenticated readiness and the disk lock before publishing the restored backing and attached sidecar.
+A staged copy excludes volume deletion, rebinding, and other restore operations until it is published or aborted.
+Snapshots without the workspace binding remain usable for independent forks.
+Interruption between disk publication and durable runtime readiness still needs a crash-recovery rehearsal.
