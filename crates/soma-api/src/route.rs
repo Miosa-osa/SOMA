@@ -230,23 +230,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             }
         }
         ["v1", "sandboxes", instance, "tunnel", port] => {
-            let instance_id = path_instance_id(instance)?;
-            let port = port
-                .parse::<u16>()
-                .ok()
-                .filter(|port| *port != 0)
-                .ok_or_else(|| {
-                    ApiError::new(
-                        400,
-                        "invalid_port",
-                        "the tunnel port must be 1 to 65535",
-                        false,
-                    )
-                })?;
-            match request.method {
-                Method::Get => Ok(Route::Tunnel(instance_id, port)),
-                _ => Err(ApiError::method_not_allowed()),
-            }
+            tunnel(request.method, path_instance_id(instance)?, port)
         }
         ["v1", "sandboxes", instance, "terminal", operation] => {
             let route =
@@ -269,6 +253,25 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             _ => Err(ApiError::method_not_allowed()),
         },
         _ => Err(ApiError::not_found()),
+    }
+}
+
+fn tunnel(method: Method, instance: InstanceId, port: &str) -> Result<Route, ApiError> {
+    let port = port
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or_else(|| {
+            ApiError::new(
+                400,
+                "invalid_port",
+                "the tunnel port must be 1 to 65535",
+                false,
+            )
+        })?;
+    match method {
+        Method::Get => Ok(Route::Tunnel(instance, port)),
+        _ => Err(ApiError::method_not_allowed()),
     }
 }
 
