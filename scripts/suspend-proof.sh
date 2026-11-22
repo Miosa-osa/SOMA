@@ -82,7 +82,7 @@ INSTANCE="$(field 'd["result"]["instance_id"]')"
 record create_s "$SECONDS_TAKEN"
 
 log "starting a counter, writing a file and a tmpfs value"
-guest start sh -c 'mkdir -p /run/proof && echo "$$-$RANDOM-$RANDOM" > /run/proof/tmpfs-value
+guest start sh -c 'mkdir -p /run/proof && cat /proc/sys/kernel/random/uuid > /run/proof/tmpfs-value
 cat /run/proof/tmpfs-value > /root/disk-value && sync
 setsid nohup sh -c "i=0; while :; do i=\$((i+1)); echo \$i > /run/proof/counter; sleep 0.2; done" >/dev/null 2>&1 &
 echo $! > /run/proof/counter.pid; sleep 1; cat /run/proof/counter.pid'
