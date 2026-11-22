@@ -1,3 +1,11 @@
-The MIOSA wallpaper (Aurora, dark and light) is a NASA photograph, public domain (NASA-produced), dithered into the MIOSA
-blue duotone for the platform's admin chat (miosa-frontend, admin/fleet-x/ui/backdrops.ts, which
-keeps each picture's source). brand.py adds the MIOSA wordmark at the centre at image build.
+The MIOSA wallpapers are NASA photographs from the International Space Station, public domain
+(NASA-produced). Each comes in the MIOSA blue duotone, dark and light, with the wordmark at the centre.
+
+aurora         iss062e148363  from the platform's admin backdrop (src/aurora*.webp), branded by brand.py
+aurora-arc     iss066e146457  gray/*.webp: grayscale sources, coloured at image build by duotone.py
+aurora-swirl   iss062e140329  (the ramp is the one measured from the admin Aurora backdrop)
+night-lights   iss067e302248
+mediterranean  iss072e000922  Night Lights Along the Mediterranean Sea
+first-light    iss059e027932
+horizon        iss061e123824
+limb           iss061e123468

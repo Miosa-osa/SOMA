@@ -9,7 +9,6 @@ its own command line, which redraws at once and writes the choice into the perso
 import os
 import shutil
 import subprocess
-import threading
 
 import gi
 
@@ -61,7 +60,7 @@ def label_for(path):
 
 def thumbnail(path):
     os.makedirs(CACHE, exist_ok=True)
-    key = os.path.join(CACHE, f"{abs(hash((path, os.path.getmtime(path))))}.png")
+    key = os.path.join(CACHE, path.strip("/").replace("/", "_") + f"-{int(os.path.getmtime(path))}.png")
     if os.path.exists(key):
         return GdkPixbuf.Pixbuf.new_from_file(key)
     src = GdkPixbuf.Pixbuf.new_from_file(path)
@@ -92,18 +91,16 @@ class Tile(Gtk.EventBox):
         self.connect("button-release-event", lambda *_: app.apply(path))
         self.connect("enter-notify-event", lambda *_: self.set_hover(True))
         self.connect("leave-notify-event", lambda *_: self.set_hover(False))
-        threading.Thread(target=self.load, daemon=True).start()
+        GLib.idle_add(self.load)
 
     def load(self):
+        # On the main loop, one picture per idle turn, so the window opens at once and fills in.
         try:
-            pix = thumbnail(self.path)
+            self.pix = thumbnail(self.path)
         except GLib.Error:
-            return
-        GLib.idle_add(self.loaded, pix)
-
-    def loaded(self, pix):
-        self.pix = pix
+            return False
         self.area.queue_draw()
+        return False
 
     def set_hover(self, on):
         self.hover = on
@@ -173,7 +170,8 @@ class App(Gtk.Window):
         files = []
         if os.path.isdir(folder):
             files = sorted(
-                os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)
+                (os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)),
+                key=lambda f: ("-light" in f, f),
             )
         if not files:
             note = Gtk.Label(label=empty, xalign=0)

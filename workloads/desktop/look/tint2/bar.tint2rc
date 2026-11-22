@@ -28,7 +28,7 @@ border_color_hover = #344961 100
 background_color_pressed = #344961 100
 border_color_pressed = #344961 100
 
-panel_items = ETEC
+panel_items = EEEEETEC
 panel_size = 100% 40
 panel_margin = 0 0
 panel_padding = 16 5 12
@@ -56,17 +56,62 @@ execp_padding = 8 2 8
 execp_background_id = 2
 execp_centered = 1
 
-taskbar_mode = multi_desktop
+# Workspace 1: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 0 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 1 </span>'; else echo '<span foreground="#7d859b"> 1 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 2 2 2
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 0
+
+# Workspace 2: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 1 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 2 </span>'; else echo '<span foreground="#7d859b"> 2 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 2 2 2
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 1
+
+# Workspace 3: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 2 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 3 </span>'; else echo '<span foreground="#7d859b"> 3 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 2 2 2
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 2
+
+# Workspace 4: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 3 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 4 </span>'; else echo '<span foreground="#7d859b"> 4 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 2 2 2
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 3
+
+taskbar_mode = single_desktop
 taskbar_padding = 12 0 4
 taskbar_background_id = 0
-taskbar_name = 1
-taskbar_name_padding = 9 2
-taskbar_name_background_id = 2
-taskbar_name_active_background_id = 3
-taskbar_name_font = Inter Medium 10
-taskbar_name_font_color = #8d97ad 100
-taskbar_name_active_font_color = #ffffff 100
-taskbar_active_background_id = 0
+taskbar_name = 0
 taskbar_hide_inactive_tasks = 0
 taskbar_distribute_size = 0
 task_icon = 1

@@ -47,12 +47,14 @@ RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && 
 # The MIOSA wallpapers: the platform's NASA backdrops (look/backgrounds/src, see CREDITS) with the
 # MIOSA wordmark at the centre, made once here so the desktop image carries finished pictures.
 FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS wallpapers
-RUN apt-get update && apt-get install -y --no-install-recommends python3-pil \
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pil python3-numpy \
  && find /var/lib/apt/lists -type f -delete
 COPY look/backgrounds/src /src
-COPY look/backgrounds/brand.py /brand.py
+COPY look/backgrounds/brand.py look/backgrounds/duotone.py /
+COPY look/backgrounds/gray /gray
 COPY look/brand/miosa-logo.png /miosa-logo.png
-RUN python3 /brand.py /src /miosa-logo.png /out && test "$(ls /out/*.jpg | wc -l)" -eq 2
+RUN python3 /brand.py /src /miosa-logo.png /out && python3 /duotone.py /gray /miosa-logo.png /out \
+ && rm -f /out/sheet.jpg && test "$(ls /out/*.jpg | wc -l)" -eq 16
 
 FROM ${BASE_IMAGE}
 
@@ -235,7 +237,7 @@ RUN set -e; \
     apt-get update; \
     apt-get install -y --no-install-recommends pcmanfm plank gsimplecal dconf-cli dconf-service \
       dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi gir1.2-gtk-3.0 \
-      mousepad ristretto mupdf galculator xz-utils; \
+      mousepad ristretto mupdf galculator xz-utils xdotool; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
     curl -fsSL --retry 3 -o /tmp/whitesur.tar.gz \
