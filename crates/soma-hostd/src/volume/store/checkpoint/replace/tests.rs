@@ -2,7 +2,7 @@ use super::*;
 use crate::{RequestFingerprint, VolumeId, volume::VolumeStore};
 use std::{
     fs::OpenOptions,
-    io::Write as _,
+    io::{Seek as _, SeekFrom, Write as _},
     os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _},
 };
 
@@ -336,7 +336,7 @@ fn exact_pending_restore_recovers_both_durable_publication_cuts() {
             last_transition_nanos: TRANSITION,
         };
         store.write_sidecar(&sidecar).unwrap();
-        let (backing, placeholder, mut intent, worker) = stage(&directory);
+        let (backing, placeholder, mut intent, mut worker) = stage(&directory);
         let path = restore_path(&directory, request.operation);
         fs::set_permissions(&placeholder, fs::Permissions::from_mode(0o700)).unwrap();
         fs::rename(&placeholder, &path).unwrap();
@@ -356,8 +356,11 @@ fn exact_pending_restore_recovers_both_durable_publication_cuts() {
             store.reconcile_workspace_restore(&request),
             Err(VolumeError::Busy(_))
         ));
+        worker.seek(SeekFrom::End(0)).unwrap();
+        worker.write_all(b" with later writes").unwrap();
+        worker.sync_all().unwrap();
         drop(worker);
-        drop(store);
+        refuse_changed_publication_revision(store, &open, &request);
 
         let store = open();
         let mut changed = request;
@@ -382,8 +385,28 @@ fn exact_pending_restore_recovers_both_durable_publication_cuts() {
             .unwrap();
         assert_eq!(
             fs::read(history.join(DISPLACED)).unwrap(),
-            b"checkpoint bytes"
+            b"checkpoint bytes with later writes"
         );
         store.reconcile_workspace_restore(&request).unwrap();
     }
+}
+
+fn refuse_changed_publication_revision(
+    store: DirectoryVolumes,
+    open: &impl Fn() -> DirectoryVolumes,
+    request: &WorkspaceRestoreRequest,
+) {
+    let persisted = store.inspect(request.volume).unwrap();
+    let changed = crate::VolumeSidecar {
+        last_transition_nanos: persisted.last_transition_nanos + 1,
+        ..persisted.clone()
+    };
+    store.write_sidecar(&changed).unwrap();
+    drop(store);
+    let store = open();
+    assert_eq!(
+        store.reconcile_workspace_restore(request),
+        Err(VolumeError::ChangedIntent)
+    );
+    store.write_sidecar(&persisted).unwrap();
 }
