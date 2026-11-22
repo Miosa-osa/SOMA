@@ -146,6 +146,9 @@ fn run() -> i32 {
     {
         return code;
     }
+    soma_api::autosize::set_default(soma_api::autosize::setting_is_on(
+        env::var(soma_api::autosize::DEFAULT_ENV).ok().as_deref(),
+    ));
     start_autosize(pool.clone());
     if !start_record_sweep(pool.clone()) {
         return 71;
