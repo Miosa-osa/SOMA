@@ -56,14 +56,21 @@ def main():
     parser.add_argument("--pinned", required=True)
     parser.add_argument("--final", required=True)
     parser.add_argument("--required", required=True)
-    parser.add_argument("--required-fragment")
+    parser.add_argument(
+        "--required-fragment",
+        help="require each explicit fragment value and report overrides of the base contract",
+    )
     args = parser.parse_args()
 
     pinned = parse(args.pinned)
     final = parse(args.final)
     required = parse(args.required)
     if args.required_fragment is not None:
-        required.update(parse(args.required_fragment))
+        overrides = parse(args.required_fragment)
+        for symbol, value in sorted(overrides.items()):
+            if symbol in required and required[symbol] != value:
+                print(f"variant override: {symbol}={value} (contract v1 says {required[symbol]})")
+        required.update(overrides)
 
     problems = compare("pinned", pinned, final, treat_absent_as_n=False)
     problems += compare("required", required, final, treat_absent_as_n=True)

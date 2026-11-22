@@ -7,7 +7,8 @@
 # Wine is Ubuntu 24.04's own package (both the 64-bit and the 32-bit loader, since most Windows
 # installers are 32-bit), from the archive of the pinned base. The guest kernel has no
 # binfmt_misc, so a program is started as `wine program.exe`, never by its name alone. The prefix
-# is created at build time for the desktop user, so the first program does not wait for it.
+# is created at build time for the desktop user, so the first program does not wait for it;
+# wineserver writes the registry only when it exits, hence the wait.
 ARG DESKTOP_IMAGE
 FROM ${DESKTOP_IMAGE}
 
@@ -23,5 +24,5 @@ RUN dpkg --add-architecture i386 \
 # The prefix, made once with no display (wineboot needs none), owned by the desktop user.
 RUN setpriv --reuid="$(id -u ubuntu)" --regid="$(id -g ubuntu)" --init-groups \
       env HOME=/home/ubuntu WINEPREFIX=/home/ubuntu/.wine WINEDEBUG=-all DISPLAY= \
-      wineboot --init \
+      sh -c 'wineboot --init && wineserver -w' \
  && test -f /home/ubuntu/.wine/system.reg

@@ -8,6 +8,7 @@ The browser viewer shares the same display.
 Sunshine captures and encodes it as H.264, and moonlight-web sends the stream and human input over WebSockets on guest port 6080.
 The CUA driver can operate while these viewer processes are stopped.
 The platform must authenticate and authorize access before opening the viewer tunnel.
+The image build pairs Sunshine and moonlight-web, making the paired host available when the authorized viewer opens.
 
 ## Build the image and Generation
 
@@ -35,7 +36,18 @@ scripts/desktop-generation.sh soma-desktop:2 soma-desktop:small-2 <store> <fs-to
 ```
 
 The `small` shape has 2 vCPUs, 4096 MiB of memory, and 20480 MiB of writable storage.
-The desktop kernel enables input devices and `uinput` for the browser viewer.
+The desktop kernel variant enables evdev and `uinput` for the browser viewer.
+The kernel verifier reports the explicit input override and checks that physical input drivers stay disabled.
+
+Optional Windows application support uses a separate Wine layer.
+
+```sh
+docker build -f workloads/desktop/wine.Dockerfile \
+  --build-arg DESKTOP_IMAGE=soma-desktop:2 -t soma-desktop-wine:2 workloads/desktop
+```
+
+Start applications with `wine program.exe`.
+The layer waits for wineserver to write the registry before publishing the Wine prefix.
 
 ## MIOSA desktop API image
 
