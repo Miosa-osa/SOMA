@@ -26,6 +26,9 @@
 //! ```
 
 pub mod seal;
+pub mod store;
+#[cfg(test)]
+mod store_tests;
 #[cfg(test)]
 mod tests;
 
