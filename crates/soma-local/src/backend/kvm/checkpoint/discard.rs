@@ -7,8 +7,8 @@ use soma::{GenerationId, InstanceId, OperationId};
 use crate::{CheckpointFailure, CheckpointReceipt};
 
 use super::{
-    MEMORY, OVERLAY, RECEIPT, STATE, configured_root, read_bounded, read_published, rename_new,
-    sync_directory,
+    MEMORY, OVERLAY, RECEIPT, STATE, VOLUME, configured_root, read_bounded, read_published,
+    rename_new, sync_directory,
 };
 
 pub(crate) fn discard_checkpoint(
@@ -69,7 +69,7 @@ fn discard_from(
             return Err(CheckpointFailure::Storage);
         }
 
-        for name in [STATE, MEMORY, OVERLAY, RECEIPT] {
+        for name in [STATE, MEMORY, OVERLAY, VOLUME, RECEIPT] {
             match fs::remove_file(retired.join(name)) {
                 Ok(()) => {}
                 Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -125,6 +125,7 @@ mod tests {
         ));
         fs::create_dir(&retired).unwrap();
         fs::write(retired.join(MEMORY), b"partial").unwrap();
+        fs::write(retired.join(VOLUME), b"volume").unwrap();
         let mut file = OpenOptions::new()
             .create_new(true)
             .write(true)
@@ -141,6 +142,10 @@ mod tests {
                 memory_bytes: 7,
                 overlay_bytes: 0,
                 overlay_digest: None,
+                volume: Some(crate::CheckpointVolumeReceipt {
+                    bytes: 6,
+                    digest: digest.as_str().to_owned(),
+                }),
             })
             .unwrap(),
         )
@@ -151,6 +156,7 @@ mod tests {
             Err(CheckpointFailure::CaptureRefused),
         );
         assert!(retired.join(MEMORY).is_file());
+        assert!(retired.join(VOLUME).is_file());
         assert_eq!(
             discard_from(directory.path(), &instance, &checkpoint, &digest),
             Ok(())

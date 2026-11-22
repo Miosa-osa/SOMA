@@ -12,7 +12,7 @@ mod pause;
 mod prewarm;
 mod prune;
 mod resize;
-pub use checkpoint::{CheckpointFailure, CheckpointReceipt};
+pub use checkpoint::{CheckpointFailure, CheckpointReceipt, CheckpointVolumeReceipt};
 pub use pause::{PauseFailure, ResumeFailure};
 mod runtime;
 mod suspension;

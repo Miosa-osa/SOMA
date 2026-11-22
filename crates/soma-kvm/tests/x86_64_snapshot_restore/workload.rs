@@ -161,6 +161,7 @@ impl Workload for CheckpointResidentProcess {
                         state: &state,
                         memory: &memory,
                         overlay: Some(&overlay),
+                        volume: None,
                     },
                 },
             )

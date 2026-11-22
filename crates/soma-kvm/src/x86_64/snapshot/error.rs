@@ -27,6 +27,7 @@ use crate::x86_64::error::MachineError;
 pub enum Artifact {
     Memory,
     Overlay,
+    Volume,
     State,
     /// The immutable Generation root, hashed only for its installation-time identity.
     Root,

@@ -195,3 +195,36 @@ fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unch
     assert!(Request::Launch(normal).encode().starts_with("launch "));
     assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
 }
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn checkpoint_disk_flags_preserve_legacy_requests_and_round_trip_a_volume() {
+    const WIRE_OVERLAY: u8 = 1;
+    const WIRE_OVERLAY_AND_VOLUME: u8 = 3;
+    let source = crate::sandbox::CheckpointSource {
+        instance_id: [1; 16],
+        candidate_id: [2; 32],
+        root_digest: soma_kvm::snapshot::Digest::from_bytes([3; 32]),
+        contract: soma_kvm::MachineContract::V1,
+        has_overlay: true,
+        has_volume: false,
+    };
+    for (source, flags) in [
+        (source, WIRE_OVERLAY),
+        (
+            crate::sandbox::CheckpointSource {
+                has_volume: true,
+                ..source
+            },
+            WIRE_OVERLAY_AND_VOLUME,
+        ),
+    ] {
+        let request = Request::Checkpoint(source);
+        let encoded = request.encode();
+        assert_eq!(
+            encoded.split_whitespace().last(),
+            Some(flags.to_string().as_str())
+        );
+        assert_eq!(Request::decode(&encoded), Ok(request));
+    }
+}

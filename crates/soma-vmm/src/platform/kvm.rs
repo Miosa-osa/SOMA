@@ -53,7 +53,7 @@ pub(crate) struct KvmPlatform {
     network: Option<(File, ActivationChannel)>,
     recovery: Option<recovery::Selection>,
     recovered: bool,
-    checkpoint_geometry: Option<([u8; 32], MachineContract, bool)>,
+    checkpoint_geometry: Option<([u8; 32], MachineContract, bool, bool)>,
     /// The parked or serving sandbox.
     session: Option<Session>,
 }
@@ -209,10 +209,11 @@ impl Platform for KvmPlatform {
             Ok(session) => {
                 self.session = Some(session);
                 self.network = network;
-                self.checkpoint_geometry = volume_capacity_bytes.is_none().then_some((
+                self.checkpoint_geometry = Some((
                     *launch.generation().id().as_bytes(),
                     contract,
                     declared.writable_disk(),
+                    volume_capacity_bytes.is_some(),
                 ));
                 RestoredMachine::from_observation(RestoreProgress::from_steps([
                     RestoreStep::ArtifactsVerified,
@@ -353,6 +354,7 @@ impl Platform for KvmPlatform {
                 job.source.candidate_id,
                 job.source.contract,
                 job.source.has_overlay,
+                job.source.has_volume,
             ))
         {
             return Err(crate::sandbox::CheckpointJobError::CaptureRefused);

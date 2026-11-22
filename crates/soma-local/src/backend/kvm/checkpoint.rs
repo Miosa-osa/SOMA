@@ -12,6 +12,7 @@ use std::{
 };
 
 use soma::{GenerationId, InstanceId, OperationId};
+use soma_hostd::volume::placement::{ENCRYPTED_MOUNT_ENV, encrypted_mount_name, root_is_encrypted};
 use soma_kvm::snapshot::{
     Digest,
     device_state::{DeviceSpecific, DeviceState},
@@ -20,7 +21,7 @@ use soma_kvm::snapshot::{
 };
 use soma_vmm::sandbox::{CheckpointJob, CheckpointSource};
 
-use crate::{CheckpointFailure, CheckpointReceipt};
+use crate::{CheckpointFailure, CheckpointReceipt, checkpoint::CheckpointVolumeReceipt};
 
 use super::{
     held::Held,
@@ -33,6 +34,7 @@ const METADATA_LIMIT: u64 = 8 * 1024 * 1024;
 const STATE: &str = "state.somackp";
 const MEMORY: &str = "memory.raw";
 const OVERLAY: &str = "overlay.raw";
+const VOLUME: &str = "volume.raw";
 const RECEIPT: &str = "receipt.json";
 
 pub(super) fn perform(
@@ -44,6 +46,13 @@ pub(super) fn perform(
     paused: bool,
 ) -> Result<CheckpointReceipt, CheckpointFailure> {
     let root = configured_root()?;
+    if source.has_volume {
+        let configured = std::env::var(ENCRYPTED_MOUNT_ENV).ok();
+        let mount = encrypted_mount_name(configured.as_deref());
+        if !root_is_encrypted(&root, &mount).map_err(|_| CheckpointFailure::Storage)? {
+            return Err(CheckpointFailure::Unsupported);
+        }
+    }
     let published = root.join(format!("{}.{}", instance.as_str(), operation.as_str()));
     if let Some(receipt) = read_published(&published, instance, generation, operation)? {
         sync_directory(&root)?;
@@ -61,6 +70,7 @@ pub(super) fn perform(
             .has_overlay
             .then(|| stage.open(OVERLAY))
             .transpose()?,
+        volume: source.has_volume.then(|| stage.open(VOLUME)).transpose()?,
     };
     let reported = held.checkpoint(job)?;
     let receipt = read_staged(&stage.path, instance, generation, operation, Some(reported))?;
@@ -103,15 +113,34 @@ fn read_staged(
     if file_len(&path.join(MEMORY))? != Some(memory.size()) {
         return Err(CheckpointFailure::Storage);
     }
-    let overlay = decoded
+    let overlay = read_block(&decoded, SectionRole::Device1, &path.join(OVERLAY))?;
+    let volume = read_block(&decoded, SectionRole::Device6, &path.join(VOLUME))?;
+    let (overlay_bytes, overlay_digest) =
+        overlay.map_or((0, None), |(length, digest)| (length, Some(digest)));
+    Ok(CheckpointReceipt {
+        instance_id: instance.clone(),
+        checkpoint_id: operation.clone(),
+        generation_id: generation.clone(),
+        state_digest: format!("sha256:{state_digest}"),
+        memory_digest: format!("sha256:{}", memory.digest()),
+        memory_bytes: memory.size(),
+        overlay_bytes,
+        overlay_digest,
+        volume: volume.map(|(bytes, digest)| CheckpointVolumeReceipt { bytes, digest }),
+    })
+}
+
+fn read_block(
+    manifest: &CheckpointManifest,
+    role: SectionRole,
+    path: &Path,
+) -> Result<Option<(u64, String)>, CheckpointFailure> {
+    let block = manifest
         .sections()
         .iter()
-        .find(|section| section.role() == SectionRole::Device1)
+        .find(|section| section.role() == role)
         .map(|section| {
-            let slot = section
-                .role()
-                .device_slot()
-                .ok_or(CheckpointFailure::Storage)?;
+            let slot = role.device_slot().ok_or(CheckpointFailure::Storage)?;
             let state = DeviceState::decode_for_slot(slot, section.payload())
                 .map_err(|_| CheckpointFailure::Storage)?;
             let DeviceSpecific::Block(block) = state.specific() else {
@@ -124,21 +153,10 @@ fn read_staged(
             Ok((length, format!("sha256:{}", block.image_digest)))
         })
         .transpose()?;
-    if file_len(&path.join(OVERLAY))? != overlay.as_ref().map(|(length, _)| *length) {
+    if file_len(path)? != block.as_ref().map(|(length, _)| *length) {
         return Err(CheckpointFailure::Storage);
     }
-    let (overlay_bytes, overlay_digest) =
-        overlay.map_or((0, None), |(length, digest)| (length, Some(digest)));
-    Ok(CheckpointReceipt {
-        instance_id: instance.clone(),
-        checkpoint_id: operation.clone(),
-        generation_id: generation.clone(),
-        state_digest: format!("sha256:{state_digest}"),
-        memory_digest: format!("sha256:{}", memory.digest()),
-        memory_bytes: memory.size(),
-        overlay_bytes,
-        overlay_digest,
-    })
+    Ok(block)
 }
 
 fn read_published(
@@ -183,6 +201,9 @@ pub(super) fn restore_artifacts(
     let path = configured_root()?.join(format!("{}.{}", instance.as_str(), checkpoint.as_str()));
     let receipt = read_published(&path, instance, generation, checkpoint)?
         .ok_or(CheckpointFailure::NotFound)?;
+    if receipt.volume.is_some() {
+        return Err(CheckpointFailure::Unsupported);
+    }
     let parsed = GenerationId::new(receipt.state_digest).map_err(|_| CheckpointFailure::Storage)?;
     let digest = generation_bytes(&parsed).map_err(|_| CheckpointFailure::Storage)?;
     Ok(RestoreArtifacts {
@@ -285,7 +306,7 @@ impl Stage {
 
 impl Drop for Stage {
     fn drop(&mut self) {
-        for name in [RECEIPT, STATE, MEMORY, OVERLAY] {
+        for name in [RECEIPT, STATE, MEMORY, OVERLAY, VOLUME] {
             let _ignored = fs::remove_file(self.path.join(name));
         }
         let _ignored = fs::remove_dir(&self.path);

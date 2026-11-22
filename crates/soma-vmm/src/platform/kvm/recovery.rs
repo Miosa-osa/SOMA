@@ -101,7 +101,7 @@ impl KvmPlatform {
         .map_err(|error| RestoreFailure::at_restore(faults::restore_recovery(error)))?;
         self.session = Some(session);
         self.recovered = true;
-        self.checkpoint_geometry = Some((generation, contract, declared.writable_disk()));
+        self.checkpoint_geometry = Some((generation, contract, declared.writable_disk(), false));
         RestoredMachine::from_observation(RestoreProgress::from_steps([
             RestoreStep::ArtifactsVerified,
             RestoreStep::MachineRestored,

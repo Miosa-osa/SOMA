@@ -28,7 +28,7 @@ pub(super) fn reply(
 }
 
 fn job(source: CheckpointSource, descriptors: Vec<OwnedFd>) -> Option<CheckpointJob> {
-    if descriptors.len() != 2 + usize::from(source.has_overlay) {
+    if descriptors.len() != 2 + usize::from(source.has_overlay) + usize::from(source.has_volume) {
         return None;
     }
     let mut descriptors = descriptors.into_iter().map(File::from);
@@ -36,6 +36,7 @@ fn job(source: CheckpointSource, descriptors: Vec<OwnedFd>) -> Option<Checkpoint
         source,
         state: descriptors.next()?,
         memory: descriptors.next()?,
-        overlay: descriptors.next(),
+        overlay: source.has_overlay.then(|| descriptors.next()).flatten(),
+        volume: descriptors.next(),
     })
 }

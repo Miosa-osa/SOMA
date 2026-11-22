@@ -25,6 +25,7 @@ pub struct CheckpointSource {
     pub root_digest: Digest,
     pub contract: MachineContract,
     pub has_overlay: bool,
+    pub has_volume: bool,
 }
 
 /// Owns the descriptor capabilities transferred to the sandbox thread.
@@ -33,6 +34,7 @@ pub struct CheckpointJob {
     pub state: File,
     pub memory: File,
     pub overlay: Option<File>,
+    pub volume: Option<File>,
 }
 
 /// The result distinguishes a staged-file failure from uncertain guest execution.
@@ -71,6 +73,7 @@ impl CheckpointJob {
                     state: &self.state,
                     memory: &self.memory,
                     overlay: self.overlay.as_ref(),
+                    volume: self.volume.as_ref(),
                 },
             },
         )

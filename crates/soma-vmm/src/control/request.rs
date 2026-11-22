@@ -113,7 +113,7 @@ impl Request {
                 hex(&source.candidate_id),
                 hex(source.root_digest.as_bytes()),
                 source.contract.version(),
-                u8::from(source.has_overlay),
+                u8::from(source.has_overlay) | (u8::from(source.has_volume) << 1),
             ),
             Self::Stop(stop) => format!(
                 "stop {} {}",

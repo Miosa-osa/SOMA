@@ -23,6 +23,9 @@ impl Jailed {
         if let Some(overlay) = job.overlay.as_ref() {
             descriptors.push(overlay.as_fd());
         }
+        if let Some(volume) = job.volume.as_ref() {
+            descriptors.push(volume.as_fd());
+        }
         let reply = self.control.ask_with_files(
             &Request::Checkpoint(job.source),
             &descriptors,

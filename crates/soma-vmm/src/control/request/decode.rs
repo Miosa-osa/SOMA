@@ -248,10 +248,12 @@ pub(super) fn decode_checkpoint<'a>(
     let version = number(tokens.next(), "machine contract")?;
     let contract = soma_kvm::MachineContract::require(version)
         .map_err(|_| ControlError::InvalidValue("machine contract"))?;
-    let has_overlay = match tokens.next() {
-        Some("0") => false,
-        Some("1") => true,
-        _ => return Err(ControlError::InvalidValue("overlay")),
+    let (has_overlay, has_volume) = match tokens.next() {
+        Some("0") => (false, false),
+        Some("1") => (true, false),
+        Some("2") => (false, true),
+        Some("3") => (true, true),
+        _ => return Err(ControlError::InvalidValue("checkpoint disks")),
     };
     end(tokens)?;
     Ok(crate::sandbox::CheckpointSource {
@@ -260,5 +262,6 @@ pub(super) fn decode_checkpoint<'a>(
         root_digest,
         contract,
         has_overlay,
+        has_volume,
     })
 }

@@ -111,6 +111,7 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
             root_digest: Digest::from_bytes(*prepared.manifest.root.descriptor.digest.as_bytes()),
             contract: MachineContract::require(prepared.manifest.machine_contract.version).unwrap(),
             has_overlay: true,
+            has_volume: false,
         },
         false,
     )

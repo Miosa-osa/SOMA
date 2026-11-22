@@ -119,6 +119,7 @@ impl Workload for Capture<'_> {
                     state: &state,
                     memory: &memory,
                     overlay: Some(&overlay),
+                    volume: None,
                 },
             },
         )

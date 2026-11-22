@@ -168,6 +168,7 @@ impl KvmBackend {
             )
             .map_err(|_| self.fail(operation, BackendFailureKind::Unsupported))?,
             has_overlay: prepared.manifest.device_set().overlay(),
+            has_volume: volume.is_some(),
         };
         let policy = shape.capabilities().network_policy();
         // A request that needs egress is served by the broker or refused. It is never served by

@@ -14,6 +14,15 @@ pub struct CheckpointReceipt {
     pub memory_bytes: u64,
     pub overlay_bytes: u64,
     pub overlay_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<CheckpointVolumeReceipt>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CheckpointVolumeReceipt {
+    pub bytes: u64,
+    pub digest: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]

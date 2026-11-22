@@ -16,7 +16,7 @@ use crate::{
         manifest::{CandidateId, CheckpointManifest, CheckpointManifestError, PageSize},
         memory::MemoryDescriptor,
     },
-    virtio::Slot,
+    virtio::{BlockDevice, Slot},
     x86_64::{
         cpuid::GuestMachine,
         error::MachineError,
@@ -38,6 +38,7 @@ pub struct CheckpointTargets<'a> {
     pub state: &'a File,
     pub memory: &'a File,
     pub overlay: Option<&'a File>,
+    pub volume: Option<&'a File>,
 }
 
 /// The owning broker supplies the already-verified launch identity and pinned root digest.
@@ -83,7 +84,8 @@ impl From<SnapshotError> for CheckpointError {
 
 /// Pauses a running guest, captures its state into unpublished files, and resumes that guest.
 ///
-/// Capture requires idle device queues, no attached data volume, and no plugged memory.
+/// Capture requires idle device queues and no plugged memory.
+/// A mounted durable volume needs its own private target to preserve the same point in time.
 /// The guest link is held down while state is captured and restored to its source setting before
 /// the source resumes, including after a rejected capture.
 /// The host must discard the staging files on error and authenticate the result before publication.
@@ -130,9 +132,13 @@ pub fn capture_checkpoint(
         request.targets.memory,
         manifest.header().memory.digest(),
     )?;
-    if let Some(overlay) = request.targets.overlay {
-        let digest = overlay_digest(&manifest)?;
-        seal(Artifact::Overlay, overlay, digest)?;
+    for (artifact, slot, target) in [
+        (Artifact::Overlay, Slot::Overlay, request.targets.overlay),
+        (Artifact::Volume, Slot::Volume, request.targets.volume),
+    ] {
+        if let Some(target) = target {
+            seal(artifact, target, block_digest(&manifest, slot)?)?;
+        }
     }
     seal(Artifact::State, state, Digest::of(&encoded))?;
     Ok(manifest)
@@ -144,6 +150,7 @@ fn validate_targets(targets: &CheckpointTargets<'_>) -> Result<(), SnapshotError
         (Artifact::State, Some(targets.state)),
         (Artifact::Memory, Some(targets.memory)),
         (Artifact::Overlay, targets.overlay),
+        (Artifact::Volume, targets.volume),
     ] {
         let Some(file) = file else {
             continue;
@@ -170,7 +177,13 @@ fn capture_paused(
     hotplug: Option<crate::memory_layout::HotplugRegion>,
 ) -> Result<CheckpointManifest, SnapshotError> {
     let bus = &mut *paused.bus;
-    if bus.volume().is_some() || bus.overlay().is_some() != request.targets.overlay.is_some() {
+    let has_mounted_volume = bus
+        .volume()
+        .is_some_and(|volume| !volume.device().is_placeholder());
+    if bus.volume().is_some() != has_mounted_volume
+        || has_mounted_volume != request.targets.volume.is_some()
+        || bus.overlay().is_some() != request.targets.overlay.is_some()
+    {
         return Err(SnapshotError::NotQuiescent(
             "the checkpoint storage targets do not cover the guest devices",
         ));
@@ -206,8 +219,17 @@ fn capture_paused(
         .map_err(|_| SnapshotError::NotQuiescent("checkpoint has too many vCPUs"))?;
     let (_, cpu_template) =
         profile::cpu_template(paused.kvm, GuestMachine::new(request.contract, vcpus))?;
-    let overlay = capture_overlay(bus, request.targets.overlay)?;
-    let devices = capture_devices(bus, request, overlay)?;
+    let overlay = capture_block(
+        Artifact::Overlay,
+        bus.overlay_mut().map(|slot| slot.device_mut()),
+        request.targets.overlay,
+    )?;
+    let volume = capture_block(
+        Artifact::Volume,
+        bus.volume_mut().map(|slot| slot.device_mut()),
+        request.targets.volume,
+    )?;
+    let devices = capture_devices(bus, request, overlay, volume)?;
     let memory = copy_image(
         Artifact::Memory,
         request.targets.memory,
@@ -246,31 +268,31 @@ fn capture_paused(
     )?)
 }
 
-fn capture_overlay(
-    bus: &mut crate::virtio::MmioBus,
+fn capture_block(
+    artifact: Artifact,
+    device: Option<&mut BlockDevice>,
     target: Option<&File>,
 ) -> Result<Digest, SnapshotError> {
-    match (bus.overlay_mut(), target) {
+    match (device, target) {
         (None, None) => Ok(Digest::from_bytes([0; 32])),
-        (Some(overlay), Some(file)) => {
-            let disk = overlay.device_mut();
-            disk.flush_checkpoint().map_err(|_| {
-                SnapshotError::NotQuiescent("could not flush the checkpoint overlay")
-            })?;
+        (Some(device), Some(file)) => {
+            device
+                .flush_checkpoint()
+                .map_err(|_| SnapshotError::NotQuiescent("could not flush the checkpoint disk"))?;
             copy_image(
-                Artifact::Overlay,
+                artifact,
                 file,
-                disk.capacity_sectors() * 512,
-                |offset, bytes| match disk.read_checkpoint(offset, bytes) {
+                device.capacity_sectors() * 512,
+                |offset, bytes| match device.read_checkpoint(offset, bytes) {
                     Ok(n) if n == bytes.len() => Ok(()),
                     _ => Err(SnapshotError::NotQuiescent(
-                        "could not read the checkpoint overlay",
+                        "could not read the checkpoint disk",
                     )),
                 },
             )
         }
         _ => Err(SnapshotError::NotQuiescent(
-            "checkpoint overlay target mismatch",
+            "checkpoint block device target mismatch",
         )),
     }
 }
@@ -279,15 +301,16 @@ fn capture_devices(
     bus: &mut crate::virtio::MmioBus,
     request: &CheckpointRequest<'_>,
     overlay: Digest,
+    volume: Digest,
 ) -> Result<Vec<(Slot, crate::snapshot::device_state::DeviceState)>, SnapshotError> {
     bus.snapshot_all()
         .into_iter()
         .map(|record| {
             let slot = record.slot;
-            let digest = if slot == Slot::Root {
-                request.root_digest
-            } else {
-                overlay
+            let digest = match slot {
+                Slot::Root => request.root_digest,
+                Slot::Volume => volume,
+                _ => overlay,
             };
             let specific = device::specific(bus, slot, digest)
                 .ok_or(SnapshotError::DeviceStateNotCanonical(slot))?;
@@ -300,18 +323,18 @@ fn capture_devices(
         .collect()
 }
 
-fn overlay_digest(manifest: &CheckpointManifest) -> Result<Digest, SnapshotError> {
+fn block_digest(manifest: &CheckpointManifest, slot: Slot) -> Result<Digest, SnapshotError> {
     use crate::snapshot::device_state::{DeviceSpecific, DeviceState};
 
     let section = manifest
         .sections()
         .iter()
-        .find(|section| Some(section.role()) == device::role(Slot::Overlay))
-        .ok_or(SnapshotError::MissingSection("checkpoint overlay"))?;
-    let state = DeviceState::decode_for_slot(Slot::Overlay.index(), section.payload())?;
+        .find(|section| Some(section.role()) == device::role(slot))
+        .ok_or(SnapshotError::MissingSection("checkpoint block device"))?;
+    let state = DeviceState::decode_for_slot(slot.index(), section.payload())?;
     match state.specific() {
         DeviceSpecific::Block(block) => Ok(block.image_digest),
-        _ => Err(SnapshotError::DeviceStateNotCanonical(Slot::Overlay)),
+        _ => Err(SnapshotError::DeviceStateNotCanonical(slot)),
     }
 }
 
@@ -380,6 +403,51 @@ fn seal(artifact: Artifact, file: &File, expected: Digest) -> Result<(), Snapsho
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mounted_volume_capture_flushes_and_seals_its_own_bytes() {
+        use crate::virtio::{BlockRole, FileBackend, TransferShape};
+
+        let device_file = tempfile::tempfile().unwrap();
+        let mut logical = vec![0; 2 * CHUNK];
+        logical[CHUNK + 9..CHUNK + 15].copy_from_slice(b"volume");
+        device_file.write_all_at(&logical, 0).unwrap();
+
+        let mut volume = BlockDevice::new(
+            BlockRole::DurableVolume,
+            Box::new(FileBackend::new(device_file, false).unwrap()),
+            512,
+            [0; crate::virtio::BLOCK_SERIAL_LEN],
+            TransferShape::Declared,
+        )
+        .unwrap()
+        .into_serving();
+        let target = tempfile::tempfile().unwrap();
+
+        let digest = capture_block(Artifact::Volume, Some(&mut volume), Some(&target)).unwrap();
+
+        assert_eq!(digest, Digest::of(&logical));
+        let mut recovered = vec![0; logical.len()];
+        target.read_exact_at(&mut recovered, 0).unwrap();
+        assert_eq!(recovered, logical);
+        assert!(target.metadata().unwrap().blocks() * 512 < logical.len() as u64);
+        seal(Artifact::Volume, &target, digest).unwrap();
+    }
+
+    #[test]
+    fn volume_capture_refuses_a_target_shared_with_another_artifact() {
+        let state = tempfile::tempfile().unwrap();
+        let memory = tempfile::tempfile().unwrap();
+        let alias = memory.try_clone().unwrap();
+        let error = validate_targets(&CheckpointTargets {
+            state: &state,
+            memory: &memory,
+            overlay: None,
+            volume: Some(&alias),
+        })
+        .unwrap_err();
+        assert!(matches!(error, SnapshotError::NotQuiescent(_)));
+    }
 
     #[test]
     fn checkpoint_copy_preserves_zero_spans_and_the_exact_trailing_length() {
