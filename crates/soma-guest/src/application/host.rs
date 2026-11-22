@@ -36,6 +36,12 @@ pub enum HostMessage {
         /// Identity of this exact Stop operation.
         operation: OperationId,
     },
+    /// Asks the guest agent to retire this session and park at the suspension point (ADR 0034,
+    /// guest API level 4): running processes are kept, the session and the link are not.
+    Suspend {
+        /// Identity of this exact Suspend operation.
+        operation: OperationId,
+    },
 }
 
 impl HostMessage {
@@ -69,6 +75,12 @@ impl HostMessage {
         Self::Shutdown { operation }
     }
 
+    /// Creates a Suspend message.
+    #[must_use]
+    pub const fn suspend(operation: OperationId) -> Self {
+        Self::Suspend { operation }
+    }
+
     /// Encodes this message as exactly one authenticated-record payload.
     ///
     /// # Errors
@@ -87,6 +99,7 @@ impl HostMessage {
                 frame::encode(frame::Kind::Pty, *operation, &request.encode_body())
             }
             Self::Shutdown { operation } => frame::encode(frame::Kind::Shutdown, *operation, &[]),
+            Self::Suspend { operation } => frame::encode(frame::Kind::Suspend, *operation, &[]),
         }
     }
 
@@ -114,8 +127,11 @@ impl HostMessage {
             frame::Kind::Shutdown if decoded.body.is_empty() => {
                 Ok(Self::shutdown(decoded.operation))
             }
+            frame::Kind::Suspend if decoded.body.is_empty() => Ok(Self::suspend(decoded.operation)),
             frame::Kind::Prepare
             | frame::Kind::Shutdown
+            | frame::Kind::Suspend
+            | frame::Kind::SuspendAck
             | frame::Kind::FileOutcome
             | frame::Kind::RepairComplete
             | frame::Kind::Stdout

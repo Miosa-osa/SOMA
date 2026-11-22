@@ -102,6 +102,11 @@ mod agent {
     /// A snapshot builder waits for this exact line before it quiesces and captures.
     pub const REPAIR_POINT_LINE: &str = "awaiting launch material";
 
+    /// Console line the agent prints once a suspended session is retired and it is parked again.
+    ///
+    /// The host reads the machine into a Suspension only after this exact line.
+    pub const SUSPENSION_POINT_LINE: &str = "suspended, awaiting launch material";
+
     /// Interval between launch-page probes while the agent is parked at the repair point.
     ///
     /// The host writes the fresh page into its slot before it resumes the vCPU, so the page is
@@ -172,60 +177,81 @@ mod agent {
         tuning::clear_boot_log();
         pid1::sync();
         console::report(REPAIR_POINT_LINE);
-        let (controller, material) = advance(controller.accept_material(
-            launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
-        ));
-        let binding = *material.binding();
-        let network = material.network();
-        let hostname = identity::hostname(binding.instance());
-        let entropy_deadline = Instant::now() + ENTROPY_BUDGET;
-        let (controller, session) = advance(
-            controller.repair_entropy(
-                material
-                    .reseed_with(|seed| entropy::repair(seed, entropy_deadline))
-                    .map_err(|_| Fault::Entropy),
-            ),
-        );
-        let (controller, transport) = advance(
-            controller.freshen_transport(
-                control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
-                    .map_err(|_| Fault::Transport),
-            ),
-        );
-        let repaired = timings::measure(Measured::Identity, || {
-            identity::repair(binding.instance(), network.time_sample_nanos(), declared)
-        });
-        let (controller, ()) =
-            advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));
-        // A machine with no network device has no interface to install an identity on, so the
-        // repair reduces to raising loopback: a sandbox that cannot reach the network still has
-        // to be able to reach itself. Skipping the step entirely would leave `lo` down and
-        // break every workload that binds to its own address.
-        let installed = timings::measure(Measured::Network, || {
-            if declared.net {
-                network_repair::repair(&network, &hostname)
-            } else {
-                network_repair::repair_loopback_only()
+        // Every pass of this loop is one Instance's life on this machine: the first from the
+        // capture point, every later one from a suspension point (ADR 0034), which is the same
+        // disconnected wait. A resume writes fresh launch material, and the repair below runs
+        // exactly as it does at a launch: new entropy, transport, identity, network and session.
+        let mut parked = controller;
+        loop {
+            let controller = parked;
+            let (controller, material) = advance(controller.accept_material(
+                launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
+            ));
+            let binding = *material.binding();
+            let network = material.network();
+            let hostname = identity::hostname(binding.instance());
+            let entropy_deadline = Instant::now() + ENTROPY_BUDGET;
+            let (controller, session) = advance(
+                controller.repair_entropy(
+                    material
+                        .reseed_with(|seed| entropy::repair(seed, entropy_deadline))
+                        .map_err(|_| Fault::Entropy),
+                ),
+            );
+            let (controller, transport) = advance(
+                controller.freshen_transport(
+                    control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
+                        .map_err(|_| Fault::Transport),
+                ),
+            );
+            let repaired = timings::measure(Measured::Identity, || {
+                identity::repair(binding.instance(), network.time_sample_nanos(), declared)
+            });
+            let (controller, ()) =
+                advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));
+            // A machine with no network device has no interface to install an identity on, so the
+            // repair reduces to raising loopback: a sandbox that cannot reach the network still has
+            // to be able to reach itself. Skipping the step entirely would leave `lo` down and
+            // break every workload that binds to its own address.
+            let installed = timings::measure(Measured::Network, || {
+                if declared.net {
+                    network_repair::repair(&network, &hostname)
+                } else {
+                    network_repair::repair_loopback_only()
+                }
+            });
+            let (controller, ()) =
+                advance(controller.repair_network(installed.map_err(|_| Fault::Network)));
+            let authenticated = timings::around(
+                Measured::HandshakeWait,
+                Measured::HandshakeSend,
+                Measured::HandshakeWork,
+                || GuestControl::connect(session, transport, Instant::now() + HANDSHAKE_BUDGET),
+            );
+            let (controller, authenticated) =
+                advance(controller.authenticate(authenticated.map_err(|_| Fault::Control)));
+            let (controller, prepared) =
+                advance(controller.prepare(lifecycle::prepare(authenticated)));
+            let (controller, ()) = advance(controller.ready(Ok(())));
+            console::report("ready");
+            #[cfg(feature = "timing-report")]
+            for line in timings::lines() {
+                console::report(&line);
             }
-        });
-        let (controller, ()) =
-            advance(controller.repair_network(installed.map_err(|_| Fault::Network)));
-        let authenticated = timings::around(
-            Measured::HandshakeWait,
-            Measured::HandshakeSend,
-            Measured::HandshakeWork,
-            || GuestControl::connect(session, transport, Instant::now() + HANDSHAKE_BUDGET),
-        );
-        let (controller, authenticated) =
-            advance(controller.authenticate(authenticated.map_err(|_| Fault::Control)));
-        let (controller, prepared) = advance(controller.prepare(lifecycle::prepare(authenticated)));
-        let (controller, ()) = advance(controller.ready(Ok(())));
-        console::report("ready");
-        #[cfg(feature = "timing-report")]
-        for line in timings::lines() {
-            console::report(&line);
+            match lifecycle::serve(controller, prepared) {
+                lifecycle::Served::Poisoned(poisoned) => destroy(&poisoned),
+                lifecycle::Served::Suspended(suspending) => {
+                    // The session is already retired and acknowledged. The link goes down so the
+                    // gap holds no in-flight queue, the overlay is flushed, and the agent says
+                    // where it is parked before the host reads the machine.
+                    let down = network_repair::link_down(declared.net).map_err(|_| Fault::Network);
+                    pid1::sync();
+                    let (captured, ()) = advance(suspending.park(down));
+                    console::report(SUSPENSION_POINT_LINE);
+                    parked = captured;
+                }
+            }
         }
-        destroy(&lifecycle::serve(controller, prepared))
     }
 
     fn advance<S: State, T>(step: Step<S, T>) -> (Controller<S>, T) {

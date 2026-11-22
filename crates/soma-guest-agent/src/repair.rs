@@ -53,6 +53,8 @@ pub enum Phase {
     Running,
     /// An authenticated shutdown is in progress and no new work is accepted.
     Stopping,
+    /// The session was retired for a suspension; the next phase is the parked repair point.
+    Suspending,
     /// The single-use guest is destroyed.
     Poisoned,
 }
@@ -74,7 +76,11 @@ impl Phase {
                 | (Self::NetworkRepaired, Self::Authenticated)
                 | (Self::Authenticated, Self::Prepared)
                 | (Self::Prepared | Self::Running, Self::Ready)
-                | (Self::Ready, Self::Running | Self::Stopping)
+                | (
+                    Self::Ready,
+                    Self::Running | Self::Stopping | Self::Suspending
+                )
+                | (Self::Suspending, Self::Captured)
         )
     }
 }
@@ -174,6 +180,7 @@ states! {
     Ready => Ready,
     Running => Running,
     Stopping => Stopping,
+    Suspending => Suspending,
     Poisoned => Poisoned,
 }
 
@@ -263,6 +270,8 @@ transition!(Prepared, ready, Ready);
 transition!(Ready, run, Running);
 transition!(Running, finish, Ready);
 transition!(Ready, stop, Stopping);
+transition!(Ready, suspend, Suspending);
+transition!(Suspending, park, Captured);
 
 impl Controller<Poisoned> {
     /// Returns the fault that destroyed this guest.
