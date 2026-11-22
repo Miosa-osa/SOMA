@@ -93,6 +93,7 @@ pub enum Route {
     CheckpointSandbox(InstanceId),
     DiscardCheckpoint(InstanceId),
     RestoreSandbox(InstanceId),
+    ForkSandbox(InstanceId),
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
@@ -135,6 +136,7 @@ impl Route {
             Self::CheckpointSandbox(_) => "sandbox.checkpoint",
             Self::DiscardCheckpoint(_) => "sandbox.checkpoint.discard",
             Self::RestoreSandbox(_) => "sandbox.restore",
+            Self::ForkSandbox(_) => "sandbox.fork",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
@@ -202,6 +204,9 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
         ),
         ["v1", "sandboxes", instance, "restore"] => {
             post_only(request, Route::RestoreSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "sandboxes", instance, "fork"] => {
+            post_only(request, Route::ForkSandbox(path_instance_id(instance)?))
         }
         ["v1", "sandboxes", instance, "stop"] => {
             post_only(request, Route::StopSandbox(path_instance_id(instance)?))

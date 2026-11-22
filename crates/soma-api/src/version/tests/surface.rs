@@ -52,6 +52,7 @@ fn every_route() -> Vec<Route> {
         Route::CheckpointSandbox(instance()),
         Route::DiscardCheckpoint(instance()),
         Route::RestoreSandbox(instance()),
+        Route::ForkSandbox(instance()),
         Route::Resources(instance(), false),
         Route::Tunnel(instance(), 8080),
         Route::Volume(VolumeOperation::Read, Some(VOLUME.to_owned())),
@@ -106,6 +107,7 @@ fn template(route: &Route) -> String {
         Route::CheckpointSandbox(_) => "/v1/sandboxes/{instance}/checkpoints".to_owned(),
         Route::DiscardCheckpoint(_) => "/v1/sandboxes/{instance}/checkpoints/discard".to_owned(),
         Route::RestoreSandbox(_) => "/v1/sandboxes/{instance}/restore".to_owned(),
+        Route::ForkSandbox(_) => "/v1/sandboxes/{instance}/fork".to_owned(),
         Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
         Route::RunCommand(_) => "/v1/sandboxes/{instance}/commands".to_owned(),
         Route::Filesystem(_, operation) => {
@@ -210,6 +212,7 @@ fn surface() -> String {
             "checkpoint_id(required) state_digest(required)".to_owned(),
         ),
         ("FilesystemBody", fields::<FilesystemBody>()),
+        ("ForkBody", fields::<crate::handler::checkpoint::ForkBody>()),
         ("PrewarmSetBody", fields::<PrewarmSetBody>()),
         ("PrewarmTarget", fields::<soma_local::PrewarmTarget>()),
         ("PruneRequest", fields::<soma_local::PruneRequest>()),

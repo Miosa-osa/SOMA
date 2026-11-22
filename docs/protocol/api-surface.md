@@ -61,6 +61,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.4 | sha256:72ef81e47b8bcd5f8a99584b709799b0e0482960580921a142b6d7f24f591e2e | Added same-sandbox restore from a published checkpoint. |
 | 1.5 | sha256:c5481912fb655a139e58845c65bc4fb912ac0b369622fbc16182f66bb7cf95b3 | Added per-execution environment variables to the loopback command route. |
 | 1.6 | sha256:fa26972026e9710aab6687a90ff1fb4a9fcd01adb120917fa2b0d5f2899bbdf0 | Added identity-bound cleanup of a consumed checkpoint. |
+| 1.7 | sha256:3818d9888def5ba6aa9470c51a3787a5114042814b97e82166d0af5c0c96aee5 | Added host-local fork with a committed child identity. |
 
 ## Surface
 
@@ -68,7 +69,7 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.6
+api 1.7
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route GET /v1/prewarm prewarm.status
@@ -95,6 +96,7 @@ route POST /v1/sandboxes/{instance}/filesystem/rename sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/stat sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/write sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/write_range sandbox.filesystem
+route POST /v1/sandboxes/{instance}/fork sandbox.fork
 route POST /v1/sandboxes/{instance}/pause sandbox.pause
 route POST /v1/sandboxes/{instance}/restore sandbox.restore
 route POST /v1/sandboxes/{instance}/resume sandbox.resume
@@ -113,6 +115,7 @@ body ControlBody operation_id
 body CreateSandboxBody image volume_id shape name instance_id operation_id
 body DiscardBody checkpoint_id(required) state_digest(required)
 body FilesystemBody path content recursive to offset length mode create shorten operation_id
+body ForkBody operation_id checkpoint_id instance_id image shape name
 body PrewarmSetBody targets
 body PrewarmTarget reference count memory_mib
 body PruneRequest keep apply keep_previous
@@ -156,3 +159,11 @@ It can do so after confirming that Restore succeeded or the sandbox no longer ne
 A matching request returns absent after the checkpoint files are removed and the storage directory is synchronized.
 Repeat the same request after a lost acknowledgement.
 The route is available on the host-local API and has no equivalent public runner route.
+
+## Fork from a checkpoint
+
+The trusted host control plane sends POST /v1/sandboxes/{instance}/fork with the source checkpoint_id, the original image and shape, an operation_id, a distinct child instance_id, and the recorded source tenant name.
+The source must have been created with a tenant name and the child must use the same isolated network shape.
+The source can remain running.
+A successful reply reports ready for the exact child instance.
+Retry with the same values to recover the original receipt.

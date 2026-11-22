@@ -95,6 +95,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
         Route::CheckpointSandbox(instance_id) => checkpoint::serve(facade, &instance_id, body),
         Route::DiscardCheckpoint(instance_id) => checkpoint::discard(facade, &instance_id, body),
         Route::RestoreSandbox(instance_id) => checkpoint::restore(facade, instance_id, body),
+        Route::ForkSandbox(source) => checkpoint::fork(facade, &source, body),
         Route::StopSandbox(instance_id) => {
             let request = control_body(body)?.into_stop(instance_id.clone())?;
             let stop = request.operation_id().clone();

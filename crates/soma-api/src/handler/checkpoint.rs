@@ -151,6 +151,48 @@ fn try_restore<F: SandboxFacade + ?Sized>(
     ))
 }
 
+/// The caller supplies the child identity from its committed placement record.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ForkBody {
+    operation_id: OperationId,
+    checkpoint_id: OperationId,
+    instance_id: InstanceId,
+    image: String,
+    shape: soma::MachineShape,
+    name: soma::MachineName,
+}
+
+pub(super) fn fork<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    source: &InstanceId,
+    body: &[u8],
+) -> Result<Response, ApiError> {
+    if !facade.hosts_addressable_sandboxes() {
+        return Err(super::MissingCapability::DurableMachineHosting.error());
+    }
+    let body: ForkBody = super::parse(body)?;
+    if &body.instance_id == source {
+        return Err(ApiError::invalid(
+            "fork requires a distinct destination instance",
+        ));
+    }
+    let image = soma::OciImage::parse(body.image)
+        .map_err(|_| ApiError::invalid("the image reference is not a valid OCI reference"))?;
+    let request =
+        soma::LaunchMachineRequest::new(body.operation_id, body.instance_id, image, body.shape)
+            .with_name(body.name);
+    let result = facade
+        .fork(request, source, &body.checkpoint_id)
+        .map_err(|failure| super::managed_error(&failure))?;
+    Ok(super::lifecycle(
+        "sandbox.fork",
+        "ready",
+        &result.instance_id,
+        &result.receipt,
+    ))
+}
+
 pub(crate) fn fork_as<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     request: soma::LaunchMachineRequest,
