@@ -8,8 +8,8 @@
 #
 # In order: start soma-netd and soma-api; create one desktop sandbox through soma-api; run the
 # session launcher through exec; drive the desktop with cua-driver through exec (screenshot, the
-# Openbox menu, the terminal); time the agent's click; read idle memory; destroy the sandbox; prove
-# nothing was left behind.
+# Openbox menu, the terminal); time the agent's click; read idle memory; start the viewer and
+# reach it through the SOMA tunnel; destroy the sandbox; prove nothing was left behind.
 
 set -euo pipefail
 
@@ -167,6 +167,22 @@ python3 "$PROOF/connections.py" "$GUEST_OUT" | tee "$OUT/guest-connections.txt"
 guest meminfo /bin/cat /proc/meminfo
 cp "$GUEST_OUT" "$OUT/guest-meminfo.txt"
 record machine_host_rss_kib "$(machine_memory idle)"
+
+# More than the broker's idle timeout after the launch, the case #176 broke: the viewer starts
+# on demand, and a browser's two requests reach it only through the SOMA tunnel.
+log "viewer: started on demand, then reached through the SOMA tunnel"
+viewer_at="$(ns)"
+guest viewer-start /usr/local/sbin/soma-desktop-session viewer start
+cp "$GUEST_OUT" "$OUT/viewer-start.json"
+[[ "$(field 'd["state"]' "$OUT/viewer-start.json")" == viewer_ready ]] || {
+    printf 'the viewer did not become ready\n' >&2
+    exit 1
+}
+record viewer_start_ms "$(( ($(ns) - viewer_at) / 1000000 ))"
+python3 "$PROOF/viewer_check.py" --api "$API" --tenant "$TENANT" --instance "$INSTANCE" \
+    >"$OUT/viewer-check.json" || { cat "$OUT/viewer-check.json" >&2; exit 1; }
+record viewer_tunnel_open_ms "$(field 'd["page"]["tunnel_open_ms"]' "$OUT/viewer-check.json")"
+record viewer_page_ms "$(field 'd["page"]["page_ms"]' "$OUT/viewer-check.json")"
 
 if (( HOLD > 0 )); then
     log "holding the desktop for $HOLD s (or until $WORK/release exists)"

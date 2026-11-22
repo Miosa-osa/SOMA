@@ -120,7 +120,7 @@ impl BrokerClient {
                     return Err(ClientError::Protocol);
                 }
                 names_the_same_assignment(&reply, &header)?;
-                nonblocking(&descriptor)?;
+                set_nonblocking(&descriptor, true)?;
                 (reply, Some(descriptor))
             }
             None => (payload, None),
@@ -153,7 +153,14 @@ impl BrokerClient {
             port,
         };
         match self.call(&request)? {
-            (Reply::Connected { .. }, Some(socket)) => Ok(socket),
+            (Reply::Connected { .. }, Some(socket)) => {
+                // Every transferred descriptor arrives non-blocking for the TAP's sake, but this
+                // one is a stream its caller pumps with blocking reads on threads of its own; a
+                // non-blocking read there answers "nothing yet" as an error, and the tunnel was
+                // torn down milliseconds after it opened (#176).
+                set_nonblocking(&socket, false)?;
+                Ok(socket)
+            }
             _ => Err(ClientError::Protocol),
         }
     }
@@ -237,12 +244,20 @@ fn collect(message: &libc::msghdr) -> Vec<OwnedFd> {
 }
 
 /// Puts the transferred descriptor in non-blocking mode.
-fn nonblocking(descriptor: &OwnedFd) -> Result<(), ClientError> {
+fn set_nonblocking(descriptor: &OwnedFd, on: bool) -> Result<(), ClientError> {
     let fd = descriptor.as_raw_fd();
     // SAFETY: `fcntl` with these two commands takes no pointer argument.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    // SAFETY: as above; `flags` is the value the kernel just reported for this descriptor.
-    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+    if flags < 0 {
+        return Err(ClientError::Protocol);
+    }
+    let wanted = if on {
+        flags | libc::O_NONBLOCK
+    } else {
+        flags & !libc::O_NONBLOCK
+    };
+    // SAFETY: as above; `wanted` is the kernel's own flags with only `O_NONBLOCK` changed.
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, wanted) } < 0 {
         return Err(ClientError::Protocol);
     }
     Ok(())
