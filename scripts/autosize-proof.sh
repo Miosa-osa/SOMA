@@ -60,6 +60,16 @@ sizing() {
 # watch <seconds>: reads the sizing every five seconds.
 watch() { for _ in $(seq 1 $(( $1 / 5 ))); do sleep 5; sizing; done; }
 
+# CPU limits are written to a delegated cgroup2 subtree; one is made for the proof when the host
+# names none (a production host sets SOMA_JAIL_CGROUP_ROOT for soma-api the same way).
+if [[ -z "${SOMA_JAIL_CGROUP_ROOT:-}" ]]; then
+    SOMA_JAIL_CGROUP_ROOT=/sys/fs/cgroup/soma-autosize-proof
+    grep -qw cpu /sys/fs/cgroup/cgroup.subtree_control || echo +cpu >/sys/fs/cgroup/cgroup.subtree_control
+    mkdir -p "$SOMA_JAIL_CGROUP_ROOT"
+    echo +cpu >"$SOMA_JAIL_CGROUP_ROOT/cgroup.subtree_control" 2>/dev/null || true
+fi
+export SOMA_JAIL_CGROUP_ROOT
+
 log "starting a private soma-api on $SOMA_PROOF_API"
 SOMA_GENERATION_STORE="$STORE" SOMA_HEAD_DIR="$WORK/heads" \
     SOMA_MACHINE_HOST_LOG="$OUT/machine-host.log" \
