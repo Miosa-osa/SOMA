@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Apps
+Comment=Install apps into this machine
+Exec=miosa-apps
+Icon=system-software-install
+Categories=System;

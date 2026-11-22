@@ -1,0 +1,94 @@
+#!/bin/bash
+#
+# /usr/local/libexec/miosa-apps/install <id>: installs one app from the MIOSA Apps catalog into this
+# machine. It is the only thing the desktop user may run as root without a password
+# (/etc/sudoers.d/miosa-apps), so it takes nothing but a catalog id and every recipe is written here.
+#
+#   install <id>       install the app (idempotent; an installed app is left as it is)
+#   install --check <id>   exit 0 when the app is installed
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+USER_NAME=ubuntu
+
+check=0
+if [[ "${1:-}" == --check ]]; then check=1; shift; fi
+id="${1:-}"
+[[ "$id" =~ ^[a-z0-9-]+$ ]] || { echo "usage: install [--check] <id>" >&2; exit 2; }
+
+apt_install() { apt-get update -qq && apt-get install -y -qq --no-install-recommends "$@"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+# key_repo NAME KEY_URL "deb line": adds a signed vendor apt repository.
+key_repo() {
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL --retry 3 "$2" | gpg --dearmor --yes -o "/etc/apt/keyrings/$1.gpg"
+    printf '%s\n' "$3" >"/etc/apt/sources.list.d/$1.list"
+}
+
+case "$id" in
+    docker)
+        installed() { have docker; }
+        recipe() {
+            apt_install docker.io docker-compose-v2 docker-buildx
+            usermod -aG docker "$USER_NAME"
+            (dockerd >/var/log/dockerd.log 2>&1 &) ; sleep 2
+        } ;;
+    vscode)
+        installed() { have code; }
+        recipe() {
+            apt_install curl gpg ca-certificates
+            key_repo vscode https://packages.microsoft.com/keys/microsoft.asc \
+                "deb [arch=amd64 signed-by=/etc/apt/keyrings/vscode.gpg] https://packages.microsoft.com/repos/code stable main"
+            apt_install code
+        } ;;
+    nodejs)
+        installed() { have node; }
+        recipe() {
+            apt_install curl ca-certificates xz-utils
+            v=v22.21.1
+            curl -fsSL --retry 3 -o /tmp/node.tar.xz "https://nodejs.org/dist/$v/node-$v-linux-x64.tar.xz"
+            tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1
+            rm -f /tmp/node.tar.xz
+        } ;;
+    python)
+        installed() { have pipx && dpkg -s python3-venv >/dev/null 2>&1; }
+        recipe() { apt_install python3-pip python3-venv python3-dev pipx build-essential; } ;;
+    gh)
+        installed() { have gh; }
+        recipe() {
+            apt_install curl gpg ca-certificates
+            key_repo github-cli https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                "deb [arch=amd64 signed-by=/etc/apt/keyrings/github-cli.gpg] https://cli.github.com/packages stable main"
+            apt_install gh
+        } ;;
+    claude-code)
+        installed() { have claude; }
+        recipe() { "$0" nodejs; /usr/local/bin/npm install -g --silent @anthropic-ai/claude-code; } ;;
+    firefox)
+        installed() { [[ -x /usr/lib/firefox/firefox ]]; }
+        recipe() {
+            apt_install curl gpg ca-certificates
+            key_repo mozilla https://packages.mozilla.org/apt/repo-signing-key.gpg \
+                "deb [signed-by=/etc/apt/keyrings/mozilla.gpg] https://packages.mozilla.org/apt mozilla main"
+            printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' >/etc/apt/preferences.d/mozilla
+            apt_install firefox
+        } ;;
+    vlc) installed() { have vlc; }; recipe() { apt_install vlc; } ;;
+    gimp) installed() { have gimp; }; recipe() { apt_install gimp; } ;;
+    inkscape) installed() { have inkscape; }; recipe() { apt_install inkscape; } ;;
+    libreoffice) installed() { have libreoffice; }; recipe() { apt_install libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-gtk3; } ;;
+    obs) installed() { have obs; }; recipe() { apt_install obs-studio; } ;;
+    filezilla) installed() { have filezilla; }; recipe() { apt_install filezilla; } ;;
+    discord)
+        installed() { have discord; }
+        recipe() {
+            apt_install curl ca-certificates
+            curl -fsSL --retry 3 -o /tmp/discord.deb "https://discord.com/api/download?platform=linux&format=deb"
+            apt_install /tmp/discord.deb; rm -f /tmp/discord.deb
+        } ;;
+    *) echo "no app called $id in the MIOSA Apps catalog" >&2; exit 2 ;;
+esac
+
+if (( check )); then installed; exit $?; fi
+if installed; then echo "$id is already installed"; exit 0; fi
+recipe
+installed && echo "$id installed"

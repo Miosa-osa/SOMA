@@ -1,0 +1,19 @@
+# file (without -light and .jpg) | collection | label, as the Wallpapers app shows them, in this order
+miosa-aurora|Space|Aurora
+miosa-aurora-arc|Space|Aurora Arc
+miosa-aurora-swirl|Space|Aurora Swirl
+miosa-dawn|Space|Dawn
+miosa-horizon|Space|Horizon
+miosa-limb|Space|Limb
+miosa-night-lights|Space|Night Lights
+miosa-mediterranean|Space|Mediterranean
+miosa-twilight|Landscapes|Twilight in the Wilderness
+miosa-sierra|Landscapes|Sierra Nevada
+miosa-landers|Landscapes|Lander's Peak
+miosa-oxbow|Landscapes|The Oxbow
+miosa-moonrise|Landscapes|Moonrise over the Sea
+miosa-redfuji|Landscapes|Red Fuji
+miosa-wave|Sea|The Great Wave
+miosa-ninthwave|Sea|The Ninth Wave
+miosa-pines|Forest|Morning in a Pine Forest
+miosa-racks|Machines|Server Racks

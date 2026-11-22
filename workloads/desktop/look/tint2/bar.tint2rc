@@ -28,7 +28,7 @@ border_color_hover = #344961 100
 background_color_pressed = #344961 100
 border_color_pressed = #344961 100
 
-panel_items = EEEEETEC
+panel_items = EEEEETEEEC
 panel_size = 100% 40
 panel_margin = 0 0
 panel_padding = 16 5 12
@@ -56,15 +56,16 @@ execp_padding = 8 2 8
 execp_background_id = 2
 execp_centered = 1
 
-# Workspace 1: bright when it is the one shown; a click goes to it. It redraws only when the
+# Workspaces as page dots. Workspace 1: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 0 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 1 </span>'; else echo '<span foreground="#7d859b"> 1 </span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 0 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
 execp_font = Inter Medium 10
-execp_padding = 2 2 2
+execp_padding = 3 2 3
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
 execp_background_id = 0
 execp_centered = 1
 execp_lclick_command = xdotool set_desktop 0
@@ -72,12 +73,13 @@ execp_lclick_command = xdotool set_desktop 0
 # Workspace 2: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 1 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 2 </span>'; else echo '<span foreground="#7d859b"> 2 </span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 1 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
 execp_font = Inter Medium 10
-execp_padding = 2 2 2
+execp_padding = 3 2 3
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
 execp_background_id = 0
 execp_centered = 1
 execp_lclick_command = xdotool set_desktop 1
@@ -85,12 +87,13 @@ execp_lclick_command = xdotool set_desktop 1
 # Workspace 3: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 2 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 3 </span>'; else echo '<span foreground="#7d859b"> 3 </span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 2 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
 execp_font = Inter Medium 10
-execp_padding = 2 2 2
+execp_padding = 3 2 3
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
 execp_background_id = 0
 execp_centered = 1
 execp_lclick_command = xdotool set_desktop 2
@@ -98,12 +101,13 @@ execp_lclick_command = xdotool set_desktop 2
 # Workspace 4: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 3 ]; then echo '<span foreground="#ffffff" background="#2f435b"> 4 </span>'; else echo '<span foreground="#7d859b"> 4 </span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 3 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
 execp_font = Inter Medium 10
-execp_padding = 2 2 2
+execp_padding = 3 2 3
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
 execp_background_id = 0
 execp_centered = 1
 execp_lclick_command = xdotool set_desktop 3
@@ -128,6 +132,30 @@ task_urgent_background_id = 3
 task_iconified_background_id = 2
 mouse_left = toggle_iconify
 mouse_middle = close
+
+# Search: every app, like Spotlight (also Alt+Space).
+execp = new
+execp_command = printf 'Search\n'
+execp_interval = 0
+execp_has_icon = 0
+execp_font = Inter 10
+execp_font_color = #d6e0ec 100
+execp_padding = 10 2 10
+execp_background_id = 2
+execp_centered = 1
+execp_lclick_command = rofi -show drun -theme /etc/soma-desktop/miosa.rasi -show-icons
+
+# What the machine is using now: processors busy and memory held, every two seconds.
+execp = new
+execp_command = p=$(awk '/^cpu /{print $2+$3+$4+$6+$7+$8, $5}' /proc/stat); while sleep 2; do n=$(awk '/^cpu /{print $2+$3+$4+$6+$7+$8, $5}' /proc/stat); echo "$p $n" | awk -v c="$(nproc)" '{b=$3-$1; i=$4-$2; t=b+i; printf "CPU %d%% of %d", (t?100*b/t:0), c}'; awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "   RAM %.1f / %.1f GB\n", (t-a)/1048576, t/1048576}' /proc/meminfo; p=$n; done
+execp_continuous = 1
+execp_has_icon = 0
+execp_font = JetBrains Mono 9
+execp_font_color = #9aa4bb 100
+execp_padding = 12 2 12
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xfce4-terminal -e htop
 
 execp = new
 execp_command = printf 'Wallpapers\n'

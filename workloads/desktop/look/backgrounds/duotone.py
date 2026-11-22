@@ -7,9 +7,29 @@ from PIL import Image, ImageOps
 SRC, LOGO, OUT = sys.argv[1], sys.argv[2], sys.argv[3]
 os.makedirs(OUT, exist_ok=True)
 W, H = 2560, 1440
-# gray level -> colour, from aurora-gray.webp against aurora-2560 / aurora-light-2560
-DARK = [(0, (6, 9, 26)), (50, (15, 23, 64)), (100, (30, 45, 113)), (150, (57, 79, 181)), (230, (138, 157, 242)), (255, (205, 214, 255))]
-LIGHT = [(0, (83, 106, 210)), (50, (139, 159, 239)), (100, (180, 193, 249)), (150, (209, 217, 255)), (230, (237, 241, 255)), (255, (248, 250, 255))]
+# gray level -> colour. "blue" is measured from aurora-gray.webp against aurora-2560 /
+# aurora-light-2560; the others follow the same curve in their own hue.
+BLUE_DARK = [(0, (6, 9, 26)), (50, (15, 23, 64)), (100, (30, 45, 113)), (150, (57, 79, 181)), (230, (138, 157, 242)), (255, (205, 214, 255))]
+BLUE_LIGHT = [(0, (83, 106, 210)), (50, (139, 159, 239)), (100, (180, 193, 249)), (150, (209, 217, 255)), (230, (237, 241, 255)), (255, (248, 250, 255))]
+
+PALETTES = {
+    "blue": (BLUE_DARK, BLUE_LIGHT),
+    "amber": ([(0, (8, 5, 4)), (50, (42, 17, 8)), (100, (110, 42, 14)), (150, (196, 88, 30)), (230, (255, 170, 92)), (255, (255, 226, 194))],
+              [(0, (150, 72, 32)), (50, (205, 118, 62)), (100, (236, 164, 108)), (150, (248, 198, 150)), (230, (255, 232, 206)), (255, (255, 246, 236))]),
+    "ink": ([(0, (5, 9, 16)), (50, (13, 29, 50)), (100, (28, 66, 104)), (150, (64, 124, 164)), (230, (176, 212, 228)), (255, (238, 246, 250))],
+            [(0, (40, 84, 118)), (50, (88, 134, 166)), (100, (140, 178, 202)), (150, (182, 210, 226)), (230, (226, 240, 246)), (255, (246, 251, 253))]),
+    "forest": ([(0, (4, 9, 6)), (50, (12, 28, 18)), (100, (30, 64, 40)), (150, (68, 118, 78)), (230, (168, 208, 168)), (255, (234, 245, 232))],
+               [(0, (52, 96, 64)), (50, (98, 142, 104)), (100, (146, 184, 148)), (150, (186, 214, 184)), (230, (228, 242, 226)), (255, (246, 251, 245))]),
+}
+# Which palette each source takes, by file name; anything not listed is MIOSA blue.
+PALETTE_OF = {}
+_pal = os.path.join(SRC, "palettes.txt")
+if os.path.exists(_pal):
+    for line in open(_pal):
+        parts = line.split()
+        if len(parts) == 2 and not line.startswith("#"):
+            PALETTE_OF[parts[0]] = parts[1]
+
 
 def lut(points):
     xs = [p[0] for p in points]
@@ -40,8 +60,9 @@ for f in sorted(glob.glob(f"{SRC}/*.jpg") + glob.glob(f"{SRC}/*.webp")):
     src = ImageOps.fit(src, (W, H), Image.LANCZOS)
     src = ImageOps.autocontrast(src, cutoff=0.5)
     gray = np.asarray(src, np.float32)
-    dark = render(gray, DARK, (240, 243, 255), f"{OUT}/miosa-{name}.jpg")
-    render(gray, LIGHT, (16, 22, 60), f"{OUT}/miosa-{name}-light.jpg")
+    dark_pts, light_pts = PALETTES[PALETTE_OF.get(name, "blue")]
+    dark = render(gray, dark_pts, (245, 245, 250), f"{OUT}/miosa-{name}.jpg")
+    render(gray, light_pts, (24, 20, 30), f"{OUT}/miosa-{name}-light.jpg")
     thumbs.append((name, dark.resize((640, 360), Image.LANCZOS)))
 cols = 3
 sheet = Image.new("RGB", (640 * cols, 360 * ((len(thumbs) + cols - 1) // cols)))

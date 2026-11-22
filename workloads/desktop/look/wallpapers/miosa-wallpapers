@@ -48,6 +48,20 @@ def current():
     return ""
 
 
+def collections():
+    """file stem -> (collection, label), in the order the MIOSA set lists them."""
+    out = {}
+    try:
+        for line in open(os.path.join(SYSTEM, "collections.txt")):
+            if line.startswith("#") or line.count("|") != 2:
+                continue
+            stem, group, label = (part.strip() for part in line.split("|"))
+            out[stem] = (group, label)
+    except OSError:
+        pass
+    return out
+
+
 def label_for(path):
     name = os.path.splitext(os.path.basename(path))[0]
     for prefix in ("miosa-",):
@@ -82,7 +96,11 @@ class Tile(Gtk.EventBox):
         self.area = Gtk.DrawingArea()
         self.area.set_size_request(THUMB_W + 8, THUMB_H + 8)
         self.area.connect("draw", self.draw)
-        label = Gtk.Label(label=label_for(path), xalign=0.5)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        light = stem.endswith("-light")
+        known = app.known.get(stem[: -len("-light")] if light else stem)
+        text = (f"{known[1]} (light)" if light else known[1]) if known else label_for(path)
+        label = Gtk.Label(label=text, xalign=0.5)
         label.get_style_context().add_class("label")
         box.pack_start(self.area, False, False, 0)
         box.pack_start(label, False, False, 0)
@@ -161,18 +179,20 @@ class App(Gtk.Window):
         scroll.add(self.body)
         self.add(scroll)
         self.tiles = []
+        self.known = collections()
         self.fill()
 
-    def section(self, title, folder, empty):
+    def section(self, title, folder, empty, files=None):
         head = Gtk.Label(label=title.upper(), xalign=0)
         head.get_style_context().add_class("section")
         self.body.pack_start(head, False, False, 0)
-        files = []
-        if os.path.isdir(folder):
-            files = sorted(
-                (os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)),
-                key=lambda f: (os.path.splitext(f)[0].endswith("-light"), f),
-            )
+        if files is None:
+            files = []
+            if os.path.isdir(folder):
+                files = sorted(
+                    (os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)),
+                    key=lambda f: (os.path.splitext(f)[0].endswith("-light"), f),
+                )
         if not files:
             note = Gtk.Label(label=empty, xalign=0)
             note.get_style_context().add_class("empty")
@@ -194,7 +214,19 @@ class App(Gtk.Window):
         for child in self.body.get_children():
             self.body.remove(child)
         self.tiles = []
-        self.section("MIOSA", SYSTEM, "No MIOSA wallpapers found.")
+        known = collections()
+        groups = {}
+        for stem, (group, _label) in known.items():
+            for variant in (stem, stem + "-light"):
+                path = os.path.join(SYSTEM, variant + ".jpg")
+                if os.path.exists(path):
+                    groups.setdefault(group, []).append(path)
+        for group, paths in groups.items():
+            darks = [p for p in paths if not p.endswith("-light.jpg")]
+            lights = [p for p in paths if p.endswith("-light.jpg")]
+            self.section(group, SYSTEM, "", darks + lights)
+        if not groups:
+            self.section("MIOSA", SYSTEM, "No MIOSA wallpapers found.")
         self.section("Yours", OWN, "Pictures you add appear here.")
         self.show_all()
 

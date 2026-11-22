@@ -1,0 +1,100 @@
+[
+  {
+    "id": "docker",
+    "name": "Docker",
+    "group": "Developer",
+    "icon": "docker",
+    "about": "Containers and Compose, for running services and builds"
+  },
+  {
+    "id": "vscode",
+    "name": "Visual Studio Code",
+    "group": "Developer",
+    "icon": "com.visualstudio.code",
+    "about": "The code editor"
+  },
+  {
+    "id": "nodejs",
+    "name": "Node.js",
+    "group": "Developer",
+    "icon": "nodejs",
+    "about": "JavaScript runtime with npm (22 LTS)"
+  },
+  {
+    "id": "python",
+    "name": "Python tools",
+    "group": "Developer",
+    "icon": "python",
+    "about": "pip, venv, pipx and a compiler"
+  },
+  {
+    "id": "gh",
+    "name": "GitHub CLI",
+    "group": "Developer",
+    "icon": "github",
+    "about": "Repositories, pull requests and issues from the terminal"
+  },
+  {
+    "id": "claude-code",
+    "name": "Claude Code",
+    "group": "Agents",
+    "icon": "utilities-terminal",
+    "about": "Anthropic's coding agent in the terminal (installs Node.js too)"
+  },
+  {
+    "id": "firefox",
+    "name": "Firefox",
+    "group": "Internet",
+    "icon": "firefox",
+    "about": "A second browser, from Mozilla"
+  },
+  {
+    "id": "discord",
+    "name": "Discord",
+    "group": "Internet",
+    "icon": "discord",
+    "about": "Chat and voice"
+  },
+  {
+    "id": "filezilla",
+    "name": "FileZilla",
+    "group": "Internet",
+    "icon": "filezilla",
+    "about": "FTP and SFTP file transfer"
+  },
+  {
+    "id": "libreoffice",
+    "name": "LibreOffice",
+    "group": "Office",
+    "icon": "libreoffice-main",
+    "about": "Documents, spreadsheets and slides"
+  },
+  {
+    "id": "gimp",
+    "name": "GIMP",
+    "group": "Creative",
+    "icon": "gimp",
+    "about": "Photo and image editing"
+  },
+  {
+    "id": "inkscape",
+    "name": "Inkscape",
+    "group": "Creative",
+    "icon": "inkscape",
+    "about": "Vector drawing"
+  },
+  {
+    "id": "obs",
+    "name": "OBS Studio",
+    "group": "Creative",
+    "icon": "com.obsproject.Studio",
+    "about": "Screen recording"
+  },
+  {
+    "id": "vlc",
+    "name": "VLC",
+    "group": "Creative",
+    "icon": "vlc",
+    "about": "Plays any video or audio file"
+  }
+]

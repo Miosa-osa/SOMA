@@ -31,6 +31,8 @@
     <keybind key="C-A-Right"><action name="GoToDesktop"><to>right</to><wrap>no</wrap></action></keybind>
     <keybind key="C-A-S-Left"><action name="SendToDesktop"><to>left</to><wrap>no</wrap></action></keybind>
     <keybind key="C-A-S-Right"><action name="SendToDesktop"><to>right</to><wrap>no</wrap></action></keybind>
+    <keybind key="A-space"><action name="Execute"><command>rofi -show drun -theme /etc/soma-desktop/miosa.rasi -show-icons</command></action></keybind>
+    <keybind key="Print"><action name="Execute"><command>sh -c 'mkdir -p ~/Pictures/Screenshots; scrot ~/Pictures/Screenshots/%Y-%m-%d-%H%M%S.png'</command></action></keybind>
     <keybind key="C-A-t"><action name="Execute"><command>xfce4-terminal</command></action></keybind>
   </keyboard>
   <mouse>

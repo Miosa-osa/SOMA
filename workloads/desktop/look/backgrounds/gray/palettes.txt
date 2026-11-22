@@ -1,0 +1,10 @@
+# source  palette
+twilight  amber
+sierra  amber
+landers  amber
+oxbow  amber
+redfuji  amber
+moonrise  amber
+wave  ink
+ninthwave  ink
+pines  forest
