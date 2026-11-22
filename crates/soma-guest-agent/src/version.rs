@@ -42,7 +42,7 @@ mod tests {
         )));
         assert!(report.contains("\ncommit: unknown\n"));
         assert!(report.contains("\nprotocol.guest-application: 1\n"));
-        assert!(report.contains("\nprotocol.guest-api: 5\n"));
+        assert!(report.contains("\nprotocol.guest-api: 6\n"));
         assert!(report.contains("\nprotocol.launch-page: 3\n"));
     }
 }

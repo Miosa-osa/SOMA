@@ -215,6 +215,28 @@ mod tests {
         InstanceId::new([2; 16]).expect("instance")
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn workspace_outcomes_reject_uncertain_or_unknown_receipts() {
+        use soma_guest::WorkspaceOutcome;
+        for result in [
+            WorkspaceOutcome::Ready,
+            WorkspaceOutcome::Refused,
+            WorkspaceOutcome::Unsupported,
+        ] {
+            let reply = Reply::Workspace(instance(), result).encode();
+            assert_eq!(
+                Outcome::decode(&reply),
+                Ok(Outcome::Workspace(instance(), result))
+            );
+            assert!(Outcome::decode(&(reply + " extra")).is_err());
+        }
+        assert!(
+            Outcome::decode(&Reply::Workspace(instance(), WorkspaceOutcome::Inconsistent).encode())
+                .is_err()
+        );
+    }
+
     fn launch() -> Launch {
         let machine = MachineSpec::new(
             VcpuCount::new(1).expect("vcpus"),

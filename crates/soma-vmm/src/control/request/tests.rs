@@ -110,6 +110,16 @@ fn every_request_round_trips() {
         Request::Stop(Stop::new(operation(), instance())),
         Request::Pause(instance()),
         Request::Resume(instance()),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::Workspace {
+            instance: instance(),
+            attach: true,
+        },
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::Workspace {
+            instance: instance(),
+            attach: false,
+        },
         Request::Output(
             OutputWindow::new(operation(), OutputStream::Stderr, 1024, 4096).expect("window"),
         ),
