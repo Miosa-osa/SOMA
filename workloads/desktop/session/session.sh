@@ -59,18 +59,42 @@ dbus-daemon --session --address="$BUS" --nofork --nopidfile &
 export DBUS_SESSION_BUS_ADDRESS="$BUS"
 wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
-# Xorg with the dummy driver is the screen: a frame buffer in memory, no device, no VNC. It runs as
-# the desktop user, so it is started directly (not through the setuid wrapper) with its log in the
-# session state, and it opens no virtual terminal.
-/usr/lib/xorg/Xorg :0 \
-    -config /etc/soma-desktop/xorg.conf \
-    -logfile "$STATE/logs/Xorg.log" \
-    -nolisten tcp \
-    -noreset \
-    -novtswitch \
-    -sharevts \
-    -keeptty \
-    +extension RANDR +extension RENDER +extension XTEST &
+# The screen. By default it is KasmVNC's X server, which also serves KasmVNC's own viewer on 6082
+# as the fallback; the default viewer, voxl, streams the same screen on 6080 (see below).
+# SOMA_DESKTOP_SCREEN=xorg keeps the frame-buffer Xorg, for a desktop watched only through the
+# streaming viewer (Sunshine), which then also takes input.
+if [[ "${SOMA_DESKTOP_SCREEN:-kasmvnc}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
+    Xkasmvnc :0 \
+        -publicIP 127.0.0.1 \
+        -httpd /usr/share/kasmvnc/www \
+        -geometry "${SOMA_DESKTOP_GEOMETRY:-1920x1080}" \
+        -depth 24 \
+        -websocketPort 6082 \
+        -SecurityTypes None \
+        -disableBasicAuth \
+        -interface 0.0.0.0 \
+        -AlwaysShared \
+        -AcceptSetDesktopSize=1 \
+        -AcceptKeyEvents \
+        -AcceptPointerEvents \
+        -SendCutText \
+        -AcceptCutText \
+        -FrameRate=30 \
+        -nolisten tcp \
+        >"$STATE/logs/kasmvnc.log" 2>&1 &
+else
+    # Xorg with the dummy driver: a frame buffer in memory, no device, no VNC. It runs as the
+    # desktop user, started directly (not through the setuid wrapper), and opens no terminal.
+    /usr/lib/xorg/Xorg :0 \
+        -config /etc/soma-desktop/xorg.conf \
+        -logfile "$STATE/logs/Xorg.log" \
+        -nolisten tcp \
+        -noreset \
+        -novtswitch \
+        -sharevts \
+        -keeptty \
+        +extension RANDR +extension RENDER +extension XTEST &
+fi
 wait_for x_socket 150 test -S /tmp/.X11-unix/X0 || exit 1
 export DISPLAY=:0
 
@@ -80,13 +104,26 @@ export QT_ACCESSIBILITY=1 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 GNOME_ACCESSIBILITY
 /usr/libexec/at-spi-bus-launcher --launch-immediately &
 wait_for a11y_bus 50 dbus-send --session --print-reply --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress || exit 1
 
-openbox --sm-disable &
+openbox --sm-disable --config-file /etc/soma-desktop/openbox.xml &
 # The desktop is up once Openbox has claimed the screen: it sets _NET_SUPPORTING_WM_CHECK on the
 # root window when it manages it. The background is painted after that.
 wait_for window_manager 200 pgrep -u "$(id -u)" -x openbox || exit 1
 wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id"' || exit 1
-xsetroot -solid '#2b2f36' 2>/dev/null || true
+# The MIOSA look: a static wallpaper, the top bar and the dock. Each is cosmetic, so
+# a part that fails to start leaves a working desktop rather than no desktop.
+hsetroot -cover /usr/share/soma-desktop/blue-hour.jpg >/dev/null 2>&1 \
+    || xsetroot -solid '#0d1527' 2>/dev/null || true
+picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
+# voxl on the viewer port the platform reaches through the tunnel (6080): the same screen as H.264
+# over one WebSocket, desktop following the viewer's window. Authentication is the platform's, at
+# the tunnel, as for KasmVNC; a viewer that only watches gets --read-only from the platform.
+voxl --port=6080 --enable-basic-auth=false --title="MIOSA Desktop" \
+    --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
+    --enable-resize=true --audio-enabled=false \
+    >"$STATE/logs/voxl.log" 2>&1 &
+tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
+tint2 -c /etc/soma-desktop/tint2/dock.tint2rc >"$STATE/logs/dock.log" 2>&1 &
 
 cua-driver serve \
     --permission-mode standard \

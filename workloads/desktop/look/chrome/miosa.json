@@ -1,0 +1,11 @@
+{
+  "DefaultBrowserSettingEnabled": false,
+  "MetricsReportingEnabled": false,
+  "PromotionalTabsEnabled": false,
+  "SuppressUnsupportedOSWarning": true,
+  "RestoreOnStartup": 1,
+  "BackgroundModeEnabled": false,
+  "PasswordManagerEnabled": true,
+  "BrowserSignin": 1,
+  "HardwareAccelerationModeEnabled": false
+}
