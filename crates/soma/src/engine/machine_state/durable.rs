@@ -100,7 +100,10 @@ impl DurableMachine {
             DurablePhase::Terminating {
                 active, operation, ..
             } => {
-                if !matches!(operation, OperationKind::Stop | OperationKind::Destroy) {
+                if !matches!(
+                    operation,
+                    OperationKind::Stop | OperationKind::Destroy | OperationKind::Suspend
+                ) {
                     return Err(corrupt());
                 }
                 active.validate(&self.instance_id)
@@ -118,7 +121,10 @@ impl DurableMachine {
                     (TerminalBasis::Launch { .. }, OperationKind::Launch)
                         | (
                             TerminalBasis::Active { .. },
-                            OperationKind::Stop | OperationKind::Destroy | OperationKind::Execute
+                            OperationKind::Stop
+                                | OperationKind::Destroy
+                                | OperationKind::Suspend
+                                | OperationKind::Execute
                         )
                 ) || receipt.operation() != *operation
                     || receipt.operation_id() != operation_id

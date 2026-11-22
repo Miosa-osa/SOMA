@@ -34,4 +34,9 @@ pub enum GuestRequest {
         /// Exact Stop operation identity.
         operation: OperationId,
     },
+    /// Retire this session and park at the suspension point, keeping every process.
+    Suspend {
+        /// Exact Suspend operation identity.
+        operation: OperationId,
+    },
 }

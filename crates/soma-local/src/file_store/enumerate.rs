@@ -7,7 +7,8 @@
 //! and the caller reads each record back under its own lock before reporting anything about it.
 //!
 //! A name that is not an Instance identity and is not one of the root's known entries (the store's
-//! locks, the hosted machines' sockets, and the persisted prewarm set with its temporary file) is a
+//! locks, the hosted machines' sockets, the sealed Suspensions, and the persisted prewarm set with
+//! its temporary file) is a
 //! corruption rather than something to skip. Skipping it would make a store somebody wrote a stray file into report a smaller set of
 //! sandboxes than it holds, silently.
 
@@ -17,7 +18,7 @@ use soma::{InstanceId, StateStoreFailure};
 
 use super::{
     failure::{corrupt, unavailable},
-    layout::{LOCK_DIRECTORY, MACHINE_HOST_DIRECTORY},
+    layout::{LOCK_DIRECTORY, MACHINE_HOST_DIRECTORY, SUSPENSION_DIRECTORY},
 };
 use crate::prewarm::PERSISTED_FILE;
 
@@ -29,7 +30,8 @@ pub(super) fn instance_identities(root: &Path) -> Result<Vec<InstanceId>, StateS
         let Some(name) = name.to_str() else {
             return Err(corrupt());
         };
-        if name == LOCK_DIRECTORY || name == MACHINE_HOST_DIRECTORY {
+        if name == LOCK_DIRECTORY || name == MACHINE_HOST_DIRECTORY || name == SUSPENSION_DIRECTORY
+        {
             continue;
         }
         let file_type = entry.file_type().map_err(|_| unavailable())?;

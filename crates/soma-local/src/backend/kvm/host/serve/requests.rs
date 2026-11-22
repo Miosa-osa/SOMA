@@ -97,6 +97,14 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             Ok(outcome) => Answer::EgressSet(outcome),
             Err(failure) => Answer::EgressRefused(failure),
         },
+        Call::Suspend {
+            instance_id,
+            staging,
+        } => match backend.suspend_resident(&instance_id, staging) {
+            Ok(true) => Answer::Suspended,
+            Ok(false) => Answer::SuspendRefused,
+            Err(kind) => Answer::Refused(kind.into()),
+        },
         Call::Cleanup { .. }
         | Call::Shutdown
         | Call::Tunnel { .. }

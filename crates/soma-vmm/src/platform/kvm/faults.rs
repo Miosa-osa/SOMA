@@ -66,7 +66,8 @@ pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
         | SessionError::File
         | SessionError::Pty
         | SessionError::Gone
-        | SessionError::Poisoned => ReadinessFailure::for_platform(
+        | SessionError::Poisoned
+        | SessionError::Suspend => ReadinessFailure::for_platform(
             ReadinessProgress::from_steps([
                 ReadinessStep::GuestAuthenticated,
                 ReadinessStep::GenerationAcknowledged,

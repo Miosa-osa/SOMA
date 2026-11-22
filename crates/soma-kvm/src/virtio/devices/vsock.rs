@@ -190,6 +190,12 @@ impl VsockDevice {
             && self.events.is_empty()
     }
 
+    /// Drops what is left of the connection a suspended guest acknowledged on (ADR 0034); a
+    /// restore resets the transport anyway.
+    pub fn retire_for_suspension(&mut self) {
+        self.clear_transient();
+    }
+
     /// Clears every transient state and bumps the generation.
     fn clear_transient(&mut self) {
         self.endpoint = None;

@@ -7,6 +7,8 @@ pub enum CleanupReason {
     GracefulStop,
     ForcedDestroy,
     UncertainCommandTermination,
+    /// The machine was already read into a Suspension; what is left is its host resources.
+    Suspended,
 }
 
 #[derive(Clone, Copy)]

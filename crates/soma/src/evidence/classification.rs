@@ -47,20 +47,30 @@ pub enum OperationKind {
     Stop,
     Inspect,
     Destroy,
+    /// The Instance was read into a Suspension and ended (ADR 0034).
+    Suspend,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalStatus {
-    Exited { code: i32 },
-    Signaled { signal: Option<i32> },
+    Exited {
+        code: i32,
+    },
+    Signaled {
+        signal: Option<i32>,
+    },
     TimedOut,
     OutputLimitExceeded,
     Failed,
     Ready,
     Stopped,
-    Inspected { state: MachineState },
+    Inspected {
+        state: MachineState,
+    },
     Destroyed,
+    /// The Instance was read into a Suspension; a resume is a new Instance.
+    Suspended,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

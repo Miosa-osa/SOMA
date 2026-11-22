@@ -1,6 +1,8 @@
+mod capacity;
 mod prepared;
 pub(crate) mod prewarm;
 mod support;
+pub(crate) mod suspension;
 mod volume;
 mod volumes;
 use support::{control_body, optional_body, parse, refuse, success};
@@ -35,13 +37,13 @@ pub use prewarm::handle_prewarm;
 /// unidentified caller learns only that it is unidentified, and cannot use the difference between
 /// a 404 and a 405 to map the service's surface.
 pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> Response {
-    if let Err(error) = identify(request.header(TENANT_HEADER)) {
-        return refuse("request", error);
-    }
-    match resolve(request) {
-        Ok(route) => {
+    match identify(request.header(TENANT_HEADER))
+        .and_then(|tenant| resolve(request).map(|route| (tenant, route)))
+    {
+        Ok((tenant, route)) => {
             let operation = route.operation();
-            dispatch(facade, route, &request.body).unwrap_or_else(|error| refuse(operation, error))
+            dispatch(facade, route, &request.body, &tenant)
+                .unwrap_or_else(|error| refuse(operation, error))
         }
         Err(error) => refuse("request", error),
     }
@@ -51,6 +53,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     route: Route,
     body: &[u8],
+    tenant: &crate::tenant::TenantId,
 ) -> Result<Response, ApiError> {
     let operation = route.operation();
     match route {
@@ -123,10 +126,13 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             false,
         )),
         Route::Resources(instance_id, change) => resources(facade, &instance_id, change, body),
-        // Served by the connection before a facade is opened, through `handle_prewarm`. This
-        // function serves sandboxes, so only that one path can change what is prepared.
+        // Served by the connection before a facade is opened (`handle_prewarm`), its only path.
         Route::Prewarm(_) | Route::Version => Err(ApiError::not_found()),
+        Route::SuspendSandbox(id) => suspension::suspend(facade, &id, tenant.as_str(), body),
+        Route::ResumeSuspension(id) => suspension::resume(facade, &id, body),
+        Route::DestroySuspension(id) => suspension::destroy(facade, &id),
         Route::PrunePrepared => prepared::prune(facade, operation, body),
+        Route::Capacity => capacity::report(facade, operation),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;

@@ -88,6 +88,11 @@ pub enum Route {
     ListSandboxes,
     GetSandbox(InstanceId),
     StopSandbox(InstanceId),
+    /// Suspend, resume and discard a Suspension (ADR 0034).
+    SuspendSandbox(InstanceId),
+    ResumeSuspension(String),
+    DestroySuspension(String),
+    Capacity,
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
@@ -125,6 +130,10 @@ impl Route {
             Self::ListSandboxes => "sandbox.list",
             Self::GetSandbox(_) => "sandbox.get",
             Self::StopSandbox(_) => "sandbox.stop",
+            Self::SuspendSandbox(_) => "sandbox.suspend",
+            Self::ResumeSuspension(_) => "suspension.resume",
+            Self::DestroySuspension(_) => "suspension.destroy",
+            Self::Capacity => "host.capacity",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
@@ -163,6 +172,10 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             _ => Err(ApiError::method_not_allowed()),
         },
         ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
+        ["v1", "capacity"] => match request.method {
+            Method::Get => Ok(Route::Capacity),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),
@@ -179,6 +192,16 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
         ["v1", "sandboxes", instance, "stop"] => {
             post_only(request, Route::StopSandbox(path_instance_id(instance)?))
         }
+        ["v1", "sandboxes", instance, "suspend"] => {
+            post_only(request, Route::SuspendSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "suspensions", id, "resume"] => {
+            post_only(request, Route::ResumeSuspension((*id).to_ascii_lowercase()))
+        }
+        ["v1", "suspensions", id] => match request.method {
+            Method::Delete => Ok(Route::DestroySuspension((*id).to_ascii_lowercase())),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         ["v1", "sandboxes", instance, "commands"] => {
             post_only(request, Route::RunCommand(path_instance_id(instance)?))
         }

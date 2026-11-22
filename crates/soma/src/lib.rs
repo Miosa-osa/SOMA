@@ -20,15 +20,15 @@ pub use backend::{
     MAX_FILE_BYTES, MAX_GUEST_PATH_BYTES, MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS,
     MAX_PTY_WAIT_MILLIS, PathRejected, PtyAnswer, PtyObservation, PtyOperation, PtyRefusal,
     PtyRejected, PtyRequest, ResolutionObservation, ResolutionRequest, SandboxLiveness,
-    check_guest_path,
+    SuspendObservation, SuspendRequest, check_guest_path,
 };
 pub use engine::{
     DestroyMachineRequest, Engine, ExecuteMachineRequest, FailurePhase, FileMachineRequest,
     InspectMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
     MachineInspection, MachineLaunch, MachineListing, MachinePty, MachineRelease, MachineStop,
-    ManagedFailure, ManagedStateError, PtyMachineRequest, ReplayEvidence, RunFailure,
-    RunFailureKind, RunOutcome, SandboxEntry, SandboxPhase, StopMachineRequest, TerminalCensus,
-    UnreadableRecord, VolumeAttachment,
+    MachineSuspend, ManagedFailure, ManagedStateError, PtyMachineRequest, ReplayEvidence,
+    RunFailure, RunFailureKind, RunOutcome, SandboxEntry, SandboxPhase, StopMachineRequest,
+    SuspendMachineRequest, TerminalCensus, UnreadableRecord, VolumeAttachment,
 };
 pub use evidence::{
     AssignedAddress, BackendKind, CleanupDisposition, CleanupEvidence, CleanupMethod,

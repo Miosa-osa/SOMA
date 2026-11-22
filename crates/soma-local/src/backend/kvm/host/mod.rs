@@ -210,6 +210,27 @@ pub(super) fn inspect(
 /// close observed after the evidence is the point at which nothing of this Instance is left in
 /// any process. The socket is then removed, because an Instance with no host must not leave a
 /// name behind that a later lookup would report as one.
+/// How long a suspension may take: reading every byte of guest memory and the private head.
+const SUSPEND_CEILING: Duration = Duration::from_mins(11);
+
+/// Asks the host holding `instance` to suspend it into `staging`; `false` is a refusal.
+pub(super) fn suspend(
+    directory: &Path,
+    instance: &InstanceId,
+    staging: std::path::PathBuf,
+) -> Result<bool, HostFailure> {
+    let call = Call::Suspend {
+        instance_id: instance.clone(),
+        staging,
+    };
+    match ask(directory, instance, &call, SUSPEND_CEILING)? {
+        Answer::Suspended => Ok(true),
+        Answer::SuspendRefused => Ok(false),
+        Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
+        _ => Err(HostFailure::Refused(BackendFailureKind::Unavailable)),
+    }
+}
+
 pub(super) fn cleanup(
     directory: &Path,
     instance: &InstanceId,

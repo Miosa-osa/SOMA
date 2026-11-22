@@ -75,7 +75,13 @@ pub(super) struct Staging {
     file: File,
     written: u64,
     running: Hasher,
+    /// Whether this object is hashed. A Suspension's members are not: the store authenticates
+    /// every byte of them under the Suspension's key, so a digest here would only cost the read.
+    hashed: bool,
 }
+
+/// The digest an unhashed object states in place of one, so no record carries a zero digest.
+pub(super) const UNHASHED: Digest = Digest::from_bytes(*b"soma.suspension.member.unhashed.");
 
 impl Staging {
     /// Creates the staging object, replacing any leftover from an abandoned capture.
@@ -107,6 +113,7 @@ impl Staging {
             file,
             written: 0,
             running: Hasher::new(),
+            hashed: true,
         })
     }
 
@@ -116,10 +123,23 @@ impl Staging {
     ///
     /// Returns the write failure.
     pub(super) fn write(&mut self, bytes: &[u8]) -> Result<(), SnapshotError> {
-        self.file
-            .write_all(bytes)
-            .map_err(|error| SnapshotError::io(self.artifact, "write", &error))?;
-        self.running.update(bytes);
+        // A run of zeros is left as a hole rather than written: guest memory and a private head
+        // are mostly zeros, and writing them is most of what a capture costs. The length is set
+        // at the end, so a trailing hole still reads back as the zeros it stands for.
+        if bytes.iter().all(|byte| *byte == 0) {
+            self.file
+                .seek(SeekFrom::Current(
+                    i64::try_from(bytes.len()).unwrap_or(i64::MAX),
+                ))
+                .map_err(|error| SnapshotError::io(self.artifact, "seek", &error))?;
+        } else {
+            self.file
+                .write_all(bytes)
+                .map_err(|error| SnapshotError::io(self.artifact, "write", &error))?;
+        }
+        if self.hashed {
+            self.running.update(bytes);
+        }
         self.written = self
             .written
             .saturating_add(u64::try_from(bytes.len()).unwrap_or(0));
@@ -154,7 +174,11 @@ impl Staging {
 
     /// The digest of the bytes handed to [`Staging::write`] so far.
     pub(super) fn running_digest(&self) -> Digest {
-        self.running.clone().finish()
+        if self.hashed {
+            self.running.clone().finish()
+        } else {
+            UNHASHED
+        }
     }
 
     /// Flushes to stable storage and re-hashes through the handle that did the writing.
@@ -167,8 +191,14 @@ impl Staging {
     /// Returns the flush or read failure, or [`SnapshotError::StagingDigestMismatch`].
     pub(super) fn seal(&mut self) -> Result<Digest, SnapshotError> {
         self.file
+            .set_len(self.written)
+            .map_err(|error| SnapshotError::io(self.artifact, "set length", &error))?;
+        self.file
             .sync_all()
             .map_err(|error| SnapshotError::io(self.artifact, "sync", &error))?;
+        if !self.hashed {
+            return Ok(UNHASHED);
+        }
         let digest = hash(self.artifact, &mut self.file)?;
         if digest == self.running_digest() {
             Ok(digest)
@@ -230,3 +260,5 @@ pub(super) fn sync_directory(directory: &Path) -> Result<(), SnapshotError> {
         .sync_all()
         .map_err(|error| SnapshotError::io(Artifact::Directory, "sync", &error))
 }
+
+mod unhashed;

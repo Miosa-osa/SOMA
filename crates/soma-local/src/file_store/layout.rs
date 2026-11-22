@@ -8,6 +8,8 @@ pub(super) const LOCK_DIRECTORY: &str = ".locks";
 /// Where hosted machines are addressed, under the same root as the records
 /// (`backend::machine_host_directory`). It holds sockets, not records, so enumeration skips it.
 pub(crate) const MACHINE_HOST_DIRECTORY: &str = "machines";
+/// The sealed Suspensions of this host and their staging (ADR 0034); not a record.
+pub(crate) const SUSPENSION_DIRECTORY: &str = "suspensions";
 const REVISION_DIGITS: usize = 20;
 const REVISION_SUFFIX: &str = ".state";
 const TEMP_PID_DIGITS: usize = 10;

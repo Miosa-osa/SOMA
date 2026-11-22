@@ -73,6 +73,8 @@ pub(in crate::backend::kvm) struct LaunchExtras {
     pub(in crate::backend::kvm) volume: Option<soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
+    /// The decrypted Suspension this launch resumes instead of the Generation's snapshot.
+    pub(in crate::backend::kvm) resume: Option<std::path::PathBuf>,
 }
 
 impl KvmBackend {
@@ -97,7 +99,16 @@ impl KvmBackend {
         shape: &MachineShape,
         extras: LaunchExtras,
     ) -> Result<Launched, BackendFailure> {
-        let LaunchExtras { volume, windowed } = extras;
+        let LaunchExtras {
+            volume,
+            windowed,
+            resume,
+        } = extras;
+        // A jailed worker is handed its machine's descriptors by a protocol that carries no
+        // Suspension yet, so a resume there is refused rather than served by a fresh machine.
+        if resume.is_some() && self.jail.is_some() {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        }
         // This Backend owns at most one sandbox. Assigning over a live one would drop its
         // Session, and dropping a Session shuts the guest down, so launching B would silently
         // destroy A without any Stop or Cleanup naming A.
@@ -155,7 +166,8 @@ impl KvmBackend {
         // pool is not a failure and is never reported as a prepared launch. A machine prepared
         // inside this process is the unjailed thing the split removes, so a host that jails its
         // machines never claims one.
-        let claimed = if self.jail.is_some() {
+        // A resume restores its own machine, so it never takes one prepared for the Generation.
+        let claimed = if self.jail.is_some() || resume.is_some() {
             None
         } else {
             let key = claim::recipe_for(prepared, boot_mib).map(|recipe| recipe.key().clone());
@@ -185,6 +197,7 @@ impl KvmBackend {
             // The volume the host resolved, when the Generation declares one; a machine given
             // none refuses to start rather than serve an empty disk.
             volume,
+            resume,
         };
         let Started {
             preparation,

@@ -15,6 +15,8 @@ pub enum ControlStage {
     Pty,
     /// Graceful guest-agent shutdown.
     Shutdown,
+    /// Retiring the session at the suspension point.
+    Suspend,
 }
 
 /// Redacted class of authenticated control failure.

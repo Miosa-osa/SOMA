@@ -56,6 +56,8 @@ pub mod fan;
 #[cfg(target_os = "linux")]
 pub mod fiemap;
 #[cfg(target_os = "linux")]
+pub mod space;
+#[cfg(target_os = "linux")]
 pub mod verify;
 
 pub use head::{HeadName, HeadNameError, HeadToken, HeadTokenError};

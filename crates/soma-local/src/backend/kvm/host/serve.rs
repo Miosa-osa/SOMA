@@ -104,6 +104,7 @@ fn launch(
             LaunchExtras {
                 volume: request.volume.clone(),
                 windowed: request.windowed,
+                resume: request.resume.clone(),
             },
         )
         .map_err(|failure| failure.kind())

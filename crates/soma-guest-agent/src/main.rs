@@ -90,7 +90,7 @@ mod agent {
 
     use soma_guest::GuestControl;
 
-    use crate::repair::{Controller, Fault, Poisoned, State, Step};
+    use crate::repair::{Captured, Controller, Fault, Poisoned, State, Step};
     use crate::timings::{self, Step as Measured};
     use crate::{
         boot, capture_warm, console, control, entropy, identity, launch_page, lifecycle,
@@ -101,6 +101,11 @@ mod agent {
     ///
     /// A snapshot builder waits for this exact line before it quiesces and captures.
     pub const REPAIR_POINT_LINE: &str = "awaiting launch material";
+
+    /// Console line the agent prints once a suspended session is retired and it is parked again.
+    ///
+    /// The host reads the machine into a Suspension only after this exact line.
+    pub const SUSPENSION_POINT_LINE: &str = "suspended, awaiting launch material";
 
     /// Interval between launch-page probes while the agent is parked at the repair point.
     ///
@@ -172,6 +177,28 @@ mod agent {
         tuning::clear_boot_log();
         pid1::sync();
         console::report(REPAIR_POINT_LINE);
+        // Every pass of this loop is one Instance's life on this machine: the first from the
+        // capture point, every later one from a suspension point (ADR 0034), which is the same
+        // disconnected wait. A resume writes fresh launch material and gets new entropy,
+        // transport, network and session as a launch does, but keeps its session state.
+        let mut parked = instance(controller, declared, false);
+        loop {
+            parked = instance(parked, declared, true);
+        }
+    }
+
+    /// One Instance's life on this machine, from the parked launch-page wait to its suspension.
+    ///
+    /// It returns only when the host suspended the Instance, parked at the suspension point; a
+    /// fault destroys the guest and a Shutdown powers it off, so neither comes back here.
+    ///
+    /// `resumed` is whether this machine was suspended and is now resumed, which only this
+    /// agent's own memory can say: a resume keeps the session state a fresh Instance is given.
+    fn instance(
+        controller: Controller<Captured>,
+        declared: boot::Declared,
+        resumed: bool,
+    ) -> Controller<Captured> {
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
         ));
@@ -193,7 +220,11 @@ mod agent {
             ),
         );
         let repaired = timings::measure(Measured::Identity, || {
-            identity::repair(binding.instance(), network.time_sample_nanos(), declared)
+            if resumed {
+                identity::repair_resumed(network.time_sample_nanos())
+            } else {
+                identity::repair(binding.instance(), network.time_sample_nanos(), declared)
+            }
         });
         let (controller, ()) =
             advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));
@@ -225,7 +256,22 @@ mod agent {
         for line in timings::lines() {
             console::report(&line);
         }
-        destroy(&lifecycle::serve(controller, prepared))
+        // Taken before the acknowledgement: the host reads the machine as soon as it has it.
+        let quiesce = || {
+            let down = network_repair::link_down(declared.net).map_err(|_| Fault::Network);
+            pid1::sync();
+            down
+        };
+        match lifecycle::serve(controller, prepared, quiesce) {
+            lifecycle::Served::Poisoned(poisoned) => destroy(&poisoned),
+            lifecycle::Served::Suspended(suspending) => {
+                // The link was taken down and the overlay flushed before the acknowledgement,
+                // and the session went with it; what is left is to park and say so.
+                let (captured, ()) = advance(suspending.park(Ok(())));
+                console::report(SUSPENSION_POINT_LINE);
+                captured
+            }
+        }
     }
 
     fn advance<S: State, T>(step: Step<S, T>) -> (Controller<S>, T) {

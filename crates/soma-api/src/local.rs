@@ -138,6 +138,32 @@ impl SandboxFacade for LocalFacade {
         Ok(lifecycle(outcome.receipt()))
     }
 
+    fn suspend(
+        &mut self,
+        request: &soma_local::SuspendRequest,
+    ) -> Result<soma_local::Suspended, soma_local::SuspensionFailure> {
+        self.runtime.suspend_machine(request)
+    }
+
+    fn resume(
+        &mut self,
+        request: &soma_local::ResumeRequest,
+    ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
+        let outcome = self.runtime.resume_machine(request)?;
+        Ok(lifecycle(outcome.receipt()))
+    }
+
+    fn capacity(&mut self) -> Option<soma_local::capacity::HostCapacity> {
+        Some(self.runtime.capacity())
+    }
+
+    fn discard_suspension(
+        &mut self,
+        suspension_id: &str,
+    ) -> Result<(), soma_local::SuspensionFailure> {
+        self.runtime.destroy_suspension(suspension_id)
+    }
+
     fn destroy(
         &mut self,
         request: DestroyMachineRequest,

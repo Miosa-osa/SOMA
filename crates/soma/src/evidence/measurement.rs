@@ -9,6 +9,7 @@ pub enum MeasurementClass {
     FacadeManagedStop,
     FacadeManagedInspect,
     FacadeManagedDestroy,
+    FacadeManagedSuspend,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

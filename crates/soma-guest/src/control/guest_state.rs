@@ -10,6 +10,7 @@ pub(super) enum GuestState {
     FilePending(OperationId),
     PtyPending(OperationId),
     ShutdownPending(OperationId),
+    SuspendPending(OperationId),
 }
 
 pub(super) struct ActiveExchange {
@@ -24,6 +25,7 @@ pub(super) fn active_stage(state: &GuestState) -> ControlStage {
         GuestState::FilePending(_) => ControlStage::File,
         GuestState::PtyPending(_) => ControlStage::Pty,
         GuestState::ShutdownPending(_) => ControlStage::Shutdown,
+        GuestState::SuspendPending(_) => ControlStage::Suspend,
     }
 }
 

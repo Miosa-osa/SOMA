@@ -87,6 +87,25 @@ pub fn repair(
     time_sample_nanos: u64,
     declared: Declared,
 ) -> Result<(), IdentityError> {
+    reset(instance, declared)?;
+    set_clock(time_sample_nanos)
+}
+
+/// The repair a resumed machine gets (ADR 0034): only the clock.
+///
+/// A resume continues one tenant's machine. Its `/run`, `/tmp` and shared memory hold the
+/// processes' state that the suspension exists to keep, and its hostname and machine id are
+/// what those processes (an X server's authority file among them) already read, so none of it
+/// is reset; the clock is, because the machine was paused for as long as it was suspended.
+///
+/// # Errors
+///
+/// Returns the clock failure.
+pub fn repair_resumed(time_sample_nanos: u64) -> Result<(), IdentityError> {
+    set_clock(time_sample_nanos)
+}
+
+fn reset(instance: &[u8; 16], declared: Declared) -> Result<(), IdentityError> {
     let name = hostname(instance);
     // The kernel hostname lives in procfs and is replaced whatever the root is made of; it is
     // what every process actually reads through `uname` and `gethostname`.
@@ -131,7 +150,7 @@ pub fn repair(
     // Memory plugged in later joins the movable zone, which is the only zone that can be given
     // back. A kernel without hotplug has no such file, and that is not a failure.
     let _policy = crate::hotplug::online_movable(std::path::Path::new(crate::hotplug::AUTO_ONLINE));
-    set_clock(time_sample_nanos)
+    Ok(())
 }
 
 /// Whether this machine keeps `/tmp` on its writable root rather than in RAM.

@@ -14,6 +14,7 @@ use crate::{
     envelope::{ApiError, ENVELOPE_SCHEMA, failure_body},
     filesystem::FilesystemBody,
     handler::prewarm::PrewarmSetBody,
+    handler::suspension::{ResumeBody, SuspendBody},
     http::request::{Method, Request},
     resources::ResourcesBody,
     route::{FilesystemOperation, Route, TerminalOperation, resolve},
@@ -26,6 +27,7 @@ use crate::{
 const DOCUMENT: &str = include_str!("../../../../../docs/protocol/api-surface.md");
 const INSTANCE: &str = "33333333333333333333333333333333";
 const VOLUME: &str = "44444444444444444444444444444444";
+const SUSPENSION: &str = "55555555555555555555555555555555";
 const METHODS: [(Method, &str); 5] = [
     (Method::Get, "GET"),
     (Method::Post, "POST"),
@@ -43,9 +45,13 @@ fn every_route() -> Vec<Route> {
         Route::Version,
         Route::Prewarm(false),
         Route::PrunePrepared,
+        Route::Capacity,
         Route::CreateSandbox,
         Route::GetSandbox(instance()),
         Route::StopSandbox(instance()),
+        Route::SuspendSandbox(instance()),
+        Route::ResumeSuspension(SUSPENSION.to_owned()),
+        Route::DestroySuspension(SUSPENSION.to_owned()),
         Route::RunCommand(instance()),
         Route::Resources(instance(), false),
         Route::Tunnel(instance(), 8080),
@@ -88,15 +94,20 @@ fn every_route() -> Vec<Route> {
     routes
 }
 
-/// The path template of a route, with `{instance}`, `{port}`, and `{volume}` for its values.
+/// The path template of a route, with `{instance}`, `{port}`, `{volume}`, and `{suspension}` for
+/// its values.
 fn template(route: &Route) -> String {
     match route {
         Route::Version => "/v1/version".to_owned(),
         Route::Prewarm(_) => "/v1/prewarm".to_owned(),
         Route::PrunePrepared => "/v1/prepared/prune".to_owned(),
+        Route::Capacity => "/v1/capacity".to_owned(),
         Route::CreateSandbox | Route::ListSandboxes => "/v1/sandboxes".to_owned(),
         Route::GetSandbox(_) | Route::DestroySandbox(_) => "/v1/sandboxes/{instance}".to_owned(),
         Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
+        Route::SuspendSandbox(_) => "/v1/sandboxes/{instance}/suspend".to_owned(),
+        Route::ResumeSuspension(_) => "/v1/suspensions/{suspension}/resume".to_owned(),
+        Route::DestroySuspension(_) => "/v1/suspensions/{suspension}".to_owned(),
         Route::RunCommand(_) => "/v1/sandboxes/{instance}/commands".to_owned(),
         Route::Filesystem(_, operation) => {
             format!("/v1/sandboxes/{{instance}}/filesystem/{}", operation.name())
@@ -119,6 +130,7 @@ fn concrete(template: &str) -> String {
         .replace("{instance}", INSTANCE)
         .replace("{port}", "8080")
         .replace("{volume}", VOLUME)
+        .replace("{suspension}", SUSPENSION)
 }
 
 /// The fields a request body accepts, read from the refusal of an unknown field.
@@ -178,7 +190,9 @@ fn surface() -> String {
         ("PrewarmTarget", fields::<soma_local::PrewarmTarget>()),
         ("PruneRequest", fields::<soma_local::PruneRequest>()),
         ("ResourcesBody", fields::<ResourcesBody>()),
+        ("ResumeBody", fields::<ResumeBody>()),
         ("RunCommandBody", fields::<RunCommandBody>()),
+        ("SuspendBody", fields::<SuspendBody>()),
         ("TerminalBody", fields::<TerminalBody>()),
     ] {
         lines.push(format!("body {name} {accepted}"));
