@@ -1,10 +1,10 @@
 use std::{
     fs::File,
     io::{Read, Seek, Write},
+    path::Path,
 };
 
 use sha2::{Digest as _, Sha256};
-use soma_hostd::volume::placement::{ENCRYPTED_MOUNT_ENV, encrypted_mount_name, root_is_encrypted};
 use soma_kvm::snapshot::Digest;
 
 use crate::{CheckpointFailure, CheckpointReceipt};
@@ -40,6 +40,17 @@ pub struct CheckpointExport {
 }
 
 impl CheckpointExport {
+    pub(super) fn verify_and_sync(&mut self) -> Result<(), CheckpointFailure> {
+        for artifact in self.artifacts.iter_mut().flatten() {
+            artifact.write_to(&mut std::io::sink())?;
+            artifact
+                .file
+                .sync_all()
+                .map_err(|_| CheckpointFailure::Storage)?;
+        }
+        Ok(())
+    }
+
     /// Streams and verifies an artifact. An absent optional artifact writes nothing.
     ///
     /// # Errors
@@ -94,18 +105,16 @@ pub(crate) fn open_export(
     expected: &CheckpointReceipt,
 ) -> Result<CheckpointExport, CheckpointFailure> {
     let root = configured_root()?;
-    let configured = std::env::var(ENCRYPTED_MOUNT_ENV).ok();
-    let mount = encrypted_mount_name(configured.as_deref());
-    if !root_is_encrypted(&root, &mount).map_err(|_| CheckpointFailure::Storage)? {
-        return Err(CheckpointFailure::Unsupported);
-    }
-    let path = root.join(format!(
-        "{}.{}",
-        expected.instance_id.as_str(),
-        expected.checkpoint_id.as_str()
-    ));
+    super::require_encrypted(&root)?;
+    open_at(&super::published_path(&root, expected), expected)
+}
+
+pub(super) fn open_at(
+    path: &Path,
+    expected: &CheckpointReceipt,
+) -> Result<CheckpointExport, CheckpointFailure> {
     let published = read_published(
-        &path,
+        path,
         &expected.instance_id,
         &expected.generation_id,
         &expected.checkpoint_id,

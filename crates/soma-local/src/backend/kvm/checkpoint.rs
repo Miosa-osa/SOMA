@@ -2,8 +2,10 @@
 
 mod discard;
 mod export;
+mod import;
 pub(crate) use export::open_export;
 pub use export::{CheckpointArtifact, CheckpointExport};
+pub(crate) use import::install_import;
 mod restore;
 pub(super) mod retention;
 pub(crate) use discard::discard_checkpoint;
@@ -123,6 +125,23 @@ fn attached_workspace(instance: &InstanceId) -> Result<String, CheckpointFailure
         }
         _ => Err(CheckpointFailure::CaptureRefused),
     }
+}
+
+fn require_encrypted(path: &Path) -> Result<(), CheckpointFailure> {
+    let configured = std::env::var(ENCRYPTED_MOUNT_ENV).ok();
+    let mount = encrypted_mount_name(configured.as_deref());
+    if !root_is_encrypted(path, &mount).map_err(|_| CheckpointFailure::Storage)? {
+        return Err(CheckpointFailure::Unsupported);
+    }
+    Ok(())
+}
+
+fn published_path(root: &Path, receipt: &CheckpointReceipt) -> PathBuf {
+    root.join(format!(
+        "{}.{}",
+        receipt.instance_id.as_str(),
+        receipt.checkpoint_id.as_str()
+    ))
 }
 
 fn configured_root() -> Result<PathBuf, CheckpointFailure> {

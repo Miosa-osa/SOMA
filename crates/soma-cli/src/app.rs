@@ -44,8 +44,8 @@ pub fn execute(cli: Cli) -> Execution {
             response: Response::failure("machine-host", crate::model::FailureBody::usage()),
             exit: ProcessExit::Usage,
         },
-        RootCommand::CheckpointExport(_) => Execution {
-            response: Response::failure("checkpoint-export", crate::model::FailureBody::usage()),
+        RootCommand::CheckpointExport(_) | RootCommand::CheckpointImport(_) => Execution {
+            response: Response::failure("checkpoint", crate::model::FailureBody::usage()),
             exit: ProcessExit::Usage,
         },
     }

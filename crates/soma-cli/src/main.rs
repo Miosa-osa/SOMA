@@ -1,5 +1,5 @@
 mod app;
-mod checkpoint_export;
+mod checkpoint;
 mod cli;
 mod exit;
 mod model;
@@ -61,8 +61,11 @@ fn run() -> i32 {
     if let RootCommand::MachineHost(arguments) = &cli.command {
         return soma_local::host_machine(Some(&arguments.socket));
     }
-    if matches!(cli.command, RootCommand::CheckpointExport(_)) {
-        return checkpoint_export::execute(&cli).code();
+    if matches!(
+        cli.command,
+        RootCommand::CheckpointExport(_) | RootCommand::CheckpointImport(_)
+    ) {
+        return checkpoint::execute(&cli).code();
     }
     let format = cli.format;
     let execution = execute(cli);

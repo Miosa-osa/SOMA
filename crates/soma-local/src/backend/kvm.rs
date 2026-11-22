@@ -34,7 +34,7 @@ use crate::{LocalFailure, LocalFailureKind};
 use super::clock::OperationClocks;
 pub(super) use checkpoint::retention::retains_stopped_checkpoint;
 pub use checkpoint::{CheckpointArtifact, CheckpointExport};
-pub(crate) use checkpoint::{discard_checkpoint, open_export};
+pub(crate) use checkpoint::{discard_checkpoint, install_import, open_export};
 pub(super) use host::LaunchHandoff;
 use host::Role;
 pub(crate) use host::open_tunnel;

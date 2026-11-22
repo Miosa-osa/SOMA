@@ -18,3 +18,14 @@ pub enum ExportArtifact {
     Overlay,
     Workspace,
 }
+
+#[derive(Args)]
+pub struct CheckpointImportArgs {
+    /// The authorized machine name recorded in the broker state.
+    #[arg(long, value_name = "NAME")]
+    pub owner: String,
+
+    /// The private checkpoint directory on the configured encrypted mount.
+    #[arg(long, value_name = "PATH")]
+    pub bundle: std::path::PathBuf,
+}

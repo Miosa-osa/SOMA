@@ -1111,3 +1111,9 @@ Interruption between disk publication and durable runtime readiness still needs 
 The host-local backup consumer matches an authorized machine name against the durable Instance and uses the complete capture receipt to identify the published checkpoint.
 It pins private artifact descriptors under the restore lease and streams each artifact to a writer while verifying the length and digest.
 An off-host publisher must keep the output unpublished until the whole capture has been transferred and verified.
+
+## 2026-11-22 - Atomic installation of recovered checkpoint artifacts
+
+The host-local import command verifies the durable owner, frozen receipt, encrypted mount, and artifact digests before the existing checkpoint path becomes visible.
+Installation uses the same Instance restore lease as native recovery and never replaces another publication.
+Replays check the installed bytes against the expected receipt.

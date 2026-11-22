@@ -40,12 +40,39 @@ impl LocalRuntime {
         owner: &soma::MachineName,
         expected: &crate::CheckpointReceipt,
     ) -> Result<crate::CheckpointExport, crate::CheckpointFailure> {
+        let _lease = self.authorize_checkpoint(owner, expected)?;
+        crate::backend::open_export(expected)
+    }
+
+    /// Atomically installs a verified backup directory for an existing authorized source.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a missing owner, a concurrent restore, an unencrypted stage, or invalid
+    /// artifacts. The first successful publication consumes the staging path.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn import_checkpoint(
+        &mut self,
+        owner: &soma::MachineName,
+        expected: &crate::CheckpointReceipt,
+        stage: &std::path::Path,
+    ) -> Result<(), crate::CheckpointFailure> {
+        let _lease = self.authorize_checkpoint(owner, expected)?;
+        crate::backend::install_import(stage, expected)
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn authorize_checkpoint(
+        &mut self,
+        owner: &soma::MachineName,
+        expected: &crate::CheckpointReceipt,
+    ) -> Result<std::fs::File, crate::CheckpointFailure> {
         use crate::CheckpointFailure;
 
         if self.host_directory.is_none() {
             return Err(CheckpointFailure::Unsupported);
         }
-        let _lease = crate::file_store::restore_lease(&self.state_root, &expected.instance_id)
+        let lease = crate::file_store::restore_lease(&self.state_root, &expected.instance_id)
             .map_err(|_| CheckpointFailure::Unconfirmed)?;
         let recorded = self
             .engine
@@ -54,7 +81,7 @@ impl LocalRuntime {
         if recorded.as_ref() != Some(owner) {
             return Err(CheckpointFailure::NotFound);
         }
-        crate::backend::open_export(expected)
+        Ok(lease)
     }
 
     /// Releases a published checkpoint by its exact sandbox, operation and state digest.
