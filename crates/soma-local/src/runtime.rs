@@ -253,6 +253,7 @@ impl LocalRuntime {
         &mut self,
         request: &crate::SuspendRequest,
     ) -> Result<crate::Suspended, crate::SuspensionFailure> {
+        let started = std::time::Instant::now();
         let (id, staging) = self
             .suspensions
             .stage()
@@ -275,8 +276,17 @@ impl LocalRuntime {
                 suspended.receipt().clone(),
             )));
         }
-        self.suspensions
-            .seal(id, &staging, request, suspended.receipt())
+        let read = started.elapsed();
+        let sealed = self
+            .suspensions
+            .seal(id, &staging, request, suspended.receipt());
+        eprintln!(
+            "soma: suspension of {} read in {} ms, sealed in {} ms",
+            request.instance_id.as_str(),
+            read.as_millis(),
+            (started.elapsed() - read).as_millis()
+        );
+        sealed
     }
 
     /// Resumes a Suspension as a new managed Machine, then destroys the Suspension.

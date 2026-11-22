@@ -57,7 +57,13 @@ pub fn read(
         contract,
         point: CapturePoint::Acknowledged,
     };
-    capture(machine, request, Instant::now() + CAPTURE_CEILING).map_err(|error| {
+    let started = Instant::now();
+    let captured = capture(machine, request, Instant::now() + CAPTURE_CEILING);
+    eprintln!(
+        "soma: suspension capture took {} ms",
+        started.elapsed().as_millis()
+    );
+    captured.map_err(|error| {
         // The typed answer carries no detail, so the reason is written where the machine host's
         // log goes (SOMA_MACHINE_HOST_LOG), for the operator who has to explain a lost machine.
         eprintln!("soma: suspension capture failed: {error}");
