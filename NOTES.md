@@ -1059,3 +1059,8 @@ The owner-authorized viewer still starts on demand through its separate supervis
 A prepared entry's reference file is an address, while the certified manifest binds the OCI image.
 A digest-bearing address must agree with that manifest in both runner discovery and worker handoff.
 The publisher owns .incoming, and neither runner discovery nor pruning treats it as a prepared entry.
+
+## 2026-11-22 - Template compilation and publication on the build host
+
+The host command compiles an approved local OCI layout, binds the exact reference, captures a boot snapshot at the selected memory size, and publishes through the verified installer.
+Only an installed Generation ID goes to standard output so a caller can record that identity without parsing build logs.
