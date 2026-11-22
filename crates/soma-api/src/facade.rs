@@ -209,6 +209,11 @@ pub trait SandboxFacade {
         Err(unsupported_suspension())
     }
 
+    /// What this host has left for sandboxes, or `None` for a facade with no host to read.
+    fn capacity(&mut self) -> Option<soma_local::capacity::HostCapacity> {
+        None
+    }
+
     /// Discards a Suspension without resuming it.
     ///
     /// # Errors

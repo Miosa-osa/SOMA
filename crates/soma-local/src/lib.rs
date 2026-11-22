@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod backend;
+pub mod capacity;
 mod config;
 mod egress;
 mod error;

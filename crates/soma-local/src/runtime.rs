@@ -12,6 +12,7 @@ use crate::{
 
 pub struct LocalRuntime {
     engine: Engine<LocalBackend, FileStateStore>,
+    state_root: std::path::PathBuf,
     suspensions: crate::suspension::Suspensions,
     host_directory: Option<std::path::PathBuf>,
     configured_backend: BackendSelection,
@@ -33,10 +34,12 @@ impl LocalRuntime {
             LocalBackend::open(config.backend, config.runtime, host_directory.clone())?;
         let backend_kind = backend.kind();
         let suspensions = crate::suspension::Suspensions::at(&config.state_root);
+        let state_root = config.state_root.clone();
         let state = FileStateStore::open(config.state_root)
             .map_err(|failure| LocalFailure::new(LocalFailureKind::StateStore(failure.kind())))?;
         Ok(Self {
             engine: Engine::with_state_store(backend, state),
+            state_root,
             suspensions,
             host_directory,
             configured_backend,
@@ -307,6 +310,12 @@ impl LocalRuntime {
         // private head's history and every secret the first one held.
         let _ignored = self.suspensions.destroy(&opened.id.hex());
         Ok(launch)
+    }
+
+    /// What this host has left for sandboxes, read now.
+    #[must_use]
+    pub fn capacity(&self) -> crate::capacity::HostCapacity {
+        crate::capacity::read(&self.state_root)
     }
 
     /// Destroys a Suspension without resuming it.

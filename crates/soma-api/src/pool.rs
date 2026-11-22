@@ -199,6 +199,10 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().resume(request)
     }
 
+    fn capacity(&mut self) -> Option<soma_local::capacity::HostCapacity> {
+        self.deref_mut().capacity()
+    }
+
     fn discard_suspension(
         &mut self,
         suspension_id: &str,

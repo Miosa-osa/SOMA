@@ -94,6 +94,8 @@ pub enum Route {
     ResumeSuspension(String),
     /// Discards a Suspension without resuming it.
     DestroySuspension(String),
+    /// `GET` reads what this host has left for sandboxes.
+    Capacity,
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
@@ -134,6 +136,7 @@ impl Route {
             Self::SuspendSandbox(_) => "sandbox.suspend",
             Self::ResumeSuspension(_) => "suspension.resume",
             Self::DestroySuspension(_) => "suspension.destroy",
+            Self::Capacity => "host.capacity",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
@@ -172,6 +175,10 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             _ => Err(ApiError::method_not_allowed()),
         },
         ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
+        ["v1", "capacity"] => match request.method {
+            Method::Get => Ok(Route::Capacity),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),

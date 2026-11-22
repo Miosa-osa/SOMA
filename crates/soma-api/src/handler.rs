@@ -1,3 +1,4 @@
+mod capacity;
 mod prepared;
 pub(crate) mod prewarm;
 mod support;
@@ -141,6 +142,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             Err(ApiError::not_found())
         }
         Route::PrunePrepared => prepared::prune(facade, operation, body),
+        Route::Capacity => capacity::report(facade, operation),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;

@@ -153,6 +153,10 @@ impl SandboxFacade for LocalFacade {
         Ok(lifecycle(outcome.receipt()))
     }
 
+    fn capacity(&mut self) -> Option<soma_local::capacity::HostCapacity> {
+        Some(self.runtime.capacity())
+    }
+
     fn discard_suspension(
         &mut self,
         suspension_id: &str,
