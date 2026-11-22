@@ -31,9 +31,15 @@ pub fn of(path: &Path) -> io::Result<Space> {
         }
         stats
     };
-    let unit = u64::from(stats.f_frsize);
+    // The field widths differ between targets, so the widening is explicit where it is one.
+    #[allow(clippy::useless_conversion)]
+    let (unit, blocks, available) = (
+        u64::from(stats.f_frsize),
+        u64::from(stats.f_blocks),
+        u64::from(stats.f_bavail),
+    );
     Ok(Space {
-        total_bytes: unit.saturating_mul(u64::from(stats.f_blocks)),
-        available_bytes: unit.saturating_mul(u64::from(stats.f_bavail)),
+        total_bytes: unit.saturating_mul(blocks),
+        available_bytes: unit.saturating_mul(available),
     })
 }

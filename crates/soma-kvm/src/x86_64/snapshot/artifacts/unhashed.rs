@@ -12,7 +12,7 @@ impl Staging {
     /// # Errors
     ///
     /// As [`Staging::create`].
-    pub(super) fn create_unhashed(
+    pub(in crate::x86_64::snapshot) fn create_unhashed(
         paths: &SnapshotPaths,
         artifact: Artifact,
         published: PathBuf,
@@ -28,7 +28,10 @@ impl Staging {
     /// # Errors
     ///
     /// Returns the read, write, or stat failure.
-    pub(super) fn clone_file(&mut self, source: &mut File) -> Result<(), SnapshotError> {
+    pub(in crate::x86_64::snapshot) fn clone_file(
+        &mut self,
+        source: &mut File,
+    ) -> Result<(), SnapshotError> {
         if !self.hashed && self.written == 0 && clone_extents(&self.file, source) {
             let len = source
                 .metadata()

@@ -6,10 +6,10 @@
 //! order, and the publication order are all driven through the codec's typed schedules, so a
 //! step performed out of order is a typed failure rather than a silently unsafe snapshot.
 
-use std::{fs::File, time::Instant};
+use std::time::Instant;
 
 use super::{
-    artifacts::{self, SnapshotPaths, Staging},
+    artifacts::{self, Staging},
     device,
     error::{Artifact, SnapshotError},
     platform, profile, quiesce, vcpu,
