@@ -33,10 +33,12 @@ pub(super) fn open(
     // Members captured over one Generation's root must never run over another's.
     let named = std::fs::read_to_string(directory.join(crate::RESUME_GENERATION_FILE))
         .map_err(|_| BackendFailureKind::Unavailable)?;
-    let expected: String = generation
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let expected = generation.iter().fold(String::new(), |mut hex, byte| {
+        use std::fmt::Write as _;
+        // Writing to a `String` cannot fail.
+        let _ = write!(hex, "{byte:02x}");
+        hex
+    });
     let opened = if named.trim() == expected {
         open_members(directory, overlay)
     } else {

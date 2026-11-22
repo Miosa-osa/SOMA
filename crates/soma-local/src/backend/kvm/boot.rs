@@ -68,39 +68,7 @@ pub(super) fn boot_for(
     // A prepared entry may carry a snapshot taken once for the whole Generation: this launch
     // then resumes that machine instead of booting a kernel.
     let guest_cid = identity.guest_cid;
-    // A resume restores the Suspension's own members (ADR 0034): its memory and state, and its
-    // private head, which is this Instance's head as it was and is never cloned. A Generation
-    // snapshot clones its head from the sterile overlay template. Either way the Generation
-    // names the root, the devices, the shape and the contract, and the restore refuses members
-    // that disagree with them.
-    let restored = if let Some(directory) = resume {
-        let members = resume::open(
-            directory,
-            generation_bytes(&prepared.id)?,
-            devices.overlay(),
-        )?;
-        Some((
-            SnapshotObjects::adopt(members.state, members.memory, None),
-            members.overlay,
-        ))
-    } else if let SnapshotBinding::Captured {
-        memory,
-        overlay: snapshot_overlay,
-        state,
-        ..
-    } = &manifest.snapshot
-    {
-        let overlay = devices
-            .overlay()
-            .then(|| open(snapshot_overlay).and_then(|file| private_head_from(file, instance)))
-            .transpose()?;
-        Some((
-            SnapshotObjects::adopt(open(state)?, open(memory)?, None),
-            overlay,
-        ))
-    } else {
-        None
-    };
+    let restored = restored_members(prepared, instance, devices.overlay(), resume)?;
     let source = if let Some((objects, overlay)) = restored {
         // The volume device is declared from the Instance's own file, which the launch opened:
         // there is no placeholder artifact to carry, because a file the store certified already
@@ -215,3 +183,46 @@ pub(super) fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, Backend
 #[cfg(test)]
 #[path = "boot_tests.rs"]
 mod tests;
+
+/// The members a restore starts from, or `None` for a Generation that only cold boots.
+///
+/// A resume restores the Suspension's own members (ADR 0034): its memory and state, and its
+/// private head, which is this Instance's head as it was and is never cloned. A Generation
+/// snapshot clones its head from the sterile overlay template. Either way the Generation names
+/// the root, the devices, the shape and the contract, and the restore refuses members that
+/// disagree with them.
+fn restored_members(
+    prepared: &PreparedGeneration,
+    instance: &InstanceId,
+    overlay_device: bool,
+    resume: Option<&std::path::Path>,
+) -> Result<Option<(SnapshotObjects, Option<std::fs::File>)>, BackendFailureKind> {
+    if let Some(directory) = resume {
+        let members = resume::open(directory, generation_bytes(&prepared.id)?, overlay_device)?;
+        return Ok(Some((
+            SnapshotObjects::adopt(members.state, members.memory, None),
+            members.overlay,
+        )));
+    }
+    let SnapshotBinding::Captured {
+        memory,
+        overlay,
+        state,
+        ..
+    } = &prepared.manifest.snapshot
+    else {
+        return Ok(None);
+    };
+    let open = |descriptor| {
+        prepared
+            .open_artifact(descriptor)
+            .map_err(|_| BackendFailureKind::Unavailable)
+    };
+    let head = overlay_device
+        .then(|| open(overlay).and_then(|file| private_head_from(file, instance)))
+        .transpose()?;
+    Ok(Some((
+        SnapshotObjects::adopt(open(state)?, open(memory)?, None),
+        head,
+    )))
+}
