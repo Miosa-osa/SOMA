@@ -4,7 +4,7 @@
 //! as a different request. They live apart from the rest of the request codec to hold that file
 //! inside the source budget.
 
-use crate::volume::MAX_TENANT_BYTES;
+use crate::volume::{CheckpointVolumeRequest, MAX_TENANT_BYTES};
 use crate::{GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId};
 
 use super::super::{ProtocolError, array};
@@ -13,6 +13,32 @@ use super::super::{ProtocolError, array};
 const ATTACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_BYTES;
 /// The fixed length of one volume detach frame.
 const DETACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32;
+const CHECKPOINT_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 32;
+
+pub(super) fn encode_checkpoint(request: &CheckpointVolumeRequest, out: &mut Vec<u8>) {
+    out.extend_from_slice(request.source.as_bytes());
+    out.extend_from_slice(request.destination.as_bytes());
+    out.extend_from_slice(request.checkpoint.as_bytes());
+    out.extend_from_slice(request.generation.as_bytes());
+    out.extend_from_slice(request.digest.as_bytes());
+}
+
+pub(super) fn decode_checkpoint(bytes: &[u8]) -> Result<CheckpointVolumeRequest, ProtocolError> {
+    if bytes.len() != CHECKPOINT_FRAME_LEN {
+        return Err(ProtocolError("checkpoint volume"));
+    }
+    Ok(CheckpointVolumeRequest {
+        source: InstanceId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("source"))?,
+        destination: InstanceId::new(array(&bytes[17..33]))
+            .map_err(|_| ProtocolError("destination"))?,
+        checkpoint: OperationId::new(array(&bytes[33..49]))
+            .map_err(|_| ProtocolError("checkpoint"))?,
+        generation: GenerationId::new(array(&bytes[49..81]))
+            .map_err(|_| ProtocolError("generation"))?,
+        digest: RequestFingerprint::new(array(&bytes[81..113]))
+            .map_err(|_| ProtocolError("volume digest"))?,
+    })
+}
 
 /// One volume attach: bind the volume to an Instance, creating it on the first attach.
 #[derive(Clone, Debug, Eq, PartialEq)]

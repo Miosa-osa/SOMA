@@ -28,7 +28,7 @@ fn refusal(outcome: RepairOutcome) -> VolumeError {
     }
 }
 
-fn owned_volume<'a>(
+pub(super) fn owned_volume<'a>(
     volumes: impl Iterator<Item = &'a VolumeSidecar>,
     instance: InstanceId,
 ) -> Result<&'a VolumeSidecar, VolumeError> {
@@ -46,6 +46,14 @@ fn owned_volume<'a>(
 }
 
 impl VolumeStore for DirectoryVolumes {
+    #[cfg(target_os = "linux")]
+    fn clone_checkpoint(
+        &self,
+        request: &crate::volume::CheckpointVolumeRequest,
+    ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
+        self.copy_checkpoint(request)
+    }
+
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
         self.check_operation(request.operation, request.fingerprint)?;
         // A host whose volume root is not on its encrypted data mount refuses the attach before

@@ -91,7 +91,16 @@ impl DirectoryVolumes {
         fs::create_dir_all(records)?;
         let mut state = BTreeMap::new();
         for entry in fs::read_dir(root)? {
-            let path = entry?.path().join(SIDECAR_FILE);
+            let entry = entry?;
+            if entry
+                .file_name()
+                .to_str()
+                .and_then(|name| VolumeId::from_hex(name).ok())
+                .is_none()
+            {
+                continue;
+            }
+            let path = entry.path().join(SIDECAR_FILE);
             if let Ok(bytes) = fs::read(&path)
                 && let Ok(sidecar) = VolumeSidecar::decode(&bytes)
             {
@@ -226,6 +235,8 @@ impl VolumeRepair for CleanRepair {
     }
 }
 
+#[cfg(target_os = "linux")]
+mod checkpoint;
 mod serve;
 
 #[cfg(test)]

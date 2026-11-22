@@ -48,6 +48,31 @@ pub struct DetachRequest {
     pub fingerprint: RequestFingerprint,
 }
 
+/// A broker-authorized copy of a saved volume into a distinct recovery Instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckpointVolumeRequest {
+    /// The Instance that owns the captured workspace.
+    pub source: InstanceId,
+    /// The new Instance that will own the independent recovery workspace.
+    pub destination: InstanceId,
+    /// The checkpoint containing the source disk.
+    pub checkpoint: OperationId,
+    /// The certified Generation used by both Instances.
+    pub generation: GenerationId,
+    /// The block digest certified by the checkpoint manifest.
+    pub digest: RequestFingerprint,
+}
+
+/// A verified writable copy of the checkpoint disk, before assigning it to the guest.
+pub struct CheckpointVolumeBinding {
+    /// The recovery volume's identity.
+    pub volume: VolumeId,
+    /// The independent backing file on the encrypted data mount.
+    pub path: PathBuf,
+    /// The class in GiB.
+    pub size_class_gib: u32,
+}
+
 /// The outcome of one attach.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttachOutcome {
@@ -89,6 +114,20 @@ pub struct DetachOutcome {
 
 /// The volume lifecycle seam the daemon drives.
 pub trait VolumeStore {
+    /// Copies and binds a saved disk without modifying the disk it was captured from.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unsafe or unavailable encrypted store, changed intent, or a bad saved disk.
+    fn clone_checkpoint(
+        &self,
+        _request: &CheckpointVolumeRequest,
+    ) -> Result<CheckpointVolumeBinding, VolumeError> {
+        Err(VolumeError::Missing(
+            "checkpoint volume cloning is unavailable",
+        ))
+    }
+
     /// Creates the volume on first attach, repairs it offline, and binds it to the Instance.
     ///
     /// # Errors

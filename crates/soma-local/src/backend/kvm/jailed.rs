@@ -111,7 +111,29 @@ impl Jailed {
         let (tap, activation) = network.map_or((None, None), |(tap, activation)| {
             (Some(tap), Some(activation))
         });
-        let (volume, volume_bytes) = super::jailed_volume::open(launching)?;
+        let checkpoint = launching
+            .checkpoint
+            .map(|(source, checkpoint)| {
+                super::checkpoint::restore_artifacts(
+                    source,
+                    &launching.prepared.id,
+                    checkpoint,
+                    source != launching.instance,
+                )
+                .map_err(|error| match error {
+                    crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
+                    crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
+                    _ => BackendFailureKind::Unavailable,
+                })
+            })
+            .transpose()?;
+        let recovery_volume = checkpoint
+            .as_ref()
+            .and_then(|artifacts| artifacts.volume.as_ref())
+            .map(|receipt| super::jailed_volume::clone_checkpoint(launching, receipt))
+            .transpose()?;
+        let (volume, volume_bytes) =
+            super::jailed_volume::open(launching, recovery_volume.as_ref())?;
         let spec = build::spec(
             launching.instance,
             launching.prepared.manifest.shape.vcpu_count,
@@ -121,17 +143,6 @@ impl Jailed {
             volume_bytes,
             tap.is_some(),
         )?;
-        let checkpoint = launching
-            .checkpoint
-            .map(|(source, checkpoint)| {
-                super::checkpoint::restore_artifacts(source, &launching.prepared.id, checkpoint)
-                    .map_err(|error| match error {
-                        crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
-                        crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
-                        _ => BackendFailureKind::Unavailable,
-                    })
-            })
-            .transpose()?;
         let opened = build::open(
             anchors,
             launching.prepared,

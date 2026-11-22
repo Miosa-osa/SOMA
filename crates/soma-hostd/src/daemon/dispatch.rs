@@ -110,6 +110,18 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+        Request::VolumeCloneCheckpoint(request) => match volumes.clone_checkpoint(&request) {
+            Ok(binding) => Reply::VolumeOpened {
+                volume: binding.volume,
+                size_class_gib: binding.size_class_gib,
+                path: binding.path.to_string_lossy().into_owned(),
+                // The guest resumes with the filesystem state it had at capture.
+                // Updating it offline would invalidate that state.
+                repair: 0,
+                exit_code: 0,
+            },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
         Request::VolumeOwned { instance } => match volumes.owned(instance) {
             Ok(owned) => Reply::VolumeOwned {
                 volume: owned.volume,

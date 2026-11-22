@@ -10,6 +10,7 @@ mod volumes;
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
+use crate::volume::CheckpointVolumeRequest;
 use crate::{InstanceId, LaunchMaterialHandle, OperationId, VolumeId, WorkerId};
 
 pub use volumes::{AttachFrame, DetachFrame};
@@ -121,6 +122,8 @@ pub enum Request {
         /// The Instance.
         instance: InstanceId,
     },
+    /// Copy a certified checkpoint disk for a distinct Instance.
+    VolumeCloneCheckpoint(CheckpointVolumeRequest),
 }
 
 impl Request {
@@ -188,6 +191,10 @@ impl Request {
                 out.push(14);
                 out.extend_from_slice(instance.as_bytes());
             }
+            Self::VolumeCloneCheckpoint(frame) => {
+                out.push(15);
+                volumes::encode_checkpoint(frame, &mut out);
+            }
         }
         out
     }
@@ -234,6 +241,7 @@ impl Request {
             (14, 17) => Ok(Self::VolumeOwned {
                 instance: instance()?,
             }),
+            (15, _) => volumes::decode_checkpoint(bytes).map(Self::VolumeCloneCheckpoint),
             _ => Err(ProtocolError("request")),
         }
     }
