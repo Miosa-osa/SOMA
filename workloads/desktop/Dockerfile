@@ -239,7 +239,8 @@ COPY look/desktop/miosa-desktop-settings.desktop /usr/share/applications/miosa-d
 COPY look/dock/MIOSA/dock.theme /usr/share/plank/themes/MIOSA/dock.theme
 COPY look/dock/dconf-plank /etc/dconf/db/local.d/10-plank
 COPY look/dock/*.dockitem /home/ubuntu/.config/plank/dock1/launchers/
-RUN printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user \
+RUN mkdir -p /etc/dconf/profile \
+ && printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user \
  && dconf update \
  && mkdir -p /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads \
  && for app in google-chrome xfce4-terminal pcmanfm miosa-desktop-settings; do \

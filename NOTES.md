@@ -1018,3 +1018,9 @@ Guest API level 5 disambiguates the two earlier level 4 implementations.
 The desktop starts Voxl through the same viewer command used by the authorized platform tunnel and stops it with the supervisor.
 A local process lifecycle test verified that starting the supervisor opens the selected port and stopping it reaps its child.
 Browser decoding and input still require an integrated desktop Generation test.
+
+## 2026-11-22 - Alpine desktop wallpaper
+The desktop workload uses a static 1920 by 1080 alpine JPEG, with the main ridge on the right to keep the center clear for work.
+At 103,293 bytes it is smaller than the previous wallpaper.
+The refreshed wallpaper and panel settings were applied to the existing Host 12 SOMA preview.
+The browser viewer showed the new wallpaper and streamed a terminal launched from the dock.
