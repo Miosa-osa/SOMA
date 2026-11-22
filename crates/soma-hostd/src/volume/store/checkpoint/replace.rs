@@ -438,11 +438,9 @@ fn rollback(
 fn require_worker_lock(staged: &File) -> Result<(), VolumeError> {
     match staged.try_lock() {
         Err(TryLockError::WouldBlock) => Ok(()),
-        Ok(()) => {
-            return Err(VolumeError::Busy(
-                "the recovered worker does not own its workspace",
-            ));
-        }
+        Ok(()) => Err(VolumeError::Busy(
+            "the recovered worker does not own its workspace",
+        )),
         Err(TryLockError::Error(_)) => Err(IO_FAILURE),
     }
 }

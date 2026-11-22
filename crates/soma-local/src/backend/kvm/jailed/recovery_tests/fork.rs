@@ -8,6 +8,10 @@ use super::{
 
 #[test]
 #[ignore = "requires an isolated KVM host and a certified fork-capable Node 22 Generation"]
+#[allow(
+    clippy::too_many_lines,
+    reason = "one fixture tracks the source and both forks through cleanup"
+)]
 fn sealed_forks_keep_independent_identities_memory_and_disks() {
     let anchors = Anchors::configured().expect("isolated test jail");
     let root = PathBuf::from(std::env::var_os("SOMA_GENERATION_STORE").expect("prepared store"));
