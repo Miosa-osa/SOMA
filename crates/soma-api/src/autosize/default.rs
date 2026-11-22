@@ -101,7 +101,12 @@ pub fn enrol<F: SandboxFacade + ?Sized>(facade: &mut F) {
     let running: Vec<InstanceId> = listing
         .entries()
         .iter()
-        .filter(|entry| matches!(entry.phase(), SandboxPhase::Active | SandboxPhase::Executing))
+        .filter(|entry| {
+            matches!(
+                entry.phase(),
+                SandboxPhase::Active | SandboxPhase::Executing
+            )
+        })
         .map(|entry| entry.instance_id().clone())
         .collect();
     let forgot = {
