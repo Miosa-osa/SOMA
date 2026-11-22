@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use soma::InstanceId;
 
-use guest::{cpu_ticks, meminfo_kb, read};
+use guest::measure;
 
 pub use decide::{Policy, Sample};
 pub use route::{AutosizeBody, serve};
@@ -47,8 +47,9 @@ pub struct Change {
 struct Entry {
     policy: Policy,
     calm: decide::Calm,
-    /// The guest's busy and total CPU ticks at the last reading.
-    ticks: Option<(u64, u64)>,
+    /// The CPU counters at the last reading: busy ticks, total ticks (or the instant in hundredths
+    /// of a second for a host reading), and whether they came from the host.
+    ticks: Option<(u64, u64, bool)>,
     last: Option<Sample>,
     history: VecDeque<Change>,
     /// Why the last reading or change did not happen, when one did not.
@@ -159,23 +160,11 @@ pub fn tick<F: SandboxFacade + ?Sized>(facade: &mut F, instance: &InstanceId) {
             return;
         }
     };
-    let (Some(stat), Some(meminfo)) = (
-        read(facade, instance, "/proc/stat"),
-        read(facade, instance, "/proc/meminfo"),
-    ) else {
+    let Some(reading) = measure(facade, instance, current.host_pid) else {
         note(
             instance,
-            Some("the guest's usage could not be read".to_owned()),
+            Some("the sandbox's usage could not be read".to_owned()),
         );
-        return;
-    };
-    let Some(ticks) = cpu_ticks(&stat) else {
-        return;
-    };
-    let (Some(total_kb), Some(available_kb)) = (
-        meminfo_kb(&meminfo, "MemTotal:"),
-        meminfo_kb(&meminfo, "MemAvailable:"),
-    ) else {
         return;
     };
     let decision = {
@@ -183,26 +172,20 @@ pub fn tick<F: SandboxFacade + ?Sized>(facade: &mut F, instance: &InstanceId) {
         let Some(entry) = all.get_mut(instance.as_str()) else {
             return;
         };
-        let previous = entry.ticks.replace(ticks);
-        let Some(previous) = previous else {
+        let previous = entry.ticks.replace(reading.ticks);
+        let Some(previous) = previous.filter(|previous| previous.2 == reading.ticks.2) else {
             return;
         };
-        let busy = ticks.0.saturating_sub(previous.0);
-        let elapsed = ticks.1.saturating_sub(previous.1).max(1);
-        // The guest's ticks count every processor it booted; the share of them that was busy,
-        // times how many it booted, is how many it kept busy.
-        #[allow(clippy::cast_precision_loss)]
-        let cpu_used = busy as f64 / elapsed as f64 * f64::from(current.cpu.booted.max(1));
+        let cpu_used = reading.cores_since(previous, current.cpu.booted);
         let sample = Sample {
             cpu_used,
             cpu_limit: current.cpu.applied,
-            memory_used_mb: total_kb.saturating_sub(available_kb) / 1024,
-            // What the machine has, as the device states it; the guest's own total leaves out
-            // what its kernel reserved, and every change is stated against the device.
+            memory_used_mb: reading.memory_used_mb,
+            // What the machine has, as the device states it; every change is stated against it.
             memory_total_mb: if current.memory.total_mb > 0 {
                 current.memory.total_mb
             } else {
-                total_kb / 1024
+                reading.memory_total_mb
             },
         };
         entry.last = Some(sample);
