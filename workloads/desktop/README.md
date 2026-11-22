@@ -1,7 +1,7 @@
 # SOMA Linux desktop
 
 The Ubuntu 24.04 desktop runs in a SOMA virtual machine using the desktop kernel variant.
-KasmVNC provides the X display by default, Openbox manages windows, and Xfce Terminal is the default terminal.
+Xvfb provides the X display through a shared-memory framebuffer, Openbox manages windows, and Xfce Terminal is the default terminal.
 The CUA driver reads the display, inspects accessibility through AT-SPI, and sends X input.
 
 The browser viewer shares the same display.
@@ -76,7 +76,7 @@ The platform opens the desktop port only through its authenticated tunnel.
 The certified startup snapshot starts the guest agent.
 Once the VM reports Ready, run `soma-desktop-session start` as root through guest exec.
 The launcher starts the session in the `/soma-desktop` cgroup so the guest agent can preserve it when the startup command exits.
-The command returns the session state and timestamps for D-Bus, Xorg, accessibility, Openbox, and driver startup.
+The command returns the session state and timestamps for D-Bus, the X display, accessibility, Openbox, and driver startup.
 
 Run `soma-desktop-call doctor` to check the driver.
 For example, `soma-desktop-call call get_desktop_state '{"max_image_dimension":0}'` reads the display and current windows.
