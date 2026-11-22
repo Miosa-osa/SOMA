@@ -156,6 +156,9 @@ impl Store {
         }
         let bytes = header.encode().map_err(StoreError::Header)?;
         fs::write(partial.join(HEADER_FILE), bytes)?;
+        // A directory is synced where it can be opened as a file; Windows refuses that, and no
+        // Suspension is ever sealed there.
+        #[cfg(unix)]
         File::open(partial)?.sync_all()?;
         Ok(())
     }
