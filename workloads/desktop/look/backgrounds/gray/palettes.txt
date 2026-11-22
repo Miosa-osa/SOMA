@@ -1,0 +1,18 @@
+# source  palette
+twilight  amber
+sierra  amber
+landers  amber
+oxbow  amber
+redfuji  amber
+moonrise  amber
+wave  ink
+ninthwave  ink
+pines  forest
+empire  stone
+destruction  stone
+desolation  stone
+forum  stone
+romefire  stone
+night-city  haze
+rain-city  neon
+megatowers  haze

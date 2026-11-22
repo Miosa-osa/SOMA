@@ -1,7 +1,7 @@
 # The top bar: the MIOSA mark and the open windows on the left, the clock on the right.
 rounded = 0
 border_width = 0
-background_color = #131e2e 100
+background_color = #0e1118 82
 border_color = #0e1016 0
 background_color_hover = #0e1016 100
 border_color_hover = #0e1016 100
@@ -28,8 +28,8 @@ border_color_hover = #344961 100
 background_color_pressed = #344961 100
 border_color_pressed = #344961 100
 
-panel_items = ETEC
-panel_size = 100% 40
+panel_items = ETEEEEEEC
+panel_size = 100% 32
 panel_margin = 0 0
 panel_padding = 16 5 12
 panel_background_id = 1
@@ -45,7 +45,7 @@ font_shadow = 0
 mouse_effects = 1
 
 execp = new
-execp_command = printf '/usr/share/soma-desktop/miosa-icon.png\nMIOSA\n'
+execp_command = printf '/usr/share/soma-desktop/miosa-icon.png\n \n'
 execp_interval = 0
 execp_has_icon = 1
 execp_icon_w = 18
@@ -56,36 +56,86 @@ execp_padding = 8 2 8
 execp_background_id = 2
 execp_centered = 1
 
-taskbar_mode = multi_desktop
+# Workspaces 1 to 4, the shown one as a blue chip. Workspace 1: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 0 ]; then echo '<span foreground="#ffffff" background="#3b5bdb" weight="bold"> 1 </span>'; else echo '<span foreground="#8d95ad"> 1 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 1 2 1
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 0
+
+# Workspace 2: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 1 ]; then echo '<span foreground="#ffffff" background="#3b5bdb" weight="bold"> 2 </span>'; else echo '<span foreground="#8d95ad"> 2 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 1 2 1
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 1
+
+# Workspace 3: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 2 ]; then echo '<span foreground="#ffffff" background="#3b5bdb" weight="bold"> 3 </span>'; else echo '<span foreground="#8d95ad"> 3 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 1 2 1
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 2
+
+# Workspace 4: bright when it is the one shown; a click goes to it. It redraws only when the
+# workspace changes (xprop -spy), so it costs nothing while the desktop is still.
+execp = new
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 3 ]; then echo '<span foreground="#ffffff" background="#3b5bdb" weight="bold"> 4 </span>'; else echo '<span foreground="#8d95ad"> 4 </span>'; fi; done
+execp_continuous = 1
+execp_markup = 1
+execp_has_icon = 0
+execp_font = Inter Medium 10
+execp_padding = 1 2 1
+execp_tooltip = Workspace (Ctrl+Alt+arrows)
+execp_background_id = 0
+execp_centered = 1
+execp_lclick_command = xdotool set_desktop 3
+
+taskbar_mode = single_desktop
 taskbar_padding = 12 0 4
 taskbar_background_id = 0
-taskbar_name = 1
-taskbar_name_padding = 9 2
-taskbar_name_background_id = 2
-taskbar_name_active_background_id = 3
-taskbar_name_font = Inter Medium 10
-taskbar_name_font_color = #8d97ad 100
-taskbar_name_active_font_color = #ffffff 100
-taskbar_active_background_id = 0
-taskbar_hide_inactive_tasks = 0
+taskbar_name = 0
+taskbar_hide_inactive_tasks = 1
 taskbar_distribute_size = 0
-task_icon = 1
+task_icon = 0
 task_text = 1
 task_centered = 0
 task_maximum_size = 260 28
 task_padding = 9 2 6
-task_font = Inter 11
+task_font = Inter Bold 10.5
 task_font_color = #bdcadb 100
 task_active_font_color = #ffffff 100
-task_background_id = 2
-task_active_background_id = 3
+task_background_id = 0
+task_active_background_id = 0
 task_urgent_background_id = 3
 task_iconified_background_id = 2
 mouse_left = toggle_iconify
 mouse_middle = close
 
+# Search: every app, like Spotlight (also Alt+Space).
 execp = new
-execp_command = printf 'Wallpapers\n'
+execp_command = printf 'Search\n'
 execp_interval = 0
 execp_has_icon = 0
 execp_font = Inter 10
@@ -93,11 +143,27 @@ execp_font_color = #d6e0ec 100
 execp_padding = 10 2 10
 execp_background_id = 2
 execp_centered = 1
-execp_lclick_command = miosa-wallpapers
+execp_lclick_command = rofi -show drun -theme /etc/soma-desktop/miosa.rasi -show-icons
 
+# What the machine is using now: processors, memory, disk and network, every two seconds. A click
+# opens System, with charts and the busiest processes.
+execp = new
+execp_command = sh /usr/local/libexec/soma-desktop/readout.sh
+execp_continuous = 1
+execp_has_icon = 0
+execp_font = JetBrains Mono 9
+execp_font_color = #9aa4bb 100
+execp_padding = 12 2 12
+execp_background_id = 0
+execp_centered = 1
+execp_tooltip = Click for System: charts, disk and processes
+execp_lclick_command = miosa-system
+
+
+# The date and time, as on a Mac; a click opens a calendar.
 clock_lclick_command = gsimplecal
-time1_format = %a, %b %d  %H:%M
-time1_font = Inter Medium 11
-clock_font_color = #d2deed 100
-clock_padding = 10 0
+time1_format = %a %b %-d  %-I:%M %p
+time1_font = Inter Medium 10
+clock_font_color = #e6ebf5 100
+clock_padding = 12 0
 clock_background_id = 0
