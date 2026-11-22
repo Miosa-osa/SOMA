@@ -59,7 +59,7 @@ execp_centered = 1
 # Workspaces as page dots. Workspace 1: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 0 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 0 ]; then echo '<span foreground="#ffffff" size="large">●</span>'; else echo '<span foreground="#5d667c" size="large">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
@@ -73,7 +73,7 @@ execp_lclick_command = xdotool set_desktop 0
 # Workspace 2: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 1 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 1 ]; then echo '<span foreground="#ffffff" size="large">●</span>'; else echo '<span foreground="#5d667c" size="large">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
@@ -87,7 +87,7 @@ execp_lclick_command = xdotool set_desktop 1
 # Workspace 3: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 2 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 2 ]; then echo '<span foreground="#ffffff" size="large">●</span>'; else echo '<span foreground="#5d667c" size="large">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0
@@ -101,7 +101,7 @@ execp_lclick_command = xdotool set_desktop 2
 # Workspace 4: bright when it is the one shown; a click goes to it. It redraws only when the
 # workspace changes (xprop -spy), so it costs nothing while the desktop is still.
 execp = new
-execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 3 ]; then echo '<span foreground=\"#ffffff\" size=\"large\">●</span>'; else echo '<span foreground=\"#5d667c\" size=\"large\">●</span>'; fi; done
+execp_command = xprop -root -spy _NET_CURRENT_DESKTOP | while read -r l; do if [ "${l##* }" = 3 ]; then echo '<span foreground="#ffffff" size="large">●</span>'; else echo '<span foreground="#5d667c" size="large">●</span>'; fi; done
 execp_continuous = 1
 execp_markup = 1
 execp_has_icon = 0

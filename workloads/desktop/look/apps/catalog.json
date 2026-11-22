@@ -1,100 +1,54 @@
 [
-  {
-    "id": "docker",
-    "name": "Docker",
-    "group": "Developer",
-    "icon": "docker",
-    "about": "Containers and Compose, for running services and builds"
-  },
-  {
-    "id": "vscode",
-    "name": "Visual Studio Code",
-    "group": "Developer",
-    "icon": "com.visualstudio.code",
-    "about": "The code editor"
-  },
-  {
-    "id": "nodejs",
-    "name": "Node.js",
-    "group": "Developer",
-    "icon": "nodejs",
-    "about": "JavaScript runtime with npm (22 LTS)"
-  },
-  {
-    "id": "python",
-    "name": "Python tools",
-    "group": "Developer",
-    "icon": "python",
-    "about": "pip, venv, pipx and a compiler"
-  },
-  {
-    "id": "gh",
-    "name": "GitHub CLI",
-    "group": "Developer",
-    "icon": "github",
-    "about": "Repositories, pull requests and issues from the terminal"
-  },
-  {
-    "id": "claude-code",
-    "name": "Claude Code",
-    "group": "Agents",
-    "icon": "utilities-terminal",
-    "about": "Anthropic's coding agent in the terminal (installs Node.js too)"
-  },
-  {
-    "id": "firefox",
-    "name": "Firefox",
-    "group": "Internet",
-    "icon": "firefox",
-    "about": "A second browser, from Mozilla"
-  },
-  {
-    "id": "discord",
-    "name": "Discord",
-    "group": "Internet",
-    "icon": "discord",
-    "about": "Chat and voice"
-  },
-  {
-    "id": "filezilla",
-    "name": "FileZilla",
-    "group": "Internet",
-    "icon": "filezilla",
-    "about": "FTP and SFTP file transfer"
-  },
-  {
-    "id": "libreoffice",
-    "name": "LibreOffice",
-    "group": "Office",
-    "icon": "libreoffice-main",
-    "about": "Documents, spreadsheets and slides"
-  },
-  {
-    "id": "gimp",
-    "name": "GIMP",
-    "group": "Creative",
-    "icon": "gimp",
-    "about": "Photo and image editing"
-  },
-  {
-    "id": "inkscape",
-    "name": "Inkscape",
-    "group": "Creative",
-    "icon": "inkscape",
-    "about": "Vector drawing"
-  },
-  {
-    "id": "obs",
-    "name": "OBS Studio",
-    "group": "Creative",
-    "icon": "com.obsproject.Studio",
-    "about": "Screen recording"
-  },
-  {
-    "id": "vlc",
-    "name": "VLC",
-    "group": "Creative",
-    "icon": "vlc",
-    "about": "Plays any video or audio file"
-  }
+  {"id": "chrome", "name": "Google Chrome", "group": "Internet", "icon": "google-chrome", "about": "The browser; logins stay signed in", "builtin": true, "exec": "google-chrome"},
+  {"id": "files", "name": "Files", "group": "Utilities", "icon": "system-file-manager", "about": "Folders and files", "builtin": true, "exec": "pcmanfm"},
+  {"id": "terminal", "name": "Terminal", "group": "Developer", "icon": "utilities-terminal", "about": "A shell on this machine", "builtin": true, "exec": "xfce4-terminal"},
+  {"id": "editor", "name": "Text Editor", "group": "Utilities", "icon": "org.xfce.mousepad", "about": "Notes and plain text", "builtin": true, "exec": "mousepad"},
+  {"id": "images", "name": "Images", "group": "Utilities", "icon": "org.xfce.ristretto", "about": "View pictures", "builtin": true, "exec": "ristretto"},
+  {"id": "pdf", "name": "PDF Viewer", "group": "Office", "icon": "application-pdf", "about": "Read PDF files", "builtin": true, "exec": "mupdf"},
+  {"id": "calculator", "name": "Calculator", "group": "Utilities", "icon": "accessories-calculator", "about": "Sums and conversions", "builtin": true, "exec": "galculator"},
+  {"id": "monitor", "name": "System Monitor", "group": "Utilities", "icon": "utilities-system-monitor", "about": "What is using CPU and memory", "builtin": true, "exec": "xfce4-terminal -e htop"},
+  {"id": "wallpapers", "name": "Wallpapers", "group": "Utilities", "icon": "preferences-desktop-wallpaper", "about": "MIOSA wallpapers or your own", "builtin": true, "exec": "miosa-wallpapers"},
+
+  {"id": "docker", "name": "Docker", "group": "Developer", "icon": "docker", "about": "Containers and Compose", "exec": "xfce4-terminal"},
+  {"id": "vscode", "name": "Visual Studio Code", "group": "Developer", "icon": "com.visualstudio.code", "about": "The code editor", "exec": "code"},
+  {"id": "sublime", "name": "Sublime Text", "group": "Developer", "icon": "sublime-text", "about": "A fast text and code editor", "exec": "subl"},
+  {"id": "nodejs", "name": "Node.js", "group": "Developer", "icon": "nodejs", "about": "JavaScript runtime with npm (22 LTS)"},
+  {"id": "python", "name": "Python tools", "group": "Developer", "icon": "python", "about": "pip, venv, pipx and a compiler"},
+  {"id": "go", "name": "Go", "group": "Developer", "icon": "text-x-go", "about": "The Go toolchain"},
+  {"id": "rust", "name": "Rust", "group": "Developer", "icon": "text-rust", "about": "rustc and cargo"},
+  {"id": "java", "name": "Java", "group": "Developer", "icon": "java", "about": "OpenJDK 21"},
+  {"id": "gh", "name": "GitHub CLI", "group": "Developer", "icon": "github", "about": "Repos, pull requests and issues"},
+  {"id": "postgres", "name": "PostgreSQL client", "group": "Developer", "icon": "postgresql", "about": "psql and the client tools"},
+  {"id": "dbeaver", "name": "DBeaver", "group": "Developer", "icon": "dbeaver", "about": "A database browser for every engine", "exec": "dbeaver"},
+  {"id": "postman", "name": "Postman", "group": "Developer", "icon": "postman", "about": "Build and test APIs", "exec": "/opt/Postman/Postman"},
+  {"id": "tmux", "name": "tmux", "group": "Developer", "icon": "utilities-terminal", "about": "Terminal sessions that keep running"},
+  {"id": "neovim", "name": "Neovim", "group": "Developer", "icon": "nvim", "about": "The modal editor"},
+
+  {"id": "claude-code", "name": "Claude Code", "group": "Agents", "icon": "utilities-terminal", "about": "Anthropic's coding agent (adds Node.js)"},
+  {"id": "codex", "name": "Codex CLI", "group": "Agents", "icon": "utilities-terminal", "about": "OpenAI's coding agent (adds Node.js)"},
+  {"id": "gemini", "name": "Gemini CLI", "group": "Agents", "icon": "utilities-terminal", "about": "Google's coding agent (adds Node.js)"},
+
+  {"id": "brave", "name": "Brave", "group": "Internet", "icon": "brave-browser", "about": "A private browser with ad blocking", "exec": "brave-browser"},
+  {"id": "firefox", "name": "Firefox", "group": "Internet", "icon": "firefox", "about": "Mozilla's browser", "exec": "firefox"},
+  {"id": "tailscale", "name": "Tailscale", "group": "Internet", "icon": "network-vpn", "about": "Join this machine to your private network"},
+  {"id": "filezilla", "name": "FileZilla", "group": "Internet", "icon": "filezilla", "about": "FTP and SFTP transfers", "exec": "filezilla"},
+
+  {"id": "signal", "name": "Signal", "group": "Communication", "icon": "signal-desktop", "about": "Private messaging", "exec": "signal-desktop"},
+  {"id": "telegram", "name": "Telegram", "group": "Communication", "icon": "telegram", "about": "Messaging and channels", "exec": "/opt/Telegram/Telegram"},
+  {"id": "zoom", "name": "Zoom", "group": "Communication", "icon": "Zoom", "about": "Video meetings", "exec": "zoom"},
+  {"id": "discord", "name": "Discord", "group": "Communication", "icon": "discord", "about": "Chat and voice", "exec": "discord"},
+
+  {"id": "libreoffice", "name": "LibreOffice", "group": "Office", "icon": "libreoffice-main", "about": "Documents, spreadsheets and slides", "exec": "libreoffice"},
+  {"id": "obsidian", "name": "Obsidian", "group": "Office", "icon": "obsidian", "about": "Notes in plain Markdown", "exec": "obsidian"},
+  {"id": "keepassxc", "name": "KeePassXC", "group": "Office", "icon": "keepassxc", "about": "An offline password vault", "exec": "keepassxc"},
+
+  {"id": "gimp", "name": "GIMP", "group": "Creative", "icon": "gimp", "about": "Photo and image editing", "exec": "gimp"},
+  {"id": "inkscape", "name": "Inkscape", "group": "Creative", "icon": "inkscape", "about": "Vector drawing", "exec": "inkscape"},
+  {"id": "blender", "name": "Blender", "group": "Creative", "icon": "blender", "about": "3D modelling and rendering", "exec": "blender"},
+  {"id": "obs", "name": "OBS Studio", "group": "Media", "icon": "com.obsproject.Studio", "about": "Screen recording and streaming", "exec": "obs"},
+  {"id": "kdenlive", "name": "Kdenlive", "group": "Media", "icon": "kdenlive", "about": "Video editing", "exec": "kdenlive"},
+  {"id": "audacity", "name": "Audacity", "group": "Media", "icon": "audacity", "about": "Audio editing", "exec": "audacity"},
+  {"id": "vlc", "name": "VLC", "group": "Media", "icon": "vlc", "about": "Plays any video or audio", "exec": "vlc"},
+  {"id": "ffmpeg", "name": "FFmpeg", "group": "Media", "icon": "applications-multimedia", "about": "Convert and cut audio and video"},
+  {"id": "yt-dlp", "name": "yt-dlp", "group": "Media", "icon": "folder-download", "about": "Download videos from the web"}
 ]
