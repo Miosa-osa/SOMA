@@ -236,7 +236,7 @@ ARG WHITESUR_SHA256=406c9cd59705583f1754b0eaca96cc48bafda042b88ef143f16d8ae1820e
 RUN set -e; \
     apt-get update; \
     apt-get install -y --no-install-recommends pcmanfm plank gsimplecal dconf-cli dconf-service \
-      dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi gir1.2-gtk-3.0 \
+      dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
       mousepad ristretto mupdf galculator xz-utils xdotool; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
