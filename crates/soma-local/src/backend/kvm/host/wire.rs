@@ -92,6 +92,12 @@ pub(super) struct LaunchWire {
     /// the gate must not run.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) windowed: bool,
+    /// The decrypted Suspension this launch resumes (ADR 0034).
+    ///
+    /// Written only when set; a host that predates it reads a frame carrying it as an unknown
+    /// field and refuses, which is right: it would otherwise start a fresh machine in its place.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) resume: Option<PathBuf>,
 }
 
 /// What a launch established, whichever side performed it.

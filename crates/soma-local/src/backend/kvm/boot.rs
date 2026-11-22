@@ -11,6 +11,7 @@ use super::prepared::PreparedGeneration;
 use soma_vmm::sandbox::{Boot, ColdBootInputs, Network, Source, cold_boot_config};
 
 mod head;
+mod resume;
 
 pub(in crate::backend::kvm) use head::{head_root, private_head_from};
 
@@ -23,9 +24,9 @@ pub(super) fn boot_for(
     prepared: &PreparedGeneration,
     memory_mib: u64,
     identity: LaunchIdentity,
-    network: Network,
-    secrets: Vec<SecretFile>,
+    (network, secrets): (Network, Vec<SecretFile>),
     volume: Option<soma::VolumeAttachment>,
+    resume: Option<&std::path::Path>,
 ) -> Result<Boot, BackendFailureKind> {
     let instance = &InstanceId::new(hex(identity.instance))
         .map_err(|_| BackendFailureKind::WorkloadRejected)?;
@@ -67,7 +68,29 @@ pub(super) fn boot_for(
     // A prepared entry may carry a snapshot taken once for the whole Generation: this launch
     // then resumes that machine instead of booting a kernel.
     let guest_cid = identity.guest_cid;
-    let source = if let SnapshotBinding::Captured {
+    let source = if let Some(directory) = resume {
+        // A resume restores the Suspension's own members (ADR 0034): its memory and state, and
+        // its private head, which is this Instance's head as it was and is never cloned. The
+        // Generation still names the root, the devices, the shape and the contract, and the
+        // restore refuses members that disagree with them.
+        let members = resume::open(directory, devices.overlay())?;
+        Source::Restore {
+            objects: SnapshotObjects::adopt(members.state, members.memory, None),
+            hypervisor: Hypervisor::Device,
+            disks: SandboxDisks {
+                root,
+                overlay: members.overlay,
+                volume: None,
+                volume_placeholder: false,
+            },
+            volume,
+            devices,
+            memory_bytes: memory_mib * MIB,
+            vcpus,
+            contract,
+            hotplug,
+        }
+    } else if let SnapshotBinding::Captured {
         memory,
         overlay: snapshot_overlay,
         state,

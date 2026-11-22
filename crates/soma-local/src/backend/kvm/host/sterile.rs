@@ -227,6 +227,11 @@ fn set_desired(wanted: Vec<Wanted>, generic: usize) {
     desired.generic = generic;
 }
 
+/// Spawns one host with nothing primed in it, for a launch that restores its own machine.
+pub(super) fn spawn_unprimed() -> Result<SterileHost, BackendFailureKind> {
+    spawn(None)
+}
+
 /// Claims one pre-spawned host, falling back to a synchronous spawn only after depletion.
 pub(super) fn claim(
     prepared: &PreparedGeneration,

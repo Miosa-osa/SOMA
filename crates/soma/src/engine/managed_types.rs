@@ -12,6 +12,7 @@ pub struct LaunchMachineRequest {
     pub(super) machine_name: Option<MachineName>,
     pub(super) volume: Option<VolumeAttachment>,
     pub(super) windowed: bool,
+    pub(super) resume: Option<std::path::PathBuf>,
 }
 
 /// The durable volume one Instance's machine binds, as the host resolved it.
@@ -56,7 +57,25 @@ impl LaunchMachineRequest {
             machine_name: None,
             volume: None,
             windowed: false,
+            resume: None,
         }
+    }
+
+    /// This request resuming the Suspension decrypted into `directory` (ADR 0034).
+    ///
+    /// The machine is restored from that directory's members instead of from its Generation's
+    /// snapshot; the Generation still names the artifacts, the shape and the contract, and a
+    /// backend that cannot restore one refuses the launch.
+    #[must_use]
+    pub fn with_resume(mut self, directory: impl Into<std::path::PathBuf>) -> Self {
+        self.resume = Some(directory.into());
+        self
+    }
+
+    /// The decrypted Suspension this launch resumes, when it resumes one.
+    #[must_use]
+    pub fn resume(&self) -> Option<&std::path::Path> {
+        self.resume.as_deref()
     }
 
     /// This request with a network whose egress can be opened and closed after launch.

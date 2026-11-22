@@ -46,6 +46,7 @@ impl KvmBackend {
                 LaunchExtras {
                     volume: request.volume().cloned(),
                     windowed: request.windowed(),
+                    resume: request.resume().map(std::path::Path::to_path_buf),
                 },
             )?,
             Some(directory) => host::launch(host::HostedLaunch {
@@ -56,6 +57,7 @@ impl KvmBackend {
                 shape: request.shape(),
                 volume: request.volume(),
                 windowed: request.windowed(),
+                resume: request.resume(),
                 admitted_at,
             })
             .map_err(|kind| self.fail(operation, kind))?,

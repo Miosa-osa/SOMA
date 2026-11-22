@@ -12,6 +12,7 @@ pub struct LaunchRequest<'a, P> {
     shape: &'a MachineShape,
     volume: Option<&'a VolumeAttachment>,
     windowed: bool,
+    resume: Option<&'a std::path::Path>,
 }
 
 impl<'a, P> LaunchRequest<'a, P> {
@@ -30,7 +31,21 @@ impl<'a, P> LaunchRequest<'a, P> {
             shape,
             volume: None,
             windowed: false,
+            resume: None,
         }
+    }
+
+    /// This request resuming the decrypted Suspension in `resume` (ADR 0034).
+    #[must_use]
+    pub const fn with_resume(mut self, resume: Option<&'a std::path::Path>) -> Self {
+        self.resume = resume;
+        self
+    }
+
+    /// The decrypted Suspension this launch resumes, when it resumes one.
+    #[must_use]
+    pub const fn resume(&self) -> Option<&'a std::path::Path> {
+        self.resume
     }
 
     /// This request with its network's egress openable after launch (see
