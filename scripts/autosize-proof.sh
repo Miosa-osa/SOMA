@@ -108,8 +108,9 @@ IDLE_CPU=$CPU
 
 log "a CPU load on every processor: the processors grow"
 guest cpuload /bin/sh -c "for i in \$(seq 1 $VCPUS); do timeout 40 sh -c 'while :; do :; done' & done; wait" &
+LOAD=$!
 watch 35
-wait || true
+wait "$LOAD" || true
 check "a busy sandbox grew its processors" "$(( CPU > IDLE_CPU ))" 1
 
 log "a memory load: the memory grows"
@@ -121,9 +122,10 @@ a = []
 for _ in range($CHUNKS):
     a.append(b\"\\x01\" * (256 << 20)); time.sleep(2)
 time.sleep(30)'" &
+LOAD=$!
 watch 60
 GROWN=$MEM
-wait || true
+wait "$LOAD" || true
 check "a sandbox short of memory grew it" "$(( GROWN > MEMORY ))" 1
 
 log "the load ends: the sandbox shrinks back"
