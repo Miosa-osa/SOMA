@@ -190,6 +190,16 @@ impl VsockDevice {
             && self.events.is_empty()
     }
 
+    /// Drops what is left of the connection a suspended guest acknowledged on (ADR 0034).
+    ///
+    /// The guest retired its session before it acknowledged, so the host's end and whatever the
+    /// guest sent while closing it are all that remain. A restore resets the transport anyway
+    /// ([`Self::after_restore`]), so none of it may outlive the capture; nothing is queued to the
+    /// guest, because a paused guest would never read it.
+    pub fn retire_for_suspension(&mut self) {
+        self.clear_transient();
+    }
+
     /// Clears every transient state and bumps the generation.
     fn clear_transient(&mut self) {
         self.endpoint = None;

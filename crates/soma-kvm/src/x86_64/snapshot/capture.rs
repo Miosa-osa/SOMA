@@ -124,6 +124,14 @@ pub fn capture(
     // agent's authenticated acknowledgement, which only the Instance's own agent can send.
     quiesced.prove(QuiescePrecondition::GenerationAgentBooted)?;
     quiesced.prove(QuiescePrecondition::RepairPointReached)?;
+    let suspension = matches!(request.point, CapturePoint::Acknowledged);
+    if suspension {
+        sandbox
+            .bus()
+            .vsock_mut()
+            .device_mut()
+            .retire_for_suspension();
+    }
     quiesce::prove_no_ingress(&sandbox.bus())?;
     quiesced.prove(QuiescePrecondition::IngressDisabled)?;
 
@@ -138,6 +146,10 @@ pub fn capture(
         .ok_or(SnapshotError::NotQuiescent("the machine is not paused"))?;
     let mut bus = paused.bus;
     quiesce::drain(&mut bus, &paused.memory)?;
+    // The final drain may have taken the guest's last packets on the retired connection.
+    if suspension {
+        bus.vsock_mut().device_mut().retire_for_suspension();
+    }
     quiesce::prove_queues_quiescent(&mut bus, &paused.memory)?;
     let posted = quiesce::posted(&mut bus, &paused.memory);
     quiesced.prove(QuiescePrecondition::QueuesProvenQuiescent)?;
