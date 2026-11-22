@@ -43,6 +43,8 @@ extend-ignore-identifiers-re = [
 # Names in the desktop workload: the WhiteSur icon and GTK themes, the gir1.2 GObject typelib
 # packages, and the Shotcut video editor.
 WhiteSur = "WhiteSur"
+Sur = "Sur"
+sur = "sur"
 gir = "gir"
 Shotcut = "Shotcut"
 shotcut = "shotcut"
