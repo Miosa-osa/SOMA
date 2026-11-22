@@ -127,7 +127,10 @@ fn a_guest_that_gives_nothing_back_is_asked_again_only_after_a_wait() {
     }
     // Still 8192: refused, and not asked again for a while.
     for _ in 0..REFUSED_READINGS {
-        assert_eq!(memory(&POLICY, &sample(0.1, 2, 7000, 8192), &mut calm), None);
+        assert_eq!(
+            memory(&POLICY, &sample(0.1, 2, 7000, 8192), &mut calm),
+            None
+        );
     }
     // The wait ran out: the next calm run asks again.
     let mut asked = None;
