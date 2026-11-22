@@ -141,7 +141,7 @@ RUN mkdir -p /etc/soma \
  && test "$(wc -l < /etc/soma/warm)" -gt 30
 
 # The MIOSA look and the apps a person uses every day: Openbox's MIOSA theme, a top bar and a dock
-# (tint2), a gradient background (hsetroot), the Yaru GTK and icon themes, Inter and JetBrains Mono,
+# (tint2), a static wallpaper (hsetroot), the Yaru GTK and icon themes, Inter and JetBrains Mono,
 # Thunar for files, and Google Chrome pinned by the SHA-256 of its package. Chrome is set up for a
 # machine that runs for weeks with accounts signed in: it restores the last session, never asks to
 # be the default or shows a first run, and keeps logins without a keyring prompt.
@@ -159,6 +159,24 @@ RUN set -e; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
     command -v google-chrome-stable tint2 hsetroot thunar picom
+# KasmVNC, the default screen for people (see session.sh): pinned by the SHA-256 of its release
+# package, with its web client served on the viewer port.
+ARG KASMVNC_VERSION=1.4.0
+ARG KASMVNC_SHA256=12bac6014149c5fdee75f0d403785aaa3e5dd4ea222de73253a5d4181bc9567e
+RUN set -e; \
+    deb="kasmvncserver_noble_${KASMVNC_VERSION}_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://github.com/kasmtech/KasmVNC/releases/download/v${KASMVNC_VERSION}/${deb}"; \
+    echo "${KASMVNC_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}"; \
+    rm -f "/tmp/${deb}"; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    command -v Xkasmvnc; \
+    mkdir -p /etc/kasmvnc; \
+    printf '%s\n' 'network:' '  protocol: http' '  websocket_port: 6080' '  ssl:' \
+      '    require_ssl: false' '    pem_certificate: ""' '    pem_key: ""' > /etc/kasmvnc/kasmvnc.yaml
 COPY look/openbox/themerc /usr/share/themes/MIOSA/openbox-3/themerc
 COPY look/openbox/rc.xml /etc/soma-desktop/openbox.xml
 COPY look/openbox/menu.xml /etc/soma-desktop/menu.xml
@@ -168,11 +186,9 @@ COPY look/gtk/settings.ini /home/ubuntu/.config/gtk-3.0/settings.ini
 COPY look/chrome/miosa.json /etc/opt/chrome/policies/managed/miosa.json
 COPY look/brand/miosa-icon.png /usr/share/soma-desktop/miosa-icon.png
 COPY look/compositor/picom.conf /etc/soma-desktop/picom.conf
-COPY look/wallpaper/make.py /tmp/make-wallpaper.py
+COPY look/wallpaper/blue-hour.jpg /usr/share/soma-desktop/blue-hour.jpg
 COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
-RUN python3 /tmp/make-wallpaper.py /usr/share/soma-desktop/wallpaper.png \
- && rm -f /tmp/make-wallpaper.py \
- && test -s /usr/share/soma-desktop/wallpaper.png \
+RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
  && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
       > /usr/local/bin/google-chrome \
  && chmod 0755 /usr/local/bin/google-chrome \

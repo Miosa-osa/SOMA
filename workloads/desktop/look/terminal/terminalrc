@@ -1,17 +1,17 @@
 [Configuration]
-FontName=JetBrains Mono 11
+FontName=JetBrains Mono 12
 MiscMenubarDefault=FALSE
 MiscToolbarDefault=FALSE
 MiscBorderDefault=TRUE
 ScrollingBar=TERMINAL_SCROLLBAR_NONE
 ScrollingLines=100000
-MiscCursorBlinks=TRUE
+MiscCursorBlinks=FALSE
 MiscCursorShape=TERMINAL_CURSOR_SHAPE_IBEAM
-MiscDefaultGeometry=110x32
+MiscDefaultGeometry=100x28
 MiscConfirmClose=FALSE
 MiscShowUnsafePasteDialog=FALSE
-ColorForeground=#e6e8ee
-ColorBackground=#0e1016
+ColorForeground=#edf2fa
+ColorBackground=#101624
 ColorCursor=#8b8bff
 ColorBold=#ffffff
 ColorBoldUseDefault=FALSE

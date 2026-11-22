@@ -983,3 +983,9 @@ replaying its own operation. That is why the retention window is ten minutes and
 first sweep that saw the record terminal rather than from a time stored in the record: no record carries a
 wall-clock time, and counting from the sweep makes a restart wait a whole window instead of releasing
 everything at once. [ADR 0055](docs/adr/0055-release-terminal-machine-records.md) states the rule.
+
+## Desktop wallpaper and chrome
+
+The preview desktop uses a compressed static blue-hour wallpaper with a fallback solid fill when X cannot paint the image.
+The top panel, dock, Openbox decorations, and larger terminal type share the wallpaper's slate-blue palette.
+The existing Host 12 preview applied the theme through its authenticated guest interface without rebooting the desktop.

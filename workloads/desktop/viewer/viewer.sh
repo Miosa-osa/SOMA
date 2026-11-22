@@ -11,7 +11,8 @@
 set -u
 
 STATE="${SOMA_DESKTOP_STATE:?SOMA_DESKTOP_STATE is set by soma-desktop-session}"
-PORT="${SOMA_DESKTOP_VIEWER_PORT:-6080}"
+# 6081: the screen itself serves people on 6080 (KasmVNC); this stream is the optional one.
+PORT="${SOMA_DESKTOP_VIEWER_PORT:-6081}"
 export DISPLAY=:0 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:?}"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
 

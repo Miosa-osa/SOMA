@@ -1,23 +1,23 @@
 # MIOSA: a flat dark Openbox theme for SOMA desktops. Thin title bars, no gradients.
 border.width: 1
 padding.width: 8
-padding.height: 6
+padding.height: 8
 window.handle.width: 0
 window.client.padding.width: 0
 window.client.padding.height: 0
-window.active.border.color: #2a2f3a
+window.active.border.color: #364660
 window.inactive.border.color: #1d2129
 window.active.title.bg: flat solid
-window.active.title.bg.color: #171a21
+window.active.title.bg.color: #192234
 window.inactive.title.bg: flat solid
 window.inactive.title.bg.color: #12141a
 window.active.label.bg: parentrelative
 window.inactive.label.bg: parentrelative
 window.active.label.text.color: #e8eaf0
-window.inactive.label.text.color: #7d8494
+window.inactive.label.text.color: #9ba8be
 window.label.text.justify: center
 window.active.button.unpressed.bg: parentrelative
-window.active.button.unpressed.image.color: #9aa1b2
+window.active.button.unpressed.image.color: #b3bfd3
 window.active.button.hover.bg: flat solid
 window.active.button.hover.bg.color: #262a34
 window.active.button.hover.image.color: #ffffff

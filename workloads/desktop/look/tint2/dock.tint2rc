@@ -1,8 +1,8 @@
 # The dock: a floating rounded launcher centered at the bottom of the screen.
 rounded = 14
 border_width = 1
-background_color = #14161d 82
-border_color = #3a3f52 70
+background_color = #101827 96
+border_color = #526279 64
 background_color_hover = #14161d 100
 border_color_hover = #2a2f3a 100
 background_color_pressed = #14161d 100
@@ -19,10 +19,10 @@ background_color_pressed = #30354a 100
 border_color_pressed = #30354a 100
 
 panel_items = L
-panel_size = 0 66
+panel_size = 0 68
 panel_shrink = 1
-panel_margin = 0 18
-panel_padding = 10 8 8
+panel_margin = 0 20
+panel_padding = 12 8 10
 panel_background_id = 1
 wm_menu = 0
 panel_dock = 0
@@ -38,7 +38,7 @@ mouse_hover_icon_asb = 100 0 12
 launcher_padding = 2 0 6
 launcher_background_id = 0
 launcher_icon_background_id = 2
-launcher_icon_size = 46
+launcher_icon_size = 42
 launcher_icon_theme = Yaru
 launcher_icon_theme_override = 0
 launcher_tooltip = 1

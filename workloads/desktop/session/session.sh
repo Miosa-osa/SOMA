@@ -59,18 +59,43 @@ dbus-daemon --session --address="$BUS" --nofork --nopidfile &
 export DBUS_SESSION_BUS_ADDRESS="$BUS"
 wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
-# Xorg with the dummy driver is the screen: a frame buffer in memory, no device, no VNC. It runs as
-# the desktop user, so it is started directly (not through the setuid wrapper) with its log in the
-# session state, and it opens no virtual terminal.
-/usr/lib/xorg/Xorg :0 \
-    -config /etc/soma-desktop/xorg.conf \
-    -logfile "$STATE/logs/Xorg.log" \
-    -nolisten tcp \
-    -noreset \
-    -novtswitch \
-    -sharevts \
-    -keeptty \
-    +extension RANDR +extension RENDER +extension XTEST &
+# The screen. By default it is KasmVNC: the X server and the viewer in one process, sending only
+# what changed on screen, so a desktop people live in all day costs little CPU and stays sharp, with
+# clipboard and resize-to-window, on the viewer port (6080) the platform reaches through the tunnel.
+# SOMA_DESKTOP_SCREEN=xorg keeps the frame-buffer Xorg, for a desktop watched only through the
+# streaming viewer (Sunshine), which then also takes input.
+if [[ "${SOMA_DESKTOP_SCREEN:-kasmvnc}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
+    Xkasmvnc :0 \
+        -publicIP 127.0.0.1 \
+        -httpd /usr/share/kasmvnc/www \
+        -geometry "${SOMA_DESKTOP_GEOMETRY:-1920x1080}" \
+        -depth 24 \
+        -websocketPort 6080 \
+        -SecurityTypes None \
+        -disableBasicAuth \
+        -interface 0.0.0.0 \
+        -AlwaysShared \
+        -AcceptSetDesktopSize=1 \
+        -AcceptKeyEvents \
+        -AcceptPointerEvents \
+        -SendCutText \
+        -AcceptCutText \
+        -FrameRate=30 \
+        -nolisten tcp \
+        >"$STATE/logs/kasmvnc.log" 2>&1 &
+else
+    # Xorg with the dummy driver: a frame buffer in memory, no device, no VNC. It runs as the
+    # desktop user, started directly (not through the setuid wrapper), and opens no terminal.
+    /usr/lib/xorg/Xorg :0 \
+        -config /etc/soma-desktop/xorg.conf \
+        -logfile "$STATE/logs/Xorg.log" \
+        -nolisten tcp \
+        -noreset \
+        -novtswitch \
+        -sharevts \
+        -keeptty \
+        +extension RANDR +extension RENDER +extension XTEST &
+fi
 wait_for x_socket 150 test -S /tmp/.X11-unix/X0 || exit 1
 export DISPLAY=:0
 
@@ -85,10 +110,10 @@ openbox --sm-disable --config-file /etc/soma-desktop/openbox.xml &
 # root window when it manages it. The background is painted after that.
 wait_for window_manager 200 pgrep -u "$(id -u)" -x openbox || exit 1
 wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id"' || exit 1
-# The MIOSA look: a dark gradient behind everything, the top bar and the dock. Each is cosmetic, so
+# The MIOSA look: a static wallpaper, the top bar and the dock. Each is cosmetic, so
 # a part that fails to start leaves a working desktop rather than no desktop.
-hsetroot -cover /usr/share/soma-desktop/wallpaper.png >/dev/null 2>&1 \
-    || xsetroot -solid '#0b0d12' 2>/dev/null || true
+hsetroot -cover /usr/share/soma-desktop/blue-hour.jpg >/dev/null 2>&1 \
+    || xsetroot -solid '#0d1527' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
