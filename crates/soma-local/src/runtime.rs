@@ -284,7 +284,7 @@ impl LocalRuntime {
             "soma: suspension of {} read in {} ms, sealed in {} ms",
             request.instance_id.as_str(),
             read.as_millis(),
-            (started.elapsed() - read).as_millis()
+            started.elapsed().saturating_sub(read).as_millis()
         );
         sealed
     }

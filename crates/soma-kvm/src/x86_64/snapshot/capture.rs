@@ -198,7 +198,9 @@ pub fn capture(
     sequence.complete(CaptureStep::ReadPit)?;
 
     let live = bus.snapshot_all();
+    let t_root = Instant::now();
     let root_digest = artifacts::hash(Artifact::Root, request.root)?;
+    let root_ms = t_root.elapsed().as_millis();
     // A machine always has at least one processor and its contract admits at most eight, so the
     // count fits the field a template states it in; anything else is a machine this capture
     // cannot describe.
@@ -212,6 +214,7 @@ pub fn capture(
         profile::cpu_template(paused.kvm, GuestMachine::new(request.contract, vcpus))?;
     sequence.complete(CaptureStep::ReadDevices)?;
 
+    let t_memory = Instant::now();
     let mut memory = Staging::create(&request.paths, Artifact::Memory, request.paths.memory())?;
     let mut buffer = vec![0_u8; CHUNK];
     let mut offset = 0_u64;
@@ -228,6 +231,8 @@ pub fn capture(
         memory.write(&buffer[..span])?;
         offset += u64::try_from(span).unwrap_or(0);
     }
+    let memory_ms = t_memory.elapsed().as_millis();
+    let t_overlay = Instant::now();
     let mut overlay = request
         .overlay
         .take()
@@ -238,6 +243,7 @@ pub fn capture(
             Ok::<_, SnapshotError>(staging)
         })
         .transpose()?;
+    let overlay_ms = t_overlay.elapsed().as_millis();
     let overlay_digest = overlay
         .as_ref()
         .map_or_else(|| Digest::from_bytes([0; 32]), Staging::running_digest);
@@ -296,6 +302,7 @@ pub fn capture(
     }
     sequence.complete(CaptureStep::IndependentlyDecodeStaging)?;
 
+    let t_seal = Instant::now();
     let memory_digest = memory.seal()?;
     let overlay_digest = overlay
         .as_mut()
@@ -303,6 +310,12 @@ pub fn capture(
         .transpose()?
         .unwrap_or_else(|| Digest::from_bytes([0; 32]));
     let state_digest = state.seal()?;
+    if matches!(request.point, CapturePoint::Acknowledged) {
+        eprintln!(
+            "soma: capture steps root {root_ms} ms, memory {memory_ms} ms, overlay {overlay_ms} ms, rehash {} ms",
+            t_seal.elapsed().as_millis()
+        );
+    }
     sequence.complete(CaptureStep::HashThroughRetainedHandles)?;
 
     let memory_bytes = memory.written();
