@@ -68,16 +68,9 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
         } => {
             // The volume is opened from the path the store certified, and a file that cannot be
             // opened refuses the launch rather than serving an empty disk.
-            let data = match volume
-                .as_ref()
-                .map(|attachment| super::super::volume::open(&attachment.path))
-            {
-                Some(Ok(file)) => Some(file),
-                Some(Err(_)) => {
-                    let _ignored = responses.send(Response::Failed(SessionError::Create));
-                    return;
-                }
-                None => None,
+            let Ok(data) = open_volume(volume.as_ref()) else {
+                let _ignored = responses.send(Response::Failed(SessionError::Create));
+                return;
             };
             // A head is a fresh inode: its pages are shared with the Generation's template but
             // not resident in it, so the guest's first read faults every page it touches in.
@@ -156,4 +149,11 @@ fn answer_suspension(
         Err(error) => Response::Failed(error),
     };
     let _ignored = responses.send(answer);
+}
+
+/// Opens the certified volume, if the Instance has one; a file that cannot be opened is an error.
+fn open_volume(volume: Option<&soma::VolumeAttachment>) -> std::io::Result<Option<File>> {
+    volume
+        .map(|attachment| super::super::volume::open(&attachment.path))
+        .transpose()
 }
