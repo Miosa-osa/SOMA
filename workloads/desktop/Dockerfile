@@ -140,6 +140,59 @@ RUN mkdir -p /etc/soma \
     } | awk '!seen[$0]++' | head -256 > /etc/soma/warm \
  && test "$(wc -l < /etc/soma/warm)" -gt 30
 
+# The MIOSA look and the apps a person uses every day: Openbox's MIOSA theme, a top bar and a dock
+# (tint2), a gradient background (hsetroot), the Yaru GTK and icon themes, Inter and JetBrains Mono,
+# Thunar for files, and Google Chrome pinned by the SHA-256 of its package. Chrome is set up for a
+# machine that runs for weeks with accounts signed in: it restores the last session, never asks to
+# be the default or shows a first run, and keeps logins without a keyring prompt.
+ARG CHROME_VERSION=158.0.8127.36-1
+ARG CHROME_SHA256=4696bce00b128f385a870ba2eb6eede61698f22374ea0d8e09af8a1c6543d397
+RUN set -e; \
+    deb="google-chrome-stable_${CHROME_VERSION}_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/${deb}"; \
+    echo "${CHROME_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}" tint2 hsetroot thunar \
+      fonts-inter fonts-jetbrains-mono yaru-theme-gtk yaru-theme-icon; \
+    rm -f "/tmp/${deb}" /etc/apt/sources.list.d/google-chrome.list; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    command -v google-chrome-stable tint2 hsetroot thunar
+COPY look/openbox/themerc /usr/share/themes/MIOSA/openbox-3/themerc
+COPY look/openbox/rc.xml /etc/soma-desktop/openbox.xml
+COPY look/openbox/menu.xml /etc/soma-desktop/menu.xml
+COPY look/tint2/ /etc/soma-desktop/tint2/
+COPY look/terminal/terminalrc /home/ubuntu/.config/xfce4/terminal/terminalrc
+COPY look/gtk/settings.ini /home/ubuntu/.config/gtk-3.0/settings.ini
+COPY look/chrome/miosa.json /etc/opt/chrome/policies/managed/miosa.json
+COPY look/brand/miosa-icon.png /usr/share/soma-desktop/miosa-icon.png
+COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
+RUN printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
+      > /usr/local/bin/google-chrome \
+ && chmod 0755 /usr/local/bin/google-chrome \
+ && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' \
+      /usr/share/applications/google-chrome.desktop \
+ && grep -q '^Exec=/usr/local/bin/google-chrome' /usr/share/applications/google-chrome.desktop \
+ && test -f /usr/share/applications/xfce4-terminal.desktop \
+ && test -f /usr/share/applications/thunar.desktop \
+ && cp /home/ubuntu/.config/gtk-3.0/settings.ini /etc/gtk-3.0/settings.ini \
+ && chown -R ubuntu:ubuntu /home/ubuntu/.config
+
+# The viewer opens straight into this desktop: its front door finds the host and the Desktop app and
+# goes to the stream, every page defaults to WebSockets (WebRTC cannot cross the SOMA tunnel), and
+# the page carries the MIOSA name. The default is patched in each bundle that sets it, and the build
+# fails if the bundles change shape under a new moonlight-web.
+COPY look/viewer/index.html /opt/moonlight-web/static/index.html
+COPY look/brand/miosa-icon.png /opt/moonlight-web/static/miosa-icon.png
+COPY look/brand/miosa-logo.png /opt/moonlight-web/static/miosa-logo.png
+RUN cd /opt/moonlight-web/static \
+ && test "$(grep -l 'dataTransport:"auto"' ./*.js | wc -l)" -eq 4 \
+ && sed -i 's/dataTransport:"auto"/dataTransport:"websocket"/' ./*.js \
+ && test "$(grep -l 'dataTransport:"auto"' ./*.js | wc -l)" -eq 0 \
+ && sed -i 's|<title>Stream</title>|<title>MIOSA Desktop</title>|; s|href=resources/moonlight.svg|href=miosa-icon.png|; s|href=moonlight.svg|href=miosa-icon.png|' stream.html \
+ && grep -q '<title>MIOSA Desktop</title>' stream.html
+
 # The viewer's own state, made once: moonlight-web's configuration (WebSockets only, so no public
 # STUN server is ever asked; its data in the desktop user's home), then the pairing itself.
 RUN chmod 0755 /usr/local/libexec/soma-desktop/viewer.sh /usr/local/libexec/soma-desktop/pair.py \

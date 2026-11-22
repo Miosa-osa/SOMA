@@ -80,13 +80,18 @@ export QT_ACCESSIBILITY=1 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 GNOME_ACCESSIBILITY
 /usr/libexec/at-spi-bus-launcher --launch-immediately &
 wait_for a11y_bus 50 dbus-send --session --print-reply --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress || exit 1
 
-openbox --sm-disable &
+openbox --sm-disable --config-file /etc/soma-desktop/openbox.xml &
 # The desktop is up once Openbox has claimed the screen: it sets _NET_SUPPORTING_WM_CHECK on the
 # root window when it manages it. The background is painted after that.
 wait_for window_manager 200 pgrep -u "$(id -u)" -x openbox || exit 1
 wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id"' || exit 1
-xsetroot -solid '#2b2f36' 2>/dev/null || true
+# The MIOSA look: a dark gradient behind everything, the top bar and the dock. Each is cosmetic, so
+# a part that fails to start leaves a working desktop rather than no desktop.
+hsetroot -add '#151a2a' -add '#0b0d12' -gradient 160 >/dev/null 2>&1 \
+    || xsetroot -solid '#0b0d12' 2>/dev/null || true
 xset s off s noblank -dpms 2>/dev/null || true
+tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
+tint2 -c /etc/soma-desktop/tint2/dock.tint2rc >"$STATE/logs/dock.log" 2>&1 &
 
 cua-driver serve \
     --permission-mode standard \

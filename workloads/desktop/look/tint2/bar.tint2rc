@@ -1,0 +1,81 @@
+# The top bar: the MIOSA mark and the open windows on the left, the clock on the right.
+rounded = 0
+border_width = 0
+background_color = #0e1016 100
+border_color = #0e1016 100
+background_color_hover = #0e1016 100
+border_color_hover = #0e1016 100
+background_color_pressed = #0e1016 100
+border_color_pressed = #0e1016 100
+
+# 2: a window in the task list
+rounded = 6
+border_width = 0
+background_color = #0e1016 0
+border_color = #0e1016 0
+background_color_hover = #1c1f28 100
+border_color_hover = #1c1f28 100
+background_color_pressed = #262a34 100
+border_color_pressed = #262a34 100
+
+# 3: the active window
+rounded = 6
+border_width = 0
+background_color = #1c1f28 100
+border_color = #1c1f28 100
+background_color_hover = #262a34 100
+border_color_hover = #262a34 100
+background_color_pressed = #262a34 100
+border_color_pressed = #262a34 100
+
+panel_items = BTC
+panel_size = 100% 30
+panel_margin = 0 0
+panel_padding = 10 3 10
+panel_background_id = 1
+wm_menu = 0
+panel_dock = 0
+panel_position = top center horizontal
+panel_layer = top
+panel_monitor = all
+strut_policy = follow_size
+panel_window_name = miosa-bar
+disable_transparency = 1
+font_shadow = 0
+mouse_effects = 1
+
+button = new
+button_icon = /usr/share/soma-desktop/miosa-icon.png
+button_text = MIOSA
+button_font = Inter Bold 9
+button_font_color = #e8eaf0 100
+button_padding = 6 2 8
+button_background_id = 2
+button_max_icon_size = 16
+
+taskbar_mode = single_desktop
+taskbar_padding = 12 0 4
+taskbar_background_id = 0
+taskbar_name = 0
+taskbar_hide_inactive_tasks = 0
+taskbar_distribute_size = 0
+task_icon = 1
+task_text = 1
+task_centered = 0
+task_maximum_size = 220 24
+task_padding = 8 2 6
+task_font = Inter 9
+task_font_color = #9aa1b2 100
+task_active_font_color = #ffffff 100
+task_background_id = 2
+task_active_background_id = 3
+task_urgent_background_id = 3
+task_iconified_background_id = 2
+mouse_left = toggle_iconify
+mouse_middle = close
+
+time1_format = %a %d %b  %H:%M
+time1_font = Inter Medium 9
+clock_font_color = #c8ccd6 100
+clock_padding = 4 0
+clock_background_id = 0
