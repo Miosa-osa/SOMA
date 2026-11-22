@@ -3,7 +3,7 @@ use std::{
     ffi::OsStr,
     fs::{self, File},
     io::{self, Read as _, Write as _},
-    os::unix::fs::MetadataExt as _,
+    os::unix::fs::{MetadataExt as _, PermissionsExt as _, chown},
     path::{Path, PathBuf},
 };
 
@@ -43,7 +43,9 @@ pub(super) fn install(
     )?;
 
     let root = Path::new(root);
-    let owner = directory(root)?.uid();
+    let root_metadata = directory(root)?;
+    let owner = root_metadata.uid();
+    let observer_group = (root_metadata.mode() & 0o050 == 0o050).then(|| root_metadata.gid());
     let root = root.canonicalize()?;
     let incoming = root.join(".incoming");
     let incoming_metadata = directory(&incoming)?;
@@ -63,6 +65,7 @@ pub(super) fn install(
     let Some(entry) = installed else {
         let manifest = verify_entry(&staged, owner, &reference, &id, &digest)?;
         record_publication(&staged, &reference, &id, &manifest)?;
+        share_inventory(&staged, observer_group)?;
         validate_tree(&staged, owner, true)?;
         renameat_with(CWD, &staged, CWD, &target, RenameFlags::NOREPLACE)?;
         File::open(&root)?.sync_all()?;
@@ -74,6 +77,7 @@ pub(super) fn install(
     let manifest = verify_entry(&entry, owner, &reference, &id, &digest)?;
     if entry == target {
         record_publication(&entry, &reference, &id, &manifest)?;
+        share_inventory(&entry, observer_group)?;
         File::open(&entry)?.sync_all()?;
     }
     File::open(&root)?.sync_all()?;
@@ -194,6 +198,22 @@ fn record_publication(
     receipt.as_file().sync_all()?;
     receipt.persist_noclobber(path)?;
     Ok(())
+}
+
+fn share_inventory(entry: &Path, group: Option<u32>) -> io::Result<()> {
+    let Some(group) = group else {
+        return Ok(());
+    };
+    for name in ["publication.json", "reference", "generation.id"] {
+        let path = entry.join(name);
+        chown(&path, None, Some(group))?;
+        let mode = fs::metadata(&path)?.mode() & 0o777 | 0o040;
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode))?;
+        File::open(path)?.sync_all()?;
+    }
+    chown(entry, None, Some(group))?;
+    let mode = fs::metadata(entry)?.mode() & 0o777 | 0o010;
+    fs::set_permissions(entry, fs::Permissions::from_mode(mode))
 }
 
 // Requiring exclusive write authority protects the bytes between verification and rename.

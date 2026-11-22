@@ -28,3 +28,7 @@ It records the pinned OCI reference, Generation ID, and exact CPU, memory, and w
 A host inventory reader may report the receipt from the protected installed directory.
 This is installation evidence only, and runner admission still verifies the Generation independently.
 An identical retry may add the receipt to a previously installed entry after verifying its contents again.
+
+When the prepared root grants read and traverse permissions to its group, the installer grants that group traverse access to the published entry and read access to its three inventory files.
+The installer leaves the snapshot and store permissions as supplied.
+An operator can assign the prepared root to the observing service's group without granting that service write access or making the incoming directory readable.
