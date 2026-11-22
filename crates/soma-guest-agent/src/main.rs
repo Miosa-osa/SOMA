@@ -179,11 +179,11 @@ mod agent {
         console::report(REPAIR_POINT_LINE);
         // Every pass of this loop is one Instance's life on this machine: the first from the
         // capture point, every later one from a suspension point (ADR 0034), which is the same
-        // disconnected wait. A resume writes fresh launch material, and the repair below runs
-        // exactly as it does at a launch: new entropy, transport, identity, network and session.
-        let mut parked = controller;
+        // disconnected wait. A resume writes fresh launch material and gets new entropy,
+        // transport, network and session as a launch does, but keeps its session state.
+        let mut parked = instance(controller, declared, false);
         loop {
-            parked = instance(parked, declared);
+            parked = instance(parked, declared, true);
         }
     }
 
@@ -191,9 +191,13 @@ mod agent {
     ///
     /// It returns only when the host suspended the Instance, parked at the suspension point; a
     /// fault destroys the guest and a Shutdown powers it off, so neither comes back here.
+    ///
+    /// `resumed` is whether this machine was suspended and is now resumed, which only this
+    /// agent's own memory can say: a resume keeps the session state a fresh Instance is given.
     fn instance(
         controller: Controller<Captured>,
         declared: boot::Declared,
+        resumed: bool,
     ) -> Controller<Captured> {
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
@@ -216,7 +220,11 @@ mod agent {
             ),
         );
         let repaired = timings::measure(Measured::Identity, || {
-            identity::repair(binding.instance(), network.time_sample_nanos(), declared)
+            if resumed {
+                identity::repair_resumed(network.time_sample_nanos())
+            } else {
+                identity::repair(binding.instance(), network.time_sample_nanos(), declared)
+            }
         });
         let (controller, ()) =
             advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));

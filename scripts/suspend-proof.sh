@@ -88,7 +88,8 @@ log "starting a counter, writing a file and a tmpfs value"
 guest start /bin/sh -c 'mkdir -p /run/proof && cat /proc/sys/kernel/random/uuid > /run/proof/tmpfs-value
 cat /run/proof/tmpfs-value > /root/disk-value && sync
 setsid nohup sh -c "i=0; while :; do i=\$((i+1)); echo \$i > /run/proof/counter; sleep 0.2; done" >/dev/null 2>&1 &
-echo $! > /run/proof/counter.pid; sleep 1; cat /run/proof/counter.pid'
+echo $! > /run/proof/counter.pid; echo $! >> /run/soma/survivors
+sleep 1; cat /run/proof/counter.pid'
 check "the counter started" "$GUEST_EXIT" 0
 COUNTER_PID="$(tr -d '[:space:]' <"$GUEST_OUT")"
 guest before /bin/sh -c 'cat /run/proof/tmpfs-value; cat /run/proof/counter; cat /proc/uptime'
