@@ -233,7 +233,9 @@ RUN set -e; \
     test -d /usr/share/icons/WhiteSur-dark; \
     command -v pcmanfm plank gsimplecal
 COPY look/backgrounds/miosa-dark.jpg look/backgrounds/miosa-light.jpg /usr/share/backgrounds/miosa/
-COPY look/desktop/pcmanfm.conf look/desktop/desktop-items-0.conf /etc/xdg/pcmanfm/miosa/
+# PCManFM reads its profile from the user's folder only; a profile it cannot find there it writes
+# afresh with a black background, so the MIOSA profile is the user's from the start.
+COPY look/desktop/pcmanfm.conf look/desktop/desktop-items-0.conf /home/ubuntu/.config/pcmanfm/miosa/
 COPY look/desktop/libfm.conf /etc/xdg/libfm/libfm.conf
 COPY look/desktop/miosa-desktop-settings.desktop /usr/share/applications/miosa-desktop-settings.desktop
 COPY look/dock/MIOSA/dock.theme /usr/share/plank/themes/MIOSA/dock.theme
@@ -246,8 +248,8 @@ RUN mkdir -p /etc/dconf/profile \
  && for app in google-chrome xfce4-terminal pcmanfm miosa-desktop-settings; do \
       install -m 0755 "/usr/share/applications/${app}.desktop" "/home/ubuntu/Desktop/${app}.desktop"; \
     done \
- && ln -s /home/ubuntu/Documents /home/ubuntu/Desktop/Documents \
- && ln -s /home/ubuntu/Downloads /home/ubuntu/Desktop/Downloads \
+ && sed -i 's/^Name=.*/Name=Files/' /home/ubuntu/Desktop/pcmanfm.desktop \
+ && sed -i 's/^Name=.*/Name=Terminal/' /home/ubuntu/Desktop/xfce4-terminal.desktop \
  && chown -R ubuntu:ubuntu /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads /home/ubuntu/.config
 RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
  && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
