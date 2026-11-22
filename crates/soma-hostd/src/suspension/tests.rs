@@ -107,7 +107,7 @@ fn open(
     record: &MemberRecord,
     bytes: &[u8],
 ) -> Result<Vec<u8>, SealError> {
-    let mut out = Vec::new();
+    let mut out = std::io::Cursor::new(Vec::new());
     open_member(
         key,
         id(suspension),
@@ -116,7 +116,11 @@ fn open(
         &mut &bytes[..],
         &mut out,
     )
-    .map(|()| out)
+    .map(|()| {
+        let mut plain = out.into_inner();
+        plain.resize(usize::try_from(record.bytes).expect("fits"), 0);
+        plain
+    })
 }
 
 fn pattern(len: usize) -> Vec<u8> {
@@ -216,4 +220,30 @@ fn a_header_record_that_lies_about_the_member_is_refused() {
         open(&key, Member::Memory, 1, &wrong_digest, &bytes),
         Err(SealError::Mismatch)
     ));
+}
+
+#[test]
+fn chunks_of_zeros_seal_small_and_open_as_zeros() {
+    let key = DataKey::from_bytes([9; 32]);
+    // Zeros, data, zeros, and a trailing partial run of zeros.
+    let mut plain = vec![0_u8; 3 * CHUNK + 5];
+    plain[CHUNK..2 * CHUNK].copy_from_slice(&pattern(CHUNK));
+    let (bytes, record) = sealed(&key, &plain);
+    assert_eq!(record.bytes, plain.len() as u64);
+    // One data chunk carries its bytes; the three zero chunks carry only their boxes.
+    assert!(bytes.len() < CHUNK + 4 * 64, "sealed {} bytes", bytes.len());
+    assert_eq!(
+        open(&key, Member::Memory, 1, &record, &bytes).expect("open"),
+        plain
+    );
+}
+
+#[test]
+fn a_zero_chunk_cannot_stand_in_for_data() {
+    let key = DataKey::from_bytes([9; 32]);
+    let plain = pattern(CHUNK);
+    let (mut bytes, record) = sealed(&key, &plain);
+    // Relabelled as zeros, the box no longer authenticates under the zeros' associated data.
+    bytes[0] = 1;
+    assert!(open(&key, Member::Memory, 1, &record, &bytes).is_err());
 }

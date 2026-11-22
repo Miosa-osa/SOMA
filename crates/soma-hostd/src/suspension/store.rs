@@ -236,13 +236,16 @@ fn open_one(
             member,
             record,
             &mut sealed,
-            &mut std::io::sink(),
+            &mut std::io::Cursor::new(Vec::new()),
         )?);
     }
     let mut out = BufWriter::new(File::create(target.join(staged_name(member)))?);
     open_member(key, header.id, member, record, &mut sealed, &mut out)?;
-    out.into_inner()
-        .map_err(|error| StoreError::Io(error.into_error()))?
-        .sync_all()?;
+    let file = out
+        .into_inner()
+        .map_err(|error| StoreError::Io(error.into_error()))?;
+    // A trailing run of zeros was skipped over, so the length is what makes it read back.
+    file.set_len(record.bytes)?;
+    file.sync_all()?;
     Ok(())
 }

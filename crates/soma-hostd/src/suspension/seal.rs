@@ -3,17 +3,22 @@
 //! A member is cut into [`CHUNK`]-byte plaintext chunks, each sealed with ChaCha20-Poly1305 (the
 //! cipher the guest protocol and the volume keyring already use, so no crate is added). The nonce
 //! is the member role and the chunk index, so no nonce repeats under one key, and the associated
-//! data binds the Suspension, the role, the index and whether the chunk is the last: a chunk moved
-//! to another position, another member or another Suspension does not open, and a member cut short
-//! or extended fails on its missing or extra final chunk. An empty member is one empty final chunk.
+//! data binds the Suspension, the role, the index, whether the chunk is the last, its kind and its
+//! length: a chunk moved to another position, another member or another Suspension does not open,
+//! and a member cut short or extended fails on its missing or extra final chunk. An empty member is
+//! one empty final chunk.
 //!
-//! Opening also checks the plaintext's length and SHA-256 against the header's record, so what a
+//! A chunk of zeros, which is most of guest memory and nearly all of a private head, is sealed as
+//! an empty box whose associated data states its length: it costs neither encryption nor space,
+//! is still authenticated in its place, and opens as a hole in the plaintext file.
+//!
+//! Opening also checks the plaintext's length and digest against the header's record, so what a
 //! resume maps is exactly what the suspension wrote.
 //!
 //! The data key is 32 random bytes per Suspension, zeroized when dropped; sealing it under the
 //! host key and destroying it with the Suspension is the store's job, as it is for volume keys.
 
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use chacha20poly1305::{
     ChaCha20Poly1305, Nonce,
@@ -28,6 +33,10 @@ use crate::ids::SuspensionId;
 /// Plaintext bytes per sealed chunk.
 pub const CHUNK: usize = 1 << 20;
 const TAG: usize = 16;
+
+/// What one sealed chunk holds: its plaintext, or only the statement that it is all zeros.
+const DATA: u8 = 0;
+const ZEROS: u8 = 1;
 
 /// One Suspension's data key.
 pub struct DataKey([u8; 32]);
@@ -100,13 +109,24 @@ fn nonce(member: Member, index: u64) -> [u8; 12] {
     nonce
 }
 
-fn aad(id: SuspensionId, member: Member, index: u64, last: bool) -> [u8; 26] {
-    let mut aad = [0_u8; 26];
+fn aad(id: SuspensionId, member: Member, index: u64, last: bool, kind: u8, len: usize) -> [u8; 31] {
+    let mut aad = [0_u8; 31];
     aad[..16].copy_from_slice(id.as_bytes());
     aad[16] = member as u8;
     aad[17..25].copy_from_slice(&index.to_be_bytes());
     aad[25] = u8::from(last);
+    aad[26] = kind;
+    aad[27..31].copy_from_slice(&u32::try_from(len).unwrap_or(u32::MAX).to_be_bytes());
     aad
+}
+
+/// The member digest covers each chunk's kind, position and length, and the plaintext of the
+/// chunks that carry one; a chunk of zeros is bound by its kind and length alone.
+fn digest_chunk(digest: &mut Sha256, kind: u8, index: u64, len: usize, data: &[u8]) {
+    digest.update([kind]);
+    digest.update(index.to_be_bytes());
+    digest.update(u64::try_from(len).unwrap_or(u64::MAX).to_be_bytes());
+    digest.update(data);
 }
 
 /// Fills `buffer` from `source` as far as it can, returning how much it read.
@@ -149,15 +169,21 @@ pub fn seal_member(
         };
         let last = next_len == 0;
         let chunk = &current[..current_len];
-        digest.update(chunk);
+        let (kind, data): (u8, &[u8]) = if chunk.iter().all(|byte| *byte == 0) {
+            (ZEROS, &[])
+        } else {
+            (DATA, chunk)
+        };
+        digest_chunk(&mut digest, kind, index, current_len, data);
         total += current_len as u64;
         let payload = Payload {
-            msg: chunk,
-            aad: &aad(id, member, index, last),
+            msg: data,
+            aad: &aad(id, member, index, last, kind, current_len),
         };
         let ciphertext = cipher
             .encrypt(Nonce::from_slice(&nonce(member, index)), payload)
             .map_err(|_| SealError::Corrupt)?;
+        sealed.write_all(&[kind])?;
         sealed.write_all(&ciphertext)?;
         if last {
             break;
@@ -175,6 +201,10 @@ pub fn seal_member(
 
 /// Opens one sealed member into `plain`, checking it against the header's `record`.
 ///
+/// A chunk of zeros is skipped over rather than written, so a file becomes sparse where the
+/// member was zeros; the caller sets the file's length to `record.bytes`, which is what makes a
+/// trailing run of zeros read back.
+///
 /// # Errors
 ///
 /// Returns [`SealError::Corrupt`] for a chunk that does not authenticate, [`SealError::Truncated`]
@@ -187,7 +217,7 @@ pub fn open_member(
     member: Member,
     record: &MemberRecord,
     sealed: &mut impl Read,
-    plain: &mut impl Write,
+    plain: &mut (impl Write + Seek),
 ) -> Result<(), SealError> {
     let cipher = key.cipher();
     let mut digest = Sha256::new();
@@ -195,23 +225,36 @@ pub fn open_member(
     let mut buffer = vec![0_u8; CHUNK + TAG];
     let mut index: u64 = 0;
     loop {
-        let read = fill(sealed, &mut buffer)?;
-        if read < TAG {
+        let mut kind = [0_u8; 1];
+        if fill(sealed, &mut kind)? != 1 {
             return Err(SealError::Truncated);
         }
-        // A full sealed chunk is not the last unless the record says the member ends exactly here.
+        let kind = kind[0];
         let remaining = record.bytes.saturating_sub(total);
         let last = remaining <= CHUNK as u64;
+        let len = usize::try_from(remaining.min(CHUNK as u64)).unwrap_or(CHUNK);
+        let boxed = match kind {
+            DATA => len + TAG,
+            ZEROS => TAG,
+            _ => return Err(SealError::Corrupt),
+        };
+        if fill(sealed, &mut buffer[..boxed])? != boxed {
+            return Err(SealError::Truncated);
+        }
         let payload = Payload {
-            msg: &buffer[..read],
-            aad: &aad(id, member, index, last),
+            msg: &buffer[..boxed],
+            aad: &aad(id, member, index, last, kind, len),
         };
         let chunk = cipher
             .decrypt(Nonce::from_slice(&nonce(member, index)), payload)
             .map_err(|_| SealError::Corrupt)?;
-        digest.update(&chunk);
-        total += chunk.len() as u64;
-        plain.write_all(&chunk)?;
+        digest_chunk(&mut digest, kind, index, len, &chunk);
+        if kind == DATA {
+            plain.write_all(&chunk)?;
+        } else {
+            plain.seek(SeekFrom::Current(i64::try_from(len).unwrap_or(i64::MAX)))?;
+        }
+        total += len as u64;
         if last {
             let mut extra = [0_u8; 1];
             if fill(sealed, &mut extra)? != 0 {

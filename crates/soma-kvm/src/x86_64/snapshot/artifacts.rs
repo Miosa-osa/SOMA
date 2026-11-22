@@ -116,9 +116,20 @@ impl Staging {
     ///
     /// Returns the write failure.
     pub(super) fn write(&mut self, bytes: &[u8]) -> Result<(), SnapshotError> {
-        self.file
-            .write_all(bytes)
-            .map_err(|error| SnapshotError::io(self.artifact, "write", &error))?;
+        // A run of zeros is left as a hole rather than written: guest memory and a private head
+        // are mostly zeros, and writing them is most of what a capture costs. The length is set
+        // at the end, so a trailing hole still reads back as the zeros it stands for.
+        if bytes.iter().all(|byte| *byte == 0) {
+            self.file
+                .seek(SeekFrom::Current(
+                    i64::try_from(bytes.len()).unwrap_or(i64::MAX),
+                ))
+                .map_err(|error| SnapshotError::io(self.artifact, "seek", &error))?;
+        } else {
+            self.file
+                .write_all(bytes)
+                .map_err(|error| SnapshotError::io(self.artifact, "write", &error))?;
+        }
         self.running.update(bytes);
         self.written = self
             .written
@@ -166,6 +177,9 @@ impl Staging {
     ///
     /// Returns the flush or read failure, or [`SnapshotError::StagingDigestMismatch`].
     pub(super) fn seal(&mut self) -> Result<Digest, SnapshotError> {
+        self.file
+            .set_len(self.written)
+            .map_err(|error| SnapshotError::io(self.artifact, "set length", &error))?;
         self.file
             .sync_all()
             .map_err(|error| SnapshotError::io(self.artifact, "sync", &error))?;
