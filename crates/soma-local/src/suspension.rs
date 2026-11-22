@@ -103,7 +103,7 @@ pub(crate) struct Suspensions {
 impl Suspensions {
     pub(crate) fn at(state_root: &Path) -> Self {
         Self {
-            root: state_root.join("suspensions"),
+            root: state_root.join(crate::file_store::SUSPENSION_DIRECTORY),
         }
     }
 

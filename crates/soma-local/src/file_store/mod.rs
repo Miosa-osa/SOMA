@@ -14,7 +14,7 @@ use std::{
 
 use soma::{InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StoredState};
 
-pub(crate) use self::layout::MACHINE_HOST_DIRECTORY;
+pub(crate) use self::layout::{MACHINE_HOST_DIRECTORY, SUSPENSION_DIRECTORY};
 use self::{
     barrier::{SyncBarrier, for_root},
     enumerate::instance_identities,
