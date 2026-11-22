@@ -19,10 +19,10 @@ chacha20poly1305 = { version = "=0.10.1", default-features = false, features = [
 getrandom = "=0.2.17"
 sha2 = { version = "=0.11.0", default-features = false }
 zeroize = "=1.9.0"
-soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.2" }
-soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.2" }
-soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.2" }
-soma-version = { path = "../soma-version", version = "=1.0.0-alpha.2" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.3" }
+soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.3" }
+soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.3" }
+soma-version = { path = "../soma-version", version = "=1.0.0-alpha.3" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.190"
