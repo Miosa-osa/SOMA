@@ -272,6 +272,35 @@ impl LocalRuntime {
         }
     }
 
+    /// Opens the encrypted contents of one authorized capture for an off-host backup.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a missing or different owner, an active restore, an unencrypted checkpoint
+    /// store, or any mismatch against the full checkpoint receipt supplied by the caller.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn open_checkpoint_export(
+        &mut self,
+        owner: &soma::MachineName,
+        expected: &crate::CheckpointReceipt,
+    ) -> Result<crate::CheckpointExport, crate::CheckpointFailure> {
+        use crate::CheckpointFailure;
+
+        if self.host_directory.is_none() {
+            return Err(CheckpointFailure::Unsupported);
+        }
+        let _lease = crate::file_store::restore_lease(&self.state_root, &expected.instance_id)
+            .map_err(|_| CheckpointFailure::Unconfirmed)?;
+        let recorded = self
+            .engine
+            .restore_owner(&expected.instance_id)
+            .map_err(|_| CheckpointFailure::Unconfirmed)?;
+        if recorded.as_ref() != Some(owner) {
+            return Err(CheckpointFailure::NotFound);
+        }
+        crate::backend::open_export(expected)
+    }
+
     /// Releases a published checkpoint by its exact sandbox, operation and state digest.
     ///
     /// # Errors

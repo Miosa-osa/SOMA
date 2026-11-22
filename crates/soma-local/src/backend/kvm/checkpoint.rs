@@ -1,6 +1,9 @@
 //! Descriptor staging and durable publication for resident checkpoints.
 
 mod discard;
+mod export;
+pub(crate) use export::open_export;
+pub use export::{CheckpointArtifact, CheckpointExport};
 mod restore;
 pub(super) mod retention;
 pub(crate) use discard::discard_checkpoint;

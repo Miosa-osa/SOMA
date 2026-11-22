@@ -12,6 +12,8 @@ mod pause;
 mod prewarm;
 mod prune;
 mod resize;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use backend::{CheckpointArtifact, CheckpointExport};
 pub use checkpoint::{CheckpointFailure, CheckpointReceipt, CheckpointVolumeReceipt};
 pub use pause::{PauseFailure, ResumeFailure};
 mod runtime;

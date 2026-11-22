@@ -1105,3 +1105,9 @@ The broker waits for authenticated readiness and the disk lock before publishing
 A staged copy excludes volume deletion, rebinding, and other restore operations until it is published or aborted.
 Snapshots without the workspace binding remain usable for independent forks.
 Interruption between disk publication and durable runtime readiness still needs a crash-recovery rehearsal.
+
+## 2026-11-22 - Host-local sealed checkpoint export
+
+The host-local backup consumer matches an authorized machine name against the durable Instance and uses the complete capture receipt to identify the published checkpoint.
+It pins private artifact descriptors under the restore lease and streams each artifact to a writer while verifying the length and digest.
+An off-host publisher must keep the output unpublished until the whole capture has been transferred and verified.
