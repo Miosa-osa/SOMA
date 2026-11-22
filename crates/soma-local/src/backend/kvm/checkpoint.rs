@@ -39,6 +39,11 @@ const OVERLAY: &str = "overlay.raw";
 const VOLUME: &str = "volume.raw";
 const RECEIPT: &str = "receipt.json";
 
+struct VerifiedCheckpoint {
+    receipt: CheckpointReceipt,
+    cpu_template: Digest,
+}
+
 pub(super) fn perform(
     held: &mut Held,
     instance: &InstanceId,
@@ -58,7 +63,7 @@ pub(super) fn perform(
     let published = root.join(format!("{}.{}", instance.as_str(), operation.as_str()));
     if let Some(receipt) = read_published(&published, instance, generation, operation)? {
         sync_directory(&root)?;
-        return Ok(receipt);
+        return Ok(receipt.receipt);
     }
     if paused {
         return Err(CheckpointFailure::CaptureRefused);
@@ -75,7 +80,8 @@ pub(super) fn perform(
         volume: source.has_volume.then(|| stage.open(VOLUME)).transpose()?,
     };
     let reported = held.checkpoint(job)?;
-    let receipt = read_staged(&stage.path, instance, generation, operation, Some(reported))?;
+    let receipt =
+        read_staged(&stage.path, instance, generation, operation, Some(reported))?.receipt;
     stage.publish(&root, &published, &receipt)?;
     Ok(receipt)
 }
@@ -99,7 +105,7 @@ fn read_staged(
     generation: &GenerationId,
     operation: &OperationId,
     reported: Option<Digest>,
-) -> Result<CheckpointReceipt, CheckpointFailure> {
+) -> Result<VerifiedCheckpoint, CheckpointFailure> {
     let bytes = read_bounded(&path.join(STATE))?;
     let decoded = CheckpointManifest::decode(&bytes).map_err(|_| CheckpointFailure::Storage)?;
     let state_digest = Digest::of(&bytes);
@@ -119,16 +125,19 @@ fn read_staged(
     let volume = read_block(&decoded, SectionRole::Device6, &path.join(VOLUME))?;
     let (overlay_bytes, overlay_digest) =
         overlay.map_or((0, None), |(length, digest)| (length, Some(digest)));
-    Ok(CheckpointReceipt {
-        instance_id: instance.clone(),
-        checkpoint_id: operation.clone(),
-        generation_id: generation.clone(),
-        state_digest: format!("sha256:{state_digest}"),
-        memory_digest: format!("sha256:{}", memory.digest()),
-        memory_bytes: memory.size(),
-        overlay_bytes,
-        overlay_digest,
-        volume: volume.map(|(bytes, digest)| CheckpointVolumeReceipt { bytes, digest }),
+    Ok(VerifiedCheckpoint {
+        receipt: CheckpointReceipt {
+            instance_id: instance.clone(),
+            checkpoint_id: operation.clone(),
+            generation_id: generation.clone(),
+            state_digest: format!("sha256:{state_digest}"),
+            memory_digest: format!("sha256:{}", memory.digest()),
+            memory_bytes: memory.size(),
+            overlay_bytes,
+            overlay_digest,
+            volume: volume.map(|(bytes, digest)| CheckpointVolumeReceipt { bytes, digest }),
+        },
+        cpu_template: decoded.header().cpu_template,
     })
 }
 
@@ -166,7 +175,7 @@ fn read_published(
     instance: &InstanceId,
     generation: &GenerationId,
     operation: &OperationId,
-) -> Result<Option<CheckpointReceipt>, CheckpointFailure> {
+) -> Result<Option<VerifiedCheckpoint>, CheckpointFailure> {
     match fs::symlink_metadata(path) {
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
         Ok(meta) if meta.is_dir() => {}
@@ -181,10 +190,10 @@ fn read_published(
         return Err(CheckpointFailure::Storage);
     }
     let verified = read_staged(path, instance, generation, operation, None)?;
-    if verified != receipt {
+    if verified.receipt != receipt {
         return Err(CheckpointFailure::Storage);
     }
-    Ok(Some(receipt))
+    Ok(Some(verified))
 }
 
 fn read_bounded(path: &Path) -> Result<Vec<u8>, CheckpointFailure> {

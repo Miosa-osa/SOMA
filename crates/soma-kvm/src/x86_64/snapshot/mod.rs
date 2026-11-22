@@ -38,6 +38,7 @@ pub use checkpoint::{CheckpointError, CheckpointRequest, CheckpointTargets, capt
 pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;
 pub use objects::SnapshotObjects;
+pub use profile::check_checkpoint_cpu;
 pub use restore::{
     PreparedCheckpoint, ResidentRestoreRequest, RestoreFacts, RestoreRequest, Restored, Sterile,
     SterileRequest, prepare_checkpoint, prepare_fork, restore, restore_sterile,

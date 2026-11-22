@@ -128,6 +128,28 @@ impl Jailed {
                 })
             })
             .transpose()?;
+        if let Some(artifacts) = checkpoint.as_ref() {
+            use soma_kvm::contract::MachineContract;
+            use soma_kvm::snapshot::compatibility::Incompatibility;
+            use soma_kvm::x86_64::{SnapshotError, check_checkpoint_cpu};
+
+            let manifest = &launching.prepared.manifest;
+            let contract = MachineContract::require(manifest.machine_contract.version)
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+            check_checkpoint_cpu(artifacts.cpu_template, contract, manifest.shape.vcpu_count)
+                .map_err(|error| {
+                    anchors.record(
+                        launching.instance.as_str(),
+                        &format!("checkpoint CPU preflight refused: {error}"),
+                    );
+                    match error {
+                        SnapshotError::Incompatible(Incompatibility::CpuTemplate { .. }) => {
+                            BackendFailureKind::CheckpointIncompatible
+                        }
+                        _ => BackendFailureKind::Unavailable,
+                    }
+                })?;
+        }
         let recovery_volume = checkpoint
             .as_ref()
             .and_then(|artifacts| artifacts.volume.as_ref())

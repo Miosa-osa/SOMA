@@ -37,7 +37,8 @@ fn discard_from(
             return Err(CheckpointFailure::CaptureRefused);
         }
         let receipt = read_published(&published, instance, &receipt.generation_id, checkpoint)?
-            .ok_or(CheckpointFailure::Unconfirmed)?;
+            .ok_or(CheckpointFailure::Unconfirmed)?
+            .receipt;
         if receipt.state_digest != state_digest.as_str() {
             return Err(CheckpointFailure::CaptureRefused);
         }

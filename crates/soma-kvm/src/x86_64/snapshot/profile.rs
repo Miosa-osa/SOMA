@@ -13,7 +13,7 @@ use crate::contract::MachineContract;
 use crate::memory_layout::GuestLayout;
 use crate::snapshot::{
     Digest, Hasher,
-    compatibility::{DeviceExpectation, HostProfile},
+    compatibility::{DeviceExpectation, HostProfile, Incompatibility},
     device_state::{DeviceKind, MAX_QUEUES},
     kvm_state::CpuidEntries,
     manifest::{Architecture, HostCapability, HostRequirements, PageSize, SCHEMA_VERSION},
@@ -204,6 +204,28 @@ pub(in crate::x86_64) fn cpu_template(
         }
     }
     Ok((template, hasher.finish()))
+}
+
+/// Checks a resident checkpoint's CPU template before staging its large artifacts.
+///
+/// # Errors
+///
+/// Returns the host KVM or contract error, or a typed CPU template mismatch.
+/// The restoring worker still validates the complete state with its own descriptors.
+pub fn check_checkpoint_cpu(
+    expected: Digest,
+    contract: MachineContract,
+    vcpus: u16,
+) -> Result<(), SnapshotError> {
+    let kvm = Kvm::new().map_err(|error| SnapshotError::ioctl("open /dev/kvm", error))?;
+    let (_, actual) = cpu_template(&kvm, cpuid::GuestMachine::new(contract, vcpus))?;
+    if expected != actual {
+        return Err(SnapshotError::Incompatible(Incompatibility::CpuTemplate {
+            expected,
+            actual,
+        }));
+    }
+    Ok(())
 }
 
 /// The requirement block a captured manifest carries for its restoring hosts.

@@ -15,6 +15,7 @@ pub(in crate::backend::kvm) struct RestoreArtifacts {
     pub(in crate::backend::kvm) memory: File,
     pub(in crate::backend::kvm) overlay: Option<File>,
     pub(in crate::backend::kvm) digest: Digest,
+    pub(in crate::backend::kvm) cpu_template: Digest,
     pub(in crate::backend::kvm) volume: Option<CheckpointVolumeReceipt>,
 }
 
@@ -26,8 +27,9 @@ pub(in crate::backend::kvm) fn restore_artifacts(
     independent_workspace: bool,
 ) -> Result<RestoreArtifacts, CheckpointFailure> {
     let path = configured_root()?.join(format!("{}.{}", instance.as_str(), checkpoint.as_str()));
-    let receipt = read_published(&path, instance, generation, checkpoint)?
+    let published = read_published(&path, instance, generation, checkpoint)?
         .ok_or(CheckpointFailure::NotFound)?;
+    let receipt = published.receipt;
     if receipt.volume.is_some() && !independent_workspace {
         return Err(CheckpointFailure::Unsupported);
     }
@@ -42,6 +44,7 @@ pub(in crate::backend::kvm) fn restore_artifacts(
             .then(|| open_private(&path.join(OVERLAY)))
             .transpose()?,
         digest: Digest::from_bytes(digest),
+        cpu_template: published.cpu_template,
         volume: receipt.volume,
     })
 }
