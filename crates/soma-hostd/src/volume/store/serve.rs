@@ -113,6 +113,9 @@ impl VolumeStore for DirectoryVolumes {
             ));
         }
         let existing = state.get(&request.volume);
+        if existing.is_some() {
+            self.require_unstaged_workspace(request.volume)?;
+        }
         let mut sidecar = VolumeSidecar {
             volume: request.volume,
             instance: request.instance,
@@ -177,6 +180,7 @@ impl VolumeStore for DirectoryVolumes {
         // leaves it detached, and a start is what reattaches it. A volume a delete is in progress
         // on is not one a machine may be given.
         let sidecar = owned_volume(state.values(), instance)?.clone();
+        self.require_unstaged_workspace(sidecar.volume)?;
         let file = self.file(sidecar.volume);
         // The repair runs here rather than in the guest, on a file no machine holds yet: this is
         // the one place a start can check the filesystem without racing a running guest.
@@ -227,6 +231,7 @@ impl VolumeStore for DirectoryVolumes {
         if existing.state == VolumeState::Deleting {
             return Err(VolumeError::Busy("a delete is in progress"));
         }
+        self.require_unstaged_workspace(request.volume)?;
         // This inode is held for the lifetime of a worker. Keep the lock until
         // the detached sidecar and its ledger have both been published.
         let file = fs::OpenOptions::new()
@@ -268,6 +273,7 @@ impl VolumeStore for DirectoryVolumes {
             // replay after a lost answer succeeds rather than reporting a volume nobody owns.
             return Ok(());
         }
+        self.require_unstaged_workspace(volume)?;
         // Do not unlink a disk while a live workspace owns its file description.
         let locked = fs::OpenOptions::new()
             .read(true)

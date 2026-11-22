@@ -1,5 +1,5 @@
 use super::*;
-use crate::RequestFingerprint;
+use crate::{RequestFingerprint, VolumeId, volume::VolumeStore};
 use std::{io::Write as _, os::unix::fs::PermissionsExt as _};
 
 const TRANSITION: u64 = 11;
@@ -163,10 +163,31 @@ fn saved_workspace(saved_path: &Path) -> RequestFingerprint {
     RequestFingerprint::new(hash.finalize().into()).unwrap()
 }
 
+fn competing_workspace_mutations_wait(store: &DirectoryVolumes, request: &WorkspaceRestoreRequest) {
+    let busy = VolumeError::Busy("a workspace restore is staged");
+    assert_eq!(store.destroy(request.volume), Err(busy.clone()));
+    assert!(matches!(
+        store.binding(request.checkpoint.source),
+        Err(error) if error == busy
+    ));
+    let mut wrong_volume = *request;
+    wrong_volume.volume = VolumeId::new([11; 16]).unwrap();
+    assert!(matches!(
+        store.stage_workspace_restore(&wrong_volume),
+        Err(VolumeError::ChangedIntent)
+    ));
+    let mut other = *request;
+    other.operation = OperationId::new([19; 16]).unwrap();
+    assert!(matches!(
+        store.stage_workspace_from(&other, || panic!("a competing restore must not read the archive")),
+        Err(error) if error == busy
+    ));
+}
+
 #[test]
 fn a_restarted_store_can_publish_then_roll_back_the_exact_operation() {
     use crate::{
-        GenerationId, InstanceId, VolumeId,
+        GenerationId, InstanceId,
         volume::{CheckpointVolumeRequest, CleanRepair},
     };
 
@@ -221,13 +242,8 @@ fn a_restarted_store_can_publish_then_roll_back_the_exact_operation() {
     drop(store);
     let store = open();
     let fresh = || private_file(&saved_path, false);
-    let mut wrong_volume = request;
-    wrong_volume.volume = VolumeId::new([11; 16]).unwrap();
-    assert!(matches!(
-        store.stage_workspace_from(&wrong_volume, fresh),
-        Err(VolumeError::ChangedIntent)
-    ));
     let first = store.stage_workspace_from(&request, fresh).unwrap();
+    competing_workspace_mutations_wait(&store, &request);
     let active = private_file(&first.path, true).unwrap();
     lock(&active).unwrap();
     assert!(matches!(

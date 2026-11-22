@@ -16,8 +16,9 @@ use super::{
 use crate::{
     OperationId,
     volume::{
-        AttachOutcome, VOLUME_DEVICE, VolumeRecordKind, WorkspaceRestoreRequest, record::now_nanos,
-        store::serve::owned_volume,
+        AttachOutcome, VOLUME_DEVICE, VolumeRecordKind, WorkspaceRestoreRequest,
+        record::now_nanos,
+        store::{WORKSPACE_RESTORE_PREFIX, serve::owned_volume},
     },
 };
 
@@ -114,6 +115,7 @@ impl DirectoryVolumes {
                 owner.size_class_gib,
             )?;
         } else {
+            self.require_unstaged_workspace(owner.volume)?;
             drop(original_file);
             drop(state);
             let pending = Staging::new(&self.root)?;
@@ -150,6 +152,7 @@ impl DirectoryVolumes {
                     owner.size_class_gib,
                 )?;
             } else {
+                self.require_unstaged_workspace(owner.volume)?;
                 pending.publish(&path)?;
                 sync(&self.directory(owner.volume))?;
             }
@@ -327,7 +330,7 @@ impl DirectoryVolumes {
 }
 
 fn restore_path(volume: &Path, operation: OperationId) -> PathBuf {
-    volume.join(format!(".restore-{}", operation.hex()))
+    volume.join(format!("{WORKSPACE_RESTORE_PREFIX}{}", operation.hex()))
 }
 
 fn stage_exists(path: &Path) -> Result<bool, VolumeError> {

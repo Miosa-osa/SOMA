@@ -28,6 +28,7 @@ use super::sidecar::{VolumeSidecar, VolumeState};
 
 /// The sparse ext4 file inside one volume directory.
 pub const VOLUME_FILE: &str = "volume.img";
+const WORKSPACE_RESTORE_PREFIX: &str = ".restore-";
 /// The sidecar inside one volume directory.
 pub const SIDECAR_FILE: &str = "volume.json";
 
