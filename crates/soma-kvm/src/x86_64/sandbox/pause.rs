@@ -225,7 +225,7 @@ mod tests {
         use std::time::{Duration, Instant};
 
         use super::super::testing::spinning_machine;
-        use super::GuestExit;
+        use super::{GuestExit, SandboxMachine};
         use crate::MachineContract;
         use crate::virtio::{GuestAddress, GuestMemory as _};
         use crate::x86_64::{EXPECTED_SERIAL, layout::KERNEL_START};
