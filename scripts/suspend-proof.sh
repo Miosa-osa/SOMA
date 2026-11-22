@@ -76,6 +76,11 @@ for _ in $(seq 1 100); do
     sleep 0.1
 done
 
+log "reading what the host has left"
+api capacity GET /v1/capacity
+check "capacity answered 200" "$STATUS" 200
+record capacity_fits_1024 "$(field 'd["result"]["fits"][1]["sandboxes"]')"
+
 log "creating one sandbox from $REFERENCE"
 # The shape the Generation was prepared at (prepare-generation.sh's defaults), which a restore needs.
 SHAPE="{\"vcpu_count\":1,\"memory_mib\":${SOMA_PROOF_MEMORY_MIB:-1024},\"storage_mib\":${SOMA_PROOF_STORAGE_MIB:-4096},\"capabilities\":{\"network\":$RUNTIME_DEFAULT_NETWORK}}"
