@@ -29,8 +29,8 @@ impl Reading {
         let busy = self.ticks.0.saturating_sub(previous.0) as f64;
         let elapsed = self.ticks.1.saturating_sub(previous.1).max(1) as f64;
         if self.ticks.2 {
-            // Host: process CPU ticks over wall-clock hundredths of a second.
-            busy / elapsed
+            // Host: process CPU seconds over wall-clock seconds (elapsed is in hundredths).
+            (busy / CLOCK_TICKS as f64) / (elapsed / 100.0)
         } else {
             // Guest: busy share of every processor it booted.
             busy / elapsed * f64::from(booted.max(1))
