@@ -36,7 +36,8 @@ pub use repair::{
 };
 pub use service::{
     AttachOutcome, AttachRequest, CheckpointVolumeBinding, CheckpointVolumeRequest, DetachOutcome,
-    DetachRequest, VOLUME_DEVICE, VolumeBinding, VolumeStore, WorkspaceRestoreRequest,
+    DetachRequest, VOLUME_DEVICE, VolumeBinding, VolumeStore, WorkspaceImportRequest,
+    WorkspaceRestoreRequest,
 };
 pub use sidecar::{
     MAX_TENANT_BYTES, PERSISTENCE_PATHS, SIDECAR_LEN, SIDECAR_MAGIC, SIDECAR_VERSION, SidecarError,

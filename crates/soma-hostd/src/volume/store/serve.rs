@@ -47,6 +47,14 @@ pub(super) fn owned_volume<'a>(
 
 impl VolumeStore for DirectoryVolumes {
     #[cfg(target_os = "linux")]
+    fn import_workspace(
+        &self,
+        request: &crate::volume::WorkspaceImportRequest,
+    ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
+        self.install_workspace_backup(request)
+    }
+
+    #[cfg(target_os = "linux")]
     fn clone_checkpoint(
         &self,
         request: &crate::volume::CheckpointVolumeRequest,

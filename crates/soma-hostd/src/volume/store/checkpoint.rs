@@ -11,6 +11,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::{DirectoryVolumes, SIDECAR_FILE, VOLUME_FILE};
 
+mod import;
 mod replace;
 mod stage;
 
@@ -67,7 +68,7 @@ impl DirectoryVolumes {
         let source = source.clone();
         // Copying a large disk can take minutes. Do not hold the store lock while reading it.
         drop(state);
-        let archive = open_archive(request)?;
+        let archive = open_archive(request.source, request.checkpoint)?;
         let pending = Staging::new(&self.root)?;
         clone_sparse(
             archive,
@@ -153,16 +154,15 @@ fn recovery_id(request: &CheckpointVolumeRequest) -> Result<VolumeId, VolumeErro
     VolumeId::new(id).map_err(|_| IO_FAILURE)
 }
 
-fn open_archive(request: &CheckpointVolumeRequest) -> Result<File, VolumeError> {
+fn open_archive(
+    source: crate::InstanceId,
+    checkpoint: crate::OperationId,
+) -> Result<File, VolumeError> {
     let root = PathBuf::from(
         std::env::var_os("SOMA_CHECKPOINT_DIR")
             .ok_or(VolumeError::Missing("checkpoint storage is unavailable"))?,
     );
-    let archive = root.join(format!(
-        "{}.{}",
-        request.source.hex(),
-        request.checkpoint.hex()
-    ));
+    let archive = root.join(format!("{}.{}", source.hex(), checkpoint.hex()));
     let configured = std::env::var(placement::ENCRYPTED_MOUNT_ENV).ok();
     let mount = placement::encrypted_mount_name(configured.as_deref());
     let private = |path: &Path| {

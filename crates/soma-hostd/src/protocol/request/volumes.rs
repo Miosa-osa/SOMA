@@ -4,7 +4,10 @@
 //! as a different request. They live apart from the rest of the request codec to hold that file
 //! inside the source budget.
 
-use crate::volume::{CheckpointVolumeRequest, MAX_TENANT_BYTES, WorkspaceRestoreRequest};
+use crate::volume::{
+    AttachRequest, CheckpointVolumeRequest, MAX_TENANT_BYTES, WorkspaceImportRequest,
+    WorkspaceRestoreRequest,
+};
 use crate::{GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId};
 
 use super::super::{ProtocolError, array};
@@ -58,6 +61,47 @@ pub(super) fn decode_restore(bytes: &[u8]) -> Result<WorkspaceRestoreRequest, Pr
         .map_err(|_| ProtocolError("restore operation"))?,
         volume: VolumeId::new(array(&bytes[CHECKPOINT_FRAME_LEN + 16..]))
             .map_err(|_| ProtocolError("workspace"))?,
+    })
+}
+
+pub(super) fn encode_import(request: &WorkspaceImportRequest, out: &mut Vec<u8>) {
+    let target = &request.destination;
+    AttachFrame {
+        operation: target.operation,
+        instance: target.instance,
+        volume: target.volume,
+        fingerprint: target.fingerprint,
+        size_class_gib: target.size_class_gib,
+        generation: target.generation,
+        tenant: target.tenant.clone(),
+    }
+    .encode_into(out);
+    out.extend_from_slice(request.source.as_bytes());
+    out.extend_from_slice(request.checkpoint.as_bytes());
+    out.extend_from_slice(request.digest.as_bytes());
+}
+
+pub(super) fn decode_import(bytes: &[u8]) -> Result<WorkspaceImportRequest, ProtocolError> {
+    if bytes.len() != ATTACH_FRAME_LEN + 64 {
+        return Err(ProtocolError("workspace import"));
+    }
+    let (attach, archive) = bytes.split_at(ATTACH_FRAME_LEN);
+    let frame = AttachFrame::decode(attach)?;
+    Ok(WorkspaceImportRequest {
+        source: InstanceId::new(array(&archive[..16])).map_err(|_| ProtocolError("source"))?,
+        checkpoint: OperationId::new(array(&archive[16..32]))
+            .map_err(|_| ProtocolError("checkpoint"))?,
+        digest: RequestFingerprint::new(array(&archive[32..]))
+            .map_err(|_| ProtocolError("volume digest"))?,
+        destination: AttachRequest {
+            operation: frame.operation,
+            instance: frame.instance,
+            volume: frame.volume,
+            fingerprint: frame.fingerprint,
+            size_class_gib: frame.size_class_gib,
+            generation: frame.generation,
+            tenant: frame.tenant,
+        },
     })
 }
 

@@ -87,7 +87,9 @@ impl DirectoryVolumes {
         &self,
         request: &WorkspaceRestoreRequest,
     ) -> Result<CheckpointVolumeBinding, VolumeError> {
-        self.stage_workspace_from(request, || open_archive(&request.checkpoint))
+        self.stage_workspace_from(request, || {
+            open_archive(request.checkpoint.source, request.checkpoint.checkpoint)
+        })
     }
 
     fn stage_workspace_from(

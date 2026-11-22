@@ -10,7 +10,7 @@ mod volumes;
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
-use crate::volume::{CheckpointVolumeRequest, WorkspaceRestoreRequest};
+use crate::volume::{CheckpointVolumeRequest, WorkspaceImportRequest, WorkspaceRestoreRequest};
 use crate::{InstanceId, LaunchMaterialHandle, OperationId, VolumeId, WorkerId};
 
 pub use volumes::{AttachFrame, DetachFrame};
@@ -138,6 +138,8 @@ pub enum Request {
     WorkspaceRestoreAbort(WorkspaceRestoreRequest),
     /// Rolls back an exact unfinished broker restore after confirmed worker teardown.
     WorkspaceRestoreReconcile(WorkspaceRestoreRequest),
+    /// Import a verified backup into an empty detached workspace.
+    WorkspaceImport(WorkspaceImportRequest),
 }
 
 impl Request {
@@ -229,6 +231,10 @@ impl Request {
                 });
                 volumes::encode_restore(frame, &mut out);
             }
+            Self::WorkspaceImport(frame) => {
+                out.push(23);
+                volumes::encode_import(frame, &mut out);
+            }
             Self::VolumeCloneCheckpoint(frame) => {
                 out.push(15);
                 volumes::encode_checkpoint(frame, &mut out);
@@ -287,6 +293,7 @@ impl Request {
             (20, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestorePublish),
             (21, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreAbort),
             (22, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreReconcile),
+            (23, _) => volumes::decode_import(bytes).map(Self::WorkspaceImport),
             _ => Err(ProtocolError("request")),
         }
     }

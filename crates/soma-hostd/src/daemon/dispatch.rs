@@ -111,6 +111,7 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+        Request::WorkspaceImport(request) => checkpoint_volume(volumes.import_workspace(&request)),
         Request::VolumeCloneCheckpoint(request) => {
             checkpoint_volume(volumes.clone_checkpoint(&request))
         }

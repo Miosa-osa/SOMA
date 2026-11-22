@@ -74,6 +74,19 @@ pub struct WorkspaceRestoreRequest {
     pub volume: VolumeId,
 }
 
+/// A broker-authorized workspace import into an empty destination volume.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceImportRequest {
+    /// The Instance whose backup contains the disk.
+    pub source: InstanceId,
+    /// The checkpoint containing the source disk.
+    pub checkpoint: OperationId,
+    /// The block digest certified by the backup receipt.
+    pub digest: RequestFingerprint,
+    /// The destination Instance, volume, tenant, and Generation.
+    pub destination: AttachRequest,
+}
+
 /// A verified writable copy of the checkpoint disk, before assigning it to the guest.
 pub struct CheckpointVolumeBinding {
     /// The recovery volume's identity.
@@ -154,6 +167,18 @@ pub trait VolumeStore {
     /// Refuses an unknown workspace, a conflicting owner, or a changed operation.
     fn validate_live_detach(&self, _request: &DetachRequest) -> Result<VolumeState, VolumeError> {
         Err(VolumeError::Missing("live workspace detach is unavailable"))
+    }
+
+    /// Imports a saved disk into a fresh, detached destination workspace.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an existing workspace with different intent, unverified blocks, or unsafe storage.
+    fn import_workspace(
+        &self,
+        _request: &WorkspaceImportRequest,
+    ) -> Result<CheckpointVolumeBinding, VolumeError> {
+        Err(VolumeError::Missing("workspace import is unavailable"))
     }
 
     /// Copies and binds a saved disk without modifying the disk it was captured from.

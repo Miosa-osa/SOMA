@@ -35,7 +35,37 @@ fn execute_on_host(cli: &Cli) -> Result<ProcessExit, ProcessExit> {
     let mut runtime = LocalRuntime::open(config).map_err(|_| ProcessExit::BackendFailure)?;
     let arguments = match &cli.command {
         RootCommand::CheckpointImport(args) => {
-            if args.recover_absent {
+            if args.cold_workspace {
+                let bad_input = |_| ProcessExit::InvalidInput;
+                let target = soma_local::ColdWorkspaceTarget {
+                    tenant: owner
+                        .as_str()
+                        .strip_prefix("t-")
+                        .unwrap_or(owner.as_str())
+                        .to_owned(),
+                    instance: match args.destination_instance.as_ref() {
+                        Some(value) => {
+                            soma::InstanceId::new(value).map_err(|_| ProcessExit::InvalidInput)?
+                        }
+                        None => receipt.instance_id.clone(),
+                    },
+                    generation: soma::GenerationId::new(
+                        args.destination_generation
+                            .as_ref()
+                            .ok_or(ProcessExit::InvalidInput)?,
+                    )
+                    .map_err(bad_input)?,
+                    volume: args
+                        .destination_volume
+                        .clone()
+                        .ok_or(ProcessExit::InvalidInput)?,
+                    operation: soma::OperationId::new(
+                        args.operation.as_ref().ok_or(ProcessExit::InvalidInput)?,
+                    )
+                    .map_err(|_| ProcessExit::InvalidInput)?,
+                };
+                runtime.import_cold_workspace(&receipt, &args.bundle, &target)
+            } else if args.recover_absent {
                 runtime.recover_absent_checkpoint(&owner, &receipt, &args.bundle)
             } else {
                 runtime.import_checkpoint(&owner, &receipt, &args.bundle)
@@ -104,7 +134,16 @@ fn execute_on_host(cli: &Cli) -> Result<ProcessExit, ProcessExit> {
             let _ = (&args.owner, args.artifact);
         }
         RootCommand::CheckpointImport(args) => {
-            let _ = (&args.owner, &args.bundle, args.recover_absent);
+            let _ = (
+                &args.owner,
+                &args.bundle,
+                args.recover_absent,
+                args.cold_workspace,
+                &args.destination_generation,
+                &args.destination_volume,
+                &args.destination_instance,
+                &args.operation,
+            );
         }
         _ => {}
     }

@@ -301,3 +301,31 @@ fn workspace_restore_requests_round_trip_with_exact_operation_and_volume() {
         assert!(Request::decode(&zero_volume).is_err());
     }
 }
+
+#[test]
+fn workspace_import_frames_bind_source_and_cold_destination() {
+    use crate::{
+        AttachRequest, GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId,
+        volume::WorkspaceImportRequest,
+    };
+
+    let request = Request::WorkspaceImport(WorkspaceImportRequest {
+        source: InstanceId::new([1; 16]).unwrap(),
+        checkpoint: OperationId::new([2; 16]).unwrap(),
+        digest: RequestFingerprint::new([3; 32]).unwrap(),
+        destination: AttachRequest {
+            operation: OperationId::new([4; 16]).unwrap(),
+            instance: InstanceId::new([5; 16]).unwrap(),
+            volume: VolumeId::new([6; 16]).unwrap(),
+            fingerprint: RequestFingerprint::new([7; 32]).unwrap(),
+            size_class_gib: 10,
+            generation: GenerationId::new([8; 32]).unwrap(),
+            tenant: "tenant-alpha".to_owned(),
+        },
+    });
+    let mut bytes = request.encode();
+    assert_eq!(bytes.len(), super::MAX_VOLUME_FRAME);
+    assert_eq!(Request::decode(&bytes), Ok(request));
+    bytes.pop();
+    assert!(Request::decode(&bytes).is_err());
+}

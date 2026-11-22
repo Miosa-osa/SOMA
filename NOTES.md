@@ -1123,3 +1123,9 @@ Replays check the installed bytes against the expected receipt.
 A host-local import can reserve an absent Instance after Compute fences the original placement.
 The durable reservation exposes the owner only after the original capture receipt and encrypted artifacts are verified and published.
 The recovery transaction admits the same Instance and checkpoint, reuses ordinary restore readiness checks, and retains the reservation across failure.
+
+## Cold recovery into a detached workspace
+
+The host CLI verifies a backup receipt and installs the workspace through the host daemon.
+Protocol level 5 binds the source capture and destination tenant, Instance, volume, Generation, and operation in a single import frame.
+The daemon publishes a fresh detached disk with a fresh key, and an exact replay cannot overwrite writes made after recovery.

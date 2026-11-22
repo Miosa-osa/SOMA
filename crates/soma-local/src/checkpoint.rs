@@ -27,6 +27,16 @@ pub struct CheckpointVolumeReceipt {
     pub volume_id: Option<String>,
 }
 
+/// Destination authorized by the control plane for a cold workspace recovery.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub struct ColdWorkspaceTarget {
+    pub tenant: String,
+    pub instance: InstanceId,
+    pub generation: GenerationId,
+    pub volume: String,
+    pub operation: OperationId,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckpointFailure {

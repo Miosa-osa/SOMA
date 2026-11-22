@@ -61,6 +61,25 @@ impl LocalRuntime {
         crate::backend::install_import(stage, expected)
     }
 
+    /// Imports the workspace of a verified backup without restoring its CPU or memory.
+    ///
+    /// The caller authenticates the tenant, fences the original placement, and chooses the
+    /// candidate Generation for the destination's cold launch.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unavailable workspace, changed destination, or invalid capture.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn import_cold_workspace(
+        &self,
+        expected: &crate::CheckpointReceipt,
+        stage: &std::path::Path,
+        target: &crate::ColdWorkspaceTarget,
+    ) -> Result<(), crate::CheckpointFailure> {
+        let _lease = self.checkpoint_lease(expected)?;
+        crate::backend::import_cold_workspace(stage, expected, target)
+    }
+
     /// Installs a verified backup and reserves recovery authority for an absent Instance.
     ///
     /// The caller must authenticate the backup owner and fence the original Instance.

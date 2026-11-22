@@ -3,9 +3,11 @@
 mod discard;
 mod export;
 mod import;
+mod workspace_import;
 pub(crate) use export::open_export;
 pub use export::{CheckpointArtifact, CheckpointExport};
 pub(crate) use import::{install_import, verify_import};
+pub(crate) use workspace_import::import_cold_workspace;
 mod restore;
 pub(super) mod retention;
 pub(crate) use discard::discard_checkpoint;

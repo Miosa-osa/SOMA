@@ -21,8 +21,8 @@ use crate::{ClaimError, InstanceError, LifecycleError, TransferFailure, VolumeEr
 const LAUNCH_FRAME_MAX: usize = 1 + 16 + 16 + 4 + 8 + 32 + MAX_ENCODED_INTENT;
 
 /// The largest volume frame: discriminant, operation, instance, volume, fingerprint, size class,
-/// generation, and a bounded tenant label.
-pub const MAX_VOLUME_FRAME: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_BYTES;
+/// generation, a bounded tenant label, and the source checkpoint identity and digest.
+pub const MAX_VOLUME_FRAME: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_BYTES + 64;
 
 /// The largest request or reply frame.
 pub const MAX_FRAME: usize = if MAX_VOLUME_FRAME > LAUNCH_FRAME_MAX {
@@ -37,7 +37,7 @@ pub const MAX_FRAME: usize = if MAX_VOLUME_FRAME > LAUNCH_FRAME_MAX {
 /// frame this build does not know is answered with [`FailureCode::Protocol`] rather than guessed
 /// at, so a mixed pair fails closed. The number names the frame layout in `--version` and in the
 /// compatibility table of `docs/versioning.md`, and it changes whenever a frame's layout does.
-pub const PROTOCOL_VERSION: u16 = 4;
+pub const PROTOCOL_VERSION: u16 = 5;
 
 const CLAIM_HEADER: usize = 1 + 16 + 16 + 4 + 8 + 32;
 
