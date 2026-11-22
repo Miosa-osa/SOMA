@@ -328,9 +328,16 @@ fn copy_image(
         let span = usize::try_from(size - offset).unwrap_or(CHUNK).min(CHUNK);
         let bytes = &mut buffer[..span];
         read(offset, bytes)?;
-        write_at(artifact, file, bytes, offset)?;
+        let end = offset + u64::try_from(span).expect("the chunk length fits a byte offset");
+        if bytes.iter().any(|&byte| byte != 0) {
+            write_at(artifact, file, bytes, offset)?;
+        } else if end == size {
+            // The broker supplied an empty file. A write at its last byte preserves a
+            // trailing hole and the exact length without another jailed syscall.
+            write_at(artifact, file, &[0], end - 1)?;
+        }
         digest.update(bytes);
-        offset += u64::try_from(span).expect("the chunk length fits a byte offset");
+        offset = end;
     }
     Ok(digest.finish())
 }
@@ -368,4 +375,32 @@ fn seal(artifact: Artifact, file: &File, expected: Digest) -> Result<(), Snapsho
         return Err(SnapshotError::StagingDigestMismatch(artifact));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checkpoint_copy_preserves_zero_spans_and_the_exact_trailing_length() {
+        let mut logical = vec![0; 3 * CHUNK + 7];
+        logical[CHUNK + 9] = 0x41;
+        let file = tempfile::tempfile().unwrap();
+        let length = u64::try_from(logical.len()).unwrap();
+        let digest = copy_image(Artifact::Overlay, &file, length, |offset, span| {
+            let offset = usize::try_from(offset).unwrap();
+            span.copy_from_slice(&logical[offset..offset + span.len()]);
+            Ok(())
+        })
+        .unwrap();
+
+        let metadata = file.metadata().unwrap();
+        assert_eq!(metadata.len(), length);
+        assert!(metadata.blocks() * 512 < length / 2);
+        assert_eq!(digest, Digest::of(&logical));
+        let mut recovered = vec![0; logical.len()];
+        file.read_exact_at(&mut recovered, 0).unwrap();
+        assert_eq!(recovered, logical);
+        seal(Artifact::Overlay, &file, digest).unwrap();
+    }
 }
