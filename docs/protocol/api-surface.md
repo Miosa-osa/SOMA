@@ -56,6 +56,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | --- | --- | --- |
 | 1.0 | sha256:0228ba9996e88adacddbaf7b76a2409251b02e3090369f0ea2f4eb5da90d265f | The first explicit version: the surface as it stood when versioning began, plus `GET /v1/version`. |
 | 1.1 | sha256:98bdb0cac8317989d31407167052dec9b8aa461ccc9b578623f2014a53138108 | Suspension (ADR 0034): `POST /v1/sandboxes/{instance}/suspend`, `POST /v1/suspensions/{suspension}/resume`, and `DELETE /v1/suspensions/{suspension}`. |
+| 1.2 | sha256:015d0d6330e8f6f6e3240cbb3f405693d558fc7802de2c3a55744b95db3e28fd | `GET /v1/capacity`: what the host has left for sandboxes (processors, load, memory, disk) and how many more of each memory size fit. |
 
 ## Surface
 
@@ -63,10 +64,11 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.1
+api 1.2
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route DELETE /v1/suspensions/{suspension} suspension.destroy
+route GET /v1/capacity host.capacity
 route GET /v1/prewarm prewarm.status
 route GET /v1/sandboxes sandbox.list
 route GET /v1/sandboxes/{instance} sandbox.get
