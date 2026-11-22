@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use soma::{
-    ExecutionReceipt, InstanceId, LaunchMachineRequest, MachineLaunch, MachineShape,
+    ExecutionReceipt, InstanceId, LaunchMachineRequest, MachineShape,
     ManagedFailure, OciImage, OperationId, SuspendMachineRequest, WorkloadEvidence,
 };
 use soma_hostd::suspension::store::{Store, StoreError};

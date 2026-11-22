@@ -84,14 +84,14 @@ pub(super) fn boot_for(
         overlay: snapshot_overlay,
         state,
         ..
-    } = manifest.snapshot
+    } = &manifest.snapshot
     {
         let overlay = devices
             .overlay()
-            .then(|| open(&snapshot_overlay).and_then(|file| private_head_from(file, instance)))
+            .then(|| open(snapshot_overlay).and_then(|file| private_head_from(file, instance)))
             .transpose()?;
         Some((
-            SnapshotObjects::adopt(open(&state)?, open(&memory)?, None),
+            SnapshotObjects::adopt(open(state)?, open(memory)?, None),
             overlay,
         ))
     } else {
