@@ -1,0 +1,193 @@
+#!/bin/bash
+#
+# /usr/local/libexec/miosa-apps/install: installs and removes apps from the MIOSA Apps catalog. It is
+# the only thing the desktop user may run as root without a password (/etc/sudoers.d/miosa-apps), so
+# it takes nothing but a catalog id and every recipe is written here.
+#
+#   install <id>             install (an installed app is left as it is)
+#   install --remove <id>    remove it again (apps installed from packages)
+#   install --check <id>     exit 0 when it is installed
+#   install --status         print the id of every installed app, one per line
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+USER_NAME=ubuntu
+IDS=(docker vscode sublime nodejs python go rust java gh miosa-cli postgres dbeaver postman tmux neovim
+     claude-code codex gemini hermes osa pi opencode aider goose amp
+     postgres-server redis mysql
+     brave firefox tor duckduckgo tailscale filezilla
+     signal telegram zoom discord
+     libreoffice obsidian keepassxc
+     gimp inkscape blender krita freecad godot threejs obs kdenlive shotcut audacity vlc ffmpeg yt-dlp)
+
+mode=install
+case "${1:-}" in
+    --check) mode=check; shift ;;
+    --remove) mode=remove; shift ;;
+    --status) mode=status ;;
+esac
+id="${1:-}"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+apt_install() { apt-get update -qq && apt-get install -y -qq --no-install-recommends "$@"; }
+# key_repo NAME KEY_URL "deb line": adds a signed vendor apt repository.
+key_repo() {
+    apt_install curl gpg ca-certificates
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL --retry 3 "$2" | gpg --dearmor --yes -o "/etc/apt/keyrings/$1.gpg"
+    printf '%s\n' "$3" >"/etc/apt/sources.list.d/$1.list"
+}
+# deb_url URL: installs a vendor's .deb download.
+deb_url() {
+    apt_install curl ca-certificates
+    curl -fsSL --retry 3 -o /tmp/miosa-app.deb "$1"
+    apt_install /tmp/miosa-app.deb
+    rm -f /tmp/miosa-app.deb
+}
+# github_deb OWNER/REPO: installs the amd64 .deb of a project's latest GitHub release.
+github_deb() {
+    apt_install curl ca-certificates jq
+    url="$(curl -fsSL "https://api.github.com/repos/$1/releases/latest" |
+        jq -r '[.assets[].browser_download_url | select(test("(amd64|x86_64)\\.deb$"))][0]')"
+    [[ "$url" == https://* ]] || { echo "no .deb in the latest $1 release" >&2; return 1; }
+    deb_url "$url"
+}
+# Agents that install into the user's own folder (~/.local) run their official installer as the user.
+as_user() { runuser -u "$USER_NAME" -- bash -lc "export PATH=\$HOME/.local/bin:\$PATH; $1"; }
+as_user_has() { runuser -u "$USER_NAME" -- bash -lc "export PATH=\$HOME/.local/bin:\$HOME/.opencode/bin:\$PATH; command -v $1" >/dev/null 2>&1; }
+npm_global() { [[ -x /usr/local/bin/npm ]] || "$0" nodejs; /usr/local/bin/npm install -g --silent "$@"; }
+# desktop_entry ID NAME EXEC ICON: a launcher for apps unpacked into /opt.
+desktop_entry() {
+    printf '[Desktop Entry]\nType=Application\nName=%s\nExec=%s\nIcon=%s\nCategories=Utility;\n' "$2" "$3" "$4" \
+        >"/usr/share/applications/miosa-$1.desktop"
+}
+
+# recipe ID: sets installed() (a check), add() and the apt packages remove() takes away.
+recipe() {
+    PKGS=()
+    case "$1" in
+        docker) installed() { have docker; }; PKGS=(docker.io docker-compose-v2 docker-buildx)
+            add() { apt_install "${PKGS[@]}"; usermod -aG docker "$USER_NAME"; (dockerd >/var/log/dockerd.log 2>&1 &); sleep 2; } ;;
+        vscode) installed() { have code; }; PKGS=(code)
+            add() { key_repo vscode https://packages.microsoft.com/keys/microsoft.asc \
+                "deb [arch=amd64 signed-by=/etc/apt/keyrings/vscode.gpg] https://packages.microsoft.com/repos/code stable main"
+                apt_install code; } ;;
+        sublime) installed() { have subl; }; PKGS=(sublime-text)
+            add() { key_repo sublime https://download.sublimetext.com/sublimehq-pub.gpg \
+                "deb [signed-by=/etc/apt/keyrings/sublime.gpg] https://download.sublimetext.com/ apt/stable/"
+                apt_install sublime-text; } ;;
+        nodejs) installed() { [[ -x /usr/local/bin/node ]]; }
+            add() { apt_install curl ca-certificates xz-utils
+                curl -fsSL --retry 3 -o /tmp/node.tar.xz https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz
+                tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1; rm -f /tmp/node.tar.xz; } ;;
+        python) installed() { have pipx; }; PKGS=(python3-pip python3-venv python3-dev pipx build-essential)
+            add() { apt_install "${PKGS[@]}"; } ;;
+        go) installed() { have go; }; PKGS=(golang-go); add() { apt_install "${PKGS[@]}"; } ;;
+        rust) installed() { have cargo; }; PKGS=(rustc cargo); add() { apt_install "${PKGS[@]}"; } ;;
+        java) installed() { have java; }; PKGS=(openjdk-21-jdk-headless); add() { apt_install "${PKGS[@]}"; } ;;
+        gh) installed() { have gh; }; PKGS=(gh)
+            add() { key_repo github-cli https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+                "deb [arch=amd64 signed-by=/etc/apt/keyrings/github-cli.gpg] https://cli.github.com/packages stable main"
+                apt_install gh; } ;;
+        postgres) installed() { have psql; }; PKGS=(postgresql-client); add() { apt_install "${PKGS[@]}"; } ;;
+        dbeaver) installed() { have dbeaver; }; PKGS=(dbeaver-ce)
+            add() { deb_url https://dbeaver.io/files/dbeaver-ce_latest_amd64.deb; } ;;
+        postman) installed() { [[ -x /opt/Postman/Postman ]]; }
+            add() { apt_install curl ca-certificates
+                curl -fsSL --retry 3 -o /tmp/postman.tgz https://dl.pstmn.io/download/latest/linux_64
+                rm -r -f /opt/Postman; tar -xzf /tmp/postman.tgz -C /opt; rm -f /tmp/postman.tgz
+                desktop_entry postman Postman /opt/Postman/Postman /opt/Postman/app/resources/app/assets/icon.png; } ;;
+        tmux) installed() { have tmux; }; PKGS=(tmux); add() { apt_install "${PKGS[@]}"; } ;;
+        neovim) installed() { have nvim; }; PKGS=(neovim); add() { apt_install "${PKGS[@]}"; } ;;
+        claude-code) installed() { have claude; }; add() { npm_global @anthropic-ai/claude-code; } ;;
+        codex) installed() { have codex; }; add() { npm_global @openai/codex; } ;;
+        gemini) installed() { have gemini; }; add() { npm_global @google/gemini-cli; } ;;
+        hermes) installed() { as_user_has hermes; }
+            add() { apt_install curl ca-certificates git python3; as_user 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'; } ;;
+        osa) installed() { as_user_has osa; }
+            add() { apt_install curl ca-certificates; as_user 'curl -fsSL https://raw.githubusercontent.com/Miosa-osa/OSA/main/scripts/install.sh | sh'; } ;;
+        pi) installed() { have pi; }; add() { npm_global --ignore-scripts @earendil-works/pi-coding-agent; } ;;
+        opencode) installed() { as_user_has opencode; }
+            add() { apt_install curl ca-certificates; as_user 'curl -fsSL https://opencode.ai/v2/install | bash'; } ;;
+        aider) installed() { as_user_has aider; }
+            add() { apt_install pipx python3-venv; as_user 'pipx install aider-chat'; } ;;
+        goose) installed() { as_user_has goose; }
+            add() { apt_install curl ca-certificates bzip2 libxcb1; as_user 'curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash'; } ;;
+        amp) installed() { have amp; }; add() { npm_global @sourcegraph/amp; } ;;
+        miosa-cli) installed() { have miosa; }
+            add() { apt_install curl ca-certificates; curl -fsSL https://raw.githubusercontent.com/Miosa-osa/miosa-cli-go/main/install.sh | INSTALL_DIR=/usr/local/bin sh; } ;;
+        postgres-server) installed() { [[ -d /usr/lib/postgresql ]] && have pg_ctlcluster; }; PKGS=(postgresql)
+            add() { apt_install postgresql; pg_ctlcluster --skip-systemctl-redirect "$(ls /usr/lib/postgresql)" main start || true; } ;;
+        redis) installed() { have redis-server; }; PKGS=(redis-server)
+            add() { apt_install redis-server; (redis-server --daemonize yes >/dev/null 2>&1) || true; } ;;
+        mysql) installed() { have mariadbd || have mysqld; }; PKGS=(mariadb-server)
+            add() { apt_install mariadb-server; (mysqld_safe >/dev/null 2>&1 &); } ;;
+        tor) installed() { have torbrowser-launcher; }; PKGS=(torbrowser-launcher); add() { apt_install torbrowser-launcher; } ;;
+        duckduckgo) installed() { [[ -f /usr/share/applications/miosa-duckduckgo.desktop ]]; }
+            add() { desktop_entry duckduckgo DuckDuckGo "google-chrome --app=https://duckduckgo.com" /usr/share/miosa-apps/icons/duckduckgo.png; } ;;
+        threejs) installed() { [[ -f "/home/$USER_NAME/Projects/threejs-starter/package.json" ]]; }
+            add() { [[ -x /usr/local/bin/npm ]] || "$0" nodejs
+                as_user 'mkdir -p ~/Projects && cd ~/Projects && npx --yes create-vite@latest threejs-starter --template vanilla && cd threejs-starter && npm install --silent && npm install --silent three'; } ;;
+        godot) installed() { have godot3; }; PKGS=(godot3); add() { apt_install "${PKGS[@]}"; } ;;
+        krita) installed() { have krita; }; PKGS=(krita); add() { apt_install "${PKGS[@]}"; } ;;
+        shotcut) installed() { have shotcut; }; PKGS=(shotcut); add() { apt_install "${PKGS[@]}"; } ;;
+        freecad) installed() { have freecad; }; PKGS=(freecad); add() { apt_install "${PKGS[@]}"; } ;;
+        brave) installed() { have brave-browser; }; PKGS=(brave-browser)
+            add() { key_repo brave https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
+                "deb [arch=amd64 signed-by=/etc/apt/keyrings/brave.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main"
+                apt_install brave-browser; } ;;
+        firefox) installed() { [[ -x /usr/lib/firefox/firefox ]]; }; PKGS=(firefox)
+            add() { key_repo mozilla https://packages.mozilla.org/apt/repo-signing-key.gpg \
+                "deb [signed-by=/etc/apt/keyrings/mozilla.gpg] https://packages.mozilla.org/apt mozilla main"
+                printf 'Package: *\nPin: origin packages.mozilla.org\nPin-Priority: 1000\n' >/etc/apt/preferences.d/mozilla
+                apt_install firefox; } ;;
+        tailscale) installed() { have tailscale; }; PKGS=(tailscale)
+            add() { key_repo tailscale https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg \
+                "deb [signed-by=/etc/apt/keyrings/tailscale.gpg] https://pkgs.tailscale.com/stable/ubuntu noble main"
+                apt_install tailscale; } ;;
+        filezilla) installed() { have filezilla; }; PKGS=(filezilla); add() { apt_install "${PKGS[@]}"; } ;;
+        signal) installed() { have signal-desktop; }; PKGS=(signal-desktop)
+            add() { key_repo signal https://updates.signal.org/desktop/apt/keys.asc \
+                "deb [arch=amd64 signed-by=/etc/apt/keyrings/signal.gpg] https://updates.signal.org/desktop/apt xenial main"
+                apt_install signal-desktop; } ;;
+        telegram) installed() { [[ -x /opt/Telegram/Telegram ]]; }
+            add() { apt_install curl ca-certificates xz-utils
+                curl -fsSL --retry 3 -o /tmp/telegram.tar.xz https://telegram.org/dl/desktop/linux
+                rm -r -f /opt/Telegram; tar -xJf /tmp/telegram.tar.xz -C /opt; rm -f /tmp/telegram.tar.xz
+                desktop_entry telegram Telegram /opt/Telegram/Telegram telegram; } ;;
+        zoom) installed() { have zoom; }; PKGS=(zoom); add() { deb_url https://zoom.us/client/latest/zoom_amd64.deb; } ;;
+        discord) installed() { have discord; }; PKGS=(discord)
+            add() { deb_url "https://discord.com/api/download?platform=linux&format=deb"; } ;;
+        libreoffice) installed() { have libreoffice; }
+            PKGS=(libreoffice-writer libreoffice-calc libreoffice-impress libreoffice-gtk3); add() { apt_install "${PKGS[@]}"; } ;;
+        obsidian) installed() { have obsidian; }; PKGS=(obsidian); add() { github_deb obsidianmd/obsidian-releases; } ;;
+        keepassxc) installed() { have keepassxc; }; PKGS=(keepassxc); add() { apt_install "${PKGS[@]}"; } ;;
+        gimp) installed() { have gimp; }; PKGS=(gimp); add() { apt_install "${PKGS[@]}"; } ;;
+        inkscape) installed() { have inkscape; }; PKGS=(inkscape); add() { apt_install "${PKGS[@]}"; } ;;
+        blender) installed() { have blender; }; PKGS=(blender); add() { apt_install "${PKGS[@]}"; } ;;
+        obs) installed() { have obs; }; PKGS=(obs-studio); add() { apt_install "${PKGS[@]}"; } ;;
+        kdenlive) installed() { have kdenlive; }; PKGS=(kdenlive); add() { apt_install "${PKGS[@]}"; } ;;
+        audacity) installed() { have audacity; }; PKGS=(audacity); add() { apt_install "${PKGS[@]}"; } ;;
+        vlc) installed() { have vlc; }; PKGS=(vlc); add() { apt_install "${PKGS[@]}"; } ;;
+        ffmpeg) installed() { have ffmpeg; }; PKGS=(ffmpeg); add() { apt_install "${PKGS[@]}"; } ;;
+        yt-dlp) installed() { have yt-dlp; }; PKGS=(yt-dlp); add() { apt_install "${PKGS[@]}"; } ;;
+        *) echo "no app called $1 in the MIOSA Apps catalog" >&2; exit 2 ;;
+    esac
+}
+
+if [[ "$mode" == status ]]; then
+    for each in "${IDS[@]}"; do recipe "$each"; installed && echo "$each"; done
+    exit 0
+fi
+[[ "$id" =~ ^[a-z0-9-]+$ ]] || { echo "usage: install [--check|--remove] <id> | --status" >&2; exit 2; }
+recipe "$id"
+case "$mode" in
+    check) installed ;;
+    remove)
+        (( ${#PKGS[@]} )) || { echo "$id cannot be removed from here" >&2; exit 3; }
+        apt-get remove -y -qq "${PKGS[@]}"
+        echo "$id removed" ;;
+    install)
+        if installed; then echo "$id is already installed"; exit 0; fi
+        add
+        installed && echo "$id installed" ;;
+esac

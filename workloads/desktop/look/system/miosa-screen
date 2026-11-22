@@ -1,0 +1,50 @@
+#!/bin/bash
+#
+# miosa-screen: extra screens in this machine, so several agents can each do computer use at once.
+# Screen 0 is the desktop a person sees. Screens 1 to 3 are full screens of their own (window manager,
+# their own Chrome, their own screenshots), and each can be watched through its own viewer port.
+#
+#   miosa-screen start <1-3>   start screen N; prints DISPLAY=:N and its viewer port (6080 + N)
+#   miosa-screen stop <1-3>    stop it and everything on it
+#   miosa-screen list          which screens are running
+set -euo pipefail
+STATE="${XDG_RUNTIME_DIR:-/tmp}/miosa-screens"
+mkdir -p "$STATE"
+
+usage() { sed -n '3,10p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+running() { [[ -f "$STATE/$1.pids" ]] && kill -0 "$(head -1 "$STATE/$1.pids")" 2>/dev/null; }
+
+case "${1:-}" in
+    start)
+        n="${2:-}"; [[ "$n" =~ ^[1-3]$ ]] || usage
+        if running "$n"; then echo "DISPLAY=:$n viewer_port=$((6080 + n))"; exit 0; fi
+        Xvfb ":$n" -screen 0 "${3:-1600x1000}x24" -shmem -ac -nolisten tcp -noreset +extension RANDR >"$STATE/$n.xvfb.log" 2>&1 &
+        echo $! >"$STATE/$n.pids"
+        for _ in $(seq 1 50); do [[ -S "/tmp/.X11-unix/X$n" ]] && break; sleep 0.1; done
+        export DISPLAY=":$n"
+        openbox --config-file /etc/soma-desktop/openbox.xml >"$STATE/$n.wm.log" 2>&1 & echo $! >>"$STATE/$n.pids"
+        hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-aurora.jpg >/dev/null 2>&1 || true
+        voxl --port=$((6080 + n)) --enable-basic-auth=false --title="MIOSA Screen $n" \
+            --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
+            --enable-resize=true --audio-enabled=false --framerate=30 >"$STATE/$n.voxl.log" 2>&1 &
+        echo $! >>"$STATE/$n.pids"
+        echo "DISPLAY=:$n viewer_port=$((6080 + n))"
+        ;;
+    stop)
+        n="${2:-}"; [[ "$n" =~ ^[1-3]$ ]] || usage
+        if [[ -f "$STATE/$n.pids" ]]; then
+            # Everything started on the screen goes with it, then the screen itself.
+            for p in /proc/[0-9]*; do
+                if grep -qzx "DISPLAY=:$n" "$p/environ" 2>/dev/null; then kill "${p#/proc/}" 2>/dev/null || true; fi
+            done
+            tac "$STATE/$n.pids" | xargs -r kill 2>/dev/null || true
+            rm -f "$STATE/$n.pids"
+        fi
+        echo "screen $n stopped"
+        ;;
+    list)
+        for n in 1 2 3; do running "$n" && echo "screen $n: DISPLAY=:$n viewer_port=$((6080 + n))"; done
+        echo "screen 0: DISPLAY=:0 viewer_port=6080 (the desktop)"
+        ;;
+    *) usage ;;
+esac

@@ -1,0 +1,25 @@
+/* MIOSA Search: a centred glass panel with a large field and app icons, like Spotlight.
+   Opened by Search on the top bar and by Alt+Space. */
+* {
+    font: "Inter 12";
+    bg: #12151fe8;
+    field: #ffffff12;
+    line: #ffffff22;
+    text: #eef1f8;
+    dim: #8d95ad;
+    pick: #ffffff1c;
+    accent: #6b8cff;
+    background-color: transparent;
+    text-color: @text;
+}
+window { width: 680px; location: north; y-offset: 140px; border: 1px; border-color: @line; border-radius: 18px; background-color: @bg; padding: 14px; }
+mainbox { spacing: 10px; children: [ inputbar, message, listview ]; }
+inputbar { padding: 14px 16px; border-radius: 12px; background-color: @field; children: [ icon-search, entry ]; spacing: 12px; }
+icon-search { expand: false; filename: "system-search"; size: 22px; vertical-align: 0.5; }
+entry { font: "Inter 16"; placeholder: "Search apps and actions"; placeholder-color: @dim; vertical-align: 0.5; cursor-color: @accent; }
+message { padding: 4px 8px; }
+listview { lines: 8; spacing: 2px; scrollbar: false; fixed-height: false; }
+element { padding: 10px 12px; border-radius: 10px; spacing: 14px; }
+element selected { background-color: @pick; border: 0 0 0 3px; border-color: @accent; }
+element-icon { size: 30px; vertical-align: 0.5; }
+element-text { vertical-align: 0.5; }

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=System
+Comment=What this machine is using: processors, memory, disk, network
+Exec=miosa-system
+Icon=utilities-system-monitor
+Categories=System;

@@ -983,3 +983,22 @@ replaying its own operation. That is why the retention window is ten minutes and
 first sweep that saw the record terminal rather than from a time stored in the record: no record carries a
 wall-clock time, and counting from the sweep makes a restart wait a whole window instead of releasing
 everything at once. [ADR 0055](docs/adr/0055-release-terminal-machine-records.md) states the rule.
+
+## Desktop wallpaper and chrome
+
+The preview desktop uses a compressed static blue-hour wallpaper with a fallback solid fill when X cannot paint the image.
+The top panel, dock, Openbox decorations, and larger terminal type share the wallpaper's slate-blue palette.
+The existing Host 12 preview applied the theme through its authenticated guest interface without rebooting the desktop.
+
+## 2026-11-21 - Slate desktop preview
+
+The desktop image packages a 1920 by 1080 static JPEG with the composition weighted to the lower right so windows and controls stay readable.
+On the Host 12 preview, the wallpaper and panel configuration were applied in place and the Chrome stream continued playing.
+The live X server reported the 40-pixel task bar and 60-pixel dock mapped.
+
+## 2026-11-22 - Alpine desktop wallpaper
+
+The desktop workload uses a static 1920 by 1080 alpine JPEG, with the main ridge on the right to keep the center clear for work.
+At 103,293 bytes it is smaller than the previous wallpaper.
+The refreshed wallpaper and panel settings were applied to the existing Host 12 SOMA preview.
+The browser viewer showed the new wallpaper and streamed a terminal launched from the dock.

@@ -25,7 +25,37 @@
 #     docker build --build-arg BASE_IMAGE=soma-desktop-base:2 -t soma-desktop:2 workloads/desktop
 #
 # Only instructions the classic builder understands are used, so no BuildKit is needed.
+# voxl, the default viewer: H.264 over one WebSocket, decoded with WebCodecs, damage-aware so a
+# still screen costs nothing. Built from a pinned commit of tembo/voxl (MIT; the binary links x264,
+# so it is distributed under the GPL with its source at that commit). Measured on miosa-host-12 on
+# two cores: 60 fps at 1080p even at 5 Mbps / 60 ms, where KasmVNC fell to 27 fps and noVNC to 7.
 ARG BASE_IMAGE
+FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS voxl
+ARG VOXL_COMMIT=21f194f9e446e7073abd7bbd52e0b397c3800b42
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config clang \
+      libx11-dev libxext-dev libxfixes-dev libxdamage-dev libxtst-dev libxrandr-dev \
+      libx264-dev libyuv-dev libopus-dev libpulse-dev xz-utils \
+ && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 && npm install -g esbuild \
+ && curl -fsSL https://sh.rustup.rs -o /tmp/rustup.sh && sh /tmp/rustup.sh -y --profile minimal
+RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && git checkout -q "$VOXL_COMMIT" \
+ && PATH=/root/.cargo/bin:$PATH cargo build --release --locked \
+ && install -m 0755 target/release/voxl /usr/local/bin/voxl
+
+# The MIOSA wallpapers: the platform's NASA backdrops (look/backgrounds/src, see CREDITS) with the
+# MIOSA wordmark at the centre, made once here so the desktop image carries finished pictures.
+FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS wallpapers
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pil python3-numpy \
+ && find /var/lib/apt/lists -type f -delete
+COPY look/backgrounds/src /src
+COPY look/backgrounds/brand.py look/backgrounds/duotone.py /
+COPY look/backgrounds/gray /gray
+COPY look/brand/miosa-logo.png /miosa-logo.png
+RUN python3 /brand.py /src /miosa-logo.png /out && python3 /duotone.py /gray /miosa-logo.png /out \
+ && rm -f /out/sheet.jpg && test "$(ls /out/*.jpg | wc -l)" -eq 52
+
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -139,6 +169,165 @@ RUN mkdir -p /etc/soma \
       done; \
     } | awk '!seen[$0]++' | head -256 > /etc/soma/warm \
  && test "$(wc -l < /etc/soma/warm)" -gt 30
+
+# The MIOSA look and the apps a person uses every day: Openbox's MIOSA theme, a top bar and a dock
+# (tint2), a static wallpaper (hsetroot), the Yaru GTK and icon themes, Inter and JetBrains Mono,
+# Thunar for files, and Google Chrome pinned by the SHA-256 of its package. Chrome is set up for a
+# machine that runs for weeks with accounts signed in: it restores the last session, never asks to
+# be the default or shows a first run, and keeps logins without a keyring prompt.
+ARG CHROME_VERSION=158.0.8127.36-1
+ARG CHROME_SHA256=4696bce00b128f385a870ba2eb6eede61698f22374ea0d8e09af8a1c6543d397
+RUN set -e; \
+    deb="google-chrome-stable_${CHROME_VERSION}_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/${deb}"; \
+    echo "${CHROME_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}" tint2 hsetroot thunar picom \
+      fonts-inter fonts-jetbrains-mono yaru-theme-gtk yaru-theme-icon; \
+    rm -f "/tmp/${deb}" /etc/apt/sources.list.d/google-chrome.list; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    command -v google-chrome-stable tint2 hsetroot thunar picom
+COPY --from=voxl /usr/local/bin/voxl /usr/local/bin/voxl
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libx264-164 libyuv0 libopus0 libpulse0 \
+ && apt-get clean && find /var/lib/apt/lists -type f -delete \
+ && voxl --help | head -1
+
+# KasmVNC, the screen and the fallback viewer (see session.sh): pinned by the SHA-256 of its release
+# package, with its web client served on the viewer port.
+ARG KASMVNC_VERSION=1.4.0
+ARG KASMVNC_SHA256=12bac6014149c5fdee75f0d403785aaa3e5dd4ea222de73253a5d4181bc9567e
+RUN set -e; \
+    deb="kasmvncserver_noble_${KASMVNC_VERSION}_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://github.com/kasmtech/KasmVNC/releases/download/v${KASMVNC_VERSION}/${deb}"; \
+    echo "${KASMVNC_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}"; \
+    rm -f "/tmp/${deb}"; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    command -v Xkasmvnc; \
+    mkdir -p /etc/kasmvnc; \
+    printf '%s\n' 'network:' '  protocol: http' '  websocket_port: 6082' '  ssl:' \
+      '    require_ssl: false' '    pem_certificate: ""' '    pem_key: ""' > /etc/kasmvnc/kasmvnc.yaml
+COPY look/openbox/themerc /usr/share/themes/MIOSA/openbox-3/themerc
+COPY look/openbox/rc.xml /etc/soma-desktop/openbox.xml
+COPY look/openbox/menu.xml /etc/soma-desktop/menu.xml
+COPY look/tint2/ /etc/soma-desktop/tint2/
+COPY look/terminal/terminalrc /home/ubuntu/.config/xfce4/terminal/terminalrc
+COPY look/gtk/settings.ini /home/ubuntu/.config/gtk-3.0/settings.ini
+COPY look/chrome/miosa.json /etc/opt/chrome/policies/managed/miosa.json
+COPY look/brand/miosa-icon.png /usr/share/soma-desktop/miosa-icon.png
+COPY look/compositor/picom.conf /etc/soma-desktop/picom.conf
+COPY look/wallpaper/blue-hour.jpg /usr/share/soma-desktop/blue-hour.jpg
+COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
+
+# A real desktop and an Apple-style dock: PCManFM draws the desktop (icons, folders, drag-to-select,
+# the right-click menu, wallpaper picker), Plank is the dock, WhiteSur is the icon set, and the
+# MIOSA wallpapers come in dark and light. WhiteSur (icons and the GTK theme every window wears) is
+# pinned by the SHA-256 of its releases. Xvfb is the screen (see session.sh); the Wallpapers app is
+# GTK in Python; Mousepad, Ristretto, MuPDF and Galculator are the small everyday apps.
+ARG WHITESUR_GTK_SHA256=65516c8f45da45c602471e31b4de0b6e9aed6eb3fc3820df16161d077245a1a2
+ARG WHITESUR_TAG=2026-09-10
+ARG WHITESUR_SHA256=406c9cd59705583f1754b0eaca96cc48bafda042b88ef143f16d8ae1820ecd95
+RUN set -e; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends pcmanfm plank gsimplecal dconf-cli dconf-service \
+      dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+      mousepad ristretto mupdf galculator xz-utils xdotool rofi scrot htop; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    curl -fsSL --retry 3 -o /tmp/whitesur.tar.gz \
+      "https://github.com/vinceliuice/WhiteSur-icon-theme/archive/refs/tags/${WHITESUR_TAG}.tar.gz"; \
+    echo "${WHITESUR_SHA256}  /tmp/whitesur.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/whitesur; tar -xzf /tmp/whitesur.tar.gz -C /tmp/whitesur --strip-components=1; \
+    (cd /tmp/whitesur && ./install.sh -d /usr/share/icons -t default >/dev/null); \
+    rm -r -f /tmp/whitesur /tmp/whitesur.tar.gz; \
+    test -d /usr/share/icons/WhiteSur-dark; \
+    curl -fsSL --retry 3 -o /tmp/whitesur-gtk.tar.gz \
+      "https://github.com/vinceliuice/WhiteSur-gtk-theme/archive/refs/tags/${WHITESUR_TAG}.tar.gz"; \
+    echo "${WHITESUR_GTK_SHA256}  /tmp/whitesur-gtk.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/wsg; tar -xzf /tmp/whitesur-gtk.tar.gz -C /tmp/wsg --strip-components=1; \
+    for t in WhiteSur-Dark WhiteSur-Light; do tar -xJf "/tmp/wsg/release/${t}.tar.xz" -C /usr/share/themes; done; \
+    rm -r -f /tmp/wsg /tmp/whitesur-gtk.tar.gz; \
+    test -f /usr/share/themes/WhiteSur-Dark/gtk-3.0/gtk.css; \
+    command -v pcmanfm plank gsimplecal Xvfb mousepad ristretto mupdf galculator rofi scrot htop
+COPY --from=wallpapers /out/ /usr/share/backgrounds/miosa/
+COPY look/launcher/miosa.rasi /etc/soma-desktop/miosa.rasi
+# MIOSA Apps: a catalog, a root-owned installer (the one command the desktop user may run as root,
+# and it installs only catalog entries), the Apps window and the miosa-apps command for agents.
+COPY look/apps/catalog.json /usr/share/miosa-apps/catalog.json
+COPY look/apps/install /usr/local/libexec/miosa-apps/install
+COPY look/apps/miosa-apps /usr/local/bin/miosa-apps
+COPY look/apps/miosa-apps.desktop /usr/share/applications/miosa-apps.desktop
+COPY look/apps/icons/ /usr/share/miosa-apps/icons/
+# System (charts of what the machine uses), the bar's readout, and extra screens for parallel agents.
+COPY look/system/miosa-system look/system/miosa-screen /usr/local/bin/
+COPY look/system/readout.sh /usr/local/libexec/soma-desktop/readout.sh
+COPY look/system/miosa-system.desktop /usr/share/applications/miosa-system.desktop
+# The guide agents read first, in the home folder and beside the system's other desktop files.
+COPY look/agents/AGENTS.md /home/ubuntu/AGENTS.md
+COPY look/agents/AGENTS.md /etc/soma-desktop/AGENTS.md
+COPY look/backgrounds/collections.txt /usr/share/backgrounds/miosa/collections.txt
+COPY look/openbox/buttons/ /usr/share/themes/MIOSA/openbox-3/
+COPY look/wallpapers/miosa-wallpapers /usr/local/bin/miosa-wallpapers
+# PCManFM reads its profile from the user's folder only; a profile it cannot find there it writes
+# afresh with a black background, so the MIOSA profile is the user's from the start.
+COPY look/desktop/pcmanfm.conf look/desktop/desktop-items-0.conf /home/ubuntu/.config/pcmanfm/miosa/
+COPY look/desktop/libfm.conf /etc/xdg/libfm/libfm.conf
+COPY look/wallpapers/miosa-wallpapers.desktop /usr/share/applications/miosa-wallpapers.desktop
+COPY look/dock/MIOSA/dock.theme /usr/share/plank/themes/MIOSA/dock.theme
+COPY look/dock/dconf-plank /etc/dconf/db/local.d/10-plank
+COPY look/dock/*.dockitem /home/ubuntu/.config/plank/dock1/launchers/
+RUN mkdir -p /etc/dconf/profile \
+ && printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user \
+ && dconf update \
+ && mkdir -p /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads \
+ && for app in google-chrome xfce4-terminal pcmanfm miosa-wallpapers; do \
+      install -m 0755 "/usr/share/applications/${app}.desktop" "/home/ubuntu/Desktop/${app}.desktop"; \
+    done \
+ && sed -i 's/^Name=.*/Name=Files/' /home/ubuntu/Desktop/pcmanfm.desktop \
+ && sed -i 's/^Name=.*/Name=Terminal/' /home/ubuntu/Desktop/xfce4-terminal.desktop \
+ && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' /home/ubuntu/Desktop/google-chrome.desktop \
+ && chmod 0755 /usr/local/bin/miosa-wallpapers /usr/local/bin/miosa-apps /usr/local/libexec/miosa-apps/install \
+      /usr/local/bin/miosa-system /usr/local/bin/miosa-screen /usr/local/libexec/soma-desktop/readout.sh \
+ && sed -i 's/^Name=.*/Name=Files/; s/^GenericName=.*/GenericName=Files/; /^Name\[/d; /^GenericName\[/d' /usr/share/applications/pcmanfm.desktop \
+ && sed -i 's/^Name=.*/Name=Terminal/; /^Name\[/d' /usr/share/applications/xfce4-terminal.desktop \
+ && printf 'ubuntu ALL=(root) NOPASSWD: /usr/local/libexec/miosa-apps/install\n' > /etc/sudoers.d/miosa-apps \
+ && chmod 0440 /etc/sudoers.d/miosa-apps && visudo -cf /etc/sudoers.d/miosa-apps \
+ && install -m 0755 /usr/share/applications/miosa-apps.desktop /home/ubuntu/Desktop/miosa-apps.desktop \
+ && sed -i 's|wallpaper=.*|wallpaper=/usr/share/backgrounds/miosa/miosa-aurora.jpg|' /home/ubuntu/.config/pcmanfm/miosa/desktop-items-0.conf \
+ && mkdir -p /home/ubuntu/.config/google-chrome \
+ && printf '{"browser":{"first_run_finished":true}}' > '/home/ubuntu/.config/google-chrome/Local State' \
+ && chown -R ubuntu:ubuntu /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads /home/ubuntu/.config
+RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
+ && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
+      > /usr/local/bin/google-chrome \
+ && chmod 0755 /usr/local/bin/google-chrome \
+ && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' \
+      /usr/share/applications/google-chrome.desktop \
+ && grep -q '^Exec=/usr/local/bin/google-chrome' /usr/share/applications/google-chrome.desktop \
+ && test -f /usr/share/applications/xfce4-terminal.desktop \
+ && test -f /usr/share/applications/thunar.desktop \
+ && cp /home/ubuntu/.config/gtk-3.0/settings.ini /etc/gtk-3.0/settings.ini \
+ && chown -R ubuntu:ubuntu /home/ubuntu/.config
+
+# The viewer opens straight into this desktop: its front door finds the host and the Desktop app and
+# goes to the stream, every page defaults to WebSockets (WebRTC cannot cross the SOMA tunnel), and
+# the page carries the MIOSA name. The default is patched in each bundle that sets it, and the build
+# fails if the bundles change shape under a new moonlight-web.
+COPY look/viewer/index.html /opt/moonlight-web/static/index.html
+COPY look/brand/miosa-icon.png /opt/moonlight-web/static/miosa-icon.png
+COPY look/brand/miosa-logo.png /opt/moonlight-web/static/miosa-logo.png
+RUN cd /opt/moonlight-web/static \
+ && test "$(grep -l 'dataTransport:"auto"' ./*.js | wc -l)" -eq 4 \
+ && sed -i 's/dataTransport:"auto"/dataTransport:"websocket"/' ./*.js \
+ && test "$(grep -l 'dataTransport:"auto"' ./*.js | wc -l)" -eq 0 \
+ && sed -i 's|<title>Stream</title>|<title>MIOSA Desktop</title>|; s|href=resources/moonlight.svg|href=miosa-icon.png|; s|href=moonlight.svg|href=miosa-icon.png|' stream.html \
+ && grep -q '<title>MIOSA Desktop</title>' stream.html
 
 # The viewer's own state, made once: moonlight-web's configuration (WebSockets only, so no public
 # STUN server is ever asked; its data in the desktop user's home), then the pairing itself.
