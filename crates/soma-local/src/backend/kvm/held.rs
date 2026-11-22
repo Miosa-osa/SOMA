@@ -127,11 +127,6 @@ impl Held {
         }
     }
 
-    /// Releases everything the machine owns and reports how it ended.
-    ///
-    /// A forced release never asks the guest: the machine is ended and the receipt says so. A
-    /// graceful one asks and reports whether the guest agreed, which is the only honest way to
-    /// describe a termination a caller was told about.
     /// Reads the machine into `staging` and releases it (ADR 0034); `false` is a refusal with
     /// nothing done. A jailed worker's control protocol does not carry a suspension yet, so it
     /// refuses, exactly as it refuses a filesystem request.
@@ -151,6 +146,10 @@ impl Held {
         }
     }
 
+    /// Releases everything the machine owns and reports how it ended.
+    ///
+    /// A forced release ends the machine immediately. A graceful release reports whether the
+    /// guest acknowledged shutdown.
     pub(super) fn release(
         self,
         instance: &InstanceId,

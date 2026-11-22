@@ -100,7 +100,7 @@ initramfs=top-down-page-aligned modules-max=1\n\
 mem-device=virtio-mem slot=5 hotplug=online-movable declared-by=device-set\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
 
-/// The fixed-memory x86_64 machine contract with up to sixteen processors.
+/// The fixed-memory `x86_64` machine contract with up to sixteen processors.
 pub const MACHINE_CONTRACT_V4: &[u8] = b"soma-x86_64-machine-contract-v4\n\
 boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
 vcpu=1-16 ram-min=134217728 ram-max=17179869184 ram-step=4096\n\
@@ -112,7 +112,7 @@ loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000
 initramfs=top-down-page-aligned modules-max=1\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
 
-/// The fixed-memory x86_64 machine with up to 32 GiB RAM and sixteen processors.
+/// The fixed-memory `x86_64` machine with up to 32 GiB RAM and sixteen processors.
 pub const MACHINE_CONTRACT_V5: &[u8] = b"soma-x86_64-machine-contract-v5\n\
 boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
 vcpu=1-16 ram-min=134217728 ram-max=34359738368 ram-step=4096\n\

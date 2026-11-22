@@ -177,20 +177,14 @@ impl Route {
 pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     let segments = request.segments();
     match segments.as_slice() {
-        ["v1", "version"] => match request.method {
-            Method::Get => Ok(Route::Version),
-            _ => Err(ApiError::method_not_allowed()),
-        },
+        ["v1", "version"] => get_only(request, Route::Version),
         ["v1", "prewarm"] => match request.method {
             Method::Get => Ok(Route::Prewarm(false)),
             Method::Put => Ok(Route::Prewarm(true)),
             _ => Err(ApiError::method_not_allowed()),
         },
         ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
-        ["v1", "capacity"] => match request.method {
-            Method::Get => Ok(Route::Capacity),
-            _ => Err(ApiError::method_not_allowed()),
-        },
+        ["v1", "capacity"] => get_only(request, Route::Capacity),
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),
@@ -308,6 +302,14 @@ fn autosize(request: &Request, instance: &str) -> Result<Route, ApiError> {
         Method::Get => Ok(Route::Autosize(instance_id, false)),
         Method::Put => Ok(Route::Autosize(instance_id, true)),
         _ => Err(ApiError::method_not_allowed()),
+    }
+}
+
+fn get_only(request: &Request, route: Route) -> Result<Route, ApiError> {
+    if request.method == Method::Get {
+        Ok(route)
+    } else {
+        Err(ApiError::method_not_allowed())
     }
 }
 

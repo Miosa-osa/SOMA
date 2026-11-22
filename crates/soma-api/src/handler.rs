@@ -51,6 +51,19 @@ pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> R
     }
 }
 
+fn list_sandboxes(
+    facade: &mut (impl SandboxFacade + ?Sized),
+    operation: &'static str,
+) -> Result<Response, ApiError> {
+    let listing = facade.list().map_err(|failure| managed_error(&failure))?;
+    Ok(success(
+        200,
+        operation,
+        &SandboxListReport::from_listing(&listing),
+        None,
+    ))
+}
+
 fn dispatch<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     route: Route,
@@ -60,15 +73,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     let operation = route.operation();
     match route {
         Route::CreateSandbox => create(facade, body),
-        Route::ListSandboxes => {
-            let listing = facade.list().map_err(|f| managed_error(&f))?;
-            Ok(success(
-                200,
-                operation,
-                &SandboxListReport::from_listing(&listing),
-                None,
-            ))
-        }
+        Route::ListSandboxes => list_sandboxes(facade, operation),
         Route::Filesystem(instance_id, file_operation) => {
             filesystem(facade, instance_id, file_operation, body)
         }
