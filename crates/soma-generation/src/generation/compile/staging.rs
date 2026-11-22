@@ -8,7 +8,7 @@
 use std::{
     fs,
     io::ErrorKind,
-    path::{Path, PathBuf},
+    path::{Path, PathBuf, absolute},
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -25,6 +25,8 @@ pub(super) struct Staging {
 
 impl Staging {
     pub(super) fn create(parent: &Path) -> Result<Self, CompileError> {
+        // Formatters run from the staging directory and also receive paths into it.
+        let parent = absolute(parent).map_err(|_| io_error())?;
         let process = std::process::id();
         for _ in 0..MAX_ATTEMPTS {
             let sequence = STAGING_SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -52,6 +54,16 @@ impl Drop for Staging {
 #[cfg(test)]
 mod tests {
     use super::Staging;
+
+    #[test]
+    fn a_relative_parent_produces_an_output_path_usable_from_the_formatter_cwd() {
+        let parent = tempfile::tempdir_in(".").expect("scratch parent");
+        let relative_parent = parent.path().file_name().expect("relative scratch name");
+        let staging = Staging::create(relative_parent.as_ref()).expect("staging directory");
+        let output = staging.path.join("root.erofs");
+
+        assert_eq!(staging.path.join(output), staging.path.join("root.erofs"));
+    }
 
     #[test]
     fn a_directory_left_by_a_killed_build_is_never_reused() {

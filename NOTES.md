@@ -1024,3 +1024,10 @@ The desktop workload uses a static 1920 by 1080 alpine JPEG, with the main ridge
 At 103,293 bytes it is smaller than the previous wallpaper.
 The refreshed wallpaper and panel settings were applied to the existing Host 12 SOMA preview.
 The browser viewer showed the new wallpaper and streamed a terminal launched from the dock.
+
+## 2026-11-22 - Generation compiler staging paths
+
+Both preparation tools create a private compiler staging directory inside the requested output entry.
+With a relative output entry, the formatter received a path relative to the caller and then resolved it from inside its own working directory.
+Host tracing confirmed an `ENOENT` opening the EROFS image.
+The compiler now constructs absolute staging paths before launching any filesystem tool, preserving the same private directory and cleanup behavior.
