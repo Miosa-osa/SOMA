@@ -98,6 +98,10 @@ impl DirectoryVolumes {
                 .and_then(|name| VolumeId::from_hex(name).ok())
                 .is_none()
             {
+                #[cfg(target_os = "linux")]
+                if encrypted {
+                    checkpoint::remove_interrupted_stage(&entry)?;
+                }
                 continue;
             }
             let path = entry.path().join(SIDECAR_FILE);

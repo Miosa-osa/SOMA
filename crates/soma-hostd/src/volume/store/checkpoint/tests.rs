@@ -16,7 +16,7 @@ fn a_checkpoint_copy_keeps_sparse_bytes_independent_and_rejects_a_bad_digest() {
     source.rewind().unwrap();
     let digest = Sha256::digest(&bytes).into();
     let stage = Staging::new(directory.path()).unwrap();
-    let target = stage.0.join(VOLUME_FILE);
+    let target = stage.path.join(VOLUME_FILE);
     clone_sparse(
         source.try_clone().unwrap(),
         &target,
@@ -32,7 +32,7 @@ fn a_checkpoint_copy_keeps_sparse_bytes_independent_and_rejects_a_bad_digest() {
     source.read_to_end(&mut actual).unwrap();
     assert_eq!(actual, bytes);
     source.rewind().unwrap();
-    let bad = stage.0.join("bad");
+    let bad = stage.path.join("bad");
     assert_eq!(
         clone_sparse(source, &bad, bytes.len() as u64, &[0; 32]),
         Err(BAD_SNAPSHOT)

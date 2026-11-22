@@ -1,19 +1,24 @@
 //! Install a checkpoint's disk in an independent durable workspace.
 
 use std::{
-    fs::{self, DirBuilder, File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{Read as _, Seek as _, SeekFrom, Write as _},
-    os::unix::fs::{DirBuilderExt as _, MetadataExt as _, OpenOptionsExt as _},
+    os::unix::fs::{MetadataExt as _, OpenOptionsExt as _},
     path::{Path, PathBuf},
 };
 
 use sha2::{Digest as _, Sha256};
 
 use super::{DirectoryVolumes, SIDECAR_FILE, VOLUME_FILE};
+
+mod stage;
+
 use crate::{
     Request, VolumeError, VolumeId, VolumeRecord, VolumeRecordKind, VolumeSidecar, VolumeState,
     volume::{CheckpointVolumeBinding, CheckpointVolumeRequest, placement},
 };
+use stage::Staging;
+pub(super) use stage::remove_interrupted_stage;
 
 const ORIGIN: &str = "checkpoint-origin";
 const IO_FAILURE: VolumeError = VolumeError::Ledger("checkpoint volume storage");
@@ -65,7 +70,7 @@ impl DirectoryVolumes {
         let pending = Staging::new(&self.root)?;
         clone_sparse(
             archive,
-            &pending.0.join(VOLUME_FILE),
+            &pending.path.join(VOLUME_FILE),
             u64::from(source.size_class_gib) << 30,
             request.digest.as_bytes(),
         )?;
@@ -217,45 +222,6 @@ fn clone_sparse(
     file.set_len(length)
         .and_then(|()| file.sync_all())
         .map_err(|_| IO_FAILURE)
-}
-
-struct Staging(PathBuf);
-impl Staging {
-    fn new(root: &Path) -> Result<Self, VolumeError> {
-        let mut random = [0_u8; 16];
-        getrandom::getrandom(&mut random).map_err(|_| IO_FAILURE)?;
-        let directory = root.join(format!(".checkpoint-{:032x}", u128::from_be_bytes(random)));
-        DirBuilder::new()
-            .mode(0o700)
-            .create(&directory)
-            .map_err(|_| IO_FAILURE)?;
-        Ok(Self(directory))
-    }
-
-    fn write(&self, name: &str, bytes: &[u8]) -> Result<(), VolumeError> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(self.0.join(name))
-            .map_err(|_| IO_FAILURE)?;
-        file.write_all(bytes)
-            .and_then(|()| file.sync_all())
-            .map_err(|_| IO_FAILURE)
-    }
-
-    fn publish(&self, path: &Path) -> Result<(), VolumeError> {
-        File::open(&self.0)
-            .and_then(|dir| dir.sync_all())
-            .map_err(|_| IO_FAILURE)?;
-        fs::rename(&self.0, path).map_err(|_| IO_FAILURE)
-    }
-}
-
-impl Drop for Staging {
-    fn drop(&mut self) {
-        let _ignored = fs::remove_dir_all(&self.0);
-    }
 }
 
 #[cfg(test)]
