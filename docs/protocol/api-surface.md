@@ -59,6 +59,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.2 | sha256:4980e4a88be7043b08d0545246e4bd13f08bbfccc873b74a5ae3014002697099 | Added resident sandbox resume. |
 | 1.3 | sha256:51e8e76a2b494f652d01c0432a93fd4cd6f63ed236f46c003a24784671ed418d | Added resident sandbox checkpoint capture. |
 | 1.4 | sha256:72ef81e47b8bcd5f8a99584b709799b0e0482960580921a142b6d7f24f591e2e | Added same-sandbox restore from a published checkpoint. |
+| 1.5 | sha256:c5481912fb655a139e58845c65bc4fb912ac0b369622fbc16182f66bb7cf95b3 | Added per-execution environment variables to the loopback command route. |
 
 ## Surface
 
@@ -66,7 +67,7 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.4
+api 1.5
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route GET /v1/prewarm prewarm.status
@@ -114,7 +115,7 @@ body PrewarmTarget reference count memory_mib
 body PruneRequest keep apply keep_previous
 body ResourcesBody cpu_count memory_mb operation_id
 body RestoreBody operation_id checkpoint_id image shape name
-body RunCommandBody executable arguments limits stdin operation_id
+body RunCommandBody executable arguments limits stdin env operation_id
 body TerminalBody columns rows input wait_ms operation_id
 ```
 

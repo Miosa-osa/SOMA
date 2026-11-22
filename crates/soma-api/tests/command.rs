@@ -206,3 +206,44 @@ fn standard_input_beyond_its_bound_or_not_base64_is_refused_before_the_engine() 
         (200, soma::MAX_STDIN_BYTES)
     );
 }
+
+#[test]
+fn command_environment_reaches_the_facade_alongside_standard_input() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let request = identified(
+        "POST",
+        &commands_path(),
+        r#"{"executable":"/bin/true","env":{"Z_EMPTY":"","ALPHA":"literal ' $ \n"},"stdin":"aGVsbG8="}"#,
+    );
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(facade.calls, vec![Call::Execute]);
+    assert_eq!(
+        facade.last_environment,
+        vec![
+            ("ALPHA".into(), "literal ' $ \n".into()),
+            ("Z_EMPTY".into(), String::new()),
+        ],
+    );
+    assert_eq!(facade.last_stdin, b"hello");
+}
+
+#[test]
+fn invalid_command_environment_is_refused_before_execution() {
+    for invalid in [
+        r#"{"BAD=NAME":"secret"}"#,
+        r#"{"BAD\u0000NAME":"secret"}"#,
+        r#"{"NAME":"secret\u0000value"}"#,
+        r#"{"NAME":123}"#,
+    ] {
+        let mut facade = FakeFacade::new(Mode::Succeed);
+        let body = format!(r#"{{"executable":"/bin/true","env":{invalid}}}"#);
+        let req = identified("POST", &commands_path(), &body);
+        let (status, answer) = call(&mut facade, &req);
+        assert_eq!(status, 400, "{answer}");
+        assert!(facade.calls.is_empty());
+        assert!(!answer.to_string().contains("secret"));
+    }
+}

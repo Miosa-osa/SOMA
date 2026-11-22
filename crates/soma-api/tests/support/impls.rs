@@ -99,6 +99,7 @@ impl SandboxFacade for FakeFacade {
     ) -> Result<CommandOutcome, ManagedFailure> {
         self.record(Call::Execute)?;
         self.last_stdin = request.command().context().stdin().to_vec();
+        self.last_environment = request.command().context().environment().to_vec();
         let receipt = receipt();
         Ok(CommandOutcome {
             instance_id: receipt.instance_id().clone(),
