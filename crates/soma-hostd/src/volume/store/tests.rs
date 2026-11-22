@@ -292,6 +292,7 @@ fn live_workspace_publishes_only_after_the_worker_holds_the_disk() {
     let (_home, volumes) = store();
     let initial = attach(1, 9, 1, 10);
     volumes.attach(&initial).expect("create");
+    fs::File::create(volumes.file(volume(1))).expect("fixture backing file");
     volumes.detach(&detach(1, 9, 2)).expect("detach");
     let reattach = attach(1, 9, 3, 10);
     let binding = volumes.stage_live_attach(&reattach).expect("stage");
