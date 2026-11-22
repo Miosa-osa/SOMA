@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use soma_hostd::{InstanceId as HostInstance, Reply, Request};
+use soma_hostd::{FailureCode, InstanceId as HostInstance, Reply, Request};
 
 use super::{FsckReport, VolumeClient, VolumeFailure, exchange, refusal};
 
@@ -94,9 +94,8 @@ impl VolumeClient {
     ///
     /// # Errors
     ///
-    /// Returns [`VolumeFailure::Unconfigured`] when no socket is set, and the daemon's own
-    /// refusal or a transport failure otherwise. A host that serves no volumes answers `None`
-    /// rather than a refusal, because a sandbox without one is an ordinary sandbox.
+    /// Returns a refusal when ownership cannot be determined. A sandbox without an owned
+    /// volume, or a host without a configured volume store, answers `None`.
     pub fn owned(&self, instance: &str) -> Result<Option<OwnedVolume>, VolumeFailure> {
         let Some(socket) = self.socket.as_deref() else {
             return Ok(None);
@@ -107,6 +106,11 @@ impl VolumeClient {
                 volume: volume.hex(),
                 state: refusal::state_name(state),
             })),
+            Ok(Reply::Failed(code))
+                if FailureCode::from_wire(code) == Some(FailureCode::VolumeMissing) =>
+            {
+                Ok(None)
+            }
             Ok(Reply::Failed(code)) => Err(VolumeFailure::Refused(code)),
             Ok(_) => Err(VolumeFailure::Malformed),
             Err(error) => Err(error),

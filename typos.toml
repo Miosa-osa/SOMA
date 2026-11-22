@@ -40,6 +40,14 @@ extend-ignore-identifiers-re = [
 ]
 
 [default.extend-words]
+# Names in the desktop workload: the WhiteSur icon and GTK themes, the gir1.2 GObject typelib
+# packages, and the Shotcut video editor.
+WhiteSur = "WhiteSur"
+Sur = "Sur"
+sur = "sur"
+gir = "gir"
+Shotcut = "Shotcut"
+shotcut = "shotcut"
 # The user-mode networking daemon, a proper noun.
 passt = "passt"
 # Standard in this repository's prose for input that cannot be parsed.

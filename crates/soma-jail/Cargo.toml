@@ -20,4 +20,4 @@ libc = "=0.2.190"
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dev-dependencies]
 kvm-bindings = "=0.14.1"
 tempfile = "=3.27.0"
-soma-vmm = { path = "../soma-vmm", version = "=1.0.0-alpha.3" }
+soma-vmm = { path = "../soma-vmm", version = "=1.0.0-alpha.4" }

@@ -1079,3 +1079,9 @@ Lookups refuse old ambiguous ownership records rather than selecting an arbitrar
 Generation capture still requires a placeholder, while resident capture can save the mounted volume alongside guest memory and the overlay on the encrypted mount.
 Resident restore verifies the proposed writable volume against the saved block geometry and digest before assignment.
 The broker must allocate its own recovery volume and preserve the original before offering this through the API.
+
+## 2026-11-22 - Alpha.4 qualification integration
+
+The alpha.4 qualification worktree incorporates the upstream desktop appearance and keeps the viewer supervised on demand.
+The desktop bridge remains behind the per-computer token supplied by the platform.
+Volume ownership lookup now distinguishes an ordinary sandbox with no workspace from a failed host lookup, so stopping an ephemeral sandbox works with the volume daemon configured.
