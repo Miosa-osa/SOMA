@@ -42,7 +42,7 @@ pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> R
     {
         Ok((tenant, route)) => {
             let operation = route.operation();
-            dispatch(facade, route, &request.body, tenant.as_str())
+            dispatch(facade, route, &request.body, &tenant)
                 .unwrap_or_else(|error| refuse(operation, error))
         }
         Err(error) => refuse("request", error),
@@ -53,7 +53,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     route: Route,
     body: &[u8],
-    tenant: &str,
+    tenant: &crate::tenant::TenantId,
 ) -> Result<Response, ApiError> {
     let operation = route.operation();
     match route {
@@ -126,10 +126,9 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             false,
         )),
         Route::Resources(instance_id, change) => resources(facade, &instance_id, change, body),
-        // Served by the connection before a facade is opened, through `handle_prewarm`. This
-        // function serves sandboxes, so only that one path can change what is prepared.
+        // Served by the connection before a facade is opened (`handle_prewarm`), its only path.
         Route::Prewarm(_) | Route::Version => Err(ApiError::not_found()),
-        Route::SuspendSandbox(id) => suspension::suspend(facade, &id, tenant, body),
+        Route::SuspendSandbox(id) => suspension::suspend(facade, &id, tenant.as_str(), body),
         Route::ResumeSuspension(id) => suspension::resume(facade, &id, body),
         Route::DestroySuspension(id) => suspension::destroy(facade, &id),
         Route::PrunePrepared => prepared::prune(facade, operation, body),
