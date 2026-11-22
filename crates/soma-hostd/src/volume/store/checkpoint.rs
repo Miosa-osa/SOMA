@@ -11,6 +11,7 @@ use sha2::{Digest as _, Sha256};
 
 use super::{DirectoryVolumes, SIDECAR_FILE, VOLUME_FILE};
 
+mod replace;
 mod stage;
 
 use crate::{

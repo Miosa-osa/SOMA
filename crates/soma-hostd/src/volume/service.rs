@@ -63,6 +63,17 @@ pub struct CheckpointVolumeRequest {
     pub digest: RequestFingerprint,
 }
 
+/// A broker-authorized replacement of the already-owned workspace of a stopped Instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorkspaceRestoreRequest {
+    /// The checkpoint and its verified block digest.
+    pub checkpoint: CheckpointVolumeRequest,
+    /// The idempotency key of this restore, distinct from the checkpoint capture.
+    pub operation: OperationId,
+    /// The original workspace named by the restore authorization.
+    pub volume: VolumeId,
+}
+
 /// A verified writable copy of the checkpoint disk, before assigning it to the guest.
 pub struct CheckpointVolumeBinding {
     /// The recovery volume's identity.

@@ -38,6 +38,14 @@ If readiness was published but the final response was lost, a replay returns the
 An interrupted, uncommitted restart recovers the prior backing before allowing a new operation.
 Rollback is separately authorized and requires the recovered worker to have stopped and released the replacement disk.
 
+The restore request binds the existing workspace ID along with the source Instance, Generation, checkpoint digest, and restore operation.
+The volume store stages the verified copy on its encrypted filesystem and records the original inode, replacement inode, and current sidecar transition before the worker receives the staged path.
+Publication verifies the original version and the recovered worker's disk lock.
+The store links and syncs the previous backing before it renames the staged file onto the active path.
+Rollback uses the inverse operation with the worker stopped and keeps a link to the displaced backing and its later writes.
+These file operations preserve both versions across interruption.
+The broker owns the separate lifecycle decision to publish an attached sidecar and admit the recovered Instance as active.
+
 ## Acceptance
 
 Prove that a checkpoint created with a mounted disk retains the original process and its saved files after the source shuts down.

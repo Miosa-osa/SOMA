@@ -1088,3 +1088,10 @@ Volume ownership lookup now distinguishes an ordinary sandbox with no workspace 
 
 The durable workspace device can change backing only after the authenticated guest has unmounted ext4 and exclusively claimed the block device.
 Guest API level 6 carries that operation, and the worker refuses a checkpoint while the slot is offline.
+
+## 2026-11-22 - Same-instance workspace recovery storage transaction
+
+Checkpoint recovery stages and verifies a replacement on the encrypted volume filesystem under the exact restore operation and workspace ID.
+Publication requires the recovered worker's disk lock and preserves the previous backing before switching the active path.
+An explicit stopped-workspace rollback retains the displaced backing and any later writes.
+The native broker must still bind these transitions to its restore lease, attachment state, and readiness publication.
