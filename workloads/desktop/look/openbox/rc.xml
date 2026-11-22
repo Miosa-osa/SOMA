@@ -16,7 +16,7 @@
   </theme>
   <desktops><number>1</number><firstdesk>1</firstdesk><names><name>Workspace</name></names></desktops>
   <!-- Room for the top bar; the dock floats over windows like a launcher. -->
-  <margins><top>30</top><bottom>0</bottom><left>0</left><right>0</right></margins>
+  <margins><top>34</top><bottom>0</bottom><left>0</left><right>0</right></margins>
   <resize><drawContents>yes</drawContents><popupShow>Never</popupShow></resize>
   <keyboard>
     <keybind key="A-Tab"><action name="NextWindow"/></keybind>
