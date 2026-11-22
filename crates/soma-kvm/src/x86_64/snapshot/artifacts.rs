@@ -75,7 +75,13 @@ pub(super) struct Staging {
     file: File,
     written: u64,
     running: Hasher,
+    /// Whether this object is hashed. A Suspension's members are not: the store authenticates
+    /// every byte of them under the Suspension's key, so a digest here would only cost the read.
+    hashed: bool,
 }
+
+/// The digest an unhashed object states in place of one, so no record carries a zero digest.
+pub(super) const UNHASHED: Digest = Digest::from_bytes(*b"soma.suspension.member.unhashed.");
 
 impl Staging {
     /// Creates the staging object, replacing any leftover from an abandoned capture.
@@ -107,7 +113,44 @@ impl Staging {
             file,
             written: 0,
             running: Hasher::new(),
+            hashed: true,
         })
+    }
+
+    /// Creates a staging object that is not hashed (see [`UNHASHED`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Staging::create`].
+    pub(super) fn create_unhashed(
+        paths: &SnapshotPaths,
+        artifact: Artifact,
+        published: PathBuf,
+    ) -> Result<Self, SnapshotError> {
+        let mut staging = Self::create(paths, artifact, published)?;
+        staging.hashed = false;
+        Ok(staging)
+    }
+
+    /// Makes this object a copy of all of `source` by sharing its extents, which costs no read
+    /// and no write on a filesystem that clones; elsewhere it copies.
+    ///
+    /// # Errors
+    ///
+    /// Returns the read, write, or stat failure.
+    pub(super) fn clone_file(&mut self, source: &mut File) -> Result<(), SnapshotError> {
+        if !self.hashed && self.written == 0 && clone_extents(&self.file, source) {
+            let len = source
+                .metadata()
+                .map_err(|error| SnapshotError::io(self.artifact, "stat source", &error))?
+                .len();
+            self.file
+                .seek(SeekFrom::Start(len))
+                .map_err(|error| SnapshotError::io(self.artifact, "seek", &error))?;
+            self.written = len;
+            return Ok(());
+        }
+        self.write_file(source)
     }
 
     /// Appends bytes to the staging object.
@@ -130,7 +173,9 @@ impl Staging {
                 .write_all(bytes)
                 .map_err(|error| SnapshotError::io(self.artifact, "write", &error))?;
         }
-        self.running.update(bytes);
+        if self.hashed {
+            self.running.update(bytes);
+        }
         self.written = self
             .written
             .saturating_add(u64::try_from(bytes.len()).unwrap_or(0));
@@ -165,7 +210,11 @@ impl Staging {
 
     /// The digest of the bytes handed to [`Staging::write`] so far.
     pub(super) fn running_digest(&self) -> Digest {
-        self.running.clone().finish()
+        if self.hashed {
+            self.running.clone().finish()
+        } else {
+            UNHASHED
+        }
     }
 
     /// Flushes to stable storage and re-hashes through the handle that did the writing.
@@ -183,6 +232,9 @@ impl Staging {
         self.file
             .sync_all()
             .map_err(|error| SnapshotError::io(self.artifact, "sync", &error))?;
+        if !self.hashed {
+            return Ok(UNHASHED);
+        }
         let digest = hash(self.artifact, &mut self.file)?;
         if digest == self.running_digest() {
             Ok(digest)
@@ -243,4 +295,15 @@ pub(super) fn sync_directory(directory: &Path) -> Result<(), SnapshotError> {
     handle
         .sync_all()
         .map_err(|error| SnapshotError::io(Artifact::Directory, "sync", &error))
+}
+
+/// Shares all of `source`'s extents into `target` with `FICLONE`; `false` when the filesystem
+/// cannot, in which case nothing was changed.
+#[allow(unsafe_code)]
+fn clone_extents(target: &File, source: &File) -> bool {
+    use std::os::fd::AsRawFd as _;
+    // SAFETY: both descriptors are open files this process owns for the length of the call, and
+    // FICLONE reads nothing from user memory beyond the source descriptor passed by value.
+    let rc = unsafe { libc::ioctl(target.as_raw_fd(), libc::FICLONE, source.as_raw_fd()) };
+    rc == 0
 }

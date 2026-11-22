@@ -215,7 +215,13 @@ pub fn capture(
     sequence.complete(CaptureStep::ReadDevices)?;
 
     let t_memory = Instant::now();
-    let mut memory = Staging::create(&request.paths, Artifact::Memory, request.paths.memory())?;
+    // A Suspension's members are authenticated by the store, so they are not hashed here.
+    let staging = if suspension {
+        Staging::create_unhashed
+    } else {
+        Staging::create
+    };
+    let mut memory = staging(&request.paths, Artifact::Memory, request.paths.memory())?;
     let mut buffer = vec![0_u8; CHUNK];
     let mut offset = 0_u64;
     while offset < paused.ram_bytes {
@@ -237,10 +243,13 @@ pub fn capture(
         .overlay
         .take()
         .map(|head| {
-            let mut staging =
-                Staging::create(&request.paths, Artifact::Overlay, request.paths.overlay())?;
-            staging.write_file(head)?;
-            Ok::<_, SnapshotError>(staging)
+            let mut object = staging(&request.paths, Artifact::Overlay, request.paths.overlay())?;
+            if suspension {
+                object.clone_file(head)?;
+            } else {
+                object.write_file(head)?;
+            }
+            Ok::<_, SnapshotError>(object)
         })
         .transpose()?;
     let overlay_ms = t_overlay.elapsed().as_millis();
