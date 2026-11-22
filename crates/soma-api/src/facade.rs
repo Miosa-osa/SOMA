@@ -1,8 +1,7 @@
 use soma::{
-    BackendKind, DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileAnswer,
-    FileMachineRequest, InspectMachineRequest, InstanceId, LaunchMachineRequest, MachineListing,
-    MachineRelease, MachineState, ManagedFailure, PtyAnswer, PtyMachineRequest, StopMachineRequest,
-    TerminalCensus, TerminalStatus,
+    DestroyMachineRequest, ExecuteMachineRequest, FileMachineRequest, InspectMachineRequest,
+    InstanceId, LaunchMachineRequest, MachineListing, MachineRelease, ManagedFailure,
+    PtyMachineRequest, StopMachineRequest, TerminalCensus,
 };
 
 use crate::tunnel::GuestStream;
