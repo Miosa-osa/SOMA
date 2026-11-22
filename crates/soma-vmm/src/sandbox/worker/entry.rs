@@ -84,9 +84,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             // Recording which ranges those were is what lets the next head for this Generation be
             // warmed while it is prepared, instead of while a guest waits.
             let reads = soma_kvm::head_reads::recording();
-            // A suspension reads the root's identity and copies the private head, both of which
-            // the restore takes ownership of; duplicating the two descriptors now costs nothing
-            // and is the only way to reach the head, which is already unlinked.
+            // A suspension reads the root and the already unlinked head, which the restore takes.
             let Ok(suspend_disks) = duplicate(&disks) else {
                 let _ignored = responses.send(Response::Failed(SessionError::Create));
                 return;
