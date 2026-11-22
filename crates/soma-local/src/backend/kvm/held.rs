@@ -19,7 +19,9 @@ use soma::{
 };
 use soma_guest::GuestCommand;
 use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
-use soma_vmm::sandbox::{Completed, Session, Teardown, dump_timeline};
+use soma_vmm::sandbox::{
+    Completed, Session, SuspendTarget, Suspension, Teardown, dump_timeline,
+};
 
 use super::jailed::Jailed;
 use super::start::failure_kind;
@@ -102,6 +104,23 @@ impl Held {
     /// A forced release never asks the guest: the machine is ended and the receipt says so. A
     /// graceful one asks and reports whether the guest agreed, which is the only honest way to
     /// describe a termination a caller was told about.
+    /// Reads the machine into `staging` and releases it (ADR 0034); `false` is a refusal with
+    /// nothing done. A jailed worker's control protocol does not carry a suspension yet, so it
+    /// refuses, exactly as it refuses a filesystem request.
+    pub(super) fn suspend(
+        &mut self,
+        staging: std::path::PathBuf,
+    ) -> Result<bool, BackendFailureKind> {
+        match self {
+            Self::Resident(session) => match session.suspend(SuspendTarget { directory: staging }) {
+                Ok(Suspension::Captured(_)) => Ok(true),
+                Ok(Suspension::Refused) => Ok(false),
+                Err(error) => Err(failure_kind(error)),
+            },
+            Self::Jailed(_) => Ok(false),
+        }
+    }
+
     pub(super) fn release(
         self,
         instance: &InstanceId,
