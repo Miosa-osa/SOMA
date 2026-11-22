@@ -1,7 +1,7 @@
 # The top bar: the MIOSA mark and the open windows on the left, the clock on the right.
 rounded = 0
 border_width = 0
-background_color = #172233 100
+background_color = #131e2e 100
 border_color = #0e1016 0
 background_color_hover = #0e1016 100
 border_color_hover = #0e1016 100
@@ -21,14 +21,14 @@ border_color_pressed = #344961 100
 # 3: the active window
 rounded = 6
 border_width = 0
-background_color = #29394d 100
+background_color = #2f435b 100
 border_color = #29394d 100
 background_color_hover = #344961 100
 border_color_hover = #344961 100
 background_color_pressed = #344961 100
 border_color_pressed = #344961 100
 
-panel_items = ETC
+panel_items = ETEC
 panel_size = 100% 40
 panel_margin = 0 0
 panel_padding = 16 5 12
@@ -67,7 +67,7 @@ task_text = 1
 task_centered = 0
 task_maximum_size = 260 28
 task_padding = 9 2 6
-task_font = Inter 10
+task_font = Inter 11
 task_font_color = #bdcadb 100
 task_active_font_color = #ffffff 100
 task_background_id = 2
@@ -77,8 +77,20 @@ task_iconified_background_id = 2
 mouse_left = toggle_iconify
 mouse_middle = close
 
+execp = new
+execp_command = printf 'Settings\n'
+execp_interval = 0
+execp_has_icon = 0
+execp_font = Inter 10
+execp_font_color = #d6e0ec 100
+execp_padding = 10 2 10
+execp_background_id = 2
+execp_centered = 1
+execp_lclick_command = pcmanfm --profile miosa --desktop-pref
+
+clock_lclick_command = gsimplecal
 time1_format = %a, %b %d  %H:%M
-time1_font = Inter Medium 10
+time1_font = Inter Medium 11
 clock_font_color = #d2deed 100
 clock_padding = 10 0
 clock_background_id = 0

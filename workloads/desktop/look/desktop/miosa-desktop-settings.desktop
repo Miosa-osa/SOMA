@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Desktop Settings
+Comment=Wallpaper, light or dark, desktop icons
+Exec=pcmanfm --profile miosa --desktop-pref
+Icon=preferences-desktop-wallpaper
+Categories=Settings;

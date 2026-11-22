@@ -1,0 +1,14 @@
+# The dock's settings, read by Plank through dconf (system database "local").
+[net/launchpad/plank/docks/dock1]
+theme='MIOSA'
+icon-size=52
+zoom-enabled=true
+zoom-percent=160
+hide-mode=0
+position='bottom'
+alignment='center'
+offset=0
+pressure-reveal=false
+show-dock-item=false
+lock-items=false
+dock-items=['google-chrome.dockitem', 'xfce4-terminal.dockitem', 'pcmanfm.dockitem', 'desktop-settings.dockitem']

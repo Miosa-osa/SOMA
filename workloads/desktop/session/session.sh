@@ -111,8 +111,16 @@ wait_for window_manager 200 pgrep -u "$(id -u)" -x openbox || exit 1
 wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -q "window id"' || exit 1
 # The MIOSA look: a static wallpaper, the top bar and the dock. Each is cosmetic, so
 # a part that fails to start leaves a working desktop rather than no desktop.
-hsetroot -cover /usr/share/soma-desktop/blue-hour.jpg >/dev/null 2>&1 \
-    || xsetroot -solid '#0d1527' 2>/dev/null || true
+# The desktop itself is PCManFM's: it draws the wallpaper (again on every resize, as the viewer
+# follows the browser window), shows ~/Desktop as icons with files, folders and launchers, takes
+# drag-to-select and the right-click menu, and its Desktop Settings let a person pick or add any
+# wallpaper. If it cannot start, hsetroot paints the MIOSA wallpaper instead (-root: the screen
+# server has no XINERAMA, so hsetroot would otherwise find no monitor to draw on).
+pcmanfm --profile miosa --desktop >"$STATE/logs/desktop.log" 2>&1 &
+sleep 1
+pgrep -u "$(id -u)" -x pcmanfm >/dev/null \
+    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-dark.jpg >/dev/null 2>&1 \
+    || xsetroot -solid '#0a0b14' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
 # voxl on the viewer port the platform reaches through the tunnel (6080): the same screen as H.264
@@ -123,7 +131,9 @@ voxl --port=6080 --enable-basic-auth=false --title="MIOSA Desktop" \
     --enable-resize=true --audio-enabled=false \
     >"$STATE/logs/voxl.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
-tint2 -c /etc/soma-desktop/tint2/dock.tint2rc >"$STATE/logs/dock.log" 2>&1 &
+# The dock is Plank: frosted glass, icons that grow under the pointer, open windows marked. Its
+# settings and the MIOSA theme come from the image (dconf "local" and /usr/share/plank/themes).
+plank >"$STATE/logs/dock.log" 2>&1 &
 
 cua-driver serve \
     --permission-mode standard \
