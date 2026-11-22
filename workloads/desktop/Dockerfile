@@ -29,6 +29,7 @@
 # still screen costs nothing. Built from a pinned commit of tembo/voxl (MIT; the binary links x264,
 # so it is distributed under the GPL with its source at that commit). Measured on miosa-host-12 on
 # two cores: 60 fps at 1080p even at 5 Mbps / 60 ms, where KasmVNC fell to 27 fps and noVNC to 7.
+ARG BASE_IMAGE
 FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS voxl
 ARG VOXL_COMMIT=21f194f9e446e7073abd7bbd52e0b397c3800b42
 ENV DEBIAN_FRONTEND=noninteractive
@@ -43,7 +44,6 @@ RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && 
  && PATH=/root/.cargo/bin:$PATH cargo build --release --locked \
  && install -m 0755 target/release/voxl /usr/local/bin/voxl
 
-ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
