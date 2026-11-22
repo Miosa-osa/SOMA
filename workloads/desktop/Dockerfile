@@ -212,6 +212,42 @@ COPY look/brand/miosa-icon.png /usr/share/soma-desktop/miosa-icon.png
 COPY look/compositor/picom.conf /etc/soma-desktop/picom.conf
 COPY look/wallpaper/blue-hour.jpg /usr/share/soma-desktop/blue-hour.jpg
 COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
+
+# A real desktop and an Apple-style dock: PCManFM draws the desktop (icons, folders, drag-to-select,
+# the right-click menu, wallpaper picker), Plank is the dock, WhiteSur is the icon set, and the
+# MIOSA wallpapers come in dark and light. WhiteSur is pinned by the SHA-256 of its release.
+ARG WHITESUR_TAG=2026-09-10
+ARG WHITESUR_SHA256=406c9cd59705583f1754b0eaca96cc48bafda042b88ef143f16d8ae1820ecd95
+RUN set -e; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends pcmanfm plank gsimplecal dconf-cli dconf-service \
+      dconf-gsettings-backend gvfs librsvg2-common; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    curl -fsSL --retry 3 -o /tmp/whitesur.tar.gz \
+      "https://github.com/vinceliuice/WhiteSur-icon-theme/archive/refs/tags/${WHITESUR_TAG}.tar.gz"; \
+    echo "${WHITESUR_SHA256}  /tmp/whitesur.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/whitesur; tar -xzf /tmp/whitesur.tar.gz -C /tmp/whitesur --strip-components=1; \
+    (cd /tmp/whitesur && ./install.sh -d /usr/share/icons -t default >/dev/null); \
+    rm -r -f /tmp/whitesur /tmp/whitesur.tar.gz; \
+    test -d /usr/share/icons/WhiteSur-dark; \
+    command -v pcmanfm plank gsimplecal
+COPY look/backgrounds/miosa-dark.jpg look/backgrounds/miosa-light.jpg /usr/share/backgrounds/miosa/
+COPY look/desktop/pcmanfm.conf look/desktop/desktop-items-0.conf /etc/xdg/pcmanfm/miosa/
+COPY look/desktop/libfm.conf /etc/xdg/libfm/libfm.conf
+COPY look/desktop/miosa-desktop-settings.desktop /usr/share/applications/miosa-desktop-settings.desktop
+COPY look/dock/MIOSA/dock.theme /usr/share/plank/themes/MIOSA/dock.theme
+COPY look/dock/dconf-plank /etc/dconf/db/local.d/10-plank
+COPY look/dock/*.dockitem /home/ubuntu/.config/plank/dock1/launchers/
+RUN printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user \
+ && dconf update \
+ && mkdir -p /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads \
+ && for app in google-chrome xfce4-terminal pcmanfm miosa-desktop-settings; do \
+      install -m 0755 "/usr/share/applications/${app}.desktop" "/home/ubuntu/Desktop/${app}.desktop"; \
+    done \
+ && ln -s /home/ubuntu/Documents /home/ubuntu/Desktop/Documents \
+ && ln -s /home/ubuntu/Downloads /home/ubuntu/Desktop/Downloads \
+ && chown -R ubuntu:ubuntu /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads /home/ubuntu/.config
 RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
  && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
       > /usr/local/bin/google-chrome \
