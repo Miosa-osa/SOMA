@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Checks the desktop viewer end to end through the SOMA tunnel, the way a browser reaches it.
 
-The viewer (Sunshine and moonlight-web, started by `soma-desktop-session viewer start`) listens on
-guest port 6080. This opens `GET /v1/sandboxes/{id}/tunnel/6080` through soma-api, asks for the
-browser client's page and then for the list of hosts its default user sees, each on a tunnel of
-its own, and requires the page to be moonlight-web and the desktop's own Sunshine to be paired.
+The viewer is voxl on guest port 6080 (H.264 over one WebSocket; the session starts it). This opens
+`GET /v1/sandboxes/{id}/tunnel/6080` through soma-api, asks for the browser client's page and its
+script, each on a tunnel of its own, and requires the page to be the MIOSA Desktop viewer.
 It is run more than the broker's idle timeout after the launch, which is the case #176 broke.
 
 Usage: viewer_check.py --api HOST:PORT --tenant T --instance ID   (prints one JSON object)
 """
 
-import argparse, json, sys, time
+import argparse, json, sys, time  # noqa: E401
 
 from viewer import Tunnel
 
@@ -56,18 +55,18 @@ def main():
     result = {}
     try:
         status, body, tunnel_ms, page_ms = http_get(args, "/")
-        result["page"] = {"status": status, "moonlight_web": b"Moonlight" in body, "tunnel_open_ms": tunnel_ms,
+        result["page"] = {"status": status, "miosa_viewer": b"MIOSA Desktop" in body, "tunnel_open_ms": tunnel_ms,
                           "page_ms": page_ms}
-        status, body, _, hosts_ms = http_get(args, "/api/hosts")
-        # moonlight-web answers the host list as one JSON document per line.
-        first = json.loads(body.split(b"\n", 1)[0]) if status == 200 else {}
-        hosts = first.get("hosts", [])
-        result["hosts"] = {"status": status, "paired": [h.get("paired") for h in hosts], "ms": hosts_ms}
+        # The page's script, through a second tunnel: the client a browser loads next.
+        scripts = [part.split(b'"')[0] for part in body.split(b'src="')[1:]]
+        if scripts:
+            status, body, _, script_ms = http_get(args, "/" + scripts[0].decode().lstrip("./"))
+            result["script"] = {"status": status, "bytes": len(body), "ms": script_ms}
     except (ConnectionError, OSError, ValueError) as error:
         result["error"] = str(error)
     print(json.dumps(result))
-    ok = (result.get("page", {}).get("status") == 200 and result["page"]["moonlight_web"]
-          and "Paired" in result.get("hosts", {}).get("paired", []))
+    ok = (result.get("page", {}).get("status") == 200 and result["page"]["miosa_viewer"]
+          and result.get("script", {"status": 200}).get("status") == 200)
     return 0 if ok else 1
 
 
