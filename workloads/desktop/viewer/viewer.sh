@@ -27,7 +27,25 @@ wait_port() {
     return 1
 }
 
-trap 'kill 0' TERM INT
+stop_children() {
+    # Signal the children without signaling this supervisor. Reap both before exiting.
+    local pid attempt
+    trap '' TERM INT
+    while read -r pid; do
+        [[ -z "$pid" ]] || kill -TERM "$pid" 2>/dev/null || true
+    done <<< "$(jobs -p)"
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        [[ -n "$(jobs -p)" ]] || break
+        sleep 0.1
+    done
+    while read -r pid; do
+        [[ -z "$pid" ]] || kill -KILL "$pid" 2>/dev/null || true
+    done <<< "$(jobs -p)"
+    wait
+}
+
+trap stop_children EXIT
+trap 'exit 0' TERM INT
 
 sunshine "$HOME/.config/sunshine/sunshine.conf" >"$STATE/logs/sunshine.log" 2>&1 &
 wait_port viewer_encoder 47989 || exit 1
@@ -38,4 +56,4 @@ cd /opt/moonlight-web
 wait_port viewer_port "$PORT" || exit 1
 mark viewer_ready
 
-wait
+wait -n

@@ -54,7 +54,10 @@ report() {
 }
 
 running() { [[ -f "$STATE/pid" ]] && kill -0 "$(cat "$STATE/pid")" 2>/dev/null; }
-viewer_running() { [[ -f "$STATE/viewer.pid" ]] && kill -0 "$(cat "$STATE/viewer.pid")" 2>/dev/null; }
+viewer_running() {
+    [[ -f "$STATE/viewer.pid" ]] &&
+        pgrep -F "$STATE/viewer.pid" -f "^/bin/bash $VIEWER$" >/dev/null 2>&1
+}
 
 # udev, so Xorg adds the pointer and keyboard the viewer creates through /dev/uinput. A SOMA guest
 # has no init system to start it; it runs in the desktop's cgroup and lives as long as the desktop.
@@ -172,8 +175,17 @@ viewer_start() {
 }
 
 viewer_stop() {
+    local attempt
     if viewer_running; then
         kill -TERM "$(cat "$STATE/viewer.pid")" 2>/dev/null || true
+        for ((attempt = 0; attempt < 60; attempt++)); do
+            viewer_running || break
+            sleep 0.1
+        done
+        if viewer_running; then
+            report viewer_stop_timeout
+            return 1
+        fi
     fi
     rm -f "$STATE/viewer.pid"
     report viewer_stopped
