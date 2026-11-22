@@ -35,6 +35,19 @@ use manifest::{Parts, build};
 
 pub(super) mod manifest;
 mod members;
+
+/// Generation and suspension artifacts do not contain the durable volume's data.
+pub(super) fn require_placeholder_volume(
+    bus: &crate::virtio::MmioBus,
+) -> Result<(), SnapshotError> {
+    if bus
+        .volume()
+        .is_some_and(|volume| !volume.device().is_placeholder())
+    {
+        return Err(SnapshotError::VolumeNotPlaceholder);
+    }
+    Ok(())
+}
 mod request;
 
 pub use request::{CaptureOutcome, CapturePoint, CaptureRequest};
@@ -92,6 +105,7 @@ pub fn capture(
         .paused()
         .ok_or(SnapshotError::NotQuiescent("the machine is not paused"))?;
     let mut bus = paused.bus;
+    require_placeholder_volume(&bus)?;
     quiesce::drain(&mut bus, &paused.memory)?;
     // The final drain may have taken the guest's last packets on the retired connection.
     if suspension {
@@ -165,7 +179,7 @@ pub fn capture(
             };
             let specific = device::specific(&bus, slot, image)
                 .ok_or(SnapshotError::DeviceStateNotCanonical(slot))?;
-            let state = device::canonical(&bus, slot, record, specific, request.contract)?;
+            let state = device::canonical(slot, record, specific, request.contract)?;
             if device::reproduces(slot, record, &state) {
                 Ok((slot, state))
             } else {

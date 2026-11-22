@@ -28,6 +28,23 @@ fn refusal(outcome: RepairOutcome) -> VolumeError {
     }
 }
 
+fn owned_volume<'a>(
+    volumes: impl Iterator<Item = &'a VolumeSidecar>,
+    instance: InstanceId,
+) -> Result<&'a VolumeSidecar, VolumeError> {
+    let mut volumes = volumes
+        .filter(|sidecar| sidecar.instance == instance && sidecar.state != VolumeState::Deleting);
+    let volume = volumes
+        .next()
+        .ok_or(VolumeError::Missing("no volume belongs to this Instance"))?;
+    if volumes.next().is_some() {
+        return Err(VolumeError::Busy(
+            "multiple volumes belong to this Instance",
+        ));
+    }
+    Ok(volume)
+}
+
 impl VolumeStore for DirectoryVolumes {
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
         self.check_operation(request.operation, request.fingerprint)?;
@@ -43,6 +60,14 @@ impl VolumeStore for DirectoryVolumes {
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
         Self::admit(state.get(&request.volume), request)?;
+        if state
+            .values()
+            .any(|sidecar| sidecar.instance == request.instance && sidecar.volume != request.volume)
+        {
+            return Err(VolumeError::Busy(
+                "the Instance already owns another volume",
+            ));
+        }
         let existing = state.get(&request.volume);
         let mut sidecar = VolumeSidecar {
             volume: request.volume,
@@ -107,11 +132,7 @@ impl VolumeStore for DirectoryVolumes {
         // A start resolves the volume this Instance owns, detached or already attached: a stop
         // leaves it detached, and a start is what reattaches it. A volume a delete is in progress
         // on is not one a machine may be given.
-        let sidecar = state
-            .values()
-            .find(|sidecar| sidecar.instance == instance && sidecar.state != VolumeState::Deleting)
-            .cloned()
-            .ok_or(VolumeError::Missing("no volume belongs to this Instance"))?;
+        let sidecar = owned_volume(state.values(), instance)?.clone();
         let file = self.file(sidecar.volume);
         // The repair runs here rather than in the guest, on a file no machine holds yet: this is
         // the one place a start can check the filesystem without racing a running guest.
@@ -144,11 +165,7 @@ impl VolumeStore for DirectoryVolumes {
             .state
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
-        state
-            .values()
-            .find(|sidecar| sidecar.instance == instance)
-            .cloned()
-            .ok_or(VolumeError::Missing("no volume belongs to this Instance"))
+        owned_volume(state.values(), instance).cloned()
     }
 
     fn detach(&self, request: &DetachRequest) -> Result<DetachOutcome, VolumeError> {

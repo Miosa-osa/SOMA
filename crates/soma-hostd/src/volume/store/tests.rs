@@ -100,6 +100,26 @@ fn a_volume_owned_by_another_instance_is_busy() {
 }
 
 #[test]
+fn one_instance_can_bind_only_one_volume() {
+    let (work, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).expect("first attach");
+    let other = attach(2, 9, 2, 10);
+    let occupied = Err(VolumeError::Busy(
+        "the Instance already owns another volume",
+    ));
+    assert_eq!(volumes.attach(&other), occupied);
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
+    volumes.detach(&detach(1, 9, 3)).expect("detach");
+    assert_eq!(volumes.attach(&other), occupied);
+    assert_eq!(record_count(work.path(), volume(2)), 0);
+    assert!(!volumes.directory(volume(2)).exists());
+    assert_eq!(
+        volumes.binding(instance(9)).expect("reattach").volume,
+        volume(1)
+    );
+}
+
+#[test]
 fn a_class_below_the_volume_own_is_refused() {
     let (_work, volumes) = store();
     volumes.attach(&attach(1, 9, 1, 20)).expect("attaches");

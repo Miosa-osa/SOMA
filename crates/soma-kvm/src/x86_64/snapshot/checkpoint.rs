@@ -314,7 +314,7 @@ fn capture_devices(
             };
             let specific = device::specific(bus, slot, digest)
                 .ok_or(SnapshotError::DeviceStateNotCanonical(slot))?;
-            let state = device::canonical(bus, slot, &record, specific, request.contract)?;
+            let state = device::canonical(slot, &record, specific, request.contract)?;
             if !device::reproduces(slot, &record, &state) {
                 return Err(SnapshotError::DeviceStateNotCanonical(slot));
             }
