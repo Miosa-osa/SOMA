@@ -1,8 +1,8 @@
 # The MIOSA dock: frosted glass. A pale translucent fill over the wallpaper, a bright hairline
 # along the top edge and a soft dark outer stroke, the way a glass slab catches light.
 [PlankTheme]
-TopRoundness=18
-BottomRoundness=18
+TopRoundness=22
+BottomRoundness=22
 LineWidth=1
 OuterStrokeColor=10;;12;;24;;90
 FillStartColor=255;;255;;255;;52
@@ -11,9 +11,9 @@ InnerStrokeColor=255;;255;;255;;70
 
 [PlankDockTheme]
 HorizPadding=8
-TopPadding=-6
+TopPadding=8
 BottomPadding=8
-ItemPadding=10
+ItemPadding=12
 IndicatorSize=4
 IconShadowSize=2
 UrgentBounceHeight=1.66
