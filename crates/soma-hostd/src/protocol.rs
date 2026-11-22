@@ -37,7 +37,7 @@ pub const MAX_FRAME: usize = if MAX_VOLUME_FRAME > LAUNCH_FRAME_MAX {
 /// frame this build does not know is answered with [`FailureCode::Protocol`] rather than guessed
 /// at, so a mixed pair fails closed. The number names the frame layout in `--version` and in the
 /// compatibility table of `docs/versioning.md`, and it changes whenever a frame's layout does.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;
 
 const CLAIM_HEADER: usize = 1 + 16 + 16 + 4 + 8 + 32;
 

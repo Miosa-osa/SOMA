@@ -4,7 +4,7 @@
 //! as a different request. They live apart from the rest of the request codec to hold that file
 //! inside the source budget.
 
-use crate::volume::{CheckpointVolumeRequest, MAX_TENANT_BYTES};
+use crate::volume::{CheckpointVolumeRequest, MAX_TENANT_BYTES, WorkspaceRestoreRequest};
 use crate::{GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId};
 
 use super::super::{ProtocolError, array};
@@ -37,6 +37,27 @@ pub(super) fn decode_checkpoint(bytes: &[u8]) -> Result<CheckpointVolumeRequest,
             .map_err(|_| ProtocolError("generation"))?,
         digest: RequestFingerprint::new(array(&bytes[81..113]))
             .map_err(|_| ProtocolError("volume digest"))?,
+    })
+}
+
+pub(super) fn encode_restore(request: &WorkspaceRestoreRequest, out: &mut Vec<u8>) {
+    encode_checkpoint(&request.checkpoint, out);
+    out.extend_from_slice(request.operation.as_bytes());
+    out.extend_from_slice(request.volume.as_bytes());
+}
+
+pub(super) fn decode_restore(bytes: &[u8]) -> Result<WorkspaceRestoreRequest, ProtocolError> {
+    if bytes.len() != CHECKPOINT_FRAME_LEN + 32 {
+        return Err(ProtocolError("workspace restore"));
+    }
+    Ok(WorkspaceRestoreRequest {
+        checkpoint: decode_checkpoint(&bytes[..CHECKPOINT_FRAME_LEN])?,
+        operation: OperationId::new(array(
+            &bytes[CHECKPOINT_FRAME_LEN..CHECKPOINT_FRAME_LEN + 16],
+        ))
+        .map_err(|_| ProtocolError("restore operation"))?,
+        volume: VolumeId::new(array(&bytes[CHECKPOINT_FRAME_LEN + 16..]))
+            .map_err(|_| ProtocolError("workspace"))?,
     })
 }
 

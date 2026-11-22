@@ -24,15 +24,11 @@ pub(in crate::backend::kvm) fn restore_artifacts(
     instance: &InstanceId,
     generation: &GenerationId,
     checkpoint: &OperationId,
-    independent_workspace: bool,
 ) -> Result<RestoreArtifacts, CheckpointFailure> {
     let path = configured_root()?.join(format!("{}.{}", instance.as_str(), checkpoint.as_str()));
     let published = read_published(&path, instance, generation, checkpoint)?
         .ok_or(CheckpointFailure::NotFound)?;
     let receipt = published.receipt;
-    if receipt.volume.is_some() && !independent_workspace {
-        return Err(CheckpointFailure::Unsupported);
-    }
     let parsed = GenerationId::new(receipt.state_digest).map_err(|_| CheckpointFailure::Storage)?;
     let digest = generation_bytes(&parsed).map_err(|_| CheckpointFailure::Storage)?;
     Ok(RestoreArtifacts {

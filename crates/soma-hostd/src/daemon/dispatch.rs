@@ -111,16 +111,17 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
-        Request::VolumeCloneCheckpoint(request) => match volumes.clone_checkpoint(&request) {
-            Ok(binding) => Reply::VolumeOpened {
-                volume: binding.volume,
-                size_class_gib: binding.size_class_gib,
-                path: binding.path.to_string_lossy().into_owned(),
-                // The guest resumes with the filesystem state it had at capture.
-                // Updating it offline would invalidate that state.
-                repair: 0,
-                exit_code: 0,
-            },
+        Request::VolumeCloneCheckpoint(request) => {
+            checkpoint_volume(volumes.clone_checkpoint(&request))
+        }
+        Request::WorkspaceRestoreStage(request) => {
+            checkpoint_volume(volumes.recovery_stage(&request))
+        }
+        Request::WorkspaceRestorePublish(request) => {
+            volume_attached(volumes.recovery_publish(&request))
+        }
+        Request::WorkspaceRestoreAbort(request) => match volumes.recovery_abort(&request) {
+            Ok(()) => Reply::Released { complete: true },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
         Request::VolumeOwned { instance } => match volumes.owned(instance) {
@@ -159,6 +160,21 @@ fn detach_request(frame: crate::DetachFrame) -> DetachRequest {
         instance: frame.instance,
         volume: frame.volume,
         fingerprint: frame.fingerprint,
+    }
+}
+
+fn checkpoint_volume(
+    result: Result<crate::volume::CheckpointVolumeBinding, crate::VolumeError>,
+) -> Reply {
+    match result {
+        Ok(binding) => Reply::VolumeOpened {
+            volume: binding.volume,
+            size_class_gib: binding.size_class_gib,
+            path: binding.path.to_string_lossy().into_owned(),
+            repair: 0,
+            exit_code: 0,
+        },
+        Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
     }
 }
 

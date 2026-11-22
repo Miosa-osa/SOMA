@@ -69,6 +69,7 @@ pub(super) struct Jailed {
 pub(super) struct Launching<'a> {
     pub(super) prepared: &'a PreparedGeneration,
     pub(super) instance: &'a InstanceId,
+    pub(super) operation: &'a soma::OperationId,
     pub(super) instance_bytes: [u8; 16],
     pub(super) generation_bytes: [u8; 32],
     pub(super) memory_mib: u64,
@@ -115,17 +116,12 @@ impl Jailed {
         let checkpoint = launching
             .checkpoint
             .map(|(source, checkpoint)| {
-                super::checkpoint::restore_artifacts(
-                    source,
-                    &launching.prepared.id,
-                    checkpoint,
-                    source != launching.instance,
-                )
-                .map_err(|error| match error {
-                    crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
-                    crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
-                    _ => BackendFailureKind::Unavailable,
-                })
+                super::checkpoint::restore_artifacts(source, &launching.prepared.id, checkpoint)
+                    .map_err(|error| match error {
+                        crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
+                        crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
+                        _ => BackendFailureKind::Unavailable,
+                    })
             })
             .transpose()?;
         if let Some(artifacts) = checkpoint.as_ref() {
@@ -150,13 +146,15 @@ impl Jailed {
                     }
                 })?;
         }
-        let recovery_volume = checkpoint
+        let mut recovery_volume = checkpoint
             .as_ref()
             .and_then(|artifacts| artifacts.volume.as_ref())
-            .map(|receipt| super::jailed_volume::clone_checkpoint(launching, receipt))
+            .map(|receipt| super::jailed_volume::recover(launching, receipt))
             .transpose()?;
-        let (volume, volume_bytes) =
-            super::jailed_volume::open(launching, recovery_volume.as_ref())?;
+        let (volume, volume_bytes) = super::jailed_volume::open(
+            launching,
+            recovery_volume.as_ref().map(|volume| &volume.attachment),
+        )?;
         let spec = build::spec(launching, volume_bytes, tap.is_some())?;
         let opened = build::open(anchors, launching, checkpoint, volume, tap)?;
         let handle =
@@ -186,6 +184,9 @@ impl Jailed {
             _ => return Err(BackendFailureKind::IsolationFailure),
         };
         jailed.perform_launch(anchors, launching, declared, opened.recovery, activation)?;
+        if let Some(workspace) = &mut recovery_volume {
+            workspace.publish()?;
+        }
         Ok(jailed)
     }
 

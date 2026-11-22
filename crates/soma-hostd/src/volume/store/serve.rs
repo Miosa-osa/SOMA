@@ -54,6 +54,30 @@ impl VolumeStore for DirectoryVolumes {
         self.copy_checkpoint(request)
     }
 
+    #[cfg(target_os = "linux")]
+    fn recovery_stage(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
+        self.stage_workspace_restore(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn recovery_publish(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<AttachOutcome, VolumeError> {
+        self.activate_workspace_restore(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn recovery_abort(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<(), VolumeError> {
+        self.abort_workspace_restore(request)
+    }
+
     fn stage_live_attach(&self, request: &AttachRequest) -> Result<VolumeBinding, VolumeError> {
         self.stage_workspace(request)
     }

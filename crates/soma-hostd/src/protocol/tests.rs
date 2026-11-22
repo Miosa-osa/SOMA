@@ -268,3 +268,35 @@ fn a_volume_open_round_trips_and_its_path_padding_is_refused() {
         "a non-zero pad byte is a malformed path"
     );
 }
+
+#[test]
+fn workspace_restore_requests_round_trip_with_exact_operation_and_volume() {
+    use crate::volume::{CheckpointVolumeRequest, WorkspaceRestoreRequest};
+
+    let instance = InstanceId::new([1; 16]).unwrap();
+    let workspace = WorkspaceRestoreRequest {
+        checkpoint: CheckpointVolumeRequest {
+            source: instance,
+            destination: instance,
+            checkpoint: OperationId::new([2; 16]).unwrap(),
+            generation: GenerationId::new([3; 32]).unwrap(),
+            digest: RequestFingerprint::new([4; 32]).unwrap(),
+        },
+        operation: OperationId::new([5; 16]).unwrap(),
+        volume: VolumeId::new([6; 16]).unwrap(),
+    };
+    for (tag, request) in [
+        (19, Request::WorkspaceRestoreStage(workspace)),
+        (20, Request::WorkspaceRestorePublish(workspace)),
+        (21, Request::WorkspaceRestoreAbort(workspace)),
+    ] {
+        let encoded = request.encode();
+        assert_eq!(encoded[0], tag);
+        assert_eq!(Request::decode(&encoded).unwrap(), request);
+        assert!(Request::decode(&encoded[..encoded.len() - 1]).is_err());
+        let mut zero_volume = encoded.clone();
+        let offset = zero_volume.len() - 16;
+        zero_volume[offset..].fill(0);
+        assert!(Request::decode(&zero_volume).is_err());
+    }
+}

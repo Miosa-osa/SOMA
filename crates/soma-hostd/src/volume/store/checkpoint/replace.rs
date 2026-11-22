@@ -15,7 +15,10 @@ use super::{
 };
 use crate::{
     OperationId,
-    volume::{WorkspaceRestoreRequest, store::serve::owned_volume},
+    volume::{
+        AttachOutcome, VOLUME_DEVICE, VolumeRecordKind, WorkspaceRestoreRequest, record::now_nanos,
+        store::serve::owned_volume,
+    },
 };
 
 const INTENT: &str = "restore-intent";
@@ -170,9 +173,24 @@ impl DirectoryVolumes {
         &self,
         request: &WorkspaceRestoreRequest,
     ) -> Result<(), VolumeError> {
+        self.workspace_publication(request, false).map(|_| ())
+    }
+
+    pub(in crate::volume::store) fn activate_workspace_restore(
+        &self,
+        request: &WorkspaceRestoreRequest,
+    ) -> Result<AttachOutcome, VolumeError> {
+        self.workspace_publication(request, true)
+    }
+
+    fn workspace_publication(
+        &self,
+        request: &WorkspaceRestoreRequest,
+        activate: bool,
+    ) -> Result<AttachOutcome, VolumeError> {
         let fingerprint = self.restore_fingerprint(request)?;
-        let state = self.state.lock().map_err(|_| IO_FAILURE)?;
-        let owner = owned_volume(state.values(), request.checkpoint.source)?;
+        let mut state = self.state.lock().map_err(|_| IO_FAILURE)?;
+        let owner = owned_volume(state.values(), request.checkpoint.source)?.clone();
         if owner.generation != request.checkpoint.generation || owner.volume != request.volume {
             return Err(VolumeError::ChangedIntent);
         }
@@ -192,7 +210,30 @@ impl DirectoryVolumes {
             intent,
             owner.state,
             owner.last_transition_nanos,
-        )
+        )?;
+        if activate {
+            let worker_disk = open_regular(&backing, true)?;
+            require_worker_lock(&worker_disk)?;
+            if owner.state == VolumeState::Detached {
+                let mut attached = owner.clone();
+                attached.state = VolumeState::Attached;
+                attached.last_transition_nanos = now_nanos();
+                self.transition(VolumeRecordKind::AttachBegin, attached.volume)?;
+                self.write_sidecar(&attached)?;
+                self.transition(VolumeRecordKind::AttachEnd, attached.volume)?;
+                state.insert(attached.volume, attached);
+            }
+        }
+        Ok(AttachOutcome {
+            volume: request.volume,
+            state: if activate {
+                VolumeState::Attached
+            } else {
+                owner.state
+            },
+            device: VOLUME_DEVICE,
+            repair: None,
+        })
     }
 
     /// Discards an uncommitted replacement after the failed worker released its backing.
@@ -345,15 +386,7 @@ fn publish(
     if inode(&staged)? != intent.replacement {
         return Err(VolumeError::ChangedIntent);
     }
-    match staged.try_lock() {
-        Err(TryLockError::WouldBlock) => {}
-        Ok(()) => {
-            return Err(VolumeError::Busy(
-                "the recovered worker does not own its workspace",
-            ));
-        }
-        Err(TryLockError::Error(_)) => return Err(IO_FAILURE),
-    }
+    require_worker_lock(&staged)?;
     retain_link(backing, &retained, intent.original)?;
     sync(path)?;
     fs::rename(&staged_path, backing).map_err(|_| IO_FAILURE)?;
@@ -400,6 +433,18 @@ fn rollback(
     fs::rename(&restored, backing).map_err(|_| IO_FAILURE)?;
     sync(directory)?;
     sync(path)
+}
+
+fn require_worker_lock(staged: &File) -> Result<(), VolumeError> {
+    match staged.try_lock() {
+        Err(TryLockError::WouldBlock) => Ok(()),
+        Ok(()) => {
+            return Err(VolumeError::Busy(
+                "the recovered worker does not own its workspace",
+            ));
+        }
+        Err(TryLockError::Error(_)) => Err(IO_FAILURE),
+    }
 }
 
 fn retain_link(source: &Path, destination: &Path, expected: u64) -> Result<(), VolumeError> {

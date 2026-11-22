@@ -14,7 +14,14 @@ use std::{
 };
 
 use soma::{GenerationId, InstanceId, OperationId};
-use soma_hostd::volume::placement::{ENCRYPTED_MOUNT_ENV, encrypted_mount_name, root_is_encrypted};
+use soma_hostd::{
+    Reply, Request, VolumeId,
+    client::HostClient,
+    volume::{
+        VolumeState,
+        placement::{ENCRYPTED_MOUNT_ENV, encrypted_mount_name, root_is_encrypted},
+    },
+};
 use soma_kvm::snapshot::{
     Digest,
     device_state::{DeviceSpecific, DeviceState},
@@ -68,6 +75,10 @@ pub(super) fn perform(
     if paused {
         return Err(CheckpointFailure::CaptureRefused);
     }
+    let volume_id = source
+        .has_volume
+        .then(|| attached_workspace(instance))
+        .transpose()?;
     let stage = Stage::create(&root)?;
     let job = CheckpointJob {
         source,
@@ -80,10 +91,35 @@ pub(super) fn perform(
         volume: source.has_volume.then(|| stage.open(VOLUME)).transpose()?,
     };
     let reported = held.checkpoint(job)?;
-    let receipt =
-        read_staged(&stage.path, instance, generation, operation, Some(reported))?.receipt;
+    let receipt = read_staged(
+        &stage.path,
+        instance,
+        generation,
+        operation,
+        Some(reported),
+        volume_id,
+    )?
+    .receipt;
     stage.publish(&root, &published, &receipt)?;
     Ok(receipt)
+}
+
+fn attached_workspace(instance: &InstanceId) -> Result<String, CheckpointFailure> {
+    let socket =
+        std::env::var_os(super::runtime::SOCKET_VARIABLE).ok_or(CheckpointFailure::Unsupported)?;
+    let instance = soma_hostd::InstanceId::new(
+        instance_bytes(instance).map_err(|_| CheckpointFailure::Storage)?,
+    )
+    .map_err(|_| CheckpointFailure::Storage)?;
+    match HostClient::connect(&PathBuf::from(socket))
+        .and_then(|client| client.call(&Request::VolumeOwned { instance }))
+        .map_err(|_| CheckpointFailure::Storage)?
+    {
+        Reply::VolumeOwned { volume, state } if state == VolumeState::Attached.code() => {
+            Ok(volume.hex())
+        }
+        _ => Err(CheckpointFailure::CaptureRefused),
+    }
 }
 
 fn configured_root() -> Result<PathBuf, CheckpointFailure> {
@@ -105,6 +141,7 @@ fn read_staged(
     generation: &GenerationId,
     operation: &OperationId,
     reported: Option<Digest>,
+    volume_id: Option<String>,
 ) -> Result<VerifiedCheckpoint, CheckpointFailure> {
     let bytes = read_bounded(&path.join(STATE))?;
     let decoded = CheckpointManifest::decode(&bytes).map_err(|_| CheckpointFailure::Storage)?;
@@ -135,7 +172,11 @@ fn read_staged(
             memory_bytes: memory.size(),
             overlay_bytes,
             overlay_digest,
-            volume: volume.map(|(bytes, digest)| CheckpointVolumeReceipt { bytes, digest }),
+            volume: volume.map(|(bytes, digest)| CheckpointVolumeReceipt {
+                bytes,
+                digest,
+                volume_id,
+            }),
         },
         cpu_template: decoded.header().cpu_template,
     })
@@ -189,7 +230,17 @@ fn read_published(
     {
         return Err(CheckpointFailure::Storage);
     }
-    let verified = read_staged(path, instance, generation, operation, None)?;
+    let volume_id = receipt
+        .volume
+        .as_ref()
+        .and_then(|volume| volume.volume_id.clone());
+    if let Some(id) = &volume_id {
+        let parsed = VolumeId::from_hex(id).map_err(|_| CheckpointFailure::Storage)?;
+        if &parsed.hex() != id {
+            return Err(CheckpointFailure::Storage);
+        }
+    }
+    let verified = read_staged(path, instance, generation, operation, None, volume_id)?;
     if verified.receipt != receipt {
         return Err(CheckpointFailure::Storage);
     }

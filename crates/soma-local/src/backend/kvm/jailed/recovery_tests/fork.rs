@@ -22,6 +22,7 @@ fn sealed_forks_keep_independent_identities_memory_and_disks() {
         Jailed::launch(
             &anchors,
             &Launching {
+                operation: &checkpoint_id,
                 prepared: &prepared,
                 instance,
                 instance_bytes: instance_bytes(instance).unwrap(),

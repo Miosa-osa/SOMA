@@ -36,10 +36,13 @@ fn sealed_worker_reopens_its_workspace_after_graceful_stop() {
     );
     let volume = VolumeAttachment::new(fresh16(), volume_path);
     let instance = InstanceId::new(format!("{:032x}", u128::from_be_bytes(fresh16()))).unwrap();
+    let operation =
+        soma::OperationId::new(format!("{:032x}", u128::from_be_bytes(fresh16()))).unwrap();
     let launch = || {
         Jailed::launch(
             &anchors,
             &Launching {
+                operation: &operation,
                 prepared: &prepared,
                 instance: &instance,
                 instance_bytes: instance_bytes(&instance).unwrap(),

@@ -144,6 +144,7 @@ mod tests {
                 overlay_bytes: 0,
                 overlay_digest: None,
                 volume: Some(crate::CheckpointVolumeReceipt {
+                    volume_id: None,
                     bytes: 6,
                     digest: digest.as_str().to_owned(),
                 }),

@@ -83,6 +83,7 @@ fn a_sealed_worker_recovers_a_published_checkpoint_after_reaping_the_source() {
     let instance = InstanceId::new(hex(fresh16())).expect("Instance");
     let checkpoint_id = OperationId::new(hex(fresh16())).expect("checkpoint");
     let mut launching = Launching {
+        operation: &checkpoint_id,
         prepared: &prepared,
         instance: &instance,
         instance_bytes: instance_bytes(&instance).expect("identity bytes"),

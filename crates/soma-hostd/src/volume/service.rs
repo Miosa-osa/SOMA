@@ -170,6 +170,39 @@ pub trait VolumeStore {
         ))
     }
 
+    /// Prepares a replacement for the workspace named by an existing restore lease.
+    ///
+    /// # Errors
+    ///
+    /// Refuses mismatched ownership or an invalid checkpoint.
+    fn recovery_stage(
+        &self,
+        _request: &WorkspaceRestoreRequest,
+    ) -> Result<CheckpointVolumeBinding, VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
+    /// Publishes the replacement after the recovered worker has mounted it.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unconfirmed worker or a changed restore intent.
+    fn recovery_publish(
+        &self,
+        _request: &WorkspaceRestoreRequest,
+    ) -> Result<AttachOutcome, VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
+    /// Discards an unpublished workspace after the failed worker released it.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a worker still using the replacement or a changed intent.
+    fn recovery_abort(&self, _request: &WorkspaceRestoreRequest) -> Result<(), VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
     /// Creates the volume on first attach, repairs it offline, and binds it to the Instance.
     ///
     /// # Errors

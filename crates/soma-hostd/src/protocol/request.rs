@@ -10,7 +10,7 @@ mod volumes;
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
-use crate::volume::CheckpointVolumeRequest;
+use crate::volume::{CheckpointVolumeRequest, WorkspaceRestoreRequest};
 use crate::{InstanceId, LaunchMaterialHandle, OperationId, VolumeId, WorkerId};
 
 pub use volumes::{AttachFrame, DetachFrame};
@@ -130,6 +130,12 @@ pub enum Request {
     WorkspaceCommit(AttachFrame),
     /// Check ownership and operation intent before the guest is asked to unmount.
     WorkspaceAdmitDetach(DetachFrame),
+    /// Stage the checkpoint disk under the Instance restore lease.
+    WorkspaceRestoreStage(WorkspaceRestoreRequest),
+    /// Make the staged disk active after authenticated guest readiness.
+    WorkspaceRestorePublish(WorkspaceRestoreRequest),
+    /// Discard a staged disk after a failed restore.
+    WorkspaceRestoreAbort(WorkspaceRestoreRequest),
 }
 
 impl Request {
@@ -209,6 +215,16 @@ impl Request {
                 out.push(18);
                 frame.encode_into(&mut out);
             }
+            Self::WorkspaceRestoreStage(frame)
+            | Self::WorkspaceRestorePublish(frame)
+            | Self::WorkspaceRestoreAbort(frame) => {
+                out.push(match self {
+                    Self::WorkspaceRestoreStage(_) => 19,
+                    Self::WorkspaceRestorePublish(_) => 20,
+                    _ => 21,
+                });
+                volumes::encode_restore(frame, &mut out);
+            }
             Self::VolumeCloneCheckpoint(frame) => {
                 out.push(15);
                 volumes::encode_checkpoint(frame, &mut out);
@@ -263,6 +279,9 @@ impl Request {
             (16, _) => AttachFrame::decode(bytes).map(Self::WorkspaceStage),
             (17, _) => AttachFrame::decode(bytes).map(Self::WorkspaceCommit),
             (18, _) => DetachFrame::decode(bytes).map(Self::WorkspaceAdmitDetach),
+            (19, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreStage),
+            (20, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestorePublish),
+            (21, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreAbort),
             _ => Err(ProtocolError("request")),
         }
     }

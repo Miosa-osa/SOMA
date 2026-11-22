@@ -208,6 +208,7 @@ impl KvmBackend {
         match Jailed::launch(
             anchors,
             &JailedLaunching {
+                operation,
                 prepared,
                 instance,
                 instance_bytes: identity.instance,
