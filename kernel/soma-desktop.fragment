@@ -17,3 +17,13 @@ CONFIG_INPUT=y
 CONFIG_INPUT_EVDEV=y
 CONFIG_INPUT_MISC=y
 CONFIG_INPUT_UINPUT=y
+
+# Turning the input subsystem on would also pull in x86_64_defconfig's drivers for real keyboards,
+# mice, joysticks, tablets and touchscreens, and the i8042/PS/2 serio port they probe. A SOMA guest
+# has none of that hardware, so they are switched off: uinput's devices need only evdev.
+# CONFIG_INPUT_KEYBOARD is not set
+# CONFIG_INPUT_MOUSE is not set
+# CONFIG_INPUT_JOYSTICK is not set
+# CONFIG_INPUT_TABLET is not set
+# CONFIG_INPUT_TOUCHSCREEN is not set
+# CONFIG_SERIO is not set
