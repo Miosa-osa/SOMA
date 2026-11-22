@@ -158,6 +158,12 @@ A successful response reports `ready` for the same Instance after the worker has
 Retry a completed restore with the same operation ID and checkpoint to get its original receipt.
 A different operation cannot restore over a live sandbox.
 
+A newly captured checkpoint with a mounted workspace includes `volume.bytes`, `volume.digest`, and `volume.volume_id` in its receipt.
+Same-instance mounted recovery requires the recorded volume to belong to the stopped instance and be detached on the host's encrypted data mount.
+The host stages the saved workspace, verifies the restored worker, and then attaches the restored backing under the same volume ID.
+The prior backing retains writes made after the checkpoint and is available to the host's offline rollback transaction.
+Older mounted checkpoints without a volume ID remain eligible for independent forks.
+
 The authenticated runner accepts `POST /api/v1/sandboxes/{source}/fork` with `operation_id`, `checkpoint_id`, `image`, and the exact checkpoint source `shape`.
 It returns the destination `sandbox_id` and launch receipt once the fork is ready.
 Retry with the same operation ID and request on the same source to address the same destination.
