@@ -131,6 +131,13 @@ impl ExecutionReceipt {
                             | CleanupMethod::NotApplicable
                     )
             }
+            // A suspended machine was already read and released by the backend, so its cleanup
+            // reports whatever method released what was left; it must still be complete.
+            TerminalStatus::Suspended => {
+                self.operation == OperationKind::Suspend
+                    && self.has(MilestoneKind::CleanupFinished)
+                    && self.cleanup.is_complete()
+            }
             TerminalStatus::Destroyed => {
                 self.operation == OperationKind::Destroy
                     && self.has(MilestoneKind::CleanupFinished)
@@ -251,7 +258,7 @@ fn milestone_allowed(operation: OperationKind, kind: MilestoneKind) -> bool {
                 | MilestoneKind::CleanupStarted
                 | MilestoneKind::CleanupFinished
         ),
-        OperationKind::Stop | OperationKind::Destroy => matches!(
+        OperationKind::Stop | OperationKind::Destroy | OperationKind::Suspend => matches!(
             kind,
             MilestoneKind::Accepted
                 | MilestoneKind::CleanupStarted
