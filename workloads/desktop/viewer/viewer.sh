@@ -1,10 +1,7 @@
 #!/bin/bash
 #
-# The desktop viewer, run as the desktop user by `soma-desktop-session viewer start`: Sunshine
-# captures and encodes the screen, moonlight-web serves the browser client on the viewer port and
-# relays the stream to it over WebSockets (the transport that fits the SOMA tunnel). Both were
-# paired with each other when the image was built (pair.py), and moonlight-web's default user
-# means the page opens without a login: who may open it is the platform's decision, at the tunnel.
+# On-demand desktop viewer supervised by soma-desktop-session.
+# Voxl is the viewer on the current image. Earlier images use the pre-paired Sunshine stream.
 #
 # It runs only while someone watches, so an unwatched desktop pays nothing for encoding.
 
@@ -28,7 +25,7 @@ wait_port() {
 }
 
 stop_children() {
-    # Signal the children without signaling this supervisor. Reap both before exiting.
+    # Signal and reap the viewer processes before the supervisor exits.
     local pid attempt
     trap '' TERM INT
     while read -r pid; do
@@ -46,6 +43,16 @@ stop_children() {
 
 trap stop_children EXIT
 trap 'exit 0' TERM INT
+
+if command -v voxl >/dev/null; then
+    voxl --port="$PORT" --enable-basic-auth=false --title="MIOSA Desktop" \
+        --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
+        --enable-resize=true --audio-enabled=false >"$STATE/logs/voxl.log" 2>&1 &
+    wait_port viewer_port "$PORT" || exit 1
+    mark viewer_ready
+    wait -n
+    exit $?
+fi
 
 sunshine "$HOME/.config/sunshine/sunshine.conf" >"$STATE/logs/sunshine.log" 2>&1 &
 wait_port viewer_encoder 47989 || exit 1

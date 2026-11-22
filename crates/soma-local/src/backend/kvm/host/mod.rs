@@ -264,11 +264,30 @@ pub(super) fn inspect(
     }
 }
 
+/// How long a suspension may take: reading every byte of guest memory and the private head.
+const SUSPEND_CEILING: Duration = Duration::from_mins(11);
+
+/// Asks the host holding `instance` to suspend it into `staging`; `false` is a refusal.
+pub(super) fn suspend(
+    directory: &Path,
+    instance: &InstanceId,
+    staging: std::path::PathBuf,
+) -> Result<bool, HostFailure> {
+    let call = Call::Suspend {
+        instance_id: instance.clone(),
+        staging,
+    };
+    match ask(directory, instance, &call, SUSPEND_CEILING)? {
+        Answer::Suspended => Ok(true),
+        Answer::SuspendRefused => Ok(false),
+        Answer::Refused(refusal) => Err(HostFailure::Refused(refusal.into())),
+        _ => Err(HostFailure::Refused(BackendFailureKind::Unavailable)),
+    }
+}
+
 /// Releases the hosted machine, and waits for the host to close the connection.
 ///
-/// The host releases everything it owns before it answers, and closes only on its way out, so a
-/// close observed after the evidence is the point at which nothing of this Instance is left in
-/// any process owns a running guest. The host removes its socket before closing the connection.
+/// The host removes its socket and releases the guest before closing the connection.
 pub(super) fn cleanup(
     directory: &Path,
     instance: &InstanceId,

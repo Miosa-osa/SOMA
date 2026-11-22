@@ -249,7 +249,8 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         // The volume the host resolved for this Instance: a machine whose Generation
         // declares one refuses to run without it.
         .with_volume(request.volume.as_ref())
-        .with_windowed(request.windowed);
+        .with_windowed(request.windowed)
+        .with_resume(request.resume.as_deref());
         let observation = match locked {
             Some(LockedLaunch::Checkpoint {
                 checkpoint,

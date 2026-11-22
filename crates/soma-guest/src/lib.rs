@@ -99,4 +99,6 @@ pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
 /// interoperate. Level 2 adds stat, rename, ranged files, and detailed listings. Level 3 accepts
 /// an argument up to [`MAX_ARGUMENT_BYTES`] bytes in one `Execute` record, where an older guest
 /// decodes at most [`LEVEL_TWO_ARGUMENT_BYTES`].
-pub const GUEST_API_LEVEL: u8 = 4;
+/// Level 5 identifies an agent with both authenticated suspension and checkpoint network repair.
+/// Two earlier development branches each used level 4 for one of these features.
+pub const GUEST_API_LEVEL: u8 = 5;

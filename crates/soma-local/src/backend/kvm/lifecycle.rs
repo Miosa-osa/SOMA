@@ -77,6 +77,8 @@ pub(in crate::backend::kvm) struct LaunchExtras<'a> {
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
     pub(in crate::backend::kvm) checkpoint: Option<(&'a InstanceId, &'a OperationId)>,
+    /// The decrypted Suspension this launch resumes instead of the Generation's snapshot.
+    pub(in crate::backend::kvm) resume: Option<std::path::PathBuf>,
 }
 
 impl KvmBackend {
@@ -105,7 +107,13 @@ impl KvmBackend {
             volume,
             windowed,
             checkpoint,
+            resume,
         } = extras;
+        // A jailed worker is handed its machine's descriptors by a protocol that carries no
+        // Suspension yet, so a resume there is refused rather than served by a fresh machine.
+        if resume.is_some() && (self.jail.is_some() || checkpoint.is_some()) {
+            return Err(self.fail(operation, BackendFailureKind::Unsupported));
+        }
         if checkpoint.is_some_and(|(source, _)| {
             self.jail.is_none()
                 || volume.is_some()
@@ -185,7 +193,8 @@ impl KvmBackend {
         // pool is not a failure and is never reported as a prepared launch. A machine prepared
         // inside this process is the unjailed thing the split removes, so a host that jails its
         // machines never claims one.
-        let claimed = if self.jail.is_some() {
+        // A resume restores its own machine, so it never takes one prepared for the Generation.
+        let claimed = if self.jail.is_some() || resume.is_some() || checkpoint.is_some() {
             None
         } else {
             let key = claim::recipe_for(prepared, boot_mib).map(|recipe| recipe.key().clone());
@@ -216,6 +225,7 @@ impl KvmBackend {
             // none refuses to start rather than serve an empty disk.
             volume,
             checkpoint,
+            resume,
         };
         let Started {
             preparation,

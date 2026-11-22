@@ -47,6 +47,9 @@ pub enum Request {
     Checkpoint(Box<CheckpointJob>),
     /// Finish the machine and report its evidence, asking a running guest to shut down.
     Shutdown,
+    /// Ask the guest to retire its session and park, read the machine into the target's staging
+    /// directory, and release it (ADR 0034). Refused with nothing sent below guest API level 4.
+    Suspend(Box<SuspendTarget>),
     /// End the machine without asking the guest, then report its evidence.
     ///
     /// The vCPU is kicked out of `KVM_RUN` and never re-entered, so nothing the guest does after
@@ -100,6 +103,11 @@ pub enum Response {
     Finished(Box<SandboxEvidence>),
     /// An aborted machine's vCPU will never run again; its release is still under way.
     Halted,
+    /// The machine was read into its Suspension members and released.
+    Suspended(Box<soma_kvm::x86_64::CaptureOutcome>),
+    /// Suspend was refused with nothing sent: this guest's agent is below API level 4, or the
+    /// machine was cold booted. The session is untouched.
+    SuspendRefused,
     /// The session failed and the thread is ending.
     Failed(SessionError),
 }
@@ -163,4 +171,13 @@ pub enum SessionError {
     Gone,
     /// An earlier operation ended without a certain answer, so this session was ended.
     Poisoned,
+    /// The suspended machine could not be quiesced or read; the machine is released.
+    Suspend,
+}
+
+/// Where a suspension's plaintext members are staged for the store to seal.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SuspendTarget {
+    /// A directory on the host's encrypted data mount, created by the read.
+    pub directory: std::path::PathBuf,
 }

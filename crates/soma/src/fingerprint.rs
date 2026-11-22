@@ -116,6 +116,13 @@ pub(crate) fn destroy(workload: &WorkloadIdentity, instance_id: &InstanceId) -> 
     encoder.finish()
 }
 
+pub(crate) fn suspend(workload: &WorkloadIdentity, instance_id: &InstanceId) -> RequestFingerprint {
+    let mut encoder = CanonicalHash::new(b"soma.managed-suspend.v1");
+    workload_fields(&mut encoder, workload);
+    encoder.field(b"instance_id", instance_id.as_str().as_bytes());
+    encoder.finish()
+}
+
 pub(crate) fn bytes(value: &[u8]) -> String {
     digest_bytes(value).as_str().to_owned()
 }

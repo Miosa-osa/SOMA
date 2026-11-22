@@ -33,7 +33,7 @@ pub(in crate::x86_64) mod vm_state;
 
 pub use crate::snapshot::inspection::{ArtifactEvidence, CaptureExpectation, VerifiedCapture};
 pub use artifacts::SnapshotPaths;
-pub use capture::{CaptureOutcome, CaptureRequest, capture};
+pub use capture::{CaptureOutcome, CapturePoint, CaptureRequest, capture};
 pub use checkpoint::{CheckpointError, CheckpointRequest, CheckpointTargets, capture_checkpoint};
 pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;

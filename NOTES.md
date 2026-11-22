@@ -996,3 +996,25 @@ The viewer supervisor terminates and reaps its direct children, and the session 
 The MIOSA desktop image layer packages the Compute desktopd executable without embedding a token.
 The session launcher starts it as the desktop user after the CUA driver socket is ready and includes the HTTP service in desktop readiness.
 The platform supplies the per-computer bearer credential before start and uses the guest broker to reach port 49985.
+## Desktop wallpaper and chrome
+
+The preview desktop uses a compressed static blue-hour wallpaper with a fallback solid fill when X cannot paint the image.
+The top panel, dock, Openbox decorations, and larger terminal type share the wallpaper's slate-blue palette.
+The existing Host 12 preview applied the theme through its authenticated guest interface without rebooting the desktop.
+
+## 2026-11-21 - Slate desktop preview
+
+The desktop image packages a 1920 by 1080 static JPEG with the composition weighted to the lower right so windows and controls stay readable.
+On the Host 12 preview, the wallpaper and panel configuration were applied in place and the Chrome stream continued playing.
+The live X server reported the 40-pixel task bar and 60-pixel dock mapped.
+
+## Resident lifecycle and encrypted suspension integration
+
+Both development branches independently advanced the API minor from 1.0.
+The combined API advertises 1.8 and preserves the existing resident routes and request bodies.
+A resident reconnect retains workload mounts and checks fresh operation, instance, and Generation authority.
+Encrypted suspension keeps its separate capture point and resume semantics.
+Guest API level 5 disambiguates the two earlier level 4 implementations.
+The desktop starts Voxl through the same viewer command used by the authorized platform tunnel and stops it with the supervisor.
+A local process lifecycle test verified that starting the supervisor opens the selected port and stopping it reaps its child.
+Browser decoding and input still require an integrated desktop Generation test.

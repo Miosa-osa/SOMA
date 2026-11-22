@@ -72,8 +72,8 @@ pub use self::{
     },
     serial::SerialCounters,
     snapshot::{
-        Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CaptureRequest,
-        CheckpointError, CheckpointRequest, CheckpointTargets, PreparedCheckpoint,
+        Artifact, ArtifactEvidence, CaptureExpectation, CaptureOutcome, CapturePoint,
+        CaptureRequest, CheckpointError, CheckpointRequest, CheckpointTargets, PreparedCheckpoint,
         ResidentRestoreRequest, RestoreFacts, RestoreRequest, Restored, SnapshotError,
         SnapshotObjects, SnapshotPaths, Sterile, SterileRequest, VerifiedCapture, capture,
         capture_checkpoint, inspect_capture_artifacts, prepare_checkpoint, prepare_fork, restore,

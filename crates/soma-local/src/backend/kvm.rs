@@ -21,6 +21,7 @@ mod resize;
 mod resolve;
 mod runtime;
 mod start;
+mod suspend;
 mod targets;
 
 use std::{path::PathBuf, time::Duration};

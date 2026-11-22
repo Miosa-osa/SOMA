@@ -28,6 +28,7 @@ pub(super) fn serve_commands(
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
     head_reads: &[HeadSpan],
+    suspendable: bool,
 ) -> Result<Ending, SessionError> {
     responses
         .send(Response::Ready {
@@ -132,6 +133,22 @@ pub(super) fn serve_commands(
                     .map_err(|_| SessionError::Gone)?;
             }
             Request::Shutdown => break,
+            Request::Suspend(target) => {
+                // Plugged memory lives outside the memory object a capture reads, so a machine
+                // that grew is refused here, before the guest is told anything; asking it to
+                // suspend first would end it on a capture that must fail.
+                let grown = memory::level(&memory::device_of(machine)).plugged_bytes > 0;
+                match suspend(
+                    repaired,
+                    target,
+                    suspendable && !grown,
+                    &mut guest_api,
+                    responses,
+                )? {
+                    SuspendStep::Refused(untouched) => repaired = *untouched,
+                    SuspendStep::Suspended(ending) => return Ok(ending),
+                }
+            }
             // The guest is not told. The session is abandoned with the machine, which the
             // caller finishes without waiting for a guest that was never asked to leave.
             Request::Abort => return Ok(Ending::Aborted),
@@ -240,4 +257,42 @@ fn stream_command<'a>(
         })))
         .map_err(|_| SessionError::Gone)?;
     Ok(repaired)
+}
+
+/// What one Suspend request left: the untouched session, or the ending that leaves the loop.
+enum SuspendStep<'a> {
+    Refused(Box<RepairedHostControl<HostIo<'a>>>),
+    Suspended(Ending),
+}
+
+/// Suspends the session, or refuses with nothing sent and hands the untouched session back.
+///
+/// A guest without the integrated suspension capability could poison its session, and a cold-booted
+/// machine has no snapshot to resume into, so either is answered `SuspendRefused` instead.
+fn suspend<'a>(
+    repaired: RepairedHostControl<HostIo<'a>>,
+    target: Box<super::super::session::SuspendTarget>,
+    suspendable: bool,
+    guest_api: &mut Option<GuestApi>,
+    responses: &Sender<Response>,
+) -> Result<SuspendStep<'a>, SessionError> {
+    let (repaired, level) = if suspendable {
+        let (next, level) = repaired
+            .ensure_guest_api(guest_api, || files::nonce_text(&fresh16()).into_bytes())
+            .map_err(|_| SessionError::Execute)?;
+        (next, Some(level))
+    } else {
+        (repaired, None)
+    };
+    if !level.is_some_and(GuestApi::has_suspend) {
+        responses
+            .send(Response::SuspendRefused)
+            .map_err(|_| SessionError::Gone)?;
+        return Ok(SuspendStep::Refused(Box::new(repaired)));
+    }
+    let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
+    repaired
+        .suspend(operation)
+        .map_err(|_| SessionError::Suspend)?;
+    Ok(SuspendStep::Suspended(Ending::Suspended(target)))
 }

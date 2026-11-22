@@ -9,8 +9,7 @@
 #   soma-desktop-session status    print the session's milestones as JSON
 #   soma-desktop-session stop      end the session
 #   soma-desktop-session viewer start|stop
-#                                  start or end the human viewer (Sunshine + moonlight-web on the
-#                                  viewer port), which runs only while someone watches
+#                                  start or end the viewer on the platform's guest port
 #
 # The guest agent kills every process when a command ends, except the ones the command names in
 # /run/soma/survivors. A desktop cannot be named by process id, group or session: a terminal's
@@ -168,7 +167,8 @@ viewer_start() {
         fi
         if grep -q '^failed_viewer' "$STATE/milestones" || ! kill -0 "$pid" 2>/dev/null; then
             report viewer_failed
-            tail -20 "$STATE/viewer.log" "$STATE/logs/sunshine.log" "$STATE/logs/moonlight-web.log" >&2 2>/dev/null
+            tail -20 "$STATE/viewer.log" "$STATE/logs/voxl.log" "$STATE/logs/sunshine.log" \
+                "$STATE/logs/moonlight-web.log" >&2 2>/dev/null
             return 1
         fi
         sleep 0.1

@@ -119,6 +119,7 @@ fn launch(
                         checkpoint,
                     )
                 }),
+                resume: request.resume.clone(),
             },
         )
         .map_err(|failure| failure.kind())

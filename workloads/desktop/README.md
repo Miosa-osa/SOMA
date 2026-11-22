@@ -1,19 +1,19 @@
 # SOMA Linux desktop
 
 The Ubuntu 24.04 desktop runs in a SOMA virtual machine using the desktop kernel variant.
-Xorg provides a virtual display, Openbox manages windows, and Xfce Terminal is the default terminal.
-The CUA driver reads the display, inspects accessibility through AT-SPI, and sends input to Xorg.
+KasmVNC provides the X display by default, Openbox manages windows, and Xfce Terminal is the default terminal.
+The CUA driver reads the display, inspects accessibility through AT-SPI, and sends X input.
 
 The browser viewer shares the same display.
-Sunshine captures and encodes it as H.264, and moonlight-web sends the stream and human input over WebSockets on guest port 6080.
+Voxl sends H.264 video and human input over WebSockets on guest port 6080.
 The CUA driver can operate while these viewer processes are stopped.
 The platform must authenticate and authorize access before opening the viewer tunnel.
-The image build pairs Sunshine and moonlight-web, making the paired host available when the authorized viewer opens.
+An image without Voxl uses the pre-paired Sunshine and moonlight-web viewer on the same port.
 
 ## Build the image and Generation
 
 Run the following from the SOMA repository root.
-The image pins the Ubuntu base, CUA driver, Sunshine, and moonlight-web in the Dockerfiles.
+The image pins the Ubuntu base, CUA driver, Voxl, Sunshine, and moonlight-web in the Dockerfiles.
 
 ```sh
 docker build -f workloads/desktop/base.Dockerfile -t soma-desktop-base:2 workloads/desktop
@@ -86,7 +86,7 @@ The driver wrapper disables telemetry and automatic update checks.
 Run `soma-desktop-session viewer start` when a human opens the desktop.
 Tunnel guest port 6080 using the authorized SOMA endpoint.
 Run `soma-desktop-session viewer stop` when the viewer closes.
-The stop command waits for the viewer supervisor to terminate and reap Sunshine and moonlight-web.
-The Xorg session and CUA driver remain available.
+The stop command waits for the viewer supervisor and its children to exit.
+The X session and CUA driver remain available.
 
 The [original Xfce and KasmVNC experiment](../../docs/evidence/2026-11-20-desktop-generation-cua-m1.md) records the earlier design and measurements.

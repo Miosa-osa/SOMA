@@ -32,7 +32,8 @@ pub(super) const fn exit_code(status: TerminalStatus) -> Option<i32> {
         | TerminalStatus::Ready
         | TerminalStatus::Stopped
         | TerminalStatus::Inspected { .. }
-        | TerminalStatus::Destroyed => None,
+        | TerminalStatus::Destroyed
+        | TerminalStatus::Suspended => None,
     }
 }
 

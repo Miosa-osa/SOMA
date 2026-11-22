@@ -84,6 +84,11 @@ pub(in crate::backend::kvm::host) enum Call {
         /// Whether the machine may be ended without asking the guest.
         forced: bool,
     },
+    /// Read the machine into a Suspension's staging directory and release it (ADR 0034).
+    Suspend {
+        instance_id: InstanceId,
+        staging: std::path::PathBuf,
+    },
     /// Open a byte stream to a port of the guest this host holds.
     ///
     /// The host answers with one line, and when that line is `tunneled` the connection stops
@@ -180,6 +185,10 @@ pub(in crate::backend::kvm::host) enum Answer {
     },
     /// The connection now carries the guest's stream.
     Tunneled,
+    /// The machine was read into the staging directory and released.
+    Suspended,
+    /// Refused with nothing done; the machine runs as before.
+    SuspendRefused,
     Resized(crate::ResizeOutcome),
     ResizeRefused(crate::ResizeFailure),
     TunnelRefused(crate::TunnelFailure),

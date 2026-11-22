@@ -49,6 +49,8 @@ pub(super) struct Launching<'a> {
     /// This Instance's durable volume, absent when its Generation declares none.
     pub(super) volume: Option<soma::VolumeAttachment>,
     pub(super) checkpoint: Option<(&'a InstanceId, &'a OperationId)>,
+    /// The decrypted Suspension this Instance resumes from, instead of the Generation's snapshot.
+    pub(super) resume: Option<std::path::PathBuf>,
 }
 
 pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> BackendFailureKind {
@@ -68,7 +70,8 @@ pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> Backen
         | SessionError::Pause
         | SessionError::Resume
         | SessionError::Gone
-        | SessionError::Poisoned => BackendFailureKind::GuestFailure,
+        | SessionError::Poisoned
+        | SessionError::Suspend => BackendFailureKind::GuestFailure,
         // Refused with nothing sent; the engine keeps the sandbox, as for any refusal before run.
         SessionError::GuestAgentOutdated => BackendFailureKind::GuestAgentOutdated,
         SessionError::GuestPaused => BackendFailureKind::SandboxPaused,
@@ -97,6 +100,8 @@ impl KvmBackend {
             secrets,
             volume,
             checkpoint: _,
+            // Never set here: a resume claims nothing and is refused in a jail.
+            resume: _,
         } = launching;
         self.register(operation, instance, identity.guest_cid)?;
         // The machine already exists, so this stamp separates the fresh authority this Launch
@@ -165,6 +170,8 @@ impl KvmBackend {
             secrets,
             volume,
             checkpoint,
+            // Never set here: a resume claims nothing and is refused in a jail.
+            resume: _,
         } = launching;
         if !secrets.is_empty() {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
@@ -242,9 +249,17 @@ impl KvmBackend {
             secrets,
             volume,
             checkpoint: _,
+            resume,
         } = launching;
-        let boot = boot_for(prepared, memory_mib, identity, network, secrets, volume)
-            .map_err(|kind| self.fail(operation, kind))?;
+        let boot = boot_for(
+            prepared,
+            memory_mib,
+            identity,
+            (network, secrets),
+            volume,
+            resume.as_deref(),
+        )
+        .map_err(|kind| self.fail(operation, kind))?;
         self.register(operation, instance, boot.guest_cid)?;
         let launched = self.clocks.elapsed_ns(operation);
         match Session::launch(boot, &mut |receipt| {

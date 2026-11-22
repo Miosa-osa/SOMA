@@ -215,6 +215,31 @@ Holding the network bundle across suspension was rejected because it retains sca
 
 Preserving delivered secrets inside the Suspension was rejected because it stores a live credential past the life of the Instance that was trusted with it, with no signal to whatever issued it.
 
+## Implementation, first cut (2026-11-22)
+
+The API serves `POST /v1/sandboxes/{instance}/suspend`, `POST /v1/suspensions/{suspension}/resume` and `DELETE /v1/suspensions/{suspension}` (API 1.1).
+The store is `soma_hostd::suspension`, run inside the runtime under `<state root>/suspensions`, because a production Host runs no `soma-hostd` daemon.
+`scripts/suspend-proof.sh` is the end-to-end check: a counter process, a tmpfs value and a file written on the head all survive a suspend and a resume, the counter is the same process and keeps counting, and the Suspension resumes once.
+
+Measured on miosa-host-12 (Xeon, no SHA extensions, XFS reflink) for a node:22 sandbox of 1 GiB memory and a 4 GiB head:
+
+| Step | Time |
+| --- | --- |
+| Suspend, whole request | 5.5 s |
+| of which the machine read (pause, memory, head clone) | 0.7 s |
+| of which the seal into the store | 4.8 s |
+| Resume, whole request, to authenticated Ready | 1.3 s |
+
+What made those numbers: zeros are holes, written as nothing at capture and sealed as empty authenticated chunks; the private head is cloned with `FICLONE` rather than copied; and nothing the store authenticates is hashed a second time at capture, including the Generation's root.
+
+Where this cut differs from the decision and the gates below, stated so nobody reads it as done:
+
+- A Suspension resumes once and is destroyed when its resume is Ready. The two-concurrent-resumes gate does not apply to it yet; a second resume is refused as unknown.
+- A resumed machine keeps its hostname, machine id, `/run`, `/tmp` and shared memory, because those hold the state the suspension exists to keep; it gets a fresh Instance identity, CID, launch material, session and network.
+- A machine whose memory has been grown is refused before the guest is told anything, because plugged memory is not part of a capture.
+- A jailed machine refuses, and a sandbox with an attached durable volume does not get it back on resume.
+- Expiry is checked when a Suspension is opened, not swept by a durable operation; there is no store ceiling at admission; the one-hour gap run and the secret-redelivery gate have not been run.
+
 ## Open, with the measurement that would settle each
 
 **Whether setting the wall clock forward on resume is sufficient, or whether the guest needs a real suspend and resume path.**

@@ -15,6 +15,8 @@ use std::{
 use soma::{InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StoredState};
 
 pub(crate) use self::layout::MACHINE_HOST_DIRECTORY;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use self::layout::SUSPENSION_DIRECTORY;
 use self::{
     barrier::{SyncBarrier, for_root},
     enumerate::instance_identities,

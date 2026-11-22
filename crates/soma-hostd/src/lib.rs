@@ -25,6 +25,7 @@ pub mod ids;
 pub mod instance;
 pub mod pool;
 pub mod protocol;
+pub mod suspension;
 pub mod volume;
 
 #[cfg(unix)]
@@ -54,7 +55,7 @@ pub use admission::{
 };
 pub use ids::{
     GenerationId, HostProfileDigest, IdError, InstanceId, LaunchMaterialHandle, LeaseGeneration,
-    OperationId, RequestFingerprint, VolumeId, WorkerId,
+    OperationId, RequestFingerprint, SuspensionId, VolumeId, WorkerId,
 };
 pub use pool::{
     Pool, PoolError, WorkerView,

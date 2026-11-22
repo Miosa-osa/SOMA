@@ -227,8 +227,8 @@ fn set_desired(wanted: Vec<Wanted>, generic: usize) {
     desired.generic = generic;
 }
 
-/// Gives a resident checkpoint a fresh machine host without a primed Generation.
-pub(super) fn spawn_for_recovery() -> Result<SterileHost, BackendFailureKind> {
+/// Spawns one host with nothing primed in it, for a launch that restores its own machine.
+pub(super) fn spawn_unprimed() -> Result<SterileHost, BackendFailureKind> {
     spawn(None)
 }
 

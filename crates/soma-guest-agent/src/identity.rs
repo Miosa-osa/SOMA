@@ -116,6 +116,11 @@ pub fn repair(
     set_clock(time_sample_nanos)
 }
 
+/// Refreshes the wall clock while preserving a suspended Instance's process state and mounts.
+pub fn repair_resumed(time_sample_nanos: u64) -> Result<(), IdentityError> {
+    set_clock(time_sample_nanos)
+}
+
 /// Repairs the kernel and on-disk identity without replacing resident workload mounts.
 pub(crate) fn repair_hostname(
     instance: &[u8; 16],

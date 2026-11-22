@@ -1,0 +1,60 @@
+# MIOSA: a flat dark Openbox theme for SOMA desktops. Thin title bars, no gradients.
+border.width: 1
+padding.width: 8
+padding.height: 8
+window.handle.width: 0
+window.client.padding.width: 0
+window.client.padding.height: 0
+window.active.border.color: #506781
+window.inactive.border.color: #1d2129
+window.active.title.bg: flat solid
+window.active.title.bg.color: #233247
+window.inactive.title.bg: flat solid
+window.inactive.title.bg.color: #192434
+window.active.label.bg: parentrelative
+window.inactive.label.bg: parentrelative
+window.active.label.text.color: #e8eaf0
+window.inactive.label.text.color: #aabbd1
+window.label.text.justify: left
+window.active.button.unpressed.bg: parentrelative
+window.active.button.unpressed.image.color: #cdd9e8
+window.active.button.hover.bg: flat solid
+window.active.button.hover.bg.color: #344962
+window.active.button.hover.image.color: #ffffff
+window.active.button.pressed.bg: flat solid
+window.active.button.pressed.bg.color: #405974
+window.active.button.pressed.image.color: #ffffff
+window.inactive.button.unpressed.bg: parentrelative
+window.inactive.button.unpressed.image.color: #5a6070
+window.inactive.button.hover.bg: parentrelative
+window.inactive.button.hover.image.color: #9aa1b2
+window.active.button.disabled.bg: parentrelative
+window.active.button.disabled.image.color: #4a4f5c
+window.inactive.button.disabled.bg: parentrelative
+window.inactive.button.disabled.image.color: #3a3f4a
+window.active.handle.bg: flat solid
+window.active.handle.bg.color: #1b2737
+window.inactive.handle.bg: flat solid
+window.inactive.handle.bg.color: #192434
+window.active.grip.bg: flat solid
+window.active.grip.bg.color: #1b2737
+window.inactive.grip.bg: flat solid
+window.inactive.grip.bg.color: #192434
+menu.border.width: 1
+menu.border.color: #445970
+menu.title.bg: flat solid
+menu.title.bg.color: #1b2737
+menu.title.text.color: #e8eaf0
+menu.items.bg: flat solid
+menu.items.bg.color: #1b2737
+menu.items.text.color: #d4d7df
+menu.items.disabled.text.color: #5a6070
+menu.items.active.bg: flat solid
+menu.items.active.bg.color: #3c5570
+menu.items.active.text.color: #ffffff
+menu.separator.color: #445970
+osd.bg: flat solid
+osd.bg.color: #1b2737
+osd.border.width: 1
+osd.border.color: #445970
+osd.label.text.color: #e8eaf0

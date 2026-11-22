@@ -21,6 +21,7 @@ mod files;
 mod finish;
 mod inputs;
 mod pty;
+mod suspend;
 
 pub use drive::drive_restored;
 pub use entry::serve;

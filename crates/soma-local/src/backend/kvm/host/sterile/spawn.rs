@@ -34,6 +34,20 @@ impl SpawnFailure {
     }
 }
 
+/// Where a machine host's diagnostics go: the file `SOMA_MACHINE_HOST_LOG` names, appended to,
+/// or nowhere. A host answers in typed kinds, so this is the only place a reason is written.
+fn host_log() -> Stdio {
+    std::env::var_os("SOMA_MACHINE_HOST_LOG")
+        .and_then(|path| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .ok()
+        })
+        .map_or_else(Stdio::null, Stdio::from)
+}
+
 pub(super) fn spawn_explained(plan: Option<&PrewarmPlan>) -> Result<SterileHost, SpawnFailure> {
     let executable = std::env::current_exe()
         .map_err(|_| SpawnFailure::at("the running executable is unknown"))?;
@@ -43,7 +57,7 @@ pub(super) fn spawn_explained(plan: Option<&PrewarmPlan>) -> Result<SterileHost,
         .arg("machine-host")
         .stdin(Stdio::from(OwnedFd::from(child_input)))
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(host_log())
         .spawn()
         .map_err(|_| SpawnFailure::at("the machine host process could not be started"))?;
     let mut host = SterileHost {

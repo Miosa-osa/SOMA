@@ -30,6 +30,21 @@ pub enum GuestApi {
     Level(u8),
 }
 
+const INTEGRATED_LIFECYCLE_LEVEL: u8 = 5;
+
+#[cfg(test)]
+#[test]
+fn ambiguous_development_level_does_not_admit_either_lifecycle_operation() {
+    let old = GuestApi::Level(4);
+    assert!(old.has_long_arguments());
+    assert!(!old.has_suspend());
+    assert!(!old.has_network_recovery());
+
+    let integrated = GuestApi::Level(crate::GUEST_API_LEVEL);
+    assert!(integrated.has_suspend());
+    assert!(integrated.has_network_recovery());
+}
+
 impl GuestApi {
     /// Whether this guest answers level 2 file requests: stat, rename, ranges, and chmod.
     #[must_use]
@@ -40,7 +55,7 @@ impl GuestApi {
     /// Whether this guest installs fresh network identity when reconnecting a checkpoint.
     #[must_use]
     pub const fn has_network_recovery(self) -> bool {
-        matches!(self, Self::Level(level) if level >= 4)
+        matches!(self, Self::Level(level) if level >= INTEGRATED_LIFECYCLE_LEVEL)
     }
 
     /// Whether this guest accepts an argument up to [`crate::MAX_ARGUMENT_BYTES`] in one
@@ -49,6 +64,12 @@ impl GuestApi {
     #[must_use]
     pub const fn has_long_arguments(self) -> bool {
         matches!(self, Self::Level(level) if level >= 3)
+    }
+
+    /// Whether this guest accepts Suspend on the integrated lifecycle contract (ADR 0060).
+    #[must_use]
+    pub const fn has_suspend(self) -> bool {
+        matches!(self, Self::Level(level) if level >= INTEGRATED_LIFECYCLE_LEVEL)
     }
 }
 

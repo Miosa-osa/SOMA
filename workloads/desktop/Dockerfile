@@ -25,7 +25,25 @@
 #     docker build --build-arg BASE_IMAGE=soma-desktop-base:2 -t soma-desktop:2 workloads/desktop
 #
 # Only instructions the classic builder understands are used, so no BuildKit is needed.
+# voxl, the default viewer: H.264 over one WebSocket, decoded with WebCodecs, damage-aware so a
+# still screen costs nothing. Built from a pinned commit of tembo/voxl (MIT; the binary links x264,
+# so it is distributed under the GPL with its source at that commit). Measured on miosa-host-12 on
+# two cores: 60 fps at 1080p even at 5 Mbps / 60 ms, where KasmVNC fell to 27 fps and noVNC to 7.
 ARG BASE_IMAGE
+FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS voxl
+ARG VOXL_COMMIT=21f194f9e446e7073abd7bbd52e0b397c3800b42
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config clang \
+      libx11-dev libxext-dev libxfixes-dev libxdamage-dev libxtst-dev libxrandr-dev \
+      libx264-dev libyuv-dev libopus-dev libpulse-dev xz-utils \
+ && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 && npm install -g esbuild \
+ && curl -fsSL https://sh.rustup.rs -o /tmp/rustup.sh && sh /tmp/rustup.sh -y --profile minimal
+RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && git checkout -q "$VOXL_COMMIT" \
+ && PATH=/root/.cargo/bin:$PATH cargo build --release --locked \
+ && install -m 0755 target/release/voxl /usr/local/bin/voxl
+
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -139,6 +157,86 @@ RUN mkdir -p /etc/soma \
       done; \
     } | awk '!seen[$0]++' | head -256 > /etc/soma/warm \
  && test "$(wc -l < /etc/soma/warm)" -gt 30
+
+# The MIOSA look and the apps a person uses every day: Openbox's MIOSA theme, a top bar and a dock
+# (tint2), a static wallpaper (hsetroot), the Yaru GTK and icon themes, Inter and JetBrains Mono,
+# Thunar for files, and Google Chrome pinned by the SHA-256 of its package. Chrome is set up for a
+# machine that runs for weeks with accounts signed in: it restores the last session, never asks to
+# be the default or shows a first run, and keeps logins without a keyring prompt.
+ARG CHROME_VERSION=158.0.8127.36-1
+ARG CHROME_SHA256=4696bce00b128f385a870ba2eb6eede61698f22374ea0d8e09af8a1c6543d397
+RUN set -e; \
+    deb="google-chrome-stable_${CHROME_VERSION}_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/${deb}"; \
+    echo "${CHROME_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}" tint2 hsetroot thunar picom \
+      fonts-inter fonts-jetbrains-mono yaru-theme-gtk yaru-theme-icon; \
+    rm -f "/tmp/${deb}" /etc/apt/sources.list.d/google-chrome.list; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    command -v google-chrome-stable tint2 hsetroot thunar picom
+COPY --from=voxl /usr/local/bin/voxl /usr/local/bin/voxl
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libx264-164 libyuv0 libopus0 libpulse0 \
+ && apt-get clean && find /var/lib/apt/lists -type f -delete \
+ && voxl --help | head -1
+
+# KasmVNC, the screen and the fallback viewer (see session.sh): pinned by the SHA-256 of its release
+# package, with its web client served on the viewer port.
+ARG KASMVNC_VERSION=1.4.0
+ARG KASMVNC_SHA256=12bac6014149c5fdee75f0d403785aaa3e5dd4ea222de73253a5d4181bc9567e
+RUN set -e; \
+    deb="kasmvncserver_noble_${KASMVNC_VERSION}_amd64.deb"; \
+    curl -fsSL --retry 3 -o "/tmp/${deb}" \
+      "https://github.com/kasmtech/KasmVNC/releases/download/v${KASMVNC_VERSION}/${deb}"; \
+    echo "${KASMVNC_SHA256}  /tmp/${deb}" | sha256sum -c -; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends "/tmp/${deb}"; \
+    rm -f "/tmp/${deb}"; \
+    apt-get clean; \
+    find /var/lib/apt/lists -type f -delete; \
+    command -v Xkasmvnc; \
+    mkdir -p /etc/kasmvnc; \
+    printf '%s\n' 'network:' '  protocol: http' '  websocket_port: 6082' '  ssl:' \
+      '    require_ssl: false' '    pem_certificate: ""' '    pem_key: ""' > /etc/kasmvnc/kasmvnc.yaml
+COPY look/openbox/themerc /usr/share/themes/MIOSA/openbox-3/themerc
+COPY look/openbox/rc.xml /etc/soma-desktop/openbox.xml
+COPY look/openbox/menu.xml /etc/soma-desktop/menu.xml
+COPY look/tint2/ /etc/soma-desktop/tint2/
+COPY look/terminal/terminalrc /home/ubuntu/.config/xfce4/terminal/terminalrc
+COPY look/gtk/settings.ini /home/ubuntu/.config/gtk-3.0/settings.ini
+COPY look/chrome/miosa.json /etc/opt/chrome/policies/managed/miosa.json
+COPY look/brand/miosa-icon.png /usr/share/soma-desktop/miosa-icon.png
+COPY look/compositor/picom.conf /etc/soma-desktop/picom.conf
+COPY look/wallpaper/blue-hour.jpg /usr/share/soma-desktop/blue-hour.jpg
+COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
+RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
+ && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
+      > /usr/local/bin/google-chrome \
+ && chmod 0755 /usr/local/bin/google-chrome \
+ && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' \
+      /usr/share/applications/google-chrome.desktop \
+ && grep -q '^Exec=/usr/local/bin/google-chrome' /usr/share/applications/google-chrome.desktop \
+ && test -f /usr/share/applications/xfce4-terminal.desktop \
+ && test -f /usr/share/applications/thunar.desktop \
+ && cp /home/ubuntu/.config/gtk-3.0/settings.ini /etc/gtk-3.0/settings.ini \
+ && chown -R ubuntu:ubuntu /home/ubuntu/.config
+
+# The viewer opens straight into this desktop: its front door finds the host and the Desktop app and
+# goes to the stream, every page defaults to WebSockets (WebRTC cannot cross the SOMA tunnel), and
+# the page carries the MIOSA name. The default is patched in each bundle that sets it, and the build
+# fails if the bundles change shape under a new moonlight-web.
+COPY look/viewer/index.html /opt/moonlight-web/static/index.html
+COPY look/brand/miosa-icon.png /opt/moonlight-web/static/miosa-icon.png
+COPY look/brand/miosa-logo.png /opt/moonlight-web/static/miosa-logo.png
+RUN cd /opt/moonlight-web/static \
+ && test "$(grep -l 'dataTransport:"auto"' ./*.js | wc -l)" -eq 4 \
+ && sed -i 's/dataTransport:"auto"/dataTransport:"websocket"/' ./*.js \
+ && test "$(grep -l 'dataTransport:"auto"' ./*.js | wc -l)" -eq 0 \
+ && sed -i 's|<title>Stream</title>|<title>MIOSA Desktop</title>|; s|href=resources/moonlight.svg|href=miosa-icon.png|; s|href=moonlight.svg|href=miosa-icon.png|' stream.html \
+ && grep -q '<title>MIOSA Desktop</title>' stream.html
 
 # The viewer's own state, made once: moonlight-web's configuration (WebSockets only, so no public
 # STUN server is ever asked; its data in the desktop user's home), then the pairing itself.

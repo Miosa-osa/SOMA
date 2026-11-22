@@ -62,6 +62,10 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.5 | sha256:c5481912fb655a139e58845c65bc4fb912ac0b369622fbc16182f66bb7cf95b3 | Added per-execution environment variables to the loopback command route. |
 | 1.6 | sha256:fa26972026e9710aab6687a90ff1fb4a9fcd01adb120917fa2b0d5f2899bbdf0 | Added identity-bound cleanup of a consumed checkpoint. |
 | 1.7 | sha256:3818d9888def5ba6aa9470c51a3787a5114042814b97e82166d0af5c0c96aee5 | Added host-local fork with a committed child identity. |
+| 1.8 | sha256:808fa360e5a55aa579529c77855446e86052fda23319be920a43b7c8ef220d2c | Integrates encrypted suspension, host capacity reporting, and live autosizing with resident lifecycle operations. |
+
+The upstream development branch numbered these additions 1.1 through 1.3 before integration.
+The integrated API continues the resident lifecycle sequence and serves both sets of routes starting at 1.8.
 
 ## Surface
 
@@ -69,12 +73,15 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.7
+api 1.8
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
+route DELETE /v1/suspensions/{suspension} suspension.destroy
+route GET /v1/capacity host.capacity
 route GET /v1/prewarm prewarm.status
 route GET /v1/sandboxes sandbox.list
 route GET /v1/sandboxes/{instance} sandbox.get
+route GET /v1/sandboxes/{instance}/autosize sandbox.autosize
 route GET /v1/sandboxes/{instance}/resources sandbox.resources
 route GET /v1/sandboxes/{instance}/tunnel/{port} sandbox.tunnel
 route GET /v1/version service.version
@@ -101,16 +108,20 @@ route POST /v1/sandboxes/{instance}/pause sandbox.pause
 route POST /v1/sandboxes/{instance}/restore sandbox.restore
 route POST /v1/sandboxes/{instance}/resume sandbox.resume
 route POST /v1/sandboxes/{instance}/stop sandbox.stop
+route POST /v1/sandboxes/{instance}/suspend sandbox.suspend
 route POST /v1/sandboxes/{instance}/terminal/close sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/open sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/read sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/resize sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/write sandbox.terminal
+route POST /v1/suspensions/{suspension}/resume suspension.resume
 route POST /v1/volumes/attach volume.attach
 route POST /v1/volumes/destroy volume.destroy
 route POST /v1/volumes/detach volume.detach
 route PUT /v1/prewarm prewarm.set
+route PUT /v1/sandboxes/{instance}/autosize sandbox.autosize
 body CheckpointBody operation_id(required)
+body AutosizeBody enabled min_cpu max_cpu min_memory_mb max_memory_mb
 body ControlBody operation_id
 body CreateSandboxBody image volume_id shape name instance_id operation_id
 body DiscardBody checkpoint_id(required) state_digest(required)
@@ -121,7 +132,9 @@ body PrewarmTarget reference count memory_mib
 body PruneRequest keep apply keep_previous
 body ResourcesBody cpu_count memory_mb operation_id
 body RestoreBody operation_id checkpoint_id image shape name
+body ResumeBody operation_id instance_id image
 body RunCommandBody executable arguments limits stdin env operation_id
+body SuspendBody operation_id image retention_secs
 body TerminalBody columns rows input wait_ms operation_id
 ```
 

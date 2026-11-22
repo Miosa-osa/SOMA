@@ -209,6 +209,31 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().stop(request)
     }
 
+    fn suspend(
+        &mut self,
+        request: &soma_local::SuspendRequest,
+    ) -> Result<soma_local::Suspended, soma_local::SuspensionFailure> {
+        self.deref_mut().suspend(request)
+    }
+
+    fn resume_suspension(
+        &mut self,
+        request: &soma_local::ResumeRequest,
+    ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
+        self.deref_mut().resume_suspension(request)
+    }
+
+    fn capacity(&mut self) -> Option<soma_local::capacity::HostCapacity> {
+        self.deref_mut().capacity()
+    }
+
+    fn discard_suspension(
+        &mut self,
+        suspension_id: &str,
+    ) -> Result<(), soma_local::SuspensionFailure> {
+        self.deref_mut().discard_suspension(suspension_id)
+    }
+
     fn destroy(
         &mut self,
         request: DestroyMachineRequest,

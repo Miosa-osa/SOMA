@@ -9,6 +9,7 @@ mod launch;
 mod liveness;
 mod pty;
 mod resolution;
+mod suspend;
 
 pub use cleanup::{CleanupObservation, CleanupReason, CleanupRequest, CleanupTimes};
 pub use execution::{CommandObservation, CommandTimes, ExecutionRequest};
@@ -22,6 +23,7 @@ pub use pty::{
     MAX_PTY_CHUNK_BYTES, MAX_PTY_COLUMNS, MAX_PTY_ROWS, MAX_PTY_WAIT_MILLIS, PtyAnswer,
     PtyObservation, PtyOperation, PtyRefusal, PtyRejected, PtyRequest,
 };
+pub use suspend::{SuspendObservation, SuspendRequest};
 
 pub(crate) use inspection::InspectionObservationParts;
 pub use inspection::{InspectionObservation, InspectionRequest};
@@ -197,4 +199,20 @@ pub trait Backend: Send {
         &mut self,
         request: CleanupRequest<'_>,
     ) -> Result<CleanupObservation, BackendFailure>;
+
+    /// Reads one exact Instance into a Suspension's staging directory and ends it (ADR 0034).
+    ///
+    /// The default refuses with nothing done, which is what every backend that cannot capture a
+    /// running machine answers; the Instance keeps running.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed backend failure when the suspension started and could not finish; the
+    /// machine may then be gone and the caller must still clean it up.
+    fn suspend(
+        &mut self,
+        _request: SuspendRequest<'_>,
+    ) -> Result<SuspendObservation, BackendFailure> {
+        Ok(SuspendObservation::Refused)
+    }
 }

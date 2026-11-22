@@ -304,4 +304,20 @@ impl Backend for LocalBackend {
             Self::Kvm(backend) => backend.cleanup(request),
         }
     }
+
+    /// Only the KVM backend can read a running machine; every other one refuses.
+    fn suspend(
+        &mut self,
+        request: soma::SuspendRequest<'_>,
+    ) -> Result<soma::SuspendObservation, BackendFailure> {
+        match self {
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Kvm(backend) => backend.suspend(request),
+            #[allow(unreachable_patterns)]
+            _ => {
+                let _ = request;
+                Ok(soma::SuspendObservation::Refused)
+            }
+        }
+    }
 }

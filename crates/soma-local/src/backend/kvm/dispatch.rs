@@ -72,6 +72,7 @@ impl KvmBackend {
                     volume: request.volume().cloned(),
                     windowed: request.windowed(),
                     checkpoint: None,
+                    resume: request.resume().map(std::path::Path::to_path_buf),
                 },
             )?,
             Some(directory) => host::launch(host::HostedLaunch {
@@ -83,6 +84,7 @@ impl KvmBackend {
                 volume: request.volume(),
                 windowed: request.windowed(),
                 restore,
+                resume: request.resume(),
                 admitted_at,
             })
             .map_err(|kind| self.fail(operation, kind))?,
@@ -219,6 +221,7 @@ impl KvmBackend {
         // particular guest would answer a graceful shutdown request.
         let force = match request.reason() {
             CleanupReason::ForcedDestroy
+            | CleanupReason::Suspended
             | CleanupReason::Rollback
             | CleanupReason::UncertainCommandTermination => Force::Immediately,
             CleanupReason::RunCompleted | CleanupReason::GracefulStop => {

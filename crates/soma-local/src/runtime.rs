@@ -12,6 +12,7 @@ use crate::{
 
 pub struct LocalRuntime {
     engine: Engine<LocalBackend, FileStateStore>,
+    state_root: std::path::PathBuf,
     host_directory: Option<std::path::PathBuf>,
     configured_backend: BackendSelection,
     backend_kind: BackendKind,
@@ -31,10 +32,12 @@ impl LocalRuntime {
         let (backend, configured_backend) =
             LocalBackend::open(config.backend, config.runtime, host_directory.clone())?;
         let backend_kind = backend.kind();
+        let state_root = config.state_root.clone();
         let state = FileStateStore::open(config.state_root)
             .map_err(|failure| LocalFailure::new(LocalFailureKind::StateStore(failure.kind())))?;
         Ok(Self {
             engine: Engine::with_state_store(backend, state),
+            state_root,
             host_directory,
             configured_backend,
             backend_kind,
@@ -398,3 +401,5 @@ impl std::fmt::Debug for LocalRuntime {
             .finish_non_exhaustive()
     }
 }
+
+mod suspension;

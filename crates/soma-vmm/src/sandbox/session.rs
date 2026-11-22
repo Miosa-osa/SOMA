@@ -22,11 +22,15 @@ use super::worker::serve;
 
 mod protocol;
 mod shutdown;
+mod suspend;
 
 use std::sync::{Arc, Condvar, Mutex};
 
-pub use protocol::{Activation, ActivationJob, Completed, Request, Response, SessionError};
+pub use protocol::{
+    Activation, ActivationJob, Completed, Request, Response, SessionError, SuspendTarget,
+};
 pub use shutdown::Teardown;
+pub use suspend::Suspension;
 
 /// How long an operation waits for a background activation before it gives the session up.
 pub const ACTIVATION_PATIENCE: Duration = Duration::from_secs(10);
@@ -207,7 +211,7 @@ impl Session {
         }
     }
 
-    fn join(&mut self) {
+    pub(super) fn join(&mut self) {
         if let Some(thread) = self.thread.take() {
             let _ignored = thread.join();
         }

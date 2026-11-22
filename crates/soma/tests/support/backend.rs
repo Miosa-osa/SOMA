@@ -277,7 +277,8 @@ impl Backend for TestBackend {
             CleanupReason::RunCompleted
             | CleanupReason::Rollback
             | CleanupReason::ForcedDestroy
-            | CleanupReason::UncertainCommandTermination => CleanupMethod::Forced,
+            | CleanupReason::UncertainCommandTermination
+            | CleanupReason::Suspended => CleanupMethod::Forced,
         };
         Ok(CleanupObservation::new(
             request.operation_id().clone(),

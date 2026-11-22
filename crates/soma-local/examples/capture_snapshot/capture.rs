@@ -193,6 +193,7 @@ pub(super) fn run(entry: &Path, memory_mib: u64) -> Result<(), Box<dyn Error>> {
             root: &mut root,
             overlay: head.as_mut(),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
+            point: soma_kvm::x86_64::CapturePoint::ConsoleLine,
             grace: PAUSE_GRACE,
             contract,
         },

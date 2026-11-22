@@ -112,7 +112,8 @@ fn cleanup_method_matches(reason: CleanupReason, evidence: &CleanupEvidence) -> 
         ) | (
             CleanupReason::Rollback
                 | CleanupReason::ForcedDestroy
-                | CleanupReason::UncertainCommandTermination,
+                | CleanupReason::UncertainCommandTermination
+                | CleanupReason::Suspended,
             CleanupMethod::Forced | CleanupMethod::GracefulThenForced
         ) | (
             CleanupReason::GracefulStop,

@@ -167,6 +167,7 @@ fn launch_wire_with(skip_warm: bool, windowed: bool) -> LaunchWire {
         shape: MachineShape::new(1, 512, 0).expect("shape"),
         skip_warm,
         windowed,
+        resume: None,
     }
 }
 

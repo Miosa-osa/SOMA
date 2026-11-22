@@ -33,6 +33,7 @@ struct LaunchContext<'a> {
     volume: Option<&'a soma::VolumeAttachment>,
     windowed: bool,
     restore: Option<LaunchHandoff<'a>>,
+    resume: Option<&'a Path>,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -52,6 +53,8 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
     pub(in crate::backend::kvm) restore: Option<LaunchHandoff<'a>>,
+    /// The decrypted Suspension this launch resumes, when it resumes one.
+    pub(in crate::backend::kvm) resume: Option<&'a Path>,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -73,6 +76,7 @@ pub(in crate::backend::kvm) fn launch(
         volume,
         windowed,
         restore,
+        resume,
         admitted_at,
     } = request;
     if !channel::addressable(directory) {
@@ -101,8 +105,8 @@ pub(in crate::backend::kvm) fn launch(
         handoff,
         output,
         ..
-    } = if restore.is_some() {
-        sterile::spawn_for_recovery()?
+    } = if restore.is_some() || resume.is_some() {
+        sterile::spawn_unprimed()?
     } else {
         sterile::claim(
             prepared,
@@ -113,10 +117,11 @@ pub(in crate::backend::kvm) fn launch(
         operation_id,
         instance_id,
         socket,
-        skip_warm: restore.is_some() || in_flight.skip_warm(),
+        skip_warm: restore.is_some() || resume.is_some() || in_flight.skip_warm(),
         volume,
         windowed,
         restore,
+        resume,
         admitted_at,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
@@ -190,6 +195,7 @@ fn handshake(
         shape: shape.clone(),
         skip_warm: context.skip_warm,
         windowed: context.windowed,
+        resume: context.resume.map(Path::to_path_buf),
     };
     // Taken as late as it can be, because time before this point is time this launch spent
     // reaching the process that will build it, and a child can only time what happens after the
