@@ -55,6 +55,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | Version | Surface digest | What changed |
 | --- | --- | --- |
 | 1.0 | sha256:0228ba9996e88adacddbaf7b76a2409251b02e3090369f0ea2f4eb5da90d265f | The first explicit version: the surface as it stood when versioning began, plus `GET /v1/version`. |
+| 1.1 | sha256:98bdb0cac8317989d31407167052dec9b8aa461ccc9b578623f2014a53138108 | Suspension (ADR 0034): `POST /v1/sandboxes/{instance}/suspend`, `POST /v1/suspensions/{suspension}/resume`, and `DELETE /v1/suspensions/{suspension}`. |
 
 ## Surface
 
@@ -62,9 +63,10 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.0
+api 1.1
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
+route DELETE /v1/suspensions/{suspension} suspension.destroy
 route GET /v1/prewarm prewarm.status
 route GET /v1/sandboxes sandbox.list
 route GET /v1/sandboxes/{instance} sandbox.get
@@ -88,11 +90,13 @@ route POST /v1/sandboxes/{instance}/filesystem/stat sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/write sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/write_range sandbox.filesystem
 route POST /v1/sandboxes/{instance}/stop sandbox.stop
+route POST /v1/sandboxes/{instance}/suspend sandbox.suspend
 route POST /v1/sandboxes/{instance}/terminal/close sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/open sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/read sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/resize sandbox.terminal
 route POST /v1/sandboxes/{instance}/terminal/write sandbox.terminal
+route POST /v1/suspensions/{suspension}/resume suspension.resume
 route POST /v1/volumes/attach volume.attach
 route POST /v1/volumes/destroy volume.destroy
 route POST /v1/volumes/detach volume.detach
@@ -104,6 +108,8 @@ body PrewarmSetBody targets
 body PrewarmTarget reference count memory_mib
 body PruneRequest keep apply keep_previous
 body ResourcesBody cpu_count memory_mb operation_id
+body ResumeBody operation_id instance_id image
 body RunCommandBody executable arguments limits stdin operation_id
+body SuspendBody operation_id image retention_secs
 body TerminalBody columns rows input wait_ms operation_id
 ```

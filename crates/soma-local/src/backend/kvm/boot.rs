@@ -184,6 +184,9 @@ pub(super) fn link_down_network(guest_cid: u32) -> Result<LaunchNetwork, Backend
 #[path = "boot_tests.rs"]
 mod tests;
 
+/// What a restore starts from: the snapshot objects and the private head, when there is one.
+type Restored = Option<(SnapshotObjects, Option<std::fs::File>)>;
+
 /// The members a restore starts from, or `None` for a Generation that only cold boots.
 ///
 /// A resume restores the Suspension's own members (ADR 0034): its memory and state, and its
@@ -196,7 +199,7 @@ fn restored_members(
     instance: &InstanceId,
     overlay_device: bool,
     resume: Option<&std::path::Path>,
-) -> Result<Option<(SnapshotObjects, Option<std::fs::File>)>, BackendFailureKind> {
+) -> Result<Restored, BackendFailureKind> {
     if let Some(directory) = resume {
         let members = resume::open(directory, generation_bytes(&prepared.id)?, overlay_device)?;
         return Ok(Some((
