@@ -1036,3 +1036,9 @@ The compiler now constructs absolute staging paths before launching any filesyst
 
 The Linux host release carries the Template compiler and the disconnected boot-snapshot capture utility alongside the guest agent.
 Both report the same source identity as the runtime, and the release packager records their digests through its standard binary manifest.
+
+## 2026-11-22 - Template shape compilation
+
+The Template compiler selects a fixed-memory profile whose admitted CPU and RAM bounds and writable disk classes cover the exact requested shape.
+A resize ceiling selects the live-resize profile and refuses shapes that it cannot certify.
+The default two-vCPU, 4 GiB RAM and 10 GiB disk template uses policy 8.
