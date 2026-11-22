@@ -116,28 +116,13 @@ pub(super) fn serve_commands(
             Request::Assign(_) => return Err(SessionError::Execute),
             Request::Shutdown => break,
             Request::Suspend(target) => {
-                let level = if suspendable {
-                    let (next, level) = repaired
-                        .ensure_guest_api(&mut guest_api, || {
-                            files::nonce_text(&fresh16()).into_bytes()
-                        })
-                        .map_err(|_| SessionError::Execute)?;
-                    repaired = next;
-                    Some(level)
-                } else {
-                    None
-                };
-                if !level.is_some_and(soma_guest::GuestApi::has_suspend) {
-                    responses
-                        .send(Response::SuspendRefused)
-                        .map_err(|_| SessionError::Gone)?;
-                    continue;
+                let (next, suspended) =
+                    suspend(repaired, target, suspendable, &mut guest_api, responses)?;
+                match (next, suspended) {
+                    (Some(next), None) => repaired = next,
+                    (_, Some(ending)) => return Ok(ending),
+                    (None, None) => return Err(SessionError::Suspend),
                 }
-                let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
-                repaired
-                    .suspend(operation)
-                    .map_err(|_| SessionError::Suspend)?;
-                return Ok(Ending::Suspended(target));
             }
             // The guest is not told. The session is abandoned with the machine, which the
             // caller finishes without waiting for a guest that was never asked to leave.
@@ -209,4 +194,36 @@ fn stream_command<'a>(
         })))
         .map_err(|_| SessionError::Gone)?;
     Ok(repaired)
+}
+
+/// Suspends the session, or refuses with nothing sent and hands the untouched session back.
+///
+/// A guest below API level 4 would refuse Suspend and poison its session, and a cold-booted
+/// machine has no snapshot to resume into, so either is answered `SuspendRefused` instead.
+fn suspend<'a>(
+    repaired: RepairedHostControl<HostIo<'a>>,
+    target: Box<super::super::session::SuspendTarget>,
+    suspendable: bool,
+    guest_api: &mut Option<GuestApi>,
+    responses: &Sender<Response>,
+) -> Result<(Option<RepairedHostControl<HostIo<'a>>>, Option<Ending>), SessionError> {
+    let (repaired, level) = if suspendable {
+        let (next, level) = repaired
+            .ensure_guest_api(guest_api, || files::nonce_text(&fresh16()).into_bytes())
+            .map_err(|_| SessionError::Execute)?;
+        (next, Some(level))
+    } else {
+        (repaired, None)
+    };
+    if !level.is_some_and(GuestApi::has_suspend) {
+        responses
+            .send(Response::SuspendRefused)
+            .map_err(|_| SessionError::Gone)?;
+        return Ok((Some(repaired), None));
+    }
+    let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
+    repaired
+        .suspend(operation)
+        .map_err(|_| SessionError::Suspend)?;
+    Ok((None, Some(Ending::Suspended(target))))
 }

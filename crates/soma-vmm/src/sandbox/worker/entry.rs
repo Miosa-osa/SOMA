@@ -86,10 +86,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             // A suspension reads the root's identity and copies the private head, both of which
             // the restore takes ownership of; duplicating the two descriptors now costs nothing
             // and is the only way to reach the head, which is already unlinked.
-            let Ok(mut suspend_disks) = disks.root.try_clone().and_then(|root| {
-                let overlay = disks.overlay.as_ref().map(File::try_clone).transpose()?;
-                Ok(SuspendDisks { root, overlay })
-            }) else {
+            let Ok(suspend_disks) = duplicate(&disks) else {
                 let _ignored = responses.send(Response::Failed(SessionError::Create));
                 return;
             };
@@ -130,19 +127,33 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 &reads,
             );
             if let Ok(Ending::Suspended(target)) = &outcome {
-                let answer = match suspend::read(
-                    &mut restored.machine,
-                    &mut suspend_disks,
-                    target,
-                    generation,
-                    contract,
-                ) {
-                    Ok(captured) => Response::Suspended(Box::new(captured)),
-                    Err(error) => Response::Failed(error),
-                };
-                let _ignored = responses.send(answer);
+                let read = (suspend_disks, generation, contract);
+                answer_suspension(&mut restored.machine, target, read, responses);
             }
             report(restored.machine, outcome, responses, instance);
         }
     }
+}
+
+/// Duplicates the two descriptors a suspension reads before the restore takes the originals.
+fn duplicate(disks: &soma_kvm::x86_64::SandboxDisks) -> std::io::Result<SuspendDisks> {
+    Ok(SuspendDisks {
+        root: disks.root.try_clone()?,
+        overlay: disks.overlay.as_ref().map(File::try_clone).transpose()?,
+    })
+}
+
+/// Reads a suspended machine into its target and answers the owner with the result.
+fn answer_suspension(
+    machine: &mut SandboxMachine,
+    target: &super::super::session::SuspendTarget,
+    read: (SuspendDisks, [u8; 32], soma_kvm::contract::MachineContract),
+    responses: &Sender<Response>,
+) {
+    let (mut disks, generation, contract) = read;
+    let answer = match suspend::read(machine, &mut disks, target, generation, contract) {
+        Ok(captured) => Response::Suspended(Box::new(captured)),
+        Err(error) => Response::Failed(error),
+    };
+    let _ignored = responses.send(answer);
 }

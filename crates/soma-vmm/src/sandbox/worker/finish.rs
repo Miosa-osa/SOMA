@@ -35,26 +35,24 @@ pub fn report(
     responses: &Sender<Response>,
     instance: [u8; 16],
 ) {
-    if matches!(outcome, Ok(Ending::Suspended(_))) {
+    let grace = exit_grace(&outcome);
+    match outcome {
         // The machine was paused and read, and the owner already has the Suspension's members;
         // only the release is left, and nobody waits on it.
-        drop(sandbox.finish(exit_grace(&outcome)));
-        return;
-    }
-    if matches!(outcome, Ok(Ending::Aborted)) {
-        // The owner is answered once the guest can no longer run, and the release it would
-        // otherwise wait on, which is closing the VM and returning its memory, happens after.
-        sandbox.halt();
-        let _ignored = responses.send(Response::Halted);
-        drop(sandbox.finish(exit_grace(&outcome)));
-        return;
-    }
-    let evidence = sandbox.finish(exit_grace(&outcome));
-    match outcome {
-        Ok(_) => {
+        Ok(Ending::Suspended(_)) => drop(sandbox.finish(grace)),
+        Ok(Ending::Aborted) => {
+            // The owner is answered once the guest can no longer run, and the release it would
+            // otherwise wait on, which is closing the VM and returning its memory, happens after.
+            sandbox.halt();
+            let _ignored = responses.send(Response::Halted);
+            drop(sandbox.finish(grace));
+        }
+        Ok(Ending::ShutDown) => {
+            let evidence = sandbox.finish(grace);
             let _ignored = responses.send(Response::Finished(Box::new(evidence)));
         }
         Err(error) => {
+            let evidence = sandbox.finish(grace);
             // A failed sandbox never reaches cleanup, so this is the only chance to keep what it
             // recorded. The caller still receives the same typed failure.
             super::super::timeline::dump_failure(&hex(instance), &evidence, &format!("{error:?}"));
