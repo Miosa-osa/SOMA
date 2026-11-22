@@ -33,7 +33,10 @@ pub(super) fn open(
     // Members captured over one Generation's root must never run over another's.
     let named = std::fs::read_to_string(directory.join(crate::RESUME_GENERATION_FILE))
         .map_err(|_| BackendFailureKind::Unavailable)?;
-    let expected: String = generation.iter().map(|byte| format!("{byte:02x}")).collect();
+    let expected: String = generation
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
     let opened = if named.trim() == expected {
         open_members(directory, overlay)
     } else {
@@ -44,7 +47,8 @@ pub(super) fn open(
 }
 
 fn open_members(directory: &Path, overlay: bool) -> Result<Members, BackendFailureKind> {
-    let read = |name: &str| File::open(directory.join(name)).map_err(|_| BackendFailureKind::Unavailable);
+    let read =
+        |name: &str| File::open(directory.join(name)).map_err(|_| BackendFailureKind::Unavailable);
     let memory = read("memory.raw")?;
     let state = read("state.somasnap")?;
     let overlay = overlay

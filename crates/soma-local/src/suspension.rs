@@ -15,8 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 use soma::{
-    ExecutionReceipt, InstanceId, LaunchMachineRequest, MachineShape,
-    ManagedFailure, OciImage, OperationId, SuspendMachineRequest, WorkloadEvidence,
+    ExecutionReceipt, InstanceId, LaunchMachineRequest, MachineShape, ManagedFailure, OciImage,
+    OperationId, SuspendMachineRequest, WorkloadEvidence,
 };
 use soma_hostd::suspension::store::{Store, StoreError};
 use soma_hostd::suspension::{Header, MAX_RETENTION_SECS, MemberRecord, Shape};
@@ -154,7 +154,8 @@ impl Suspensions {
             tenant: request.tenant.clone(),
             shape: Shape {
                 vcpus: shape.vcpu_count(),
-                memory_mib: u32::try_from(shape.memory_mib()).map_err(|_| store_failure("shape"))?,
+                memory_mib: u32::try_from(shape.memory_mib())
+                    .map_err(|_| store_failure("shape"))?,
                 storage_mib: u32::try_from(shape.storage_mib())
                     .map_err(|_| store_failure("shape"))?,
             },
@@ -166,7 +167,10 @@ impl Suspensions {
             }; 3],
         };
         let kept = Kept {
-            image: request.image.as_ref().map(|image| image.as_str().to_owned()),
+            image: request
+                .image
+                .as_ref()
+                .map(|image| image.as_str().to_owned()),
             shape: shape.clone(),
         };
         let kept_path = self.kept_path(id);
@@ -190,10 +194,7 @@ impl Suspensions {
     }
 
     /// Decrypts a Suspension into a fresh directory, ready for a resume launch.
-    pub(crate) fn open(
-        &self,
-        request: &ResumeRequest,
-    ) -> Result<Opened, SuspensionFailure> {
+    pub(crate) fn open(&self, request: &ResumeRequest) -> Result<Opened, SuspensionFailure> {
         let id = parse_id(&request.suspension_id).ok_or(SuspensionFailure::Unknown)?;
         let store = self.store();
         let header = store.header(id).map_err(|error| match error {
@@ -214,10 +215,10 @@ impl Suspensions {
             }
             (None, None) => return Err(SuspensionFailure::NoImage),
         };
-        let directory = self
-            .root
-            .join("open")
-            .join(format!("{}-{}", id.hex(), request.operation_id.as_str()));
+        let directory =
+            self.root
+                .join("open")
+                .join(format!("{}-{}", id.hex(), request.operation_id.as_str()));
         let _ignored = fs::remove_dir_all(&directory);
         create_private(&directory).map_err(|error| SuspensionFailure::Store(error.to_string()))?;
         let opened = store
@@ -328,7 +329,10 @@ fn host_profile() -> HostProfileDigest {
     // The first processor's identity and features; every processor of one host agrees on them.
     for line in cpuinfo.lines().take_while(|line| !line.is_empty()) {
         let key = line.split(':').next().unwrap_or("").trim();
-        if matches!(key, "vendor_id" | "cpu family" | "model" | "model name" | "flags") {
+        if matches!(
+            key,
+            "vendor_id" | "cpu family" | "model" | "model name" | "flags"
+        ) {
             hash.update(line.as_bytes());
             hash.update(b"\n");
         }

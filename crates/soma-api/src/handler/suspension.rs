@@ -83,7 +83,9 @@ pub(super) fn suspend<F: SandboxFacade + ?Sized>(
         image: image(body.image)?,
         retention_secs: body.retention_secs.unwrap_or(DEFAULT_RETENTION_SECS),
     };
-    let suspended = facade.suspend(&request).map_err(|failure| refusal(&failure))?;
+    let suspended = facade
+        .suspend(&request)
+        .map_err(|failure| refusal(&failure))?;
     Ok(success(
         200,
         "sandbox.suspend",
@@ -119,7 +121,9 @@ pub(super) fn resume<F: SandboxFacade + ?Sized>(
         suspension_id: suspension_id.to_owned(),
         image: image(body.image)?,
     };
-    let outcome = facade.resume(&request).map_err(|failure| refusal(&failure))?;
+    let outcome = facade
+        .resume(&request)
+        .map_err(|failure| refusal(&failure))?;
     Ok(success(
         201,
         "suspension.resume",

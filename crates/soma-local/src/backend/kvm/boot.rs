@@ -74,7 +74,11 @@ pub(super) fn boot_for(
     // names the root, the devices, the shape and the contract, and the restore refuses members
     // that disagree with them.
     let restored = if let Some(directory) = resume {
-        let members = resume::open(directory, generation_bytes(&prepared.id)?, devices.overlay())?;
+        let members = resume::open(
+            directory,
+            generation_bytes(&prepared.id)?,
+            devices.overlay(),
+        )?;
         Some((
             SnapshotObjects::adopt(members.state, members.memory, None),
             members.overlay,

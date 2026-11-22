@@ -120,7 +120,13 @@ pub(super) fn serve_commands(
                 // that grew is refused here, before the guest is told anything; asking it to
                 // suspend first would end it on a capture that must fail.
                 let grown = memory::level(&memory::device_of(machine)).plugged_bytes > 0;
-                match suspend(repaired, target, suspendable && !grown, &mut guest_api, responses)? {
+                match suspend(
+                    repaired,
+                    target,
+                    suspendable && !grown,
+                    &mut guest_api,
+                    responses,
+                )? {
                     SuspendStep::Refused(untouched) => repaired = *untouched,
                     SuspendStep::Suspended(ending) => return Ok(ending),
                 }

@@ -19,9 +19,7 @@ use soma::{
 };
 use soma_guest::GuestCommand;
 use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
-use soma_vmm::sandbox::{
-    Completed, Session, SuspendTarget, Suspension, Teardown, dump_timeline,
-};
+use soma_vmm::sandbox::{Completed, Session, SuspendTarget, Suspension, Teardown, dump_timeline};
 
 use super::jailed::Jailed;
 use super::start::failure_kind;
@@ -112,11 +110,13 @@ impl Held {
         staging: std::path::PathBuf,
     ) -> Result<bool, BackendFailureKind> {
         match self {
-            Self::Resident(session) => match session.suspend(SuspendTarget { directory: staging }) {
-                Ok(Suspension::Captured(_)) => Ok(true),
-                Ok(Suspension::Refused) => Ok(false),
-                Err(error) => Err(failure_kind(error)),
-            },
+            Self::Resident(session) => {
+                match session.suspend(SuspendTarget { directory: staging }) {
+                    Ok(Suspension::Captured(_)) => Ok(true),
+                    Ok(Suspension::Refused) => Ok(false),
+                    Err(error) => Err(failure_kind(error)),
+                }
+            }
             Self::Jailed(_) => Ok(false),
         }
     }
