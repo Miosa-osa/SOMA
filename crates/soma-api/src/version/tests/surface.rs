@@ -46,6 +46,7 @@ fn every_route() -> Vec<Route> {
         Route::Prewarm(false),
         Route::PrunePrepared,
         Route::Capacity,
+        Route::Autosize(instance(), false),
         Route::CreateSandbox,
         Route::GetSandbox(instance()),
         Route::StopSandbox(instance()),
@@ -102,6 +103,7 @@ fn template(route: &Route) -> String {
         Route::Prewarm(_) => "/v1/prewarm".to_owned(),
         Route::PrunePrepared => "/v1/prepared/prune".to_owned(),
         Route::Capacity => "/v1/capacity".to_owned(),
+        Route::Autosize(..) => "/v1/sandboxes/{instance}/autosize".to_owned(),
         Route::CreateSandbox | Route::ListSandboxes => "/v1/sandboxes".to_owned(),
         Route::GetSandbox(_) | Route::DestroySandbox(_) => "/v1/sandboxes/{instance}".to_owned(),
         Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
@@ -183,6 +185,7 @@ fn surface() -> String {
     routes.dedup();
     lines.extend(routes);
     for (name, accepted) in [
+        ("AutosizeBody", fields::<crate::autosize::AutosizeBody>()),
         ("ControlBody", fields::<ControlBody>()),
         ("CreateSandboxBody", fields::<CreateSandboxBody>()),
         ("FilesystemBody", fields::<FilesystemBody>()),

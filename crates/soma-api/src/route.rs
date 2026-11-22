@@ -93,6 +93,8 @@ pub enum Route {
     ResumeSuspension(String),
     DestroySuspension(String),
     Capacity,
+    /// `GET` reads, `PUT` sets, a sandbox's automatic sizing.
+    Autosize(InstanceId, bool),
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
@@ -134,6 +136,7 @@ impl Route {
             Self::ResumeSuspension(_) => "suspension.resume",
             Self::DestroySuspension(_) => "suspension.destroy",
             Self::Capacity => "host.capacity",
+            Self::Autosize(..) => "sandbox.autosize",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
@@ -202,6 +205,14 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             Method::Delete => Ok(Route::DestroySuspension((*id).to_ascii_lowercase())),
             _ => Err(ApiError::method_not_allowed()),
         },
+        ["v1", "sandboxes", instance, "autosize"] => {
+            let instance_id = path_instance_id(instance)?;
+            match request.method {
+                Method::Get => Ok(Route::Autosize(instance_id, false)),
+                Method::Put => Ok(Route::Autosize(instance_id, true)),
+                _ => Err(ApiError::method_not_allowed()),
+            }
+        }
         ["v1", "sandboxes", instance, "commands"] => {
             post_only(request, Route::RunCommand(path_instance_id(instance)?))
         }
@@ -271,30 +282,5 @@ fn post_only(request: &Request, route: Route) -> Result<Route, ApiError> {
     }
 }
 
-fn filesystem_operation(operation: &str) -> Result<FilesystemOperation, ApiError> {
-    match operation {
-        "read" => Ok(FilesystemOperation::Read),
-        "write" => Ok(FilesystemOperation::Write),
-        "list" => Ok(FilesystemOperation::List),
-        "exists" => Ok(FilesystemOperation::Exists),
-        "remove" => Ok(FilesystemOperation::Remove),
-        "mkdir" => Ok(FilesystemOperation::MakeDirectory),
-        "stat" => Ok(FilesystemOperation::Stat),
-        "rename" => Ok(FilesystemOperation::Rename),
-        "read_range" => Ok(FilesystemOperation::ReadRange),
-        "write_range" => Ok(FilesystemOperation::WriteRange),
-        "chmod" => Ok(FilesystemOperation::Chmod),
-        _ => Err(ApiError::not_found()),
-    }
-}
-
-fn terminal_operation(operation: &str) -> Result<TerminalOperation, ApiError> {
-    match operation {
-        "open" => Ok(TerminalOperation::Open),
-        "write" => Ok(TerminalOperation::Write),
-        "read" => Ok(TerminalOperation::Read),
-        "resize" => Ok(TerminalOperation::Resize),
-        "close" => Ok(TerminalOperation::Close),
-        _ => Err(ApiError::not_found()),
-    }
-}
+mod operations;
+use operations::{filesystem_operation, terminal_operation};

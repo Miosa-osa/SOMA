@@ -126,13 +126,13 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             false,
         )),
         Route::Resources(instance_id, change) => resources(facade, &instance_id, change, body),
-        // Served by the connection before a facade is opened (`handle_prewarm`), its only path.
         Route::Prewarm(_) | Route::Version => Err(ApiError::not_found()),
         Route::SuspendSandbox(id) => suspension::suspend(facade, &id, tenant.as_str(), body),
         Route::ResumeSuspension(id) => suspension::resume(facade, &id, body),
         Route::DestroySuspension(id) => suspension::destroy(facade, &id),
         Route::PrunePrepared => prepared::prune(facade, operation, body),
         Route::Capacity => capacity::report(facade, operation),
+        Route::Autosize(id, change) => crate::autosize::serve(facade, &id, change, body),
         Route::RunCommand(instance_id) => {
             let request = parse::<RunCommandBody>(body)?.into_facade(instance_id)?;
             let outcome = facade.execute(request).map_err(|f| managed_error(&f))?;
