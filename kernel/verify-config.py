@@ -2,7 +2,7 @@
 """Fail closed if a Linux .config drifted from the pinned SOMA configuration.
 
 Usage:
-    verify-config.py --pinned PINNED --final FINAL --required REQUIRED
+    verify-config.py --pinned PINNED --final FINAL --required REQUIRED [--required-fragment FRAGMENT]
 
 Two independent checks run:
 
@@ -10,6 +10,8 @@ Two independent checks run:
    is allowed to append symbols that are absent from PINNED, but it must not flip
    or drop any pinned value.
 2. Every symbol in REQUIRED (the machine-contract list) must hold in FINAL.
+   A variant can supply its explicit changes in FRAGMENT. Any requirement named
+   by the fragment uses the variant's value. Other requirements still apply.
 
 Only the Python standard library is used.
 """
@@ -54,11 +56,14 @@ def main():
     parser.add_argument("--pinned", required=True)
     parser.add_argument("--final", required=True)
     parser.add_argument("--required", required=True)
+    parser.add_argument("--required-fragment")
     args = parser.parse_args()
 
     pinned = parse(args.pinned)
     final = parse(args.final)
     required = parse(args.required)
+    if args.required_fragment is not None:
+        required.update(parse(args.required_fragment))
 
     problems = compare("pinned", pinned, final, treat_absent_as_n=False)
     problems += compare("required", required, final, treat_absent_as_n=True)
