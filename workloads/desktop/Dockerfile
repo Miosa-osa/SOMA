@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3-pil \
 COPY look/backgrounds/src /src
 COPY look/backgrounds/brand.py /brand.py
 COPY look/brand/miosa-logo.png /miosa-logo.png
-RUN python3 /brand.py /src /miosa-logo.png /out && test "$(ls /out/*.jpg | wc -l)" -eq 20
+RUN python3 /brand.py /src /miosa-logo.png /out && test "$(ls /out/*.jpg | wc -l)" -eq 2
 
 FROM ${BASE_IMAGE}
 
@@ -275,7 +275,9 @@ RUN mkdir -p /etc/dconf/profile \
  && sed -i 's/^Name=.*/Name=Terminal/' /home/ubuntu/Desktop/xfce4-terminal.desktop \
  && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' /home/ubuntu/Desktop/google-chrome.desktop \
  && chmod 0755 /usr/local/bin/miosa-wallpapers \
- && sed -i 's|wallpaper=.*|wallpaper=/usr/share/backgrounds/miosa/miosa-earth.jpg|' /home/ubuntu/.config/pcmanfm/miosa/desktop-items-0.conf \
+ && sed -i 's|wallpaper=.*|wallpaper=/usr/share/backgrounds/miosa/miosa-aurora.jpg|' /home/ubuntu/.config/pcmanfm/miosa/desktop-items-0.conf \
+ && mkdir -p /home/ubuntu/.config/google-chrome \
+ && printf '{"browser":{"first_run_finished":true}}' > '/home/ubuntu/.config/google-chrome/Local State' \
  && chown -R ubuntu:ubuntu /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads /home/ubuntu/.config
 RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
  && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \

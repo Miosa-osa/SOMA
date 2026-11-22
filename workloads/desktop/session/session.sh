@@ -133,7 +133,7 @@ wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -
 ) &
 sleep 1
 pgrep -u "$(id -u)" -x pcmanfm >/dev/null \
-    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-earth.jpg >/dev/null 2>&1 \
+    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-aurora.jpg >/dev/null 2>&1 \
     || xsetroot -solid '#0a0b14' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
