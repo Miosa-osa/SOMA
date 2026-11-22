@@ -27,6 +27,8 @@ pub struct ResidentRestoreRequest {
     pub root: File,
     /// A private writable copy of the saved overlay on a distinct inode.
     pub head: Option<File>,
+    /// A private, locked writable copy of the saved durable volume on a distinct inode.
+    pub volume: Option<File>,
     pub instance_id: [u8; 16],
     pub candidate_id: [u8; 32],
     pub state_digest: Digest,
@@ -127,6 +129,7 @@ fn prepare_for(
         hypervisor,
         mut root,
         mut head,
+        mut volume,
         instance_id,
         candidate_id,
         state_digest,
@@ -138,9 +141,9 @@ fn prepare_for(
         hotplug,
     } = request;
     let timeline = Timeline::new();
-    if devices.volume() {
+    if devices.volume() != volume.is_some() {
         return Err(SnapshotError::NotQuiescent(
-            "resident restore does not carry a data volume",
+            "resident restore volume does not match the declared devices",
         ));
     }
     let state_bytes = objects.state_bytes()?;
@@ -160,7 +163,10 @@ fn prepare_for(
             .as_ref()
             .map(|file| metadata(Artifact::Overlay, file).map(|info| info.len()))
             .transpose()?,
-        volume_capacity_bytes: None,
+        volume_capacity_bytes: volume
+            .as_ref()
+            .map(|file| metadata(Artifact::Volume, file).map(|info| info.len()))
+            .transpose()?,
         set: devices,
         contract,
     };
@@ -178,6 +184,9 @@ fn prepare_for(
     manifest.header().memory.verify_generation(digest, size)?;
     verify_disk(Slot::Root, Artifact::Root, &mut root, &state)?;
     verify_head(head.as_mut(), objects.overlay_template(), &state)?;
+    if let Some(file) = &mut volume {
+        verify_disk(Slot::Volume, Artifact::Volume, file, &state)?;
+    }
     let facts = facts(manifest.state(), state_digest, Vec::new(), &state)?;
     let (machine, sequence) = rebuild(
         kvm,
@@ -194,7 +203,7 @@ fn prepare_for(
         facts,
         sequence,
     }
-    .assign(head, None, guest_cid, None, None)?;
+    .assign(head, volume, guest_cid, None, None)?;
     Ok(PreparedCheckpoint {
         restored,
         instance_id: destination,

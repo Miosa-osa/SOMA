@@ -115,6 +115,7 @@ impl Fork {
             hypervisor: Hypervisor::Device,
             root: fixture.root(),
             head: Some(head),
+            volume: None,
             instance_id: original,
             candidate_id: fixture.candidate_id,
             state_digest: saved.digest,

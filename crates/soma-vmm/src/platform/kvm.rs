@@ -136,14 +136,7 @@ impl Platform for KvmPlatform {
             return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
         }
         let volume_capacity_bytes = declared.volume_capacity().map(std::num::NonZeroU64::get);
-        let actual_volume_bytes = resources
-            .volume
-            .as_ref()
-            .map(File::metadata)
-            .transpose()
-            .map_err(|_| RestoreFailure::at_restore(Recovery::DoNotRetry))?
-            .map(|metadata| metadata.len());
-        if volume_capacity_bytes != actual_volume_bytes {
+        if !resources.volume_matches_capacity(declared.volume_capacity()) {
             return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
         }
         let overlay_capacity_bytes = declared

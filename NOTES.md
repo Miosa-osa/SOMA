@@ -1070,3 +1070,12 @@ Only an installed Generation ID goes to standard output so a caller can record t
 The Generation installer publishes the OCI reference, Generation ID, and certified shape inside the installed entry.
 This bounded receipt lets a host report installed identities without rehashing snapshot bytes on every health poll.
 The runtime still verifies a Generation at admission.
+
+## 2026-11-22 - Workspace ownership during checkpoint capture
+
+The host API accepted a second workspace volume for a running sandbox even though the VMM exposes one durable block slot.
+A detached volume keeps its owner, so a second volume cannot be bound to that Instance.
+Lookups refuse old ambiguous ownership records rather than selecting an arbitrary volume.
+Generation capture still requires a placeholder, while resident capture can save the mounted volume alongside guest memory and the overlay on the encrypted mount.
+Resident restore verifies the proposed writable volume against the saved block geometry and digest before assignment.
+The broker must allocate its own recovery volume and preserve the original before offering this through the API.

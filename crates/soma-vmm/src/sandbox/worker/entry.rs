@@ -268,6 +268,7 @@ mod tests {
                 hypervisor: Hypervisor::Device,
                 root: file(),
                 head: None,
+                volume: None,
                 instance_id: [1; 16],
                 candidate_id: [2; 32],
                 state_digest: Digest::of(b"state"),

@@ -36,6 +36,16 @@ pub(crate) struct MachineResources {
 }
 
 impl MachineResources {
+    pub(super) fn volume_matches_capacity(&self, capacity: Option<std::num::NonZeroU64>) -> bool {
+        match (&self.volume, capacity) {
+            (None, None) => true,
+            (Some(file), Some(capacity)) => file
+                .metadata()
+                .is_ok_and(|metadata| metadata.is_file() && metadata.len() == capacity.get()),
+            _ => false,
+        }
+    }
+
     /// Adopts the manifest slots this machine needs, or `None` when one of them is absent.
     ///
     /// The overlay and durable volume are optional according to the certified machine shape.

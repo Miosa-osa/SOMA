@@ -41,9 +41,8 @@ pub(super) struct Identity {
 pub(super) struct Declared {
     /// The private overlay head's capacity, when the Generation declared writable storage.
     pub(super) overlay_capacity_bytes: Option<u64>,
-    /// The durable volume's capacity, when the Generation declared persistence. At capture and
-    /// restore this is the placeholder's zero length, which is what the device is declared
-    /// with and what a snapshot reproduces; the real file is bound at launch.
+    /// The durable volume's declared capacity. The device is rebuilt on a placeholder and its
+    /// writable backing file is bound before the guest resumes.
     pub(super) volume_capacity_bytes: Option<u64>,
     /// The devices the Generation declared.
     pub(super) set: DeviceSet,

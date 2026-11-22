@@ -31,8 +31,7 @@ impl KvmPlatform {
         let invalid = || RestoreFailure::at_restore(Recovery::DoNotRetry);
         let spec = launch.generation().machine();
         let declared = launch.generation().devices();
-        if declared.volume_capacity().is_some()
-            || resources.volume.is_some()
+        if !resources.volume_matches_capacity(declared.volume_capacity())
             || (resources.network.is_some()
                 && (!declared.network() || selection.fork_from.is_some()))
         {
@@ -50,6 +49,7 @@ impl KvmPlatform {
             })
             .transpose()?;
         let devices = DeviceSet::new(declared.writable_disk(), declared.network())
+            .with_volume(declared.volume_capacity().is_some())
             .with_mem(hotplug.is_some());
         let generation = *launch.generation().id().as_bytes();
         let instance = *launch.instance_id().as_bytes();
@@ -66,6 +66,7 @@ impl KvmPlatform {
             hypervisor: Hypervisor::Adopted(resources.kvm),
             root: resources.root,
             head: resources.overlay,
+            volume: resources.volume,
             instance_id: selection.fork_from.map_or(instance, |id| *id.as_bytes()),
             candidate_id: generation,
             state_digest: selection.digest,
@@ -101,7 +102,12 @@ impl KvmPlatform {
         .map_err(|error| RestoreFailure::at_restore(faults::restore_recovery(error)))?;
         self.session = Some(session);
         self.recovered = true;
-        self.checkpoint_geometry = Some((generation, contract, declared.writable_disk(), false));
+        self.checkpoint_geometry = Some((
+            generation,
+            contract,
+            declared.writable_disk(),
+            declared.volume_capacity().is_some(),
+        ));
         RestoredMachine::from_observation(RestoreProgress::from_steps([
             RestoreStep::ArtifactsVerified,
             RestoreStep::MachineRestored,

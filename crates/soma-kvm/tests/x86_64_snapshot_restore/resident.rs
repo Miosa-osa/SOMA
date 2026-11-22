@@ -175,6 +175,7 @@ pub fn verify(fixture: &Fixture) {
         hypervisor: Hypervisor::Device,
         root: fixture.root(),
         head: Some(head),
+        volume: None,
         instance_id: source.identity,
         candidate_id: fixture.candidate_id,
         state_digest: digest,
