@@ -129,7 +129,9 @@ wait "$LOAD" || true
 check "a sandbox short of memory grew it" "$(( GROWN > MEMORY ))" 1
 
 log "the load ends: the sandbox shrinks back"
-watch 60
+# A shrink asked while the load still held its memory is refused and asked again after two
+# minutes, so this waits three.
+watch 180
 check "memory came back down" "$(( MEM < GROWN ))" 1
 
 api history GET "/v1/sandboxes/$INSTANCE/autosize"
