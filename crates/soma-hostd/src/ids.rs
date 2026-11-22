@@ -105,6 +105,7 @@ fixed_id!(OperationId, "operation", 16);
 fixed_id!(VolumeId, "volume", 16);
 fixed_id!(GenerationId, "generation", 32);
 fixed_id!(HostProfileDigest, "host-profile", 32);
+fixed_id!(SuspensionId, "suspension", 16);
 fixed_id!(RequestFingerprint, "fingerprint", 32);
 fixed_id!(LaunchMaterialHandle, "launch-material", 32);
 
