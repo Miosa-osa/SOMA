@@ -14,4 +14,6 @@ Installers serialize changes to the root and refuse duplicate reference claims o
 
 The publisher owns the prepared root and its staging subtree, including the extraction and file permissions.
 The runtime may read the published entry immediately, and a partially transferred entry remains outside its scan.
+Runner admission also checks digest-pinned references against the certified OCI manifest during both local lookup and worker handoff.
+Runtime discovery and pruning exclude the reserved staging directory.
 Template version approval in MIOSA is a separate control-plane operation.

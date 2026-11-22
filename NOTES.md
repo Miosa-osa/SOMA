@@ -1053,3 +1053,9 @@ Installation publishes a complete directory in one same-filesystem move and refu
 The MIOSA qualification branch uses the Xvfb framebuffer and the desktop assets from the desktop appearance branch.
 The session starts the authenticated desktop API after the CUA socket is ready.
 The owner-authorized viewer still starts on demand through its separate supervisor, with the desktop branch's encoding parameters applied there.
+
+## 2026-11-22 - Pinned images at prepared Generation admission
+
+A prepared entry's reference file is an address, while the certified manifest binds the OCI image.
+A digest-bearing address must agree with that manifest in both runner discovery and worker handoff.
+The publisher owns .incoming, and neither runner discovery nor pruning treats it as a prepared entry.

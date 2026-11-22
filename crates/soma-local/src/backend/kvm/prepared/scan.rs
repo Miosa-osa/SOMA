@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use super::cache::generations;
 use super::entry::{Claim, claims, read_bounded, read_entry};
-use super::{MAX_REFERENCE_BYTES, PreparedError, PreparedGeneration, REFERENCE, STORE};
+use super::{INCOMING, MAX_REFERENCE_BYTES, PreparedError, PreparedGeneration, REFERENCE, STORE};
 
 /// Finds the Generation prepared for `reference` under `root`.
 ///
@@ -47,7 +47,7 @@ pub(in crate::backend::kvm) fn find(
         // An entry that cannot be read is not skipped: an unreadable name could be the second
         // claimant that makes this reference ambiguous, so the scan fails rather than guessing.
         let path = entry.map_err(|_| PreparedError::StoreUnreadable)?.path();
-        if !path.is_dir() {
+        if path.file_name().is_some_and(|name| name == INCOMING) || !path.is_dir() {
             continue;
         }
         match claims(&path, reference) {
@@ -78,7 +78,7 @@ pub(in crate::backend::kvm) fn preload() -> Result<(), PreparedError> {
     let entries = std::fs::read_dir(&root).map_err(|_| PreparedError::StoreUnreadable)?;
     for entry in entries {
         let path = entry.map_err(|_| PreparedError::StoreUnreadable)?.path();
-        if !path.is_dir() {
+        if path.file_name().is_some_and(|name| name == INCOMING) || !path.is_dir() {
             continue;
         }
         let reference_path = path.join(REFERENCE);
