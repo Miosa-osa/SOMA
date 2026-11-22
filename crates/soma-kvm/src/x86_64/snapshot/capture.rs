@@ -39,6 +39,18 @@ mod manifest;
 /// Bytes copied out of guest RAM per pass.
 const CHUNK: usize = 1 << 20;
 
+/// How a capture learns that the guest agent is parked and the machine may be read.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CapturePoint {
+    /// A Generation build: the agent prints the repair-point line on the watched console after
+    /// booting the Generation, and the capture waits for it.
+    ConsoleLine,
+    /// A suspension (ADR 0034): the caller already holds the agent's authenticated Suspend
+    /// acknowledgement, which the agent sends only after taking the link down and flushing the
+    /// overlay. The session is retired with it, so the machine is read without a console wait.
+    Acknowledged,
+}
+
 /// Everything a capture needs beyond the running machine itself.
 pub struct CaptureRequest<'a> {
     /// Where the three objects are published.
@@ -52,8 +64,10 @@ pub struct CaptureRequest<'a> {
     /// A Generation with no writable storage has no head, publishes no `overlay.raw`, and every
     /// Instance restored from its snapshot therefore clones nothing.
     pub overlay: Option<&'a mut File>,
-    /// The console line the agent prints at the repair point.
+    /// The console line the agent prints at the repair point, recorded as the manifest's marker.
     pub repair_point_line: Vec<u8>,
+    /// How the capture knows the agent is parked.
+    pub point: CapturePoint,
     /// How long each vCPU may take to leave `KVM_RUN` after it is kicked.
     pub grace: std::time::Duration,
     /// The machine contract this Generation was built under, which the manifest binds.
@@ -94,15 +108,20 @@ pub fn capture(
 ) -> Result<CaptureOutcome, SnapshotError> {
     let mut quiesced = Quiesce::new();
     let capture_ceiling = request.contract.max_memory_bytes();
-    let repair_point_at =
-        sandbox
-            .wait_console_line(deadline)
-            .ok_or(SnapshotError::NotQuiescent(
-                "the guest agent never announced the disconnected repair point",
-            ))?;
+    let repair_point_at = match request.point {
+        CapturePoint::ConsoleLine => {
+            sandbox
+                .wait_console_line(deadline)
+                .ok_or(SnapshotError::NotQuiescent(
+                    "the guest agent never announced the disconnected repair point",
+                ))?
+        }
+        CapturePoint::Acknowledged => Instant::now(),
+    };
     // The watched line carries the pinned agent's own prefix, so it proves both that the
     // Generation's agent is the code that ran and that it parked in the launch-page wait
-    // after flushing the private overlay.
+    // after flushing the private overlay. A suspension proves the same two facts with the
+    // agent's authenticated acknowledgement, which only the Instance's own agent can send.
     quiesced.prove(QuiescePrecondition::GenerationAgentBooted)?;
     quiesced.prove(QuiescePrecondition::RepairPointReached)?;
     quiesce::prove_no_ingress(&sandbox.bus())?;
