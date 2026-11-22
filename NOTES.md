@@ -1031,3 +1031,8 @@ Both preparation tools create a private compiler staging directory inside the re
 With a relative output entry, the formatter received a path relative to the caller and then resolved it from inside its own working directory.
 Host tracing confirmed an `ENOENT` opening the EROFS image.
 The compiler now constructs absolute staging paths before launching any filesystem tool, preserving the same private directory and cleanup behavior.
+
+## 2026-11-22 - Release identity for template build tools
+
+The Linux host release carries the Template compiler and the disconnected boot-snapshot capture utility alongside the guest agent.
+Both report the same source identity as the runtime, and the release packager records their digests through its standard binary manifest.

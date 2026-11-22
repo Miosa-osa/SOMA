@@ -121,6 +121,17 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
 }
 
 fn main() {
+    if soma_version::version_requested(std::env::args_os()) {
+        print!(
+            "{}",
+            soma_version::report(
+                "prepare_from_template",
+                &soma_version::build!(),
+                &soma_version::Speaks::default(),
+            )
+        );
+        return;
+    }
     let args = match parse_args() {
         Ok(args) => args,
         Err(message) => {

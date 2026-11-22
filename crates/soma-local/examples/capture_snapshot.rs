@@ -50,8 +50,23 @@ const REPAIR_POINT_DEADLINE: Duration = Duration::from_secs(120);
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 const PAUSE_GRACE: Duration = Duration::from_secs(10);
 
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn main() {
+    if soma_version::version_requested(std::env::args_os()) {
+        print!(
+            "{}",
+            soma_version::report(
+                "capture_snapshot",
+                &soma_version::build!(),
+                &soma_version::Speaks::default(),
+            )
+        );
+        return;
+    }
+    capture();
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn capture() {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     if arguments.is_empty() || arguments.len() > 2 {
         eprintln!("usage: capture_snapshot <prepared-entry> [memory_mib]");
@@ -69,7 +84,7 @@ fn main() {
 }
 
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-fn main() {
+fn capture() {
     eprintln!("capture_snapshot requires Linux x86_64 with KVM");
     std::process::exit(2);
 }
