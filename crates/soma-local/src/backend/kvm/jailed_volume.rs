@@ -26,11 +26,19 @@ pub(super) fn open(
     };
     let capacity = NonZeroU64::new(u64::from(persistence.size_class_gib) * 1024 * 1024 * 1024)
         .ok_or(BackendFailureKind::WorkloadRejected)?;
+    let file = open_locked(&volume.path, capacity)?;
+    Ok((Some(file), Some(capacity)))
+}
+
+pub(super) fn open_locked(
+    path: &std::path::Path,
+    capacity: NonZeroU64,
+) -> Result<File, BackendFailureKind> {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(&volume.path)
+        .open(path)
         .map_err(|_| BackendFailureKind::Unavailable)?;
     let info = file
         .metadata()
@@ -47,7 +55,7 @@ pub(super) fn open(
             return Err(BackendFailureKind::Unavailable);
         }
     }
-    Ok((Some(file), Some(capacity)))
+    Ok(file)
 }
 
 pub(super) fn clone_checkpoint(

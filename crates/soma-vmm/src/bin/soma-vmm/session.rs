@@ -21,6 +21,7 @@ use crate::{channel::Channel, exit};
 mod checkpoint;
 mod file;
 mod recovery;
+mod workspace;
 
 /// The request budget of one worker life.
 ///
@@ -64,6 +65,10 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
         };
         if let Request::File(instance) = request {
             file::reply(&mut machine, control, instance, descriptors);
+            continue;
+        }
+        if let Request::Workspace { instance, attach } = request {
+            workspace::reply(&mut machine, control, instance, attach, descriptors);
             continue;
         }
         if let Request::Checkpoint(source) = request {
@@ -150,6 +155,7 @@ fn perform(
             Ok(answer) => control.send(&Reply::Pty(&answer).encode()),
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
+        Request::Workspace { .. } => unreachable!("descriptor requests are handled at receive"),
         Request::File(_) | Request::Checkpoint(_) | Request::Recover(..) | Request::Fork(..) => {
             unreachable!("descriptor requests are handled at receive")
         }

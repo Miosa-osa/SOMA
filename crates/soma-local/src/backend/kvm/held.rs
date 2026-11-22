@@ -77,6 +77,16 @@ impl Held {
         }
     }
 
+    pub(super) fn change_workspace(
+        &mut self,
+        change: soma_vmm::sandbox::WorkspaceChange,
+    ) -> Result<soma_guest::WorkspaceOutcome, BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.change_workspace(change).map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.change_workspace(change),
+        }
+    }
+
     pub(super) fn pause(&mut self) -> Result<(), BackendFailureKind> {
         match self {
             Self::Resident(session) => session.pause().map_err(failure_kind),

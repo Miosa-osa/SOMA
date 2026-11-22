@@ -28,6 +28,8 @@ use operation::fresh_operation;
 
 pub use secret::{SecretPlacement, SecretStage};
 
+mod workspace;
+
 pub use ranged::{GUEST_API_PROBE_PREFIX, GuestApi, MAX_PROBE_NONCE_BYTES, RangeRead, RangeWrite};
 pub use whole_file::{WholeFileRead, WholeFileWrite};
 
@@ -228,6 +230,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                 | GuestMessage::ShutdownAck { .. }
                 | GuestMessage::SuspendAck { .. }
                 | GuestMessage::FileOutcome { .. }
+                | GuestMessage::WorkspaceOutcome { .. }
                 | GuestMessage::PtyOutcome { .. } => {
                     return Err(self
                         .channel
@@ -245,6 +248,7 @@ fn message_operation(message: &GuestMessage) -> OperationId {
         | GuestMessage::Stderr { operation, .. }
         | GuestMessage::Terminal { operation, .. }
         | GuestMessage::FileOutcome { operation, .. }
+        | GuestMessage::WorkspaceOutcome { operation, .. }
         | GuestMessage::PtyOutcome { operation, .. }
         | GuestMessage::ShutdownAck { operation }
         | GuestMessage::SuspendAck { operation } => *operation,

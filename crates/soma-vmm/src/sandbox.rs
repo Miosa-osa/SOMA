@@ -34,6 +34,8 @@ mod source;
 mod sterile;
 mod timeline;
 mod volume;
+mod workspace;
+pub use workspace::WorkspaceChange;
 mod worker;
 
 pub use checkpoint::{CheckpointJob, CheckpointJobError, CheckpointSource};

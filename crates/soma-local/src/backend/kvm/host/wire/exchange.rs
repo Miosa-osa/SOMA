@@ -66,6 +66,11 @@ pub(in crate::backend::kvm::host) enum Call {
         instance_id: InstanceId,
         operation: PtyOperation,
     },
+    Workspace {
+        instance_id: InstanceId,
+        volume_id: [u8; 16],
+        attach: bool,
+    },
     Pause {
         instance_id: InstanceId,
     },
@@ -170,6 +175,7 @@ pub(in crate::backend::kvm::host) enum Answer {
     PtyAnswered {
         answer: PtyAnswer,
     },
+    WorkspaceChanged,
     Paused,
     PauseRefused(crate::PauseFailure),
     Resumed,

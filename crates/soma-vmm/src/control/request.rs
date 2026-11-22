@@ -57,6 +57,12 @@ pub enum Request {
     /// Capture the matching resident machine into file descriptors carried by this packet.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Checkpoint(crate::sandbox::CheckpointSource),
+    /// Detach the declared workspace, or attach one backed by the supplied file descriptor.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Workspace {
+        instance: InstanceId,
+        attach: bool,
+    },
     /// Narrow the seccomp filter to its steady-state phase.
     Seal,
     /// Leave with this exit status.
@@ -121,6 +127,15 @@ impl Request {
                 source.contract.version(),
                 u8::from(source.has_overlay) | (u8::from(source.has_volume) << 1),
             ),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Workspace { instance, attach } => {
+                let verb = if *attach {
+                    "workspace_attach"
+                } else {
+                    "workspace_detach"
+                };
+                format!("{verb} {}", hex(instance.as_bytes()))
+            }
             Self::Stop(stop) => format!(
                 "stop {} {}",
                 hex(stop.operation_id().as_bytes()),
@@ -177,6 +192,13 @@ impl Request {
             "execute_stream" => decode::decode_execute_in(&mut tokens).map(Self::ExecuteStreaming),
             "stop" => decode_stop(&mut tokens),
             "pause" => decode::decode_instance(&mut tokens).map(Self::Pause),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            verb @ ("workspace_attach" | "workspace_detach") => {
+                decode::decode_instance(&mut tokens).map(|instance| Self::Workspace {
+                    instance,
+                    attach: verb == "workspace_attach",
+                })
+            }
             "file" => decode::decode_instance(&mut tokens).map(Self::File),
             "resume" => decode::decode_instance(&mut tokens).map(Self::Resume),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

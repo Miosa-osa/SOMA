@@ -70,6 +70,14 @@ pub(crate) trait Platform: Send {
         Err(crate::sandbox::CheckpointJobError::CaptureRefused)
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn change_workspace(
+        &mut self,
+        _change: crate::sandbox::WorkspaceChange,
+    ) -> Result<soma_guest::WorkspaceOutcome, PlatformFailure> {
+        Ok(soma_guest::WorkspaceOutcome::Unsupported)
+    }
+
     fn pause(&mut self) -> Result<(), PlatformFailure> {
         Err(PlatformFailure::new(crate::Recovery::RepairHost))
     }

@@ -45,6 +45,8 @@ pub enum Request {
     Resume,
     /// Capture a running Instance to the broker-owned staging descriptors.
     Checkpoint(Box<CheckpointJob>),
+    /// Change the backing of the one declared workspace.
+    Workspace(super::super::WorkspaceChange),
     /// Finish the machine and report its evidence, asking a running guest to shut down.
     Shutdown,
     /// Ask the guest to retire its session and park, read the machine into the target's staging
@@ -95,6 +97,8 @@ pub enum Response {
     Paused,
     /// The resident machine resumed.
     Resumed,
+    /// Outcome of the live workspace handoff.
+    Workspace(soma_guest::WorkspaceOutcome),
     /// Result of writing and verifying one unpublished checkpoint.
     Checkpointed(Result<Box<CheckpointManifest>, CheckpointJobError>),
     /// The request was refused because the guest is paused.
@@ -167,6 +171,8 @@ pub enum SessionError {
     File,
     /// A terminal operation could not be performed over the session.
     Pty,
+    /// The guest workspace transition or its rollback could not be confirmed.
+    Workspace,
     /// The sandbox thread ended without answering.
     Gone,
     /// An earlier operation ended without a certain answer, so this session was ended.

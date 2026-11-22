@@ -17,6 +17,7 @@ mod file;
 mod outcome;
 mod pause;
 mod pty;
+mod workspace;
 
 use std::{
     fs::File,

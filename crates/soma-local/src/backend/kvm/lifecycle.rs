@@ -51,6 +51,7 @@ pub(super) struct Live {
     pub(super) instance: InstanceId,
     /// Whichever process holds this Instance's machine.
     pub(super) held: Held,
+    pub(super) workspace_offline: bool,
     pub(super) paused: bool,
     pub(super) generation: soma::GenerationId,
     pub(super) checkpoint_source: soma_vmm::sandbox::CheckpointSource,
@@ -245,6 +246,7 @@ impl KvmBackend {
         self.live = Some(Live {
             instance: instance.clone(),
             held,
+            workspace_offline: false,
             paused: false,
             generation: prepared.id.clone(),
             checkpoint_source,
@@ -299,6 +301,7 @@ fn launch_answer(
 #[path = "lifecycle/lookup.rs"]
 pub(super) mod lookup;
 mod resident;
+mod workspace;
 
 impl KvmBackend {
     /// Whether this Backend can give a request the vCPUs and memory it names.

@@ -9,6 +9,8 @@ mod pause;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pty;
 mod stop;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod workspace;
 
 use crate::{
     InstanceId,

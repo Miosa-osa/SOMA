@@ -359,6 +359,17 @@ impl Platform for KvmPlatform {
             .map(|manifest| soma_kvm::snapshot::Digest::of(&manifest.encode()))
     }
 
+    fn change_workspace(
+        &mut self,
+        change: crate::sandbox::WorkspaceChange,
+    ) -> Result<soma_guest::WorkspaceOutcome, PlatformFailure> {
+        self.session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?
+            .change_workspace(change)
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
     fn pause(&mut self) -> Result<(), PlatformFailure> {
         self.session
             .as_mut()

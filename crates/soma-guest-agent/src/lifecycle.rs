@@ -149,6 +149,7 @@ pub fn serve<I: ControlIo>(
     control: GuestControl<I>,
     mut reconnect: impl FnMut() -> Result<GuestControl<I>, Fault>,
     quiesce: impl FnOnce() -> Result<(), Fault>,
+    workspace: &mut crate::boot::Workspace,
 ) -> Served {
     let mut quiesce = Some(quiesce);
     let mut controller = controller;
@@ -193,6 +194,13 @@ pub fn serve<I: ControlIo>(
                 // ledger describe work that never ran a process.
                 let outcome = filesystem::perform(&request);
                 match next.file_outcome(&outcome, Instant::now() + OUTCOME_BUDGET) {
+                    Ok(after) => control = after,
+                    Err(_) => return controller.poison(Fault::Control).into(),
+                }
+            }
+            GuestRequest::Workspace { action, .. } => {
+                let outcome = workspace.perform(action);
+                match next.workspace_outcome(outcome, Instant::now() + OUTCOME_BUDGET) {
                     Ok(after) => control = after,
                     Err(_) => return controller.poison(Fault::Control).into(),
                 }

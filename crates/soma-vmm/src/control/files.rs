@@ -80,7 +80,7 @@ mod tests {
 
     #[test]
     fn large_binary_answer_round_trips() {
-        let bytes = vec![0, 127, 128, 255].repeat(128 * 1024);
+        let bytes = [0, 127, 128, 255].repeat(128 * 1024);
         let mut wire = Vec::new();
         write_file_answer(
             &mut wire,

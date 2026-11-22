@@ -185,9 +185,10 @@ mod agent {
         // capture point, every later one from a suspension point (ADR 0034), which is the same
         // disconnected wait. A resume writes fresh launch material and gets new entropy,
         // transport, network and session as a launch does, but keeps its session state.
-        let mut parked = instance(controller, declared, false);
+        let mut workspace = boot::Workspace::new(declared.volume);
+        let mut parked = instance(controller, declared, false, &mut workspace);
         loop {
-            parked = instance(parked, declared, true);
+            parked = instance(parked, declared, true, &mut workspace);
         }
     }
 
@@ -202,6 +203,7 @@ mod agent {
         controller: Controller<Captured>,
         declared: boot::Declared,
         resumed: bool,
+        workspace: &mut boot::Workspace,
     ) -> Controller<Captured> {
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
@@ -210,7 +212,7 @@ mod agent {
             console::report("fork authority rejected on a cold launch");
             pid1::poweroff();
         }
-        if let Err(failure) = boot::mount_workspace(declared) {
+        if let Err(failure) = workspace.boot() {
             console::report(&format!(
                 "workspace mount failed at {:?} errno {}",
                 failure.step, failure.errno
@@ -284,6 +286,7 @@ mod agent {
             prepared,
             || reconnect(&mut binding, declared.overlay, &mut current_network),
             quiesce,
+            workspace,
         ) {
             lifecycle::Served::Poisoned(poisoned) => destroy(&poisoned),
             lifecycle::Served::Suspended(suspending) => {

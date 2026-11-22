@@ -29,7 +29,7 @@ mod superblock;
 mod upper;
 mod volume;
 
-pub use self::declared::Declared;
+pub use self::{declared::Declared, volume::Workspace};
 
 /// First virtio-blk device: the immutable EROFS Generation root.
 pub const ROOT_DEVICE: &str = "/dev/vda";
@@ -161,16 +161,6 @@ pub fn early_init(deadline: Instant) -> Result<Declared, BootFailure> {
     move_mounts(root)?;
     switch_root(root)?;
     Ok(declared)
-}
-
-/// Mounts the Generation's persistent paths after launch has bound the real volume.
-/// # Errors
-/// Returns the first failed device or mount check for a declared workspace volume.
-pub fn mount_workspace(declared: Declared) -> Result<(), BootFailure> {
-    if declared.volume {
-        volume::compose()?;
-    }
-    Ok(())
 }
 
 fn mount_pseudo(

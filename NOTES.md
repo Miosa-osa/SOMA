@@ -1085,3 +1085,6 @@ The broker must allocate its own recovery volume and preserve the original befor
 The alpha.4 qualification worktree incorporates the upstream desktop appearance and keeps the viewer supervised on demand.
 The desktop bridge remains behind the per-computer token supplied by the platform.
 Volume ownership lookup now distinguishes an ordinary sandbox with no workspace from a failed host lookup, so stopping an ephemeral sandbox works with the volume daemon configured.
+
+The durable workspace device can change backing only after the authenticated guest has unmounted ext4 and exclusively claimed the block device.
+Guest API level 6 carries that operation, and the worker refuses a checkpoint while the slot is offline.

@@ -13,6 +13,8 @@ pub enum ControlStage {
     File,
     /// One interactive terminal request and its outcome.
     Pty,
+    /// One authenticated workspace mount transaction.
+    Workspace,
     /// Graceful guest-agent shutdown.
     Shutdown,
     /// Retiring the session at the suspension point.

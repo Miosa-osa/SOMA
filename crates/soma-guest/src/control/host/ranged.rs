@@ -46,6 +46,12 @@ fn ambiguous_development_level_does_not_admit_either_lifecycle_operation() {
 }
 
 impl GuestApi {
+    /// Whether the guest accepts authenticated workspace mount requests.
+    #[must_use]
+    pub const fn has_workspace_mounts(self) -> bool {
+        matches!(self, Self::Level(level) if level >= 6)
+    }
+
     /// Whether this guest answers level 2 file requests: stat, rename, ranges, and chmod.
     #[must_use]
     pub const fn has_ranged_files(self) -> bool {

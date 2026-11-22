@@ -34,6 +34,7 @@ pub(super) const fn execute_recovery(error: SessionError) -> Recovery {
         | SessionError::Execute
         | SessionError::File
         | SessionError::Pty
+        | SessionError::Workspace
         | SessionError::Pause
         | SessionError::Resume => Recovery::ReplaceMachine,
         // Nothing was sent and the session stands, but this guest refuses the same command again.
@@ -70,6 +71,7 @@ pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
         | SessionError::GuestPaused
         | SessionError::File
         | SessionError::Pty
+        | SessionError::Workspace
         | SessionError::Gone
         | SessionError::Poisoned
         | SessionError::Suspend => ReadinessFailure::for_platform(

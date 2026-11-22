@@ -60,6 +60,14 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             Ok(answer) => Answer::PtyAnswered { answer },
             Err(kind) => Answer::Refused(kind.into()),
         },
+        Call::Workspace {
+            instance_id,
+            volume_id,
+            attach,
+        } => match backend.change_resident_workspace(&instance_id, volume_id, attach) {
+            Ok(()) => Answer::WorkspaceChanged,
+            Err(kind) => Answer::Refused(kind.into()),
+        },
         Call::Pause { instance_id } => match backend.pause_resident(&instance_id) {
             Ok(()) => Answer::Paused,
             Err(failure) => Answer::PauseRefused(failure),

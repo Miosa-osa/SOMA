@@ -100,5 +100,8 @@ pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
 /// an argument up to [`MAX_ARGUMENT_BYTES`] bytes in one `Execute` record, where an older guest
 /// decodes at most [`LEVEL_TWO_ARGUMENT_BYTES`].
 /// Level 5 identifies an agent with both authenticated suspension and checkpoint network repair.
+/// Level 6 adds authenticated workspace mount transitions.
 /// Two earlier development branches each used level 4 for one of these features.
-pub const GUEST_API_LEVEL: u8 = 5;
+pub const GUEST_API_LEVEL: u8 = 6;
+
+pub use application::{WorkspaceAction, WorkspaceOutcome};

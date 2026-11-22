@@ -38,6 +38,8 @@ pub(super) fn serve_commands(
     // sandbox keeps answering every command it can.
     let mut guest_api: Option<GuestApi> = None;
 
+    let mut workspace = super::workspace::Workspace::default();
+
     // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
     // shut down exactly as an explicit shutdown would.
     while let Ok(request) = requests.recv() {
@@ -59,47 +61,43 @@ pub(super) fn serve_commands(
                 continue;
             }
         }
-        match request {
+        let response = match request {
             // The link is already open by the time commands are served; answering a repeated
             // request keeps the owner's exchange idempotent rather than deadlocking it.
             Request::RaiseLink => {
                 machine.set_network_link(true);
                 // The ranges travel with both answers, because a launch whose activation is
                 // deferred sees only this one.
-                send_ready(responses, head_reads)?;
+                Response::Ready {
+                    head_reads: head_reads.to_vec(),
+                }
             }
             Request::Execute(command) => {
                 repaired = run_command(machine, repaired, command, responses)?;
+                continue;
             }
             Request::ExecuteStreaming(command) => {
                 repaired = stream_command(machine, repaired, command, responses)?;
+                continue;
             }
             Request::SetRequestedMemory(bytes) => {
                 let outcome = memory::apply(&memory::device_of(machine), bytes);
-                responses
-                    .send(Response::Memory(outcome))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Memory(outcome)
             }
             Request::GetMemory => {
                 let level = memory::level(&memory::device_of(machine));
-                responses
-                    .send(Response::Memory(Ok(level)))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Memory(Ok(level))
             }
             Request::File(operation) => {
                 let (next, answer) =
                     files::perform(repaired, &operation, soma::MAX_FILE_BYTES, &mut guest_api)?;
                 repaired = next;
-                responses
-                    .send(Response::FileAnswered(Box::new(answer)))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::FileAnswered(Box::new(answer))
             }
             Request::Pty(operation) => {
                 let (next, answer) = pty::perform(repaired, &operation)?;
                 repaired = next;
-                responses
-                    .send(Response::PtyAnswered(Box::new(answer)))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::PtyAnswered(Box::new(answer))
             }
             // A machine that is already serving an Instance cannot be assigned another. The
             // pool only ever sends this to a parked sterile worker, so reaching it here means
@@ -109,21 +107,19 @@ pub(super) fn serve_commands(
                 machine
                     .pause(Duration::from_secs(2))
                     .map_err(|_| SessionError::Pause)?;
-                responses
-                    .send(Response::Paused)
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Paused
             }
             Request::Resume => {
                 resume(machine)?;
-                responses
-                    .send(Response::Resumed)
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Resumed
             }
-            Request::Checkpoint(job) => {
-                responses
-                    .send(Response::Checkpointed(job.capture(machine).map(Box::new)))
-                    .map_err(|_| SessionError::Gone)?;
+            Request::Workspace(change) => {
+                let (next, outcome) =
+                    workspace.change(machine, repaired, change, &mut guest_api)?;
+                repaired = next;
+                Response::Workspace(outcome)
             }
+            Request::Checkpoint(job) => workspace.checkpoint(&job, machine),
             Request::Shutdown => break,
             Request::Suspend(target) => {
                 // Plugged memory lives outside the memory object a capture reads, so a machine
@@ -133,18 +129,23 @@ pub(super) fn serve_commands(
                 match suspend(
                     repaired,
                     target,
-                    suspendable && !grown,
+                    suspendable && !grown && !workspace.is_offline(),
                     &mut guest_api,
                     responses,
                 )? {
-                    SuspendStep::Refused(untouched) => repaired = *untouched,
+                    SuspendStep::Refused(untouched) => {
+                        repaired = *untouched;
+                        continue;
+                    }
+
                     SuspendStep::Suspended(ending) => return Ok(ending),
                 }
             }
             // The guest is not told. The session is abandoned with the machine, which the
             // caller finishes without waiting for a guest that was never asked to leave.
             Request::Abort => return Ok(Ending::Aborted),
-        }
+        };
+        responses.send(response).map_err(|_| SessionError::Gone)?;
     }
     end_session(machine, repaired)
 }

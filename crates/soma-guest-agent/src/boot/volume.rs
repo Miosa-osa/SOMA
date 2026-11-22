@@ -6,6 +6,10 @@
 
 use std::{fs, io, os::fd::AsRawFd as _};
 
+mod live;
+
+pub use live::Workspace;
+
 use crate::mounts;
 
 use super::superblock::{ext4_superblock_ok, verify_superblock};
@@ -36,6 +40,14 @@ const MS_LAZYTIME: libc::c_ulong = 1 << 25;
 ///
 /// Returns the first failed step; the caller reports it and powers off.
 pub(super) fn compose() -> Result<(), BootFailure> {
+    mount_device()?;
+    for path in PERSISTENCE_PATHS {
+        bind_path(path)?;
+    }
+    Ok(())
+}
+
+fn mount_device() -> Result<(), BootFailure> {
     // Linux may already have buffered partition probes from early boot's empty device.
     // Flush them now that the worker has assigned this Instance's backing file.
     let file =
@@ -43,6 +55,10 @@ pub(super) fn compose() -> Result<(), BootFailure> {
     discard_placeholder_cache(&file).map_err(|error| failure(BootStep::VolumeIdentity, &error))?;
     drop(file);
     verify_superblock(BootStep::VolumeIdentity, VOLUME_DEVICE, ext4_superblock_ok)?;
+    mount_ext4()
+}
+
+fn mount_ext4() -> Result<(), BootFailure> {
     fs::create_dir_all(VOLUME_MOUNT).map_err(|error| failure(BootStep::VolumeMount, &error))?;
     mounts::mount(
         VOLUME_DEVICE,
@@ -54,11 +70,7 @@ pub(super) fn compose() -> Result<(), BootFailure> {
     .map_err(|errno| BootFailure {
         step: BootStep::VolumeMount,
         errno: errno.0,
-    })?;
-    for path in PERSISTENCE_PATHS {
-        bind_path(path)?;
-    }
-    Ok(())
+    })
 }
 
 /// Binds one persistent path from the volume onto the composed root.

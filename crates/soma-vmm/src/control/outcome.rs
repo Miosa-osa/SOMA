@@ -30,6 +30,9 @@ pub enum Outcome {
     Paused(InstanceId),
     /// The resident machine resumed with the same identity.
     Resumed(InstanceId),
+    /// The authenticated workspace result for the matching Instance.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Workspace(InstanceId, soma_guest::WorkspaceOutcome),
     Checkpointed(InstanceId, [u8; 32]),
     CheckpointUnconfirmed,
     FileComplete(InstanceId),
@@ -82,6 +85,8 @@ impl Outcome {
             "paused" => resident_instance(rest).map(Self::Paused),
             "resumed" => resident_instance(rest).map(Self::Resumed),
             "file_complete" => resident_instance(rest).map(Self::FileComplete),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "workspace" => workspace(rest),
             "checkpointed" => checkpointed(rest),
             "checkpoint_unconfirmed" => {
                 field::end(rest.split_whitespace()).map(|()| Self::CheckpointUnconfirmed)
@@ -148,6 +153,23 @@ fn resident_instance(text: &str) -> Result<InstanceId, ControlError> {
         .map_err(|_| ControlError::InvalidValue("instance"))?;
     field::end(tokens)?;
     Ok(instance)
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn workspace(text: &str) -> Result<Outcome, ControlError> {
+    use soma_guest::WorkspaceOutcome;
+
+    let mut tokens = text.split_whitespace();
+    let instance = InstanceId::new(field::identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    let outcome = match tokens.next() {
+        Some("0") => WorkspaceOutcome::Ready,
+        Some("1") => WorkspaceOutcome::Refused,
+        Some("3") => WorkspaceOutcome::Unsupported,
+        _ => return Err(ControlError::InvalidValue("workspace outcome")),
+    };
+    field::end(tokens)?;
+    Ok(Outcome::Workspace(instance, outcome))
 }
 
 fn checkpointed(text: &str) -> Result<Outcome, ControlError> {
