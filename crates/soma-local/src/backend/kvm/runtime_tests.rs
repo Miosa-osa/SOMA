@@ -78,6 +78,40 @@ fn a_configured_host_runtime_that_is_not_serving_is_refused_rather_than_ignored(
 }
 
 #[test]
+fn a_same_instance_restore_can_allocate_again_after_its_first_attempt_terminated() {
+    use super::super::identity::LaunchIdentity;
+    use soma::BackendFailureKind;
+
+    let host = Host::serve();
+    let instance = instance('6');
+    let operation = operation('7');
+    let first = LaunchIdentity::derive(&instance).expect("first attempt");
+    let second = LaunchIdentity::derive(&instance).expect("second attempt");
+    let owner = host.connect();
+
+    owner
+        .register_jailed(&instance, &operation, first, true)
+        .expect("first restore attempt registered");
+    assert_eq!(
+        owner.register_jailed(&instance, &operation, second, true),
+        Err(BackendFailureKind::ResourceConflict),
+        "a live registration cannot be replaced"
+    );
+    assert!(owner.release(&instance).expect("release the first attempt"));
+    assert!(!owner.is_live(&instance));
+
+    owner
+        .register_jailed(&instance, &operation, second, true)
+        .expect("retry can allocate after confirmed release");
+    assert!(owner.is_live(&instance));
+    assert!(
+        owner
+            .release(&instance)
+            .expect("release the second attempt")
+    );
+}
+
+#[test]
 fn a_registered_instance_is_addressable_from_a_second_client() {
     let host = Host::serve();
     let instance = instance('3');

@@ -203,7 +203,10 @@ impl KvmBackend {
         }
         let generation_bytes =
             generation_bytes(&prepared.id).map_err(|kind| self.fail(operation, kind))?;
-        self.register(operation, instance, identity.guest_cid)?;
+        let restoring_in_place = checkpoint.is_some_and(|(source, _)| source == instance);
+        self.ownership
+            .register_jailed(instance, operation, identity, restoring_in_place)
+            .map_err(|kind| self.fail(operation, kind))?;
         let launched = self.clocks.elapsed_ns(operation);
         match Jailed::launch(
             anchors,

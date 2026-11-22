@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-use soma::{BackendFailureKind, InstanceId, OperationId};
+use soma::{BackendFailureKind, InstanceId};
 use soma_hostd::{
     InstanceId as HostInstance, LaunchFrame, LaunchMaterialHandle, OperationId as HostOperation,
 };
@@ -41,11 +41,10 @@ pub(super) fn host_instance(instance: &InstanceId) -> Result<HostInstance, Backe
 /// wire, which is a property of the request rather than of the Host.
 pub(super) fn launch_frame(
     instance: &InstanceId,
-    operation: &OperationId,
+    operation_bytes: [u8; 16],
     vsock_cid: u32,
 ) -> Result<LaunchFrame, BackendFailureKind> {
     let instance_bytes = hex16(instance.as_str())?;
-    let operation_bytes = hex16(operation.as_str())?;
     Ok(LaunchFrame {
         operation: HostOperation::new(operation_bytes)
             .map_err(|_| BackendFailureKind::WorkloadRejected)?,
