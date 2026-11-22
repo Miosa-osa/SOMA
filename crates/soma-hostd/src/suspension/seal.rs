@@ -129,6 +129,19 @@ fn digest_chunk(digest: &mut Sha256, kind: u8, index: u64, len: usize, data: &[u
     digest.update(data);
 }
 
+/// Whether every byte of `bytes` is zero.
+///
+/// Folded without an early exit so the compiler vectorizes it: an early-exit scan runs a byte at
+/// a time, and this check runs over every byte of guest memory and the private head.
+fn is_zero(bytes: &[u8]) -> bool {
+    let (words, tail) = bytes.as_chunks::<8>();
+    words
+        .iter()
+        .fold(0_u64, |acc, word| acc | u64::from_ne_bytes(*word))
+        == 0
+        && tail.iter().fold(0_u8, |acc, byte| acc | byte) == 0
+}
+
 /// Fills `buffer` from `source` as far as it can, returning how much it read.
 fn fill(source: &mut impl Read, buffer: &mut [u8]) -> io::Result<usize> {
     let mut filled = 0;
@@ -169,7 +182,7 @@ pub fn seal_member(
         };
         let last = next_len == 0;
         let chunk = &current[..current_len];
-        let (kind, data): (u8, &[u8]) = if chunk.iter().all(|byte| *byte == 0) {
+        let (kind, data): (u8, &[u8]) = if is_zero(chunk) {
             (ZEROS, &[])
         } else {
             (DATA, chunk)
