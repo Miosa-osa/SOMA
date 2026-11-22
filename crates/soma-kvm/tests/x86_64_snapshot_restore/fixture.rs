@@ -239,7 +239,7 @@ fn capture_source(
             root: &mut root,
             overlay: Some(&mut head),
             repair_point_line: REPAIR_POINT_LINE.to_vec(),
-            point: soma_kvm::x86_64::snapshot::CapturePoint::ConsoleLine,
+            point: soma_kvm::x86_64::CapturePoint::ConsoleLine,
             grace: PAUSE_GRACE,
             contract: recipe.contract,
         },
