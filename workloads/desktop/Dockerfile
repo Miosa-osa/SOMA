@@ -47,12 +47,14 @@ RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && 
 # The MIOSA wallpapers: the platform's NASA backdrops (look/backgrounds/src, see CREDITS) with the
 # MIOSA wordmark at the centre, made once here so the desktop image carries finished pictures.
 FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS wallpapers
-RUN apt-get update && apt-get install -y --no-install-recommends python3-pil \
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pil python3-numpy \
  && find /var/lib/apt/lists -type f -delete
 COPY look/backgrounds/src /src
-COPY look/backgrounds/brand.py /brand.py
+COPY look/backgrounds/brand.py look/backgrounds/duotone.py /
+COPY look/backgrounds/gray /gray
 COPY look/brand/miosa-logo.png /miosa-logo.png
-RUN python3 /brand.py /src /miosa-logo.png /out && test "$(ls /out/*.jpg | wc -l)" -eq 2
+RUN python3 /brand.py /src /miosa-logo.png /out && python3 /duotone.py /gray /miosa-logo.png /out \
+ && rm -f /out/sheet.jpg && test "$(ls /out/*.jpg | wc -l)" -eq 52
 
 FROM ${BASE_IMAGE}
 
@@ -234,8 +236,8 @@ ARG WHITESUR_SHA256=406c9cd59705583f1754b0eaca96cc48bafda042b88ef143f16d8ae1820e
 RUN set -e; \
     apt-get update; \
     apt-get install -y --no-install-recommends pcmanfm plank gsimplecal dconf-cli dconf-service \
-      dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi gir1.2-gtk-3.0 \
-      mousepad ristretto mupdf galculator xz-utils; \
+      dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+      mousepad ristretto mupdf galculator xz-utils xdotool rofi scrot htop; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
     curl -fsSL --retry 3 -o /tmp/whitesur.tar.gz \
@@ -252,8 +254,24 @@ RUN set -e; \
     for t in WhiteSur-Dark WhiteSur-Light; do tar -xJf "/tmp/wsg/release/${t}.tar.xz" -C /usr/share/themes; done; \
     rm -r -f /tmp/wsg /tmp/whitesur-gtk.tar.gz; \
     test -f /usr/share/themes/WhiteSur-Dark/gtk-3.0/gtk.css; \
-    command -v pcmanfm plank gsimplecal Xvfb mousepad ristretto mupdf galculator
+    command -v pcmanfm plank gsimplecal Xvfb mousepad ristretto mupdf galculator rofi scrot htop
 COPY --from=wallpapers /out/ /usr/share/backgrounds/miosa/
+COPY look/launcher/miosa.rasi /etc/soma-desktop/miosa.rasi
+# MIOSA Apps: a catalog, a root-owned installer (the one command the desktop user may run as root,
+# and it installs only catalog entries), the Apps window and the miosa-apps command for agents.
+COPY look/apps/catalog.json /usr/share/miosa-apps/catalog.json
+COPY look/apps/install /usr/local/libexec/miosa-apps/install
+COPY look/apps/miosa-apps /usr/local/bin/miosa-apps
+COPY look/apps/miosa-apps.desktop /usr/share/applications/miosa-apps.desktop
+COPY look/apps/icons/ /usr/share/miosa-apps/icons/
+# System (charts of what the machine uses), the bar's readout, and extra screens for parallel agents.
+COPY look/system/miosa-system look/system/miosa-screen /usr/local/bin/
+COPY look/system/readout.sh /usr/local/libexec/soma-desktop/readout.sh
+COPY look/system/miosa-system.desktop /usr/share/applications/miosa-system.desktop
+# The guide agents read first, in the home folder and beside the system's other desktop files.
+COPY look/agents/AGENTS.md /home/ubuntu/AGENTS.md
+COPY look/agents/AGENTS.md /etc/soma-desktop/AGENTS.md
+COPY look/backgrounds/collections.txt /usr/share/backgrounds/miosa/collections.txt
 COPY look/openbox/buttons/ /usr/share/themes/MIOSA/openbox-3/
 COPY look/wallpapers/miosa-wallpapers /usr/local/bin/miosa-wallpapers
 # PCManFM reads its profile from the user's folder only; a profile it cannot find there it writes
@@ -274,7 +292,13 @@ RUN mkdir -p /etc/dconf/profile \
  && sed -i 's/^Name=.*/Name=Files/' /home/ubuntu/Desktop/pcmanfm.desktop \
  && sed -i 's/^Name=.*/Name=Terminal/' /home/ubuntu/Desktop/xfce4-terminal.desktop \
  && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' /home/ubuntu/Desktop/google-chrome.desktop \
- && chmod 0755 /usr/local/bin/miosa-wallpapers \
+ && chmod 0755 /usr/local/bin/miosa-wallpapers /usr/local/bin/miosa-apps /usr/local/libexec/miosa-apps/install \
+      /usr/local/bin/miosa-system /usr/local/bin/miosa-screen /usr/local/libexec/soma-desktop/readout.sh \
+ && sed -i 's/^Name=.*/Name=Files/; s/^GenericName=.*/GenericName=Files/; /^Name\[/d; /^GenericName\[/d' /usr/share/applications/pcmanfm.desktop \
+ && sed -i 's/^Name=.*/Name=Terminal/; /^Name\[/d' /usr/share/applications/xfce4-terminal.desktop \
+ && printf 'ubuntu ALL=(root) NOPASSWD: /usr/local/libexec/miosa-apps/install\n' > /etc/sudoers.d/miosa-apps \
+ && chmod 0440 /etc/sudoers.d/miosa-apps && visudo -cf /etc/sudoers.d/miosa-apps \
+ && install -m 0755 /usr/share/applications/miosa-apps.desktop /home/ubuntu/Desktop/miosa-apps.desktop \
  && sed -i 's|wallpaper=.*|wallpaper=/usr/share/backgrounds/miosa/miosa-aurora.jpg|' /home/ubuntu/.config/pcmanfm/miosa/desktop-items-0.conf \
  && mkdir -p /home/ubuntu/.config/google-chrome \
  && printf '{"browser":{"first_run_finished":true}}' > '/home/ubuntu/.config/google-chrome/Local State' \

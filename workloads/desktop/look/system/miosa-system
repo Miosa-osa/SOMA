@@ -1,0 +1,320 @@
+#!/usr/bin/env python3
+"""MIOSA System: what this machine is using, live. CPU and network as charts over the last two minutes,
+memory and disk as bars, the largest folders in the home folder, and the busiest processes.
+Everything is read from /proc and statvfs once a second; nothing runs while the window is closed."""
+
+import os
+import time
+from collections import deque
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+HISTORY = 120
+GLib.set_prgname("miosa-system")
+GLib.set_application_name("System")
+
+CSS = b"""
+window, .main { background: #0c0e16; color: #e8ebf5; }
+headerbar { background: #121522; border: none; box-shadow: none; padding: 6px 12px; }
+headerbar .title { font: 600 12pt Inter; color: #f2f4fb; }
+.tile { background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 16px; }
+.kicker { font: 600 9pt Inter; color: #8d95ad; letter-spacing: 1px; }
+.big { font: 600 22pt Inter; color: #f5f7fc; }
+.sub { font: 9.5pt Inter; color: #9aa3ba; }
+.row { font: 9.5pt "JetBrains Mono"; color: #c9d0e0; }
+.dim { font: 9pt "JetBrains Mono"; color: #6f7894; }
+"""
+
+BLUE, VIOLET, GREEN, AMBER = (0.36, 0.49, 0.98), (0.62, 0.45, 0.98), (0.31, 0.80, 0.56), (0.98, 0.70, 0.30)
+
+
+def human(n):
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
+
+
+def styled(widget, cls):
+    widget.get_style_context().add_class(cls)
+    return widget
+
+
+def cpu_ticks():
+    with open("/proc/stat") as f:
+        v = [int(x) for x in f.readline().split()[1:9]]
+    idle = v[3] + v[4]
+    return sum(v) - idle, sum(v)
+
+
+def memory():
+    info = {}
+    with open("/proc/meminfo") as f:
+        for line in f:
+            key, value = line.split(":", 1)
+            info[key] = int(value.split()[0]) * 1024
+    return info["MemTotal"] - info["MemAvailable"], info["MemTotal"]
+
+
+def network():
+    rx = tx = 0
+    with open("/proc/net/dev") as f:
+        for line in f.readlines()[2:]:
+            name, data = line.split(":", 1)
+            if name.strip() == "lo":
+                continue
+            fields = data.split()
+            rx += int(fields[0])
+            tx += int(fields[8])
+    return rx, tx
+
+
+def processes(total_mem):
+    out = []
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                stat = f.read()
+            name = stat[stat.index("(") + 1: stat.rindex(")")]
+            fields = stat[stat.rindex(")") + 2:].split()
+            ticks = int(fields[11]) + int(fields[12])
+            rss = int(fields[21]) * os.sysconf("SC_PAGE_SIZE")
+            out.append((int(pid), name, ticks, rss))
+        except (OSError, ValueError, IndexError):
+            continue
+    return out
+
+
+class Chart(Gtk.DrawingArea):
+    """A filled line chart of one or two series, scaled to its largest value (or to 100 for percentages)."""
+
+    def __init__(self, series, colors, percent=False, height=110):
+        super().__init__()
+        self.series, self.colors, self.percent = series, colors, percent
+        self.set_size_request(-1, height)
+        self.connect("draw", self.draw)
+
+    def draw(self, _w, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        cr.set_source_rgba(1, 1, 1, 0.06)
+        cr.set_line_width(1)
+        for i in range(1, 4):
+            cr.move_to(0, h * i / 4 + 0.5)
+            cr.line_to(w, h * i / 4 + 0.5)
+        cr.stroke()
+        top = 100.0 if self.percent else max([1.0] + [v for s in self.series for v in s])
+        for data, (r, g, b) in zip(self.series, self.colors):
+            if len(data) < 2:
+                continue
+            step = w / (HISTORY - 1)
+            x0 = w - step * (len(data) - 1)
+            points = [(x0 + i * step, h - 4 - (h - 8) * min(v / top, 1.0)) for i, v in enumerate(data)]
+            cr.move_to(points[0][0], h)
+            for x, y in points:
+                cr.line_to(x, y)
+            cr.line_to(points[-1][0], h)
+            cr.close_path()
+            cr.set_source_rgba(r, g, b, 0.18)
+            cr.fill()
+            cr.move_to(*points[0])
+            for x, y in points[1:]:
+                cr.line_to(x, y)
+            cr.set_source_rgba(r, g, b, 0.95)
+            cr.set_line_width(2)
+            cr.stroke()
+        return False
+
+
+class Bar(Gtk.DrawingArea):
+    def __init__(self, color):
+        super().__init__()
+        self.color, self.value = color, 0.0
+        self.set_size_request(-1, 10)
+        self.connect("draw", self.draw)
+
+    def draw(self, _w, cr):
+        w, h = self.get_allocated_width(), self.get_allocated_height()
+        for fraction, alpha in ((1.0, 0.08), (self.value, 0.95)):
+            width = max(h, w * fraction) if fraction > 0 else 0
+            if width <= 0:
+                continue
+            r = h / 2
+            cr.new_sub_path()
+            cr.arc(r, r, r, 1.5708, 4.7124)
+            cr.arc(width - r, r, r, 4.7124, 1.5708)
+            cr.close_path()
+            if alpha < 0.5:
+                cr.set_source_rgba(1, 1, 1, alpha)
+            else:
+                cr.set_source_rgba(*self.color, alpha)
+            cr.fill()
+        return False
+
+
+def tile(title):
+    box = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "tile")
+    box.pack_start(styled(Gtk.Label(label=title.upper(), xalign=0), "kicker"), False, False, 0)
+    return box
+
+
+class Window(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="System")
+        self.set_default_size(1120, 760)
+        self.set_icon_name("utilities-system-monitor")
+        self.set_wmclass("miosa-system", "System")
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.set_titlebar(Gtk.HeaderBar(title="System", subtitle="This machine, live", show_close_button=True))
+        self.cpu_hist, self.rx_hist, self.tx_hist = deque(maxlen=HISTORY), deque(maxlen=HISTORY), deque(maxlen=HISTORY)
+        self.last_cpu, self.last_net, self.last_t = cpu_ticks(), network(), time.monotonic()
+        self.last_proc = {p[0]: p[2] for p in processes(1)}
+
+        grid = Gtk.Grid(column_spacing=14, row_spacing=14, margin=18)
+        grid.set_column_homogeneous(True)
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(styled(grid, "main"))
+        self.add(scroll)
+
+        cpu = tile("Processors")
+        self.cpu_big = styled(Gtk.Label(xalign=0), "big")
+        self.cpu_sub = styled(Gtk.Label(xalign=0), "sub")
+        cpu.pack_start(self.cpu_big, False, False, 0)
+        cpu.pack_start(self.cpu_sub, False, False, 0)
+        cpu.pack_start(Chart([self.cpu_hist], [BLUE], percent=True), False, False, 4)
+        grid.attach(cpu, 0, 0, 2, 1)
+
+        mem = tile("Memory")
+        self.mem_big = styled(Gtk.Label(xalign=0), "big")
+        self.mem_sub = styled(Gtk.Label(xalign=0), "sub")
+        self.mem_bar = Bar(VIOLET)
+        for w in (self.mem_big, self.mem_sub, self.mem_bar):
+            mem.pack_start(w, False, False, 0)
+        grid.attach(mem, 2, 0, 1, 1)
+
+        net = tile("Network")
+        self.net_big = styled(Gtk.Label(xalign=0), "big")
+        self.net_sub = styled(Gtk.Label(xalign=0), "sub")
+        net.pack_start(self.net_big, False, False, 0)
+        net.pack_start(self.net_sub, False, False, 0)
+        net.pack_start(Chart([self.rx_hist, self.tx_hist], [GREEN, AMBER]), False, False, 4)
+        grid.attach(net, 0, 1, 2, 1)
+
+        disk = tile("Disk")
+        self.disk_big = styled(Gtk.Label(xalign=0), "big")
+        self.disk_sub = styled(Gtk.Label(xalign=0), "sub")
+        self.disk_bar = Bar(AMBER)
+        self.folders = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        for w in (self.disk_big, self.disk_sub, self.disk_bar):
+            disk.pack_start(w, False, False, 0)
+        disk.pack_start(styled(Gtk.Label(label="LARGEST IN YOUR HOME FOLDER", xalign=0), "kicker"), False, False, 8)
+        disk.pack_start(self.folders, False, False, 0)
+        grid.attach(disk, 2, 1, 1, 2)
+
+        procs = tile("Busiest processes")
+        self.proc_rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        procs.pack_start(self.proc_rows, False, False, 0)
+        grid.attach(procs, 0, 2, 2, 1)
+
+        self.tick()
+        self.scan_folders()
+        GLib.timeout_add_seconds(1, self.tick)
+        GLib.timeout_add_seconds(20, self.scan_folders)
+
+    def tick(self):
+        now = time.monotonic()
+        dt = max(now - self.last_t, 0.001)
+        busy, total = cpu_ticks()
+        db, dtot = busy - self.last_cpu[0], total - self.last_cpu[1]
+        pct = 100.0 * db / dtot if dtot else 0.0
+        self.cpu_hist.append(pct)
+        self.last_cpu = (busy, total)
+        cores = os.cpu_count() or 1
+        self.cpu_big.set_text(f"{pct:.0f}%")
+        self.cpu_sub.set_text(f"of {cores} processors · load {os.getloadavg()[0]:.2f}")
+
+        used, mtotal = memory()
+        self.mem_big.set_text(human(used))
+        self.mem_sub.set_text(f"of {human(mtotal)} · {100 * used / mtotal:.0f}% in use")
+        self.mem_bar.value = used / mtotal
+        self.mem_bar.queue_draw()
+
+        rx, tx = network()
+        rx_rate, tx_rate = (rx - self.last_net[0]) / dt, (tx - self.last_net[1]) / dt
+        self.last_net = (rx, tx)
+        self.rx_hist.append(rx_rate)
+        self.tx_hist.append(tx_rate)
+        self.net_big.set_text(f"↓ {human(rx_rate)}/s   ↑ {human(tx_rate)}/s")
+        self.net_sub.set_text(f"since start: {human(rx)} in, {human(tx)} out")
+
+        st = os.statvfs("/")
+        dtotal, dfree = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+        self.disk_big.set_text(f"{human(dtotal - dfree)}")
+        self.disk_sub.set_text(f"of {human(dtotal)} · {human(dfree)} free")
+        self.disk_bar.value = (dtotal - dfree) / dtotal if dtotal else 0
+        self.disk_bar.queue_draw()
+
+        procs = processes(mtotal)
+        hz = os.sysconf("SC_CLK_TCK")
+        rows = []
+        for pid, name, ticks, rss in procs:
+            cpu = 100.0 * (ticks - self.last_proc.get(pid, ticks)) / hz / dt
+            rows.append((cpu, rss, pid, name))
+        self.last_proc = {p[0]: p[2] for p in procs}
+        rows.sort(reverse=True)
+        for child in self.proc_rows.get_children():
+            self.proc_rows.remove(child)
+        header = styled(Gtk.Label(label=f"{'PROCESS':<26}{'CPU':>8}{'MEMORY':>12}{'PID':>9}", xalign=0), "dim")
+        self.proc_rows.pack_start(header, False, False, 0)
+        for cpu, rss, pid, name in rows[:8]:
+            line = styled(Gtk.Label(label=f"{name[:25]:<26}{cpu:>7.1f}%{human(rss):>12}{pid:>9}", xalign=0), "row")
+            self.proc_rows.pack_start(line, False, False, 0)
+        self.proc_rows.show_all()
+        for child in self.get_children():
+            child.queue_draw()
+        self.last_t = now
+        return True
+
+    def scan_folders(self):
+        home = os.path.expanduser("~")
+        sizes = []
+        for entry in os.scandir(home):
+            if entry.is_symlink():
+                continue
+            total = 0
+            if entry.is_dir():
+                for root, _dirs, files in os.walk(entry.path):
+                    for name in files:
+                        try:
+                            total += os.lstat(os.path.join(root, name)).st_size
+                        except OSError:
+                            pass
+            else:
+                try:
+                    total = entry.stat().st_size
+                except OSError:
+                    continue
+            sizes.append((total, entry.name))
+        sizes.sort(reverse=True)
+        for child in self.folders.get_children():
+            self.folders.remove(child)
+        for total, name in sizes[:7]:
+            self.folders.pack_start(styled(Gtk.Label(label=f"{human(total):>10}  {name}", xalign=0), "row"), False, False, 0)
+        self.folders.show_all()
+        return True
+
+
+if __name__ == "__main__":
+    win = Window()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()

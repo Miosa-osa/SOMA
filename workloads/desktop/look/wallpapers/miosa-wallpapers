@@ -9,13 +9,15 @@ its own command line, which redraws at once and writes the choice into the perso
 import os
 import shutil
 import subprocess
-import threading
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+
+GLib.set_prgname("miosa-wallpapers")
+GLib.set_application_name("Wallpapers")
 
 SYSTEM = "/usr/share/backgrounds/miosa"
 OWN = os.path.expanduser("~/Pictures/Wallpapers")
@@ -49,6 +51,20 @@ def current():
     return ""
 
 
+def collections():
+    """file stem -> (collection, label), in the order the MIOSA set lists them."""
+    out = {}
+    try:
+        for line in open(os.path.join(SYSTEM, "collections.txt")):
+            if line.startswith("#") or line.count("|") != 2:
+                continue
+            stem, group, label = (part.strip() for part in line.split("|"))
+            out[stem] = (group, label)
+    except OSError:
+        pass
+    return out
+
+
 def label_for(path):
     name = os.path.splitext(os.path.basename(path))[0]
     for prefix in ("miosa-",):
@@ -61,7 +77,7 @@ def label_for(path):
 
 def thumbnail(path):
     os.makedirs(CACHE, exist_ok=True)
-    key = os.path.join(CACHE, f"{abs(hash((path, os.path.getmtime(path))))}.png")
+    key = os.path.join(CACHE, path.strip("/").replace("/", "_") + f"-{int(os.path.getmtime(path))}.png")
     if os.path.exists(key):
         return GdkPixbuf.Pixbuf.new_from_file(key)
     src = GdkPixbuf.Pixbuf.new_from_file(path)
@@ -83,7 +99,11 @@ class Tile(Gtk.EventBox):
         self.area = Gtk.DrawingArea()
         self.area.set_size_request(THUMB_W + 8, THUMB_H + 8)
         self.area.connect("draw", self.draw)
-        label = Gtk.Label(label=label_for(path), xalign=0.5)
+        stem = os.path.splitext(os.path.basename(path))[0]
+        light = stem.endswith("-light")
+        known = app.known.get(stem[: -len("-light")] if light else stem)
+        text = (f"{known[1]} (light)" if light else known[1]) if known else label_for(path)
+        label = Gtk.Label(label=text, xalign=0.5)
         label.get_style_context().add_class("label")
         box.pack_start(self.area, False, False, 0)
         box.pack_start(label, False, False, 0)
@@ -92,18 +112,16 @@ class Tile(Gtk.EventBox):
         self.connect("button-release-event", lambda *_: app.apply(path))
         self.connect("enter-notify-event", lambda *_: self.set_hover(True))
         self.connect("leave-notify-event", lambda *_: self.set_hover(False))
-        threading.Thread(target=self.load, daemon=True).start()
+        GLib.idle_add(self.load)
 
     def load(self):
+        # On the main loop, one picture per idle turn, so the window opens at once and fills in.
         try:
-            pix = thumbnail(self.path)
+            self.pix = thumbnail(self.path)
         except GLib.Error:
-            return
-        GLib.idle_add(self.loaded, pix)
-
-    def loaded(self, pix):
-        self.pix = pix
+            return False
         self.area.queue_draw()
+        return False
 
     def set_hover(self, on):
         self.hover = on
@@ -164,17 +182,24 @@ class App(Gtk.Window):
         scroll.add(self.body)
         self.add(scroll)
         self.tiles = []
+        self.known = collections()
         self.fill()
+        # Drop pictures anywhere on the window (from Files or the desktop) to add them.
+        self.drag_dest_set(Gtk.DestDefaults.ALL, [], Gdk.DragAction.COPY)
+        self.drag_dest_add_uri_targets()
+        self.connect("drag-data-received", self.dropped)
 
-    def section(self, title, folder, empty):
+    def section(self, title, folder, empty, files=None):
         head = Gtk.Label(label=title.upper(), xalign=0)
         head.get_style_context().add_class("section")
         self.body.pack_start(head, False, False, 0)
-        files = []
-        if os.path.isdir(folder):
-            files = sorted(
-                os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)
-            )
+        if files is None:
+            files = []
+            if os.path.isdir(folder):
+                files = sorted(
+                    (os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)),
+                    key=lambda f: (os.path.splitext(f)[0].endswith("-light"), f),
+                )
         if not files:
             note = Gtk.Label(label=empty, xalign=0)
             note.get_style_context().add_class("empty")
@@ -196,8 +221,20 @@ class App(Gtk.Window):
         for child in self.body.get_children():
             self.body.remove(child)
         self.tiles = []
-        self.section("MIOSA", SYSTEM, "No MIOSA wallpapers found.")
-        self.section("Yours", OWN, "Pictures you add appear here.")
+        known = collections()
+        groups = {}
+        for stem, (group, _label) in known.items():
+            for variant in (stem, stem + "-light"):
+                path = os.path.join(SYSTEM, variant + ".jpg")
+                if os.path.exists(path):
+                    groups.setdefault(group, []).append(path)
+        for group, paths in groups.items():
+            darks = [p for p in paths if not p.endswith("-light.jpg")]
+            lights = [p for p in paths if p.endswith("-light.jpg")]
+            self.section(group, SYSTEM, "", darks + lights)
+        if not groups:
+            self.section("MIOSA", SYSTEM, "No MIOSA wallpapers found.")
+        self.section("Yours", OWN, "Drop pictures here, or use Add your own. They are kept in ~/Pictures/Wallpapers.")
         self.show_all()
 
     def apply(self, path):
@@ -209,6 +246,23 @@ class App(Gtk.Window):
         self.selected = path
         for tile in self.tiles:
             tile.area.queue_draw()
+
+    def dropped(self, _widget, _context, _x, _y, data, _info, _time):
+        from urllib.parse import unquote, urlparse
+        paths = [unquote(urlparse(uri).path) for uri in data.get_uris() if uri.startswith("file://")]
+        self.copy_in([p for p in paths if p.lower().endswith(PICTURES)])
+
+    def copy_in(self, sources):
+        added = []
+        os.makedirs(OWN, exist_ok=True)
+        for src in sources:
+            dest = os.path.join(OWN, os.path.basename(src))
+            if os.path.abspath(src) != os.path.abspath(dest):
+                shutil.copy2(src, dest)
+            added.append(dest)
+        if added:
+            self.fill()
+            self.apply(added[-1])
 
     def add_own(self, _button):
         dialog = Gtk.FileChooserDialog(

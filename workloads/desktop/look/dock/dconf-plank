@@ -11,4 +11,4 @@ offset=0
 pressure-reveal=false
 show-dock-item=false
 lock-items=false
-dock-items=['google-chrome.dockitem', 'xfce4-terminal.dockitem', 'pcmanfm.dockitem', 'mousepad.dockitem', 'wallpapers.dockitem']
+dock-items=['google-chrome.dockitem', 'xfce4-terminal.dockitem', 'pcmanfm.dockitem', 'mousepad.dockitem', 'apps.dockitem', 'wallpapers.dockitem']

@@ -1,0 +1,300 @@
+#!/usr/bin/env python3
+"""MIOSA Apps: what is on this machine, and one click to add more. The same from a terminal or an agent.
+
+  miosa-apps                  open the Apps window
+  miosa-apps list             every app, and whether it is on this machine
+  miosa-apps install <id>     install one
+  miosa-apps remove <id>      remove one
+
+The catalog is /usr/share/miosa-apps/catalog.json. Installing and removing go through the root-owned
+installer /usr/local/libexec/miosa-apps/install, the one command the desktop user may run as root;
+it also answers what is installed (--status), by looking for each app on the machine itself.
+"""
+
+import json
+import os
+import shlex
+import subprocess
+import sys
+
+CATALOG = "/usr/share/miosa-apps/catalog.json"
+INSTALLER = "/usr/local/libexec/miosa-apps/install"
+LOGS = os.path.expanduser("~/.cache/miosa-apps")
+
+
+def catalog():
+    with open(CATALOG) as f:
+        return json.load(f)
+
+
+def installed_ids():
+    out = subprocess.run(["sudo", "-n", INSTALLER, "--status"], capture_output=True, text=True)
+    return set(out.stdout.split())
+
+
+def cli(args):
+    if args[0] == "list":
+        on = installed_ids()
+        for app in catalog():
+            state = "built in" if app.get("builtin") else ("installed" if app["id"] in on else "-")
+            print(f"{app['id']:<13} {state:<10} {app['name']}: {app['about']}")
+        return 0
+    if args[0] in ("install", "remove") and len(args) == 2:
+        flag = [] if args[0] == "install" else ["--remove"]
+        return subprocess.run(["sudo", "-n", INSTALLER, *flag, args[1]]).returncode
+    print(__doc__.strip(), file=sys.stderr)
+    return 2
+
+
+if len(sys.argv) > 1:
+    sys.exit(cli(sys.argv[1:]))
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GLib, Gtk  # noqa: E402
+
+GLib.set_prgname("miosa-apps")
+GLib.set_application_name("Apps")
+
+CSS = b"""
+window, .main { background: #0c0e16; color: #e8ebf5; }
+headerbar { background: #121522; border: none; box-shadow: none; padding: 6px 12px; }
+.side { background: #10131c; border-right: 1px solid rgba(255,255,255,0.06); padding: 10px 8px; }
+.side row { border-radius: 8px; padding: 7px 10px; margin: 1px 0; background: transparent; }
+.side row:selected { background: rgba(91,124,250,0.22); }
+.side row:hover { background: rgba(255,255,255,0.05); }
+.side-label { font: 500 10.5pt Inter; color: #d3d9e8; }
+.count { font: 500 9pt Inter; color: #7d859b; }
+.search { background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.10); border-radius: 9px; color: #f2f4fb; min-width: 340px; }
+.section { font: 600 10pt Inter; color: #8d95ad; letter-spacing: 1px; margin: 20px 24px 10px 24px; }
+.card { background: rgba(255,255,255,0.045); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 14px; }
+.card:hover { background: rgba(255,255,255,0.07); }
+.name { font: 600 11pt Inter; color: #f2f4fb; }
+.about { font: 9.5pt Inter; color: #9aa3ba; }
+.install { background: #3b5bdb; color: #ffffff; border: none; border-radius: 8px; padding: 4px 14px; font: 600 9.5pt Inter; box-shadow: none; }
+.install:hover { background: #4c6ef5; }
+.open { background: rgba(255,255,255,0.10); color: #f2f4fb; border: none; border-radius: 8px; padding: 4px 14px; font: 600 9.5pt Inter; box-shadow: none; }
+.open:hover { background: rgba(255,255,255,0.16); }
+.remove { background: transparent; color: #8d95ad; border: none; padding: 2px 6px; font: 9pt Inter; box-shadow: none; }
+.remove:hover { color: #ff8a80; }
+.tag { font: 500 9pt Inter; color: #7d859b; }
+.cost { font: 500 8.5pt "JetBrains Mono"; color: #6f7894; margin-top: 3px; }
+.busy { color: #8fa8ff; font: 500 9.5pt Inter; }
+.failed { color: #ff8a80; font: 500 9.5pt Inter; }
+flowbox, flowboxchild { background: transparent; }
+"""
+
+
+def icon_image(icon, size):
+    """An app's icon: a file path (agent logos) or a name from the icon theme."""
+    if icon.startswith("/") and os.path.exists(icon):
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(icon, size, size, True)
+        return Gtk.Image.new_from_pixbuf(pix)
+    theme = Gtk.IconTheme.get_default()
+    image = Gtk.Image.new_from_icon_name(icon if theme.has_icon(icon) else "application-x-executable", Gtk.IconSize.DIALOG)
+    image.set_pixel_size(size)
+    return image
+
+
+def styled(widget, cls):
+    widget.get_style_context().add_class(cls)
+    return widget
+
+
+class Card(Gtk.Box):
+    def __init__(self, app, win):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        self.app, self.win = app, win
+        styled(self, "card")
+        self.set_size_request(400, 0)
+        image = icon_image(app["icon"], 48)
+        self.pack_start(image, False, False, 0)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        text.set_valign(Gtk.Align.CENTER)
+        text.pack_start(styled(Gtk.Label(label=app["name"], xalign=0), "name"), False, False, 0)
+        about = Gtk.Label(label=app["about"], xalign=0, wrap=True, max_width_chars=30)
+        text.pack_start(styled(about, "about"), False, False, 0)
+        if app.get("disk"):
+            cost = Gtk.Label(xalign=0, wrap=True, max_width_chars=34)
+            cost.set_markup(f"<span>Disk {GLib.markup_escape_text(app['disk'])}  ·  RAM {GLib.markup_escape_text(app['ram'])}"
+                            f"  ·  CPU {GLib.markup_escape_text(app['cpu'])}</span>")
+            cost.set_tooltip_text("Estimates: disk once installed, memory and processor while it runs")
+            text.pack_start(styled(cost, "cost"), False, False, 0)
+        self.pack_start(text, True, True, 0)
+        self.action = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        self.action.set_valign(Gtk.Align.CENTER)
+        self.pack_end(self.action, False, False, 0)
+        self.render()
+
+    def state(self):
+        if self.app.get("builtin"):
+            return "builtin"
+        if self.app["id"] in self.win.busy:
+            return "busy"
+        if self.app["id"] in self.win.failed:
+            return "failed"
+        return "installed" if self.app["id"] in self.win.installed else "available"
+
+    def render(self):
+        for child in self.action.get_children():
+            self.action.remove(child)
+        state = self.state()
+        if state in ("builtin", "installed"):
+            if self.app.get("exec"):
+                button = styled(Gtk.Button(label="Open"), "open")
+                button.connect("clicked", lambda *_: self.open())
+                self.action.pack_start(button, False, False, 0)
+            else:
+                self.action.pack_start(styled(Gtk.Label(label="Installed"), "tag"), False, False, 0)
+            if state == "installed":
+                remove = styled(Gtk.Button(label="Remove"), "remove")
+                remove.connect("clicked", lambda *_: self.win.run(self.app["id"], remove=True))
+                self.action.pack_start(remove, False, False, 0)
+            else:
+                self.action.pack_start(styled(Gtk.Label(label="Built in"), "tag"), False, False, 0)
+        elif state == "busy":
+            self.action.pack_start(styled(Gtk.Label(label="Working…"), "busy"), False, False, 0)
+        else:
+            button = styled(Gtk.Button(label="Retry" if state == "failed" else "Install"), "install")
+            button.connect("clicked", lambda *_: self.win.run(self.app["id"]))
+            self.action.pack_start(button, False, False, 0)
+            if state == "failed":
+                note = styled(Gtk.Label(label="Did not install"), "failed")
+                note.set_tooltip_text(f"The log is {LOGS}/{self.app['id']}.log")
+                self.action.pack_start(note, False, False, 0)
+        self.action.show_all()
+
+    def open(self):
+        subprocess.Popen(shlex.split(self.app["exec"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+
+
+class Window(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Apps")
+        self.set_default_size(1240, 780)
+        self.set_icon_name("system-software-install")
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider,
+                                                 Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.apps = catalog()
+        self.installed, self.busy, self.failed = installed_ids(), set(), set()
+        self.view, self.query = "All", ""
+
+        bar = Gtk.HeaderBar(show_close_button=True)
+        self.search = styled(Gtk.SearchEntry(placeholder_text="Search apps"), "search")
+        self.search.connect("search-changed", lambda e: self.filter(query=e.get_text().strip().lower()))
+        bar.set_custom_title(self.search)
+        self.set_titlebar(bar)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.side = styled(Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE), "side")
+        self.side.set_size_request(210, -1)
+        self.side.connect("row-selected", self.pick)
+        root.pack_start(self.side, False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        self.body = styled(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "main")
+        scroll.add(self.body)
+        root.pack_start(scroll, True, True, 0)
+        self.add(root)
+        self.cards = {app["id"]: Card(app, self) for app in self.apps}
+        self.build_side()
+        self.filter()
+
+    def views(self):
+        groups = []
+        for app in self.apps:
+            if app["group"] not in groups:
+                groups.append(app["group"])
+        return ["All", "On this computer", *groups]
+
+    def members(self, view):
+        if view == "All":
+            return self.apps
+        if view == "On this computer":
+            return [a for a in self.apps if a.get("builtin") or a["id"] in self.installed]
+        return [a for a in self.apps if a["group"] == view]
+
+    def build_side(self):
+        selected = self.view
+        for row in self.side.get_children():
+            self.side.remove(row)
+        for view in self.views():
+            box = Gtk.Box(spacing=8)
+            box.pack_start(styled(Gtk.Label(label=view, xalign=0), "side-label"), True, True, 0)
+            box.pack_end(styled(Gtk.Label(label=str(len(self.members(view)))), "count"), False, False, 0)
+            row = Gtk.ListBoxRow()
+            row.view = view
+            row.add(box)
+            self.side.add(row)
+            if view == selected:
+                self.side.select_row(row)
+        self.side.show_all()
+
+    def pick(self, _box, row):
+        if row is not None and row.view != self.view:
+            self.filter(view=row.view)
+
+    def filter(self, view=None, query=None):
+        self.view = view if view is not None else self.view
+        self.query = query if query is not None else self.query
+        for child in self.body.get_children():
+            self.body.remove(child)
+        apps = [a for a in self.members(self.view)
+                if not self.query or self.query in (a["name"] + " " + a["about"] + " " + a["group"]).lower()]
+        sections = {}
+        for app in apps:
+            key = "On this computer" if (app.get("builtin") or app["id"] in self.installed) and self.view == "All" else app["group"]
+            sections.setdefault(key, []).append(app)
+        order = sorted(sections, key=lambda k: (k != "On this computer", self.views().index(k) if k in self.views() else 99))
+        for title in order:
+            self.body.pack_start(styled(Gtk.Label(label=title.upper(), xalign=0), "section"), False, False, 0)
+            flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True)
+            flow.set_max_children_per_line(3)
+            flow.set_row_spacing(12)
+            flow.set_column_spacing(12)
+            flow.set_margin_start(22)
+            flow.set_margin_end(22)
+            for app in sections[title]:
+                card = self.cards[app["id"]]
+                if card.get_parent():
+                    card.get_parent().remove(card)
+                flow.add(card)
+            self.body.pack_start(flow, False, False, 0)
+        if not apps:
+            self.body.pack_start(styled(Gtk.Label(label="Nothing matches.", xalign=0), "section"), False, False, 0)
+        self.body.show_all()
+
+    def run(self, app_id, remove=False):
+        os.makedirs(LOGS, exist_ok=True)
+        log = open(os.path.join(LOGS, f"{app_id}.log"), "w")
+        flag = ["--remove"] if remove else []
+        proc = subprocess.Popen(["sudo", "-n", INSTALLER, *flag, app_id], stdout=log, stderr=log)
+        self.busy.add(app_id)
+        self.failed.discard(app_id)
+        self.cards[app_id].render()
+
+        def poll():
+            if proc.poll() is None:
+                return True
+            log.close()
+            self.busy.discard(app_id)
+            self.installed = installed_ids()
+            if not remove and app_id not in self.installed:
+                self.failed.add(app_id)
+            self.cards[app_id].render()
+            self.build_side()
+            return False
+
+        GLib.timeout_add(700, poll)
+
+
+if __name__ == "__main__":
+    win = Window()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
