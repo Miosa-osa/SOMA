@@ -983,3 +983,12 @@ replaying its own operation. That is why the retention window is ten minutes and
 first sweep that saw the record terminal rather than from a time stored in the record: no record carries a
 wall-clock time, and counting from the sweep makes a restart wait a whole window instead of releasing
 everything at once. [ADR 0055](docs/adr/0055-release-terminal-machine-records.md) states the rule.
+
+The network broker expires silent control connections after 30 seconds, independently of guest tunnel lifetime.
+A desktop viewer opens new tunnels to load pages, fetch assets, and stream after the guest has been idle.
+Each guest port dial opens a fresh broker connection and uses the existing authenticated assignment and port checks.
+The broker passes back the guest TCP descriptor, so closing the control connection does not close the stream.
+
+The desktop viewer has two processes, Sunshine and moonlight-web, on the same Xorg display the CUA driver uses.
+A signal sent to the viewer's entire process group also signals its own supervisor and can leave Sunshine running after its HTTP port has closed.
+The viewer supervisor terminates and reaps its direct children, and the session launcher waits for that supervisor's exit before acknowledging stop.
