@@ -8,6 +8,9 @@
 #   soma-desktop-session start     start the session and wait until it is ready (prints JSON)
 #   soma-desktop-session status    print the session's milestones as JSON
 #   soma-desktop-session stop      end the session
+#   soma-desktop-session viewer start|stop
+#                                  start or end the human viewer (Sunshine + moonlight-web on the
+#                                  viewer port), which runs only while someone watches
 #
 # The guest agent kills every process when a command ends, except the ones the command names in
 # /run/soma/survivors. A desktop cannot be named by process id, group or session: a terminal's
@@ -27,6 +30,7 @@ CGROUP_ROOT=/sys/fs/cgroup
 CGROUP_NAME=soma-desktop
 SURVIVORS=/run/soma/survivors
 SESSION=/usr/local/libexec/soma-desktop/session.sh
+VIEWER=/usr/local/libexec/soma-desktop/viewer.sh
 READY_TENTHS="${SOMA_DESKTOP_READY_TENTHS:-300}"
 
 die() { printf 'soma-desktop-session: %s\n' "$1" >&2; exit 1; }
@@ -50,6 +54,30 @@ report() {
 }
 
 running() { [[ -f "$STATE/pid" ]] && kill -0 "$(cat "$STATE/pid")" 2>/dev/null; }
+viewer_running() { [[ -f "$STATE/viewer.pid" ]] && kill -0 "$(cat "$STATE/viewer.pid")" 2>/dev/null; }
+
+# udev, so Xorg adds the pointer and keyboard the viewer creates through /dev/uinput. A SOMA guest
+# has no init system to start it; it runs in the desktop's cgroup and lives as long as the desktop.
+# /dev/uinput is opened by Sunshine as the desktop user, so it belongs to the input group.
+start_udev() {
+    pgrep -x systemd-udevd >/dev/null 2>&1 && return 0
+    [[ -x /lib/systemd/systemd-udevd ]] || return 0
+    /lib/systemd/systemd-udevd --daemon >/dev/null 2>&1 || return 0
+    udevadm trigger --action=add >/dev/null 2>&1 || true
+    udevadm settle --timeout=5 >/dev/null 2>&1 || true
+    if [[ -c /dev/uinput ]]; then
+        chgrp input /dev/uinput && chmod 0660 /dev/uinput
+    fi
+}
+
+# Runs a program as the desktop user, detached from this command, in the desktop's cgroup.
+as_desktop_user() {
+    local uid="$1" gid="$2" log="$3"
+    shift 3
+    setsid -f setpriv --reuid="$uid" --regid="$gid" --init-groups --reset-env \
+        env HOME="/home/$USER_NAME" XDG_RUNTIME_DIR="/run/user/$uid" SOMA_DESKTOP_STATE="$STATE" LANG=C.UTF-8 \
+        "$@" >"$log" 2>&1 </dev/null
+}
 
 place_in_cgroup() {
     if ! mountpoint -q "$CGROUP_ROOT"; then
@@ -76,14 +104,14 @@ start() {
     : >"$STATE/milestones"
     date +%s%N >"$STATE/launcher_start"
     chown "$uid:$gid" "$STATE/milestones"
-    install -d -m 0700 -o "$uid" -g "$gid" "/run/user/$uid" "$STATE/captures"
+    # The desktop user's own logs (Xorg, the viewer): the state directory itself is root's.
+    install -d -m 0700 -o "$uid" -g "$gid" "/run/user/$uid" "$STATE/captures" "$STATE/logs"
     install -d -m 1777 /tmp/.X11-unix
     place_in_cgroup
+    start_udev
     # setsid -f: the session leaves this command's process group and keeps no descriptor of it,
     # so the command can end while the desktop runs on.
-    setsid -f setpriv --reuid="$uid" --regid="$gid" --init-groups --reset-env \
-        env XDG_RUNTIME_DIR="/run/user/$uid" SOMA_DESKTOP_STATE="$STATE" LANG=C.UTF-8 \
-        "$SESSION" >"$STATE/session.log" 2>&1 </dev/null
+    as_desktop_user "$uid" "$gid" "$STATE/session.log" "$SESSION"
     local i pid=""
     for ((i = 0; i < 50; i++)); do
         pid="$(pgrep -u "$uid" -f "^/bin/bash $SESSION" | head -1 || true)"
@@ -108,6 +136,49 @@ start() {
     return 1
 }
 
+viewer_start() {
+    running || die "the desktop is not running; start it first"
+    if viewer_running; then
+        report viewer_running
+        return 0
+    fi
+    local uid gid i pid=""
+    uid="$(id -u "$USER_NAME")"
+    gid="$(id -g "$USER_NAME")"
+    place_in_cgroup
+    sed -i '/^viewer_\|^failed_viewer_/d' "$STATE/milestones"
+    as_desktop_user "$uid" "$gid" "$STATE/viewer.log" "$VIEWER"
+    for ((i = 0; i < 50; i++)); do
+        pid="$(pgrep -u "$uid" -f "^/bin/bash $VIEWER" | head -1 || true)"
+        [[ -n "$pid" ]] && break
+        sleep 0.02
+    done
+    [[ -n "$pid" ]] || die "the viewer did not start; see $STATE/viewer.log"
+    printf '%s\n' "$pid" >"$STATE/viewer.pid"
+    for ((i = 0; i < READY_TENTHS; i++)); do
+        if grep -q '^viewer_ready ' "$STATE/milestones"; then
+            report viewer_ready
+            return 0
+        fi
+        if grep -q '^failed_viewer' "$STATE/milestones" || ! kill -0 "$pid" 2>/dev/null; then
+            report viewer_failed
+            tail -20 "$STATE/viewer.log" "$STATE/logs/sunshine.log" "$STATE/logs/moonlight-web.log" >&2 2>/dev/null
+            return 1
+        fi
+        sleep 0.1
+    done
+    report viewer_timeout
+    return 1
+}
+
+viewer_stop() {
+    if viewer_running; then
+        kill -TERM "$(cat "$STATE/viewer.pid")" 2>/dev/null || true
+    fi
+    rm -f "$STATE/viewer.pid"
+    report viewer_stopped
+}
+
 stop() {
     if running; then
         kill -TERM "$(cat "$STATE/pid")" 2>/dev/null || true
@@ -124,5 +195,12 @@ case "${1:-}" in
     start) start ;;
     status) if running; then report running; else report stopped; fi ;;
     stop) stop ;;
-    *) die "usage: soma-desktop-session start|status|stop" ;;
+    viewer)
+        case "${2:-}" in
+            start) viewer_start ;;
+            stop) viewer_stop ;;
+            *) die "usage: soma-desktop-session viewer start|stop" ;;
+        esac
+        ;;
+    *) die "usage: soma-desktop-session start|status|stop|viewer start|viewer stop" ;;
 esac
