@@ -216,6 +216,10 @@ impl ExecutionReceipt {
                     OperationKind::Destroy,
                     MeasurementClass::FacadeManagedDestroy
                 )
+                | (
+                    OperationKind::Suspend,
+                    MeasurementClass::FacadeManagedSuspend
+                )
         )
     }
 

@@ -191,7 +191,8 @@ impl KvmBackend {
         // A forced destroy ends the machine without asking the guest. Every other reason asks
         // first, because a release the caller described as graceful must have been one.
         let force = match request.reason() {
-            CleanupReason::ForcedDestroy => Force::Immediately,
+            // A suspended machine was already read and released; nothing is left to ask.
+            CleanupReason::ForcedDestroy | CleanupReason::Suspended => Force::Immediately,
             CleanupReason::RunCompleted
             | CleanupReason::GracefulStop
             | CleanupReason::Rollback
