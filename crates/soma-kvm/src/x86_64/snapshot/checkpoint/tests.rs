@@ -5,7 +5,7 @@ use super::*;
 
 #[test]
 fn mounted_volume_capture_flushes_and_seals_its_own_bytes() {
-    use crate::virtio::{BlockRole, FileBackend, TransferShape};
+    use crate::virtio::{BlockDevice, BlockRole, FileBackend, TransferShape};
 
     let device_file = tempfile::tempfile().unwrap();
     let mut logical = vec![0; 2 * CHUNK];
