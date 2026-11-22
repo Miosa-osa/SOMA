@@ -194,7 +194,7 @@ impl Store {
         fs::create_dir_all(target)?;
         let directory = self.directory(id);
         for (member, record) in MEMBERS.iter().zip(&header.members) {
-            if let Err(error) = self.open_one(&key, &header, *member, record, &directory, target) {
+            if let Err(error) = open_one(&key, &header, (*member, record), &directory, target) {
                 if matches!(error, StoreError::Seal(_)) {
                     let _ignored = self.destroy(id);
                 }
@@ -202,35 +202,6 @@ impl Store {
             }
         }
         Ok(header)
-    }
-
-    fn open_one(
-        &self,
-        key: &DataKey,
-        header: &Header,
-        member: Member,
-        record: &MemberRecord,
-        directory: &Path,
-        target: &Path,
-    ) -> Result<(), StoreError> {
-        let mut sealed = BufReader::new(File::open(directory.join(sealed_name(member)))?);
-        // An empty overlay is the Generation with no writable storage: nothing is staged for it.
-        if member == Member::Overlay && record.bytes == 0 {
-            return Ok(open_member(
-                key,
-                header.id,
-                member,
-                record,
-                &mut sealed,
-                &mut std::io::sink(),
-            )?);
-        }
-        let mut out = BufWriter::new(File::create(target.join(staged_name(member)))?);
-        open_member(key, header.id, member, record, &mut sealed, &mut out)?;
-        out.into_inner()
-            .map_err(|error| StoreError::Io(error.into_error()))?
-            .sync_all()?;
-        Ok(())
     }
 
     /// Removes a Suspension and destroys its data key. Destroying one already gone succeeds.
@@ -246,4 +217,32 @@ impl Store {
         }
         self.keys.destroy(key_name(id)?).map_err(StoreError::Key)
     }
+}
+
+/// Decrypts one member into `target`, or only verifies it when it is the empty overlay of a
+/// Generation with no writable storage, which has nothing to stage.
+fn open_one(
+    key: &DataKey,
+    header: &Header,
+    (member, record): (Member, &MemberRecord),
+    directory: &Path,
+    target: &Path,
+) -> Result<(), StoreError> {
+    let mut sealed = BufReader::new(File::open(directory.join(sealed_name(member)))?);
+    if member == Member::Overlay && record.bytes == 0 {
+        return Ok(open_member(
+            key,
+            header.id,
+            member,
+            record,
+            &mut sealed,
+            &mut std::io::sink(),
+        )?);
+    }
+    let mut out = BufWriter::new(File::create(target.join(staged_name(member)))?);
+    open_member(key, header.id, member, record, &mut sealed, &mut out)?;
+    out.into_inner()
+        .map_err(|error| StoreError::Io(error.into_error()))?
+        .sync_all()?;
+    Ok(())
 }
