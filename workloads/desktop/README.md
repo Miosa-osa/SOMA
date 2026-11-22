@@ -37,6 +37,28 @@ scripts/desktop-generation.sh soma-desktop:2 soma-desktop:small-2 <store> <fs-to
 The `small` shape has 2 vCPUs, 4096 MiB of memory, and 20480 MiB of writable storage.
 The desktop kernel enables input devices and `uinput` for the browser viewer.
 
+## MIOSA desktop API image
+
+Build `desktopd` from MIOSA Compute's `envd` module at the revision selected for deployment.
+
+```sh
+cd /path/to/miosa-compute/envd
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /path/to/bridge/desktopd ./cmd/desktopd
+```
+
+From the SOMA repository root, add the executable to the desktop image and use the resulting image as the source for Generation capture.
+
+```sh
+docker build -f workloads/desktop/platform.Dockerfile \
+  --build-arg DESKTOP_IMAGE=soma-desktop:2 -t soma-desktop:platform-2 /path/to/bridge
+```
+
+Before starting the session, the platform writes that computer's bearer credential to `/run/desktopd/token` as a regular file owned by `ubuntu` with mode 0600.
+The credential is provisioned per computer and stays out of the image.
+On this image, session startup waits for `desktopd` on guest port 49985.
+It serves the same authenticated desktop HTTP routes as envd and uses the CUA driver socket on the guest.
+The platform opens the desktop port only through its authenticated tunnel.
+
 ## Start and operate a desktop
 
 The certified startup snapshot starts the guest agent.

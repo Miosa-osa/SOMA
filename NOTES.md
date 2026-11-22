@@ -992,3 +992,7 @@ The broker passes back the guest TCP descriptor, so closing the control connecti
 The desktop viewer has two processes, Sunshine and moonlight-web, on the same Xorg display the CUA driver uses.
 A signal sent to the viewer's entire process group also signals its own supervisor and can leave Sunshine running after its HTTP port has closed.
 The viewer supervisor terminates and reaps its direct children, and the session launcher waits for that supervisor's exit before acknowledging stop.
+
+The MIOSA desktop image layer packages the Compute desktopd executable without embedding a token.
+The session launcher starts it as the desktop user after the CUA driver socket is ready and includes the HTTP service in desktop readiness.
+The platform supplies the per-computer bearer credential before start and uses the guest broker to reach port 49985.
