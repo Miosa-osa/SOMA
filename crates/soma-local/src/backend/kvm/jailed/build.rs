@@ -9,15 +9,15 @@
 use std::fs::{File, OpenOptions};
 use std::os::fd::OwnedFd;
 
-use soma::{BackendFailureKind, InstanceId};
+use soma::BackendFailureKind;
 use soma_jail::{
     ArtifactKind, CgroupLimits, ControlSocket, CpuMax, DescriptorManifest, DescriptorRole,
     Identity, JailSpec, LeafName, Phase, Resources, Rlimits,
 };
 
-use super::anchors::Anchors;
+use super::{Launching, anchors::Anchors};
 use crate::backend::kvm::boot::private_head_from;
-use crate::backend::kvm::{checkpoint::RestoreArtifacts, claim, prepared::PreparedGeneration};
+use crate::backend::kvm::{checkpoint::RestoreArtifacts, claim};
 
 /// Bytes in one mebibyte.
 const MIB: u64 = 1024 * 1024;
@@ -91,9 +91,7 @@ pub(super) struct Recovery {
 /// Opens every resource one jailed machine is built from.
 pub(super) fn open(
     anchors: &Anchors,
-    prepared: &PreparedGeneration,
-    instance: &InstanceId,
-    overlay: bool,
+    launching: &Launching<'_>,
     checkpoint: Option<RestoreArtifacts>,
     volume: Option<File>,
     tap: Option<File>,
@@ -101,6 +99,9 @@ pub(super) fn open(
     fn unavailable<E>(_: E) -> BackendFailureKind {
         BackendFailureKind::Unavailable
     }
+    let prepared = launching.prepared;
+    let instance = launching.instance;
+    let overlay = prepared.manifest.device_set().overlay();
     let kvm = OpenOptions::new()
         .read(true)
         .write(true)
@@ -206,14 +207,15 @@ pub(super) fn open(
 
 /// The jail one machine of this shape runs in.
 pub(super) fn spec(
-    instance: &InstanceId,
-    vcpus: u16,
-    memory_mib: u64,
-    disk_mib: u64,
-    overlay: bool,
+    launching: &Launching<'_>,
     volume_bytes: Option<std::num::NonZeroU64>,
     network: bool,
 ) -> Result<JailSpec, BackendFailureKind> {
+    let prepared = &launching.prepared.manifest;
+    let (instance, memory_mib, disk_mib) =
+        (launching.instance, launching.memory_mib, launching.disk_mib);
+    let vcpus = prepared.shape.vcpu_count;
+    let overlay = prepared.device_set().overlay();
     let roles = roles(overlay, volume_bytes.is_some(), network);
     let manifest =
         DescriptorManifest::new(roles).map_err(|_| BackendFailureKind::WorkloadRejected)?;

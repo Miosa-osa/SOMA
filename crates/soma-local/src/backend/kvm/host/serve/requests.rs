@@ -27,20 +27,11 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             arguments,
             timeout_ms,
             max_output_bytes,
-        } => {
-            let Ok(command) = GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
-            else {
-                return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
-            };
-            match backend.execute_resident(&instance_id, command) {
-                Ok((status, stdout, stderr)) => Answer::Executed {
-                    status,
-                    stdout,
-                    stderr,
-                },
-                Err(kind) => Answer::Refused(kind.into()),
-            }
-        }
+        } => execute(
+            backend,
+            &instance_id,
+            GuestCommand::new(program, arguments, timeout_ms, max_output_bytes).ok(),
+        ),
         Call::ExecuteInContext {
             instance_id,
             program,
@@ -48,21 +39,13 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
             timeout_ms,
             max_output_bytes,
             context,
-        } => {
-            let Ok(command) = GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
+        } => execute(
+            backend,
+            &instance_id,
+            GuestCommand::new(program, arguments, timeout_ms, max_output_bytes)
                 .and_then(|command| context.apply(command))
-            else {
-                return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
-            };
-            match backend.execute_resident(&instance_id, command) {
-                Ok((status, stdout, stderr)) => Answer::Executed {
-                    status,
-                    stdout,
-                    stderr,
-                },
-                Err(kind) => Answer::Refused(kind.into()),
-            }
-        }
+                .ok(),
+        ),
         Call::File {
             instance_id,
             operation,
@@ -124,6 +107,24 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
         | Call::Shutdown
         | Call::Tunnel { .. }
         | Call::ExecuteStreaming { .. } => Answer::Refused(BackendFailureKind::Unsupported.into()),
+    }
+}
+
+fn execute(
+    backend: &mut KvmBackend,
+    instance: &InstanceId,
+    command: Option<GuestCommand>,
+) -> Answer {
+    let Some(command) = command else {
+        return Answer::Refused(BackendFailureKind::WorkloadRejected.into());
+    };
+    match backend.execute_resident(instance, command) {
+        Ok((status, stdout, stderr)) => Answer::Executed {
+            status,
+            stdout,
+            stderr,
+        },
+        Err(kind) => Answer::Refused(kind.into()),
     }
 }
 

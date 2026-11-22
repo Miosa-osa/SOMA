@@ -134,24 +134,8 @@ impl Jailed {
             .transpose()?;
         let (volume, volume_bytes) =
             super::jailed_volume::open(launching, recovery_volume.as_ref())?;
-        let spec = build::spec(
-            launching.instance,
-            launching.prepared.manifest.shape.vcpu_count,
-            launching.memory_mib,
-            launching.disk_mib,
-            devices.overlay(),
-            volume_bytes,
-            tap.is_some(),
-        )?;
-        let opened = build::open(
-            anchors,
-            launching.prepared,
-            launching.instance,
-            devices.overlay(),
-            checkpoint,
-            volume,
-            tap,
-        )?;
+        let spec = build::spec(launching, volume_bytes, tap.is_some())?;
+        let opened = build::open(anchors, launching, checkpoint, volume, tap)?;
         let handle =
             soma_jail::launch(&spec, &anchors.host, opened.resources).map_err(|error| {
                 anchors.record(
@@ -256,11 +240,11 @@ impl Jailed {
         let instance = launching.instance.as_str();
         let reply = match recovery {
             None => match activation {
-                Some((channel, network)) => self.connected_launch(
+                Some((channel, mut network)) => self.connected_launch(
                     &Request::Launch(launch),
                     None,
                     &channel,
-                    network,
+                    &mut network,
                     LAUNCH_CEILING,
                 ),
                 None => self.control.ask(&Request::Launch(launch), LAUNCH_CEILING),
@@ -279,8 +263,8 @@ impl Jailed {
                 let budget = super::checkpoint::CHECKPOINT_CEILING + LAUNCH_CEILING;
                 let overlay = recovery.overlay.as_ref();
                 match (activation, overlay) {
-                    (Some((channel, network)), overlay) => {
-                        self.connected_launch(&request, overlay, &channel, network, budget)
+                    (Some((channel, mut network)), overlay) => {
+                        self.connected_launch(&request, overlay, &channel, &mut network, budget)
                     }
                     (None, Some(overlay)) => {
                         self.control
@@ -317,7 +301,7 @@ impl Jailed {
         request: &Request,
         overlay: Option<&File>,
         channel: &ActivationChannel,
-        network: NetworkLaunch<'_>,
+        network: &mut NetworkLaunch<'_>,
         budget: Duration,
     ) -> Result<Outcome, BackendFailureKind> {
         let began = Instant::now();

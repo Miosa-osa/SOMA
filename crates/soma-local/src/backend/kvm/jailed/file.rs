@@ -16,7 +16,7 @@ use super::Jailed;
 impl Jailed {
     pub(in crate::backend::kvm) fn file(
         &mut self,
-        operation: FileOperation,
+        operation: &FileOperation,
     ) -> Result<FileAnswer, BackendFailureKind> {
         if self.poisoned {
             return Err(BackendFailureKind::Unavailable);
@@ -31,7 +31,7 @@ impl Jailed {
             .tell_with_files(&Request::File(self.instance), &[peer.as_fd()])
             .map_err(|kind| self.poison(kind))?;
         drop(peer);
-        let result = write_file_request(&mut local, &operation)
+        let result = write_file_request(&mut local, operation)
             .and_then(|()| local.shutdown(Shutdown::Write))
             .and_then(|()| read_file_answer(&mut local));
         // An older worker closes the socket and acknowledges an unknown request. This

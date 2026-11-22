@@ -115,7 +115,7 @@ impl Held {
     ) -> Result<FileAnswer, BackendFailureKind> {
         match self {
             Self::Resident(session) => session.file(operation).map_err(failure_kind),
-            Self::Jailed(jailed) => jailed.file(operation),
+            Self::Jailed(jailed) => jailed.file(&operation),
         }
     }
 
