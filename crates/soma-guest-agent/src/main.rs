@@ -248,15 +248,18 @@ mod agent {
         for line in timings::lines() {
             console::report(&line);
         }
-        match lifecycle::serve(controller, prepared) {
+        // Taken before the acknowledgement: the host reads the machine as soon as it has it.
+        let quiesce = || {
+            let down = network_repair::link_down(declared.net).map_err(|_| Fault::Network);
+            pid1::sync();
+            down
+        };
+        match lifecycle::serve(controller, prepared, quiesce) {
             lifecycle::Served::Poisoned(poisoned) => destroy(&poisoned),
             lifecycle::Served::Suspended(suspending) => {
-                // The session is already retired and acknowledged. The link goes down so the
-                // gap holds no in-flight queue, the overlay is flushed, and the agent says
-                // where it is parked before the host reads the machine.
-                let down = network_repair::link_down(declared.net).map_err(|_| Fault::Network);
-                pid1::sync();
-                let (captured, ()) = advance(suspending.park(down));
+                // The link was taken down and the overlay flushed before the acknowledgement,
+                // and the session went with it; what is left is to park and say so.
+                let (captured, ()) = advance(suspending.park(Ok(())));
                 console::report(SUSPENSION_POINT_LINE);
                 captured
             }

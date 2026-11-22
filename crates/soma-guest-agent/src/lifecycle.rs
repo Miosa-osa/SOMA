@@ -134,7 +134,16 @@ impl From<Controller<Poisoned>> for Served {
 
 /// Serves authenticated requests until shutdown powers the machine off, a suspension retires the
 /// session, or a fault poisons it.
-pub fn serve<I: ControlIo>(controller: Controller<Ready>, control: GuestControl<I>) -> Served {
+///
+/// `quiesce` runs when a Suspend arrives and before it is acknowledged: the acknowledgement is
+/// the host's signal that the guest is ready to be read, so the link is already down and the
+/// overlay already flushed when it is sent.
+pub fn serve<I: ControlIo>(
+    controller: Controller<Ready>,
+    control: GuestControl<I>,
+    quiesce: impl FnOnce() -> Result<(), Fault>,
+) -> Served {
+    let mut quiesce = Some(quiesce);
     let mut controller = controller;
     let mut control = control;
     // The one terminal outlives every request, because a session a caller opened has to still
@@ -188,9 +197,13 @@ pub fn serve<I: ControlIo>(controller: Controller<Ready>, control: GuestControl<
             // The acknowledgement consumes the session, so the Noise state is gone before the
             // agent parks; an acknowledgement that cannot be sent poisons rather than parks.
             GuestRequest::Suspend { .. } => {
-                let acknowledged = next
-                    .suspend_ack(Instant::now() + TERMINAL_BUDGET)
-                    .map_err(|_| Fault::Control);
+                let quiesced = quiesce
+                    .take()
+                    .map_or(Err(Fault::Order), |quiesce| quiesce());
+                let acknowledged = quiesced.and_then(|()| {
+                    next.suspend_ack(Instant::now() + TERMINAL_BUDGET)
+                        .map_err(|_| Fault::Control)
+                });
                 return match controller.suspend(acknowledged) {
                     Ok((suspending, ())) => Served::Suspended(suspending),
                     Err(poisoned) => Served::Poisoned(poisoned),
