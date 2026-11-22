@@ -171,7 +171,7 @@ class App(Gtk.Window):
         if os.path.isdir(folder):
             files = sorted(
                 (os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)),
-                key=lambda f: ("-light" in f, f),
+                key=lambda f: (os.path.splitext(f)[0].endswith("-light"), f),
             )
         if not files:
             note = Gtk.Label(label=empty, xalign=0)
