@@ -9,7 +9,6 @@
 //! memory a process holds.
 
 mod decide;
-mod default;
 mod guest;
 mod route;
 mod saved;
@@ -25,7 +24,6 @@ use soma::InstanceId;
 use guest::measure;
 
 pub use decide::{Policy, Sample};
-pub use default::{DEFAULT_ENV, is_default, set_default, setting_is_on};
 pub use route::{AutosizeBody, serve};
 pub use saved::{FILE as SAVED_FILE, remember_in};
 
@@ -136,16 +134,8 @@ pub fn spawn(
     thread::Builder::new()
         .name("soma-autosize".to_owned())
         .spawn(move || {
-            let mut since_enrol = default::ENROL_EVERY;
             loop {
                 thread::sleep(INTERVAL);
-                since_enrol += 1;
-                if default::is_default() && since_enrol >= default::ENROL_EVERY {
-                    since_enrol = 0;
-                    if let Some(mut facade) = open() {
-                        default::enrol(facade.as_mut());
-                    }
-                }
                 let instances: Vec<String> = sandboxes().keys().cloned().collect();
                 if instances.is_empty() {
                     continue;

@@ -146,9 +146,6 @@ fn run() -> i32 {
     {
         return code;
     }
-    soma_api::autosize::set_default(soma_api::autosize::setting_is_on(
-        env::var(soma_api::autosize::DEFAULT_ENV).ok().as_deref(),
-    ));
     let restored =
         soma_api::autosize::remember_in(config.state_root().join(soma_api::autosize::SAVED_FILE));
     if restored > 0 {

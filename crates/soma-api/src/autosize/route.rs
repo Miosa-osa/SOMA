@@ -52,9 +52,7 @@ pub fn serve<F: SandboxFacade + ?Sized>(
             .map_err(|_| ApiError::invalid("the request body is not a valid autosize document"))?;
         if body.enabled == Some(false) {
             set(instance, None);
-            super::default::turn_off(instance);
         } else {
-            super::default::turn_on(instance);
             // A range left out defaults to the whole of what the machine can do: from what it
             // booted with (memory) or one processor, up to its ceiling and its booted processors.
             let policy = Policy {

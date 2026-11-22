@@ -1,18 +1,18 @@
 //! What each sandbox asked for, kept on the host's disk so it outlives soma-api.
 //!
 //! The controller's list is memory, so an upgrade or a crash used to end every sandbox's sizing
-//! and forget every range a user set. With a file named by [`remember_in`], every range and every
-//! deliberate turn-off is written as it changes, and read back when soma-api starts. A saved
-//! sandbox that no longer runs is dropped at its first reading, like any other.
+//! and forget every range a user set. With a file named by [`remember_in`], every range is written
+//! as it changes (a turn-off removes it), and read back when soma-api starts. A saved sandbox that
+//! no longer runs is dropped at its first reading, like any other.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
 use serde::{Deserialize, Serialize};
 use soma::InstanceId;
 
-use super::{Policy, default, sandboxes};
+use super::{Policy, sandboxes};
 
 /// The file under the state root that holds the saved sizing.
 pub const FILE: &str = "autosize.json";
@@ -21,13 +21,11 @@ static PATH: OnceLock<PathBuf> = OnceLock::new();
 /// Serialises writers, so two changes never interleave their writes.
 static WRITING: Mutex<()> = Mutex::new(());
 
-/// The saved form: each sized sandbox's range, and the sandboxes turned off on purpose.
+/// The saved form: each sized sandbox's range.
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Saved {
     #[serde(default)]
     pub sized: BTreeMap<String, Policy>,
-    #[serde(default)]
-    pub off: BTreeSet<String>,
 }
 
 /// Keeps the sizing in `path` from now on, and restores what it already holds.
@@ -41,11 +39,6 @@ pub fn remember_in(path: PathBuf) -> usize {
         if let Ok(instance) = InstanceId::new(instance) {
             super::set_quiet(&instance, Some(policy));
             restored += 1;
-        }
-    }
-    for instance in saved.off {
-        if let Ok(instance) = InstanceId::new(instance) {
-            default::turn_off_quiet(&instance);
         }
     }
     restored
@@ -71,7 +64,6 @@ pub fn save() {
             .iter()
             .map(|(instance, entry)| (instance.clone(), entry.policy))
             .collect(),
-        off: default::turned_off_now(),
     };
     if let Err(error) = write(path, &saved) {
         eprintln!("soma-api: the autosize settings could not be saved: {error}");
@@ -109,7 +101,6 @@ mod tests {
                 max_memory_mb: 16384,
             },
         );
-        saved.off.insert("sbx-b".to_owned());
         write(&path, &saved).unwrap();
         assert_eq!(read(&path), saved);
         std::fs::remove_dir_all(&dir).unwrap();
