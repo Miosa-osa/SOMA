@@ -109,26 +109,15 @@ pub(super) fn recover(
         return Err(rejected);
     }
     let unavailable = BackendFailureKind::Unavailable;
-    let digest = soma::GenerationId::new(&receipt.digest).map_err(|_| rejected)?;
-    let checkpoint = CheckpointVolumeRequest {
-        source: soma_hostd::InstanceId::from_hex(source.as_str()).map_err(|_| rejected)?,
-        destination: soma_hostd::InstanceId::new(launch.instance_bytes).map_err(|_| rejected)?,
-        checkpoint: soma_hostd::OperationId::from_hex(checkpoint.as_str()).map_err(|_| rejected)?,
-        generation: soma_hostd::GenerationId::new(launch.generation_bytes).map_err(|_| rejected)?,
-        digest: soma_hostd::RequestFingerprint::new(super::identity::generation_bytes(&digest)?)
-            .map_err(|_| rejected)?,
-    };
+    let checkpoint = volume_checkpoint(
+        source,
+        launch.instance,
+        checkpoint,
+        &launch.prepared.id,
+        receipt,
+    )?;
     let restore = if source == launch.instance {
-        let volume_id = receipt
-            .volume_id
-            .as_deref()
-            .ok_or(BackendFailureKind::Unsupported)?;
-        Some(WorkspaceRestoreRequest {
-            checkpoint,
-            operation: soma_hostd::OperationId::from_hex(launch.operation.as_str())
-                .map_err(|_| rejected)?,
-            volume: VolumeId::from_hex(volume_id).map_err(|_| rejected)?,
-        })
+        Some(workspace_request(checkpoint, launch.operation, receipt)?)
     } else {
         None
     };
@@ -155,6 +144,76 @@ pub(super) fn recover(
                 staged: restore.map(|restore| (socket, restore)),
             })
         }
+        _ => Err(unavailable),
+    }
+}
+
+fn volume_checkpoint(
+    source: &soma::InstanceId,
+    destination: &soma::InstanceId,
+    checkpoint: &soma::OperationId,
+    generation: &soma::GenerationId,
+    receipt: &CheckpointVolumeReceipt,
+) -> Result<CheckpointVolumeRequest, BackendFailureKind> {
+    let rejected = BackendFailureKind::WorkloadRejected;
+    let digest = soma::GenerationId::new(&receipt.digest).map_err(|_| rejected)?;
+    Ok(CheckpointVolumeRequest {
+        source: soma_hostd::InstanceId::from_hex(source.as_str()).map_err(|_| rejected)?,
+        destination: soma_hostd::InstanceId::from_hex(destination.as_str())
+            .map_err(|_| rejected)?,
+        checkpoint: soma_hostd::OperationId::from_hex(checkpoint.as_str()).map_err(|_| rejected)?,
+        generation: soma_hostd::GenerationId::new(super::identity::generation_bytes(generation)?)
+            .map_err(|_| rejected)?,
+        digest: soma_hostd::RequestFingerprint::new(super::identity::generation_bytes(&digest)?)
+            .map_err(|_| rejected)?,
+    })
+}
+
+fn workspace_request(
+    checkpoint: CheckpointVolumeRequest,
+    operation: &soma::OperationId,
+    receipt: &CheckpointVolumeReceipt,
+) -> Result<WorkspaceRestoreRequest, BackendFailureKind> {
+    let rejected = BackendFailureKind::WorkloadRejected;
+    let volume_id = receipt
+        .volume_id
+        .as_deref()
+        .ok_or(BackendFailureKind::Unsupported)?;
+    Ok(WorkspaceRestoreRequest {
+        checkpoint,
+        operation: soma_hostd::OperationId::from_hex(operation.as_str()).map_err(|_| rejected)?,
+        volume: VolumeId::from_hex(volume_id).map_err(|_| rejected)?,
+    })
+}
+
+pub(in crate::backend) fn reconcile(
+    instance: &soma::InstanceId,
+    operation: &soma::OperationId,
+    checkpoint: &soma::OperationId,
+    generation: &soma::GenerationId,
+) -> Result<(), BackendFailureKind> {
+    let unavailable = BackendFailureKind::Unavailable;
+    let artifacts = match super::checkpoint::restore_artifacts(instance, generation, checkpoint) {
+        Ok(artifacts) => artifacts,
+        Err(crate::CheckpointFailure::Unsupported | crate::CheckpointFailure::NotFound) => {
+            return Ok(());
+        }
+        Err(_) => return Err(unavailable),
+    };
+    let Some(receipt) = artifacts
+        .volume
+        .filter(|receipt| receipt.volume_id.is_some())
+    else {
+        // Legacy and ephemeral checkpoints never stage a same-instance workspace.
+        return Ok(());
+    };
+    let binding = volume_checkpoint(instance, instance, checkpoint, generation, &receipt)?;
+    let request =
+        Request::WorkspaceRestoreReconcile(workspace_request(binding, operation, &receipt)?);
+    let socket =
+        PathBuf::from(std::env::var_os(super::runtime::SOCKET_VARIABLE).ok_or(unavailable)?);
+    match HostClient::connect(&socket).and_then(|client| client.call(&request)) {
+        Ok(Reply::Released { complete: true }) => Ok(()),
         _ => Err(unavailable),
     }
 }

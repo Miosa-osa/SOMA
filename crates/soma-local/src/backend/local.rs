@@ -183,6 +183,24 @@ impl Backend for LocalBackend {
         Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
     }
 
+    fn reconcile_checkpoint_launch(
+        &mut self,
+        instance: &InstanceId,
+        operation: &soma::OperationId,
+        checkpoint: &soma::OperationId,
+        generation: Option<&soma::GenerationId>,
+    ) -> Result<(), BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if matches!(self, Self::Kvm(_)) {
+            let generation =
+                generation.ok_or(BackendFailure::new(BackendFailureKind::WorkloadRejected, 0))?;
+            return kvm::reconcile_checkpoint_launch(instance, operation, checkpoint, generation)
+                .map_err(|kind| BackendFailure::new(kind, 0));
+        }
+        let _ = (instance, operation, checkpoint, generation);
+        Ok(())
+    }
+
     fn retains_stopped_checkpoint(
         &self,
         instance: &InstanceId,

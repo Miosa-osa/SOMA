@@ -90,6 +90,14 @@ impl VolumeStore for DirectoryVolumes {
         self.admit_workspace_detach(request)
     }
 
+    #[cfg(target_os = "linux")]
+    fn recovery_reconcile(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<(), VolumeError> {
+        self.reconcile_workspace_restore(request)
+    }
+
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
         self.check_operation(request.operation, request.fingerprint)?;
         // A host whose volume root is not on its encrypted data mount refuses the attach before

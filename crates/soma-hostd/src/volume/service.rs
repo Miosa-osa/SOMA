@@ -203,6 +203,14 @@ pub trait VolumeStore {
         Err(VolumeError::Missing("workspace recovery is unavailable"))
     }
 
+    /// Reconciles the workspace of an exact unfinished broker restore after worker teardown.
+    ///
+    /// # Errors
+    /// Refuses a changed intent, unexpected volume revision, or a live worker.
+    fn recovery_reconcile(&self, _request: &WorkspaceRestoreRequest) -> Result<(), VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
     /// Creates the volume on first attach, repairs it offline, and binds it to the Instance.
     ///
     /// # Errors

@@ -1,6 +1,10 @@
 use super::*;
 use crate::{RequestFingerprint, VolumeId, volume::VolumeStore};
-use std::{io::Write as _, os::unix::fs::PermissionsExt as _};
+use std::{
+    fs::OpenOptions,
+    io::Write as _,
+    os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _},
+};
 
 const TRANSITION: u64 = 11;
 
@@ -286,4 +290,100 @@ fn a_restarted_store_can_publish_then_roll_back_the_exact_operation() {
         .read_exact(&mut marker)
         .unwrap();
     assert_eq!(&marker, b"newer");
+}
+
+#[test]
+fn exact_pending_restore_recovers_both_durable_publication_cuts() {
+    use crate::{
+        GenerationId, InstanceId,
+        volume::{CheckpointVolumeRequest, CleanRepair},
+    };
+
+    for attached in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let volumes = root.path().join("volumes");
+        let records = root.path().join("records");
+        let open = || {
+            DirectoryVolumes::open_uncertified(&volumes, &records, Box::new(CleanRepair), true)
+                .unwrap()
+        };
+        let instance = InstanceId::new([1; 16]).unwrap();
+        let volume = VolumeId::new([2; 16]).unwrap();
+        let generation = GenerationId::new([3; 32]).unwrap();
+        let request = WorkspaceRestoreRequest {
+            operation: OperationId::new([4; 16]).unwrap(),
+            volume,
+            checkpoint: CheckpointVolumeRequest {
+                source: instance,
+                destination: instance,
+                generation,
+                checkpoint: OperationId::new([5; 16]).unwrap(),
+                digest: RequestFingerprint::new([6; 32]).unwrap(),
+            },
+        };
+        let store = open();
+        let directory = store.directory(volume);
+        fs::create_dir(&directory).unwrap();
+        let sidecar = crate::VolumeSidecar {
+            volume,
+            instance,
+            generation,
+            tenant: String::from("fixture"),
+            size_class_gib: 1,
+            state: VolumeState::Detached,
+            dek_id: [1; 16],
+            created_at_nanos: 1,
+            last_transition_nanos: TRANSITION,
+        };
+        store.write_sidecar(&sidecar).unwrap();
+        let (backing, placeholder, mut intent, worker) = stage(&directory);
+        let path = restore_path(&directory, request.operation);
+        fs::set_permissions(&placeholder, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::rename(&placeholder, &path).unwrap();
+        intent.fingerprint = store.restore_fingerprint(&request).unwrap();
+        fs::write(path.join(INTENT), intent.encode()).unwrap();
+        drop(store);
+
+        let store = open();
+        lock(&worker).unwrap();
+        if attached {
+            store.activate_workspace_restore(&request).unwrap();
+        } else {
+            interruption::arm(&store, &path).unwrap();
+            store.publish_workspace_restore(&request).unwrap();
+        }
+        assert!(matches!(
+            store.reconcile_workspace_restore(&request),
+            Err(VolumeError::Busy(_))
+        ));
+        drop(worker);
+        drop(store);
+
+        let store = open();
+        let mut changed = request;
+        changed.checkpoint.digest = RequestFingerprint::new([8; 32]).unwrap();
+        assert_eq!(
+            store.reconcile_workspace_restore(&changed),
+            Err(VolumeError::ChangedIntent)
+        );
+        store.reconcile_workspace_restore(&request).unwrap();
+        assert_eq!(store.inspect(volume).unwrap(), sidecar);
+        assert_eq!(fs::read(&backing).unwrap(), b"post-checkpoint writes");
+        assert!(!path.exists());
+        let history = fs::read_dir(&directory)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .find(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".restore-history-")
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read(history.join(DISPLACED)).unwrap(),
+            b"checkpoint bytes"
+        );
+        store.reconcile_workspace_restore(&request).unwrap();
+    }
 }

@@ -43,6 +43,7 @@ pub(crate) use host::workspace as change_workspace;
 pub(crate) use host::{
     checkpoint as checkpoint_machine, pause as pause_machine, resume as resume_machine,
 };
+pub(super) use jailed_volume::reconcile as reconcile_checkpoint_launch;
 use network::BrokerConfiguration;
 use pool::{MachineKey, MachinePool};
 use runtime::Ownership;

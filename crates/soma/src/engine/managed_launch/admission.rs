@@ -39,12 +39,12 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 if allocation != &intent.request_fingerprint && allocation != legacy_fingerprint {
                     return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
                 }
-                self.admit_restore(request, intent, resolved_at, milestones)
+                self.admit_restore(request, intent, None, resolved_at, milestones)
             }
             DurablePhase::Launching {
                 prior_stop: Some(_),
                 ..
-            } => self.admit_restore(request, intent, resolved_at, milestones),
+            } => self.admit_restore(request, intent, None, resolved_at, milestones),
             _ => self.admit_launch(request, intent, resolved_at, milestones),
         }
     }
@@ -53,6 +53,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: &LaunchMachineRequest,
         intent: &LaunchIntent,
+        checkpoint: Option<&crate::OperationId>,
         resolved_at: u64,
         milestones: &mut Vec<Milestone>,
     ) -> Result<LaunchAdmission, ManagedFailure> {
@@ -81,7 +82,9 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     CleanupReason::Rollback,
                     milestones,
                 );
-                if !cleanup.complete {
+                if !cleanup.complete
+                    || !self.reconcile_checkpoint_launch(intent, request, checkpoint)
+                {
                     return Err(ManagedFailure::State(ManagedStateError::RecoveryRequired));
                 }
                 *milestones = vec![

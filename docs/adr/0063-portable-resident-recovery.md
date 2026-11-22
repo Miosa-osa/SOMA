@@ -53,3 +53,11 @@ Write a distinct file marker after capture and verify the former disk remains av
 Reject modified artifacts, mismatched shape or Generation, a different tenant, and a replay with a changed destination.
 Recover from termination before staging, during transfer, before publication, and immediately after publication.
 Run the managed S3 backup and restore on two physical hosts using the intended release binary and image.
+
+## Interrupted publication
+
+Only the broker holding the exact pending restore intent and exclusive Instance lease may reconcile an unacknowledged publication.
+The broker first confirms the previous worker has stopped.
+The volume store records the attachment revision before replacing the backing and accepts reconciliation only at that revision or at the original detached revision.
+Reconciliation restores the original backing, keeps the replacement and its writes in private history, and permits the same authorized operation to stage a fresh copy.
+A completed restore replays its durable ready receipt without rolling its disk back.

@@ -9,6 +9,24 @@ use crate::engine::{
 use super::receipt::{launch_receipt, store_operation_failure};
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
+    pub(super) fn reconcile_checkpoint_launch(
+        &mut self,
+        intent: &LaunchIntent,
+        request: &LaunchMachineRequest,
+        checkpoint: Option<&crate::OperationId>,
+    ) -> bool {
+        checkpoint.is_none_or(|checkpoint| {
+            self.backend
+                .reconcile_checkpoint_launch(
+                    &request.instance_id,
+                    &intent.operation_id,
+                    checkpoint,
+                    intent.workload.generation_id(),
+                )
+                .is_ok()
+        })
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "failed launch preserves its complete transaction context"
@@ -19,6 +37,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         intent: LaunchIntent,
         revision: crate::StateRevision,
         prior_stop: Option<Box<DurableMachine>>,
+        checkpoint: Option<&crate::OperationId>,
         fingerprint: crate::RequestFingerprint,
         workload: crate::WorkloadIdentity,
         mut milestones: Vec<Milestone>,
@@ -40,7 +59,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             cleanup.evidence,
             TerminalStatus::Failed,
         );
-        if cleanup.complete {
+        if cleanup.complete && self.reconcile_checkpoint_launch(&intent, request, checkpoint) {
             let terminal = prior_stop.map_or_else(
                 || {
                     let mut terminal =

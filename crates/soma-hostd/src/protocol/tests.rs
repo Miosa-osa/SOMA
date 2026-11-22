@@ -289,6 +289,7 @@ fn workspace_restore_requests_round_trip_with_exact_operation_and_volume() {
         (19, Request::WorkspaceRestoreStage(workspace)),
         (20, Request::WorkspaceRestorePublish(workspace)),
         (21, Request::WorkspaceRestoreAbort(workspace)),
+        (22, Request::WorkspaceRestoreReconcile(workspace)),
     ] {
         let encoded = request.encode();
         assert_eq!(encoded[0], tag);

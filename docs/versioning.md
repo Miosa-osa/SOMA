@@ -60,6 +60,7 @@ A frame or message a build does not understand is refused, never guessed at.
 ### Guest API levels
 
 Hostd protocol 3 adds fixed workspace restore stage, publish, and abort requests.
+Hostd protocol 4 adds reconciliation of an exact unfinished workspace restore after worker teardown.
 The broker and host daemon must both support those requests for same-instance recovery of a mounted workspace.
 Worker control protocol 3 carries the certified volume capacity on the same-instance recovery request.
 

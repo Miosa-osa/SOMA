@@ -124,6 +124,10 @@ pub fn handle<L: WorkerLauncher, R: ResourceBroker, V: VolumeStore>(
             Ok(()) => Reply::Released { complete: true },
             Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
         },
+        Request::WorkspaceRestoreReconcile(request) => match volumes.recovery_reconcile(&request) {
+            Ok(()) => Reply::Released { complete: true },
+            Err(error) => Reply::Failed(failure_code(volume_failure_code(&error))),
+        },
         Request::VolumeOwned { instance } => match volumes.owned(instance) {
             Ok(owned) => Reply::VolumeOwned {
                 volume: owned.volume,

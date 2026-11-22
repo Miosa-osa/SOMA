@@ -107,6 +107,21 @@ pub trait Backend: Send {
         ))
     }
 
+    /// Reconciles backend storage for an exact unfinished same-Instance checkpoint launch.
+    ///
+    /// The caller holds the restore lease and has confirmed worker teardown.
+    /// # Errors
+    /// Returns a backend failure if its storage state cannot be reconciled safely.
+    fn reconcile_checkpoint_launch(
+        &mut self,
+        _instance: &InstanceId,
+        _operation: &crate::OperationId,
+        _checkpoint: &crate::OperationId,
+        _generation: Option<&crate::GenerationId>,
+    ) -> Result<(), BackendFailure> {
+        Ok(())
+    }
+
     /// Whether published checkpoints still depend on this stopped Instance record.
     /// # Errors
     /// Backends with checkpoint storage report a typed failure when they cannot inspect it.

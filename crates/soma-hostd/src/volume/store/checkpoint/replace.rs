@@ -1,13 +1,18 @@
 //! Durable staging and publication of a replacement for a stopped workspace.
 
 use std::{
-    fs::{self, File, OpenOptions, TryLockError},
+    fs::{self, File},
     io::{ErrorKind, Read as _},
-    os::unix::fs::{MetadataExt as _, OpenOptionsExt as _},
+    os::unix::fs::MetadataExt as _,
     path::{Path, PathBuf},
 };
 
 use sha2::{Digest as _, Sha256};
+
+mod file;
+mod interruption;
+
+use file::{inode, lock, open_regular, private_file, sync};
 
 use super::{
     CheckpointVolumeBinding, DirectoryVolumes, IO_FAILURE, Request, Staging, VOLUME_FILE,
@@ -17,7 +22,6 @@ use crate::{
     OperationId,
     volume::{
         AttachOutcome, VOLUME_DEVICE, VolumeRecordKind, WorkspaceRestoreRequest,
-        record::now_nanos,
         store::{WORKSPACE_RESTORE_PREFIX, serve::owned_volume},
     },
 };
@@ -206,6 +210,11 @@ impl DirectoryVolumes {
         }
         let intent = Intent::read(&path, fingerprint)?;
         let backing = self.file(owner.volume);
+        let transition = if activate {
+            Some(interruption::arm(self, &path)?)
+        } else {
+            None
+        };
         publish(
             &directory,
             &path,
@@ -214,13 +223,16 @@ impl DirectoryVolumes {
             owner.state,
             owner.last_transition_nanos,
         )?;
-        if activate {
+        if let Some(transition) = transition {
             let worker_disk = open_regular(&backing, true)?;
             require_worker_lock(&worker_disk)?;
+            if owner.state == VolumeState::Attached && owner.last_transition_nanos != transition {
+                return Err(VolumeError::ChangedIntent);
+            }
             if owner.state == VolumeState::Detached {
                 let mut attached = owner.clone();
                 attached.state = VolumeState::Attached;
-                attached.last_transition_nanos = now_nanos();
+                attached.last_transition_nanos = transition;
                 self.transition(VolumeRecordKind::AttachBegin, attached.volume)?;
                 self.write_sidecar(&attached)?;
                 self.transition(VolumeRecordKind::AttachEnd, attached.volume)?;
@@ -269,16 +281,24 @@ impl DirectoryVolumes {
         if inode(&backing)? != intent.original {
             return Err(VolumeError::ChangedIntent);
         }
+        self.discard_staged_restore(&directory, &path, intent)
+    }
+
+    fn discard_staged_restore(
+        &self,
+        directory: &Path,
+        path: &Path,
+        intent: Intent,
+    ) -> Result<(), VolumeError> {
         let staged = private_file(&path.join(VOLUME_FILE), true)?;
         if inode(&staged)? != intent.replacement {
             return Err(VolumeError::ChangedIntent);
         }
         lock(&staged)?;
-
         let retired = Staging::new(&self.root)?;
         fs::rename(path, retired.path.join("retired-restore")).map_err(|_| IO_FAILURE)?;
         sync(&retired.path)?;
-        sync(&directory)
+        sync(directory)
     }
 
     /// Restores the preceding backing after the replacement's worker has stopped.
@@ -440,11 +460,11 @@ fn rollback(
 
 fn require_worker_lock(staged: &File) -> Result<(), VolumeError> {
     match staged.try_lock() {
-        Err(TryLockError::WouldBlock) => Ok(()),
+        Err(fs::TryLockError::WouldBlock) => Ok(()),
         Ok(()) => Err(VolumeError::Busy(
             "the recovered worker does not own its workspace",
         )),
-        Err(TryLockError::Error(_)) => Err(IO_FAILURE),
+        Err(fs::TryLockError::Error(_)) => Err(IO_FAILURE),
     }
 }
 
@@ -459,50 +479,6 @@ fn retain_link(source: &Path, destination: &Path, expected: u64) -> Result<(), V
         }
         Err(_) => Err(IO_FAILURE),
     }
-}
-
-fn private_file(path: &Path, writable: bool) -> Result<File, VolumeError> {
-    let file = open_regular(path, writable)?;
-    if file.metadata().map_err(|_| IO_FAILURE)?.mode() & 0o077 != 0 {
-        return Err(IO_FAILURE);
-    }
-    Ok(file)
-}
-
-// Existing backing files may predate private mode on the file. The store supplies their paths,
-// and links to retained files stay inside the per-operation private directory.
-fn open_regular(path: &Path, writable: bool) -> Result<File, VolumeError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(writable)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)
-        .map_err(|_| IO_FAILURE)?;
-    let meta = file.metadata().map_err(|_| IO_FAILURE)?;
-    if !meta.is_file() {
-        return Err(IO_FAILURE);
-    }
-    Ok(file)
-}
-
-fn inode(file: &File) -> Result<u64, VolumeError> {
-    file.metadata()
-        .map(|meta| meta.ino())
-        .map_err(|_| IO_FAILURE)
-}
-
-fn lock(file: &File) -> Result<(), VolumeError> {
-    match file.try_lock() {
-        Ok(()) => Ok(()),
-        Err(TryLockError::WouldBlock) => Err(VolumeError::Busy("the workspace is still in use")),
-        Err(TryLockError::Error(_)) => Err(IO_FAILURE),
-    }
-}
-
-fn sync(directory: &Path) -> Result<(), VolumeError> {
-    File::open(directory)
-        .and_then(|file| file.sync_all())
-        .map_err(|_| IO_FAILURE)
 }
 
 #[cfg(test)]

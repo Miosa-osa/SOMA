@@ -136,6 +136,8 @@ pub enum Request {
     WorkspaceRestorePublish(WorkspaceRestoreRequest),
     /// Discard a staged disk after a failed restore.
     WorkspaceRestoreAbort(WorkspaceRestoreRequest),
+    /// Rolls back an exact unfinished broker restore after confirmed worker teardown.
+    WorkspaceRestoreReconcile(WorkspaceRestoreRequest),
 }
 
 impl Request {
@@ -217,11 +219,13 @@ impl Request {
             }
             Self::WorkspaceRestoreStage(frame)
             | Self::WorkspaceRestorePublish(frame)
-            | Self::WorkspaceRestoreAbort(frame) => {
+            | Self::WorkspaceRestoreAbort(frame)
+            | Self::WorkspaceRestoreReconcile(frame) => {
                 out.push(match self {
                     Self::WorkspaceRestoreStage(_) => 19,
                     Self::WorkspaceRestorePublish(_) => 20,
-                    _ => 21,
+                    Self::WorkspaceRestoreAbort(_) => 21,
+                    _ => 22,
                 });
                 volumes::encode_restore(frame, &mut out);
             }
@@ -282,6 +286,7 @@ impl Request {
             (19, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreStage),
             (20, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestorePublish),
             (21, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreAbort),
+            (22, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreReconcile),
             _ => Err(ProtocolError("request")),
         }
     }

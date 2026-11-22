@@ -223,8 +223,16 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         };
         let admission = match &locked {
             Some(LockedLaunch::Checkpoint {
-                fork_source: None, ..
-            }) => self.admit_restore(request, &intent, resolved_at, &mut milestones)?,
+                checkpoint,
+                fork_source: None,
+                ..
+            }) => self.admit_restore(
+                request,
+                &intent,
+                Some(checkpoint),
+                resolved_at,
+                &mut milestones,
+            )?,
             Some(LockedLaunch::Workspace(_)) => self.admit_workspace_start(
                 request,
                 &intent,
@@ -251,6 +259,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         .with_volume(request.volume.as_ref())
         .with_windowed(request.windowed)
         .with_resume(request.resume.as_deref());
+        let recovery_checkpoint = match &locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: None,
+                ..
+            }) => Some(*checkpoint),
+            _ => None,
+        };
         let observation = match locked {
             Some(LockedLaunch::Checkpoint {
                 checkpoint,
@@ -288,6 +304,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     intent,
                     revision,
                     prior_stop,
+                    recovery_checkpoint,
                     fingerprint,
                     workload,
                     milestones,
@@ -301,6 +318,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 intent,
                 revision,
                 prior_stop,
+                recovery_checkpoint,
                 fingerprint,
                 workload,
                 milestones,
