@@ -6,17 +6,17 @@
 //! Instance's own file is bound over it before this point, so a machine that reached the run
 //! still holding the placeholder is refused here rather than started with an empty disk.
 
-use std::sync::Arc;
+use std::sync::{Arc, atomic::Ordering};
 
 use super::{Milestone, Prepared, Running, SandboxMachine, Stage};
 use crate::virtio::BlockConfigError;
 use crate::x86_64::{
     error::{MachineError, MachineErrorKind, Phase},
-    event_loop::EventLoop,
+    event_loop::{DeviceRoutes, EventLoop},
     mmio::MmioDispatch,
     ports::{PortBus, PortBusHandle},
     serial::Serial,
-    watchdog::{CANCELLATION_GRACE, RunContext, VcpuRun},
+    watchdog::{CANCELLATION_GRACE, RunContext, RunReport, VcpuRun},
 };
 
 impl SandboxMachine {
@@ -41,8 +41,12 @@ impl SandboxMachine {
                 MachineErrorKind::Block(BlockConfigError::PlaceholderSwapMissing),
             ));
         }
-        let Stage::Prepared(prepared) = std::mem::replace(&mut self.stage, Stage::Stopped) else {
+        let stage = self.stage.get_mut();
+        if !matches!(stage, Stage::Prepared(_)) {
             return Err(MachineError::invalid(Phase::Run, "sandbox already started"));
+        }
+        let Stage::Prepared(prepared) = std::mem::replace(stage, Stage::Stopped) else {
+            unreachable!("the prepared stage was checked before taking it")
         };
         let Prepared {
             vcpus,
@@ -50,52 +54,108 @@ impl SandboxMachine {
             irq,
             notify,
         } = prepared;
-        // Each worker gets its own duplicated notify descriptors.
-        let mut kicks = Vec::with_capacity(vcpus.len());
-        for _ in 0..vcpus.len() {
-            kicks.push(notify.kicks()?);
+        let workers = vcpus
+            .into_iter()
+            .map(|vcpu| {
+                let dispatch = MmioDispatch::new(
+                    Arc::clone(&self.shared),
+                    self.machine.ram.shared(),
+                    notify.kicks()?,
+                    Arc::clone(&self.finished),
+                );
+                Ok((vcpu, dispatch))
+            })
+            .collect::<Result<Vec<_>, MachineError>>()?;
+        let ports = PortBusHandle::new(PortBus::new(Serial::with_tap(
+            Some(serial_line),
+            self.console.clone(),
+        )));
+        let event_loop = self.start_devices(DeviceRoutes { notify, irq })?;
+        self.clock.lap(Phase::EventLoop);
+        self.mark(Milestone::EventLoop);
+        // The timing contract requires this mark before any vCPU enters KVM_RUN.
+        self.mark(Milestone::RunStart);
+        let context = RunContext::acquire()?;
+        self.start_vcpus(context, event_loop, workers, |context, (vcpu, dispatch)| {
+            VcpuRun::start(context, vcpu, &ports, Some(dispatch), None, &self.exits)
+        })?;
+        self.ports = Some(ports);
+        Ok(())
+    }
+
+    /// Restarts service threads over the same paused vCPUs, memory and devices.
+    ///
+    /// Repeating resume on a running machine does not create more workers.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the machine never paused successfully or a worker cannot restart.
+    /// A failed restart is reclaimable.
+    pub fn resume(&self) -> Result<(), MachineError> {
+        let mut stage = self.stage.borrow_mut();
+        match &*stage {
+            Stage::Running(_) => return Ok(()),
+            Stage::Paused(paused) if paused.complete => {}
+            _ => return Err(MachineError::invalid(Phase::Run, "sandbox is not paused")),
         }
+        let ports = self
+            .ports
+            .clone()
+            .ok_or_else(|| MachineError::invalid(Phase::Run, "paused sandbox lost its port bus"))?;
+        let Stage::Paused(paused) = std::mem::replace(&mut *stage, Stage::Stopped) else {
+            unreachable!("the paused stage was checked before taking it")
+        };
+        drop(stage);
+        let devices = paused.devices.ok_or_else(|| {
+            MachineError::invalid(Phase::Run, "paused sandbox lost its device loop")
+        })?;
+        let context = paused
+            .context
+            .ok_or_else(|| MachineError::invalid(Phase::Run, "paused sandbox lost its watchdog"))?;
+        let event_loop = devices
+            .resume()
+            .map_err(|error| MachineError::io(Phase::EventLoop, &error))?;
+        self.start_vcpus(context, event_loop, paused.reports, |context, report| {
+            let RunReport { vcpu, mmio, .. } = report;
+            match (vcpu, mmio) {
+                (Some(vcpu), Some(dispatch)) => {
+                    VcpuRun::resume(context, vcpu, &ports, dispatch, &self.exits)
+                }
+                _ => Err(MachineError::invalid(Phase::Run, "paused sandbox lost a vCPU").into()),
+            }
+        })?;
+        // A network edge may have been dequeued in the same epoll batch as the stop wakeup.
+        // Rescan the existing backend once so that edge does not need another packet to arrive.
+        self.wake_devices();
+        Ok(())
+    }
+
+    fn start_devices(&self, routes: DeviceRoutes) -> Result<EventLoop, MachineError> {
         // An Instance with an assigned bundle has its TAP attached before this point, so the
         // device thread can watch it from its first wakeup.
-        let event_loop = EventLoop::spawn(
+        EventLoop::spawn(
             Arc::clone(&self.shared),
             self.machine.ram.shared(),
-            notify,
-            irq,
+            routes,
             self.host_work
                 .try_clone()
                 .map_err(|error| MachineError::io(Phase::EventLoop, &error))?,
             self.net_backend_fd(),
         )
-        .map_err(|error| MachineError::io(Phase::EventLoop, &error))?;
-        self.clock.lap(Phase::EventLoop);
-        self.mark(Milestone::EventLoop);
-        let ports = PortBusHandle::new(PortBus::new(Serial::with_tap(
-            Some(serial_line),
-            self.console.clone(),
-        )));
-        // RunStart is stamped BEFORE any vCPU thread exists: the timing contract reads
-        // "armed <= entered", and every thread this loop spawns stamps FirstRunEntered on its
-        // own way into KVM_RUN. Stamping after a spawn returns loses that order on a small
-        // host - a 2-core machine was observed entering the guest 3.6us before the spawning
-        // thread got to the mark.
-        self.mark(Milestone::RunStart);
-        let context = match RunContext::acquire() {
-            Ok(context) => context,
-            Err(error) => {
-                let _ignored = event_loop.stop();
-                return Err(error);
-            }
-        };
-        let mut runs = Vec::with_capacity(vcpus.len());
-        for (vcpu, kicks) in vcpus.into_iter().zip(kicks) {
-            let dispatch = MmioDispatch::new(
-                Arc::clone(&self.shared),
-                self.machine.ram.shared(),
-                kicks,
-                Arc::clone(&self.finished),
-            );
-            match VcpuRun::start(&context, vcpu, &ports, Some(dispatch), None, &self.exits) {
+        .map_err(|error| MachineError::io(Phase::EventLoop, &error))
+    }
+
+    fn start_vcpus<T>(
+        &self,
+        context: RunContext,
+        event_loop: EventLoop,
+        workers: Vec<T>,
+        spawn: impl Fn(&RunContext, T) -> Result<VcpuRun, RunReport>,
+    ) -> Result<(), MachineError> {
+        self.finished.store(false, Ordering::Release);
+        let mut runs = Vec::with_capacity(workers.len());
+        for worker in workers {
+            match spawn(&context, worker) {
                 Ok(run) => runs.push(run),
                 Err(report) => {
                     for run in runs {
@@ -108,8 +168,7 @@ impl SandboxMachine {
                 }
             }
         }
-        self.ports = Some(ports);
-        self.stage = Stage::Running(Running {
+        *self.stage.borrow_mut() = Stage::Running(Running {
             context,
             vcpus: runs,
             event_loop,

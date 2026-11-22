@@ -59,15 +59,13 @@ dbus-daemon --session --address="$BUS" --nofork --nopidfile &
 export DBUS_SESSION_BUS_ADDRESS="$BUS"
 wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
-# The screen. By default it is Xvfb with its frame buffer in shared memory (-shmem): voxl reads that
-# memory directly and encodes only what changed, so a still desktop costs next to nothing. On
-# KasmVNC's X server voxl has no frame buffer to read and copies the whole screen every frame
-# (measured: 57% of a core on a still screen, against a quarter of that on Xvfb).
-# SOMA_DESKTOP_SCREEN=kasmvnc keeps KasmVNC (its own viewer on 6082); =xorg the frame-buffer Xorg.
-if [[ "${SOMA_DESKTOP_SCREEN:-xvfb}" == xvfb ]] && command -v Xvfb >/dev/null; then
+# Xvfb exposes its framebuffer in shared memory for the on-demand viewer.
+# SOMA_DESKTOP_SCREEN can also select the diagnostic KasmVNC or dummy Xorg screen.
+screen=${SOMA_DESKTOP_SCREEN:-xvfb}
+if [[ "$screen" == xvfb ]] && command -v Xvfb >/dev/null; then
     Xvfb :0 -screen 0 "${SOMA_DESKTOP_GEOMETRY:-1920x1080}x24" -shmem -ac -nolisten tcp -noreset \
         +extension RANDR +extension RENDER +extension XTEST >"$STATE/logs/xvfb.log" 2>&1 &
-elif [[ "${SOMA_DESKTOP_SCREEN}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
+elif [[ "$screen" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
     Xkasmvnc :0 \
         -publicIP 127.0.0.1 \
         -httpd /usr/share/kasmvnc/www \
@@ -137,14 +135,6 @@ pgrep -u "$(id -u)" -x pcmanfm >/dev/null \
     || xsetroot -solid '#0a0b14' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
-# voxl on the viewer port the platform reaches through the tunnel (6080): the same screen as H.264
-# over one WebSocket, desktop following the viewer's window. Authentication is the platform's, at
-# the tunnel, as for KasmVNC; a viewer that only watches gets --read-only from the platform.
-voxl --port=6080 --enable-basic-auth=false --title="MIOSA Desktop" \
-    --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
-    --enable-resize=true --audio-enabled=false --framerate=30 \
-    --crf=20 --min-kbps=6000 --paintover-crf=10 --paintover-burst=6 --paintover-delay-ms=100 \
-    >"$STATE/logs/voxl.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 # The dock is Plank: frosted glass, icons that grow under the pointer, open windows marked. Its
 # settings and the MIOSA theme come from the image (dconf "local" and /usr/share/plank/themes).
@@ -155,6 +145,17 @@ cua-driver serve \
     --capability-manifest "$MANIFEST" \
     --approve-capability-manifest &
 wait_for driver_socket 150 test -S "$HOME/.cache/cua-driver/cua-driver.sock" || exit 1
+
+# The MIOSA image layer includes desktopd. The platform provisions its token before starting
+# the session. desktopd reads it before binding, so no token means no desktop API.
+if [[ -x /usr/local/bin/desktopd ]]; then
+    ENVD_DESKTOP_BACKEND=cua /usr/local/bin/desktopd >"$STATE/logs/desktopd.log" 2>&1 &
+    desktopd_pid=$!
+    desktopd_ready() {
+        kill -0 "$desktopd_pid" 2>/dev/null && port_open 49985
+    }
+    wait_for desktop_api 50 desktopd_ready || exit 1
+fi
 mark session_ready
 log "desktop ready on :0"
 

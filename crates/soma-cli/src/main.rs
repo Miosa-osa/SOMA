@@ -1,4 +1,5 @@
 mod app;
+mod checkpoint;
 mod cli;
 mod exit;
 mod model;
@@ -59,6 +60,12 @@ fn run() -> i32 {
     // holds one sandbox, so it takes the binary over before any response exists.
     if let RootCommand::MachineHost(arguments) = &cli.command {
         return soma_local::host_machine(Some(&arguments.socket));
+    }
+    if matches!(
+        cli.command,
+        RootCommand::CheckpointExport(_) | RootCommand::CheckpointImport(_)
+    ) {
+        return checkpoint::execute(&cli).code();
     }
     let format = cli.format;
     let execution = execute(cli);

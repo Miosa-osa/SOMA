@@ -39,3 +39,6 @@ pub(crate) const HEADER_SIZE: usize = 28;
 /// against the same number this codec applies, and an aggregate a caller cannot see is one it
 /// will rediscover as a failed message.
 pub const MAX_BODY_SIZE: usize = MAX_RECORD_PAYLOAD - HEADER_SIZE;
+
+mod workspace;
+pub use workspace::{WorkspaceAction, WorkspaceOutcome};

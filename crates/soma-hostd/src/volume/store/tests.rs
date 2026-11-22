@@ -115,6 +115,7 @@ fn a_class_below_the_volume_own_is_refused() {
 fn a_detach_is_recorded_and_idempotent() {
     let (work, volumes) = store();
     volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
     let detached = volumes.detach(&detach(1, 9, 2)).expect("detaches");
     assert_eq!(detached.state, VolumeState::Detached);
     assert_eq!(
@@ -122,6 +123,29 @@ fn a_detach_is_recorded_and_idempotent() {
         VolumeState::Detached
     );
     assert_eq!(record_count(work.path(), volume(1)), 6);
+}
+
+#[test]
+fn detach_keeps_a_live_volume_attached_until_its_worker_releases_the_lock() {
+    let (work, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    let worker = fs::File::create(volumes.file(volume(1))).expect("volume file");
+    worker.try_lock().expect("worker owns the volume");
+    let request = detach(1, 9, 2);
+    assert_eq!(
+        volumes.detach(&request),
+        Err(VolumeError::Busy("the volume is still in use"))
+    );
+    assert_eq!(
+        volumes.inspect(volume(1)).expect("attached").state,
+        VolumeState::Attached
+    );
+    assert_eq!(record_count(work.path(), volume(1)), 4);
+    drop(worker);
+    assert_eq!(
+        volumes.detach(&request).expect("retry after stop").state,
+        VolumeState::Detached
+    );
 }
 
 #[test]
@@ -262,3 +286,71 @@ fn a_refused_create_is_a_typed_refusal_and_leaves_no_attached_volume() {
 mod binding;
 mod encryption;
 mod keyring;
+
+#[test]
+fn live_workspace_publishes_only_after_the_worker_holds_the_disk() {
+    let (_home, volumes) = store();
+    let initial = attach(1, 9, 1, 10);
+    volumes.attach(&initial).expect("create");
+    fs::File::create(volumes.file(volume(1))).expect("fixture backing file");
+    volumes.detach(&detach(1, 9, 2)).expect("detach");
+    let reattach = attach(1, 9, 3, 10);
+    let binding = volumes.stage_live_attach(&reattach).expect("stage");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Detached
+    );
+    assert!(matches!(
+        volumes.commit_live_attach(&reattach),
+        Err(VolumeError::Busy(_))
+    ));
+    let worker = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(binding.path)
+        .unwrap();
+    worker.try_lock().unwrap();
+    volumes
+        .commit_live_attach(&reattach)
+        .expect("worker lock confirmed");
+    volumes.commit_live_attach(&reattach).expect("replay");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Attached
+    );
+    assert!(matches!(
+        volumes.destroy(volume(1)),
+        Err(VolumeError::Busy(_))
+    ));
+    assert!(matches!(
+        volumes.validate_live_detach(&detach(1, 8, 4)),
+        Err(VolumeError::Busy(_))
+    ));
+    drop(worker);
+    volumes
+        .validate_live_detach(&detach(1, 9, 5))
+        .expect("owner");
+    volumes.detach(&detach(1, 9, 5)).expect("publish detach");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Detached
+    );
+}
+
+#[test]
+fn a_live_attach_cannot_change_the_workspace_geometry_or_owner() {
+    let (_home, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).unwrap();
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(1, 9, 2, 20)),
+        Err(VolumeError::ChangedIntent)
+    ));
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(1, 8, 3, 10)),
+        Err(VolumeError::Busy(_))
+    ));
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(8, 9, 4, 10)),
+        Err(VolumeError::Missing(_))
+    ));
+}

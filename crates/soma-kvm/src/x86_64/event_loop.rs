@@ -70,7 +70,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn run(mut self) -> (EventLoopReport, NotifyFds, IrqLines) {
+    fn run(mut self) -> Self {
         let mut events = vec![EpollEvent::default(); self.notify.entries().len() + 3];
         'serve: loop {
             let ready = match self.epoll.wait(-1, &mut events) {
@@ -90,7 +90,7 @@ impl Worker {
                 }
             }
         }
-        (self.report, self.notify, self.irq)
+        self
     }
 
     /// Delivers whatever the host side already holds for the guest.
@@ -193,10 +193,34 @@ impl Worker {
     }
 }
 
+/// The eventfds assigned to one VM's device bus.
+pub(crate) struct DeviceRoutes {
+    pub(crate) notify: NotifyFds,
+    pub(crate) irq: IrqLines,
+}
+
 /// The running device thread and the descriptor that stops it.
 pub(crate) struct EventLoop {
-    worker: Option<JoinHandle<(EventLoopReport, NotifyFds, IrqLines)>>,
+    worker: Option<JoinHandle<Worker>>,
+    stop: Option<EventFd>,
+}
+
+/// A quiescent device loop retaining its queue registrations and epoll instance.
+pub(crate) struct ParkedDevices {
+    worker: Worker,
     stop: EventFd,
+}
+
+impl ParkedDevices {
+    pub(crate) fn resume(self) -> io::Result<EventLoop> {
+        // Consume the wakeup that ended the previous thread before re-entering epoll.
+        self.stop.read()?;
+        EventLoop::start_worker(self.worker, self.stop)
+    }
+
+    pub(crate) fn release(self) -> (EventLoopReport, NotifyFds, IrqLines) {
+        (self.worker.report, self.worker.notify, self.worker.irq)
+    }
 }
 
 impl EventLoop {
@@ -204,11 +228,11 @@ impl EventLoop {
     pub(crate) fn spawn(
         shared: Arc<SharedBus>,
         memory: SharedRam,
-        notify: NotifyFds,
-        irq: IrqLines,
+        routes: DeviceRoutes,
         host_work: EventFd,
         net_rx: Option<RawFd>,
     ) -> io::Result<Self> {
+        let DeviceRoutes { notify, irq } = routes;
         let stop = EventFd::new(libc::EFD_NONBLOCK)?;
         let epoll = Epoll::new()?;
         for (index, entry) in notify.entries().iter().enumerate() {
@@ -245,26 +269,37 @@ impl EventLoop {
             epoll,
             report: EventLoopReport::default(),
         };
+        Self::start_worker(worker, stop)
+    }
+
+    fn start_worker(worker: Worker, stop: EventFd) -> io::Result<Self> {
         let handle = thread::Builder::new()
             .name("soma-kvm-devices".to_owned())
             .spawn(move || worker.run())?;
         Ok(Self {
             worker: Some(handle),
-            stop,
+            stop: Some(stop),
         })
     }
 
+    /// Joins the thread while retaining the resources it can resume with.
+    pub(crate) fn park(mut self) -> Option<ParkedDevices> {
+        let stop = self.stop.take()?;
+        let _ignored = stop.write(1);
+        let worker = self.worker.take()?.join().ok()?;
+        Some(ParkedDevices { worker, stop })
+    }
+
     /// Stops the thread and returns its report together with the descriptors it owned.
-    pub(crate) fn stop(mut self) -> Option<(EventLoopReport, NotifyFds, IrqLines)> {
-        let _ignored = self.stop.write(1);
-        self.worker.take().and_then(|worker| worker.join().ok())
+    pub(crate) fn stop(self) -> Option<(EventLoopReport, NotifyFds, IrqLines)> {
+        self.park().map(ParkedDevices::release)
     }
 }
 
 impl Drop for EventLoop {
     fn drop(&mut self) {
-        if let Some(worker) = self.worker.take() {
-            let _ignored = self.stop.write(1);
+        if let (Some(worker), Some(stop)) = (self.worker.take(), self.stop.take()) {
+            let _ignored = stop.write(1);
             let _ignored = worker.join();
         }
     }

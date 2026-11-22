@@ -35,8 +35,9 @@ pub use repair::{
     CreateError, FORMAT_TOOL, REPAIR_TOOL, RepairOutcome, RepairReceipt, VolumeRepair,
 };
 pub use service::{
-    AttachOutcome, AttachRequest, DetachOutcome, DetachRequest, VOLUME_DEVICE, VolumeBinding,
-    VolumeStore,
+    AttachOutcome, AttachRequest, CheckpointVolumeBinding, CheckpointVolumeRequest, DetachOutcome,
+    DetachRequest, VOLUME_DEVICE, VolumeBinding, VolumeStore, WorkspaceImportRequest,
+    WorkspaceRestoreRequest,
 };
 pub use sidecar::{
     MAX_TENANT_BYTES, PERSISTENCE_PATHS, SIDECAR_LEN, SIDECAR_MAGIC, SIDECAR_VERSION, SidecarError,

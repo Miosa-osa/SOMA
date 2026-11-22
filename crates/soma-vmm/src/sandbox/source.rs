@@ -6,7 +6,8 @@
 
 use soma_guest::{LaunchNetwork, SecretFile};
 use soma_kvm::x86_64::{
-    Hypervisor, NetworkAttachment, SandboxConfig, SandboxDisks, SnapshotObjects,
+    Hypervisor, NetworkAttachment, ResidentRestoreRequest, SandboxConfig, SandboxDisks,
+    SnapshotObjects,
 };
 use soma_kvm::{DeviceSet, MachineContract};
 
@@ -18,6 +19,10 @@ use super::pending::PendingActivation;
 /// milliseconds. Restoring resumes a machine already past that point, captured once for the whole
 /// Generation, so the request path pays only the resume, the session, and the repair.
 pub enum Source {
+    /// Recover the authorized stopped Instance with a fresh authenticated session.
+    ResidentCheckpoint(Box<ResidentRestoreRequest>),
+    /// Fork an authorized checkpoint into the distinct Instance named by the boot.
+    CheckpointFork(Box<ResidentRestoreRequest>),
     /// Build a machine and boot the kernel.
     ColdBoot(SandboxConfig),
     /// Resume the captured machine, giving this Instance its own private head.

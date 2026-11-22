@@ -105,6 +105,8 @@ pub enum VolumeFailure {
     Refused(u16),
     /// The request named something the wire cannot carry.
     Malformed,
+    /// The current volume operation requires a stopped sandbox.
+    RequiresStopped,
     /// The frames could not be exchanged.
     Transport,
 }
@@ -164,15 +166,18 @@ impl VolumeClient {
 }
 
 /// Builds the daemon frame one request carries.
-fn request_for(operation: VolumeOperation, body: &VolumeBody) -> Result<Request, VolumeFailure> {
-    let operation_id =
-        HostOperation::from_hex(&body.operation_id).map_err(|_| VolumeFailure::Malformed)?;
-    let fingerprint = RequestFingerprint::from_hex(&body.request_fingerprint)
-        .map_err(|_| VolumeFailure::Malformed)?;
+pub(crate) fn request_for(
+    operation: VolumeOperation,
+    body: &VolumeBody,
+) -> Result<Request, VolumeFailure> {
     let volume = HostVolume::from_hex(&body.volume_id).map_err(|_| VolumeFailure::Malformed)?;
     if operation == VolumeOperation::Read {
         return Ok(Request::VolumeRead { volume });
     }
+    let operation_id =
+        HostOperation::from_hex(&body.operation_id).map_err(|_| VolumeFailure::Malformed)?;
+    let fingerprint = RequestFingerprint::from_hex(&body.request_fingerprint)
+        .map_err(|_| VolumeFailure::Malformed)?;
     let instance =
         HostInstance::from_hex(&body.instance_id).map_err(|_| VolumeFailure::Malformed)?;
     let frame = DetachFrame {
@@ -219,7 +224,7 @@ fn exchange(_socket: &std::path::Path, _request: &Request) -> Result<Reply, Volu
 }
 
 /// Renders one daemon reply as the report the control plane reads.
-fn report_for(
+pub(crate) fn report_for(
     operation: VolumeOperation,
     body: &VolumeBody,
     reply: &Reply,
@@ -236,13 +241,7 @@ fn report_for(
             device: VOLUME_DEVICE,
             state: state_name(*state),
             ready: *state == 1,
-            fsck: Some(FsckReport {
-                ran: true,
-                repaired: *repair == 2,
-                exit_code: i32::from(*exit_code),
-                tool: "e2fsck",
-                receipt_id: None,
-            }),
+            fsck: (*repair != 0).then(|| FsckReport::from_codes(*repair, *exit_code)),
         }),
         Reply::VolumeDetached { state, .. }
         | Reply::VolumeDestroyed { state, .. }

@@ -12,12 +12,13 @@ use super::Guest;
 use crate::live::codec::transport_checksum;
 
 /// A TCP flow [`Guest::tcp_open`] left open.
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub struct OpenFlow {
     destination: Ipv4Addr,
     port: u16,
     source_port: u16,
     ack: u32,
+    sequence: u32,
 }
 
 impl Guest {
@@ -57,6 +58,7 @@ impl Guest {
                     port,
                     source_port,
                     ack,
+                    sequence: 0x1234_5679,
                 });
             }
         }
@@ -65,12 +67,13 @@ impl Guest {
 
     /// Sends one data segment on a flow opened earlier and reports whether the destination
     /// answered it. A flow the network no longer admits is silent.
-    pub fn tcp_data_answered(&mut self, flow: &OpenFlow, timeout: Duration) -> bool {
+    pub fn tcp_data_answered(&mut self, flow: &mut OpenFlow, timeout: Duration) -> bool {
         let payload = b"x";
+        let expected_ack = flow.sequence.wrapping_add(1);
         let mut tcp = Vec::with_capacity(21);
         tcp.extend_from_slice(&flow.source_port.to_be_bytes());
         tcp.extend_from_slice(&flow.port.to_be_bytes());
-        tcp.extend_from_slice(&0x1234_5679_u32.to_be_bytes());
+        tcp.extend_from_slice(&flow.sequence.to_be_bytes());
         tcp.extend_from_slice(&flow.ack.to_be_bytes());
         tcp.extend_from_slice(&[0x50, 0x18, 0xff, 0xff, 0, 0, 0, 0]);
         tcp.extend_from_slice(payload);
@@ -85,7 +88,11 @@ impl Guest {
                 && answer.len() >= 20
                 && u16::from_be_bytes([answer[0], answer[1]]) == flow.port
                 && u16::from_be_bytes([answer[2], answer[3]]) == flow.source_port
+                && answer[13] & 0x14 == 0x10
+                && u32::from_be_bytes([answer[8], answer[9], answer[10], answer[11]])
+                    == expected_ack
             {
+                flow.sequence = expected_ack;
                 return true;
             }
         }

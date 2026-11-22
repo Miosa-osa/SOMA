@@ -64,11 +64,21 @@ pub(super) fn parse<R: Read>(
 
 fn metadata(header: &tar::Header) -> Result<Metadata, NormalizeError> {
     let mode = header.mode().map_err(|_| invalid())?;
-    if mode & !0o7777 != 0 {
+    let file_type = match header.entry_type() {
+        EntryType::Regular => 0o100_000,
+        EntryType::Directory => 0o040_000,
+        EntryType::Symlink => 0o120_000,
+        EntryType::Fifo => 0o010_000,
+        _ => return Err(unsupported()),
+    };
+    // Some OCI layers repeat the POSIX inode type in the tar mode.
+    // The type flag still decides what we construct. Conflicting bits are invalid.
+    let mode_type = mode & !0o7777;
+    if mode_type != 0 && mode_type != file_type {
         return Err(unsupported());
     }
     Ok(Metadata {
-        mode,
+        mode: mode & 0o7777,
         uid: u32::try_from(header.uid().map_err(|_| invalid())?).map_err(|_| unsupported())?,
         gid: u32::try_from(header.gid().map_err(|_| invalid())?).map_err(|_| unsupported())?,
         mtime: header.mtime().map_err(|_| invalid())?,
@@ -112,4 +122,34 @@ const fn limit() -> NormalizeError {
         NormalizePhase::ApplyLayer,
         NormalizeErrorKind::LimitExceeded,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tar_mode_may_repeat_its_type_but_cannot_change_it() {
+        let cases = [
+            (EntryType::Regular, 0o100_000),
+            (EntryType::Directory, 0o040_000),
+            (EntryType::Symlink, 0o120_000),
+            (EntryType::Fifo, 0o010_000),
+        ];
+        let mut header = tar::Header::new_ustar();
+        header.set_uid(0);
+        header.set_gid(0);
+        header.set_mtime(0);
+        for (entry_type, type_mode) in cases {
+            header.set_entry_type(entry_type);
+            header.set_mode(0o0750);
+            assert_eq!(metadata(&header).unwrap().mode, 0o0750);
+            header.set_mode(type_mode | 0o0750);
+            assert_eq!(metadata(&header).unwrap().mode, 0o0750);
+            header.set_mode(0o020_750);
+            assert_eq!(metadata(&header).err(), Some(unsupported()));
+            header.set_mode(type_mode | 0o1_000_750);
+            assert_eq!(metadata(&header).err(), Some(unsupported()));
+        }
+    }
 }

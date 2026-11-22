@@ -46,6 +46,24 @@ impl KvmBackend {
             .filter(|live| &live.instance == instance && live.held.is_usable())
     }
 
+    pub(in crate::backend::kvm) fn running_for(
+        &mut self,
+        instance: &InstanceId,
+    ) -> Result<&mut Live, BackendFailureKind> {
+        if self
+            .live
+            .as_ref()
+            .is_none_or(|live| &live.instance != instance || !live.held.is_usable())
+        {
+            return Err(self.absent_kind(instance));
+        }
+        let live = self.live.as_mut().expect("checked live instance");
+        if live.paused {
+            return Err(BackendFailureKind::SandboxPaused);
+        }
+        Ok(live)
+    }
+
     pub(in crate::backend::kvm) fn take_live(&mut self, instance: &InstanceId) -> Option<Live> {
         if self
             .live

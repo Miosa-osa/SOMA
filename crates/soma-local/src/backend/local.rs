@@ -121,6 +121,100 @@ impl Backend for LocalBackend {
         }
     }
 
+    fn acquire_restore(
+        &self,
+        instance: &InstanceId,
+    ) -> Result<Box<dyn Any + Send>, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Self::Kvm(backend) = self {
+            return backend
+                .acquire_restore(instance)
+                .map(|lease| Box::new(lease) as Box<dyn Any + Send>);
+        }
+        let _ = instance;
+        Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
+    fn launch_workspace(
+        &mut self,
+        request: LaunchRequest<'_, Self::PreparedWorkload>,
+        lease: &(dyn Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Self::Kvm(backend) = self {
+            let lease = lease
+                .downcast_ref::<std::fs::File>()
+                .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
+            return backend.launch_using(
+                &request,
+                Some(kvm::LaunchHandoff {
+                    checkpoint: None,
+                    fork_source: None,
+                    lease,
+                }),
+            );
+        }
+        let _ = (request, lease);
+        Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
+    fn launch_checkpoint(
+        &mut self,
+        request: LaunchRequest<'_, Self::PreparedWorkload>,
+        checkpoint: &soma::OperationId,
+        fork_source: Option<&InstanceId>,
+        lease: &(dyn Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if let Self::Kvm(backend) = self {
+            let lease = lease
+                .downcast_ref::<std::fs::File>()
+                .ok_or(BackendFailure::new(BackendFailureKind::Unavailable, 0))?;
+            return backend.launch_using(
+                &request,
+                Some(kvm::LaunchHandoff {
+                    checkpoint: Some(checkpoint),
+                    fork_source,
+                    lease,
+                }),
+            );
+        }
+        let _ = (request, checkpoint, fork_source, lease);
+        Err(BackendFailure::new(BackendFailureKind::Unsupported, 0))
+    }
+
+    fn reconcile_checkpoint_launch(
+        &mut self,
+        instance: &InstanceId,
+        operation: &soma::OperationId,
+        checkpoint: &soma::OperationId,
+        generation: Option<&soma::GenerationId>,
+    ) -> Result<(), BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if matches!(self, Self::Kvm(_)) {
+            let generation =
+                generation.ok_or(BackendFailure::new(BackendFailureKind::WorkloadRejected, 0))?;
+            return kvm::reconcile_checkpoint_launch(instance, operation, checkpoint, generation)
+                .map_err(|kind| BackendFailure::new(kind, 0));
+        }
+        let _ = (instance, operation, checkpoint, generation);
+        Ok(())
+    }
+
+    fn retains_stopped_checkpoint(
+        &self,
+        instance: &InstanceId,
+        generation: &soma::GenerationId,
+    ) -> Result<bool, BackendFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        if matches!(self, Self::Kvm(_)) {
+            return kvm::retains_stopped_checkpoint(instance, generation)
+                .map_err(|_| BackendFailure::new(BackendFailureKind::Unavailable, 0));
+        }
+        let _ = (instance, generation);
+        Ok(false)
+    }
+
     fn execute(
         &mut self,
         request: ExecutionRequest<'_>,

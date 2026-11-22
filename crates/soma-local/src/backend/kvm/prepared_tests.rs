@@ -110,6 +110,18 @@ fn a_readable_root_without_a_match_is_not_prepared() {
     );
 }
 
+#[test]
+fn publisher_staging_cannot_claim_a_prepared_reference() {
+    let root = scratch("publisher-staging");
+    entry(&root, INCOMING, "node:22");
+    let found = find(Some(&root), "node:22");
+    std::fs::remove_dir_all(&root).ok();
+    assert_eq!(
+        found.expect_err("publisher staging is outside the prepared entry set"),
+        PreparedError::NotPrepared
+    );
+}
+
 /// Candidate bytes are never a launch capability, even when the entry is otherwise readable.
 #[test]
 fn a_candidate_is_never_a_launch_capability() {

@@ -98,7 +98,10 @@ where
                     "SOMA_PREPARE_CEILING_MIB ({ceiling}) must be above the boot memory ({boot_mib} MiB)"
                 )
             })?;
-        profile = profile.with_hotplug_bytes(region * 1024 * 1024);
+        let region_bytes = region
+            .checked_mul(1024 * 1024)
+            .ok_or("SOMA_PREPARE_CEILING_MIB exceeds the supported size")?;
+        profile = profile.with_hotplug_bytes(region_bytes);
     }
     // A revision with writable storage narrows the profile to the one class it selects, so the
     // compiler builds exactly the template that Generation needs. A revision with none builds

@@ -135,7 +135,7 @@ pub(super) fn resume<F: SandboxFacade + ?Sized>(
         image: image(body.image)?,
     };
     let outcome = facade
-        .resume(&request)
+        .resume_suspension(&request)
         .map_err(|failure| refusal(&failure))?;
     Ok(success(
         201,

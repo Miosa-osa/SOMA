@@ -12,6 +12,9 @@ use soma_kvm::x86_64::SandboxEvidence;
 use super::super::memory::{MemoryError, MemoryLevel};
 use super::super::sterile::Assignment;
 
+use crate::sandbox::{CheckpointJob, CheckpointJobError};
+use soma_kvm::snapshot::manifest::CheckpointManifest;
+
 /// What the lifecycle asks a live sandbox to do.
 pub enum Request {
     /// Transfer fresh Instance authority into a parked sterile machine, exactly once.
@@ -36,7 +39,15 @@ pub enum Request {
     SetRequestedMemory(u64),
     /// Read how much memory is requested and plugged.
     GetMemory,
-    /// Ask the guest to shut down, then finish the machine and report its evidence.
+    /// Stop guest execution and keep the machine resident.
+    Pause,
+    /// Resume guest execution using the resident resources.
+    Resume,
+    /// Capture a running Instance to the broker-owned staging descriptors.
+    Checkpoint(Box<CheckpointJob>),
+    /// Change the backing of the one declared workspace.
+    Workspace(super::super::WorkspaceChange),
+    /// Finish the machine and report its evidence, asking a running guest to shut down.
     Shutdown,
     /// Ask the guest to retire its session and park, read the machine into the target's staging
     /// directory, and release it (ADR 0034). Refused with nothing sent below guest API level 4.
@@ -82,6 +93,16 @@ pub enum Response {
     PtyAnswered(Box<soma::PtyAnswer>),
     /// What the memory device holds, or why it refused.
     Memory(Result<MemoryLevel, MemoryError>),
+    /// All guest execution has stopped and the machine remains resident.
+    Paused,
+    /// The resident machine resumed.
+    Resumed,
+    /// Outcome of the live workspace handoff.
+    Workspace(soma_guest::WorkspaceOutcome),
+    /// Result of writing and verifying one unpublished checkpoint.
+    Checkpointed(Result<Box<CheckpointManifest>, CheckpointJobError>),
+    /// The request was refused because the guest is paused.
+    GuestPaused,
     /// The machine stopped and released everything it owned.
     Finished(Box<SandboxEvidence>),
     /// An aborted machine's vCPU will never run again; its release is still under way.
@@ -122,6 +143,8 @@ pub enum Activation {
 pub enum SessionError {
     /// The machine could not be created from the prepared artifacts.
     Create,
+    /// The resident checkpoint requires a different host profile.
+    CheckpointIncompatible,
     /// The launch page could not be delivered, or the guest never consumed it.
     LaunchPage,
     /// The assigned network could not be activated, so no traffic may flow.
@@ -137,13 +160,21 @@ pub enum SessionError {
     /// A command was refused with nothing sent, because it carries an argument longer than this
     /// guest's agent decodes; its Generation must be captured again with a newer agent.
     ///
-    /// Unlike every other variant this one does not end the session: nothing reached the guest,
+    /// This refusal does not end the session: nothing reached the guest,
     /// so nothing about the session is uncertain.
     GuestAgentOutdated,
+    /// The worker could not confirm a complete pause and ended the session.
+    Pause,
+    /// The worker could not confirm resume and ended the session.
+    Resume,
+    /// The operation requires a running guest. The paused machine remains resident.
+    GuestPaused,
     /// A filesystem operation could not be performed over the session.
     File,
     /// A terminal operation could not be performed over the session.
     Pty,
+    /// The guest workspace transition or its rollback could not be confirmed.
+    Workspace,
     /// The sandbox thread ended without answering.
     Gone,
     /// An earlier operation ended without a certain answer, so this session was ended.

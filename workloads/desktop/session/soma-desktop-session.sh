@@ -9,8 +9,7 @@
 #   soma-desktop-session status    print the session's milestones as JSON
 #   soma-desktop-session stop      end the session
 #   soma-desktop-session viewer start|stop
-#                                  start or end the human viewer (Sunshine + moonlight-web on the
-#                                  viewer port), which runs only while someone watches
+#                                  start or end the viewer on the platform's guest port
 #
 # The guest agent kills every process when a command ends, except the ones the command names in
 # /run/soma/survivors. A desktop cannot be named by process id, group or session: a terminal's
@@ -54,7 +53,10 @@ report() {
 }
 
 running() { [[ -f "$STATE/pid" ]] && kill -0 "$(cat "$STATE/pid")" 2>/dev/null; }
-viewer_running() { [[ -f "$STATE/viewer.pid" ]] && kill -0 "$(cat "$STATE/viewer.pid")" 2>/dev/null; }
+viewer_running() {
+    [[ -f "$STATE/viewer.pid" ]] &&
+        pgrep -F "$STATE/viewer.pid" -f "^/bin/bash $VIEWER$" >/dev/null 2>&1
+}
 
 # udev, so Xorg adds the pointer and keyboard the viewer creates through /dev/uinput. A SOMA guest
 # has no init system to start it; it runs in the desktop's cgroup and lives as long as the desktop.
@@ -100,6 +102,9 @@ start() {
     local uid gid
     uid="$(id -u "$USER_NAME")" || die "no user $USER_NAME in this image"
     gid="$(id -g "$USER_NAME")"
+    if [[ -x /usr/local/bin/desktopd && ! -f /run/desktopd/token ]]; then
+        die "the platform must provision the desktop API credential before startup"
+    fi
     install -d -m 0755 "$STATE"
     : >"$STATE/milestones"
     date +%s%N >"$STATE/launcher_start"
@@ -162,7 +167,8 @@ viewer_start() {
         fi
         if grep -q '^failed_viewer' "$STATE/milestones" || ! kill -0 "$pid" 2>/dev/null; then
             report viewer_failed
-            tail -20 "$STATE/viewer.log" "$STATE/logs/sunshine.log" "$STATE/logs/moonlight-web.log" >&2 2>/dev/null
+            tail -20 "$STATE/viewer.log" "$STATE/logs/voxl.log" "$STATE/logs/sunshine.log" \
+                "$STATE/logs/moonlight-web.log" >&2 2>/dev/null
             return 1
         fi
         sleep 0.1
@@ -172,8 +178,17 @@ viewer_start() {
 }
 
 viewer_stop() {
+    local attempt
     if viewer_running; then
         kill -TERM "$(cat "$STATE/viewer.pid")" 2>/dev/null || true
+        for ((attempt = 0; attempt < 60; attempt++)); do
+            viewer_running || break
+            sleep 0.1
+        done
+        if viewer_running; then
+            report viewer_stop_timeout
+            return 1
+        fi
     fi
     rm -f "$STATE/viewer.pid"
     report viewer_stopped

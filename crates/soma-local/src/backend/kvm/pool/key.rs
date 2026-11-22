@@ -193,6 +193,9 @@ impl Recipe {
             vcpus: self.key.vcpus,
             contract: self.key.contract,
             devices: self.key.devices,
+            volume_capacity_bytes: self.key.devices.volume().then(|| {
+                u64::from(self.prepared.manifest.persistence.size_class_gib) * 1024 * 1024 * 1024
+            }),
             hotplug: super::super::hotplug::region_for(
                 self.key.devices,
                 self.key.memory_bytes,

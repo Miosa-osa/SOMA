@@ -1,4 +1,4 @@
-use crate::{FileRequest, GuestCommand, OperationId, PtyRequest};
+use crate::{FileRequest, GuestCommand, OperationId, PtyRequest, WorkspaceAction};
 
 /// One lifecycle-validated request received by the trusted guest agent.
 #[derive(Debug, Eq, PartialEq)]
@@ -28,6 +28,13 @@ pub enum GuestRequest {
         operation: OperationId,
         /// The decoded request, whose dimensions and chunk this protocol has already bounded.
         request: PtyRequest,
+    },
+    /// Change the mount state of the declared workspace.
+    Workspace {
+        /// Identity of the accepted mount operation.
+        operation: OperationId,
+        /// Requested change.
+        action: WorkspaceAction,
     },
     /// Stop the trusted guest agent.
     Shutdown {

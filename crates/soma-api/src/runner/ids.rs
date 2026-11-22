@@ -20,6 +20,24 @@ impl SandboxId {
         Self(tagged)
     }
 
+    /// Derives the destination of a fork so retries keep addressing it after a runner restart.
+    pub(in crate::runner) fn fork(&self, tenant: &str, operation: &soma::OperationId) -> Self {
+        use sha2::{Digest as _, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(b"soma.sandbox-fork.v1");
+        hash.update(self.0.as_bytes());
+        hash.update((tenant.len() as u64).to_be_bytes());
+        hash.update(tenant.as_bytes());
+        hash.update(operation.as_str().as_bytes());
+        let digest = hash.finalize();
+        let mut bytes = [0; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        bytes[0] = (nibble(self.0.as_bytes()[0]).unwrap_or(0) << 4) | (bytes[0] & 15);
+        bytes[6] = (bytes[6] & 15) | 0x80;
+        bytes[8] = (bytes[8] & 63) | 0x80;
+        Self(uuid::Uuid::from_bytes(bytes).hyphenated().to_string())
+    }
+
     /// Reads an id from a request path.
     ///
     /// Uppercase hex is accepted and folded to lowercase, as `Ecto.UUID.cast/1` does, so the same

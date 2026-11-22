@@ -14,6 +14,7 @@ mod artifacts;
 #[cfg(test)]
 mod artifacts_tests;
 mod capture;
+mod checkpoint;
 mod device;
 #[cfg(test)]
 mod device_tests;
@@ -28,15 +29,19 @@ mod quiesce;
 mod restore;
 #[allow(unsafe_code)]
 mod vcpu;
+pub(in crate::x86_64) mod vm_state;
 
 pub use crate::snapshot::inspection::{ArtifactEvidence, CaptureExpectation, VerifiedCapture};
 pub use artifacts::SnapshotPaths;
 pub use capture::{CaptureOutcome, CapturePoint, CaptureRequest, capture};
+pub use checkpoint::{CheckpointError, CheckpointRequest, CheckpointTargets, capture_checkpoint};
 pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;
 pub use objects::SnapshotObjects;
+pub use profile::check_checkpoint_cpu;
 pub use restore::{
-    RestoreFacts, RestoreRequest, Restored, Sterile, SterileRequest, restore, restore_sterile,
+    PreparedCheckpoint, ResidentRestoreRequest, RestoreFacts, RestoreRequest, Restored, Sterile,
+    SterileRequest, prepare_checkpoint, prepare_fork, restore, restore_sterile,
 };
 
 pub(in crate::x86_64) use platform::write_routing;

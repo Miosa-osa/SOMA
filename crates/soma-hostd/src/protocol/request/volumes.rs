@@ -4,7 +4,10 @@
 //! as a different request. They live apart from the rest of the request codec to hold that file
 //! inside the source budget.
 
-use crate::volume::MAX_TENANT_BYTES;
+use crate::volume::{
+    AttachRequest, CheckpointVolumeRequest, MAX_TENANT_BYTES, WorkspaceImportRequest,
+    WorkspaceRestoreRequest,
+};
 use crate::{GenerationId, InstanceId, OperationId, RequestFingerprint, VolumeId};
 
 use super::super::{ProtocolError, array};
@@ -13,6 +16,94 @@ use super::super::{ProtocolError, array};
 const ATTACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 4 + 32 + 2 + MAX_TENANT_BYTES;
 /// The fixed length of one volume detach frame.
 const DETACH_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32;
+const CHECKPOINT_FRAME_LEN: usize = 1 + 16 + 16 + 16 + 32 + 32;
+
+pub(super) fn encode_checkpoint(request: &CheckpointVolumeRequest, out: &mut Vec<u8>) {
+    out.extend_from_slice(request.source.as_bytes());
+    out.extend_from_slice(request.destination.as_bytes());
+    out.extend_from_slice(request.checkpoint.as_bytes());
+    out.extend_from_slice(request.generation.as_bytes());
+    out.extend_from_slice(request.digest.as_bytes());
+}
+
+pub(super) fn decode_checkpoint(bytes: &[u8]) -> Result<CheckpointVolumeRequest, ProtocolError> {
+    if bytes.len() != CHECKPOINT_FRAME_LEN {
+        return Err(ProtocolError("checkpoint volume"));
+    }
+    Ok(CheckpointVolumeRequest {
+        source: InstanceId::new(array(&bytes[1..17])).map_err(|_| ProtocolError("source"))?,
+        destination: InstanceId::new(array(&bytes[17..33]))
+            .map_err(|_| ProtocolError("destination"))?,
+        checkpoint: OperationId::new(array(&bytes[33..49]))
+            .map_err(|_| ProtocolError("checkpoint"))?,
+        generation: GenerationId::new(array(&bytes[49..81]))
+            .map_err(|_| ProtocolError("generation"))?,
+        digest: RequestFingerprint::new(array(&bytes[81..113]))
+            .map_err(|_| ProtocolError("volume digest"))?,
+    })
+}
+
+pub(super) fn encode_restore(request: &WorkspaceRestoreRequest, out: &mut Vec<u8>) {
+    encode_checkpoint(&request.checkpoint, out);
+    out.extend_from_slice(request.operation.as_bytes());
+    out.extend_from_slice(request.volume.as_bytes());
+}
+
+pub(super) fn decode_restore(bytes: &[u8]) -> Result<WorkspaceRestoreRequest, ProtocolError> {
+    if bytes.len() != CHECKPOINT_FRAME_LEN + 32 {
+        return Err(ProtocolError("workspace restore"));
+    }
+    Ok(WorkspaceRestoreRequest {
+        checkpoint: decode_checkpoint(&bytes[..CHECKPOINT_FRAME_LEN])?,
+        operation: OperationId::new(array(
+            &bytes[CHECKPOINT_FRAME_LEN..CHECKPOINT_FRAME_LEN + 16],
+        ))
+        .map_err(|_| ProtocolError("restore operation"))?,
+        volume: VolumeId::new(array(&bytes[CHECKPOINT_FRAME_LEN + 16..]))
+            .map_err(|_| ProtocolError("workspace"))?,
+    })
+}
+
+pub(super) fn encode_import(request: &WorkspaceImportRequest, out: &mut Vec<u8>) {
+    let target = &request.destination;
+    AttachFrame {
+        operation: target.operation,
+        instance: target.instance,
+        volume: target.volume,
+        fingerprint: target.fingerprint,
+        size_class_gib: target.size_class_gib,
+        generation: target.generation,
+        tenant: target.tenant.clone(),
+    }
+    .encode_into(out);
+    out.extend_from_slice(request.source.as_bytes());
+    out.extend_from_slice(request.checkpoint.as_bytes());
+    out.extend_from_slice(request.digest.as_bytes());
+}
+
+pub(super) fn decode_import(bytes: &[u8]) -> Result<WorkspaceImportRequest, ProtocolError> {
+    if bytes.len() != ATTACH_FRAME_LEN + 64 {
+        return Err(ProtocolError("workspace import"));
+    }
+    let (attach, archive) = bytes.split_at(ATTACH_FRAME_LEN);
+    let frame = AttachFrame::decode(attach)?;
+    Ok(WorkspaceImportRequest {
+        source: InstanceId::new(array(&archive[..16])).map_err(|_| ProtocolError("source"))?,
+        checkpoint: OperationId::new(array(&archive[16..32]))
+            .map_err(|_| ProtocolError("checkpoint"))?,
+        digest: RequestFingerprint::new(array(&archive[32..]))
+            .map_err(|_| ProtocolError("volume digest"))?,
+        destination: AttachRequest {
+            operation: frame.operation,
+            instance: frame.instance,
+            volume: frame.volume,
+            fingerprint: frame.fingerprint,
+            size_class_gib: frame.size_class_gib,
+            generation: frame.generation,
+            tenant: frame.tenant,
+        },
+    })
+}
 
 /// One volume attach: bind the volume to an Instance, creating it on the first attach.
 #[derive(Clone, Debug, Eq, PartialEq)]

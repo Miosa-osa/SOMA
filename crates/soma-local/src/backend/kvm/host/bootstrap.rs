@@ -2,7 +2,7 @@
 
 use std::{
     io::{self, BufReader},
-    os::fd::AsFd as _,
+    os::fd::{AsFd as _, OwnedFd},
     path::Path,
 };
 
@@ -36,15 +36,26 @@ pub(crate) fn host_machine(expected_socket: Option<&Path>) -> i32 {
 fn serve_on_demand(
     expected_socket: Option<&Path>,
     request: &LaunchWire,
-    descriptors: Vec<std::os::fd::OwnedFd>,
+    mut descriptors: Vec<OwnedFd>,
 ) -> i32 {
     if expected_socket.is_some_and(|expected| expected != request.socket) {
         return REFUSED;
     }
-    let socket = request.socket.clone();
-    let Ok(listener) = channel::bind(&socket) else {
+    if request
+        .fork_source
+        .as_ref()
+        .is_some_and(|source| request.checkpoint.is_none() || source == &request.instance_id)
+    {
         return REFUSED;
-    };
+    }
+    // The handoff carries the duplicate of the caller's lease after the normal artifacts.
+    let mut restore_lease = None;
+    if request.checkpoint.is_some() || request.volume.is_some() {
+        let Some(lease) = descriptors.pop() else {
+            return REFUSED;
+        };
+        restore_lease = Some(lease);
+    }
     let Ok(prepared) = prepared::from_handoff(
         request.reference.clone(),
         &request.generation_id,
@@ -56,9 +67,18 @@ fn serve_on_demand(
     let Ok(backend) = KvmBackend::machine_host() else {
         return refuse(BackendFailureKind::Unavailable);
     };
-    let status = serve_machine(&listener, &socket, request, &prepared, backend);
-    let _ignored = std::fs::remove_file(socket);
-    status
+    let socket = request.socket.clone();
+    let Ok(listener) = channel::bind(&socket) else {
+        return REFUSED;
+    };
+    serve_machine(
+        &listener,
+        &socket,
+        request,
+        &prepared,
+        backend,
+        &mut restore_lease,
+    )
 }
 
 fn serve_primed(
@@ -89,6 +109,9 @@ fn serve_primed(
     let Some(request) = channel::read_line::<LaunchWire>(input) else {
         return REFUSED;
     };
+    if request.checkpoint.is_some() || request.fork_source.is_some() || request.volume.is_some() {
+        return refuse(BackendFailureKind::Unsupported);
+    }
     if request.reference != prepared.reference
         || request.generation_id != prepared.id
         || request.shape.memory_mib() < plan.memory_mib
@@ -99,7 +122,5 @@ fn serve_primed(
     let Ok(listener) = channel::bind(&socket) else {
         return REFUSED;
     };
-    let status = serve_machine(&listener, &socket, &request, &prepared, backend);
-    let _ignored = std::fs::remove_file(socket);
-    status
+    serve_machine(&listener, &socket, &request, &prepared, backend, &mut None)
 }

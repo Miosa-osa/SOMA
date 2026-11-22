@@ -9,6 +9,7 @@ pub enum FailureKind {
     InvalidLifecycle,
     GenerationVerificationFailed,
     RestoreFailed,
+    CheckpointIncompatible,
     GuestAuthenticationFailed,
     GenerationAcknowledgementFailed,
     IdentityRepairFailed,
@@ -17,6 +18,8 @@ pub enum FailureKind {
     InstanceMismatch,
     ExecuteFailed,
     StopFailed,
+    PauseFailed,
+    ResumeFailed,
 }
 
 impl FailureKind {
@@ -29,6 +32,7 @@ impl FailureKind {
             Self::InvalidLifecycle => "InvalidLifecycle",
             Self::GenerationVerificationFailed => "GenerationVerificationFailed",
             Self::RestoreFailed => "RestoreFailed",
+            Self::CheckpointIncompatible => "CheckpointIncompatible",
             Self::GuestAuthenticationFailed => "GuestAuthenticationFailed",
             Self::GenerationAcknowledgementFailed => "GenerationAcknowledgementFailed",
             Self::IdentityRepairFailed => "IdentityRepairFailed",
@@ -37,18 +41,21 @@ impl FailureKind {
             Self::InstanceMismatch => "InstanceMismatch",
             Self::ExecuteFailed => "ExecuteFailed",
             Self::StopFailed => "StopFailed",
+            Self::PauseFailed => "PauseFailed",
+            Self::ResumeFailed => "ResumeFailed",
         }
     }
 
     /// The kind one wire name is, or `None` for a name this contract does not define.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
-        const ALL: [FailureKind; 13] = [
+        const ALL: [FailureKind; 16] = [
             FailureKind::OperationConflict,
             FailureKind::OperationCapacityExceeded,
             FailureKind::InvalidLifecycle,
             FailureKind::GenerationVerificationFailed,
             FailureKind::RestoreFailed,
+            FailureKind::CheckpointIncompatible,
             FailureKind::GuestAuthenticationFailed,
             FailureKind::GenerationAcknowledgementFailed,
             FailureKind::IdentityRepairFailed,
@@ -57,6 +64,8 @@ impl FailureKind {
             FailureKind::InstanceMismatch,
             FailureKind::ExecuteFailed,
             FailureKind::StopFailed,
+            FailureKind::PauseFailed,
+            FailureKind::ResumeFailed,
         ];
         ALL.into_iter().find(|kind| kind.name() == name)
     }
@@ -75,6 +84,8 @@ pub enum FailurePhase {
     ReadinessProbe,
     Execute,
     Stop,
+    Pause,
+    Resume,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

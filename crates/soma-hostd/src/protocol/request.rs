@@ -10,6 +10,7 @@ mod volumes;
 use soma_netd::NetworkIntent;
 
 use super::{CLAIM_HEADER, MAX_FRAME, ProtocolError, array};
+use crate::volume::{CheckpointVolumeRequest, WorkspaceImportRequest, WorkspaceRestoreRequest};
 use crate::{InstanceId, LaunchMaterialHandle, OperationId, VolumeId, WorkerId};
 
 pub use volumes::{AttachFrame, DetachFrame};
@@ -121,6 +122,24 @@ pub enum Request {
         /// The Instance.
         instance: InstanceId,
     },
+    /// Copy a certified checkpoint disk for a distinct Instance.
+    VolumeCloneCheckpoint(CheckpointVolumeRequest),
+    /// Prepare the already-owned disk for a hot attach without publishing the binding.
+    WorkspaceStage(AttachFrame),
+    /// Publish an attachment after the authenticated guest mounted the disk.
+    WorkspaceCommit(AttachFrame),
+    /// Check ownership and operation intent before the guest is asked to unmount.
+    WorkspaceAdmitDetach(DetachFrame),
+    /// Stage the checkpoint disk under the Instance restore lease.
+    WorkspaceRestoreStage(WorkspaceRestoreRequest),
+    /// Make the staged disk active after authenticated guest readiness.
+    WorkspaceRestorePublish(WorkspaceRestoreRequest),
+    /// Discard a staged disk after a failed restore.
+    WorkspaceRestoreAbort(WorkspaceRestoreRequest),
+    /// Rolls back an exact unfinished broker restore after confirmed worker teardown.
+    WorkspaceRestoreReconcile(WorkspaceRestoreRequest),
+    /// Import a verified backup into an empty detached workspace.
+    WorkspaceImport(WorkspaceImportRequest),
 }
 
 impl Request {
@@ -188,6 +207,38 @@ impl Request {
                 out.push(14);
                 out.extend_from_slice(instance.as_bytes());
             }
+            Self::WorkspaceStage(frame) => {
+                out.push(16);
+                frame.encode_into(&mut out);
+            }
+            Self::WorkspaceCommit(frame) => {
+                out.push(17);
+                frame.encode_into(&mut out);
+            }
+            Self::WorkspaceAdmitDetach(frame) => {
+                out.push(18);
+                frame.encode_into(&mut out);
+            }
+            Self::WorkspaceRestoreStage(frame)
+            | Self::WorkspaceRestorePublish(frame)
+            | Self::WorkspaceRestoreAbort(frame)
+            | Self::WorkspaceRestoreReconcile(frame) => {
+                out.push(match self {
+                    Self::WorkspaceRestoreStage(_) => 19,
+                    Self::WorkspaceRestorePublish(_) => 20,
+                    Self::WorkspaceRestoreAbort(_) => 21,
+                    _ => 22,
+                });
+                volumes::encode_restore(frame, &mut out);
+            }
+            Self::WorkspaceImport(frame) => {
+                out.push(23);
+                volumes::encode_import(frame, &mut out);
+            }
+            Self::VolumeCloneCheckpoint(frame) => {
+                out.push(15);
+                volumes::encode_checkpoint(frame, &mut out);
+            }
         }
         out
     }
@@ -234,6 +285,15 @@ impl Request {
             (14, 17) => Ok(Self::VolumeOwned {
                 instance: instance()?,
             }),
+            (15, _) => volumes::decode_checkpoint(bytes).map(Self::VolumeCloneCheckpoint),
+            (16, _) => AttachFrame::decode(bytes).map(Self::WorkspaceStage),
+            (17, _) => AttachFrame::decode(bytes).map(Self::WorkspaceCommit),
+            (18, _) => DetachFrame::decode(bytes).map(Self::WorkspaceAdmitDetach),
+            (19, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreStage),
+            (20, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestorePublish),
+            (21, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreAbort),
+            (22, _) => volumes::decode_restore(bytes).map(Self::WorkspaceRestoreReconcile),
+            (23, _) => volumes::decode_import(bytes).map(Self::WorkspaceImport),
             _ => Err(ProtocolError("request")),
         }
     }

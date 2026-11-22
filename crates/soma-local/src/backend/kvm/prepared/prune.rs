@@ -67,7 +67,13 @@ pub(crate) fn prune(
         apply: request.apply,
         keep_previous: request.keep_previous,
     };
-    run(&inputs, generations(), instances)
+    run(&inputs, generations(), &mut || {
+        let mut holds = instances()?;
+        let saved = crate::backend::kvm::checkpoint::retention::generation_holds()
+            .map_err(|_| "published checkpoint storage could not be verified".to_owned())?;
+        holds.held.extend(saved);
+        Ok(holds)
+    })
 }
 
 /// Every pinned reference, with every reason it is pinned.

@@ -42,6 +42,8 @@ impl LocalFacade {
     }
 }
 
+mod workspace;
+
 impl SandboxFacade for LocalFacade {
     fn hosts_addressable_sandboxes(&self) -> bool {
         self.runtime.machine_hosting() == soma_local::MachineHosting::OutlivesProcess
@@ -52,6 +54,32 @@ impl SandboxFacade for LocalFacade {
         request: LaunchMachineRequest,
     ) -> Result<LifecycleOutcome, ManagedFailure> {
         let outcome = self.runtime.launch_machine(request)?;
+        Ok(lifecycle(outcome.receipt()))
+    }
+
+    fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.runtime.restore_owner(instance)
+    }
+
+    fn restore(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        let outcome = self.runtime.restore_machine(request, checkpoint)?;
+        Ok(lifecycle(outcome.receipt()))
+    }
+
+    fn fork(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        let outcome = self.runtime.fork_machine(request, source, checkpoint)?;
         Ok(lifecycle(outcome.receipt()))
     }
 
@@ -145,11 +173,11 @@ impl SandboxFacade for LocalFacade {
         self.runtime.suspend_machine(request)
     }
 
-    fn resume(
+    fn resume_suspension(
         &mut self,
         request: &soma_local::ResumeRequest,
     ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
-        let outcome = self.runtime.resume_machine(request)?;
+        let outcome = self.runtime.resume_suspension(request)?;
         Ok(lifecycle(outcome.receipt()))
     }
 
@@ -170,6 +198,32 @@ impl SandboxFacade for LocalFacade {
     ) -> Result<LifecycleOutcome, ManagedFailure> {
         let outcome = self.runtime.destroy_machine(request)?;
         Ok(lifecycle(outcome.receipt()))
+    }
+
+    fn pause(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::PauseFailure> {
+        self.runtime.pause_machine(instance_id)
+    }
+
+    fn resume(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        self.runtime.resume_machine(instance_id)
+    }
+
+    fn checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        self.runtime.checkpoint_machine(instance, operation)
+    }
+
+    fn discard_checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+        state_digest: &soma::GenerationId,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        self.runtime
+            .discard_checkpoint(instance, checkpoint, state_digest)
     }
 
     fn resize(
@@ -212,6 +266,12 @@ impl SandboxFacade for LocalFacade {
         operation: VolumeOperation,
         body: &VolumeBody,
     ) -> Result<VolumeReport, VolumeFailure> {
+        if matches!(operation, VolumeOperation::Attach | VolumeOperation::Detach)
+            && self.volumes.configured()
+            && let Some(report) = self.live_workspace(operation, body)?
+        {
+            return Ok(report);
+        }
         self.volumes.call(operation, body)
     }
 }

@@ -88,7 +88,7 @@ fn errno() -> i32 {
 }
 
 #[cfg(target_os = "linux")]
-pub use physical::await_and_consume;
+pub use physical::{await_and_consume, consume_if_present};
 
 #[cfg(target_os = "linux")]
 mod physical {
@@ -155,6 +155,16 @@ mod physical {
         fn drop(&mut self) {
             // SAFETY: `base` and the length describe the mapping created in `map`.
             unsafe { libc::munmap(self.base.cast(), LAUNCH_PAGE_SIZE) };
+        }
+    }
+
+    /// Consumes a reconnect page already installed before the guest resumed.
+    pub fn consume_if_present() -> Result<Option<GuestLaunchMaterial>, LaunchPageError> {
+        let mut page = MappedPage::map()?;
+        if page.view().has_domain() {
+            consume(page.view()).map(Some)
+        } else {
+            Ok(None)
         }
     }
 

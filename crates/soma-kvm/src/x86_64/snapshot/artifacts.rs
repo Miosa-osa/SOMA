@@ -62,6 +62,7 @@ impl SnapshotPaths {
         self.directory.join(match artifact {
             Artifact::Memory => "memory.raw.staging",
             Artifact::Overlay => "overlay.raw.staging",
+            Artifact::Volume => "volume.raw.staging",
             Artifact::State | Artifact::Root | Artifact::Directory => "state.somasnap.staging",
         })
     }

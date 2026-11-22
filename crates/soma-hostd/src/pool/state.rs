@@ -283,6 +283,8 @@ pub struct WorkerLedgerEntry {
     pub last_step: Option<TransferStep>,
     /// Whether the worker was ever assigned; such a worker can never be sterile again.
     pub was_assigned: bool,
+    /// The ledger sequence that assigned this worker to its Instance.
+    pub assigned_sequence: Option<u64>,
     /// Whether a restart marked the entry suspect.
     pub suspect: bool,
     /// Number of records folded into the entry.

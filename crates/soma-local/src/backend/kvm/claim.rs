@@ -108,7 +108,7 @@ pub(super) fn assignment_for(
     };
     Ok(Assignment {
         overlay,
-        volume,
+        volume: volume.map(soma_vmm::sandbox::AssignmentVolume::CertifiedPath),
         generation: generation_bytes(&prepared.id)?,
         instance: identity.instance,
         operation: identity.operation,

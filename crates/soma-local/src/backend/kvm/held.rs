@@ -77,6 +77,47 @@ impl Held {
         }
     }
 
+    pub(super) fn change_workspace(
+        &mut self,
+        change: soma_vmm::sandbox::WorkspaceChange,
+    ) -> Result<soma_guest::WorkspaceOutcome, BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.change_workspace(change).map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.change_workspace(change),
+        }
+    }
+
+    pub(super) fn pause(&mut self) -> Result<(), BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.pause().map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.pause(),
+        }
+    }
+
+    pub(super) fn resume(&mut self) -> Result<(), BackendFailureKind> {
+        match self {
+            Self::Resident(session) => session.resume().map_err(failure_kind),
+            Self::Jailed(jailed) => jailed.resume(),
+        }
+    }
+
+    pub(super) fn checkpoint(
+        &mut self,
+        job: soma_vmm::sandbox::CheckpointJob,
+    ) -> Result<soma_kvm::snapshot::Digest, crate::CheckpointFailure> {
+        use soma_vmm::sandbox::CheckpointJobError;
+        match self {
+            Self::Resident(session) => session
+                .checkpoint(job, super::checkpoint::CHECKPOINT_CEILING)
+                .map(|manifest| soma_kvm::snapshot::Digest::of(&manifest.encode()))
+                .map_err(|error| match error {
+                    CheckpointJobError::CaptureRefused => crate::CheckpointFailure::CaptureRefused,
+                    CheckpointJobError::SourceUnconfirmed => crate::CheckpointFailure::Unconfirmed,
+                }),
+            Self::Jailed(jailed) => jailed.checkpoint(&job),
+        }
+    }
+
     /// Performs one filesystem operation on the machine, wherever it is.
     pub(super) fn file(
         &mut self,
@@ -84,8 +125,7 @@ impl Held {
     ) -> Result<FileAnswer, BackendFailureKind> {
         match self {
             Self::Resident(session) => session.file(operation).map_err(failure_kind),
-            // The jailed control protocol does not carry portable filesystem requests yet.
-            Self::Jailed(_) => Err(BackendFailureKind::Unsupported),
+            Self::Jailed(jailed) => jailed.file(&operation),
         }
     }
 
@@ -97,11 +137,6 @@ impl Held {
         }
     }
 
-    /// Releases everything the machine owns and reports how it ended.
-    ///
-    /// A forced release never asks the guest: the machine is ended and the receipt says so. A
-    /// graceful one asks and reports whether the guest agreed, which is the only honest way to
-    /// describe a termination a caller was told about.
     /// Reads the machine into `staging` and releases it (ADR 0034); `false` is a refusal with
     /// nothing done. A jailed worker's control protocol does not carry a suspension yet, so it
     /// refuses, exactly as it refuses a filesystem request.
@@ -121,6 +156,10 @@ impl Held {
         }
     }
 
+    /// Releases everything the machine owns and reports how it ended.
+    ///
+    /// A forced release ends the machine immediately. A graceful release reports whether the
+    /// guest acknowledged shutdown.
     pub(super) fn release(
         self,
         instance: &InstanceId,

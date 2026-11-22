@@ -1,4 +1,4 @@
-//! The durable volume's placeholder: born on it, swapped exactly once, never left behind.
+//! Workspace backing files can only replace a detached slot.
 
 use super::backend::{BlockBackend, MemoryBackend};
 use super::*;
@@ -37,7 +37,7 @@ fn a_durable_volume_is_born_on_its_placeholder_and_no_other_role_is() {
 }
 
 #[test]
-fn a_volume_takes_exactly_one_swap() {
+fn a_volume_refuses_to_replace_its_current_backing() {
     let mut volume = built(BlockRole::DurableVolume, 8);
     volume.attach(store(8)).expect("the launch's one swap");
     assert!(!volume.is_placeholder());
@@ -47,6 +47,35 @@ fn a_volume_takes_exactly_one_swap() {
         volume.attach(store(8)).err(),
         Some(BlockConfigError::AlreadyAttached)
     );
+}
+
+#[test]
+#[cfg(unix)]
+fn releasing_the_volume_drops_its_lock_and_allows_another_binding() {
+    use std::fs::TryLockError;
+
+    let mut volume = built(BlockRole::DurableVolume, 8);
+    let path = tempfile::NamedTempFile::new().unwrap();
+    let owned = path.reopen().unwrap();
+    owned.set_len(8 * SECTOR_SIZE).unwrap();
+    owned.try_lock().unwrap();
+    let observer = path.reopen().unwrap();
+    volume
+        .attach(Box::new(backend::FileBackend::new(owned, false).unwrap()))
+        .unwrap();
+    assert!(matches!(observer.try_lock(), Err(TryLockError::WouldBlock)));
+    volume.release_volume().unwrap();
+    assert!(volume.is_placeholder());
+    assert_eq!(volume.capacity_sectors(), 8);
+    assert!(volume.backend.read_at(0, &mut [0; 1]).is_err());
+    volume.release_volume().unwrap();
+    observer.try_lock().unwrap();
+    assert_eq!(
+        volume.attach(store(16)),
+        Err(BlockConfigError::AttachedShapeDiffers)
+    );
+    volume.attach(store(8)).unwrap();
+    assert!(!volume.is_placeholder());
 }
 
 #[test]

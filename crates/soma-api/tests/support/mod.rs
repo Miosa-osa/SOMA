@@ -66,6 +66,7 @@ pub struct FakeFacade {
     pub calls: Vec<Call>,
     /// The standard input of the last command it was asked to run.
     pub last_stdin: Vec<u8>,
+    pub last_environment: Vec<(String, String)>,
     hosts_addressable_sandboxes: bool,
     /// A flat in-memory filesystem, so every filesystem route can be proved without KVM.
     files: BTreeMap<Vec<u8>, Vec<u8>>,
@@ -98,6 +99,7 @@ impl FakeFacade {
             mode,
             calls: Vec::new(),
             last_stdin: Vec::new(),
+            last_environment: Vec::new(),
             hosts_addressable_sandboxes: true,
             files: BTreeMap::new(),
             session: None,

@@ -48,6 +48,55 @@ pub struct DetachRequest {
     pub fingerprint: RequestFingerprint,
 }
 
+/// A broker-authorized copy of a saved volume into a distinct recovery Instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CheckpointVolumeRequest {
+    /// The Instance that owns the captured workspace.
+    pub source: InstanceId,
+    /// The new Instance that will own the independent recovery workspace.
+    pub destination: InstanceId,
+    /// The checkpoint containing the source disk.
+    pub checkpoint: OperationId,
+    /// The certified Generation used by both Instances.
+    pub generation: GenerationId,
+    /// The block digest certified by the checkpoint manifest.
+    pub digest: RequestFingerprint,
+}
+
+/// A broker-authorized replacement of the already-owned workspace of a stopped Instance.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WorkspaceRestoreRequest {
+    /// The checkpoint and its verified block digest.
+    pub checkpoint: CheckpointVolumeRequest,
+    /// The idempotency key of this restore, distinct from the checkpoint capture.
+    pub operation: OperationId,
+    /// The original workspace named by the restore authorization.
+    pub volume: VolumeId,
+}
+
+/// A broker-authorized workspace import into an empty destination volume.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceImportRequest {
+    /// The Instance whose backup contains the disk.
+    pub source: InstanceId,
+    /// The checkpoint containing the source disk.
+    pub checkpoint: OperationId,
+    /// The block digest certified by the backup receipt.
+    pub digest: RequestFingerprint,
+    /// The destination Instance, volume, tenant, and Generation.
+    pub destination: AttachRequest,
+}
+
+/// A verified writable copy of the checkpoint disk, before assigning it to the guest.
+pub struct CheckpointVolumeBinding {
+    /// The recovery volume's identity.
+    pub volume: VolumeId,
+    /// The independent backing file on the encrypted data mount.
+    pub path: PathBuf,
+    /// The class in GiB.
+    pub size_class_gib: u32,
+}
+
 /// The outcome of one attach.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AttachOutcome {
@@ -89,6 +138,104 @@ pub struct DetachOutcome {
 
 /// The volume lifecycle seam the daemon drives.
 pub trait VolumeStore {
+    /// Validates and repairs the workspace this running Instance already owns.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a missing workspace, wrong owner or unsuccessful offline repair.
+    fn stage_live_attach(&self, _request: &AttachRequest) -> Result<VolumeBinding, VolumeError> {
+        Err(VolumeError::Missing(
+            "live workspace attachment is unavailable",
+        ))
+    }
+
+    /// Records a successful mount after the worker holds the locked backing.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unlocked file or a workspace whose owner or intent differs.
+    fn commit_live_attach(&self, _request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
+        Err(VolumeError::Missing(
+            "live workspace attachment is unavailable",
+        ))
+    }
+
+    /// Checks the requested ownership and operation identity before guest unmount.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unknown workspace, a conflicting owner, or a changed operation.
+    fn validate_live_detach(&self, _request: &DetachRequest) -> Result<VolumeState, VolumeError> {
+        Err(VolumeError::Missing("live workspace detach is unavailable"))
+    }
+
+    /// Imports a saved disk into a fresh, detached destination workspace.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an existing workspace with different intent, unverified blocks, or unsafe storage.
+    fn import_workspace(
+        &self,
+        _request: &WorkspaceImportRequest,
+    ) -> Result<CheckpointVolumeBinding, VolumeError> {
+        Err(VolumeError::Missing("workspace import is unavailable"))
+    }
+
+    /// Copies and binds a saved disk without modifying the disk it was captured from.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unsafe or unavailable encrypted store, changed intent, or a bad saved disk.
+    fn clone_checkpoint(
+        &self,
+        _request: &CheckpointVolumeRequest,
+    ) -> Result<CheckpointVolumeBinding, VolumeError> {
+        Err(VolumeError::Missing(
+            "checkpoint volume cloning is unavailable",
+        ))
+    }
+
+    /// Prepares a replacement for the workspace named by an existing restore lease.
+    ///
+    /// # Errors
+    ///
+    /// Refuses mismatched ownership or an invalid checkpoint.
+    fn recovery_stage(
+        &self,
+        _request: &WorkspaceRestoreRequest,
+    ) -> Result<CheckpointVolumeBinding, VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
+    /// Publishes the replacement after the recovered worker has mounted it.
+    ///
+    /// # Errors
+    ///
+    /// Refuses an unconfirmed worker or a changed restore intent.
+    fn recovery_publish(
+        &self,
+        _request: &WorkspaceRestoreRequest,
+    ) -> Result<AttachOutcome, VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
+    /// Discards an unpublished workspace after the failed worker released it.
+    ///
+    /// # Errors
+    ///
+    /// Refuses a worker still using the replacement or a changed intent.
+    fn recovery_abort(&self, _request: &WorkspaceRestoreRequest) -> Result<(), VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
+    /// Reconciles the workspace of an exact unfinished broker restore after worker teardown.
+    ///
+    /// # Errors
+    /// Refuses a changed intent, unexpected volume revision, or a live worker.
+    fn recovery_reconcile(&self, _request: &WorkspaceRestoreRequest) -> Result<(), VolumeError> {
+        Err(VolumeError::Missing("workspace recovery is unavailable"))
+    }
+
     /// Creates the volume on first attach, repairs it offline, and binds it to the Instance.
     ///
     /// # Errors

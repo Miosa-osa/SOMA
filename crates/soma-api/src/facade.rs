@@ -44,6 +44,43 @@ pub trait SandboxFacade {
     fn launch(&mut self, request: LaunchMachineRequest)
     -> Result<LifecycleOutcome, ManagedFailure>;
 
+    /// Looks up the persisted ownership label for restore and exact replay.
+    /// # Errors
+    /// Returns a storage failure if ownership could not be verified.
+    fn restore_owner(
+        &mut self,
+        _instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        Ok(None)
+    }
+
+    /// Restores a stopped sandbox from its own published checkpoint.
+    /// # Errors
+    /// Returns the managed restore refusal or launch failure.
+    fn restore(
+        &mut self,
+        _request: LaunchMachineRequest,
+        _checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        Err(ManagedFailure::Backend(
+            soma::BackendFailureKind::Unsupported,
+        ))
+    }
+
+    /// Forks a checkpoint into a separate managed sandbox.
+    /// # Errors
+    /// Returns a typed refusal if the backend cannot establish the fork.
+    fn fork(
+        &mut self,
+        _request: LaunchMachineRequest,
+        _source: &soma::InstanceId,
+        _checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        Err(ManagedFailure::Backend(
+            soma::BackendFailureKind::Unsupported,
+        ))
+    }
+
     /// Reads back one managed sandbox by exact instance id.
     ///
     /// # Errors
@@ -155,7 +192,7 @@ pub trait SandboxFacade {
     /// # Errors
     ///
     /// Returns the typed suspension failure; the Suspension is kept when nothing resumed.
-    fn resume(
+    fn resume_suspension(
         &mut self,
         _request: &soma_local::ResumeRequest,
     ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
@@ -204,6 +241,51 @@ pub trait SandboxFacade {
         _port: u16,
     ) -> Result<GuestStream, TunnelFailure> {
         Err(TunnelFailure::Unavailable)
+    }
+
+    /// Pauses guest execution and keeps the sandbox resident.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner's failure when no pause can be confirmed.
+    fn pause(&mut self, _instance_id: &InstanceId) -> Result<(), soma_local::PauseFailure> {
+        Err(soma_local::PauseFailure::Unavailable)
+    }
+
+    /// Resumes the exact hosted machine after the owning runtime confirms it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner's failure when no resume can be confirmed.
+    fn resume(&mut self, _instance_id: &InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        Err(soma_local::ResumeFailure::Unavailable)
+    }
+
+    /// Captures a running sandbox for the supplied operation identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns the ownership, capture, or publication failure.
+    fn checkpoint(
+        &mut self,
+        _instance: &soma::InstanceId,
+        _operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        Err(soma_local::CheckpointFailure::Unsupported)
+    }
+
+    /// Discards an exact published checkpoint after its consumer is finished.
+    ///
+    /// # Errors
+    ///
+    /// Returns a refusal if the durable publication cannot be safely removed.
+    fn discard_checkpoint(
+        &mut self,
+        _instance: &soma::InstanceId,
+        _checkpoint: &soma::OperationId,
+        _state_digest: &soma::GenerationId,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        Err(soma_local::CheckpointFailure::Unsupported)
     }
 
     /// Changes the CPU and memory of one hosted sandbox live, and reports what is now true.

@@ -58,8 +58,14 @@ fn every_operation_builds_the_frame_the_daemon_reads() {
         request_for(VolumeOperation::Destroy, &body),
         Ok(Request::VolumeDestroy(_))
     ));
+    let read = VolumeBody {
+        operation_id: String::new(),
+        instance_id: String::new(),
+        request_fingerprint: String::new(),
+        ..body
+    };
     assert!(matches!(
-        request_for(VolumeOperation::Read, &body),
+        request_for(VolumeOperation::Read, &read),
         Ok(Request::VolumeRead { .. })
     ));
 }

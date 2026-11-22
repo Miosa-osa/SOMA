@@ -100,6 +100,43 @@ initramfs=top-down-page-aligned modules-max=1\n\
 mem-device=virtio-mem slot=5 hotplug=online-movable declared-by=device-set\n\
 base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
 
+/// The fixed-memory `x86_64` machine contract with up to sixteen processors.
+pub const MACHINE_CONTRACT_V4: &[u8] = b"soma-x86_64-machine-contract-v4\n\
+boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
+vcpu=1-16 ram-min=134217728 ram-max=17179869184 ram-step=4096\n\
+ram-split=low:0x0-0xc0000000 mmio-hole:0xc0000000-0x100000000 high:0x100000000-above\n\
+start-info=0x6000 memmap=0x7000 modules=0x8000 cmdline=0x9000 cmdline-max=8191\n\
+mptable=0xf0000 mptable-max=1024 lapic=0xfee00000 ioapic=0xfec00000\n\
+low-reserved=0x0-0x5fff workspace=0xb000-0x9ffff legacy-hole=0xa0000-0xfffff\n\
+loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000\n\
+initramfs=top-down-page-aligned modules-max=1\n\
+base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
+
+/// The fixed-memory `x86_64` machine with up to 32 GiB RAM and sixteen processors.
+pub const MACHINE_CONTRACT_V5: &[u8] = b"soma-x86_64-machine-contract-v5\n\
+boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
+vcpu=1-16 ram-min=134217728 ram-max=34359738368 ram-step=4096\n\
+ram-split=low:0x0-0xc0000000 mmio-hole:0xc0000000-0x100000000 high:0x100000000-above\n\
+start-info=0x6000 memmap=0x7000 modules=0x8000 cmdline=0x9000 cmdline-max=8191\n\
+mptable=0xf0000 mptable-max=1024 lapic=0xfee00000 ioapic=0xfec00000\n\
+low-reserved=0x0-0x5fff workspace=0xb000-0x9ffff legacy-hole=0xa0000-0xfffff\n\
+loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000\n\
+initramfs=top-down-page-aligned modules-max=1\n\
+base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
+
+/// The machine contract with fixed guest cache geometry.
+pub const MACHINE_CONTRACT_V6: &[u8] = b"soma-x86_64-machine-contract-v6\n\
+boot=pvh-direct elf=ET_EXEC note=XEN_ELFNOTE_PHYS32_ENTRY\n\
+vcpu=1-16 ram-min=134217728 ram-max=34359738368 ram-step=4096\n\
+ram-split=low:0x0-0xc0000000 mmio-hole:0xc0000000-0x100000000 high:0x100000000-above\n\
+start-info=0x6000 memmap=0x7000 modules=0x8000 cmdline=0x9000 cmdline-max=8191\n\
+mptable=0xf0000 mptable-max=1024 lapic=0xfee00000 ioapic=0xfec00000\n\
+low-reserved=0x0-0x5fff workspace=0xb000-0x9ffff legacy-hole=0xa0000-0xfffff\n\
+loader-gap=0x100000-0xffffff kernel-min-paddr=0x1000000 physical-start=0x1000000\n\
+cache=cpuid-4 line-bytes=64 ways=8 l1-sets=64 l2-sets=512 last-level-sets=4096\n\
+initramfs=top-down-page-aligned modules-max=1\n\
+base-cmdline=console=ttyS0 reboot=k panic=1 nomodule random.trust_cpu=off pci=off acpi=off cryptomgr.notests\n";
+
 /// The header every device-contract statement opens with, before its present slots.
 const DEVICE_CONTRACT_HEADER: &str = "soma-minimal-device-surface-v1\n\
 transport=virtio-mmio version=2 magic=0x74726976 features=VIRTIO_F_VERSION_1 queues=split\n\
@@ -182,6 +219,9 @@ pub fn machine_contract_for(version: u16) -> Option<ContractBinding> {
         1 => Some(machine_contract_v1()),
         2 => Some(machine_contract_v2()),
         3 => Some(machine_contract_v3()),
+        4 => Some(ContractBinding::of(4, MACHINE_CONTRACT_V4)),
+        5 => Some(ContractBinding::of(5, MACHINE_CONTRACT_V5)),
+        6 => Some(ContractBinding::of(6, MACHINE_CONTRACT_V6)),
         _ => None,
     }
 }
@@ -299,7 +339,16 @@ mod tests {
             String::from_utf8_lossy(&device_contract_statement(DeviceSet::FULL_WITH_MEM))
                 .contains("slot5 mmio=0xd0005000-0xd0005fff gsi=10 device=mem id=24")
         );
-        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 4), None);
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 4), Some(v3));
+        assert_eq!(
+            kernel_command_line_for(DeviceSet::FULL, 5),
+            kernel_command_line_for(DeviceSet::FULL, 4)
+        );
+        assert_eq!(
+            kernel_command_line_for(DeviceSet::FULL, 6),
+            kernel_command_line_for(DeviceSet::FULL, 5)
+        );
+        assert_eq!(kernel_command_line_for(DeviceSet::FULL, 7), None);
     }
 
     #[test]
@@ -330,7 +379,23 @@ mod tests {
         assert_eq!(machine_contract_for(2), Some(machine_contract_v2()));
         assert_eq!(machine_contract_for(0), None);
         assert_eq!(machine_contract_for(3), Some(machine_contract_v3()));
-        assert_eq!(machine_contract_for(4), None);
+        assert_eq!(
+            machine_contract_for(4),
+            Some(ContractBinding::of(4, MACHINE_CONTRACT_V4))
+        );
+        assert_eq!(
+            machine_contract_for(5),
+            Some(ContractBinding::of(5, MACHINE_CONTRACT_V5))
+        );
+        assert_eq!(
+            machine_contract_for(6),
+            Some(ContractBinding::of(6, MACHINE_CONTRACT_V6))
+        );
+        assert_eq!(machine_contract_for(7), None);
+        assert_ne!(
+            machine_contract_v3(),
+            ContractBinding::of(4, MACHINE_CONTRACT_V4)
+        );
         assert_ne!(machine_contract_v1(), machine_contract_v2());
         assert_ne!(machine_contract_v2(), machine_contract_v3());
         assert_eq!(machine_contract_v3().version, 3);

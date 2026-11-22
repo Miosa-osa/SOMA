@@ -1,4 +1,5 @@
 mod boot;
+mod checkpoint;
 mod claim;
 mod dispatch;
 mod egress;
@@ -10,6 +11,7 @@ mod host;
 mod hotplug;
 mod identity;
 mod jailed;
+mod jailed_volume;
 mod lifecycle;
 mod network;
 mod pool;
@@ -30,10 +32,21 @@ use soma_hostd::{ExhaustedBehavior, Limits};
 use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
+pub(super) use checkpoint::retention::retains_stopped_checkpoint;
+pub use checkpoint::{CheckpointArtifact, CheckpointExport};
+pub(crate) use checkpoint::{
+    discard_checkpoint, import_cold_workspace, install_import, open_export, verify_import,
+};
+pub(super) use host::LaunchHandoff;
 use host::Role;
 pub(crate) use host::open_tunnel;
 pub(crate) use host::resize as resize_machine;
 pub(crate) use host::set_egress as set_egress_machine;
+pub(crate) use host::workspace as change_workspace;
+pub(crate) use host::{
+    checkpoint as checkpoint_machine, pause as pause_machine, resume as resume_machine,
+};
+pub(super) use jailed_volume::reconcile as reconcile_checkpoint_launch;
 use network::BrokerConfiguration;
 use pool::{MachineKey, MachinePool};
 use runtime::Ownership;

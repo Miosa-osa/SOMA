@@ -8,7 +8,7 @@
 //! are kept as the text the worker sent, because a supervisor forwards them and never branches
 //! on them, and decoding a value nobody reads is a way for the two sides to disagree silently.
 
-use crate::{ExitStatus, FailureKind, OperationId};
+use crate::{ExitStatus, FailureKind, InstanceId, OperationId};
 
 use super::{ControlError, field};
 
@@ -16,7 +16,9 @@ use super::{ControlError, field};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Outcome {
     /// The Instance reached authenticated command readiness.
-    Ready { operation_id: OperationId },
+    Ready {
+        operation_id: OperationId,
+    },
     /// One command completed, and its output is this many bytes on each stream.
     Executed {
         operation_id: OperationId,
@@ -24,13 +26,26 @@ pub enum Outcome {
         stdout_bytes: u64,
         stderr_bytes: u64,
     },
+    /// The machine paused and is still resident.
+    Paused(InstanceId),
+    /// The resident machine resumed with the same identity.
+    Resumed(InstanceId),
+    /// The authenticated workspace result for the matching Instance.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Workspace(InstanceId, soma_guest::WorkspaceOutcome),
+    Checkpointed(InstanceId, [u8; 32]),
+    CheckpointUnconfirmed,
+    FileComplete(InstanceId),
     /// The machine stopped and proved its cleanup.
     Stopped {
         guest_acknowledged: bool,
         forced: bool,
     },
     /// The request was performed and failed, with the contract's typed reason.
-    Failure { kind: FailureKind, detail: String },
+    Failure {
+        kind: FailureKind,
+        detail: String,
+    },
     /// One bounded window of a completed command's output.
     Output(Vec<u8>),
     /// One chunk of a streaming command's output, before the command ended.
@@ -67,6 +82,15 @@ impl Outcome {
             }),
             "executed" => executed(rest),
             "stopped" => stopped(rest),
+            "paused" => resident_instance(rest).map(Self::Paused),
+            "resumed" => resident_instance(rest).map(Self::Resumed),
+            "file_complete" => resident_instance(rest).map(Self::FileComplete),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "workspace" => workspace(rest),
+            "checkpointed" => checkpointed(rest),
+            "checkpoint_unconfirmed" => {
+                field::end(rest.split_whitespace()).map(|()| Self::CheckpointUnconfirmed)
+            }
             "failure" => failure(rest),
             _ => Err(ControlError::UnknownRequest),
         }
@@ -120,6 +144,43 @@ fn executed(text: &str) -> Result<Outcome, ControlError> {
     })
 }
 
+fn resident_instance(text: &str) -> Result<InstanceId, ControlError> {
+    let mut tokens = text.split_whitespace();
+    let value = tokens
+        .next()
+        .and_then(|token| token.strip_prefix("instance="));
+    let instance = InstanceId::new(field::identifier(value, "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    field::end(tokens)?;
+    Ok(instance)
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+fn workspace(text: &str) -> Result<Outcome, ControlError> {
+    use soma_guest::WorkspaceOutcome;
+
+    let mut tokens = text.split_whitespace();
+    let instance = InstanceId::new(field::identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    let outcome = match tokens.next() {
+        Some("0") => WorkspaceOutcome::Ready,
+        Some("1") => WorkspaceOutcome::Refused,
+        Some("3") => WorkspaceOutcome::Unsupported,
+        _ => return Err(ControlError::InvalidValue("workspace outcome")),
+    };
+    field::end(tokens)?;
+    Ok(Outcome::Workspace(instance, outcome))
+}
+
+fn checkpointed(text: &str) -> Result<Outcome, ControlError> {
+    let mut tokens = text.split_whitespace();
+    let instance = InstanceId::new(field::identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    let digest = field::identifier(tokens.next(), "checkpoint digest")?;
+    field::end(tokens)?;
+    Ok(Outcome::Checkpointed(instance, digest))
+}
+
 fn stopped(text: &str) -> Result<Outcome, ControlError> {
     Ok(Outcome::Stopped {
         guest_acknowledged: boolean(text, "acknowledged")?,
@@ -154,6 +215,28 @@ mod tests {
         InstanceId::new([2; 16]).expect("instance")
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn workspace_outcomes_reject_uncertain_or_unknown_receipts() {
+        use soma_guest::WorkspaceOutcome;
+        for result in [
+            WorkspaceOutcome::Ready,
+            WorkspaceOutcome::Refused,
+            WorkspaceOutcome::Unsupported,
+        ] {
+            let reply = Reply::Workspace(instance(), result).encode();
+            assert_eq!(
+                Outcome::decode(&reply),
+                Ok(Outcome::Workspace(instance(), result))
+            );
+            assert!(Outcome::decode(&(reply + " extra")).is_err());
+        }
+        assert!(
+            Outcome::decode(&Reply::Workspace(instance(), WorkspaceOutcome::Inconsistent).encode())
+                .is_err()
+        );
+    }
+
     fn launch() -> Launch {
         let machine = MachineSpec::new(
             VcpuCount::new(1).expect("vcpus"),
@@ -174,6 +257,14 @@ mod tests {
     /// Every form the worker can encode is a form the supervisor recovers the same values from.
     #[test]
     fn every_reply_the_worker_sends_decodes_to_what_it_meant() {
+        assert_eq!(
+            Outcome::decode(&Reply::Paused(instance()).encode()),
+            Ok(Outcome::Paused(instance()))
+        );
+        assert_eq!(
+            Outcome::decode(&Reply::Resumed(instance()).encode()),
+            Ok(Outcome::Resumed(instance()))
+        );
         let executed = Executed::new(
             operation(),
             instance(),

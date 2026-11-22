@@ -1,3 +1,5 @@
+mod checkpoints;
+
 use soma::{
     Backend as _, BackendKind, DestroyMachineRequest, Engine, ExecuteMachineRequest,
     FileMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
@@ -88,6 +90,39 @@ impl LocalRuntime {
         request: LaunchMachineRequest,
     ) -> Result<MachineLaunch, ManagedFailure> {
         self.engine.launch_machine(request)
+    }
+
+    /// Reads the persisted ownership label for a possibly recoverable Instance.
+    /// # Errors
+    /// Returns the durable-store failure if ownership cannot be read.
+    pub fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.engine.restore_owner(instance)
+    }
+
+    /// Restores an existing stopped Instance from a published checkpoint.
+    /// # Errors
+    /// Returns the typed managed failure if restore could not be admitted or completed.
+    pub fn restore_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.engine.restore_machine(request, checkpoint)
+    }
+
+    /// Forks a checkpoint into a distinct durably managed Machine with the same owner.
+    /// # Errors
+    /// Returns the typed managed failure if the fork could not be admitted or completed.
+    pub fn fork_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.engine.fork_machine(request, source, checkpoint)
     }
 
     /// Executes one bounded command in a durably managed Machine.
@@ -210,6 +245,51 @@ impl LocalRuntime {
             .as_deref()
             .ok_or(crate::ResizeFailure::Unavailable)?;
         crate::resize::resize_machine(directory, instance, request)
+    }
+
+    /// Runs a workspace attach or detach transaction on the running Instance's owner.
+    ///
+    /// # Errors
+    ///
+    /// Refuses unavailable hosting, an unsupported guest, an active mount holder or an
+    /// uncertain handoff.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn change_workspace(
+        &self,
+        instance: &soma::InstanceId,
+        request: &soma_hostd::Request,
+    ) -> Result<soma_hostd::Reply, soma::BackendFailureKind> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(soma::BackendFailureKind::Unsupported)?;
+        crate::backend::change_workspace(directory, instance, request)
+    }
+
+    /// Pauses a hosted Machine after receiving confirmation from its owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure when the owner cannot confirm pause.
+    pub fn pause_machine(&self, instance: &soma::InstanceId) -> Result<(), crate::PauseFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::PauseFailure::Unavailable)?;
+        crate::pause::pause_machine(directory, instance)
+    }
+
+    /// Resumes a hosted Machine after receiving confirmation from its owner.
+    ///
+    /// # Errors
+    ///
+    /// Returns the typed failure when the owner cannot confirm resume.
+    pub fn resume_machine(&self, instance: &soma::InstanceId) -> Result<(), crate::ResumeFailure> {
+        let directory = self
+            .host_directory
+            .as_deref()
+            .ok_or(crate::ResumeFailure::Unavailable)?;
+        crate::pause::resume_machine(directory, instance)
     }
 
     /// Opens or closes the egress of a hosted Machine that was launched windowed.

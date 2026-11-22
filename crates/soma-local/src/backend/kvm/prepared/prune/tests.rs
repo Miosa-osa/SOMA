@@ -9,9 +9,26 @@ use std::{fs::File, sync::Weak};
 
 use soma::InstanceId;
 
-use super::survey::HOLDING;
+use super::super::INCOMING;
+use super::survey::{HOLDING, survey};
 use crate::{InstanceHolds, PruneReason};
 use fixture::{Host, generation, nobody, tree, verdict, write_entry};
+
+#[test]
+fn pruning_ignores_the_publishers_staging_directory() {
+    let host = Host::new();
+    let stage = host.root().join(INCOMING);
+    std::fs::create_dir(&stage).expect("create staging");
+    std::fs::write(stage.join("reference"), "node:22").expect("write staging data");
+    host.certify("node:22", 1, 10);
+
+    let (entries, leftovers) = survey(&host.root()).expect("survey prepared root");
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].reference.as_deref(), Some("node:22"));
+    assert!(leftovers.is_empty());
+    assert!(stage.is_dir());
+}
 
 #[test]
 fn a_pinned_entry_is_never_removed() {

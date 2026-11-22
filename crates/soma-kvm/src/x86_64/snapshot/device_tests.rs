@@ -1,12 +1,10 @@
 //! The capture path refuses to publish a durable volume that is not on its placeholder.
 
-use super::{SnapshotError, device};
-use crate::contract::MachineContract;
-use crate::snapshot::Digest;
+use super::{SnapshotError, capture::require_placeholder_volume};
 use crate::virtio::devices::block::backend::MemoryBackend;
 use crate::virtio::devices::rng::backend::CounterEntropy;
 use crate::virtio::{
-    BlockDevice, BlockRole, BusDevices, MmioBus, RngDevice, Slot, TransferShape, VsockDevice,
+    BlockDevice, BlockRole, BusDevices, MmioBus, RngDevice, TransferShape, VsockDevice,
 };
 
 fn block(role: BlockRole, sectors: usize) -> BlockDevice {
@@ -36,24 +34,12 @@ fn bus() -> MmioBus {
     .expect("bus")
 }
 
-fn volume_state(bus: &mut MmioBus, image: Digest) -> Result<(), SnapshotError> {
-    let record = |record: &crate::virtio::SlotSnapshot| matches!(record.slot, Slot::Volume);
-    let live = bus
-        .snapshot_all()
-        .into_iter()
-        .find(record)
-        .expect("the volume record");
-    let specific = device::specific(bus, Slot::Volume, image).expect("specific");
-    device::canonical(bus, Slot::Volume, &live, specific, MachineContract::V1).map(|_| ())
-}
-
 #[test]
-fn a_capture_publishes_a_volume_only_while_it_is_a_placeholder() {
-    let image = Digest::from_bytes([0; 32]);
+fn a_generation_capture_accepts_only_a_placeholder_volume() {
     let mut bus = bus();
     // A freshly built machine carries the placeholder the Generation declared, which is the
     // device state a capture is allowed to read.
-    assert!(bus.volume().expect("volume slot").device().is_placeholder());
+    assert!(require_placeholder_volume(&bus).is_ok());
 
     // The launch binds the Instance's own file over the placeholder before the guest runs, so a
     // machine that reached a capture in that state has tenant data behind a device whose
@@ -65,7 +51,7 @@ fn a_capture_publishes_a_volume_only_while_it_is_a_placeholder() {
         .attach(Box::new(MemoryBackend::zeroed(8, false)))
         .expect("the launch's one swap");
     assert!(matches!(
-        volume_state(&mut bus, image),
+        require_placeholder_volume(&bus),
         Err(SnapshotError::VolumeNotPlaceholder)
     ));
 }

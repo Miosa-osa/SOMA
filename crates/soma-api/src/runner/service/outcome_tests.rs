@@ -72,6 +72,11 @@ fn only_a_lost_agent_is_reported_as_an_agent_outage() {
             409,
             "RESOURCE_CONFLICT",
         ),
+        (
+            BackendFailureKind::CheckpointIncompatible,
+            409,
+            "CHECKPOINT_INCOMPATIBLE",
+        ),
         (BackendFailureKind::Unsupported, 501, "BACKEND_UNSUPPORTED"),
     ] {
         let error = failure_error(&ManagedFailure::Backend(kind));

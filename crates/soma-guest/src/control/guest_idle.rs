@@ -31,6 +31,7 @@ pub(super) fn accept<I: ControlIo>(
     let (failing_stage, operation) = match &request {
         HostMessage::Execute { operation, .. } => (ControlStage::Execute, *operation),
         HostMessage::File { operation, .. } => (ControlStage::File, *operation),
+        HostMessage::Workspace { operation, .. } => (ControlStage::Workspace, *operation),
         HostMessage::Pty { operation, .. } => (ControlStage::Pty, *operation),
         HostMessage::Shutdown { operation } => (ControlStage::Shutdown, *operation),
         HostMessage::Suspend { operation } => (ControlStage::Suspend, *operation),
@@ -57,6 +58,10 @@ pub(super) fn accept<I: ControlIo>(
         HostMessage::File { operation, request } => (
             GuestState::FilePending(operation),
             GuestRequest::File { operation, request },
+        ),
+        HostMessage::Workspace { operation, action } => (
+            GuestState::WorkspacePending(operation),
+            GuestRequest::Workspace { operation, action },
         ),
         HostMessage::Pty { operation, request } => (
             GuestState::PtyPending(operation),

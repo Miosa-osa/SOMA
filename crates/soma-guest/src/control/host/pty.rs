@@ -69,6 +69,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
             GuestMessage::Stdout { .. }
             | GuestMessage::Stderr { .. }
             | GuestMessage::Terminal { .. }
+            | GuestMessage::WorkspaceOutcome { .. }
             | GuestMessage::FileOutcome { .. }
             | GuestMessage::RepairComplete { .. }
             | GuestMessage::SuspendAck { .. }

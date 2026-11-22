@@ -83,6 +83,8 @@ pub(crate) enum TestStage {
     OutOfOrderRestoreEvidence,
     OversizedOutput,
     UserExecute,
+    Pause,
+    Resume,
     Stop,
 }
 
@@ -178,6 +180,14 @@ impl Platform for DeterministicPlatform {
             format!("execution-{}", self.execution_count).into_bytes(),
             Vec::new(),
         ))
+    }
+
+    fn pause(&mut self) -> Result<(), PlatformFailure> {
+        self.complete(TestStage::Pause)
+    }
+
+    fn resume(&mut self) -> Result<(), PlatformFailure> {
+        self.complete(TestStage::Resume)
     }
 
     fn stop(

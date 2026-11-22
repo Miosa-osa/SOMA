@@ -88,6 +88,12 @@ pub enum Route {
     ListSandboxes,
     GetSandbox(InstanceId),
     StopSandbox(InstanceId),
+    PauseSandbox(InstanceId),
+    ResumeSandbox(InstanceId),
+    CheckpointSandbox(InstanceId),
+    DiscardCheckpoint(InstanceId),
+    RestoreSandbox(InstanceId),
+    ForkSandbox(InstanceId),
     /// Suspend, resume and discard a Suspension (ADR 0034).
     SuspendSandbox(InstanceId),
     ResumeSuspension(String),
@@ -132,6 +138,12 @@ impl Route {
             Self::ListSandboxes => "sandbox.list",
             Self::GetSandbox(_) => "sandbox.get",
             Self::StopSandbox(_) => "sandbox.stop",
+            Self::PauseSandbox(_) => "sandbox.pause",
+            Self::ResumeSandbox(_) => "sandbox.resume",
+            Self::CheckpointSandbox(_) => "sandbox.checkpoint",
+            Self::DiscardCheckpoint(_) => "sandbox.checkpoint.discard",
+            Self::RestoreSandbox(_) => "sandbox.restore",
+            Self::ForkSandbox(_) => "sandbox.fork",
             Self::SuspendSandbox(_) => "sandbox.suspend",
             Self::ResumeSuspension(_) => "suspension.resume",
             Self::DestroySuspension(_) => "suspension.destroy",
@@ -165,20 +177,14 @@ impl Route {
 pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     let segments = request.segments();
     match segments.as_slice() {
-        ["v1", "version"] => match request.method {
-            Method::Get => Ok(Route::Version),
-            _ => Err(ApiError::method_not_allowed()),
-        },
+        ["v1", "version"] => get_only(request, Route::Version),
         ["v1", "prewarm"] => match request.method {
             Method::Get => Ok(Route::Prewarm(false)),
             Method::Put => Ok(Route::Prewarm(true)),
             _ => Err(ApiError::method_not_allowed()),
         },
         ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
-        ["v1", "capacity"] => match request.method {
-            Method::Get => Ok(Route::Capacity),
-            _ => Err(ApiError::method_not_allowed()),
-        },
+        ["v1", "capacity"] => get_only(request, Route::Capacity),
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),
@@ -191,6 +197,26 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
                 Method::Delete => Ok(Route::DestroySandbox(instance_id)),
                 _ => Err(ApiError::method_not_allowed()),
             }
+        }
+        ["v1", "sandboxes", instance, "pause"] => {
+            post_only(request, Route::PauseSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "sandboxes", instance, "resume"] => {
+            post_only(request, Route::ResumeSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "sandboxes", instance, "checkpoints"] => post_only(
+            request,
+            Route::CheckpointSandbox(path_instance_id(instance)?),
+        ),
+        ["v1", "sandboxes", instance, "checkpoints", "discard"] => post_only(
+            request,
+            Route::DiscardCheckpoint(path_instance_id(instance)?),
+        ),
+        ["v1", "sandboxes", instance, "restore"] => {
+            post_only(request, Route::RestoreSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "sandboxes", instance, "fork"] => {
+            post_only(request, Route::ForkSandbox(path_instance_id(instance)?))
         }
         ["v1", "sandboxes", instance, "stop"] => {
             post_only(request, Route::StopSandbox(path_instance_id(instance)?))
@@ -225,23 +251,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             }
         }
         ["v1", "sandboxes", instance, "tunnel", port] => {
-            let instance_id = path_instance_id(instance)?;
-            let port = port
-                .parse::<u16>()
-                .ok()
-                .filter(|port| *port != 0)
-                .ok_or_else(|| {
-                    ApiError::new(
-                        400,
-                        "invalid_port",
-                        "the tunnel port must be 1 to 65535",
-                        false,
-                    )
-                })?;
-            match request.method {
-                Method::Get => Ok(Route::Tunnel(instance_id, port)),
-                _ => Err(ApiError::method_not_allowed()),
-            }
+            tunnel(request.method, path_instance_id(instance)?, port)
         }
         ["v1", "sandboxes", instance, "terminal", operation] => {
             let route =
@@ -267,12 +277,39 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     }
 }
 
+fn tunnel(method: Method, instance: InstanceId, port: &str) -> Result<Route, ApiError> {
+    let port = port
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or_else(|| {
+            ApiError::new(
+                400,
+                "invalid_port",
+                "the tunnel port must be 1 to 65535",
+                false,
+            )
+        })?;
+    match method {
+        Method::Get => Ok(Route::Tunnel(instance, port)),
+        _ => Err(ApiError::method_not_allowed()),
+    }
+}
+
 fn autosize(request: &Request, instance: &str) -> Result<Route, ApiError> {
     let instance_id = path_instance_id(instance)?;
     match request.method {
         Method::Get => Ok(Route::Autosize(instance_id, false)),
         Method::Put => Ok(Route::Autosize(instance_id, true)),
         _ => Err(ApiError::method_not_allowed()),
+    }
+}
+
+fn get_only(request: &Request, route: Route) -> Result<Route, ApiError> {
+    if request.method == Method::Get {
+        Ok(route)
+    } else {
+        Err(ApiError::method_not_allowed())
     }
 }
 

@@ -149,3 +149,21 @@ pub(super) fn upload(id: &str, form: Vec<u8>, boundary: &str, chunk: usize) -> R
     request.streamed = Some(streamed);
     request
 }
+
+pub(super) fn expect(
+    answer: &soma_api::runner::service::RunnerResponse,
+    status: u16,
+) -> Result<(), String> {
+    if answer.status == status {
+        return Ok(());
+    }
+    Err(format!(
+        "expected {status}, got {}: {}",
+        answer.status,
+        String::from_utf8_lossy(&answer.body)
+    ))
+}
+
+pub(super) fn json(answer: &soma_api::runner::service::RunnerResponse) -> serde_json::Value {
+    serde_json::from_slice(&answer.body).unwrap_or(serde_json::Value::Null)
+}

@@ -46,8 +46,18 @@ pub struct SterileSpec {
     pub contract: soma_kvm::MachineContract,
     /// The optional devices this machine is built with.
     pub devices: DeviceSet,
+    /// The certified capacity of the Generation's durable volume slot.
+    pub volume_capacity_bytes: Option<u64>,
     /// The resizable region the Generation declared, which restore attaches empty.
     pub hotplug: Option<soma_kvm::memory_layout::HotplugRegion>,
+}
+
+/// How the assignment obtained its durable volume.
+pub enum AssignmentVolume {
+    /// The volume store certified the path for the unsealed runtime.
+    CertifiedPath(soma::VolumeAttachment),
+    /// The sealed worker received the certified file from the machine host.
+    Descriptor(File),
 }
 
 /// The fresh per-Instance authority a claim transfers into one prepared worker, exactly once.
@@ -55,11 +65,7 @@ pub struct Assignment {
     /// This Instance's private writable head, absent on a machine built with no overlay device.
     pub overlay: Option<File>,
     /// This Instance's durable volume, absent on a machine whose Generation declares none.
-    ///
-    /// The id is what the ready signal reports; the path is the host's own, named by the volume
-    /// store after it certified the file, and it is opened here rather than sent as a descriptor
-    /// so nothing about the file crosses the worker wire.
-    pub volume: Option<soma::VolumeAttachment>,
+    pub volume: Option<AssignmentVolume>,
     /// The Generation the launch material is bound to.
     pub generation: [u8; 32],
     /// The Instance identity.
@@ -90,6 +96,7 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         vcpus,
         contract,
         devices,
+        volume_capacity_bytes,
         hotplug,
     } = spec;
     let sterile = restore_sterile(SterileRequest {
@@ -105,11 +112,15 @@ pub fn serve(spec: SterileSpec, requests: &Receiver<Request>, responses: &Sender
         // not the preparation path.
         verify_artifacts: false,
         hotplug,
-        volume_capacity_bytes: None,
+        volume_capacity_bytes,
     });
-    let Ok(sterile) = sterile else {
-        let _ignored = responses.send(Response::Failed(SessionError::Create));
-        return;
+    let sterile = match sterile {
+        Ok(sterile) => sterile,
+        Err(error) => {
+            eprintln!("soma-vmm: sterile snapshot restore failed: {error}");
+            let _ignored = responses.send(Response::Failed(SessionError::Create));
+            return;
+        }
     };
     // Announcing readiness to be claimed is the last thing that happens before the park. A
     // closed channel here means the pool went away while the machine was being built, so the
@@ -157,14 +168,10 @@ fn assign(
     // rather than returning a half-assigned one to anybody. The leased frame path is installed
     // in the same step, because it is this Instance's authority and not the pool's: a prepared
     // machine that already held a TAP would be holding one tenant's network.
-    // The volume is opened here, from the path the store certified, and it rides the same
-    // transfer as the head. A file that cannot be opened is a refusal rather than a launch: the
-    // worker is destroyed, and a machine whose Generation declares a volume never runs without
-    // one, because an empty disk where a customer's data belongs is worse than a failed start.
-    let data = match volume
-        .as_ref()
-        .map(|attachment| super::volume::open(&attachment.path))
-    {
+    let data = match volume.map(|volume| match volume {
+        AssignmentVolume::CertifiedPath(attachment) => super::volume::open(&attachment.path),
+        AssignmentVolume::Descriptor(file) => Ok(file),
+    }) {
         Some(Ok(file)) => Some(file),
         Some(Err(_)) => {
             let _ignored = responses.send(Response::Failed(SessionError::Create));

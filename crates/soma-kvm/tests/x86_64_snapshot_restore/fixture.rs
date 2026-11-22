@@ -226,6 +226,10 @@ fn capture_source(
         manifest.device_set(),
     );
     let mut sandbox = SandboxMachine::create(config).expect("create the source machine");
+    assert!(
+        sandbox.pause(PAUSE_GRACE).is_err(),
+        "a prepared guest cannot be paused"
+    );
     sandbox.watch_console(REPAIR_POINT_LINE);
     // No launch page is written: the machine must reach its repair point with no Instance
     // identity, no session, and no key anywhere in guest memory.
@@ -245,6 +249,13 @@ fn capture_source(
         },
         started + REPAIR_POINT_DEADLINE,
     );
+    if outcome.is_ok() {
+        assert!(sandbox.is_paused(), "capture must leave the source paused");
+        sandbox
+            .pause(PAUSE_GRACE)
+            .expect("replay the completed pause");
+        assert!(sandbox.is_paused(), "replay must keep the machine paused");
+    }
     let evidence = sandbox.finish(Duration::from_secs(10));
     let log = scratch.join("capture-serial.log");
     fs::write(&log, &evidence.serial).unwrap();

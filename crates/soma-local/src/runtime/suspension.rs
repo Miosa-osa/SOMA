@@ -34,7 +34,7 @@ impl LocalRuntime {
     /// # Errors
     ///
     /// Returns the typed failure; the Suspension is kept whenever no Machine resumed from it.
-    pub fn resume_machine(
+    pub fn resume_suspension(
         &mut self,
         request: &ResumeRequest,
     ) -> Result<MachineLaunch, SuspensionFailure> {

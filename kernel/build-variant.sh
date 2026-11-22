@@ -73,11 +73,8 @@ inner() {
     echo "regenerated ${CONFIG_NAME}"
     return 0
   fi
-  python3 /work/verify-config.py --pinned "$cfg" --final .config --required /work/required-config.txt \
-    --variant-fragment "/work/$FRAGMENT"
-  for symbol in $(sed -n 's/^\(CONFIG_[A-Z0-9_]*\)=y$/\1/p' "/work/$FRAGMENT"); do
-    grep -q "^${symbol}=y" .config || { echo "the fragment did not enable ${symbol}" >&2; exit 2; }
-  done
+  python3 /work/verify-config.py --pinned "$cfg" --final .config \
+    --required /work/required-config.txt --required-fragment "/work/$FRAGMENT"
   cp .config "/work/out-$VARIANT/final.config"
 
   export KBUILD_BUILD_TIMESTAMP KBUILD_BUILD_USER KBUILD_BUILD_HOST KBUILD_BUILD_VERSION SOURCE_DATE_EPOCH

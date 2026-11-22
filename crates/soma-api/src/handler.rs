@@ -1,4 +1,6 @@
 mod capacity;
+pub(crate) mod checkpoint;
+mod pause;
 mod prepared;
 pub(crate) mod prewarm;
 mod support;
@@ -49,6 +51,19 @@ pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> R
     }
 }
 
+fn list_sandboxes(
+    facade: &mut (impl SandboxFacade + ?Sized),
+    operation: &'static str,
+) -> Result<Response, ApiError> {
+    let listing = facade.list().map_err(|failure| managed_error(&failure))?;
+    Ok(success(
+        200,
+        operation,
+        &SandboxListReport::from_listing(&listing),
+        None,
+    ))
+}
+
 fn dispatch<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     route: Route,
@@ -58,15 +73,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     let operation = route.operation();
     match route {
         Route::CreateSandbox => create(facade, body),
-        Route::ListSandboxes => {
-            let listing = facade.list().map_err(|f| managed_error(&f))?;
-            Ok(success(
-                200,
-                operation,
-                &SandboxListReport::from_listing(&listing),
-                None,
-            ))
-        }
+        Route::ListSandboxes => list_sandboxes(facade, operation),
         Route::Filesystem(instance_id, file_operation) => {
             filesystem(facade, instance_id, file_operation, body)
         }
@@ -87,6 +94,16 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 Some(&snapshot.receipt),
             ))
         }
+        Route::PauseSandbox(instance_id) => {
+            pause::serve(facade, instance_id, body, pause::Transition::Pause)
+        }
+        Route::ResumeSandbox(instance_id) => {
+            pause::serve(facade, instance_id, body, pause::Transition::Resume)
+        }
+        Route::CheckpointSandbox(instance_id) => checkpoint::serve(facade, &instance_id, body),
+        Route::DiscardCheckpoint(instance_id) => checkpoint::discard(facade, &instance_id, body),
+        Route::RestoreSandbox(instance_id) => checkpoint::restore(facade, instance_id, body),
+        Route::ForkSandbox(source) => checkpoint::fork(facade, &source, body),
         Route::StopSandbox(instance_id) => {
             let request = control_body(body)?.into_stop(instance_id.clone())?;
             let stop = request.operation_id().clone();

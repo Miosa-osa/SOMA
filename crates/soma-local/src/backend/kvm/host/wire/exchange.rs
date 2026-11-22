@@ -66,6 +66,20 @@ pub(in crate::backend::kvm::host) enum Call {
         instance_id: InstanceId,
         operation: PtyOperation,
     },
+    Workspace {
+        instance_id: InstanceId,
+        request: Vec<u8>,
+    },
+    Pause {
+        instance_id: InstanceId,
+    },
+    Resume {
+        instance_id: InstanceId,
+    },
+    Checkpoint {
+        instance_id: InstanceId,
+        operation_id: soma::OperationId,
+    },
     Inspect {
         instance_id: InstanceId,
     },
@@ -160,6 +174,13 @@ pub(in crate::backend::kvm::host) enum Answer {
     PtyAnswered {
         answer: PtyAnswer,
     },
+    WorkspaceVolume(Vec<u8>),
+    Paused,
+    PauseRefused(crate::PauseFailure),
+    Resumed,
+    ResumeRefused(crate::ResumeFailure),
+    Checkpointed(crate::CheckpointReceipt),
+    CheckpointRefused(crate::CheckpointFailure),
     Inspected {
         state: MachineState,
         network: EffectiveNetwork,

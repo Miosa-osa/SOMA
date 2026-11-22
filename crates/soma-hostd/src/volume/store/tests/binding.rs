@@ -42,6 +42,7 @@ fn a_binding_opens_the_volume_attached_to_its_instance_and_reports_this_starts_r
 
     // A stop leaves the volume detached, and a start is what reattaches it: the binding accepts
     // a detached volume this Instance owns and says attached before any machine exists.
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
     volumes.detach(&detach(1, 1, 2)).expect("detach");
     assert_eq!(
         volumes.inspect(volume(1)).expect("exists").state,
@@ -115,5 +116,25 @@ fn a_binding_refuses_a_root_that_is_not_on_the_encrypted_data_mount() {
         Some(VolumeError::Encryption(
             "the volume root is not on this host's encrypted data mount"
         ))
+    );
+}
+
+#[test]
+fn one_instance_can_bind_only_one_volume() {
+    let (work, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).expect("first attach");
+    let other = attach(2, 9, 2, 10);
+    let occupied = Err(VolumeError::Busy(
+        "the Instance already owns another volume",
+    ));
+    assert_eq!(volumes.attach(&other), occupied);
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
+    volumes.detach(&detach(1, 9, 3)).expect("detach");
+    assert_eq!(volumes.attach(&other), occupied);
+    assert_eq!(record_count(work.path(), volume(2)), 0);
+    assert!(!volumes.directory(volume(2)).exists());
+    assert_eq!(
+        volumes.binding(instance(9)).expect("reattach").volume,
+        volume(1)
     );
 }

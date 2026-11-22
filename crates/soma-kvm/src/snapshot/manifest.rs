@@ -22,6 +22,7 @@
 
 mod header;
 mod host;
+mod resident;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -31,6 +32,7 @@ pub use header::{Architecture, CandidateId, ManifestHeader, PageSize};
 pub use host::{
     HostCapability, HostRequirements, HostRequirementsError, MAX_REQUIRED_CAPABILITIES,
 };
+pub use resident::{CheckpointManifest, CheckpointManifestError};
 
 use super::{
     WireError,
@@ -38,6 +40,19 @@ use super::{
     section::{MAX_SECTIONS, Section, SectionError, SectionRole},
     wire::{Reader, Writer},
 };
+
+/// Shared architecture data after the owning format has been decoded.
+#[derive(Clone, Copy)]
+pub(crate) struct StateView<'a> {
+    pub header: &'a ManifestHeader,
+    sections: &'a [Section],
+}
+
+impl<'a> StateView<'a> {
+    pub fn section(self, role: SectionRole) -> Option<&'a Section> {
+        self.sections.iter().find(|section| section.role() == role)
+    }
+}
 
 pub const MAGIC: [u8; 8] = *b"SOMASNP\0";
 pub const SCHEMA_VERSION: u16 = 2;
@@ -122,6 +137,13 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    pub(crate) fn state(&self) -> StateView<'_> {
+        StateView {
+            header: &self.header,
+            sections: &self.sections,
+        }
+    }
+
     /// Builds a manifest from a header and sections in strictly ascending role order.
     ///
     /// # Errors
@@ -129,22 +151,7 @@ impl Manifest {
     /// Returns [`ManifestError::TooManySections`], [`ManifestError::Section`] for a
     /// duplicate or reordered role, or [`ManifestError::MissingRequiredSection`].
     pub fn new(header: ManifestHeader, sections: Vec<Section>) -> Result<Self, ManifestError> {
-        if sections.len() > usize::from(MAX_SECTIONS) {
-            return Err(ManifestError::TooManySections(
-                u16::try_from(sections.len()).unwrap_or(u16::MAX),
-            ));
-        }
-        for pair in sections.windows(2) {
-            let (previous, next) = (pair[0].role().code(), pair[1].role().code());
-            if next <= previous {
-                return Err(SectionError::RoleOrder { previous, next }.into());
-            }
-        }
-        for role in SectionRole::ALL {
-            if role.is_required() && !sections.iter().any(|section| section.role() == role) {
-                return Err(ManifestError::MissingRequiredSection(role));
-            }
-        }
+        validate_sections(&sections, true)?;
         Ok(Self { header, sections })
     }
 
@@ -169,11 +176,7 @@ impl Manifest {
         writer.put_bytes(&MAGIC);
         writer.put_u16(SCHEMA_VERSION);
         self.header.encode(&mut writer);
-        // `new` bounded the count to `MAX_SECTIONS`.
-        writer.put_u16(u16::try_from(self.sections.len()).unwrap_or(MAX_SECTIONS));
-        for section in &self.sections {
-            section.encode(&mut writer);
-        }
+        write_sections(&mut writer, &self.sections);
         writer.finish()
     }
 
@@ -193,12 +196,49 @@ impl Manifest {
             return Err(ManifestError::UnsupportedSchemaVersion(schema));
         }
         let header = ManifestHeader::decode(&mut reader)?;
-        let count = reader.u16()?;
-        if count > MAX_SECTIONS {
-            return Err(ManifestError::TooManySections(count));
-        }
-        let sections = Section::decode_sequence(&mut reader, count)?;
+        let sections = read_sections(&mut reader)?;
         reader.finish()?;
         Self::new(header, sections)
     }
+}
+
+fn validate_sections(
+    sections: &[Section],
+    requires_repair_point: bool,
+) -> Result<(), ManifestError> {
+    if sections.len() > usize::from(MAX_SECTIONS) {
+        return Err(ManifestError::TooManySections(
+            u16::try_from(sections.len()).unwrap_or(u16::MAX),
+        ));
+    }
+    for pair in sections.windows(2) {
+        let (previous, next) = (pair[0].role().code(), pair[1].role().code());
+        if next <= previous {
+            return Err(SectionError::RoleOrder { previous, next }.into());
+        }
+    }
+    for role in SectionRole::ALL {
+        let required =
+            role.is_required() && (requires_repair_point || role != SectionRole::RepairPointMarker);
+        if required && !sections.iter().any(|section| section.role() == role) {
+            return Err(ManifestError::MissingRequiredSection(role));
+        }
+    }
+    Ok(())
+}
+
+fn write_sections(writer: &mut Writer, sections: &[Section]) {
+    // `new` bounded the count to `MAX_SECTIONS`.
+    writer.put_u16(u16::try_from(sections.len()).unwrap_or(MAX_SECTIONS));
+    for section in sections {
+        section.encode(writer);
+    }
+}
+
+fn read_sections(reader: &mut Reader<'_>) -> Result<Vec<Section>, ManifestError> {
+    let count = reader.u16()?;
+    if count > MAX_SECTIONS {
+        return Err(ManifestError::TooManySections(count));
+    }
+    Ok(Section::decode_sequence(reader, count)?)
 }

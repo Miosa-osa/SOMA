@@ -87,44 +87,7 @@ pub fn repair(
     time_sample_nanos: u64,
     declared: Declared,
 ) -> Result<(), IdentityError> {
-    reset(instance, declared)?;
-    set_clock(time_sample_nanos)
-}
-
-/// The repair a resumed machine gets (ADR 0034): only the clock.
-///
-/// A resume continues one tenant's machine. Its `/run`, `/tmp` and shared memory hold the
-/// processes' state that the suspension exists to keep, and its hostname and machine id are
-/// what those processes (an X server's authority file among them) already read, so none of it
-/// is reset; the clock is, because the machine was paused for as long as it was suspended.
-///
-/// # Errors
-///
-/// Returns the clock failure.
-pub fn repair_resumed(time_sample_nanos: u64) -> Result<(), IdentityError> {
-    set_clock(time_sample_nanos)
-}
-
-fn reset(instance: &[u8; 16], declared: Declared) -> Result<(), IdentityError> {
-    let name = hostname(instance);
-    // The kernel hostname lives in procfs and is replaced whatever the root is made of; it is
-    // what every process actually reads through `uname` and `gethostname`.
-    fs::write(HOSTNAME_SYSCTL, name.as_bytes())
-        .map_err(|error| IdentityError::Hostname(errno(&error)))?;
-    // The two files under `/etc` are copies of identity the kernel already holds, and a machine
-    // with no writable root has nowhere to put them. They are written when there is a private
-    // overlay to write them to and skipped when there is not, rather than failing a boot over a
-    // file the Generation deliberately made unwritable.
-    if declared.overlay {
-        fs::write(HOSTNAME_FILE, format!("{name}\n"))
-            .map_err(|error| IdentityError::Hostname(errno(&error)))?;
-        fs::write(MACHINE_ID_STAGING, machine_id(instance))
-            .and_then(|()| {
-                fs::set_permissions(MACHINE_ID_STAGING, fs::Permissions::from_mode(0o444))
-            })
-            .and_then(|()| fs::rename(MACHINE_ID_STAGING, MACHINE_ID_FILE))
-            .map_err(|error| IdentityError::MachineId(errno(&error)))?;
-    }
+    repair_hostname(instance, declared.overlay)?;
     // `/run` is a tmpfs either way: process state, never a workload, and it is what gives a
     // read-only sandbox a writable `/run` at all.
     reset_session_directory(RUN_DIRECTORY, RUN_OPTIONS)?;
@@ -150,6 +113,38 @@ fn reset(instance: &[u8; 16], declared: Declared) -> Result<(), IdentityError> {
     // Memory plugged in later joins the movable zone, which is the only zone that can be given
     // back. A kernel without hotplug has no such file, and that is not a failure.
     let _policy = crate::hotplug::online_movable(std::path::Path::new(crate::hotplug::AUTO_ONLINE));
+    set_clock(time_sample_nanos)
+}
+
+/// Refreshes the wall clock while preserving a suspended Instance's process state and mounts.
+pub fn repair_resumed(time_sample_nanos: u64) -> Result<(), IdentityError> {
+    set_clock(time_sample_nanos)
+}
+
+/// Repairs the kernel and on-disk identity without replacing resident workload mounts.
+pub(crate) fn repair_hostname(
+    instance: &[u8; 16],
+    writable_root: bool,
+) -> Result<(), IdentityError> {
+    let name = hostname(instance);
+    // The kernel hostname lives in procfs and is replaced whatever the root is made of; it is
+    // what every process actually reads through `uname` and `gethostname`.
+    fs::write(HOSTNAME_SYSCTL, name.as_bytes())
+        .map_err(|error| IdentityError::Hostname(errno(&error)))?;
+    // The two files under `/etc` are copies of identity the kernel already holds, and a machine
+    // with no writable root has nowhere to put them. They are written when there is a private
+    // overlay to write them to and skipped when there is not, rather than failing a boot over a
+    // file the Generation deliberately made unwritable.
+    if writable_root {
+        fs::write(HOSTNAME_FILE, format!("{name}\n"))
+            .map_err(|error| IdentityError::Hostname(errno(&error)))?;
+        fs::write(MACHINE_ID_STAGING, machine_id(instance))
+            .and_then(|()| {
+                fs::set_permissions(MACHINE_ID_STAGING, fs::Permissions::from_mode(0o444))
+            })
+            .and_then(|()| fs::rename(MACHINE_ID_STAGING, MACHINE_ID_FILE))
+            .map_err(|error| IdentityError::MachineId(errno(&error)))?;
+    }
     Ok(())
 }
 
@@ -207,7 +202,7 @@ fn reset_session_directory(directory: &str, options: &str) -> Result<(), Identit
     .map_err(|error| IdentityError::SessionState(error.0))
 }
 
-fn set_clock(time_sample_nanos: u64) -> Result<(), IdentityError> {
+pub(crate) fn set_clock(time_sample_nanos: u64) -> Result<(), IdentityError> {
     let (seconds, nanos) = timespec(time_sample_nanos);
     let time = libc::timespec {
         tv_sec: seconds,

@@ -11,10 +11,13 @@ pub(in crate::x86_64) mod evidence;
 mod launch;
 mod memory;
 mod network;
-mod pause;
+pub(in crate::x86_64) mod pause;
 pub(in crate::x86_64) mod restored;
 mod start;
 mod teardown;
+#[cfg(test)]
+mod testing;
+mod workspace;
 
 use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
 
@@ -32,7 +35,7 @@ use super::{
     console_tap::ConsoleTap,
     cpuid,
     devices::{self, SharedBus},
-    event_loop::{EventLoop, EventLoopReport},
+    event_loop::{EventLoop, ParkedDevices},
     events::{IrqLines, NotifyFds},
     exits::ExitLedger,
     launch_page::LaunchPageSlot,
@@ -60,7 +63,9 @@ struct Running {
 /// A machine whose device thread stopped and whose vCPUs left `KVM_RUN`, every resource owned.
 struct Paused {
     reports: Vec<RunReport>,
-    devices: EventLoopReport,
+    devices: Option<ParkedDevices>,
+    complete: bool,
+    context: Option<RunContext>,
 }
 
 enum Stage {
@@ -80,9 +85,8 @@ pub struct SandboxMachine {
     console: Option<Arc<ConsoleTap>>,
     /// The shared port bus, one console buffer whatever the vCPU count, taken back at the end.
     ports: Option<PortBusHandle>,
-    /// Both sides of every `KVM_RUN` this machine's vCPUs make.
     exits: Arc<ExitLedger>,
-    stage: Stage,
+    stage: std::cell::RefCell<Stage>,
     clock: Stopwatch,
     timeline: Mutex<Timeline>,
     /// Where the ranges a guest reads from this machine's head are recorded, when a session asked
@@ -92,7 +96,6 @@ pub struct SandboxMachine {
     entry: u64,
     initramfs: Option<(u64, u64)>,
     /// Whether this machine exists to be captured rather than to serve a guest.
-    ///
     /// A capture's machine is built over the placeholder its Generation declares, and the run
     /// check that protects a serving guest from an empty disk is skipped for it: the guest sees a
     /// device with no capacity and skips the volume steps, so nothing is mounted and the snapshot
@@ -222,7 +225,8 @@ impl SandboxMachine {
                 serial_line,
                 irq,
                 notify,
-            }),
+            })
+            .into(),
             clock,
             timeline: Mutex::new(timeline),
             head_reads: Mutex::new(None),

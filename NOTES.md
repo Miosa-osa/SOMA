@@ -984,6 +984,18 @@ first sweep that saw the record terminal rather than from a time stored in the r
 wall-clock time, and counting from the sweep makes a restart wait a whole window instead of releasing
 everything at once. [ADR 0055](docs/adr/0055-release-terminal-machine-records.md) states the rule.
 
+The network broker expires silent control connections after 30 seconds, independently of guest tunnel lifetime.
+A desktop viewer opens new tunnels to load pages, fetch assets, and stream after the guest has been idle.
+Each guest port dial opens a fresh broker connection and uses the existing authenticated assignment and port checks.
+The broker passes back the guest TCP descriptor, so closing the control connection does not close the stream.
+
+The desktop viewer has two processes, Sunshine and moonlight-web, on the same Xorg display the CUA driver uses.
+A signal sent to the viewer's entire process group also signals its own supervisor and can leave Sunshine running after its HTTP port has closed.
+The viewer supervisor terminates and reaps its direct children, and the session launcher waits for that supervisor's exit before acknowledging stop.
+
+The MIOSA desktop image layer packages the Compute desktopd executable without embedding a token.
+The session launcher starts it as the desktop user after the CUA driver socket is ready and includes the HTTP service in desktop readiness.
+The platform supplies the per-computer bearer credential before start and uses the guest broker to reach port 49985.
 ## Desktop wallpaper and chrome
 
 The preview desktop uses a compressed static blue-hour wallpaper with a fallback solid fill when X cannot paint the image.
@@ -996,9 +1008,124 @@ The desktop image packages a 1920 by 1080 static JPEG with the composition weigh
 On the Host 12 preview, the wallpaper and panel configuration were applied in place and the Chrome stream continued playing.
 The live X server reported the 40-pixel task bar and 60-pixel dock mapped.
 
-## 2026-11-22 - Alpine desktop wallpaper
+## Resident lifecycle and encrypted suspension integration
 
+Both development branches independently advanced the API minor from 1.0.
+The combined API advertises 1.8 and preserves the existing resident routes and request bodies.
+A resident reconnect retains workload mounts and checks fresh operation, instance, and Generation authority.
+Encrypted suspension keeps its separate capture point and resume semantics.
+Guest API level 5 disambiguates the two earlier level 4 implementations.
+The desktop starts Voxl through the same viewer command used by the authorized platform tunnel and stops it with the supervisor.
+A local process lifecycle test verified that starting the supervisor opens the selected port and stopping it reaps its child.
+Browser decoding and input still require an integrated desktop Generation test.
+
+## 2026-11-22 - Alpine desktop wallpaper
 The desktop workload uses a static 1920 by 1080 alpine JPEG, with the main ridge on the right to keep the center clear for work.
 At 103,293 bytes it is smaller than the previous wallpaper.
 The refreshed wallpaper and panel settings were applied to the existing Host 12 SOMA preview.
 The browser viewer showed the new wallpaper and streamed a terminal launched from the dock.
+
+## 2026-11-22 - Generation compiler staging paths
+
+Both preparation tools create a private compiler staging directory inside the requested output entry.
+With a relative output entry, the formatter received a path relative to the caller and then resolved it from inside its own working directory.
+Host tracing confirmed an `ENOENT` opening the EROFS image.
+The compiler now constructs absolute staging paths before launching any filesystem tool, preserving the same private directory and cleanup behavior.
+
+## 2026-11-22 - Release identity for template build tools
+
+The Linux host release carries the Template compiler and the disconnected boot-snapshot capture utility alongside the guest agent.
+Both report the same source identity as the runtime, and the release packager records their digests through its standard binary manifest.
+
+## 2026-11-22 - Template shape compilation
+
+The Template compiler selects a fixed-memory profile whose admitted CPU and RAM bounds and writable disk classes cover the exact requested shape.
+A resize ceiling selects the live-resize profile and refuses shapes that it cannot certify.
+The default two-vCPU, 4 GiB RAM and 10 GiB disk template uses policy 8.
+
+## 2026-11-22 - Publish a certified Generation on a host
+
+The Linux release carries an installer that verifies a private staged entry against its approved OCI reference and Generation ID.
+Installation publishes a complete directory in one same-filesystem move and refuses replacement of an existing reference.
+
+## 2026-11-22 - Xvfb and the MIOSA desktop viewer
+
+The MIOSA qualification branch uses the Xvfb framebuffer and the desktop assets from the desktop appearance branch.
+The session starts the authenticated desktop API after the CUA socket is ready.
+The owner-authorized viewer still starts on demand through its separate supervisor, with the desktop branch's encoding parameters applied there.
+
+## 2026-11-22 - Pinned images at prepared Generation admission
+
+A prepared entry's reference file is an address, while the certified manifest binds the OCI image.
+A digest-bearing address must agree with that manifest in both runner discovery and worker handoff.
+The publisher owns .incoming, and neither runner discovery nor pruning treats it as a prepared entry.
+
+## 2026-11-22 - Template compilation and publication on the build host
+
+The host command compiles an approved local OCI layout, binds the exact reference, captures a boot snapshot at the selected memory size, and publishes through the verified installer.
+Only an installed Generation ID goes to standard output so a caller can record that identity without parsing build logs.
+
+## 2026-11-22 - Installed Generation inventory
+
+The Generation installer publishes the OCI reference, Generation ID, and certified shape inside the installed entry.
+This bounded receipt lets a host report installed identities without rehashing snapshot bytes on every health poll.
+The runtime still verifies a Generation at admission.
+
+## 2026-11-22 - Workspace ownership during checkpoint capture
+
+The host API accepted a second workspace volume for a running sandbox even though the VMM exposes one durable block slot.
+A detached volume keeps its owner, so a second volume cannot be bound to that Instance.
+Lookups refuse old ambiguous ownership records rather than selecting an arbitrary volume.
+Generation capture still requires a placeholder, while resident capture can save the mounted volume alongside guest memory and the overlay on the encrypted mount.
+Resident restore verifies the proposed writable volume against the saved block geometry and digest before assignment.
+The broker must allocate its own recovery volume and preserve the original before offering this through the API.
+
+## 2026-11-22 - Alpha.4 qualification integration
+
+The alpha.4 qualification worktree incorporates the upstream desktop appearance and keeps the viewer supervised on demand.
+The desktop bridge remains behind the per-computer token supplied by the platform.
+Volume ownership lookup now distinguishes an ordinary sandbox with no workspace from a failed host lookup, so stopping an ephemeral sandbox works with the volume daemon configured.
+
+The durable workspace device can change backing only after the authenticated guest has unmounted ext4 and exclusively claimed the block device.
+Guest API level 6 carries that operation, and the worker refuses a checkpoint while the slot is offline.
+
+## 2026-11-22 - Same-instance workspace recovery storage transaction
+
+Checkpoint recovery stages and verifies a replacement on the encrypted volume filesystem under the exact restore operation and workspace ID.
+Publication requires the recovered worker's disk lock and preserves the previous backing before switching the active path.
+An explicit stopped-workspace rollback retains the displaced backing and any later writes.
+The native broker must still bind these transitions to its restore lease, attachment state, and readiness publication.
+
+## 2026-11-22 - Mounted checkpoint recovery through the native broker
+
+New mounted checkpoint receipts identify the workspace that was attached at capture.
+Same-instance recovery requires that identity and stages the verified disk under the original workspace while the broker holds the Instance restore lease.
+The worker control request carries the certified disk capacity, just as the boot and fork requests do.
+The broker waits for authenticated readiness and the disk lock before publishing the restored backing and attached sidecar.
+A staged copy excludes volume deletion, rebinding, and other restore operations until it is published or aborted.
+Snapshots without the workspace binding remain usable for independent forks.
+Interruption between disk publication and durable runtime readiness still needs a crash-recovery rehearsal.
+
+## 2026-11-22 - Host-local sealed checkpoint export
+
+The host-local backup consumer matches an authorized machine name against the durable Instance and uses the complete capture receipt to identify the published checkpoint.
+It pins private artifact descriptors under the restore lease and streams each artifact to a writer while verifying the length and digest.
+An off-host publisher must keep the output unpublished until the whole capture has been transferred and verified.
+
+## 2026-11-22 - Atomic installation of recovered checkpoint artifacts
+
+The host-local import command verifies the durable owner, frozen receipt, encrypted mount, and artifact digests before the existing checkpoint path becomes visible.
+Installation uses the same Instance restore lease as native recovery and never replaces another publication.
+Replays check the installed bytes against the expected receipt.
+
+## Recovery on a replacement broker
+
+A host-local import can reserve an absent Instance after Compute fences the original placement.
+The durable reservation exposes the owner only after the original capture receipt and encrypted artifacts are verified and published.
+The recovery transaction admits the same Instance and checkpoint, reuses ordinary restore readiness checks, and retains the reservation across failure.
+
+## Cold recovery into a detached workspace
+
+The host CLI verifies a backup receipt and installs the workspace through the host daemon.
+Protocol level 5 binds the source capture and destination tenant, Instance, volume, Generation, and operation in a single import frame.
+The daemon publishes a fresh detached disk with a fresh key, and an exact replay cannot overwrite writes made after recovery.

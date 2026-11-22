@@ -24,14 +24,24 @@ pub const V1_VERSION: u16 = 1;
 pub const V2_VERSION: u16 = 2;
 /// Version number of the multi-vCPU contract that adds the virtio-mem device.
 pub const V3_VERSION: u16 = 3;
+/// Version number of the 16-vCPU machine contract.
+pub const V4_VERSION: u16 = 4;
+/// Version number of the 32 GiB fixed-memory machine contract.
+pub const V5_VERSION: u16 = 5;
+/// Version number of the machine with a guest cache geometry.
+pub const V6_VERSION: u16 = 6;
 /// The one vCPU version 1 admits.
 pub const V1_MAX_VCPUS: u16 = 1;
 /// The eight vCPUs version 2 admits.
-pub const V2_MAX_VCPUS: u16 = mptable::MAX_PROCESSORS;
+pub const V2_MAX_VCPUS: u16 = 8;
+/// The sixteen vCPUs version 4 admits.
+pub const V4_MAX_VCPUS: u16 = mptable::MAX_PROCESSORS;
 /// The three-gigabyte guest RAM ceiling version 1 admits.
 pub const V1_MAX_MEMORY_BYTES: u64 = 3 * 1024 * 1024 * 1024;
 /// The sixteen-gigabyte guest RAM ceiling version 2 admits.
 pub const V2_MAX_MEMORY_BYTES: u64 = 16 * 1024 * 1024 * 1024;
+/// The 32 GiB fixed-memory ceiling version 5 admits.
+pub const V5_MAX_MEMORY_BYTES: u64 = 32 * 1024 * 1024 * 1024;
 
 /// The fixed ordered diagnostic arguments of machine contract version 1.
 pub const V1_BASE_ARGUMENTS: [&str; 9] = [
@@ -72,6 +82,12 @@ pub enum MachineContract {
     /// Version 2 plus a virtio-mem device (the device set's memory slot), so memory can be
     /// plugged and unplugged live.
     V3,
+    /// The fixed-memory MP table machine with up to sixteen processors.
+    V4,
+    /// The fixed-memory machine with up to sixteen processors and 32 GiB of RAM.
+    V5,
+    /// Version 5 with fixed, usable cache geometry in guest CPUID.
+    V6,
 }
 
 /// A contract version this implementation does not implement.
@@ -95,7 +111,7 @@ impl std::error::Error for UnknownContractVersion {}
 
 impl MachineContract {
     /// Every contract this implementation understands, oldest first.
-    pub const ALL: [Self; 3] = [Self::V1, Self::V2, Self::V3];
+    pub const ALL: [Self; 6] = [Self::V1, Self::V2, Self::V3, Self::V4, Self::V5, Self::V6];
 
     /// The contract's version number.
     #[must_use]
@@ -104,6 +120,9 @@ impl MachineContract {
             Self::V1 => V1_VERSION,
             Self::V2 => V2_VERSION,
             Self::V3 => V3_VERSION,
+            Self::V4 => V4_VERSION,
+            Self::V5 => V5_VERSION,
+            Self::V6 => V6_VERSION,
         }
     }
 
@@ -114,6 +133,9 @@ impl MachineContract {
             V1_VERSION => Some(Self::V1),
             V2_VERSION => Some(Self::V2),
             V3_VERSION => Some(Self::V3),
+            V4_VERSION => Some(Self::V4),
+            V5_VERSION => Some(Self::V5),
+            V6_VERSION => Some(Self::V6),
             _ => None,
         }
     }
@@ -136,6 +158,7 @@ impl MachineContract {
         match self {
             Self::V1 => V1_MAX_VCPUS,
             Self::V2 | Self::V3 => V2_MAX_VCPUS,
+            Self::V4 | Self::V5 | Self::V6 => V4_MAX_VCPUS,
         }
     }
 
@@ -150,7 +173,8 @@ impl MachineContract {
     pub const fn max_memory_bytes(self) -> u64 {
         match self {
             Self::V1 => V1_MAX_MEMORY_BYTES,
-            Self::V2 | Self::V3 => V2_MAX_MEMORY_BYTES,
+            Self::V2 | Self::V3 | Self::V4 => V2_MAX_MEMORY_BYTES,
+            Self::V5 | Self::V6 => V5_MAX_MEMORY_BYTES,
         }
     }
 
@@ -165,14 +189,14 @@ impl MachineContract {
     pub const fn base_arguments(self) -> &'static [&'static str] {
         match self {
             Self::V1 => &V1_BASE_ARGUMENTS,
-            Self::V2 | Self::V3 => &V2_BASE_ARGUMENTS,
+            Self::V2 | Self::V3 | Self::V4 | Self::V5 | Self::V6 => &V2_BASE_ARGUMENTS,
         }
     }
 
     /// Whether the machine writes an Intel MP table into guest memory before the guest runs.
     #[must_use]
     pub const fn writes_mp_table(self) -> bool {
-        matches!(self, Self::V2 | Self::V3)
+        !matches!(self, Self::V1)
     }
 
     /// Whether the machine has a virtio-mem device that can plug and unplug guest memory.
@@ -209,7 +233,7 @@ mod tests {
             );
         }
         assert_eq!(MachineContract::from_version(0), None);
-        assert_eq!(MachineContract::from_version(4), None);
+        assert_eq!(MachineContract::from_version(7), None);
         assert_eq!(
             MachineContract::require(9),
             Err(UnknownContractVersion { version: 9 })

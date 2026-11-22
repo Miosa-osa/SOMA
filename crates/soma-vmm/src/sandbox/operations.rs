@@ -14,10 +14,50 @@ use std::time::Duration;
 use soma_guest::GuestCommand;
 
 use super::memory::{MemoryError, MemoryLevel};
-use super::session::{FILE_CEILING, PTY_CEILING, Request, Response};
+use super::session::{BOOT_DEADLINE, FILE_CEILING, PTY_CEILING, Request, Response};
 use super::{Completed, Session, SessionError};
 
 impl Session {
+    /// Pauses guest execution and keeps the machine resident. Replaying a completed pause succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns the session failure if the worker cannot confirm a complete pause.
+    pub fn pause(&mut self) -> Result<(), SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        self.settle()?;
+        self.requests
+            .send(Request::Pause)
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        match self.await_response(BOOT_DEADLINE) {
+            Ok(Response::Paused) => Ok(()),
+            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
+            Ok(_) => Err(self.poison(SessionError::Pause)),
+        }
+    }
+
+    /// Resumes the same guest and retains its authenticated session.
+    ///
+    /// # Errors
+    ///
+    /// Returns the session failure if the worker cannot confirm that the guest resumed.
+    pub fn resume(&mut self) -> Result<(), SessionError> {
+        if self.poisoned {
+            return Err(SessionError::Poisoned);
+        }
+        self.settle()?;
+        self.requests
+            .send(Request::Resume)
+            .map_err(|_| self.poison(SessionError::Gone))?;
+        match self.await_response(BOOT_DEADLINE) {
+            Ok(Response::Resumed) => Ok(()),
+            Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
+            Ok(_) => Err(self.poison(SessionError::Resume)),
+        }
+    }
+
     /// Runs one bounded command and returns its typed result.
     ///
     /// # Errors
@@ -40,6 +80,7 @@ impl Session {
             Ok(Response::Executed(completed)) => Ok(*completed),
             // Refused before anything was sent, so the answer is certain and the session stays.
             Ok(Response::ExecuteRefused) => Err(SessionError::GuestAgentOutdated),
+            Ok(Response::GuestPaused) => Err(SessionError::GuestPaused),
             // Every other outcome leaves the answer uncertain, so the session ends carrying the
             // reason: a reported failure, an unexpected reply, or no reply at all.
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
@@ -77,6 +118,7 @@ impl Session {
                 Ok(Response::Output(source, bytes)) => on_output(source, &bytes),
                 Ok(Response::Executed(completed)) => return Ok(*completed),
                 Ok(Response::ExecuteRefused) => return Err(SessionError::GuestAgentOutdated),
+                Ok(Response::GuestPaused) => return Err(SessionError::GuestPaused),
                 Ok(Response::Failed(error)) | Err(error) => return Err(self.poison(error)),
                 Ok(_) => return Err(self.poison(SessionError::Execute)),
             }
@@ -105,6 +147,7 @@ impl Session {
             .map_err(|_| self.poison(SessionError::Gone))?;
         match self.await_response(FILE_CEILING) {
             Ok(Response::FileAnswered(answer)) => Ok(*answer),
+            Ok(Response::GuestPaused) => Err(SessionError::GuestPaused),
             // Every other outcome leaves the answer uncertain, and an uncertain filesystem answer
             // is one a caller must not attribute to the request it made, so the session ends.
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
@@ -132,6 +175,7 @@ impl Session {
             .map_err(|_| self.poison(SessionError::Gone))?;
         match self.await_response(PTY_CEILING) {
             Ok(Response::PtyAnswered(answer)) => Ok(*answer),
+            Ok(Response::GuestPaused) => Err(SessionError::GuestPaused),
             // An uncertain terminal answer is one a caller must not attribute to the request it
             // made: the next read would otherwise carry the previous one's output.
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
@@ -178,6 +222,7 @@ impl Session {
             .map_err(|_| self.poison(SessionError::Gone))?;
         match self.await_response(MEMORY_CEILING) {
             Ok(Response::Memory(outcome)) => Ok(outcome),
+            Ok(Response::GuestPaused) => Err(SessionError::GuestPaused),
             Ok(Response::Failed(error)) | Err(error) => Err(self.poison(error)),
             Ok(_) => Err(self.poison(SessionError::Execute)),
         }

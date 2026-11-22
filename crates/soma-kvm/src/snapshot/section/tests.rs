@@ -92,8 +92,8 @@ fn rejects_duplicate_role_and_digest_mismatch() {
 #[test]
 fn every_vcpu_role_round_trips_and_keeps_the_sequence_ascending() {
     let mut previous = 0_u16;
-    for index in 0..8_u16 {
-        let role = SectionRole::vcpu(index).expect("eight processors are addressable");
+    for index in 0..crate::mptable::MAX_PROCESSORS {
+        let role = SectionRole::vcpu(index).expect("processor is addressable");
         assert_eq!(role.vcpu_index(), Some(index));
         let code = role.code();
         assert!(code > previous, "codes must ascend in declaration order");
@@ -103,7 +103,7 @@ fn every_vcpu_role_round_trips_and_keeps_the_sequence_ascending() {
         // a statement about that machine, checked against its certified count.
         assert_eq!(role.is_required(), index == 0);
     }
-    assert_eq!(SectionRole::vcpu(8), None);
+    assert_eq!(SectionRole::vcpu(crate::mptable::MAX_PROCESSORS), None);
     for role in SectionRole::ALL {
         if role.device_slot().is_none() && role.vcpu_index().is_none() {
             continue;

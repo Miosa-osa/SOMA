@@ -1,6 +1,8 @@
 mod admission;
 mod failure;
+mod fork;
 mod receipt;
+mod recovery;
 
 use crate::{
     Backend, CleanupEvidence, Milestone, MilestoneKind, StateStore, TerminalStatus,
@@ -10,7 +12,7 @@ use crate::{
 use super::{
     Engine, FailurePhase, LaunchMachineRequest, MachineLaunch, ManagedFailure, ManagedStateError,
     RunFailureKind,
-    machine_state::{DurableMachine, LaunchIntent},
+    machine_state::{DurableMachine, DurablePhase, LaunchIntent},
     managed_receipt::{ManagedLaunch, operation_failure},
     run_evidence::{append_failure, append_launch, append_milestone, validate_launch},
 };
@@ -19,6 +21,16 @@ use self::{
     admission::LaunchAdmission,
     receipt::{launch_receipt, store_operation_failure},
 };
+
+#[derive(Clone, Copy)]
+enum LockedLaunch<'a> {
+    Workspace(&'a (dyn std::any::Any + Send)),
+    Checkpoint {
+        checkpoint: &'a crate::OperationId,
+        fork_source: Option<&'a crate::InstanceId>,
+        lease: &'a (dyn std::any::Any + Send),
+    },
+}
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
     /// Launches a managed Machine after durably recording its intent.
@@ -34,6 +46,102 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     pub fn launch_machine(
         &mut self,
         request: LaunchMachineRequest,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        if request.volume.is_some() {
+            let lease = self
+                .backend
+                .acquire_restore(&request.instance_id)
+                .map_err(|failure| ManagedFailure::Backend(failure.kind()))?;
+            return self.launch_managed(&request, Some(LockedLaunch::Workspace(lease.as_ref())));
+        }
+        self.launch_managed(&request, None)
+    }
+
+    /// Returns the recorded name used to check restore ownership after a runner restart.
+    /// # Errors
+    /// Returns the durable-store failure if ownership cannot be read.
+    pub fn restore_owner(
+        &mut self,
+        instance: &crate::InstanceId,
+    ) -> Result<Option<crate::MachineName>, ManagedFailure> {
+        use crate::{OperationKind, engine::machine_state::TerminalBasis};
+
+        let Some(stored) = self.load_machine(instance)? else {
+            return Ok(None);
+        };
+        let name = match stored.machine.phase {
+            DurablePhase::Terminal {
+                operation: OperationKind::Stop,
+                basis,
+                ..
+            } => match *basis {
+                TerminalBasis::Active { active } => active.machine_name().cloned(),
+                TerminalBasis::Launch { .. } => None,
+            },
+            DurablePhase::Launching {
+                intent,
+                prior_stop: Some(_),
+            } => intent.machine_name.clone(),
+            DurablePhase::Active { active } => active.machine_name().cloned(),
+            DurablePhase::Recovery {
+                source,
+                installed: true,
+            } => Some(source.owner.clone()),
+            _ => None,
+        };
+        Ok(name)
+    }
+
+    /// Restores a checkpoint created for the same stopped Instance.
+    /// # Errors
+    /// Returns a typed failure if the stopped record, admitted Generation, or checkpoint cannot
+    /// be confirmed, or the backend cannot prove readiness.
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn restore_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &crate::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.launch_from_checkpoint(&request, checkpoint, None)
+    }
+
+    fn launch_from_checkpoint(
+        &mut self,
+        request: &LaunchMachineRequest,
+        checkpoint: &crate::OperationId,
+        fork_source: Option<&crate::InstanceId>,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        if request.operation_id == *checkpoint
+            || request.volume.is_some()
+            || request.windowed
+            || (fork_source.is_some()
+                && *request.shape.capabilities().network_policy()
+                    != crate::NetworkPolicy::isolated())
+        {
+            return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
+        }
+        let lease = self
+            .backend
+            .acquire_restore(&request.instance_id)
+            .map_err(|failure| ManagedFailure::Backend(failure.kind()))?;
+        self.launch_managed(
+            request,
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source,
+                lease: lease.as_ref(),
+            }),
+        )
+    }
+
+    #[allow(
+        clippy::too_many_lines,
+        reason = "fresh launch and restore share the write-ahead transaction"
+    )]
+    fn launch_managed(
+        &mut self,
+        request: &LaunchMachineRequest,
+        locked: Option<LockedLaunch<'_>>,
     ) -> Result<MachineLaunch, ManagedFailure> {
         let source_fingerprint = crate::fingerprint::source(&request.image);
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
@@ -53,7 +161,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     RunFailureKind::ObservationMismatch
                 };
                 let receipt = launch_receipt(
-                    &request,
+                    request,
                     source_fingerprint.clone(),
                     WorkloadEvidence::Unresolved { source_fingerprint },
                     self.backend.kind(),
@@ -86,6 +194,30 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             &request.shape,
             request.windowed,
         );
+        let unbound_fingerprint = fingerprint;
+        let fingerprint = match &locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: Some(source),
+                ..
+            }) => {
+                self.validate_fork_source(source, request, &workload)?;
+                crate::fingerprint::fork(&unbound_fingerprint, checkpoint, source)
+            }
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: None,
+                ..
+            }) => crate::fingerprint::restore(&unbound_fingerprint, checkpoint),
+            Some(LockedLaunch::Workspace(_)) => {
+                let volume = request
+                    .volume
+                    .as_ref()
+                    .ok_or(ManagedFailure::State(ManagedStateError::OperationConflict))?;
+                crate::fingerprint::workspace(&unbound_fingerprint, &volume.id)
+            }
+            None => unbound_fingerprint.clone(),
+        };
         let intent = LaunchIntent {
             operation_id: request.operation_id.clone(),
             machine_name: request.machine_name.clone(),
@@ -94,25 +226,65 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             backend: self.backend.kind(),
             request_fingerprint: fingerprint.clone(),
         };
-        let revision = match self.admit_launch(&request, &intent, resolved_at, &mut milestones)? {
-            LaunchAdmission::Proceed(revision) => revision,
+        let admission = match &locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: None,
+                ..
+            }) => self.admit_restore(
+                request,
+                &intent,
+                Some(checkpoint),
+                resolved_at,
+                &mut milestones,
+            )?,
+            Some(LockedLaunch::Workspace(_)) => self.admit_workspace_start(
+                request,
+                &intent,
+                &unbound_fingerprint,
+                resolved_at,
+                &mut milestones,
+            )?,
+            _ => self.admit_launch(request, &intent, resolved_at, &mut milestones)?,
+        };
+        let (revision, prior_stop) = match admission {
+            LaunchAdmission::Proceed(revision, prior_stop) => (revision, prior_stop),
             LaunchAdmission::Replay(receipt) => return Ok(MachineLaunch { receipt: *receipt }),
         };
 
-        let observation = self.backend.launch(
-            crate::LaunchRequest::new(
-                &request.operation_id,
-                &request.instance_id,
-                &workload,
-                &prepared,
-                &request.shape,
-            )
-            // The volume the host resolved for this Instance: a machine whose Generation
-            // declares one refuses to run without it.
-            .with_volume(request.volume.as_ref())
-            .with_windowed(request.windowed)
-            .with_resume(request.resume.as_deref()),
-        );
+        let backend_request = crate::LaunchRequest::new(
+            &request.operation_id,
+            &request.instance_id,
+            &workload,
+            &prepared,
+            &request.shape,
+        )
+        // The volume the host resolved for this Instance: a machine whose Generation
+        // declares one refuses to run without it.
+        .with_volume(request.volume.as_ref())
+        .with_windowed(request.windowed)
+        .with_resume(request.resume.as_deref());
+        let recovery_checkpoint = match &locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source: None,
+                ..
+            }) => Some(*checkpoint),
+            _ => None,
+        };
+        let observation = match locked {
+            Some(LockedLaunch::Checkpoint {
+                checkpoint,
+                fork_source,
+                lease,
+            }) => self
+                .backend
+                .launch_checkpoint(backend_request, checkpoint, fork_source, lease),
+            Some(LockedLaunch::Workspace(lease)) => {
+                self.backend.launch_workspace(backend_request, lease)
+            }
+            None => self.backend.launch(backend_request),
+        };
         let launch = match observation {
             Ok(observation) => validate_launch(
                 observation,
@@ -133,9 +305,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     RunFailureKind::ObservationMismatch
                 };
                 return Err(self.fail_launch(
-                    &request,
+                    request,
                     intent,
                     revision,
+                    prior_stop,
+                    recovery_checkpoint,
                     fingerprint,
                     workload,
                     milestones,
@@ -145,9 +319,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         };
         let Some(launch) = launch else {
             return Err(self.fail_launch(
-                &request,
+                request,
                 intent,
                 revision,
+                prior_stop,
+                recovery_checkpoint,
                 fingerprint,
                 workload,
                 milestones,
@@ -156,7 +332,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         };
         append_launch(&mut milestones, launch.times);
         let receipt = launch_receipt(
-            &request,
+            request,
             fingerprint,
             WorkloadEvidence::Resolved { identity: workload },
             launch.backend,
@@ -165,7 +341,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             CleanupEvidence::not_owned(),
             TerminalStatus::Ready,
         );
-        let active = DurableMachine::active(request.instance_id.clone(), receipt.clone());
+        let mut active = DurableMachine::active(request.instance_id.clone(), receipt.clone());
+        if let (Some(previous), DurablePhase::Active { active }) = (prior_stop, &mut active.phase)
+            && let Some(previous_active) = previous.stopped_source(&intent)
+        {
+            active
+                .completed_executions
+                .clone_from(&previous_active.completed_executions);
+        }
         if let Err(failure) = self.replace_machine(revision, &active) {
             return Err(store_operation_failure(&failure, receipt));
         }

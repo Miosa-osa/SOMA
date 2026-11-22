@@ -119,6 +119,10 @@ mod agent {
     const TRANSPORT_BUDGET: Duration = Duration::from_secs(10);
     const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);
 
+    #[allow(
+        clippy::too_many_lines,
+        reason = "the guest's capture, assignment, repair, and Ready ordering stays explicit"
+    )]
     pub fn run() -> ! {
         pid1::install_panic_hook();
         if !pid1::is_pid1() {
@@ -181,9 +185,10 @@ mod agent {
         // capture point, every later one from a suspension point (ADR 0034), which is the same
         // disconnected wait. A resume writes fresh launch material and gets new entropy,
         // transport, network and session as a launch does, but keeps its session state.
-        let mut parked = instance(controller, declared, false);
+        let mut workspace = boot::Workspace::new(declared.volume);
+        let mut parked = instance(controller, declared, false, &mut workspace);
         loop {
-            parked = instance(parked, declared, true);
+            parked = instance(parked, declared, true, &mut workspace);
         }
     }
 
@@ -198,10 +203,22 @@ mod agent {
         controller: Controller<Captured>,
         declared: boot::Declared,
         resumed: bool,
+        workspace: &mut boot::Workspace,
     ) -> Controller<Captured> {
         let (controller, material) = advance(controller.accept_material(
             launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
         ));
+        if material.fork_from().is_some() {
+            console::report("fork authority rejected on a cold launch");
+            pid1::poweroff();
+        }
+        if let Err(failure) = workspace.boot() {
+            console::report(&format!(
+                "workspace mount failed at {:?} errno {}",
+                failure.step, failure.errno
+            ));
+            destroy(&controller.poison(Fault::Boot));
+        }
         let binding = *material.binding();
         let network = material.network();
         let hostname = identity::hostname(binding.instance());
@@ -256,13 +273,21 @@ mod agent {
         for line in timings::lines() {
             console::report(&line);
         }
+        let mut binding = binding;
+        let mut current_network = declared.net.then_some(network);
         // Taken before the acknowledgement: the host reads the machine as soon as it has it.
         let quiesce = || {
             let down = network_repair::link_down(declared.net).map_err(|_| Fault::Network);
             pid1::sync();
             down
         };
-        match lifecycle::serve(controller, prepared, quiesce) {
+        match lifecycle::serve(
+            controller,
+            prepared,
+            || reconnect(&mut binding, declared.overlay, &mut current_network),
+            quiesce,
+            workspace,
+        ) {
             lifecycle::Served::Poisoned(poisoned) => destroy(&poisoned),
             lifecycle::Served::Suspended(suspending) => {
                 // The link was taken down and the overlay flushed before the acknowledgement,
@@ -272,6 +297,54 @@ mod agent {
                 captured
             }
         }
+    }
+
+    fn reconnect(
+        binding: &mut soma_guest::SessionBinding,
+        writable_root: bool,
+        current_network: &mut Option<soma_guest::LaunchNetwork>,
+    ) -> Result<GuestControl<control::StreamIo<std::os::unix::net::UnixStream>>, Fault> {
+        let material = launch_page::consume_if_present()
+            .map_err(|_| Fault::LaunchPage)?
+            .ok_or(Fault::Control)?;
+        let next = *material.binding();
+        let fork_from = material.fork_from();
+        let identity_allowed = match fork_from {
+            None => next.instance() == binding.instance(),
+            Some(from) => from == binding.instance() && next.instance() != binding.instance(),
+        };
+        let forking = fork_from.is_some();
+        if !identity_allowed
+            || next.generation() != binding.generation()
+            || next.operation() == binding.operation()
+        {
+            return Err(Fault::Control);
+        }
+        let network = material.network();
+        let deadline = Instant::now() + ENTROPY_BUDGET;
+        let session = material
+            .reseed_with(|seed| entropy::repair(seed, deadline))
+            .map_err(|_| Fault::Entropy)?;
+        if forking {
+            identity::repair_hostname(next.instance(), writable_root)
+                .map_err(|_| Fault::Identity)?;
+        }
+        identity::set_clock(network.time_sample_nanos()).map_err(|_| Fault::Identity)?;
+        if let Some(previous) = current_network {
+            network_repair::reconnect(previous, &network, &identity::hostname(next.instance()))
+                .map_err(|_| Fault::Network)?;
+            *previous = network;
+        }
+        let transport =
+            control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
+                .map_err(|_| Fault::Transport)?;
+        let deadline = Instant::now() + HANDSHAKE_BUDGET;
+        let connected =
+            GuestControl::connect(session, transport, deadline).map_err(|_| Fault::Control)?;
+        let ready = lifecycle::prepare_before(connected, deadline)?;
+        *binding = next;
+        console::report("resident control session reconnected");
+        Ok(ready)
     }
 
     fn advance<S: State, T>(step: Step<S, T>) -> (Controller<S>, T) {

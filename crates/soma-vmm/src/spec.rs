@@ -173,6 +173,7 @@ impl MachineSpec {
 pub struct DeclaredDevices {
     writable_disk: bool,
     network: bool,
+    volume_capacity: Option<NonZeroU64>,
 }
 
 impl DeclaredDevices {
@@ -181,7 +182,21 @@ impl DeclaredDevices {
         Self {
             writable_disk,
             network,
+            volume_capacity: None,
         }
+    }
+
+    /// Adds the declared capacity of the durable volume slot.
+    #[must_use]
+    pub const fn with_volume_capacity(mut self, volume_capacity: NonZeroU64) -> Self {
+        self.volume_capacity = Some(volume_capacity);
+        self
+    }
+
+    /// The declared capacity of the durable volume slot.
+    #[must_use]
+    pub const fn volume_capacity(self) -> Option<NonZeroU64> {
+        self.volume_capacity
     }
 
     /// Whether this Generation declared writable storage, and so has a private overlay.

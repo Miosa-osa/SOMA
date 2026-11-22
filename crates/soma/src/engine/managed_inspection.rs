@@ -31,7 +31,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let revision = stored.revision;
         let active = match stored.machine.phase {
             DurablePhase::Active { active } => active,
-            DurablePhase::Terminal { .. } => {
+            DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
                 return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
             }
             DurablePhase::Launching { .. }
