@@ -50,6 +50,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             let inputs = LaunchInputs {
                 material,
                 secrets: &secrets,
+                suspendable: false,
             };
             let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
             report(sandbox, &outcome, responses, instance);
@@ -117,6 +118,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             let inputs = LaunchInputs {
                 material,
                 secrets: &secrets,
+                suspendable: true,
             };
             let outcome = drive_restored(
                 &mut restored,
@@ -125,7 +127,6 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 requests,
                 responses,
                 &reads,
-                true,
             );
             if let Ok(Ending::Suspended(target)) = &outcome {
                 let read = (suspend_disks, generation, contract);

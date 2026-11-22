@@ -13,7 +13,7 @@ use super::{Request, Response, Session, SessionError, SuspendTarget};
 
 /// How long a suspension may take: the acknowledgement, the pause, and reading every byte of
 /// guest memory and the private head.
-const SUSPEND_CEILING: Duration = Duration::from_secs(660);
+const SUSPEND_CEILING: Duration = Duration::from_mins(11);
 
 /// What a suspension request came to.
 #[derive(Debug)]

@@ -55,9 +55,9 @@ pub fn drive_restored(
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
     reads: &HeadReadsHandle,
-    suspendable: bool,
 ) -> Result<Ending, SessionError> {
     let (instance, operation, activation) = identity;
+    let suspendable = inputs.suspendable;
     let delivered = inputs
         .material
         .deliver_with(|page| restored.resume(page))

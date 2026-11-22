@@ -117,7 +117,7 @@ pub(super) fn serve_commands(
             Request::Shutdown => break,
             Request::Suspend(target) => {
                 match suspend(repaired, target, suspendable, &mut guest_api, responses)? {
-                    SuspendStep::Refused(untouched) => repaired = untouched,
+                    SuspendStep::Refused(untouched) => repaired = *untouched,
                     SuspendStep::Suspended(ending) => return Ok(ending),
                 }
             }
@@ -195,7 +195,7 @@ fn stream_command<'a>(
 
 /// What one Suspend request left: the untouched session, or the ending that leaves the loop.
 enum SuspendStep<'a> {
-    Refused(RepairedHostControl<HostIo<'a>>),
+    Refused(Box<RepairedHostControl<HostIo<'a>>>),
     Suspended(Ending),
 }
 
@@ -222,7 +222,7 @@ fn suspend<'a>(
         responses
             .send(Response::SuspendRefused)
             .map_err(|_| SessionError::Gone)?;
-        return Ok(SuspendStep::Refused(repaired));
+        return Ok(SuspendStep::Refused(Box::new(repaired)));
     }
     let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
     repaired

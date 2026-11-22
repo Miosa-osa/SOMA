@@ -16,6 +16,9 @@ use super::super::identity::GUEST_MAC;
 pub struct LaunchInputs<'a> {
     pub material: HostLaunchMaterial,
     pub secrets: &'a [SecretFile],
+    /// Whether a Suspend may be acknowledged: only a machine whose owner reads it into a
+    /// Suspension afterwards (ADR 0034). Every other one refuses with nothing sent.
+    pub suspendable: bool,
 }
 
 /// The opened artifacts and declared shape one cold boot starts from.
