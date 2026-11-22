@@ -5,8 +5,13 @@
 # Version 1 has no input subsystem at all, so the viewer could only watch. The agent does not
 # need any of this: cua-driver injects through the X server's XTEST extension.
 #
-# Nothing is removed and nothing is reconfigured: this fragment only adds facilities, so a guest
-# that never opens /dev/uinput behaves exactly as the version 1 kernel does. The version 1 kernel
+# CONFIG_INPUT is one of machine contract v1's excluded platform facilities (required-config.txt).
+# This variant overrides that one exclusion on purpose, and verify-config.py prints the override:
+# uinput is a software device the guest creates for itself, so no emulated device, no host
+# interface and no new path out of the guest comes with it.
+#
+# Nothing is removed and nothing else is reconfigured: this fragment only adds facilities, so a
+# guest that never opens /dev/uinput behaves exactly as the version 1 kernel does. The version 1 kernel
 # and its pinned config are untouched; the desktop Generation binds this kernel separately.
 CONFIG_INPUT=y
 CONFIG_INPUT_EVDEV=y
