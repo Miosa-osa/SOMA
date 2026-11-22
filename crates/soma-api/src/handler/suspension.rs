@@ -83,6 +83,19 @@ pub(super) fn suspend<F: SandboxFacade + ?Sized>(
         image: image(body.image)?,
         retention_secs: body.retention_secs.unwrap_or(DEFAULT_RETENTION_SECS),
     };
+    // A capture holds no plugged memory, so a sandbox that grew is first given back to its boot
+    // size; the guest gives back only what it is not using, and what it keeps makes the suspension
+    // refuse with the sandbox still running. Its automatic sizing stops either way.
+    crate::autosize::set(instance_id, None);
+    if let Ok(current) = facade.resize(instance_id, soma_local::ResizeRequest::default())
+        && current.memory.plugged_mb > 0
+    {
+        let shrink = soma_local::ResizeRequest {
+            cpu_count: None,
+            memory_mb: Some(current.memory.booted_mb),
+        };
+        let _ignored = facade.resize(instance_id, shrink);
+    }
     let suspended = facade
         .suspend(&request)
         .map_err(|failure| refusal(&failure))?;

@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod admission;
+pub mod autosize;
 pub mod capability;
 pub mod envelope;
 pub mod facade;
