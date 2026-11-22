@@ -2,14 +2,16 @@ use std::{
     error::Error,
     ffi::OsStr,
     fs::{self, File},
-    io::{self, Read as _},
+    io::{self, Read as _, Write as _},
     os::unix::fs::MetadataExt as _,
     path::{Path, PathBuf},
 };
 
 use rustix::fs::{CWD, FlockOperation, RenameFlags, flock, renameat_with};
 use soma::{GenerationId, OciDigest, OciImage};
-use soma_generation::{CompilerProfile, Sha256Digest, installed_policy_version, verify_generation};
+use soma_generation::{
+    CompilerProfile, GenerationManifest, Sha256Digest, installed_policy_version, verify_generation,
+};
 
 pub(super) fn install(
     root: &OsStr,
@@ -59,7 +61,8 @@ pub(super) fn install(
     flock(&lock, FlockOperation::LockExclusive)?;
     let installed = existing_claim(&root, reference.as_str())?;
     let Some(entry) = installed else {
-        verify_entry(&staged, owner, &reference, &id, &digest)?;
+        let manifest = verify_entry(&staged, owner, &reference, &id, &digest)?;
+        record_publication(&staged, &reference, &id, &manifest)?;
         validate_tree(&staged, owner, true)?;
         renameat_with(CWD, &staged, CWD, &target, RenameFlags::NOREPLACE)?;
         File::open(&root)?.sync_all()?;
@@ -68,7 +71,11 @@ pub(super) fn install(
     };
 
     // An identical retry is harmless, including when the first attempt already moved the stage.
-    verify_entry(&entry, owner, &reference, &id, &digest)?;
+    let manifest = verify_entry(&entry, owner, &reference, &id, &digest)?;
+    if entry == target {
+        record_publication(&entry, &reference, &id, &manifest)?;
+        File::open(&entry)?.sync_all()?;
+    }
     File::open(&root)?.sync_all()?;
     lock.sync_all()?;
     Ok(entry)
@@ -132,7 +139,7 @@ fn verify_entry(
     reference: &OciImage,
     id: &GenerationId,
     digest: &OciDigest,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<GenerationManifest, Box<dyn Error>> {
     validate_tree(entry, owner, false)?;
     if read_identity(&entry.join("reference"), 1_024)? != reference.as_str()
         || read_identity(&entry.join("generation.id"), 71)? != id.as_str()
@@ -149,6 +156,43 @@ fn verify_entry(
     if &verified.manifest.source.oci_manifest_digest.to_oci() != digest {
         return Err("the Generation does not contain the pinned OCI image".into());
     }
+    Ok(verified.manifest)
+}
+
+fn record_publication(
+    entry: &Path,
+    reference: &OciImage,
+    id: &GenerationId,
+    manifest: &GenerationManifest,
+) -> Result<(), Box<dyn Error>> {
+    const MIB: u64 = 1024 * 1024;
+    let memory = manifest.shape.memory_bytes;
+    let disk = manifest.template.writable_storage_bytes;
+    if !memory.is_multiple_of(MIB) || !disk.is_multiple_of(MIB) {
+        return Err("the publication shape must be aligned to MiB".into());
+    }
+
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "artifact_image_ref": reference.as_str(),
+        "artifact_generation_id": id.as_str(),
+        "shape": {
+            "vcpus": manifest.shape.vcpu_count,
+            "memory_mib": memory / MIB,
+            "disk_mib": disk / MIB,
+        },
+    }))?;
+    let path = entry.join("publication.json");
+    match read_identity(&path, 2_048) {
+        Ok(existing) if existing.as_bytes() == bytes => return Ok(()),
+        Ok(_) => return Err("the entry already has different publication evidence".into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
+    let mut receipt = tempfile::NamedTempFile::new_in(entry)?;
+    receipt.write_all(&bytes)?;
+    receipt.as_file().sync_all()?;
+    receipt.persist_noclobber(path)?;
     Ok(())
 }
 

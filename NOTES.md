@@ -1064,3 +1064,9 @@ The publisher owns .incoming, and neither runner discovery nor pruning treats it
 
 The host command compiles an approved local OCI layout, binds the exact reference, captures a boot snapshot at the selected memory size, and publishes through the verified installer.
 Only an installed Generation ID goes to standard output so a caller can record that identity without parsing build logs.
+
+## 2026-11-22 - Installed Generation inventory
+
+The Generation installer publishes the OCI reference, Generation ID, and certified shape inside the installed entry.
+This bounded receipt lets a host report installed identities without rehashing snapshot bytes on every health poll.
+The runtime still verifies a Generation at admission.
