@@ -48,6 +48,10 @@ impl LocalFacade {
     }
 
     #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    #[allow(
+        clippy::unused_self,
+        reason = "the Linux implementation uses the facade's runtime"
+    )]
     fn change_while_running(
         &self,
         _operation: VolumeOperation,
