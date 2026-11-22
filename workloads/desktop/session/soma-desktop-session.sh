@@ -103,6 +103,9 @@ start() {
     local uid gid
     uid="$(id -u "$USER_NAME")" || die "no user $USER_NAME in this image"
     gid="$(id -g "$USER_NAME")"
+    if [[ -x /usr/local/bin/desktopd && ! -f /run/desktopd/token ]]; then
+        die "the platform must provision the desktop API credential before startup"
+    fi
     install -d -m 0755 "$STATE"
     : >"$STATE/milestones"
     date +%s%N >"$STATE/launcher_start"

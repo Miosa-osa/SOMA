@@ -93,6 +93,17 @@ cua-driver serve \
     --capability-manifest "$MANIFEST" \
     --approve-capability-manifest &
 wait_for driver_socket 150 test -S "$HOME/.cache/cua-driver/cua-driver.sock" || exit 1
+
+# The MIOSA image layer includes desktopd. The platform provisions its token before starting
+# the session. desktopd reads it before binding, so no token means no desktop API.
+if [[ -x /usr/local/bin/desktopd ]]; then
+    ENVD_DESKTOP_BACKEND=cua /usr/local/bin/desktopd >"$STATE/logs/desktopd.log" 2>&1 &
+    desktopd_pid=$!
+    desktopd_ready() {
+        kill -0 "$desktopd_pid" 2>/dev/null && port_open 49985
+    }
+    wait_for desktop_api 50 desktopd_ready || exit 1
+fi
 mark session_ready
 log "desktop ready on :0"
 
