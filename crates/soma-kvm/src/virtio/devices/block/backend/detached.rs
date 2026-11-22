@@ -8,7 +8,7 @@ use super::{BackendError, BlockBackend};
 /// A prepared worker is built before any Instance exists, and the prepared worker protocol
 /// forbids it from holding a private disk head.
 /// The device can still be constructed from the admitted capacity and writability.
-/// Every I/O operation fails closed because an unassigned worker must never run a vCPU.
+/// Every I/O operation fails until a backing file is assigned.
 #[derive(Clone, Copy, Debug)]
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 pub struct Detached {

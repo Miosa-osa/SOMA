@@ -125,8 +125,7 @@ impl SandboxMachine {
         if let Some(reads) = reads {
             self.watch_head_reads(reads);
         }
-        // The same rule for the durable volume, and this is the one place the Instance's own
-        // file is bound over the placeholder the device was built on. A declared volume with no
+        // At launch, bind the Instance's durable volume over the placeholder. A declared volume with no
         // file, or a file for a machine that has no volume slot, is a caller that thinks this is
         // a different machine than it is, and the guest must not be allowed to run on either.
         match (bus.volume_mut(), data) {

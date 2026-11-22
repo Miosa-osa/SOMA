@@ -1,7 +1,7 @@
 //! Why a block device could not be constructed or given the store it serves.
 //!
-//! The two refusals worth naming are the ones a launch depends on: a device takes exactly one
-//! store, and a durable volume is the only role whose first store is a placeholder.
+//! A durable volume can be assigned to a placeholder slot. Replacing an assigned volume
+//! requires a separate release.
 
 use std::fmt;
 
@@ -21,9 +21,7 @@ pub enum BlockConfigError {
     AttachedShapeDiffers,
     /// A live store was offered to a device that already serves one.
     ///
-    /// A durable volume takes exactly one swap, from the placeholder it was built on to the
-    /// Instance's own file, and a second swap would replace a store a running guest may already
-    /// have written to.
+    /// A durable volume must be released before a new store can be assigned to the slot.
     AlreadyAttached,
     /// A durable volume is still backed by its placeholder where its data should be.
     ///
