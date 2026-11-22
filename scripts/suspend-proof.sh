@@ -76,7 +76,9 @@ for _ in $(seq 1 100); do
 done
 
 log "creating one sandbox from $REFERENCE"
-api create POST /v1/sandboxes "$(printf '{"image":"%s"}' "$REFERENCE")"
+# The shape the Generation was prepared at (prepare-generation.sh's defaults), which a restore needs.
+SHAPE="{\"vcpu_count\":1,\"memory_mib\":${SOMA_PROOF_MEMORY_MIB:-1024},\"storage_mib\":${SOMA_PROOF_STORAGE_MIB:-4096},\"capabilities\":{\"network\":$RUNTIME_DEFAULT_NETWORK}}"
+api create POST /v1/sandboxes "$(printf '{"image":"%s","shape":%s}' "$REFERENCE" "$SHAPE")"
 [[ "$STATUS" == 201 ]] || die "create answered $STATUS: $(cat "$LAST")"
 INSTANCE="$(field 'd["result"]["instance_id"]')"
 record create_s "$SECONDS_TAKEN"
