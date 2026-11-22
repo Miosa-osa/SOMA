@@ -1,7 +1,7 @@
 use soma::{
     DestroyMachineRequest, ExecuteMachineRequest, ExecutionReceipt, FileMachineRequest,
-    InspectMachineRequest, LaunchMachineRequest, MachineListing, ManagedFailure, PtyMachineRequest,
-    StopMachineRequest,
+    InspectMachineRequest, LaunchMachineRequest, MachineListing, ManagedFailure, ManagedStateError,
+    PtyMachineRequest, StopMachineRequest,
 };
 use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
@@ -264,6 +264,24 @@ impl SandboxFacade for LocalFacade {
         operation: VolumeOperation,
         body: &VolumeBody,
     ) -> Result<VolumeReport, VolumeFailure> {
+        if operation == VolumeOperation::Attach && self.volumes.configured() {
+            let operation_id = soma::OperationId::new(body.operation_id.clone())
+                .map_err(|_| VolumeFailure::Malformed)?;
+            let instance_id = soma::InstanceId::new(body.instance_id.clone())
+                .map_err(|_| VolumeFailure::Malformed)?;
+            match self
+                .runtime
+                .inspect_machine(InspectMachineRequest::new(operation_id, instance_id))
+            {
+                Err(ManagedFailure::State(
+                    ManagedStateError::MachineNotFound | ManagedStateError::MachineStopped,
+                )) => {}
+                Ok(_) | Err(ManagedFailure::State(_)) => {
+                    return Err(VolumeFailure::RequiresStopped);
+                }
+                Err(_) => return Err(VolumeFailure::Transport),
+            }
+        }
         self.volumes.call(operation, body)
     }
 }

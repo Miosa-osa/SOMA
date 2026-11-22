@@ -22,6 +22,10 @@ impl VolumeFailure {
                 false,
             ),
             Self::Transport => transport(),
+            Self::RequiresStopped => conflict(
+                "volume_requires_stopped_sandbox",
+                "live volume attachment is unavailable for this sandbox",
+            ),
             Self::Refused(code) => refusal_for(code),
         }
     }

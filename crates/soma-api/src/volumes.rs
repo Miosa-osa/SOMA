@@ -105,6 +105,8 @@ pub enum VolumeFailure {
     Refused(u16),
     /// The request named something the wire cannot carry.
     Malformed,
+    /// The current volume operation requires a stopped sandbox.
+    RequiresStopped,
     /// The frames could not be exchanged.
     Transport,
 }
