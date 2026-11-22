@@ -1,0 +1,3 @@
+The MIOSA wallpapers are NASA photographs, public domain (NASA-produced), dithered into the MIOSA
+blue duotone for the platform's admin chat (miosa-frontend, admin/fleet-x/ui/backdrops.ts, which
+keeps each picture's source). brand.py adds the MIOSA wordmark at the centre at image build.

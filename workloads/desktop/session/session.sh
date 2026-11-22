@@ -59,11 +59,15 @@ dbus-daemon --session --address="$BUS" --nofork --nopidfile &
 export DBUS_SESSION_BUS_ADDRESS="$BUS"
 wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
-# The screen. By default it is KasmVNC's X server, which also serves KasmVNC's own viewer on 6082
-# as the fallback; the default viewer, voxl, streams the same screen on 6080 (see below).
-# SOMA_DESKTOP_SCREEN=xorg keeps the frame-buffer Xorg, for a desktop watched only through the
-# streaming viewer (Sunshine), which then also takes input.
-if [[ "${SOMA_DESKTOP_SCREEN:-kasmvnc}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
+# The screen. By default it is Xvfb with its frame buffer in shared memory (-shmem): voxl reads that
+# memory directly and encodes only what changed, so a still desktop costs next to nothing. On
+# KasmVNC's X server voxl has no frame buffer to read and copies the whole screen every frame
+# (measured: 57% of a core on a still screen, against a quarter of that on Xvfb).
+# SOMA_DESKTOP_SCREEN=kasmvnc keeps KasmVNC (its own viewer on 6082); =xorg the frame-buffer Xorg.
+if [[ "${SOMA_DESKTOP_SCREEN:-xvfb}" == xvfb ]] && command -v Xvfb >/dev/null; then
+    Xvfb :0 -screen 0 "${SOMA_DESKTOP_GEOMETRY:-1920x1080}x24" -shmem -ac -nolisten tcp -noreset \
+        +extension RANDR +extension RENDER +extension XTEST >"$STATE/logs/xvfb.log" 2>&1 &
+elif [[ "${SOMA_DESKTOP_SCREEN}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
     Xkasmvnc :0 \
         -publicIP 127.0.0.1 \
         -httpd /usr/share/kasmvnc/www \
@@ -116,10 +120,20 @@ wait_for desktop_mapped 300 sh -c 'xprop -root _NET_SUPPORTING_WM_CHECK | grep -
 # drag-to-select and the right-click menu, and its Desktop Settings let a person pick or add any
 # wallpaper. If it cannot start, hsetroot paints the MIOSA wallpaper instead (-root: the screen
 # server has no XINERAMA, so hsetroot would otherwise find no monitor to draw on).
-pcmanfm --profile miosa --desktop >"$STATE/logs/desktop.log" 2>&1 &
+# Kept running: if it ever stops, the picture it left on the root window is gone but still named
+# there, and a new one would draw from it and stop too, so the names are cleared first.
+(
+    while :; do
+        xprop -root -remove _XROOTPMAP_ID 2>/dev/null
+        xprop -root -remove _XROOTMAP_ID 2>/dev/null
+        xprop -root -remove ESETROOT_PMAP_ID 2>/dev/null
+        pcmanfm --profile miosa --desktop >>"$STATE/logs/desktop.log" 2>&1
+        sleep 1
+    done
+) &
 sleep 1
 pgrep -u "$(id -u)" -x pcmanfm >/dev/null \
-    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-dark.jpg >/dev/null 2>&1 \
+    || hsetroot -root -cover /usr/share/backgrounds/miosa/miosa-earth.jpg >/dev/null 2>&1 \
     || xsetroot -solid '#0a0b14' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
@@ -128,7 +142,8 @@ xset s off s noblank -dpms 2>/dev/null || true
 # the tunnel, as for KasmVNC; a viewer that only watches gets --read-only from the platform.
 voxl --port=6080 --enable-basic-auth=false --title="MIOSA Desktop" \
     --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
-    --enable-resize=true --audio-enabled=false \
+    --enable-resize=true --audio-enabled=false --framerate=30 \
+    --crf=20 --min-kbps=6000 --paintover-crf=10 --paintover-burst=6 --paintover-delay-ms=100 \
     >"$STATE/logs/voxl.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 # The dock is Plank: frosted glass, icons that grow under the pointer, open windows marked. Its

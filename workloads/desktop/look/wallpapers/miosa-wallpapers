@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""MIOSA Wallpapers: pick one of the MIOSA wallpapers or add your own, applied with one click.
+
+The MIOSA set lives in /usr/share/backgrounds/miosa; a person's own pictures are copied into
+~/Pictures/Wallpapers so they stay with the machine. The desktop (PCManFM) is told to change through
+its own command line, which redraws at once and writes the choice into the person's profile.
+"""
+
+import os
+import shutil
+import subprocess
+import threading
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
+
+SYSTEM = "/usr/share/backgrounds/miosa"
+OWN = os.path.expanduser("~/Pictures/Wallpapers")
+CACHE = os.path.expanduser("~/.cache/miosa-wallpapers")
+PROFILE = os.path.expanduser("~/.config/pcmanfm/miosa/desktop-items-0.conf")
+PICTURES = (".jpg", ".jpeg", ".png", ".webp")
+THUMB_W, THUMB_H, RADIUS = 264, 165, 12
+
+CSS = b"""
+window, .main { background: #0c0e16; color: #e8ebf5; }
+headerbar { background: #121522; border: none; box-shadow: none; padding: 6px 12px; }
+headerbar .title { font: 600 13pt Inter; color: #f2f4fb; }
+.section { font: 600 10pt Inter; color: #8d95ad; letter-spacing: 1px; margin: 18px 22px 6px 22px; }
+.add { background: rgba(255,255,255,0.08); color: #f2f4fb; border: 1px solid rgba(255,255,255,0.14);
+       border-radius: 9px; padding: 6px 14px; font: 500 10pt Inter; box-shadow: none; }
+.add:hover { background: rgba(255,255,255,0.14); }
+flowbox, flowboxchild { background: transparent; padding: 0; }
+flowboxchild:focus { outline: none; }
+.label { font: 500 9.5pt Inter; color: #c3c9db; margin-top: 7px; }
+.empty { font: 10pt Inter; color: #6e7690; margin: 4px 22px 18px 22px; }
+"""
+
+
+def current():
+    try:
+        for line in open(PROFILE):
+            if line.startswith("wallpaper="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+def label_for(path):
+    name = os.path.splitext(os.path.basename(path))[0]
+    for prefix in ("miosa-",):
+        name = name[len(prefix):] if name.startswith(prefix) else name
+    light = name.endswith("-light")
+    name = name[: -len("-light")] if light else name
+    words = name.replace("_", " ").replace("-", " ").strip().title()
+    return f"{words} (light)" if light else words
+
+
+def thumbnail(path):
+    os.makedirs(CACHE, exist_ok=True)
+    key = os.path.join(CACHE, f"{abs(hash((path, os.path.getmtime(path))))}.png")
+    if os.path.exists(key):
+        return GdkPixbuf.Pixbuf.new_from_file(key)
+    src = GdkPixbuf.Pixbuf.new_from_file(path)
+    scale = max(THUMB_W / src.get_width(), THUMB_H / src.get_height())
+    w, h = int(src.get_width() * scale) + 1, int(src.get_height() * scale) + 1
+    scaled = src.scale_simple(w, h, GdkPixbuf.InterpType.BILINEAR)
+    pix = scaled.new_subpixbuf((w - THUMB_W) // 2, (h - THUMB_H) // 2, THUMB_W, THUMB_H).copy()
+    pix.savev(key, "png", [], [])
+    return pix
+
+
+class Tile(Gtk.EventBox):
+    """One picture: rounded corners, a soft ring on hover, a bright ring when it is the wallpaper."""
+
+    def __init__(self, path, app):
+        super().__init__()
+        self.path, self.app, self.pix, self.hover = path, app, None, False
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.area = Gtk.DrawingArea()
+        self.area.set_size_request(THUMB_W + 8, THUMB_H + 8)
+        self.area.connect("draw", self.draw)
+        label = Gtk.Label(label=label_for(path), xalign=0.5)
+        label.get_style_context().add_class("label")
+        box.pack_start(self.area, False, False, 0)
+        box.pack_start(label, False, False, 0)
+        self.add(box)
+        self.set_tooltip_text(path)
+        self.connect("button-release-event", lambda *_: app.apply(path))
+        self.connect("enter-notify-event", lambda *_: self.set_hover(True))
+        self.connect("leave-notify-event", lambda *_: self.set_hover(False))
+        threading.Thread(target=self.load, daemon=True).start()
+
+    def load(self):
+        try:
+            pix = thumbnail(self.path)
+        except GLib.Error:
+            return
+        GLib.idle_add(self.loaded, pix)
+
+    def loaded(self, pix):
+        self.pix = pix
+        self.area.queue_draw()
+
+    def set_hover(self, on):
+        self.hover = on
+        self.area.queue_draw()
+
+    def rounded(self, cr, x, y, w, h, r):
+        cr.new_sub_path()
+        cr.arc(x + w - r, y + r, r, -1.5708, 0)
+        cr.arc(x + w - r, y + h - r, r, 0, 1.5708)
+        cr.arc(x + r, y + h - r, r, 1.5708, 3.1416)
+        cr.arc(x + r, y + r, r, 3.1416, 4.7124)
+        cr.close_path()
+
+    def draw(self, _area, cr):
+        selected = self.path == self.app.selected
+        self.rounded(cr, 4, 4, THUMB_W, THUMB_H, RADIUS)
+        cr.save()
+        cr.clip()
+        if self.pix:
+            Gdk.cairo_set_source_pixbuf(cr, self.pix, 4, 4)
+            cr.paint()
+        else:
+            cr.set_source_rgb(0.09, 0.10, 0.15)
+            cr.paint()
+        cr.restore()
+        if selected or self.hover:
+            self.rounded(cr, 2, 2, THUMB_W + 4, THUMB_H + 4, RADIUS + 2)
+            if selected:
+                cr.set_source_rgba(0.42, 0.55, 1.0, 1.0)
+                cr.set_line_width(3)
+            else:
+                cr.set_source_rgba(1, 1, 1, 0.35)
+                cr.set_line_width(2)
+            cr.stroke()
+        return False
+
+
+class App(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Wallpapers")
+        self.set_default_size(1180, 760)
+        self.set_icon_name("preferences-desktop-wallpaper")
+        self.selected = current()
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        bar = Gtk.HeaderBar(title="Wallpapers", show_close_button=True)
+        add = Gtk.Button(label="Add your own")
+        add.get_style_context().add_class("add")
+        add.connect("clicked", self.add_own)
+        bar.pack_end(add)
+        self.set_titlebar(bar)
+        scroll = Gtk.ScrolledWindow()
+        self.body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.body.get_style_context().add_class("main")
+        scroll.add(self.body)
+        self.add(scroll)
+        self.tiles = []
+        self.fill()
+
+    def section(self, title, folder, empty):
+        head = Gtk.Label(label=title.upper(), xalign=0)
+        head.get_style_context().add_class("section")
+        self.body.pack_start(head, False, False, 0)
+        files = []
+        if os.path.isdir(folder):
+            files = sorted(
+                os.path.join(folder, f) for f in os.listdir(folder) if f.lower().endswith(PICTURES)
+            )
+        if not files:
+            note = Gtk.Label(label=empty, xalign=0)
+            note.get_style_context().add_class("empty")
+            self.body.pack_start(note, False, False, 0)
+            return
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True)
+        flow.set_max_children_per_line(6)
+        flow.set_row_spacing(14)
+        flow.set_column_spacing(10)
+        flow.set_margin_start(18)
+        flow.set_margin_end(18)
+        for path in files:
+            tile = Tile(path, self)
+            self.tiles.append(tile)
+            flow.add(tile)
+        self.body.pack_start(flow, False, False, 0)
+
+    def fill(self):
+        for child in self.body.get_children():
+            self.body.remove(child)
+        self.tiles = []
+        self.section("MIOSA", SYSTEM, "No MIOSA wallpapers found.")
+        self.section("Yours", OWN, "Pictures you add appear here.")
+        self.show_all()
+
+    def apply(self, path):
+        subprocess.Popen(
+            ["pcmanfm", "--profile", "miosa", f"--set-wallpaper={path}", "--wallpaper-mode=crop"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.selected = path
+        for tile in self.tiles:
+            tile.area.queue_draw()
+
+    def add_own(self, _button):
+        dialog = Gtk.FileChooserDialog(
+            title="Add a wallpaper", parent=self, action=Gtk.FileChooserAction.OPEN
+        )
+        dialog.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Add", Gtk.ResponseType.OK)
+        dialog.set_select_multiple(True)
+        pictures = Gtk.FileFilter()
+        pictures.set_name("Pictures")
+        for ext in PICTURES:
+            pictures.add_pattern(f"*{ext}")
+            pictures.add_pattern(f"*{ext.upper()}")
+        dialog.add_filter(pictures)
+        added = []
+        if dialog.run() == Gtk.ResponseType.OK:
+            os.makedirs(OWN, exist_ok=True)
+            for src in dialog.get_filenames():
+                dest = os.path.join(OWN, os.path.basename(src))
+                if os.path.abspath(src) != os.path.abspath(dest):
+                    shutil.copy2(src, dest)
+                added.append(dest)
+        dialog.destroy()
+        if added:
+            self.fill()
+            self.apply(added[-1])
+
+
+if __name__ == "__main__":
+    win = App()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Wallpapers
+Comment=Pick a MIOSA wallpaper or add your own
+Exec=miosa-wallpapers
+Icon=preferences-desktop-wallpaper
+Categories=Settings;

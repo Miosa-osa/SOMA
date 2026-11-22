@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- The SOMA desktop's window manager: one workspace, new windows centered and focused, the
+<!-- The SOMA desktop's window manager: four workspaces, new windows centered and focused, the
      MIOSA theme, and the usual keys (Alt-Tab, Super-arrows to snap, Ctrl-Alt-T for a terminal). -->
 <openbox_config xmlns="http://openbox.org/3.4/rc">
   <focus><focusNew>yes</focusNew><followMouse>no</followMouse><focusLast>yes</focusLast></focus>
   <placement><policy>Smart</policy><center>yes</center></placement>
   <theme>
     <name>MIOSA</name>
-    <titleLayout>NLIMC</titleLayout>
+    <titleLayout>CIML</titleLayout>
     <keepBorder>yes</keepBorder>
     <animateIconify>no</animateIconify>
     <font place="ActiveWindow"><name>Inter</name><size>10</size><weight>Bold</weight></font>
@@ -14,7 +14,7 @@
     <font place="MenuItem"><name>Inter</name><size>10</size></font>
     <font place="OnScreenDisplay"><name>Inter</name><size>10</size></font>
   </theme>
-  <desktops><number>1</number><firstdesk>1</firstdesk><names><name>Workspace</name></names></desktops>
+  <desktops><number>4</number><firstdesk>1</firstdesk><names><name>1</name><name>2</name><name>3</name><name>4</name></names><popupTime>600</popupTime></desktops>
   <!-- Room for the top bar; the dock floats over windows like a launcher. -->
   <margins><top>34</top><bottom>0</bottom><left>0</left><right>0</right></margins>
   <resize><drawContents>yes</drawContents><popupShow>Never</popupShow></resize>
@@ -27,6 +27,10 @@
     <keybind key="W-Left"><action name="Unmaximize"/><action name="MoveResizeTo"><x>0</x><y>0</y><width>50%</width><height>100%</height></action></keybind>
     <keybind key="W-Right"><action name="Unmaximize"/><action name="MoveResizeTo"><x>-0</x><y>0</y><width>50%</width><height>100%</height></action></keybind>
     <keybind key="W-d"><action name="ToggleShowDesktop"/></keybind>
+    <keybind key="C-A-Left"><action name="GoToDesktop"><to>left</to><wrap>no</wrap></action></keybind>
+    <keybind key="C-A-Right"><action name="GoToDesktop"><to>right</to><wrap>no</wrap></action></keybind>
+    <keybind key="C-A-S-Left"><action name="SendToDesktop"><to>left</to><wrap>no</wrap></action></keybind>
+    <keybind key="C-A-S-Right"><action name="SendToDesktop"><to>right</to><wrap>no</wrap></action></keybind>
     <keybind key="C-A-t"><action name="Execute"><command>xfce4-terminal</command></action></keybind>
   </keyboard>
   <mouse>

@@ -44,6 +44,16 @@ RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && 
  && PATH=/root/.cargo/bin:$PATH cargo build --release --locked \
  && install -m 0755 target/release/voxl /usr/local/bin/voxl
 
+# The MIOSA wallpapers: the platform's NASA backdrops (look/backgrounds/src, see CREDITS) with the
+# MIOSA wordmark at the centre, made once here so the desktop image carries finished pictures.
+FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS wallpapers
+RUN apt-get update && apt-get install -y --no-install-recommends python3-pil \
+ && find /var/lib/apt/lists -type f -delete
+COPY look/backgrounds/src /src
+COPY look/backgrounds/brand.py /brand.py
+COPY look/brand/miosa-logo.png /miosa-logo.png
+RUN python3 /brand.py /src /miosa-logo.png /out && test "$(ls /out/*.jpg | wc -l)" -eq 20
+
 FROM ${BASE_IMAGE}
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -215,13 +225,17 @@ COPY look/viewer/apps.json /home/ubuntu/.config/sunshine/apps.json
 
 # A real desktop and an Apple-style dock: PCManFM draws the desktop (icons, folders, drag-to-select,
 # the right-click menu, wallpaper picker), Plank is the dock, WhiteSur is the icon set, and the
-# MIOSA wallpapers come in dark and light. WhiteSur is pinned by the SHA-256 of its release.
+# MIOSA wallpapers come in dark and light. WhiteSur (icons and the GTK theme every window wears) is
+# pinned by the SHA-256 of its releases. Xvfb is the screen (see session.sh); the Wallpapers app is
+# GTK in Python; Mousepad, Ristretto, MuPDF and Galculator are the small everyday apps.
+ARG WHITESUR_GTK_SHA256=65516c8f45da45c602471e31b4de0b6e9aed6eb3fc3820df16161d077245a1a2
 ARG WHITESUR_TAG=2026-09-10
 ARG WHITESUR_SHA256=406c9cd59705583f1754b0eaca96cc48bafda042b88ef143f16d8ae1820ecd95
 RUN set -e; \
     apt-get update; \
     apt-get install -y --no-install-recommends pcmanfm plank gsimplecal dconf-cli dconf-service \
-      dconf-gsettings-backend gvfs librsvg2-common; \
+      dconf-gsettings-backend gvfs librsvg2-common xvfb python3-gi gir1.2-gtk-3.0 \
+      mousepad ristretto mupdf galculator xz-utils; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
     curl -fsSL --retry 3 -o /tmp/whitesur.tar.gz \
@@ -231,13 +245,22 @@ RUN set -e; \
     (cd /tmp/whitesur && ./install.sh -d /usr/share/icons -t default >/dev/null); \
     rm -r -f /tmp/whitesur /tmp/whitesur.tar.gz; \
     test -d /usr/share/icons/WhiteSur-dark; \
-    command -v pcmanfm plank gsimplecal
-COPY look/backgrounds/miosa-dark.jpg look/backgrounds/miosa-light.jpg /usr/share/backgrounds/miosa/
+    curl -fsSL --retry 3 -o /tmp/whitesur-gtk.tar.gz \
+      "https://github.com/vinceliuice/WhiteSur-gtk-theme/archive/refs/tags/${WHITESUR_TAG}.tar.gz"; \
+    echo "${WHITESUR_GTK_SHA256}  /tmp/whitesur-gtk.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/wsg; tar -xzf /tmp/whitesur-gtk.tar.gz -C /tmp/wsg --strip-components=1; \
+    for t in WhiteSur-Dark WhiteSur-Light; do tar -xJf "/tmp/wsg/release/${t}.tar.xz" -C /usr/share/themes; done; \
+    rm -r -f /tmp/wsg /tmp/whitesur-gtk.tar.gz; \
+    test -f /usr/share/themes/WhiteSur-Dark/gtk-3.0/gtk.css; \
+    command -v pcmanfm plank gsimplecal Xvfb mousepad ristretto mupdf galculator
+COPY --from=wallpapers /out/ /usr/share/backgrounds/miosa/
+COPY look/openbox/buttons/ /usr/share/themes/MIOSA/openbox-3/
+COPY look/wallpapers/miosa-wallpapers /usr/local/bin/miosa-wallpapers
 # PCManFM reads its profile from the user's folder only; a profile it cannot find there it writes
 # afresh with a black background, so the MIOSA profile is the user's from the start.
 COPY look/desktop/pcmanfm.conf look/desktop/desktop-items-0.conf /home/ubuntu/.config/pcmanfm/miosa/
 COPY look/desktop/libfm.conf /etc/xdg/libfm/libfm.conf
-COPY look/desktop/miosa-desktop-settings.desktop /usr/share/applications/miosa-desktop-settings.desktop
+COPY look/wallpapers/miosa-wallpapers.desktop /usr/share/applications/miosa-wallpapers.desktop
 COPY look/dock/MIOSA/dock.theme /usr/share/plank/themes/MIOSA/dock.theme
 COPY look/dock/dconf-plank /etc/dconf/db/local.d/10-plank
 COPY look/dock/*.dockitem /home/ubuntu/.config/plank/dock1/launchers/
@@ -245,11 +268,14 @@ RUN mkdir -p /etc/dconf/profile \
  && printf 'user-db:user\nsystem-db:local\n' > /etc/dconf/profile/user \
  && dconf update \
  && mkdir -p /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads \
- && for app in google-chrome xfce4-terminal pcmanfm miosa-desktop-settings; do \
+ && for app in google-chrome xfce4-terminal pcmanfm miosa-wallpapers; do \
       install -m 0755 "/usr/share/applications/${app}.desktop" "/home/ubuntu/Desktop/${app}.desktop"; \
     done \
  && sed -i 's/^Name=.*/Name=Files/' /home/ubuntu/Desktop/pcmanfm.desktop \
  && sed -i 's/^Name=.*/Name=Terminal/' /home/ubuntu/Desktop/xfce4-terminal.desktop \
+ && sed -i 's|^Exec=/usr/bin/google-chrome-stable|Exec=/usr/local/bin/google-chrome|' /home/ubuntu/Desktop/google-chrome.desktop \
+ && chmod 0755 /usr/local/bin/miosa-wallpapers \
+ && sed -i 's|wallpaper=.*|wallpaper=/usr/share/backgrounds/miosa/miosa-earth.jpg|' /home/ubuntu/.config/pcmanfm/miosa/desktop-items-0.conf \
  && chown -R ubuntu:ubuntu /home/ubuntu/Desktop /home/ubuntu/Documents /home/ubuntu/Downloads /home/ubuntu/.config
 RUN test -s /usr/share/soma-desktop/blue-hour.jpg \
  && printf '#!/bin/sh\nexec /usr/bin/google-chrome-stable --password-store=basic --no-first-run --no-default-browser-check "$@"\n' \
