@@ -13,12 +13,15 @@ use soma_kvm::x86_64::SandboxMachine;
 use super::super::session::{EXIT_GRACE, Response, SessionError};
 
 /// How a sandbox that reached Ready stopped serving its owner.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Ending {
     /// The guest acknowledged a shutdown and is leaving `KVM_RUN` on its own.
     ShutDown,
     /// The owner abandoned the guest without asking it, so nothing waits for it to leave.
     Aborted,
+    /// The guest acknowledged Suspend and is parked; the machine is read into the target and then
+    /// released by the caller, which alone holds it mutably.
+    Suspended(Box<super::super::session::SuspendTarget>),
 }
 
 /// Finishes the machine and reports its evidence, or the failure that ended it.
@@ -32,15 +35,21 @@ pub fn report(
     responses: &Sender<Response>,
     instance: [u8; 16],
 ) {
-    if outcome == Ok(Ending::Aborted) {
+    if matches!(outcome, Ok(Ending::Suspended(_))) {
+        // The machine was paused and read, and the owner already has the Suspension's members;
+        // only the release is left, and nobody waits on it.
+        drop(sandbox.finish(exit_grace(&outcome)));
+        return;
+    }
+    if matches!(outcome, Ok(Ending::Aborted)) {
         // The owner is answered once the guest can no longer run, and the release it would
         // otherwise wait on, which is closing the VM and returning its memory, happens after.
         sandbox.halt();
         let _ignored = responses.send(Response::Halted);
-        drop(sandbox.finish(exit_grace(outcome)));
+        drop(sandbox.finish(exit_grace(&outcome)));
         return;
     }
-    let evidence = sandbox.finish(exit_grace(outcome));
+    let evidence = sandbox.finish(exit_grace(&outcome));
     match outcome {
         Ok(_) => {
             let _ignored = responses.send(Response::Finished(Box::new(evidence)));
@@ -58,9 +67,10 @@ pub fn report(
 ///
 /// Only a guest that was asked to leave is waited on. An aborted one was never asked, so waiting
 /// would spend the whole grace on a guest idling in its command loop before the kick ended it.
-const fn exit_grace(outcome: Result<Ending, SessionError>) -> Duration {
+const fn exit_grace(outcome: &Result<Ending, SessionError>) -> Duration {
     match outcome {
-        Ok(Ending::Aborted) => Duration::ZERO,
+        // A suspended machine was already paused and read; it is released without waiting.
+        Ok(Ending::Aborted | Ending::Suspended(_)) => Duration::ZERO,
         Ok(Ending::ShutDown) | Err(_) => EXIT_GRACE,
     }
 }
@@ -84,12 +94,12 @@ mod tests {
 
     #[test]
     fn an_aborted_machine_is_kicked_at_once() {
-        assert_eq!(exit_grace(Ok(Ending::Aborted)), Duration::ZERO);
+        assert_eq!(exit_grace(&Ok(Ending::Aborted)), Duration::ZERO);
     }
 
     #[test]
     fn a_guest_asked_to_leave_and_a_failed_session_keep_the_exit_grace() {
-        assert_eq!(exit_grace(Ok(Ending::ShutDown)), EXIT_GRACE);
-        assert_eq!(exit_grace(Err(SessionError::Execute)), EXIT_GRACE);
+        assert_eq!(exit_grace(&Ok(Ending::ShutDown)), EXIT_GRACE);
+        assert_eq!(exit_grace(&Err(SessionError::Execute)), EXIT_GRACE);
     }
 }

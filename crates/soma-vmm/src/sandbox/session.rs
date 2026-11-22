@@ -25,7 +25,9 @@ mod shutdown;
 
 use std::sync::{Arc, Condvar, Mutex};
 
-pub use protocol::{Activation, ActivationJob, Completed, Request, Response, SessionError};
+pub use protocol::{
+    Activation, ActivationJob, Completed, Request, Response, SessionError, SuspendTarget,
+};
 pub use shutdown::Teardown;
 
 /// How long an operation waits for a background activation before it gives the session up.

@@ -37,8 +37,9 @@ pub(super) fn drive_cold(
     let repaired = super::super::secrets::place(repaired, inputs.secrets)?;
     sandbox.mark(Milestone::Ready);
     open_network(sandbox, &repaired, activation, requests, responses)?;
-    // A cold-booted machine has no private head, so there is nothing to have watched.
-    serve_commands(sandbox, repaired, requests, responses, &[])
+    // A cold-booted machine has no private head, so there is nothing to have watched, and no
+    // snapshot to resume a Suspension into, so it is never suspended.
+    serve_commands(sandbox, repaired, requests, responses, &[], false)
 }
 
 /// Resumes a captured machine and drives it to Ready, then serves commands.
@@ -77,7 +78,7 @@ pub fn drive_restored(
     let head_reads = head_reads::seal(reads);
 
     open_network(machine, &repaired, activation, requests, responses)?;
-    serve_commands(machine, repaired, requests, responses, &head_reads)
+    serve_commands(machine, repaired, requests, responses, &head_reads, true)
 }
 
 /// The steps both paths share between publishing the launch page and holding a repaired session.

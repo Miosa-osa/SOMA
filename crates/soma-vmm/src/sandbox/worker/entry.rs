@@ -1,5 +1,6 @@
 //! The thread entry point: one boot, one machine, and the path it takes to Ready.
 
+use std::fs::File;
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::HostLaunchMaterial;
@@ -8,8 +9,9 @@ use soma_kvm::x86_64::{RestoreRequest, SandboxMachine, restore};
 use super::super::session::{Request, Response, SessionError};
 use super::super::source::{Boot, Network, Source};
 use super::drive::{drive_cold, drive_restored};
-use super::finish::report;
+use super::finish::{Ending, report};
 use super::inputs::LaunchInputs;
+use super::suspend::{self, SuspendDisks};
 
 /// Owns one machine for its whole life and answers requests about it.
 pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
@@ -81,6 +83,16 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
             // Recording which ranges those were is what lets the next head for this Generation be
             // warmed while it is prepared, instead of while a guest waits.
             let reads = soma_kvm::head_reads::recording();
+            // A suspension reads the root's identity and copies the private head, both of which
+            // the restore takes ownership of; duplicating the two descriptors now costs nothing
+            // and is the only way to reach the head, which is already unlinked.
+            let Ok(mut suspend_disks) = disks.root.try_clone().and_then(|root| {
+                let overlay = disks.overlay.as_ref().map(File::try_clone).transpose()?;
+                Ok(SuspendDisks { root, overlay })
+            }) else {
+                let _ignored = responses.send(Response::Failed(SessionError::Create));
+                return;
+            };
             let restored = restore(RestoreRequest {
                 objects,
                 hypervisor,
@@ -117,6 +129,19 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 responses,
                 &reads,
             );
+            if let Ok(Ending::Suspended(target)) = &outcome {
+                let answer = match suspend::read(
+                    &mut restored.machine,
+                    &mut suspend_disks,
+                    target,
+                    generation,
+                    contract,
+                ) {
+                    Ok(captured) => Response::Suspended(Box::new(captured)),
+                    Err(error) => Response::Failed(error),
+                };
+                let _ignored = responses.send(answer);
+            }
             report(restored.machine, outcome, responses, instance);
         }
     }

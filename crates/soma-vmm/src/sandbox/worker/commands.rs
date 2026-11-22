@@ -28,6 +28,7 @@ pub(super) fn serve_commands(
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
     head_reads: &[HeadSpan],
+    suspendable: bool,
 ) -> Result<Ending, SessionError> {
     responses
         .send(Response::Ready {
@@ -114,6 +115,30 @@ pub(super) fn serve_commands(
             // the session is being addressed by something that does not own it.
             Request::Assign(_) => return Err(SessionError::Execute),
             Request::Shutdown => break,
+            Request::Suspend(target) => {
+                let level = if suspendable {
+                    let (next, level) = repaired
+                        .ensure_guest_api(&mut guest_api, || {
+                            files::nonce_text(&fresh16()).into_bytes()
+                        })
+                        .map_err(|_| SessionError::Execute)?;
+                    repaired = next;
+                    Some(level)
+                } else {
+                    None
+                };
+                if !level.is_some_and(soma_guest::GuestApi::has_suspend) {
+                    responses
+                        .send(Response::SuspendRefused)
+                        .map_err(|_| SessionError::Gone)?;
+                    continue;
+                }
+                let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
+                repaired
+                    .suspend(operation)
+                    .map_err(|_| SessionError::Suspend)?;
+                return Ok(Ending::Suspended(target));
+            }
             // The guest is not told. The session is abandoned with the machine, which the
             // caller finishes without waiting for a guest that was never asked to leave.
             Request::Abort => return Ok(Ending::Aborted),
