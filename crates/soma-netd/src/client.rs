@@ -5,9 +5,8 @@
 //! frame, one reply frame, and for an accepted claim one extra packet carrying the TAP
 //! descriptor with `SCM_RIGHTS` and its typed header.
 //!
-//! One connection belongs to one Instance for its whole life, because the broker binds an
-//! assignment to the authenticated peer that claimed it and refuses activation and release to
-//! anyone else.
+//! An assignment belongs to the kernel-authenticated peer that claimed it. The peer can open
+//! another connection to use the assignment after the original connection goes idle.
 
 #![allow(unsafe_code)]
 // Socket ABI values are fixed-width by definition; these casts convert `libc` constants and the

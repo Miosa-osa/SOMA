@@ -230,8 +230,11 @@ impl Lease {
         ) {
             return Err(ClientError::Protocol);
         }
-        self.connection
-            .connect_guest(self.instance, self.bundle, self.generation, port)
+        // A viewer may open a new stream long after the broker closed the idle claim
+        // connection. Use an authenticated control connection for each dial. The returned
+        // guest socket remains open independently of that connection.
+        let connection = BrokerClient::connect(&self.socket)?;
+        connection.connect_guest(self.instance, self.bundle, self.generation, port)
     }
 
     pub(super) fn release(&mut self) -> Released {
