@@ -22,6 +22,11 @@ use super::Request;
 
 pub(super) use super::super::field::end;
 
+pub(super) fn volume_capacity(token: Option<&str>) -> Result<NonZeroU64, ControlError> {
+    NonZeroU64::new(number(token, "volume capacity")?)
+        .ok_or(ControlError::InvalidValue("volume capacity"))
+}
+
 pub(super) fn decode_shutdown<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,
 ) -> Result<Request, ControlError> {

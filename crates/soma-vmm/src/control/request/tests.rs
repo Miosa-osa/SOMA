@@ -180,7 +180,7 @@ fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unch
     let normal = launch();
     let generation = normal.generation();
     let capacity = NonZeroU64::new(10 * 1024 * 1024 * 1024).unwrap();
-    let persistent = Request::Launch(Launch::new(
+    let persistent_launch = Launch::new(
         normal.operation_id(),
         normal.instance_id(),
         Generation::new(
@@ -188,12 +188,24 @@ fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unch
             generation.machine(),
             generation.devices().with_volume_capacity(capacity),
         ),
-    ));
+    );
+    let persistent = Request::Launch(persistent_launch);
     let encoded = persistent.encode();
     assert_eq!(Request::decode(&encoded), Ok(persistent));
     assert!(encoded.starts_with("launch_volume 10737418240 "));
     assert!(Request::Launch(normal).encode().starts_with("launch "));
     assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    let source = InstanceId::new([9; 16]).unwrap();
+    let fork = Request::Fork(persistent_launch, [7; 32], source);
+    let encoded = fork.encode();
+    assert!(encoded.starts_with("fork_volume 10737418240 "));
+    assert_eq!(Request::decode(&encoded), Ok(fork));
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    assert!(
+        Request::Fork(normal, [7; 32], source)
+            .encode()
+            .starts_with("fork ")
+    );
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

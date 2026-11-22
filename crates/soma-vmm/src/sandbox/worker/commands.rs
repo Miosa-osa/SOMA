@@ -30,11 +30,7 @@ pub(super) fn serve_commands(
     head_reads: &[HeadSpan],
     suspendable: bool,
 ) -> Result<Ending, SessionError> {
-    responses
-        .send(Response::Ready {
-            head_reads: head_reads.to_vec(),
-        })
-        .map_err(|_| SessionError::Gone)?;
+    send_ready(responses, head_reads)?;
 
     // What the guest answered to the API level probe, learned lazily by the first level 2 file
     // operation or the first command with a long argument, and kept for the life of this session.
@@ -70,11 +66,7 @@ pub(super) fn serve_commands(
                 machine.set_network_link(true);
                 // The ranges travel with both answers, because a launch whose activation is
                 // deferred sees only this one.
-                responses
-                    .send(Response::Ready {
-                        head_reads: head_reads.to_vec(),
-                    })
-                    .map_err(|_| SessionError::Gone)?;
+                send_ready(responses, head_reads)?;
             }
             Request::Execute(command) => {
                 repaired = run_command(machine, repaired, command, responses)?;
@@ -155,6 +147,14 @@ pub(super) fn serve_commands(
         }
     }
     end_session(machine, repaired)
+}
+
+fn send_ready(responses: &Sender<Response>, head_reads: &[HeadSpan]) -> Result<(), SessionError> {
+    responses
+        .send(Response::Ready {
+            head_reads: head_reads.to_vec(),
+        })
+        .map_err(|_| SessionError::Gone)
 }
 
 fn resume(machine: &SandboxMachine) -> Result<(), SessionError> {

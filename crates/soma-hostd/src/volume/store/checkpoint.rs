@@ -62,14 +62,14 @@ impl DirectoryVolumes {
         // Copying a large disk can take minutes. Do not hold the store lock while reading it.
         drop(state);
         let archive = open_archive(request)?;
-        let stage = Staging::new(&self.root)?;
+        let pending = Staging::new(&self.root)?;
         clone_sparse(
             archive,
-            &stage.0.join(VOLUME_FILE),
+            &pending.0.join(VOLUME_FILE),
             u64::from(source.size_class_gib) << 30,
             request.digest.as_bytes(),
         )?;
-        stage.write(ORIGIN, &intent)?;
+        pending.write(ORIGIN, &intent)?;
 
         let mut state = self.state.lock().map_err(|_| IO_FAILURE)?;
         if super::serve::owned_volume(state.values(), request.source)? != &source {
@@ -98,8 +98,8 @@ impl DirectoryVolumes {
             last_transition_nanos: now,
             ..source
         };
-        stage.write(SIDECAR_FILE, &restored.encode().map_err(|_| IO_FAILURE)?)?;
-        stage.publish(&path)?;
+        pending.write(SIDECAR_FILE, &restored.encode().map_err(|_| IO_FAILURE)?)?;
+        pending.publish(&path)?;
         let binding = self.recovery_binding(&restored);
         state.insert(id, restored);
         self.finish_copy(id)?;
@@ -160,7 +160,8 @@ fn open_archive(request: &CheckpointVolumeRequest) -> Result<File, VolumeError> 
     let configured = std::env::var(placement::ENCRYPTED_MOUNT_ENV).ok();
     let mount = placement::encrypted_mount_name(configured.as_deref());
     let private = |path: &Path| {
-        fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir() && meta.mode() & 0o077 == 0)
+        fs::symlink_metadata(path)
+            .is_ok_and(|meta| meta.is_dir() && meta.mode().trailing_zeros() >= 6)
     };
     if !root.is_absolute()
         || !private(&root)

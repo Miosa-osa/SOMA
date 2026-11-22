@@ -4,24 +4,26 @@ use std::fs::File;
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::HostLaunchMaterial;
-use soma_kvm::x86_64::{
-    NetworkAttachment, RestoreRequest, SandboxMachine, prepare_checkpoint, prepare_fork, restore,
-};
+use soma_kvm::x86_64::{NetworkAttachment, RestoreRequest, SandboxConfig, SandboxMachine, restore};
 
 use super::super::pending::PendingActivation;
 use super::super::session::{Request, Response, SessionError};
-use super::super::source::{Boot, Network, Source};
+use super::super::source::{Boot, Source};
 use super::drive::{drive_checkpoint, drive_cold, drive_restored};
 use super::finish::{Ending, report};
 use super::inputs::LaunchInputs;
 use super::suspend::{self, SuspendDisks};
 
+mod recovery;
+
+use recovery::{matches_recovery_source, recover};
+
 /// Owns one machine for its whole life and answers requests about it.
 pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
-    if !matches_recovery_source(&boot) {
+    let Some(material) = admitted_material(&boot) else {
         let _ignored = responses.send(Response::Failed(SessionError::Create));
         return;
-    }
+    };
     let Boot {
         source,
         generation,
@@ -31,47 +33,32 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
         network,
         secrets,
     } = boot;
-    let Network {
-        launch,
-        attachment,
-        activation,
-    } = network;
-    let Ok(material) = HostLaunchMaterial::generate(generation, instance, operation, launch) else {
-        let _ignored = responses.send(Response::Failed(SessionError::Create));
-        return;
-    };
+    let attachment = network.attachment;
+    let activation = network.activation;
 
     match source {
         Source::ResidentCheckpoint(request) | Source::CheckpointFork(request) => {
             recover(
                 *request,
                 material,
-                instance,
-                operation,
+                (instance, operation),
                 (attachment, activation),
                 requests,
                 responses,
             );
         }
         Source::ColdBoot(config) => {
-            let Ok(mut sandbox) = SandboxMachine::create(config) else {
-                let _ignored = responses.send(Response::Failed(SessionError::Create));
-                return;
-            };
-            // The frame path is attached before the vCPU runs, so the device thread can watch it
-            // from its first wakeup. The link stays down until the assignment is activated.
-            if let Some(attachment) = attachment {
-                sandbox.attach_network(attachment);
-            }
-            // The machine is finished on every path out of here, including a failed boot, so no
-            // descriptor or thread outlives the sandbox that owned it.
-            let inputs = LaunchInputs {
-                material,
-                secrets: &secrets,
-                suspendable: false,
-            };
-            let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
-            report(sandbox, &outcome, responses, instance);
+            serve_cold(
+                config,
+                LaunchInputs {
+                    material,
+                    secrets: &secrets,
+                    suspendable: false,
+                },
+                (instance, attachment, activation),
+                requests,
+                responses,
+            );
         }
         Source::Restore {
             objects,
@@ -146,6 +133,46 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
     }
 }
 
+fn admitted_material(boot: &Boot) -> Option<HostLaunchMaterial> {
+    if !matches_recovery_source(boot) {
+        return None;
+    }
+    HostLaunchMaterial::generate(
+        boot.generation,
+        boot.instance,
+        boot.operation,
+        boot.network.launch,
+    )
+    .ok()
+}
+
+fn serve_cold(
+    config: SandboxConfig,
+    inputs: LaunchInputs<'_>,
+    network: (
+        [u8; 16],
+        Option<NetworkAttachment>,
+        Option<PendingActivation>,
+    ),
+    requests: &Receiver<Request>,
+    responses: &Sender<Response>,
+) {
+    let (instance, attachment, activation) = network;
+    let Ok(mut sandbox) = SandboxMachine::create(config) else {
+        let _ignored = responses.send(Response::Failed(SessionError::Create));
+        return;
+    };
+    // The frame path is attached before the vCPU runs, so the device thread can watch it
+    // from its first wakeup. The link stays down until the assignment is activated.
+    if let Some(attachment) = attachment {
+        sandbox.attach_network(attachment);
+    }
+    // The machine is finished on every path out of here, including a failed boot, so no
+    // descriptor or thread outlives the sandbox that owned it.
+    let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
+    report(sandbox, &outcome, responses, instance);
+}
+
 /// Duplicates the two descriptors a suspension reads before the restore takes the originals.
 fn duplicate(disks: &soma_kvm::x86_64::SandboxDisks) -> std::io::Result<SuspendDisks> {
     Ok(SuspendDisks {
@@ -176,83 +203,11 @@ fn open_volume(volume: Option<&soma::VolumeAttachment>) -> std::io::Result<Optio
         .transpose()
 }
 
-fn matches_recovery_source(boot: &Boot) -> bool {
-    let (request, names_expected_instance, admit_network) = match &boot.source {
-        Source::ResidentCheckpoint(request) => (
-            request,
-            request.instance_id == boot.instance,
-            request.devices.net(),
-        ),
-        Source::CheckpointFork(request) => (request, request.instance_id != boot.instance, false),
-        _ => return true,
-    };
-    let network_valid = match (&boot.network.attachment, &boot.network.activation) {
-        (None, None) => true,
-        (Some(attachment), Some(_)) => admit_network && attachment.mac == boot.network.launch.mac(),
-        _ => false,
-    };
-    network_valid
-        && boot.secrets.is_empty()
-        && names_expected_instance
-        && request.candidate_id == boot.generation
-        && request.guest_cid == boot.guest_cid
-        && boot.network.launch.vsock_cid() == boot.guest_cid
-}
-
-fn recover(
-    request: soma_kvm::x86_64::ResidentRestoreRequest,
-    material: HostLaunchMaterial,
-    instance: [u8; 16],
-    operation: [u8; 16],
-    network: (Option<NetworkAttachment>, Option<PendingActivation>),
-    requests: &Receiver<Request>,
-    responses: &Sender<Response>,
-) {
-    let source = request.instance_id;
-    let (prepared, material) = if source == instance {
-        (prepare_checkpoint(request), Ok(material))
-    } else {
-        let authority = material.for_fork(source);
-        (prepare_fork(request, instance), authority)
-    };
-    let Ok(material) = material else {
-        let _ignored = responses.send(Response::Failed(SessionError::LaunchPage));
-        return;
-    };
-    let prepared = match prepared {
-        Ok(prepared) => prepared,
-        Err(error) => {
-            eprintln!("soma-vmm: checkpoint validation failed: {error}");
-            let _ignored = responses.send(Response::Failed(SessionError::Create));
-            return;
-        }
-    };
-    let (attachment, activation) = network;
-    if let Some(attachment) = attachment {
-        prepared.attach_network(attachment);
-    }
-    let mut restored = None;
-    let delivered = material.deliver_with(|page| {
-        restored = Some(prepared.resume(page)?);
-        Ok::<(), soma_kvm::x86_64::SnapshotError>(())
-    });
-    let (Ok(delivered), Some(restored)) = (delivered, restored) else {
-        let _ignored = responses.send(Response::Failed(SessionError::LaunchPage));
-        return;
-    };
-    let outcome = drive_checkpoint(
-        &restored,
-        delivered,
-        (instance, operation, activation),
-        requests,
-        responses,
-    );
-    report(restored.machine, &outcome, responses, instance);
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{Boot, Network, Source, matches_recovery_source};
+    use crate::sandbox::source::Network;
+
+    use super::{Boot, Source, matches_recovery_source};
     use soma_guest::LaunchNetwork;
     use soma_kvm::{
         DeviceSet, MachineContract,

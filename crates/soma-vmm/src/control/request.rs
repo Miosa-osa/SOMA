@@ -82,10 +82,16 @@ impl Request {
             Self::Recover(launch, digest) => {
                 encode_launch(&format!("recover {}", hex(digest)), launch)
             }
-            Self::Fork(launch, digest, source) => encode_launch(
-                &format!("fork {} {}", hex(source.as_bytes()), hex(digest)),
-                launch,
-            ),
+            Self::Fork(launch, digest, source) => {
+                let verb = launch.generation().devices().volume_capacity().map_or_else(
+                    || "fork".to_owned(),
+                    |capacity| format!("fork_volume {capacity}"),
+                );
+                encode_launch(
+                    &format!("{verb} {} {}", hex(source.as_bytes()), hex(digest)),
+                    launch,
+                )
+            }
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
@@ -143,21 +149,25 @@ impl Request {
             "shutdown" => decode::decode_shutdown(&mut tokens),
             "launch" => decode_launch(&mut tokens, None).map(Self::Launch),
             "launch_volume" => {
-                let capacity = super::field::number(tokens.next(), "volume capacity")?;
-                let capacity = std::num::NonZeroU64::new(capacity)
-                    .ok_or(ControlError::InvalidValue("volume capacity"))?;
+                let capacity = decode::volume_capacity(tokens.next())?;
                 decode_launch(&mut tokens, Some(capacity)).map(Self::Launch)
             }
             "recover" => {
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
                 decode_launch(&mut tokens, None).map(|launch| Self::Recover(launch, digest))
             }
-            "fork" => {
+            verb @ ("fork" | "fork_volume") => {
+                let capacity = if verb == "fork_volume" {
+                    Some(decode::volume_capacity(tokens.next())?)
+                } else {
+                    None
+                };
                 let source = super::field::identifier(tokens.next(), "checkpoint source")?;
                 let source = InstanceId::new(source)
                     .map_err(|_| ControlError::InvalidValue("checkpoint source"))?;
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
-                decode_launch(&mut tokens, None).map(|launch| Self::Fork(launch, digest, source))
+                decode_launch(&mut tokens, capacity)
+                    .map(|launch| Self::Fork(launch, digest, source))
             }
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
