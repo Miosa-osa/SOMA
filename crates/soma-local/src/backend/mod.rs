@@ -18,6 +18,8 @@ use crate::{LocalFailure, LocalFailureKind};
 use selection::resolve_selection;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::discard_checkpoint;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::host_machine;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::open_tunnel;

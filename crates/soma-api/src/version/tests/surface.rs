@@ -50,6 +50,7 @@ fn every_route() -> Vec<Route> {
         Route::PauseSandbox(instance()),
         Route::ResumeSandbox(instance()),
         Route::CheckpointSandbox(instance()),
+        Route::DiscardCheckpoint(instance()),
         Route::RestoreSandbox(instance()),
         Route::Resources(instance(), false),
         Route::Tunnel(instance(), 8080),
@@ -103,6 +104,7 @@ fn template(route: &Route) -> String {
         Route::PauseSandbox(_) => "/v1/sandboxes/{instance}/pause".to_owned(),
         Route::ResumeSandbox(_) => "/v1/sandboxes/{instance}/resume".to_owned(),
         Route::CheckpointSandbox(_) => "/v1/sandboxes/{instance}/checkpoints".to_owned(),
+        Route::DiscardCheckpoint(_) => "/v1/sandboxes/{instance}/checkpoints/discard".to_owned(),
         Route::RestoreSandbox(_) => "/v1/sandboxes/{instance}/restore".to_owned(),
         Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
         Route::RunCommand(_) => "/v1/sandboxes/{instance}/commands".to_owned(),
@@ -185,9 +187,28 @@ fn surface() -> String {
     );
     assert!(serde_json::from_str::<crate::handler::checkpoint::CheckpointBody>("{}").is_err());
     lines.push("body CheckpointBody operation_id(required)".to_owned());
+    let digest_field = format!(r#"{{"state_digest":"sha256:{}"}}"#, "a".repeat(64));
+    let discard_fields = format!(
+        r#"{{"checkpoint_id":"{INSTANCE}","state_digest":"sha256:{}"}}"#,
+        "a".repeat(64)
+    );
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::DiscardBody>(&discard_fields).is_ok()
+    );
+    let checkpoint_field = format!(r#"{{"checkpoint_id":"{INSTANCE}"}}"#);
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::DiscardBody>(&checkpoint_field).is_err()
+    );
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::DiscardBody>(&digest_field).is_err()
+    );
     for (name, accepted) in [
         ("ControlBody", fields::<ControlBody>()),
         ("CreateSandboxBody", fields::<CreateSandboxBody>()),
+        (
+            "DiscardBody",
+            "checkpoint_id(required) state_digest(required)".to_owned(),
+        ),
         ("FilesystemBody", fields::<FilesystemBody>()),
         ("PrewarmSetBody", fields::<PrewarmSetBody>()),
         ("PrewarmTarget", fields::<soma_local::PrewarmTarget>()),

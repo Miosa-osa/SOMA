@@ -31,6 +31,7 @@ use soma_hostd::{ExhaustedBehavior, Limits};
 use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
+pub(crate) use checkpoint::discard_checkpoint;
 pub(super) use checkpoint::retention::retains_stopped_checkpoint;
 pub(super) use host::LaunchHandoff;
 use host::Role;

@@ -1,6 +1,8 @@
 //! Descriptor staging and durable publication for resident checkpoints.
 
+mod discard;
 pub(super) mod retention;
+pub(crate) use discard::discard_checkpoint;
 
 use std::{
     fs::{self, DirBuilder, File, OpenOptions},

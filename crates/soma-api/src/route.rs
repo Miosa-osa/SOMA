@@ -91,6 +91,7 @@ pub enum Route {
     PauseSandbox(InstanceId),
     ResumeSandbox(InstanceId),
     CheckpointSandbox(InstanceId),
+    DiscardCheckpoint(InstanceId),
     RestoreSandbox(InstanceId),
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
@@ -132,6 +133,7 @@ impl Route {
             Self::PauseSandbox(_) => "sandbox.pause",
             Self::ResumeSandbox(_) => "sandbox.resume",
             Self::CheckpointSandbox(_) => "sandbox.checkpoint",
+            Self::DiscardCheckpoint(_) => "sandbox.checkpoint.discard",
             Self::RestoreSandbox(_) => "sandbox.restore",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
@@ -193,6 +195,10 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
         ["v1", "sandboxes", instance, "checkpoints"] => post_only(
             request,
             Route::CheckpointSandbox(path_instance_id(instance)?),
+        ),
+        ["v1", "sandboxes", instance, "checkpoints", "discard"] => post_only(
+            request,
+            Route::DiscardCheckpoint(path_instance_id(instance)?),
         ),
         ["v1", "sandboxes", instance, "restore"] => {
             post_only(request, Route::RestoreSandbox(path_instance_id(instance)?))

@@ -188,6 +188,16 @@ impl SandboxFacade for LocalFacade {
         self.runtime.checkpoint_machine(instance, operation)
     }
 
+    fn discard_checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+        state_digest: &soma::GenerationId,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        self.runtime
+            .discard_checkpoint(instance, checkpoint, state_digest)
+    }
+
     fn resize(
         &mut self,
         instance_id: &soma::InstanceId,

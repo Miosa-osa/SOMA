@@ -269,6 +269,36 @@ impl LocalRuntime {
         }
     }
 
+    /// Releases a published checkpoint by its exact sandbox, operation and state digest.
+    ///
+    /// # Errors
+    ///
+    /// Refuses unconfigured storage, an active restore, a mismatched receipt, or an
+    /// unconfirmed storage operation.
+    pub fn discard_checkpoint(
+        &self,
+        instance: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+        state_digest: &soma::GenerationId,
+    ) -> Result<(), crate::CheckpointFailure> {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            let state_root = self
+                .host_directory
+                .as_deref()
+                .and_then(std::path::Path::parent)
+                .ok_or(crate::CheckpointFailure::Unsupported)?;
+            let _lease = crate::file_store::restore_lease(state_root, instance)
+                .map_err(|_| crate::CheckpointFailure::Unconfirmed)?;
+            crate::backend::discard_checkpoint(instance, checkpoint, state_digest)
+        }
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        {
+            let _ = (instance, checkpoint, state_digest);
+            Err(crate::CheckpointFailure::Unsupported)
+        }
+    }
+
     /// Pauses a hosted Machine after receiving confirmation from its owner.
     ///
     /// # Errors

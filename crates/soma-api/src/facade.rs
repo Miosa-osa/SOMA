@@ -278,6 +278,20 @@ pub trait SandboxFacade {
         Err(soma_local::CheckpointFailure::Unsupported)
     }
 
+    /// Discards an exact published checkpoint after its consumer is finished.
+    ///
+    /// # Errors
+    ///
+    /// Returns a refusal if the durable publication cannot be safely removed.
+    fn discard_checkpoint(
+        &mut self,
+        _instance: &soma::InstanceId,
+        _checkpoint: &soma::OperationId,
+        _state_digest: &soma::GenerationId,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        Err(soma_local::CheckpointFailure::Unsupported)
+    }
+
     /// Changes the CPU and memory of one hosted sandbox live, and reports what is now true.
     /// An empty request changes nothing and reports the current values.
     ///

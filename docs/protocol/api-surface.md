@@ -60,6 +60,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.3 | sha256:51e8e76a2b494f652d01c0432a93fd4cd6f63ed236f46c003a24784671ed418d | Added resident sandbox checkpoint capture. |
 | 1.4 | sha256:72ef81e47b8bcd5f8a99584b709799b0e0482960580921a142b6d7f24f591e2e | Added same-sandbox restore from a published checkpoint. |
 | 1.5 | sha256:c5481912fb655a139e58845c65bc4fb912ac0b369622fbc16182f66bb7cf95b3 | Added per-execution environment variables to the loopback command route. |
+| 1.6 | sha256:fa26972026e9710aab6687a90ff1fb4a9fcd01adb120917fa2b0d5f2899bbdf0 | Added identity-bound cleanup of a consumed checkpoint. |
 
 ## Surface
 
@@ -67,7 +68,7 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.5
+api 1.6
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route GET /v1/prewarm prewarm.status
@@ -81,6 +82,7 @@ route PATCH /v1/sandboxes/{instance}/resources sandbox.resize
 route POST /v1/prepared/prune prepared.prune
 route POST /v1/sandboxes sandbox.create
 route POST /v1/sandboxes/{instance}/checkpoints sandbox.checkpoint
+route POST /v1/sandboxes/{instance}/checkpoints/discard sandbox.checkpoint.discard
 route POST /v1/sandboxes/{instance}/commands sandbox.command
 route POST /v1/sandboxes/{instance}/filesystem/chmod sandbox.filesystem
 route POST /v1/sandboxes/{instance}/filesystem/exists sandbox.filesystem
@@ -109,6 +111,7 @@ route PUT /v1/prewarm prewarm.set
 body CheckpointBody operation_id(required)
 body ControlBody operation_id
 body CreateSandboxBody image volume_id shape name instance_id operation_id
+body DiscardBody checkpoint_id(required) state_digest(required)
 body FilesystemBody path content recursive to offset length mode create shorten operation_id
 body PrewarmSetBody targets
 body PrewarmTarget reference count memory_mib
@@ -144,3 +147,12 @@ It returns the destination `sandbox_id` and launch receipt once the fork is read
 Retry with the same operation ID and request on the same source to address the same destination.
 The source may be active or stopped.
 The request must use the source owner's bearer key and an isolated shape.
+
+
+## Discard a consumed checkpoint
+
+The trusted host control plane can call POST /v1/sandboxes/{instance}/checkpoints/discard with the published checkpoint_id and state_digest.
+It can do so after confirming that Restore succeeded or the sandbox no longer needs that checkpoint.
+A matching request returns absent after the checkpoint files are removed and the storage directory is synchronized.
+Repeat the same request after a lost acknowledgement.
+The route is available on the host-local API and has no equivalent public runner route.

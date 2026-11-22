@@ -232,6 +232,16 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().checkpoint(instance, operation)
     }
 
+    fn discard_checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+        state_digest: &soma::GenerationId,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        self.deref_mut()
+            .discard_checkpoint(instance, checkpoint, state_digest)
+    }
+
     fn resize(
         &mut self,
         instance_id: &soma::InstanceId,

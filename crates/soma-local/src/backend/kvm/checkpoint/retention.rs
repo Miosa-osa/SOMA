@@ -51,7 +51,7 @@ fn visit(
         let entry = result.map_err(|_| CheckpointFailure::Storage)?;
         let file_name = entry.file_name();
         let name = file_name.to_str().ok_or(CheckpointFailure::Storage)?;
-        if name.starts_with(".staging-") {
+        if name.starts_with(".staging-") || name.starts_with(".discarded-") {
             continue;
         }
         let (instance, operation) = name.split_once('.').ok_or(CheckpointFailure::Storage)?;

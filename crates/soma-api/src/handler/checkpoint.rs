@@ -50,6 +50,53 @@ pub(super) fn serve<F: SandboxFacade + ?Sized>(
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct DiscardBody {
+    checkpoint_id: OperationId,
+    state_digest: soma::GenerationId,
+}
+
+pub(super) fn discard<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance: &InstanceId,
+    body: &[u8],
+) -> Result<Response, ApiError> {
+    let body: DiscardBody = super::parse(body)?;
+    facade
+        .discard_checkpoint(instance, &body.checkpoint_id, &body.state_digest)
+        .map_err(|failure| match failure {
+            CheckpointFailure::Unsupported => ApiError::new(
+                409,
+                "checkpoint_discard_unsupported",
+                "checkpoint storage is unavailable",
+                false,
+            ),
+            CheckpointFailure::CaptureRefused => ApiError::new(
+                409,
+                "checkpoint_identity_mismatch",
+                "checkpoint receipt identity did not match",
+                false,
+            ),
+            _ => ApiError::new(
+                503,
+                "checkpoint_discard_unconfirmed",
+                "the host did not confirm checkpoint removal",
+                true,
+            ),
+        })?;
+    Ok(super::success(
+        200,
+        "sandbox.checkpoint.discard",
+        &serde_json::json!({
+            "instance_id": instance,
+            "checkpoint_id": body.checkpoint_id,
+            "state": "absent",
+        }),
+        None,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RestoreBody {
     operation_id: OperationId,
     checkpoint_id: OperationId,
