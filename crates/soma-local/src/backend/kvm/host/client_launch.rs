@@ -24,6 +24,7 @@ struct LaunchContext<'a> {
     skip_warm: bool,
     volume: Option<&'a soma::VolumeAttachment>,
     windowed: bool,
+    resume: Option<&'a Path>,
     /// Carried from [`HostedLaunch`] to the handoff, which is the only place that reads it.
     admitted_at: Instant,
 }
@@ -42,6 +43,8 @@ pub(in crate::backend::kvm) struct HostedLaunch<'a> {
     pub(in crate::backend::kvm) volume: Option<&'a soma::VolumeAttachment>,
     /// Whether the machine must hold a network whose egress can be opened after launch.
     pub(in crate::backend::kvm) windowed: bool,
+    /// The decrypted Suspension this launch resumes, when it resumes one.
+    pub(in crate::backend::kvm) resume: Option<&'a Path>,
     /// When this operation was admitted, on the admitting process's clock.
     ///
     /// The machine is built in another process, whose `Instant`s mean nothing here, so this is
@@ -62,6 +65,7 @@ pub(in crate::backend::kvm) fn launch(
         shape,
         volume,
         windowed,
+        resume,
         admitted_at,
     } = request;
     if !channel::addressable(directory) {
@@ -90,10 +94,16 @@ pub(in crate::backend::kvm) fn launch(
         handoff,
         output,
         ..
-    } = sterile::claim(
-        prepared,
-        prepared.manifest.shape.memory_bytes / (1024 * 1024),
-    )?;
+    } = if resume.is_some() {
+        // A resume restores its own machine, so a host primed for the Generation would only hold
+        // a second machine beside it.
+        sterile::spawn_unprimed()?
+    } else {
+        sterile::claim(
+            prepared,
+            prepared.manifest.shape.memory_bytes / (1024 * 1024),
+        )?
+    };
     let context = LaunchContext {
         operation_id,
         instance_id,
@@ -101,6 +111,7 @@ pub(in crate::backend::kvm) fn launch(
         skip_warm: in_flight.skip_warm(),
         volume,
         windowed,
+        resume,
         admitted_at,
     };
     match handshake(&mut child, handoff, output, context, prepared, shape) {
@@ -170,6 +181,7 @@ fn handshake(
         shape: shape.clone(),
         skip_warm: context.skip_warm,
         windowed: context.windowed,
+        resume: context.resume.map(Path::to_path_buf),
     };
     // Taken as late as it can be, because time before this point is time this launch spent
     // reaching the process that will build it, and a child can only time what happens after the

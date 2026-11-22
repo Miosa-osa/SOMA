@@ -6,10 +6,10 @@
 //! order, and the publication order are all driven through the codec's typed schedules, so a
 //! step performed out of order is a typed failure rather than a silently unsafe snapshot.
 
-use std::{fs::File, time::Instant};
+use std::time::Instant;
 
 use super::{
-    artifacts::{self, SnapshotPaths, Staging},
+    artifacts::{self, Staging},
     device,
     error::{Artifact, SnapshotError},
     platform, profile, quiesce, vcpu,
@@ -35,48 +35,10 @@ use crate::x86_64::{
 use manifest::{Parts, build};
 
 mod manifest;
+mod members;
+mod request;
 
-/// Bytes copied out of guest RAM per pass.
-const CHUNK: usize = 1 << 20;
-
-/// Everything a capture needs beyond the running machine itself.
-pub struct CaptureRequest<'a> {
-    /// Where the three objects are published.
-    pub paths: SnapshotPaths,
-    /// The identity of the Generation this machine was built from.
-    pub candidate_id: [u8; 32],
-    /// The immutable EROFS root, for its installation-time identity only.
-    pub root: &'a mut File,
-    /// The Instance-private overlay head, which becomes this snapshot's sterile template.
-    ///
-    /// A Generation with no writable storage has no head, publishes no `overlay.raw`, and every
-    /// Instance restored from its snapshot therefore clones nothing.
-    pub overlay: Option<&'a mut File>,
-    /// The console line the agent prints at the repair point.
-    pub repair_point_line: Vec<u8>,
-    /// How long each vCPU may take to leave `KVM_RUN` after it is kicked.
-    pub grace: std::time::Duration,
-    /// The machine contract this Generation was built under, which the manifest binds.
-    pub contract: crate::contract::MachineContract,
-}
-
-/// What one published snapshot is.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CaptureOutcome {
-    pub paths: SnapshotPaths,
-    pub memory_digest: Digest,
-    pub memory_bytes: u64,
-    pub overlay_digest: Digest,
-    pub overlay_bytes: u64,
-    pub state_digest: Digest,
-    pub state_bytes: u64,
-    /// Identity of the immutable root the restored Instances share.
-    pub root_digest: Digest,
-    /// When the agent announced the repair point, relative to the machine's own clock.
-    pub repair_point_at: Instant,
-    /// Receive buffers the driver had posted at the capture point: network, vsock, events.
-    pub posted_buffers: [u32; 3],
-}
+pub use request::{CaptureOutcome, CapturePoint, CaptureRequest};
 
 /// Captures `sandbox` at the repair point and publishes the snapshot.
 ///
@@ -94,17 +56,30 @@ pub fn capture(
 ) -> Result<CaptureOutcome, SnapshotError> {
     let mut quiesced = Quiesce::new();
     let capture_ceiling = request.contract.max_memory_bytes();
-    let repair_point_at =
-        sandbox
-            .wait_console_line(deadline)
-            .ok_or(SnapshotError::NotQuiescent(
-                "the guest agent never announced the disconnected repair point",
-            ))?;
+    let repair_point_at = match request.point {
+        CapturePoint::ConsoleLine => {
+            sandbox
+                .wait_console_line(deadline)
+                .ok_or(SnapshotError::NotQuiescent(
+                    "the guest agent never announced the disconnected repair point",
+                ))?
+        }
+        CapturePoint::Acknowledged => Instant::now(),
+    };
     // The watched line carries the pinned agent's own prefix, so it proves both that the
     // Generation's agent is the code that ran and that it parked in the launch-page wait
-    // after flushing the private overlay.
+    // after flushing the private overlay. A suspension proves the same two facts with the
+    // agent's authenticated acknowledgement, which only the Instance's own agent can send.
     quiesced.prove(QuiescePrecondition::GenerationAgentBooted)?;
     quiesced.prove(QuiescePrecondition::RepairPointReached)?;
+    let suspension = matches!(request.point, CapturePoint::Acknowledged);
+    if suspension {
+        sandbox
+            .bus()
+            .vsock_mut()
+            .device_mut()
+            .retire_for_suspension();
+    }
     quiesce::prove_no_ingress(&sandbox.bus())?;
     quiesced.prove(QuiescePrecondition::IngressDisabled)?;
 
@@ -119,6 +94,10 @@ pub fn capture(
         .ok_or(SnapshotError::NotQuiescent("the machine is not paused"))?;
     let mut bus = paused.bus;
     quiesce::drain(&mut bus, &paused.memory)?;
+    // The final drain may have taken the guest's last packets on the retired connection.
+    if suspension {
+        bus.vsock_mut().device_mut().retire_for_suspension();
+    }
     quiesce::prove_queues_quiescent(&mut bus, &paused.memory)?;
     let posted = quiesce::posted(&mut bus, &paused.memory);
     quiesced.prove(QuiescePrecondition::QueuesProvenQuiescent)?;
@@ -167,7 +146,13 @@ pub fn capture(
     sequence.complete(CaptureStep::ReadPit)?;
 
     let live = bus.snapshot_all();
-    let root_digest = artifacts::hash(Artifact::Root, request.root)?;
+    // A Suspension resumes over the very root its Generation names, which the resume checks by
+    // the Generation's identity, so re-hashing the root on every suspension would only cost time.
+    let root_digest = if suspension {
+        artifacts::UNHASHED
+    } else {
+        artifacts::hash(Artifact::Root, request.root)?
+    };
     // A machine always has at least one processor and its contract admits at most eight, so the
     // count fits the field a template states it in; anything else is a machine this capture
     // cannot describe.
@@ -181,32 +166,12 @@ pub fn capture(
         profile::cpu_template(paused.kvm, GuestMachine::new(request.contract, vcpus))?;
     sequence.complete(CaptureStep::ReadDevices)?;
 
-    let mut memory = Staging::create(&request.paths, Artifact::Memory, request.paths.memory())?;
-    let mut buffer = vec![0_u8; CHUNK];
-    let mut offset = 0_u64;
-    while offset < paused.ram_bytes {
-        let remaining = usize::try_from(paused.ram_bytes - offset).unwrap_or(CHUNK);
-        let span = remaining.min(CHUNK);
-        // The walk reads the memory object linearly across both ranges of a split machine, so
-        // it names object offsets rather than guest addresses.
-        if !paused.memory.read_image(offset, &mut buffer[..span]) {
-            return Err(SnapshotError::NotQuiescent(
-                "guest RAM shrank during capture",
-            ));
-        }
-        memory.write(&buffer[..span])?;
-        offset += u64::try_from(span).unwrap_or(0);
-    }
-    let mut overlay = request
-        .overlay
-        .take()
-        .map(|head| {
-            let mut staging =
-                Staging::create(&request.paths, Artifact::Overlay, request.paths.overlay())?;
-            staging.write_file(head)?;
-            Ok::<_, SnapshotError>(staging)
-        })
-        .transpose()?;
+    let (mut memory, mut overlay) = members::write(
+        &request.paths,
+        (&paused.memory, paused.ram_bytes),
+        request.overlay.take(),
+        suspension,
+    )?;
     let overlay_digest = overlay
         .as_ref()
         .map_or_else(|| Digest::from_bytes([0; 32]), Staging::running_digest);

@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod backend;
+pub mod capacity;
 mod config;
 mod egress;
 mod error;
@@ -10,6 +11,7 @@ mod prewarm;
 mod prune;
 mod resize;
 mod runtime;
+mod suspension;
 mod tunnel;
 
 #[cfg(test)]
@@ -180,6 +182,9 @@ pub use config::LocalRuntimeConfig;
 pub use error::{LocalFailure, LocalFailureKind};
 pub use file_store::FileStateStore;
 pub use runtime::LocalRuntime;
+pub use suspension::{
+    RESUME_GENERATION_FILE, ResumeRequest, SuspendRequest, Suspended, SuspensionFailure,
+};
 
 mod protocols;
 pub use protocols::PROTOCOLS;

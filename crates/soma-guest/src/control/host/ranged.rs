@@ -44,6 +44,12 @@ impl GuestApi {
     pub const fn has_long_arguments(self) -> bool {
         matches!(self, Self::Level(level) if level >= 3)
     }
+
+    /// Whether this guest accepts Suspend (ADR 0034), which is level 4.
+    #[must_use]
+    pub const fn has_suspend(self) -> bool {
+        matches!(self, Self::Level(level) if level >= 4)
+    }
 }
 
 /// One ranged write: where it goes and what it carries.

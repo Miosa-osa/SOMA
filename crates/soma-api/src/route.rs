@@ -88,6 +88,13 @@ pub enum Route {
     ListSandboxes,
     GetSandbox(InstanceId),
     StopSandbox(InstanceId),
+    /// Suspend, resume and discard a Suspension (ADR 0034).
+    SuspendSandbox(InstanceId),
+    ResumeSuspension(String),
+    DestroySuspension(String),
+    Capacity,
+    /// `GET` reads, `PUT` sets, a sandbox's automatic sizing.
+    Autosize(InstanceId, bool),
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),
     Filesystem(InstanceId, FilesystemOperation),
@@ -125,6 +132,11 @@ impl Route {
             Self::ListSandboxes => "sandbox.list",
             Self::GetSandbox(_) => "sandbox.get",
             Self::StopSandbox(_) => "sandbox.stop",
+            Self::SuspendSandbox(_) => "sandbox.suspend",
+            Self::ResumeSuspension(_) => "suspension.resume",
+            Self::DestroySuspension(_) => "suspension.destroy",
+            Self::Capacity => "host.capacity",
+            Self::Autosize(..) => "sandbox.autosize",
             Self::DestroySandbox(_) => "sandbox.destroy",
             Self::RunCommand(_) => "sandbox.command",
             Self::Filesystem(_, _) => "sandbox.filesystem",
@@ -163,6 +175,10 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             _ => Err(ApiError::method_not_allowed()),
         },
         ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
+        ["v1", "capacity"] => match request.method {
+            Method::Get => Ok(Route::Capacity),
+            _ => Err(ApiError::method_not_allowed()),
+        },
         ["v1", "sandboxes"] => match request.method {
             Method::Post => Ok(Route::CreateSandbox),
             Method::Get => Ok(Route::ListSandboxes),
@@ -179,6 +195,17 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
         ["v1", "sandboxes", instance, "stop"] => {
             post_only(request, Route::StopSandbox(path_instance_id(instance)?))
         }
+        ["v1", "sandboxes", instance, "suspend"] => {
+            post_only(request, Route::SuspendSandbox(path_instance_id(instance)?))
+        }
+        ["v1", "suspensions", id, "resume"] => {
+            post_only(request, Route::ResumeSuspension((*id).to_ascii_lowercase()))
+        }
+        ["v1", "suspensions", id] => match request.method {
+            Method::Delete => Ok(Route::DestroySuspension((*id).to_ascii_lowercase())),
+            _ => Err(ApiError::method_not_allowed()),
+        },
+        ["v1", "sandboxes", instance, "autosize"] => autosize(request, instance),
         ["v1", "sandboxes", instance, "commands"] => {
             post_only(request, Route::RunCommand(path_instance_id(instance)?))
         }
@@ -240,6 +267,15 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     }
 }
 
+fn autosize(request: &Request, instance: &str) -> Result<Route, ApiError> {
+    let instance_id = path_instance_id(instance)?;
+    match request.method {
+        Method::Get => Ok(Route::Autosize(instance_id, false)),
+        Method::Put => Ok(Route::Autosize(instance_id, true)),
+        _ => Err(ApiError::method_not_allowed()),
+    }
+}
+
 fn post_only(request: &Request, route: Route) -> Result<Route, ApiError> {
     if request.method == Method::Post {
         Ok(route)
@@ -248,30 +284,5 @@ fn post_only(request: &Request, route: Route) -> Result<Route, ApiError> {
     }
 }
 
-fn filesystem_operation(operation: &str) -> Result<FilesystemOperation, ApiError> {
-    match operation {
-        "read" => Ok(FilesystemOperation::Read),
-        "write" => Ok(FilesystemOperation::Write),
-        "list" => Ok(FilesystemOperation::List),
-        "exists" => Ok(FilesystemOperation::Exists),
-        "remove" => Ok(FilesystemOperation::Remove),
-        "mkdir" => Ok(FilesystemOperation::MakeDirectory),
-        "stat" => Ok(FilesystemOperation::Stat),
-        "rename" => Ok(FilesystemOperation::Rename),
-        "read_range" => Ok(FilesystemOperation::ReadRange),
-        "write_range" => Ok(FilesystemOperation::WriteRange),
-        "chmod" => Ok(FilesystemOperation::Chmod),
-        _ => Err(ApiError::not_found()),
-    }
-}
-
-fn terminal_operation(operation: &str) -> Result<TerminalOperation, ApiError> {
-    match operation {
-        "open" => Ok(TerminalOperation::Open),
-        "write" => Ok(TerminalOperation::Write),
-        "read" => Ok(TerminalOperation::Read),
-        "resize" => Ok(TerminalOperation::Resize),
-        "close" => Ok(TerminalOperation::Close),
-        _ => Err(ApiError::not_found()),
-    }
-}
+mod operations;
+use operations::{filesystem_operation, terminal_operation};

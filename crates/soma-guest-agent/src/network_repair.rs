@@ -23,8 +23,11 @@ use self::encoding::{
     IFF_RUNNING, IFF_UP, IFREQ_DATA, IfReq, RouteEntry, flags_data, hwaddr_data, ifreq, inet_data,
 };
 
+mod down;
 mod encoding;
 mod target;
+
+pub use down::link_down;
 
 /// Interface name of the single virtio network device.
 pub const INTERFACE: &str = "eth0";

@@ -192,6 +192,34 @@ impl<I: ControlIo> GuestControl<I> {
         Ok(())
     }
 
+    /// Sends one exact Suspend acknowledgement and consumes the owner, retiring the session.
+    ///
+    /// Dropping the owner drops the Noise transport state with it, so nothing this session could
+    /// authenticate survives into the suspended machine's memory as usable authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted Suspend error after poisoning an illegal or failed acknowledgement.
+    pub fn suspend_ack(self, deadline: Instant) -> Result<(), ControlError> {
+        let Self {
+            mut channel,
+            state,
+            operations: _,
+        } = self;
+        let operation = match state {
+            GuestState::SuspendPending(operation) => operation,
+            other => return Err(channel.fail(active_stage(&other), ControlFailureClass::Lifecycle)),
+        };
+        if let Err(failure) = channel.send_guest(&GuestMessage::suspend_ack(operation), deadline) {
+            return Err(channel_failure(
+                &mut channel,
+                ControlStage::Suspend,
+                failure,
+            ));
+        }
+        Ok(())
+    }
+
     fn output(self, bytes: Vec<u8>, stdout: bool, deadline: Instant) -> Result<Self, ControlError> {
         let Self {
             mut channel,

@@ -46,6 +46,7 @@ impl KvmBackend {
                 LaunchExtras {
                     volume: request.volume().cloned(),
                     windowed: request.windowed(),
+                    resume: request.resume().map(std::path::Path::to_path_buf),
                 },
             )?,
             Some(directory) => host::launch(host::HostedLaunch {
@@ -56,6 +57,7 @@ impl KvmBackend {
                 shape: request.shape(),
                 volume: request.volume(),
                 windowed: request.windowed(),
+                resume: request.resume(),
                 admitted_at,
             })
             .map_err(|kind| self.fail(operation, kind))?,
@@ -191,7 +193,8 @@ impl KvmBackend {
         // A forced destroy ends the machine without asking the guest. Every other reason asks
         // first, because a release the caller described as graceful must have been one.
         let force = match request.reason() {
-            CleanupReason::ForcedDestroy => Force::Immediately,
+            // A suspended machine was already read and released; nothing is left to ask.
+            CleanupReason::ForcedDestroy | CleanupReason::Suspended => Force::Immediately,
             CleanupReason::RunCompleted
             | CleanupReason::GracefulStop
             | CleanupReason::Rollback

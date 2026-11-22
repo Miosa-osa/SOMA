@@ -71,6 +71,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
             | GuestMessage::Terminal { .. }
             | GuestMessage::FileOutcome { .. }
             | GuestMessage::RepairComplete { .. }
+            | GuestMessage::SuspendAck { .. }
             | GuestMessage::ShutdownAck { .. } => Err(self
                 .channel
                 .fail(ControlStage::Pty, ControlFailureClass::Lifecycle)),

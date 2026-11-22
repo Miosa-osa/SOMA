@@ -61,6 +61,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
             | GuestMessage::Stderr { .. }
             | GuestMessage::Terminal { .. }
             | GuestMessage::RepairComplete { .. }
+            | GuestMessage::SuspendAck { .. }
             | GuestMessage::ShutdownAck { .. }
             | GuestMessage::PtyOutcome { .. } => Err(self
                 .channel

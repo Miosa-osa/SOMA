@@ -12,7 +12,7 @@ use soma_guest::{
 use crate::executor::{self, ExecutorFault, OutputSink, SinkFault};
 use crate::filesystem;
 use crate::pty::Terminal;
-use crate::repair::{Controller, Fault, Poisoned, Ready};
+use crate::repair::{Controller, Fault, Poisoned, Ready, Suspending};
 use crate::shutdown;
 use crate::timings::{self, Step};
 
@@ -117,11 +117,33 @@ pub fn prepare<I: ControlIo>(control: GuestControl<I>) -> Result<GuestControl<I>
     .map_err(|_| Fault::Control)
 }
 
-/// Serves authenticated requests until shutdown powers the machine off or a fault poisons it.
+/// How a served session ended, when it did not power the machine off.
+pub enum Served {
+    /// A fault poisoned the guest.
+    Poisoned(Controller<Poisoned>),
+    /// The host suspended the Instance: the session is retired and acknowledged, every process
+    /// is kept, and the caller parks the guest at the suspension point.
+    Suspended(Controller<Suspending>),
+}
+
+impl From<Controller<Poisoned>> for Served {
+    fn from(poisoned: Controller<Poisoned>) -> Self {
+        Self::Poisoned(poisoned)
+    }
+}
+
+/// Serves authenticated requests until shutdown powers the machine off, a suspension retires the
+/// session, or a fault poisons it.
+///
+/// `quiesce` runs when a Suspend arrives and before it is acknowledged: the acknowledgement is
+/// the host's signal that the guest is ready to be read, so the link is already down and the
+/// overlay already flushed when it is sent.
 pub fn serve<I: ControlIo>(
     controller: Controller<Ready>,
     control: GuestControl<I>,
-) -> Controller<Poisoned> {
+    quiesce: impl FnOnce() -> Result<(), Fault>,
+) -> Served {
+    let mut quiesce = Some(quiesce);
     let mut controller = controller;
     let mut control = control;
     // The one terminal outlives every request, because a session a caller opened has to still
@@ -130,23 +152,23 @@ pub fn serve<I: ControlIo>(
     let mut terminal = Terminal::new();
     loop {
         let Ok((next, request)) = control.next_request(Instant::now() + IDLE_CEILING) else {
-            return controller.poison(Fault::Control);
+            return controller.poison(Fault::Control).into();
         };
         match request {
             GuestRequest::Execute { command, .. } => {
                 let running = match controller.run(Ok(())) {
                     Ok((running, ())) => running,
-                    Err(poisoned) => return poisoned,
+                    Err(poisoned) => return poisoned.into(),
                 };
                 match run_command(next, &command) {
                     Ok((after, _)) => {
                         control = after;
                         controller = match running.finish(Ok(())) {
                             Ok((ready, ())) => ready,
-                            Err(poisoned) => return poisoned,
+                            Err(poisoned) => return poisoned.into(),
                         };
                     }
-                    Err(fault) => return running.poison(fault),
+                    Err(fault) => return running.poison(fault).into(),
                 }
             }
             GuestRequest::File { request, .. } => {
@@ -156,7 +178,7 @@ pub fn serve<I: ControlIo>(
                 let outcome = filesystem::perform(&request);
                 match next.file_outcome(&outcome, Instant::now() + OUTCOME_BUDGET) {
                     Ok(after) => control = after,
-                    Err(_) => return controller.poison(Fault::Control),
+                    Err(_) => return controller.poison(Fault::Control).into(),
                 }
             }
             GuestRequest::Pty { request, .. } => {
@@ -165,14 +187,29 @@ pub fn serve<I: ControlIo>(
                 let outcome = terminal.perform(&request);
                 match next.pty_outcome(&outcome, Instant::now() + TERMINAL_BUDGET) {
                     Ok(after) => control = after,
-                    Err(_) => return controller.poison(Fault::Control),
+                    Err(_) => return controller.poison(Fault::Control).into(),
                 }
             }
             GuestRequest::Shutdown { .. } => match controller.stop(Ok(())) {
                 Ok((_stopping, ())) => shutdown::perform(next),
-                Err(poisoned) => return poisoned,
+                Err(poisoned) => return poisoned.into(),
             },
-            GuestRequest::Prepare { .. } => return controller.poison(Fault::Control),
+            // The acknowledgement consumes the session, so the Noise state is gone before the
+            // agent parks; an acknowledgement that cannot be sent poisons rather than parks.
+            GuestRequest::Suspend { .. } => {
+                let quiesced = quiesce
+                    .take()
+                    .map_or(Err(Fault::Order), |quiesce| quiesce());
+                let acknowledged = quiesced.and_then(|()| {
+                    next.suspend_ack(Instant::now() + TERMINAL_BUDGET)
+                        .map_err(|_| Fault::Control)
+                });
+                return match controller.suspend(acknowledged) {
+                    Ok((suspending, ())) => Served::Suspended(suspending),
+                    Err(poisoned) => Served::Poisoned(poisoned),
+                };
+            }
+            GuestRequest::Prepare { .. } => return controller.poison(Fault::Control).into(),
         }
     }
 }

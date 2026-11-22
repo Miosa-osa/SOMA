@@ -31,7 +31,7 @@ mod vcpu;
 
 pub use crate::snapshot::inspection::{ArtifactEvidence, CaptureExpectation, VerifiedCapture};
 pub use artifacts::SnapshotPaths;
-pub use capture::{CaptureOutcome, CaptureRequest, capture};
+pub use capture::{CaptureOutcome, CapturePoint, CaptureRequest, capture};
 pub use error::{Artifact, SnapshotError};
 pub use installation::inspect as inspect_capture_artifacts;
 pub use objects::SnapshotObjects;

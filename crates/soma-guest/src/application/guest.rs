@@ -50,6 +50,11 @@ pub enum GuestMessage {
         /// Identity of the Stop operation.
         operation: OperationId,
     },
+    /// Acknowledges a Suspend request; the guest retires the session right after sending it.
+    SuspendAck {
+        /// Identity of the Suspend operation.
+        operation: OperationId,
+    },
 }
 
 impl GuestMessage {
@@ -95,6 +100,12 @@ impl GuestMessage {
         Self::ShutdownAck { operation }
     }
 
+    /// Creates a Suspend acknowledgement.
+    #[must_use]
+    pub const fn suspend_ack(operation: OperationId) -> Self {
+        Self::SuspendAck { operation }
+    }
+
     /// Encodes this message as exactly one authenticated-record payload.
     ///
     /// # Errors
@@ -122,6 +133,9 @@ impl GuestMessage {
             }
             Self::ShutdownAck { operation } => {
                 frame::encode(frame::Kind::ShutdownAck, *operation, &[])
+            }
+            Self::SuspendAck { operation } => {
+                frame::encode(frame::Kind::SuspendAck, *operation, &[])
             }
         }
     }
@@ -160,7 +174,12 @@ impl GuestMessage {
             frame::Kind::ShutdownAck if decoded.body.is_empty() => {
                 Ok(Self::shutdown_ack(decoded.operation))
             }
+            frame::Kind::SuspendAck if decoded.body.is_empty() => {
+                Ok(Self::suspend_ack(decoded.operation))
+            }
             frame::Kind::File
+            | frame::Kind::Suspend
+            | frame::Kind::SuspendAck
             | frame::Kind::Pty
             | frame::Kind::Prepare
             | frame::Kind::Execute

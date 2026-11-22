@@ -33,6 +33,7 @@ pub(super) fn accept<I: ControlIo>(
         HostMessage::File { operation, .. } => (ControlStage::File, *operation),
         HostMessage::Pty { operation, .. } => (ControlStage::Pty, *operation),
         HostMessage::Shutdown { operation } => (ControlStage::Shutdown, *operation),
+        HostMessage::Suspend { operation } => (ControlStage::Suspend, *operation),
         // Repair happened once, before this owner was ever idle, so asking for it again is a
         // host that lost track of the lifecycle rather than a request this state can serve.
         HostMessage::Prepare { .. } => {
@@ -64,6 +65,10 @@ pub(super) fn accept<I: ControlIo>(
         HostMessage::Shutdown { operation } => (
             GuestState::ShutdownPending(operation),
             GuestRequest::Shutdown { operation },
+        ),
+        HostMessage::Suspend { operation } => (
+            GuestState::SuspendPending(operation),
+            GuestRequest::Suspend { operation },
         ),
         HostMessage::Prepare { .. } => unreachable!("repair was refused above"),
     };

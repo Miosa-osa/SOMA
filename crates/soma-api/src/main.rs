@@ -146,6 +146,7 @@ fn run() -> i32 {
     {
         return code;
     }
+    start_autosize(pool.clone());
     if !start_record_sweep(pool.clone()) {
         return 71;
     }
@@ -164,6 +165,17 @@ fn run() -> i32 {
         return 74;
     }
     0
+}
+
+/// Starts the automatic sizing controller on facades leased from the request pool.
+fn start_autosize(pool: FacadePool<LocalFacade>) {
+    let started = soma_api::autosize::spawn(move || {
+        pool.acquire_timeout(POOL_WAIT_TIMEOUT)
+            .map(|lease| Box::new(lease) as Box<dyn SandboxFacade>)
+    });
+    if started.is_err() {
+        eprintln!("soma-api: automatic sizing could not start");
+    }
 }
 
 /// Starts the sweep that releases terminal records (SOMA#127).

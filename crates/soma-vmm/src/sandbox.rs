@@ -43,7 +43,7 @@ pub use pending::PendingActivation;
 pub use session::PTY_CEILING;
 pub use session::{
     Activation, ActivationJob, BOOT_DEADLINE, Completed, EXIT_GRACE, Session, SessionError,
-    Teardown,
+    SuspendTarget, Suspension, Teardown,
 };
 pub use source::{Boot, Network, Source};
 pub use sterile::{Assignment, SterileSpec};

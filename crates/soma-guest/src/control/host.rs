@@ -15,6 +15,7 @@ use super::{
 };
 
 mod admission;
+mod end;
 mod file;
 mod network;
 mod operation;
@@ -225,6 +226,7 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                 }
                 GuestMessage::RepairComplete { .. }
                 | GuestMessage::ShutdownAck { .. }
+                | GuestMessage::SuspendAck { .. }
                 | GuestMessage::FileOutcome { .. }
                 | GuestMessage::PtyOutcome { .. } => {
                     return Err(self
@@ -232,51 +234,6 @@ impl<I: HostControlIo> RepairedHostControl<I> {
                         .fail(ControlStage::Execute, ControlFailureClass::Lifecycle));
                 }
             }
-        }
-    }
-
-    /// Requires one exact authenticated acknowledgement and consumes the session.
-    ///
-    /// # Errors
-    ///
-    /// Returns a redacted Shutdown error after poisoning the transport exactly once.
-    pub fn shutdown(mut self, operation: OperationId) -> Result<(), ControlError> {
-        if !self.operations.reserve(operation) {
-            return Err(self
-                .channel
-                .fail(ControlStage::Shutdown, ControlFailureClass::Lifecycle));
-        }
-        let deadline = deadline::shutdown();
-        if let Err(failure) = self
-            .channel
-            .send_host(&HostMessage::shutdown(operation), deadline)
-        {
-            return Err(channel_failure(
-                &mut self.channel,
-                ControlStage::Shutdown,
-                failure,
-            ));
-        }
-        let response = match self.channel.receive_guest(deadline) {
-            Ok(message) => message,
-            Err(failure) => {
-                return Err(channel_failure(
-                    &mut self.channel,
-                    ControlStage::Shutdown,
-                    failure,
-                ));
-            }
-        };
-        match response {
-            GuestMessage::ShutdownAck {
-                operation: response_operation,
-            } if response_operation == operation => Ok(()),
-            GuestMessage::ShutdownAck { .. } => Err(self
-                .channel
-                .fail(ControlStage::Shutdown, ControlFailureClass::Protocol)),
-            _ => Err(self
-                .channel
-                .fail(ControlStage::Shutdown, ControlFailureClass::Lifecycle)),
         }
     }
 }
@@ -289,6 +246,7 @@ fn message_operation(message: &GuestMessage) -> OperationId {
         | GuestMessage::Terminal { operation, .. }
         | GuestMessage::FileOutcome { operation, .. }
         | GuestMessage::PtyOutcome { operation, .. }
-        | GuestMessage::ShutdownAck { operation } => *operation,
+        | GuestMessage::ShutdownAck { operation }
+        | GuestMessage::SuspendAck { operation } => *operation,
     }
 }

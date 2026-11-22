@@ -4,6 +4,8 @@ use crate::{CleanupReason, MeasurementClass, OperationKind, TerminalStatus};
 pub(super) enum TerminationMode {
     Graceful,
     Forced,
+    /// The backend reads the machine into a Suspension first, then it is cleaned up.
+    Suspend,
 }
 
 impl TerminationMode {
@@ -11,6 +13,7 @@ impl TerminationMode {
         match self {
             Self::Graceful => OperationKind::Stop,
             Self::Forced => OperationKind::Destroy,
+            Self::Suspend => OperationKind::Suspend,
         }
     }
 
@@ -18,6 +21,7 @@ impl TerminationMode {
         match self {
             Self::Graceful => CleanupReason::GracefulStop,
             Self::Forced => CleanupReason::ForcedDestroy,
+            Self::Suspend => CleanupReason::Suspended,
         }
     }
 
@@ -25,6 +29,7 @@ impl TerminationMode {
         match self {
             Self::Graceful => TerminalStatus::Stopped,
             Self::Forced => TerminalStatus::Destroyed,
+            Self::Suspend => TerminalStatus::Suspended,
         }
     }
 
@@ -32,6 +37,7 @@ impl TerminationMode {
         match self {
             Self::Graceful => MeasurementClass::FacadeManagedStop,
             Self::Forced => MeasurementClass::FacadeManagedDestroy,
+            Self::Suspend => MeasurementClass::FacadeManagedSuspend,
         }
     }
 
@@ -43,6 +49,7 @@ impl TerminationMode {
         match self {
             Self::Graceful => crate::fingerprint::stop(workload, instance_id),
             Self::Forced => crate::fingerprint::destroy(workload, instance_id),
+            Self::Suspend => crate::fingerprint::suspend(workload, instance_id),
         }
     }
 }
