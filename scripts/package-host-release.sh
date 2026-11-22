@@ -30,7 +30,7 @@ remap="--remap-path-prefix=${REPO_ROOT}=/soma --remap-path-prefix=${cargo_home}=
 RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }${remap}" "$REPO_ROOT/scripts/build-identity.sh" \
     cargo build --release --locked --target "$HOST_TARGET" \
     -p soma-generation --example prepare_from_template \
-    -p soma-local --example capture_snapshot
+    -p soma-local --example capture_snapshot --example install_generation
 
 tools_dir="target/${HOST_TARGET}/release/examples"
 exec "$REPO_ROOT/scripts/package-binaries.sh" host "$HOST_TARGET" \
@@ -40,4 +40,5 @@ exec "$REPO_ROOT/scripts/package-binaries.sh" host "$HOST_TARGET" \
     soma-vmm:soma-vmm \
     "${tools_dir}/prepare_from_template=prepare_from_template" \
     "${tools_dir}/capture_snapshot=capture_snapshot" \
+    "${tools_dir}/install_generation=install_generation" \
     "${AGENT}=soma-guest-agent"

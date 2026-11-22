@@ -1042,3 +1042,8 @@ Both report the same source identity as the runtime, and the release packager re
 The Template compiler selects a fixed-memory profile whose admitted CPU and RAM bounds and writable disk classes cover the exact requested shape.
 A resize ceiling selects the live-resize profile and refuses shapes that it cannot certify.
 The default two-vCPU, 4 GiB RAM and 10 GiB disk template uses policy 8.
+
+## 2026-11-22 - Publish a certified Generation on a host
+
+The Linux release carries an installer that verifies a private staged entry against its approved OCI reference and Generation ID.
+Installation publishes a complete directory in one same-filesystem move and refuses replacement of an existing reference.
