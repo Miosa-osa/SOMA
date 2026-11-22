@@ -88,13 +88,10 @@ pub enum Route {
     ListSandboxes,
     GetSandbox(InstanceId),
     StopSandbox(InstanceId),
-    /// Reads a running sandbox into a sealed Suspension and ends it (ADR 0034).
+    /// Suspend, resume and discard a Suspension (ADR 0034).
     SuspendSandbox(InstanceId),
-    /// Resumes a Suspension as a new sandbox.
     ResumeSuspension(String),
-    /// Discards a Suspension without resuming it.
     DestroySuspension(String),
-    /// `GET` reads what this host has left for sandboxes.
     Capacity,
     DestroySandbox(InstanceId),
     RunCommand(InstanceId),

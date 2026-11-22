@@ -69,7 +69,7 @@ fn meminfo_mib(meminfo: &str, key: &str) -> Option<u64> {
     Some(kib / 1024)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn disk(path: &Path) -> Option<Disk> {
     soma_storage::space::of(path).ok().map(|space| Disk {
         total_mib: space.total_bytes / (1024 * 1024),
@@ -77,7 +77,7 @@ fn disk(path: &Path) -> Option<Disk> {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 const fn disk(_path: &Path) -> Option<Disk> {
     None
 }

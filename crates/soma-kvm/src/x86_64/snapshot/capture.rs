@@ -35,62 +35,10 @@ use crate::x86_64::{
 use manifest::{Parts, build};
 
 mod manifest;
+mod members;
+mod request;
 
-/// Bytes copied out of guest RAM per pass.
-const CHUNK: usize = 1 << 20;
-
-/// How a capture learns that the guest agent is parked and the machine may be read.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CapturePoint {
-    /// A Generation build: the agent prints the repair-point line on the watched console after
-    /// booting the Generation, and the capture waits for it.
-    ConsoleLine,
-    /// A suspension (ADR 0034): the caller already holds the agent's authenticated Suspend
-    /// acknowledgement, which the agent sends only after taking the link down and flushing the
-    /// overlay. The session is retired with it, so the machine is read without a console wait.
-    Acknowledged,
-}
-
-/// Everything a capture needs beyond the running machine itself.
-pub struct CaptureRequest<'a> {
-    /// Where the three objects are published.
-    pub paths: SnapshotPaths,
-    /// The identity of the Generation this machine was built from.
-    pub candidate_id: [u8; 32],
-    /// The immutable EROFS root, for its installation-time identity only.
-    pub root: &'a mut File,
-    /// The Instance-private overlay head, which becomes this snapshot's sterile template.
-    ///
-    /// A Generation with no writable storage has no head, publishes no `overlay.raw`, and every
-    /// Instance restored from its snapshot therefore clones nothing.
-    pub overlay: Option<&'a mut File>,
-    /// The console line the agent prints at the repair point, recorded as the manifest's marker.
-    pub repair_point_line: Vec<u8>,
-    /// How the capture knows the agent is parked.
-    pub point: CapturePoint,
-    /// How long each vCPU may take to leave `KVM_RUN` after it is kicked.
-    pub grace: std::time::Duration,
-    /// The machine contract this Generation was built under, which the manifest binds.
-    pub contract: crate::contract::MachineContract,
-}
-
-/// What one published snapshot is.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CaptureOutcome {
-    pub paths: SnapshotPaths,
-    pub memory_digest: Digest,
-    pub memory_bytes: u64,
-    pub overlay_digest: Digest,
-    pub overlay_bytes: u64,
-    pub state_digest: Digest,
-    pub state_bytes: u64,
-    /// Identity of the immutable root the restored Instances share.
-    pub root_digest: Digest,
-    /// When the agent announced the repair point, relative to the machine's own clock.
-    pub repair_point_at: Instant,
-    /// Receive buffers the driver had posted at the capture point: network, vsock, events.
-    pub posted_buffers: [u32; 3],
-}
+pub use request::{CaptureOutcome, CapturePoint, CaptureRequest};
 
 /// Captures `sandbox` at the repair point and publishes the snapshot.
 ///
@@ -218,41 +166,12 @@ pub fn capture(
         profile::cpu_template(paused.kvm, GuestMachine::new(request.contract, vcpus))?;
     sequence.complete(CaptureStep::ReadDevices)?;
 
-    // A Suspension's members are authenticated by the store, so they are not hashed here.
-    let staging = if suspension {
-        Staging::create_unhashed
-    } else {
-        Staging::create
-    };
-    let mut memory = staging(&request.paths, Artifact::Memory, request.paths.memory())?;
-    let mut buffer = vec![0_u8; CHUNK];
-    let mut offset = 0_u64;
-    while offset < paused.ram_bytes {
-        let remaining = usize::try_from(paused.ram_bytes - offset).unwrap_or(CHUNK);
-        let span = remaining.min(CHUNK);
-        // The walk reads the memory object linearly across both ranges of a split machine, so
-        // it names object offsets rather than guest addresses.
-        if !paused.memory.read_image(offset, &mut buffer[..span]) {
-            return Err(SnapshotError::NotQuiescent(
-                "guest RAM shrank during capture",
-            ));
-        }
-        memory.write(&buffer[..span])?;
-        offset += u64::try_from(span).unwrap_or(0);
-    }
-    let mut overlay = request
-        .overlay
-        .take()
-        .map(|head| {
-            let mut object = staging(&request.paths, Artifact::Overlay, request.paths.overlay())?;
-            if suspension {
-                object.clone_file(head)?;
-            } else {
-                object.write_file(head)?;
-            }
-            Ok::<_, SnapshotError>(object)
-        })
-        .transpose()?;
+    let (mut memory, mut overlay) = members::write(
+        &request.paths,
+        (&paused.memory, paused.ram_bytes),
+        request.overlay.take(),
+        suspension,
+    )?;
     let overlay_digest = overlay
         .as_ref()
         .map_or_else(|| Digest::from_bytes([0; 32]), Staging::running_digest);
