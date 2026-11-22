@@ -76,6 +76,7 @@ pub(in crate::backend::kvm) const fn failure_kind(error: SessionError) -> Backen
         // Refused with nothing sent; the engine keeps the sandbox, as for any refusal before run.
         SessionError::GuestAgentOutdated => BackendFailureKind::GuestAgentOutdated,
         SessionError::GuestPaused => BackendFailureKind::SandboxPaused,
+        SessionError::CheckpointIncompatible => BackendFailureKind::CheckpointIncompatible,
     }
 }
 

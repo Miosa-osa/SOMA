@@ -99,7 +99,10 @@ impl KvmPlatform {
                     .ask(receipt)
             },
         )
-        .map_err(|error| RestoreFailure::at_restore(faults::restore_recovery(error)))?;
+        .map_err(|error| match error {
+            SessionError::CheckpointIncompatible => RestoreFailure::checkpoint_incompatible(),
+            other => RestoreFailure::at_restore(faults::restore_recovery(other)),
+        })?;
         self.session = Some(session);
         self.recovered = true;
         self.checkpoint_geometry = Some((

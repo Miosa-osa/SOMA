@@ -52,7 +52,10 @@ pub(super) const fn execute_recovery(error: SessionError) -> Recovery {
 /// including repair, and a failure of the receipt itself completed all four.
 pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
     match error {
-        SessionError::Create | SessionError::LaunchPage | SessionError::Boot => {
+        SessionError::Create
+        | SessionError::CheckpointIncompatible
+        | SessionError::LaunchPage
+        | SessionError::Boot => {
             ReadinessFailure::for_platform(ReadinessProgress::from_steps([]), Recovery::RepairHost)
         }
         SessionError::Secret | SessionError::Network => ReadinessFailure::for_platform(

@@ -24,6 +24,7 @@ Bulk transfer uses bounded streaming and does not expose private host paths thro
 A destination import requires authorization for the exact tenant, source checkpoint, target sandbox, and restore operation.
 It checks the authenticated manifest, installed Generation, geometry, compatible host profile, resource reservation, and each artifact before making the import visible.
 The destination creates host-local ownership records from that authorization.
+A resident restore refused for a host profile mismatch reports a distinct incompatibility for that placement, and the checkpoint remains available for a compatible host.
 It reconstructs the virtual machine instance with fresh local host capabilities and guest authentication.
 Source registry files, leases, network state, encryption key records, and arbitrary archive member paths are outside the import contract.
 

@@ -137,6 +137,12 @@ fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
                 "limit": soma_guest::LEVEL_TWO_ARGUMENT_BYTES,
             }),
         ),
+        BackendFailureKind::CheckpointIncompatible => PlatformError::new(
+            409,
+            "CHECKPOINT_INCOMPATIBLE",
+            "this checkpoint requires a compatible host",
+            false,
+        ),
         BackendFailureKind::SandboxPaused => alive(
             409,
             "SANDBOX_PAUSED",

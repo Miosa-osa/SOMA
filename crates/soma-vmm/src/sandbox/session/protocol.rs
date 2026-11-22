@@ -143,6 +143,8 @@ pub enum Activation {
 pub enum SessionError {
     /// The machine could not be created from the prepared artifacts.
     Create,
+    /// The resident checkpoint requires a different host profile.
+    CheckpointIncompatible,
     /// The launch page could not be delivered, or the guest never consumed it.
     LaunchPage,
     /// The assigned network could not be activated, so no traffic may flow.

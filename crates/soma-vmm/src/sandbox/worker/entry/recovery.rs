@@ -3,7 +3,8 @@
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::HostLaunchMaterial;
-use soma_kvm::x86_64::{NetworkAttachment, prepare_checkpoint, prepare_fork};
+use soma_kvm::snapshot::compatibility::Incompatibility;
+use soma_kvm::x86_64::{NetworkAttachment, SnapshotError, prepare_checkpoint, prepare_fork};
 
 use super::{
     Boot, PendingActivation, Request, Response, SessionError, Source, drive_checkpoint, report,
@@ -56,7 +57,13 @@ pub(super) fn recover(
         Ok(prepared) => prepared,
         Err(error) => {
             eprintln!("soma-vmm: checkpoint validation failed: {error}");
-            let _ignored = responses.send(Response::Failed(SessionError::Create));
+            let refusal = match error {
+                SnapshotError::Incompatible(Incompatibility::CpuTemplate { .. }) => {
+                    SessionError::CheckpointIncompatible
+                }
+                _ => SessionError::Create,
+            };
+            let _ignored = responses.send(Response::Failed(refusal));
             return;
         }
     };

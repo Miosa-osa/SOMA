@@ -6,6 +6,8 @@ pub enum BackendFailureKind {
     /// The request was refused because the sandbox is paused.
     SandboxPaused,
     WorkloadRejected,
+    /// The resident checkpoint cannot be restored on this host profile.
+    CheckpointIncompatible,
     /// The sandbox's guest agent cannot decode this command (an argument longer than it carries),
     /// so it was refused with nothing sent; the sandbox is kept, and its Generation must be
     /// captured again with a newer agent for the command to run.

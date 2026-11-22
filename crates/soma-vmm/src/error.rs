@@ -9,6 +9,7 @@ pub enum FailureKind {
     InvalidLifecycle,
     GenerationVerificationFailed,
     RestoreFailed,
+    CheckpointIncompatible,
     GuestAuthenticationFailed,
     GenerationAcknowledgementFailed,
     IdentityRepairFailed,
@@ -31,6 +32,7 @@ impl FailureKind {
             Self::InvalidLifecycle => "InvalidLifecycle",
             Self::GenerationVerificationFailed => "GenerationVerificationFailed",
             Self::RestoreFailed => "RestoreFailed",
+            Self::CheckpointIncompatible => "CheckpointIncompatible",
             Self::GuestAuthenticationFailed => "GuestAuthenticationFailed",
             Self::GenerationAcknowledgementFailed => "GenerationAcknowledgementFailed",
             Self::IdentityRepairFailed => "IdentityRepairFailed",
@@ -47,12 +49,13 @@ impl FailureKind {
     /// The kind one wire name is, or `None` for a name this contract does not define.
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
-        const ALL: [FailureKind; 15] = [
+        const ALL: [FailureKind; 16] = [
             FailureKind::OperationConflict,
             FailureKind::OperationCapacityExceeded,
             FailureKind::InvalidLifecycle,
             FailureKind::GenerationVerificationFailed,
             FailureKind::RestoreFailed,
+            FailureKind::CheckpointIncompatible,
             FailureKind::GuestAuthenticationFailed,
             FailureKind::GenerationAcknowledgementFailed,
             FailureKind::IdentityRepairFailed,

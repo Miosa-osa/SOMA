@@ -151,6 +151,10 @@ const fn restore_failure(failure: RestoreFailure) -> (FailureKind, FailurePhase)
             FailureKind::GenerationVerificationFailed,
             FailurePhase::ArtifactVerification,
         ),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        RestoreFailurePoint::CheckpointCompatibility => {
+            (FailureKind::CheckpointIncompatible, FailurePhase::Restore)
+        }
         RestoreFailurePoint::Restore => (FailureKind::RestoreFailed, FailurePhase::Restore),
     }
 }
