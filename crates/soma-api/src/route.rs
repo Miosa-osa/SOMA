@@ -205,14 +205,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             Method::Delete => Ok(Route::DestroySuspension((*id).to_ascii_lowercase())),
             _ => Err(ApiError::method_not_allowed()),
         },
-        ["v1", "sandboxes", instance, "autosize"] => {
-            let instance_id = path_instance_id(instance)?;
-            match request.method {
-                Method::Get => Ok(Route::Autosize(instance_id, false)),
-                Method::Put => Ok(Route::Autosize(instance_id, true)),
-                _ => Err(ApiError::method_not_allowed()),
-            }
-        }
+        ["v1", "sandboxes", instance, "autosize"] => autosize(request, instance),
         ["v1", "sandboxes", instance, "commands"] => {
             post_only(request, Route::RunCommand(path_instance_id(instance)?))
         }
@@ -271,6 +264,15 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             _ => Err(ApiError::method_not_allowed()),
         },
         _ => Err(ApiError::not_found()),
+    }
+}
+
+fn autosize(request: &Request, instance: &str) -> Result<Route, ApiError> {
+    let instance_id = path_instance_id(instance)?;
+    match request.method {
+        Method::Get => Ok(Route::Autosize(instance_id, false)),
+        Method::Put => Ok(Route::Autosize(instance_id, true)),
+        _ => Err(ApiError::method_not_allowed()),
     }
 }
 
