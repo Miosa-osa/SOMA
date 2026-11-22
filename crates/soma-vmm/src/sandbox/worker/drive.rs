@@ -55,6 +55,7 @@ pub fn drive_restored(
     requests: &Receiver<Request>,
     responses: &Sender<Response>,
     reads: &HeadReadsHandle,
+    suspendable: bool,
 ) -> Result<Ending, SessionError> {
     let (instance, operation, activation) = identity;
     let delivered = inputs
@@ -78,7 +79,14 @@ pub fn drive_restored(
     let head_reads = head_reads::seal(reads);
 
     open_network(machine, &repaired, activation, requests, responses)?;
-    serve_commands(machine, repaired, requests, responses, &head_reads, true)
+    serve_commands(
+        machine,
+        repaired,
+        requests,
+        responses,
+        &head_reads,
+        suspendable,
+    )
 }
 
 /// The steps both paths share between publishing the launch page and holding a repaired session.

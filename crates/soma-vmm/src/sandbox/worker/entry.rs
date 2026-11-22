@@ -125,6 +125,7 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 requests,
                 responses,
                 &reads,
+                true,
             );
             if let Ok(Ending::Suspended(target)) = &outcome {
                 let read = (suspend_disks, generation, contract);

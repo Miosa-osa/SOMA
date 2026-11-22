@@ -198,6 +198,9 @@ fn assign(
         requests,
         responses,
         &reads,
+        // A machine assigned out of the sterile pool is not yet read into a Suspension on
+        // Suspend, so it refuses one with nothing sent rather than parking a guest nobody saves.
+        false,
     );
-    report(restored.machine, outcome, responses, instance);
+    report(restored.machine, &outcome, responses, instance);
 }
