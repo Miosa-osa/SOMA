@@ -59,9 +59,8 @@ dbus-daemon --session --address="$BUS" --nofork --nopidfile &
 export DBUS_SESSION_BUS_ADDRESS="$BUS"
 wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 
-# The screen. By default it is KasmVNC: the X server and the viewer in one process, sending only
-# what changed on screen, so a desktop people live in all day costs little CPU and stays sharp, with
-# clipboard and resize-to-window, on the viewer port (6080) the platform reaches through the tunnel.
+# The screen. By default it is KasmVNC's X server, which also serves KasmVNC's own viewer on 6082
+# as the fallback; the default viewer, voxl, streams the same screen on 6080 (see below).
 # SOMA_DESKTOP_SCREEN=xorg keeps the frame-buffer Xorg, for a desktop watched only through the
 # streaming viewer (Sunshine), which then also takes input.
 if [[ "${SOMA_DESKTOP_SCREEN:-kasmvnc}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
@@ -70,7 +69,7 @@ if [[ "${SOMA_DESKTOP_SCREEN:-kasmvnc}" == kasmvnc ]] && command -v Xkasmvnc >/d
         -httpd /usr/share/kasmvnc/www \
         -geometry "${SOMA_DESKTOP_GEOMETRY:-1920x1080}" \
         -depth 24 \
-        -websocketPort 6080 \
+        -websocketPort 6082 \
         -SecurityTypes None \
         -disableBasicAuth \
         -interface 0.0.0.0 \
@@ -116,6 +115,13 @@ hsetroot -cover /usr/share/soma-desktop/blue-hour.jpg >/dev/null 2>&1 \
     || xsetroot -solid '#0d1527' 2>/dev/null || true
 picom --config /etc/soma-desktop/picom.conf >"$STATE/logs/compositor.log" 2>&1 &
 xset s off s noblank -dpms 2>/dev/null || true
+# voxl on the viewer port the platform reaches through the tunnel (6080): the same screen as H.264
+# over one WebSocket, desktop following the viewer's window. Authentication is the platform's, at
+# the tunnel, as for KasmVNC; a viewer that only watches gets --read-only from the platform.
+voxl --port=6080 --enable-basic-auth=false --title="MIOSA Desktop" \
+    --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
+    --enable-resize=true --audio-enabled=false --round-corners=10 \
+    >"$STATE/logs/voxl.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/dock.tint2rc >"$STATE/logs/dock.log" 2>&1 &
 

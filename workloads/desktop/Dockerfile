@@ -25,6 +25,24 @@
 #     docker build --build-arg BASE_IMAGE=soma-desktop-base:2 -t soma-desktop:2 workloads/desktop
 #
 # Only instructions the classic builder understands are used, so no BuildKit is needed.
+# voxl, the default viewer: H.264 over one WebSocket, decoded with WebCodecs, damage-aware so a
+# still screen costs nothing. Built from a pinned commit of tembo/voxl (MIT; the binary links x264,
+# so it is distributed under the GPL with its source at that commit). Measured on miosa-host-12 on
+# two cores: 60 fps at 1080p even at 5 Mbps / 60 ms, where KasmVNC fell to 27 fps and noVNC to 7.
+FROM ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517 AS voxl
+ARG VOXL_COMMIT=21f194f9e446e7073abd7bbd52e0b397c3800b42
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config clang \
+      libx11-dev libxext-dev libxfixes-dev libxdamage-dev libxtst-dev libxrandr-dev \
+      libx264-dev libyuv-dev libopus-dev libpulse-dev xz-utils \
+ && curl -fsSL -o /tmp/node.tar.xz https://nodejs.org/dist/v22.21.1/node-v22.21.1-linux-x64.tar.xz \
+ && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 && npm install -g esbuild \
+ && curl -fsSL https://sh.rustup.rs -o /tmp/rustup.sh && sh /tmp/rustup.sh -y --profile minimal
+RUN git clone -q https://github.com/tembo/voxl.git /src/voxl && cd /src/voxl && git checkout -q "$VOXL_COMMIT" \
+ && PATH=/root/.cargo/bin:$PATH cargo build --release --locked \
+ && install -m 0755 target/release/voxl /usr/local/bin/voxl
+
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
@@ -159,7 +177,13 @@ RUN set -e; \
     apt-get clean; \
     find /var/lib/apt/lists -type f -delete; \
     command -v google-chrome-stable tint2 hsetroot thunar picom
-# KasmVNC, the default screen for people (see session.sh): pinned by the SHA-256 of its release
+COPY --from=voxl /usr/local/bin/voxl /usr/local/bin/voxl
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libx264-164 libyuv0 libopus0 libpulse0 \
+ && apt-get clean && find /var/lib/apt/lists -type f -delete \
+ && voxl --help | head -1
+
+# KasmVNC, the screen and the fallback viewer (see session.sh): pinned by the SHA-256 of its release
 # package, with its web client served on the viewer port.
 ARG KASMVNC_VERSION=1.4.0
 ARG KASMVNC_SHA256=12bac6014149c5fdee75f0d403785aaa3e5dd4ea222de73253a5d4181bc9567e
@@ -175,7 +199,7 @@ RUN set -e; \
     find /var/lib/apt/lists -type f -delete; \
     command -v Xkasmvnc; \
     mkdir -p /etc/kasmvnc; \
-    printf '%s\n' 'network:' '  protocol: http' '  websocket_port: 6080' '  ssl:' \
+    printf '%s\n' 'network:' '  protocol: http' '  websocket_port: 6082' '  ssl:' \
       '    require_ssl: false' '    pem_certificate: ""' '    pem_key: ""' > /etc/kasmvnc/kasmvnc.yaml
 COPY look/openbox/themerc /usr/share/themes/MIOSA/openbox-3/themerc
 COPY look/openbox/rc.xml /etc/soma-desktop/openbox.xml
