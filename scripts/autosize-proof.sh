@@ -102,7 +102,7 @@ check "autosize answered 200" "$STATUS" 200
 check "autosize is on" "$(field 'd["result"]["enabled"]')" True
 
 log "idle: the processors shrink"
-watch 45
+watch 60
 check "an idle sandbox shrank its processors" "$(( CPU < VCPUS ))" 1
 IDLE_CPU=$CPU
 

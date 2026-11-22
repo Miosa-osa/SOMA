@@ -28,7 +28,7 @@ pub use route::{AutosizeBody, serve};
 use crate::facade::SandboxFacade;
 
 /// How often each sandbox is read.
-pub const INTERVAL: Duration = Duration::from_secs(5);
+pub const INTERVAL: Duration = Duration::from_secs(2);
 /// How many changes a sandbox's history keeps.
 const HISTORY: usize = 200;
 

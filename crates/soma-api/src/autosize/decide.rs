@@ -37,8 +37,9 @@ pub struct Calm {
     pub memory: u32,
 }
 
-/// Readings in a row (at the controller's five-second interval) before anything shrinks.
-pub const CALM_READINGS: u32 = 6;
+/// Readings in a row (at the controller's two-second interval: thirty seconds) before anything
+/// shrinks.
+pub const CALM_READINGS: u32 = 15;
 /// Memory is changed in whole blocks of this size.
 pub const MEMORY_STEP_MB: u64 = 512;
 
@@ -80,8 +81,9 @@ fn memory(policy: &Policy, sample: &Sample, calm: &mut Calm) -> Option<u64> {
     let ceiling = policy.max_memory_mb.max(floor);
     let total = sample.memory_total_mb.max(1);
     let wanted = round_up(sample.memory_used_mb.saturating_mul(8) / 5).clamp(floor, ceiling);
-    // Growing waits for nothing: a guest that runs out of memory kills what it is building.
-    if sample.memory_used_mb * 100 >= total * 80 && total < ceiling {
+    // Growing waits for nothing and starts early: memory can fill faster than one reading apart,
+    // and a guest that runs out kills what it is building.
+    if sample.memory_used_mb * 100 >= total * 65 && total < ceiling {
         calm.memory = 0;
         return Some(wanted.max(round_up(total + 1)).min(ceiling));
     }
