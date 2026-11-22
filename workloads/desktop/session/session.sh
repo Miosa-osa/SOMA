@@ -120,7 +120,7 @@ xset s off s noblank -dpms 2>/dev/null || true
 # the tunnel, as for KasmVNC; a viewer that only watches gets --read-only from the platform.
 voxl --port=6080 --enable-basic-auth=false --title="MIOSA Desktop" \
     --favicon=/usr/share/soma-desktop/miosa-icon.png --allowed-hosts='*' --allowed-origins='*' \
-    --enable-resize=true --audio-enabled=false --round-corners=10 \
+    --enable-resize=true --audio-enabled=false \
     >"$STATE/logs/voxl.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 tint2 -c /etc/soma-desktop/tint2/dock.tint2rc >"$STATE/logs/dock.log" 2>&1 &
