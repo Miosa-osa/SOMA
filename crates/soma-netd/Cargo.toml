@@ -14,10 +14,10 @@ path = "src/bin/soma-netd.rs"
 
 [dependencies]
 sha2 = { version = "=0.11.0", default-features = false }
-soma = { path = "../soma", version = "=1.0.0-alpha.5" }
-soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.5" }
-soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.5" }
-soma-version = { path = "../soma-version", version = "=1.0.0-alpha.5" }
+soma = { path = "../soma", version = "=1.0.0-alpha.6" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.6" }
+soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.6" }
+soma-version = { path = "../soma-version", version = "=1.0.0-alpha.6" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "=0.2.190"
