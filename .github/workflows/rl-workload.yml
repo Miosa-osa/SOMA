@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write # Upload the public image archive as a release asset.
       packages: write # Publish the verified OCI image on main pushes.
     steps:
       - name: Check out source
@@ -66,6 +66,25 @@ jobs:
           docker push "$IMAGE:main"
           docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Publish a public image archive
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="rl-frozenlake-${GITHUB_SHA:0:12}"
+          archive=soma-rl-frozenlake-linux-amd64.tar.gz
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            docker tag "$IMAGE:$GITHUB_SHA" soma-rl-frozenlake:release
+            docker save soma-rl-frozenlake:release | gzip -n > "$archive"
+            sha256sum "$archive" > "$archive.sha256"
+            gh release create "$tag" "$archive" "$archive.sha256" \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false --prerelease \
+              --title "FrozenLake workload ${GITHUB_SHA:0:12}" \
+              --notes "Verified Linux x86_64 FrozenLake workload image built from $GITHUB_SHA."
+          fi
+          url=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
+          printf '\n[Download the verified workload image](%s)\n' "$url" >> "$GITHUB_STEP_SUMMARY"
+
   kvm:
     name: Run the published workload on KVM
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -86,7 +105,13 @@ jobs:
           test -c /dev/kvm
           sudo setfacl -m "u:$(id -un):rw" /dev/kvm
           sudo apt-get update -qq
-          sudo apt-get install -y -qq skopeo
+          sudo apt-get install -y -qq skopeo xfsprogs
+          work="$RUNNER_TEMP/rl-kvm"
+          mkdir -p "$work"
+          truncate -s 16G "$RUNNER_TEMP/rl-kvm.xfs"
+          mkfs.xfs -q -m reflink=1 "$RUNNER_TEMP/rl-kvm.xfs"
+          sudo mount -o loop "$RUNNER_TEMP/rl-kvm.xfs" "$work"
+          sudo chown "$(id -u):$(id -g)" "$work"
           rustup target add x86_64-unknown-linux-musl
           ./scripts/build-fs-tools.sh "$RUNNER_TEMP/fs-tools"
 
@@ -97,6 +122,8 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" |
             skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
           digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$GITHUB_SHA")
+          export SOMA_MACHINE_HOST_LOG="$RUNNER_TEMP/rl-kvm/machine-host.log"
+          df -h "$RUNNER_TEMP" "$RUNNER_TEMP/rl-kvm"
           ./scripts/end-to-end-check.sh \
             --image "$IMAGE@$digest" \
             --fs-tools "$RUNNER_TEMP/fs-tools" \
@@ -114,4 +141,6 @@ jobs:
             ${{ runner.temp }}/rl-kvm/results.json
             ${{ runner.temp }}/rl-kvm/cleanup-checks.tsv
             ${{ runner.temp }}/rl-kvm/run-*.json
+            ${{ runner.temp }}/rl-kvm/run-*.err
+            ${{ runner.temp }}/rl-kvm/machine-host.log
             ${{ runner.temp }}/rl-kvm/logs/*.log

@@ -5,13 +5,19 @@ A tabular Q-learning policy learns from rewards and is evaluated against random 
 
 ## Run the published image
 
-The release workflow verifies the Linux x86_64 image before publishing it to the [SOMA container registry](https://github.com/orgs/Miosa-osa/packages/container/package/soma-rl-frozenlake).
-Use the `main` tag to try the latest build and the OCI digest recorded in the workflow summary for reproducible runs.
+Download the Linux x86_64 image archive and its checksum from a [FrozenLake release](https://github.com/Miosa-osa/SOMA/releases?q=rl-frozenlake).
+The [build workflow](https://github.com/Miosa-osa/SOMA/actions/workflows/rl-workload.yml) links to the release for each source revision.
+Verify the checksum, then load and run the image without network access.
 
 ```sh
-image=ghcr.io/miosa-osa/soma-rl-frozenlake:main
-docker run --rm --platform linux/amd64 --network none "$image" --seed 42
+sha256sum -c soma-rl-frozenlake-linux-amd64.tar.gz.sha256
+docker load -i soma-rl-frozenlake-linux-amd64.tar.gz
+docker run --rm --platform linux/amd64 --network none soma-rl-frozenlake:release --seed 42
 ```
+
+On macOS, use `shasum -a 256 -c` to verify the same checksum.
+The build also publishes to the [access-controlled SOMA container registry](https://github.com/orgs/Miosa-osa/packages/container/package/soma-rl-frozenlake).
+Registry users can pin the OCI digest from the build workflow summary.
 
 ## Build and run locally
 
@@ -28,8 +34,9 @@ Adjust `--train-episodes`, `--eval-episodes`, or `--seed` to run another trial.
 ## Run through SOMA
 
 The local Docker backend resolves images from a registry.
+If you use the public archive, tag and push the loaded image to a registry your Docker daemon can reach, then set `image` to that reference.
 The published image is x86_64.
-On an ARM host, build locally, then tag and push that build to a test registry the Docker daemon can reach and set `image` to that reference.
+On an ARM host, use a locally built image in your registry.
 
 ```sh
 image=ghcr.io/miosa-osa/soma-rl-frozenlake:main
@@ -93,7 +100,8 @@ RLlib's EnvRunner architecture illustrates another scaling model, with multiple 
 ## Verify on a KVM host
 
 Use a prepared Linux x86_64 test host and the existing [end-to-end check](../../docs/product/guides/end-to-end-check.md).
-Pass the published x86_64 digest to compile a Generation, take a snapshot, run the workload twice, and check cleanup.
+After logging in to the registry, pass the published x86_64 digest to compile a Generation, take a snapshot, run the workload twice, and check cleanup.
+For the public archive, load the image into Docker, set `SOMA_IMAGE_SOURCE=docker-daemon:soma-rl-frozenlake:release` and pass `--image soma-rl-frozenlake:release`.
 The release workflow runs this check separately from the container tests and retains the VM receipts.
 
 ```sh
