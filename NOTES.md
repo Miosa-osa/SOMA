@@ -1009,3 +1009,5 @@ Use SOMA instance for a concrete machine lifetime and retain the workload or pro
 The README points to API 1.3 and current workload guides, with historical KVM proofs linked as evidence from their own revisions.
 
 The README describes the zero-trust principles at the guest and host boundary, the trusted base, and the checks that support individual security claims.
+
+The documentation index groups current entry points by task and links directly to the README’s zero-trust explanation and the threat model.
