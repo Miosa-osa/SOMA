@@ -1007,3 +1007,5 @@ The browser viewer showed the new wallpaper and streamed a terminal launched fro
 
 Use SOMA instance for a concrete machine lifetime and retain the workload or product name when describing what it does.
 The README points to API 1.3 and current workload guides, with historical KVM proofs linked as evidence from their own revisions.
+
+The README describes the zero-trust principles at the guest and host boundary, the trusted base, and the checks that support individual security claims.

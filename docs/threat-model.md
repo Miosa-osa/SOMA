@@ -3,7 +3,7 @@
 ## Status
 
 This threat model defines the intended security architecture.
-It does not claim that the pre-alpha implementation currently satisfies it.
+For evidence about the alpha implementation, consult the [claim ledger](claim-ledger.md) and the revision named in each proof.
 
 ## Protected assets
 
@@ -81,7 +81,10 @@ It does not claim that the pre-alpha implementation currently satisfies it.
 - Resource exhaustion, timeout, crash, parent-death, and ambiguous-outcome tests.
 - Reproducible builds, dependency policy, SBOM, provenance, and signed releases.
 
-## Current pre-alpha gaps
+## Historical pre-alpha gaps
+
+This section records the state of the early implementation.
+See the [claim ledger](claim-ledger.md) for evidence from later revisions.
 
 The OCI pipeline verifies bounded source artifacts and expanded tar structure, then applies whiteouts and supported metadata into a canonical logical tree without extracting guest names into a host filesystem.
 That logical artifact is not mounted, bootable, or a certified Generation, and the pipeline does not protect a caller-supplied root whose ambient parent is controlled by an attacker.
@@ -95,4 +98,4 @@ Normalization accepts only exact local `path` and `linkpath` values and rejects 
 Mixed local PAX and GNU naming extensions for one member are rejected rather than resolved with parser-specific precedence.
 The authenticated-session crate binds one Instance secret to an exact launch transcript, but the VMM cannot yet inject that secret after restore and no guest executable consumes the protocol.
 Snow does not guarantee complete erasure of every internal key copy, so process destruction remains part of the future one-Machine containment boundary.
-No current protocol result satisfies Ready, and no untrusted production workload should be admitted.
+At the time of this assessment, no protocol result satisfied Ready.

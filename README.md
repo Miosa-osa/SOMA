@@ -119,13 +119,35 @@ CLI, HTTP, MCP, or Rust caller
    Isolated guest and workload
 ```
 
-On the Linux KVM path, a VMM process owns the machine and its devices.
-Immutable Generation artifacts can be shared across launches.
-Each instance receives private writable state and fresh guest authority.
-The guest agent executes direct argument vectors with bounded output and time.
-
 The [architecture diagrams](docs/architecture/diagrams.md) trace launch, command execution, and cleanup.
-The [threat model](docs/threat-model.md) explains the isolation assumptions and trust boundaries.
+
+### How SOMA applies zero trust
+
+SOMA treats workload code, guest messages, and guest-controlled device state as untrusted at the host boundary.
+Code running as root inside an instance still runs on the guest side of that boundary.
+
+- **Verify before launch.** SOMA binds a prepared Generation to immutable artifacts and checks compatibility before restore.
+  An incompatible artifact or unavailable backend fails explicitly.
+- **Isolate each instance.** On Linux KVM, a VMM process owns the instance and its virtual devices.
+  Instances can share immutable Generation artifacts, and each gets private writable memory and disk state.
+- **Authenticate readiness.** Every launch creates fresh guest authority.
+  The guest agent completes identity, entropy, time, network, and transport repair before it can prove readiness over its own authenticated session.
+- **Scope execution and cleanup.** Guest commands use direct argument arrays with bounded time and output.
+  Lifecycle operations check ownership, and receipts report the result and cleanup state where applicable.
+
+The host kernel, hardware virtualization, SOMA release, and operator policy are part of the trusted base.
+The [threat model](docs/threat-model.md) describes those assumptions, the adversaries, and the evidence required before production use.
+
+### How we verify it during development
+
+The [contribution guide](CONTRIBUTING.md) describes the test workflow and review process.
+Changes to public interfaces, snapshot compatibility, or trust assumptions require an [architecture decision](docs/adr).
+Rust `unsafe` code requires a local safety explanation and a test or invariant that supports it.
+
+The repository checks correctness and dependency policy in CI, scans for secrets and vulnerable dependencies, and runs a separate smoke workflow on real KVM.
+The [end-to-end check](docs/guides/end-to-end-check.md) verifies launch, guest execution, and cleanup on a prepared host.
+The [claim ledger](docs/claim-ledger.md) records what evidence exists and the revisions it applies to.
+
 Report suspected vulnerabilities through the private process in the [security policy](SECURITY.md).
 
 ## Release status and performance
