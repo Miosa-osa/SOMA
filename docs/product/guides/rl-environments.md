@@ -11,6 +11,16 @@ SOMA supplies the isolated execution environment and the lifecycle for starting 
 
 The [FrozenLake workload](../../../workloads/rl-frozenlake/README.md) provides a published Gymnasium image, build instructions, and a policy training example that compares its results with a random baseline.
 
+### Verified execution paths
+
+The [public x86_64 release](https://github.com/Miosa-osa/SOMA/releases/tag/rl-frozenlake-642dec1f93fc) includes the image archive and a checksum.
+The downloaded archive passed checksum verification and the seed 42 run reached the goal in all 100 evaluation episodes.
+The [managed MIOSA CLI example](../../../workloads/rl-frozenlake/README.md#try-the-workload-through-miosa) reached the same result on a Firecracker placement.
+
+The [standalone SOMA KVM run](https://github.com/Miosa-osa/SOMA/actions/runs/45133739268) prepared a Generation and captured its snapshot.
+The first launch returned `backend_unavailable` before the guest ran, so the KVM run does not establish workload execution or cleanup.
+Managed SOMA placement for this workload remains unverified.
+
 ## Run one episode locally
 
 Run the example from a SOMA checkout with Docker running.
