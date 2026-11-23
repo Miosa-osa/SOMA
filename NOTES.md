@@ -1022,3 +1022,5 @@ The runtime comparison measures named peer executables on disk and links each ru
 
 Zero trust documentation scopes access decisions to the management plane and describes instance isolation and guest readiness as runtime controls.
 The runner and host HTTP API have different identity boundaries.
+
+Reinforcement-learning environments use the instance lifecycle for rollout workers while the trainer owns reward logic, policy updates, and model checkpoints.

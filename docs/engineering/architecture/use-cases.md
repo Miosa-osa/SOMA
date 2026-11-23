@@ -65,6 +65,13 @@ This is the universal path for Windows, unsupported local hosts, thin clients, a
 
 ## Additional use cases
 
+### Run reinforcement-learning episodes
+
+A SOMA instance can run an environment worker while an external trainer owns policy updates and stores model checkpoints.
+The environment defines episode reset, observations, actions, and rewards.
+A caller can launch fresh instances from one Generation or reuse workers with an explicit environment reset.
+See the [RL environment guide](../../product/guides/rl-environments.md) for a minimal episode and worker lifecycle.
+
 ### Branch an evaluation tree
 
 A caller creates multiple fresh Instances from one immutable Generation or a newly certified checkpoint.

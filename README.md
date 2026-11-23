@@ -42,12 +42,14 @@ The platform or caller supplies product features such as deployment URLs, releas
 | --- | --- |
 | Agent sandbox, build, or test | A headless Linux image with the tools needed to execute commands and work with files |
 | Browser automation | A Linux image with a browser and its automation tools |
+| Reinforcement learning | A simulator or evaluation environment running isolated episodes |
 | Interactive desktop | A Linux desktop image with a graphical session, computer-use driver, and browser viewer |
 | Web service or API | A Linux image with a server process and an exposed guest port |
 | Function or scheduled job | A Linux image with a handler or command invoked by the integrating platform |
 | Database process | A Linux image with the database and a storage configuration suited to its data lifecycle |
 
-See the [desktop workload](workloads/desktop/README.md) for the reference desktop, and [use-case architecture](docs/engineering/architecture/use-cases.md) for the lifecycle available to callers.
+See the [desktop workload](workloads/desktop/README.md) for the reference desktop and the [RL environment guide](docs/product/guides/rl-environments.md) for an example episode.
+The [use-case architecture](docs/engineering/architecture/use-cases.md) describes the lifecycle available to callers.
 Public routing, replica management, and stable application identity belong to the platform integrating SOMA.
 
 ## How an instance starts

@@ -16,6 +16,7 @@ Learn what SOMA does, run workloads, and integrate it with your platform.
 - [Run one isolated command](../../README.md#try-one-isolated-command) on a local development machine.
 - [Choose or write a Template](guides/templates.md) to reuse a workload configuration.
 - [Run an interactive desktop](../../workloads/desktop/README.md) with agent controls and a browser viewer.
+- [Run reinforcement-learning environments](guides/rl-environments.md) for isolated episodes and parallel rollout workers.
 
 ## Integrate or operate SOMA
 
