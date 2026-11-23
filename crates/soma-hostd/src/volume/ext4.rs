@@ -135,11 +135,21 @@ impl VolumeRepair for Ext4 {
     }
 
     fn repair(&self, volume: VolumeId, file: &Path) -> RepairReceipt {
-        let code = Command::new(&self.fsck)
-            .args(self.fsck_argv(file))
-            .status()
+        // A sealed worker holds this same inode lock for the lifetime of its volume.
+        // Running e2fsck on a mounted guest filesystem would modify it behind the guest's back.
+        let code = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(file)
             .ok()
-            .and_then(|status| status.code());
+            .and_then(|volume_file| {
+                volume_file.try_lock().ok()?;
+                Command::new(&self.fsck)
+                    .args(self.fsck_argv(file))
+                    .status()
+                    .ok()
+                    .and_then(|status| status.code())
+            });
         RepairReceipt::new(
             volume,
             outcome_from_exit(code),

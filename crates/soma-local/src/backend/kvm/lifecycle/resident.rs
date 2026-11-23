@@ -19,9 +19,7 @@ impl KvmBackend {
         instance: &InstanceId,
         command: GuestCommand,
     ) -> Result<Ran, BackendFailureKind> {
-        let Some(live) = self.live_for(instance) else {
-            return Err(self.absent_kind(instance));
-        };
+        let live = self.running_for(instance)?;
         let completed = live.held.execute(command, COMMAND_CEILING)?;
         let status = command_status(completed.status).ok_or(BackendFailureKind::GuestFailure)?;
         Ok((status, completed.stdout, completed.stderr))
@@ -35,9 +33,7 @@ impl KvmBackend {
         command: GuestCommand,
         sink: soma::OutputSink<'_>,
     ) -> Result<Ran, BackendFailureKind> {
-        let Some(live) = self.live_for(instance) else {
-            return Err(self.absent_kind(instance));
-        };
+        let live = self.running_for(instance)?;
         let completed = live
             .held
             .execute_streaming(command, COMMAND_CEILING, sink)?;
@@ -54,7 +50,63 @@ impl KvmBackend {
         let Some(live) = self.live_for(instance) else {
             return Err(crate::TunnelFailure::NotFound);
         };
+        if live.paused {
+            return Err(crate::TunnelFailure::Unavailable);
+        }
         live.egress.connect_guest(port)
+    }
+
+    pub(in crate::backend::kvm) fn pause_resident(
+        &mut self,
+        instance: &InstanceId,
+    ) -> Result<(), crate::PauseFailure> {
+        let live = self
+            .live_for(instance)
+            .ok_or(crate::PauseFailure::NotFound)?;
+        live.held
+            .pause()
+            .map_err(|_| crate::PauseFailure::Unavailable)?;
+        live.paused = true;
+        Ok(())
+    }
+
+    pub(in crate::backend::kvm) fn resume_resident(
+        &mut self,
+        instance: &InstanceId,
+    ) -> Result<(), crate::ResumeFailure> {
+        let live = self
+            .live_for(instance)
+            .ok_or(crate::ResumeFailure::NotFound)?;
+        live.held.resume().map_err(|error| {
+            eprintln!("soma: resident resume refused: {error:?}");
+            crate::ResumeFailure::Unavailable
+        })?;
+        live.paused = false;
+        Ok(())
+    }
+
+    pub(in crate::backend::kvm) fn checkpoint_resident(
+        &mut self,
+        instance: &InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<crate::CheckpointReceipt, crate::CheckpointFailure> {
+        let live = self
+            .live_for(instance)
+            .ok_or(crate::CheckpointFailure::NotFound)?;
+        // The checkpoint records the launch policy, but it cannot restore a window's
+        // current posture or deadline. Capture must refuse before it can publish state
+        // that a later fixed-policy restore might reopen.
+        if live.windowed {
+            return Err(crate::CheckpointFailure::Unsupported);
+        }
+        super::super::checkpoint::perform(
+            &mut live.held,
+            instance,
+            &live.generation,
+            operation,
+            live.checkpoint_source,
+            live.paused,
+        )
     }
 
     /// Reports the state of the sandbox this process is driving.
@@ -68,7 +120,12 @@ impl KvmBackend {
             return Err(self.absent_kind(instance));
         };
         let network = live.network.clone();
-        Ok((MachineState::Ready, network))
+        let state = if live.paused {
+            MachineState::Paused
+        } else {
+            MachineState::Ready
+        };
+        Ok((state, network))
     }
 
     /// Releases everything this process holds for the Instance, the way the caller asked.

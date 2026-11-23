@@ -34,6 +34,8 @@ const CANDIDATE: &str = "candidate.somacan";
 const REFERENCE: &str = "reference";
 /// The artifact store the Candidate manifest describes.
 const STORE_DIRECTORY: &str = "store";
+/// Private publisher staging, outside the runtime and prune entry sets.
+const INCOMING: &str = ".incoming";
 
 /// Most a reference file may hold. An image reference is short.
 const MAX_REFERENCE_BYTES: u64 = 4096;

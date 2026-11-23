@@ -4,15 +4,16 @@
 //! one is bounded, version-checked, and cross-checked against the fields it must agree with.
 
 use soma::NetworkPolicy;
+use soma_kvm::MachineContract;
 
 use crate::generation::{
     contracts::{
         self, LAUNCH_PAGE_LAYOUT_VERSION, REPAIR_POLICY_VERSION, SNAPSHOT_CAPTURE_POINT_VERSION,
         SNAPSHOT_FORMAT_VERSION,
     },
-    error::{CompileError, CompileErrorKind, CompilePhase},
+    error::CompileError,
     manifest::{GenerationManifest, SnapshotBinding},
-    request::{CompilerProfile, HOTPLUG_BLOCK_BYTES, ProfileLimits},
+    request::{CompilerProfile, HOTPLUG_BLOCK_BYTES},
     template::{
         MAX_TTL_SECONDS, MAX_WORKLOAD_PROBE_BYTES, NetworkPolicyClass, network_policy_digest,
     },
@@ -51,12 +52,13 @@ pub(crate) fn require_machine(
         Incompatibility::CommandLine,
     )?;
     require(
-        contracts::machine_contract_for(version) == Some(manifest.machine_contract)
+        version == profile.machine_contract.version()
+            && contracts::machine_contract_for(version) == Some(manifest.machine_contract)
             && manifest.device_contract == contracts::device_contract_v1(devices)
             && manifest.cpu_template == contracts::cpu_template_v1(),
         Incompatibility::ContractStatement,
     )?;
-    require_shape(manifest)?;
+    require_shape(manifest, profile.machine_contract)?;
     require_snapshot(manifest)?;
     require(
         manifest.repair.policy_version == REPAIR_POLICY_VERSION
@@ -66,26 +68,22 @@ pub(crate) fn require_machine(
     require_template(manifest, profile)
 }
 
-fn require_shape(manifest: &GenerationManifest) -> Result<(), CompileError> {
+fn require_shape(
+    manifest: &GenerationManifest,
+    contract: MachineContract,
+) -> Result<(), CompileError> {
     let shape = manifest.shape;
-    // The bounds are the declared contract's, so a version 1 manifest carrying a version 2 shape
-    // is rejected for the shape rather than admitted because some profile would have allowed it.
-    let limits =
-        ProfileLimits::for_version(manifest.machine_contract.version).ok_or_else(|| {
-            CompileError::new(CompilePhase::VerifyGeneration, CompileErrorKind::Integrity)
-        })?;
     require(
-        (MINIMUM_MEMORY_BYTES..=limits.max_memory_mib.saturating_mul(MIB))
-            .contains(&shape.memory_bytes),
+        (MINIMUM_MEMORY_BYTES..=contract.max_memory_bytes()).contains(&shape.memory_bytes),
         Incompatibility::MemorySize,
     )?;
     require(
         shape.memory_bytes.is_multiple_of(MEMORY_PAGE_BYTES),
         Incompatibility::MemoryAlignment,
     )?;
-    require_hotplug(manifest, limits.max_memory_mib.saturating_mul(MIB))?;
+    require_hotplug(manifest, contract)?;
     require(
-        shape.vcpu_count >= 1 && shape.vcpu_count <= limits.max_vcpus,
+        contract.accepts_vcpus(shape.vcpu_count),
         Incompatibility::VcpuCount,
     )?;
     require(
@@ -182,12 +180,10 @@ fn require_probe(manifest: &GenerationManifest) -> Result<(), CompileError> {
 /// whole plug blocks, and the ceiling it reaches (boot plus region) is within the contract's.
 fn require_hotplug(
     manifest: &GenerationManifest,
-    max_memory_bytes: u64,
+    contract: MachineContract,
 ) -> Result<(), CompileError> {
     let shape = manifest.shape;
-    let has_device = soma_kvm::MachineContract::from_version(manifest.machine_contract.version)
-        .is_some_and(soma_kvm::MachineContract::has_memory_device);
-    if !has_device {
+    if !contract.has_memory_device() {
         return require(shape.hotplug_bytes == 0, Incompatibility::MemorySize);
     }
     require(
@@ -195,7 +191,7 @@ fn require_hotplug(
             && shape
                 .memory_bytes
                 .checked_add(shape.hotplug_bytes)
-                .is_some_and(|ceiling| ceiling <= max_memory_bytes),
+                .is_some_and(|ceiling| ceiling <= contract.max_memory_bytes()),
         Incompatibility::MemorySize,
     )?;
     require(

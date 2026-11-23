@@ -50,11 +50,14 @@ use soma_generation::{
 };
 use soma_guest::{CaptureWarmPlan, WarmCommand};
 
+#[path = "prepare_generation/args.rs"]
+mod args;
 #[path = "prepare_generation/build.rs"]
 mod build;
 #[path = "prepare_generation/publication.rs"]
 mod publication;
 
+use args::parse_args;
 use build::BuildInputs;
 
 const DEFAULT_MEMORY_MIB: u64 = 1024;
@@ -65,6 +68,8 @@ const MIB: u64 = 1024 * 1024;
 const DEFAULT_TTL_SECONDS: u64 = 3600;
 /// The guest RAM above which the shape targets compiler profile version 2.
 const V2_MEMORY_MIB: u64 = 3 * 1024;
+/// The large fixed disk class selects its own compiler policy.
+const LARGE_STORAGE_MIB: u64 = 160 * 1024;
 
 struct Args {
     reference: String,
@@ -89,7 +94,35 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
         shape = shape.with_capabilities(Capabilities::isolated().with_network_access());
     }
     // A ceiling makes this the live-resize machine; the build derives its hotplug region from it.
-    let profile = if persistence_requested()? {
+    let persistence = persistence_requested()?;
+    let large_memory = args.memory_mib > soma_kvm::V2_MAX_MEMORY_BYTES / (1024 * 1024);
+    let large_storage = args.storage_mib == LARGE_STORAGE_MIB;
+    let guest_cache = match std::env::var("SOMA_PREPARE_COMPILER_POLICY").as_deref() {
+        Ok("8") => true,
+        Err(std::env::VarError::NotPresent) => false,
+        _ => return Err("SOMA_PREPARE_COMPILER_POLICY must be 8 when set".into()),
+    };
+    let profile = if guest_cache {
+        if persistence || args.inputs.ceiling_mib.is_some() {
+            return Err(
+                "compiler policy 8 requires fixed memory and an ephemeral writable disk".into(),
+            );
+        }
+        CompilerProfile::v8()
+    } else if large_storage || large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
+        if persistence || args.inputs.ceiling_mib.is_some() {
+            return Err(
+                "the requested machine uses fixed memory and an ephemeral writable disk".into(),
+            );
+        }
+        if large_storage {
+            CompilerProfile::v7()
+        } else if large_memory {
+            CompilerProfile::v6()
+        } else {
+            CompilerProfile::v5()
+        }
+    } else if persistence {
         CompilerProfile::v4()
     } else if args.inputs.ceiling_mib.is_some() {
         CompilerProfile::v3()
@@ -119,62 +152,6 @@ pub(crate) fn persistence_from(configured: Option<&str>) -> Result<bool, String>
             "SOMA_PREPARE_PERSISTENCE must be 1 or 0, got {other:?}"
         )),
     }
-}
-
-fn parse_args() -> Result<Args, String> {
-    let raw: Vec<String> = std::env::args().skip(1).collect();
-    if raw.len() < 8 || raw.len() > 10 {
-        return Err(format!(
-            "expected 8 to 10 arguments, got {}\n\
-             usage: prepare_generation <reference> <oci-layout> <kernel> <kernel-config> \
-             <guest-agent> <erofs-tools> <e2fsprogs> <out-entry> [memory_mib] [storage_mib]",
-            raw.len()
-        ));
-    }
-    let number = |value: &str, name: &str| {
-        value
-            .parse::<u64>()
-            .map_err(|_| format!("{name} must be a positive integer, got {value:?}"))
-    };
-    let vcpus = std::env::var("SOMA_PREPARE_VCPUS").map_or(Ok(1_u16), |value| {
-        value
-            .parse::<u16>()
-            .map_err(|_| format!("SOMA_PREPARE_VCPUS must be a positive integer, got {value:?}"))
-    })?;
-    if vcpus == 0 {
-        return Err("SOMA_PREPARE_VCPUS must be at least one".to_owned());
-    }
-    let network = match std::env::var("SOMA_PREPARE_NETWORK").as_deref() {
-        Err(_) | Ok("" | "isolated") => false,
-        Ok("public_internet") => true,
-        Ok(other) => {
-            return Err(format!(
-                "SOMA_PREPARE_NETWORK must be isolated or public_internet, got {other:?}"
-            ));
-        }
-    };
-    let ceiling_mib = build::ceiling_from_environment()?;
-    Ok(Args {
-        reference: raw[0].clone(),
-        inputs: BuildInputs {
-            layout: PathBuf::from(&raw[1]),
-            kernel: PathBuf::from(&raw[2]),
-            kernel_config: PathBuf::from(&raw[3]),
-            agent: PathBuf::from(&raw[4]),
-            erofs_tools: PathBuf::from(&raw[5]),
-            e2fsprogs: PathBuf::from(&raw[6]),
-            out_entry: PathBuf::from(&raw[7]),
-            ceiling_mib,
-        },
-        memory_mib: raw
-            .get(8)
-            .map_or(Ok(DEFAULT_MEMORY_MIB), |v| number(v, "memory_mib"))?,
-        storage_mib: raw
-            .get(9)
-            .map_or(Ok(DEFAULT_STORAGE_MIB), |v| number(v, "storage_mib"))?,
-        vcpus,
-        network,
-    })
 }
 
 /// The startup behavior, with the capture warm plan `SOMA_CAPTURE_WARM` declares, if any.

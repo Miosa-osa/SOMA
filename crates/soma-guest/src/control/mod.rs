@@ -40,6 +40,7 @@ mod guest_file;
 mod guest_idle;
 mod guest_pty;
 mod guest_state;
+mod guest_workspace;
 mod host;
 mod host_connect;
 mod io;

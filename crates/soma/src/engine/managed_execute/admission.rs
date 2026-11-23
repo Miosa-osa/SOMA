@@ -100,7 +100,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     Err(ManagedFailure::State(ManagedStateError::OperationConflict))
                 }
             }
-            DurablePhase::Terminal { .. } => {
+            DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::MachineStopped))
             }
             DurablePhase::Launching { .. } | DurablePhase::Terminating { .. } => {

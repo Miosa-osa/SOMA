@@ -97,7 +97,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         stored: &VersionedMachine,
     ) -> Option<SandboxEntry> {
         let (phase, launch) = match &stored.machine.phase {
-            DurablePhase::Launching { intent } => (
+            DurablePhase::Launching { intent, .. } => (
                 SandboxPhase::Launching,
                 (
                     intent.backend,
@@ -111,7 +111,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 (SandboxPhase::Terminating, of_active(active))
             }
             // A released Instance is not a sandbox any more.
-            DurablePhase::Terminal { .. } => return None,
+            DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => return None,
         };
         let (backend, name, workload) = launch;
         // A record written by a different backend belongs to a machine this engine cannot reach,

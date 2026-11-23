@@ -185,8 +185,8 @@ impl Ledger {
     /// Returns a read failure or [`LedgerError::Invariant`].
     pub fn entries(&self) -> Result<BTreeMap<WorkerId, WorkerLedgerEntry>, LedgerError> {
         let mut entries = BTreeMap::new();
-        for (_, record) in self.records()? {
-            fold(&mut entries, &record)?;
+        for (seq, record) in self.records()? {
+            fold(&mut entries, seq, &record)?;
         }
         Ok(entries)
     }

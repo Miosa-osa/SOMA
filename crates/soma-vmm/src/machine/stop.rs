@@ -67,7 +67,10 @@ impl Machine {
     }
 
     fn validate_stop(&self, request: &Stop) -> Result<(), Failure> {
-        if !matches!(self.state, State::Ready | State::Failed | State::Launching) {
+        if !matches!(
+            self.state,
+            State::Ready | State::Paused | State::Failed | State::Launching
+        ) {
             return Err(lifecycle_failure());
         }
         if self.instance_id != Some(request.instance_id()) {

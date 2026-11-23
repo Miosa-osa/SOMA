@@ -97,6 +97,14 @@ pub(super) fn prove_queues_quiescent<M: GuestMemory + ?Sized>(
     bus: &mut MmioBus,
     memory: &M,
 ) -> Result<(), SnapshotError> {
+    prove_guest_queues_idle(bus, memory)?;
+    prove_no_ingress(bus)
+}
+
+pub(super) fn prove_guest_queues_idle<M: GuestMemory + ?Sized>(
+    bus: &mut MmioBus,
+    memory: &M,
+) -> Result<(), SnapshotError> {
     let pending = bus.pending_work(memory).map_err(|_| {
         SnapshotError::NotQuiescent("a queue could not be read while proving quiescence")
     })?;
@@ -114,7 +122,7 @@ pub(super) fn prove_queues_quiescent<M: GuestMemory + ?Sized>(
             "the vsock transmit queue holds a packet the device never took",
         ));
     }
-    prove_no_ingress(bus)
+    Ok(())
 }
 
 /// The posted receive and event capacity a capture carries forward, for the evidence.

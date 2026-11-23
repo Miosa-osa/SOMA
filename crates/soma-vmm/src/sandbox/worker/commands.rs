@@ -5,6 +5,7 @@
 //! them apart is what lets the two launch paths share this half without sharing the other.
 
 use std::sync::mpsc::{Receiver, Sender};
+use std::time::Duration;
 
 use soma_guest::{GuestApi, GuestCommand, OperationId, RepairedHostControl};
 use soma_kvm::head_reads::HeadSpan;
@@ -19,9 +20,8 @@ use super::{files, pty};
 
 /// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
 ///
-/// It reports how the loop ended, because the two endings finish the machine differently: a
-/// guest that acknowledged shutdown is left the grace to leave `KVM_RUN` on its own, and an
-/// aborted one is not given any.
+/// Reports how the loop ended so only a guest that acknowledged shutdown is given time to
+/// leave `KVM_RUN` on its own.
 pub(super) fn serve_commands(
     machine: &SandboxMachine,
     mut repaired: RepairedHostControl<HostIo<'_>>,
@@ -30,11 +30,7 @@ pub(super) fn serve_commands(
     head_reads: &[HeadSpan],
     suspendable: bool,
 ) -> Result<Ending, SessionError> {
-    responses
-        .send(Response::Ready {
-            head_reads: head_reads.to_vec(),
-        })
-        .map_err(|_| SessionError::Gone)?;
+    send_ready(responses, head_reads)?;
 
     // What the guest answered to the API level probe, learned lazily by the first level 2 file
     // operation or the first command with a long argument, and kept for the life of this session.
@@ -42,9 +38,22 @@ pub(super) fn serve_commands(
     // sandbox keeps answering every command it can.
     let mut guest_api: Option<GuestApi> = None;
 
+    let mut workspace = super::workspace::Workspace::default();
+
     // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
     // shut down exactly as an explicit shutdown would.
     while let Ok(request) = requests.recv() {
+        if machine.is_paused()
+            && !matches!(
+                request,
+                Request::Pause | Request::Resume | Request::Shutdown | Request::Abort
+            )
+        {
+            responses
+                .send(Response::GuestPaused)
+                .map_err(|_| SessionError::Gone)?;
+            continue;
+        }
         if let Request::Execute(command) | Request::ExecuteStreaming(command) = &request {
             let (next, admitted) = admit(repaired, command, &mut guest_api, responses)?;
             repaired = next;
@@ -52,68 +61,65 @@ pub(super) fn serve_commands(
                 continue;
             }
         }
-        match request {
+        let response = match request {
             // The link is already open by the time commands are served; answering a repeated
             // request keeps the owner's exchange idempotent rather than deadlocking it.
             Request::RaiseLink => {
                 machine.set_network_link(true);
                 // The ranges travel with both answers, because a launch whose activation is
                 // deferred sees only this one.
-                responses
-                    .send(Response::Ready {
-                        head_reads: head_reads.to_vec(),
-                    })
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Ready {
+                    head_reads: head_reads.to_vec(),
+                }
             }
             Request::Execute(command) => {
-                let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
-                let (next, outcome) = repaired
-                    .execute(operation, command)
-                    .map_err(|_| SessionError::Execute)?;
-                repaired = next;
-                machine.mark(Milestone::Execute);
-                responses
-                    .send(Response::Executed(Box::new(Completed {
-                        status: outcome.status(),
-                        stdout: outcome.stdout().to_vec(),
-                        stderr: outcome.stderr().to_vec(),
-                    })))
-                    .map_err(|_| SessionError::Gone)?;
+                repaired = run_command(machine, repaired, command, responses)?;
+                continue;
             }
             Request::ExecuteStreaming(command) => {
                 repaired = stream_command(machine, repaired, command, responses)?;
+                continue;
             }
             Request::SetRequestedMemory(bytes) => {
                 let outcome = memory::apply(&memory::device_of(machine), bytes);
-                responses
-                    .send(Response::Memory(outcome))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Memory(outcome)
             }
             Request::GetMemory => {
                 let level = memory::level(&memory::device_of(machine));
-                responses
-                    .send(Response::Memory(Ok(level)))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::Memory(Ok(level))
             }
             Request::File(operation) => {
                 let (next, answer) =
                     files::perform(repaired, &operation, soma::MAX_FILE_BYTES, &mut guest_api)?;
                 repaired = next;
-                responses
-                    .send(Response::FileAnswered(Box::new(answer)))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::FileAnswered(Box::new(answer))
             }
             Request::Pty(operation) => {
                 let (next, answer) = pty::perform(repaired, &operation)?;
                 repaired = next;
-                responses
-                    .send(Response::PtyAnswered(Box::new(answer)))
-                    .map_err(|_| SessionError::Gone)?;
+                Response::PtyAnswered(Box::new(answer))
             }
             // A machine that is already serving an Instance cannot be assigned another. The
             // pool only ever sends this to a parked sterile worker, so reaching it here means
             // the session is being addressed by something that does not own it.
             Request::Assign(_) => return Err(SessionError::Execute),
+            Request::Pause => {
+                machine
+                    .pause(Duration::from_secs(2))
+                    .map_err(|_| SessionError::Pause)?;
+                Response::Paused
+            }
+            Request::Resume => {
+                resume(machine)?;
+                Response::Resumed
+            }
+            Request::Workspace(change) => {
+                let (next, outcome) =
+                    workspace.change(machine, repaired, change, &mut guest_api)?;
+                repaired = next;
+                Response::Workspace(outcome)
+            }
+            Request::Checkpoint(job) => workspace.checkpoint(&job, machine),
             Request::Shutdown => break,
             Request::Suspend(target) => {
                 // Plugged memory lives outside the memory object a capture reads, so a machine
@@ -123,18 +129,48 @@ pub(super) fn serve_commands(
                 match suspend(
                     repaired,
                     target,
-                    suspendable && !grown,
+                    suspendable && !grown && !workspace.is_offline(),
                     &mut guest_api,
                     responses,
                 )? {
-                    SuspendStep::Refused(untouched) => repaired = *untouched,
+                    SuspendStep::Refused(untouched) => {
+                        repaired = *untouched;
+                        continue;
+                    }
+
                     SuspendStep::Suspended(ending) => return Ok(ending),
                 }
             }
             // The guest is not told. The session is abandoned with the machine, which the
             // caller finishes without waiting for a guest that was never asked to leave.
             Request::Abort => return Ok(Ending::Aborted),
-        }
+        };
+        responses.send(response).map_err(|_| SessionError::Gone)?;
+    }
+    end_session(machine, repaired)
+}
+
+fn send_ready(responses: &Sender<Response>, head_reads: &[HeadSpan]) -> Result<(), SessionError> {
+    responses
+        .send(Response::Ready {
+            head_reads: head_reads.to_vec(),
+        })
+        .map_err(|_| SessionError::Gone)
+}
+
+fn resume(machine: &SandboxMachine) -> Result<(), SessionError> {
+    machine.resume().map_err(|error| {
+        eprintln!("soma-vmm: resident resume failed: {error}");
+        SessionError::Resume
+    })
+}
+
+fn end_session(
+    machine: &SandboxMachine,
+    repaired: RepairedHostControl<HostIo<'_>>,
+) -> Result<Ending, SessionError> {
+    if machine.is_paused() {
+        return Ok(Ending::ReleasedWhilePaused);
     }
     let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
     repaired
@@ -166,6 +202,27 @@ fn admit<'a>(
             .map_err(|_| SessionError::Gone)?;
     }
     Ok((repaired, admitted))
+}
+
+fn run_command<'a>(
+    machine: &SandboxMachine,
+    repaired: RepairedHostControl<HostIo<'a>>,
+    command: GuestCommand,
+    responses: &Sender<Response>,
+) -> Result<RepairedHostControl<HostIo<'a>>, SessionError> {
+    let operation = OperationId::new(fresh16()).map_err(|_| SessionError::Execute)?;
+    let (next, outcome) = repaired
+        .execute(operation, command)
+        .map_err(|_| SessionError::Execute)?;
+    machine.mark(Milestone::Execute);
+    responses
+        .send(Response::Executed(Box::new(Completed {
+            status: outcome.status(),
+            stdout: outcome.stdout().to_vec(),
+            stderr: outcome.stderr().to_vec(),
+        })))
+        .map_err(|_| SessionError::Gone)?;
+    Ok(next)
 }
 
 /// Runs one command and hands each output chunk to the owner as it arrives, then the result.
@@ -211,7 +268,7 @@ enum SuspendStep<'a> {
 
 /// Suspends the session, or refuses with nothing sent and hands the untouched session back.
 ///
-/// A guest below API level 4 would refuse Suspend and poison its session, and a cold-booted
+/// A guest without the integrated suspension capability could poison its session, and a cold-booted
 /// machine has no snapshot to resume into, so either is answered `SuspendRefused` instead.
 fn suspend<'a>(
     repaired: RepairedHostControl<HostIo<'a>>,

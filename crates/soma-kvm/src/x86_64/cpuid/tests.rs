@@ -57,6 +57,28 @@ fn cache_geometry_and_sharing_counts_are_pinned() {
 }
 
 #[test]
+fn v6_reports_fixed_cache_geometry_and_keeps_the_terminator_empty() {
+    for host_geometry in [0x02c0_003f, 0x0fc0_007f] {
+        let mut cpuid = CpuId::from_entries(&[
+            cpuid_entry(LEAF_CACHE, 0, 0xfc00_4121, host_geometry, 0x7f, 0),
+            cpuid_entry(LEAF_CACHE, 1, 0x43, host_geometry, 0x3ff, 0),
+            cpuid_entry(LEAF_CACHE, 2, 0, 0, 0, 0),
+            signature(),
+        ])
+        .unwrap();
+        apply_template(&mut cpuid, 0, GuestMachine::new(MachineContract::V6, 2)).unwrap();
+        let data = leaf(&cpuid, LEAF_CACHE, 0);
+        assert_eq!(data.eax, 0x0121);
+        assert_eq!(data.ebx & 0xfff, 63, "one 64-byte line");
+        assert_eq!(data.ebx >> 22, 7, "eight ways");
+        assert_eq!(data.ecx, 63, "64 sets for the 32 KiB L1");
+        assert_eq!(leaf(&cpuid, LEAF_CACHE, 1).ecx, 511);
+        let end = leaf(&cpuid, LEAF_CACHE, 2);
+        assert_eq!((end.eax, end.ebx, end.ecx), (0, 0, 0));
+    }
+}
+
+#[test]
 fn template_pins_apic_ids_sets_hypervisor_bit_and_requires_signature() {
     let mut cpuid = CpuId::from_entries(&[
         cpuid_entry(LEAF_FEATURES, 0, 0, 0x0700_0800, 0, 0),

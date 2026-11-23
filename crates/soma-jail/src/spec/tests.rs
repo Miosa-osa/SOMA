@@ -57,12 +57,15 @@ fn rejects_unsafe_leaf_names() {
 }
 
 #[test]
-fn rejects_zero_and_inverted_limits() {
+fn rejects_invalid_limits() {
     let mut bad = spec();
     bad.limits.memory_max_bytes = 0;
     assert_eq!(bad.validate(), Err(SpecError::MemoryMaxZero));
     let mut bad = spec();
-    bad.limits.cpu_max.quota_us = bad.limits.cpu_max.period_us + 1;
+    bad.limits.cpu_max.quota_us = 999;
+    assert_eq!(bad.validate(), Err(SpecError::CpuMaxInvalid));
+    let mut bad = spec();
+    bad.limits.cpu_max.period_us = 1_000_001;
     assert_eq!(bad.validate(), Err(SpecError::CpuMaxInvalid));
     let mut bad = spec();
     bad.limits.pids_max = 0;
@@ -77,6 +80,13 @@ fn rejects_zero_and_inverted_limits() {
         write_iops: 0,
     });
     assert_eq!(bad.validate(), Err(SpecError::IoMaxInvalid));
+}
+
+#[test]
+fn accepts_a_quota_for_multiple_cpus() {
+    let mut machine = spec();
+    machine.limits.cpu_max.quota_us = 16 * machine.limits.cpu_max.period_us;
+    assert_eq!(machine.validate(), Ok(()));
 }
 
 #[test]

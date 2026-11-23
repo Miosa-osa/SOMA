@@ -1,6 +1,6 @@
 use crate::Error;
 
-use super::{FileRequest, GuestCommand, OperationId, PtyRequest, frame};
+use super::{FileRequest, GuestCommand, OperationId, PtyRequest, WorkspaceAction, frame};
 
 /// A host-to-guest application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -30,6 +30,13 @@ pub enum HostMessage {
         operation: OperationId,
         /// The bounded request.
         request: PtyRequest,
+    },
+    /// Changes the mount state of the declared workspace.
+    Workspace {
+        /// Identity of this exact mount operation.
+        operation: OperationId,
+        /// Requested change.
+        action: WorkspaceAction,
     },
     /// Requests graceful termination of the guest agent.
     Shutdown {
@@ -98,6 +105,9 @@ impl HostMessage {
             Self::Pty { operation, request } => {
                 frame::encode(frame::Kind::Pty, *operation, &request.encode_body())
             }
+            Self::Workspace { operation, action } => {
+                frame::encode(frame::Kind::Workspace, *operation, &[*action as u8])
+            }
             Self::Shutdown { operation } => frame::encode(frame::Kind::Shutdown, *operation, &[]),
             Self::Suspend { operation } => frame::encode(frame::Kind::Suspend, *operation, &[]),
         }
@@ -124,6 +134,10 @@ impl HostMessage {
                 decoded.operation,
                 PtyRequest::decode_body(decoded.body)?,
             )),
+            frame::Kind::Workspace => Ok(Self::Workspace {
+                operation: decoded.operation,
+                action: WorkspaceAction::decode(decoded.body)?,
+            }),
             frame::Kind::Shutdown if decoded.body.is_empty() => {
                 Ok(Self::shutdown(decoded.operation))
             }
@@ -138,6 +152,7 @@ impl HostMessage {
             | frame::Kind::Stderr
             | frame::Kind::Terminal
             | frame::Kind::ShutdownAck
+            | frame::Kind::WorkspaceOutcome
             | frame::Kind::PtyOutcome => Err(Error::ApplicationMessageRejected),
         }
     }

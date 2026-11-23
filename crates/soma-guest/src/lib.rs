@@ -71,8 +71,9 @@ pub(crate) use handshake::{
     InitiatorAwaitingResponse, InitiatorHandshake, ResponderHandshake, ResponderPendingResponse,
 };
 pub use launch_page::{
-    DeliveredHostLaunchMaterial, GuestLaunchMaterial, GuestSessionMaterial, HostLaunchMaterial,
-    LAUNCH_PAGE_GUEST_ADDRESS, LAUNCH_PAGE_SCHEMA_VERSION, LAUNCH_PAGE_SIZE, LaunchNetwork,
+    DeliveredHostLaunchMaterial, FORK_LAUNCH_PAGE_SCHEMA_VERSION, GuestLaunchMaterial,
+    GuestSessionMaterial, HostLaunchMaterial, LAUNCH_PAGE_GUEST_ADDRESS,
+    LAUNCH_PAGE_SCHEMA_VERSION, LAUNCH_PAGE_SIZE, LaunchNetwork,
 };
 pub(crate) use record::AuthenticatedSession;
 pub use record::MAX_RECORD_PAYLOAD;
@@ -97,6 +98,10 @@ pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
 /// of a level only to a guest that answered at least that level, so any host and guest pair
 /// interoperate. Level 2 adds stat, rename, ranged files, and detailed listings. Level 3 accepts
 /// an argument up to [`MAX_ARGUMENT_BYTES`] bytes in one `Execute` record, where an older guest
-/// decodes at most [`LEVEL_TWO_ARGUMENT_BYTES`]. Level 4 accepts Suspend (ADR 0034): the agent
-/// retires the session and parks at the suspension point with every process kept.
-pub const GUEST_API_LEVEL: u8 = 4;
+/// decodes at most [`LEVEL_TWO_ARGUMENT_BYTES`].
+/// Level 5 identifies an agent with both authenticated suspension and checkpoint network repair.
+/// Level 6 adds authenticated workspace mount transitions.
+/// Two earlier development branches each used level 4 for one of these features.
+pub const GUEST_API_LEVEL: u8 = 6;
+
+pub use application::{WorkspaceAction, WorkspaceOutcome};

@@ -12,7 +12,8 @@ use soma_kvm::x86_64::SandboxEvidence;
 use super::{BOOT_DEADLINE, EXIT_GRACE, Request, Response, Session, SessionError};
 
 impl Session {
-    /// Shuts the guest down and returns the machine's evidence.
+    /// Releases the machine and returns its evidence.
+    /// A running guest is asked to shut down. A paused guest is released directly.
     ///
     /// # Errors
     ///

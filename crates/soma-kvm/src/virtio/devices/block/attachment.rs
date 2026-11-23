@@ -8,6 +8,23 @@
 use super::{BlockBackend, BlockConfigError, BlockDevice, BlockRole, SECTOR_SIZE};
 
 impl BlockDevice {
+    /// Flushes and relinquishes the durable volume while retaining its device geometry.
+    #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
+    pub(crate) fn release_volume(&mut self) -> Result<(), super::backend::BackendError> {
+        if self.role != BlockRole::DurableVolume {
+            return Err(super::backend::BackendError::OutOfRange);
+        }
+        if !self.placeholder {
+            self.backend.flush()?;
+            self.backend = Box::new(super::backend::Detached::new(
+                self.capacity_sectors * SECTOR_SIZE,
+                false,
+            ));
+            self.placeholder = true;
+        }
+        Ok(())
+    }
+
     /// Puts the real store behind a device that was built against a declared shape.
     ///
     /// A prepared worker builds this device before it may hold a private disk head, so the head
@@ -30,9 +47,8 @@ impl BlockDevice {
         if backend.capacity_bytes() != self.capacity_sectors * SECTOR_SIZE {
             return Err(BlockConfigError::AttachedShapeDiffers);
         }
-        // A durable volume takes exactly one swap. A second one would replace a store a guest
-        // may already have written to, and a volume that is no longer on its placeholder was not
-        // built by this path, so neither swap is one this device may make.
+        // Attaching cannot displace a volume the guest may have written to. A separately
+        // confirmed release must return the slot to its placeholder first.
         if self.role == BlockRole::DurableVolume && !self.placeholder {
             return Err(BlockConfigError::AlreadyAttached);
         }

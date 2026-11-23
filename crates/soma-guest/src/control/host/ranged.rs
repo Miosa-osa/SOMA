@@ -10,6 +10,7 @@ use crate::{FileFailure, FileOutcome, FileRequest, MAX_CHUNK_BYTES};
 use super::super::error::{ControlError, ControlFailureClass, ControlStage};
 use super::whole_file::WholeFileWrite;
 use super::{HostControlIo, RepairedHostControl};
+mod read;
 
 /// The virtual directory a probe reads `<prefix><nonce>` under.
 ///
@@ -30,11 +31,38 @@ pub enum GuestApi {
     Level(u8),
 }
 
+const INTEGRATED_LIFECYCLE_LEVEL: u8 = 5;
+
+#[cfg(test)]
+#[test]
+fn ambiguous_development_level_does_not_admit_either_lifecycle_operation() {
+    let old = GuestApi::Level(4);
+    assert!(old.has_long_arguments());
+    assert!(!old.has_suspend());
+    assert!(!old.has_network_recovery());
+
+    let integrated = GuestApi::Level(crate::GUEST_API_LEVEL);
+    assert!(integrated.has_suspend());
+    assert!(integrated.has_network_recovery());
+}
+
 impl GuestApi {
+    /// Whether the guest accepts authenticated workspace mount requests.
+    #[must_use]
+    pub const fn has_workspace_mounts(self) -> bool {
+        matches!(self, Self::Level(level) if level >= 6)
+    }
+
     /// Whether this guest answers level 2 file requests: stat, rename, ranges, and chmod.
     #[must_use]
     pub const fn has_ranged_files(self) -> bool {
         matches!(self, Self::Level(level) if level >= 2)
+    }
+
+    /// Whether this guest installs fresh network identity when reconnecting a checkpoint.
+    #[must_use]
+    pub const fn has_network_recovery(self) -> bool {
+        matches!(self, Self::Level(level) if level >= INTEGRATED_LIFECYCLE_LEVEL)
     }
 
     /// Whether this guest accepts an argument up to [`crate::MAX_ARGUMENT_BYTES`] in one
@@ -45,10 +73,10 @@ impl GuestApi {
         matches!(self, Self::Level(level) if level >= 3)
     }
 
-    /// Whether this guest accepts Suspend (ADR 0034), which is level 4.
+    /// Whether this guest accepts Suspend on the integrated lifecycle contract (ADR 0060).
     #[must_use]
     pub const fn has_suspend(self) -> bool {
-        matches!(self, Self::Level(level) if level >= 4)
+        matches!(self, Self::Level(level) if level >= INTEGRATED_LIFECYCLE_LEVEL)
     }
 }
 
@@ -152,69 +180,6 @@ impl<I: HostControlIo> RepairedHostControl<I> {
         let (session, level) = self.probe_guest_api(&nonce())?;
         *cache = Some(level);
         Ok((session, level))
-    }
-
-    /// Reads at most `length` bytes of a file from `offset`, refusing a range over `maximum`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a redacted File error after poisoning the transport exactly once, including when
-    /// the guest returns more than it was asked for or no progress without the end.
-    pub fn read_range(
-        mut self,
-        path: &[u8],
-        offset: u64,
-        length: usize,
-        maximum: usize,
-    ) -> Result<(Self, RangeRead), ControlError> {
-        if length > maximum {
-            return Ok((self, RangeRead::TooLarge));
-        }
-        let mut collected: Vec<u8> = Vec::new();
-        let mut next = offset;
-        loop {
-            let wanted = (length - collected.len()).min(MAX_CHUNK_BYTES);
-            if wanted == 0 {
-                return Ok((
-                    self,
-                    RangeRead::Bytes {
-                        bytes: collected,
-                        end: false,
-                    },
-                ));
-            }
-            let (session, outcome) = self.file(FileRequest::Read {
-                path: path.into(),
-                offset: next,
-                length: u32::try_from(wanted).unwrap_or(u32::MAX),
-            })?;
-            self = session;
-            let (bytes, end) = match outcome {
-                FileOutcome::Read { bytes, end } => (bytes, end),
-                FileOutcome::Failed(failure) => return Ok((self, RangeRead::Failed(failure))),
-                _ => {
-                    return Err(self
-                        .channel
-                        .fail(ControlStage::File, ControlFailureClass::Protocol));
-                }
-            };
-            if bytes.len() > wanted || (bytes.is_empty() && !end) {
-                return Err(self
-                    .channel
-                    .fail(ControlStage::File, ControlFailureClass::Protocol));
-            }
-            next = next.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
-            collected.extend_from_slice(&bytes);
-            if end {
-                return Ok((
-                    self,
-                    RangeRead::Bytes {
-                        bytes: collected,
-                        end: true,
-                    },
-                ));
-            }
-        }
     }
 
     /// Writes `bytes` into a file at `offset`, refusing more than `maximum` bytes.

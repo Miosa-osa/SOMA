@@ -111,6 +111,7 @@ pub enum MachineState {
     Starting,
     Ready,
     Running,
+    Paused,
     Stopping,
     Stopped,
     Destroyed,

@@ -79,6 +79,17 @@ pub fn bind(source: &str, target: &str) -> Result<(), Errno> {
     mount(source, target, "none", libc::MS_BIND, "")
 }
 
+/// Unmounts a real mount, refusing busy mounts and final-component symlinks.
+///
+/// # Errors
+///
+/// Returns the kernel errno.
+pub fn unmount(target: &str) -> Result<(), Errno> {
+    let target = c_string(target)?;
+    // SAFETY: the path is a valid NUL-terminated string and the flags forbid lazy unmounts.
+    check(unsafe { libc::umount2(target.as_ptr(), libc::UMOUNT_NOFOLLOW) })
+}
+
 /// Moves an existing mount from `from` to `to`.
 ///
 /// # Errors

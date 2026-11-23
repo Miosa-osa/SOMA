@@ -13,6 +13,13 @@
 
 mod error;
 mod field;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod files;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use files::{
+    FILE_CONTROL_CEILING, read_file_answer, read_file_request, write_file_answer,
+    write_file_request,
+};
 mod outcome;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pty;
@@ -34,4 +41,4 @@ pub use window::{MAX_OUTPUT_WINDOW_BYTES, MAX_REPLY_BYTES, OutputStream, OutputW
 /// installed release, because the worker is started from that release's binary for each launch,
 /// so the two ends never differ. The number names the packet layout in `--version` and in the
 /// compatibility table of `docs/product/reference/versioning.md`, and it changes whenever a packet's layout does.
-pub const CONTROL_PROTOCOL_VERSION: u16 = 1;
+pub const CONTROL_PROTOCOL_VERSION: u16 = 3;

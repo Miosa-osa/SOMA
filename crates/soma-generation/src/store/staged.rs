@@ -153,7 +153,8 @@ impl Drop for StagedObject<'_> {
     }
 }
 
-pub(super) fn copy_hashed(
+/// Copies into a newly created file, hashing zero-filled sections even when stored as holes.
+fn copy_hashed(
     source: &mut impl Read,
     target: &mut File,
     expected: u64,
@@ -171,16 +172,27 @@ pub(super) fn copy_hashed(
         if count == 0 {
             return Err(ImportError::new(phase, ImportErrorKind::Integrity));
         }
-        target
-            .write_all(&buffer[..count])
-            .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
-        hasher.update(&buffer[..count]);
+        let bytes = &buffer[..count];
         total += u64::try_from(count)
             .map_err(|_| ImportError::new(phase, ImportErrorKind::LimitExceeded))?;
+        if bytes.iter().all(|&byte| byte == 0) {
+            target
+                .seek(SeekFrom::Start(total))
+                .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+        } else {
+            target
+                .write_all(bytes)
+                .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
+        }
+        hasher.update(bytes);
     }
     if read_retry(source, &mut [0_u8], phase)? != 0 {
         return Err(ImportError::new(phase, ImportErrorKind::Integrity));
     }
+    // Seeking over a trailing hole does not extend a file until its length is set.
+    target
+        .set_len(total)
+        .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
     let output = hasher.finalize();
     Ok((digest::from_output(output.as_ref()), total))
 }
@@ -196,5 +208,35 @@ fn read_retry(
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(_) => return Err(ImportError::new(phase, ImportErrorKind::Io)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn target_keeps_bytes_and_size_across_zero_runs() {
+        let chunk = 64 * 1024;
+        let mut input = vec![0; 4 * chunk + 17];
+        input[chunk] = 42;
+        input[3 * chunk] = 17;
+        let mut target = File::from_std(tempfile::tempfile().expect("temporary file"));
+
+        let (recorded_digest, size) = copy_hashed(
+            &mut input.as_slice(),
+            &mut target,
+            input.len() as u64,
+            ImportPhase::Publish,
+        )
+        .expect("stage object");
+
+        assert_eq!(recorded_digest, digest::bytes(&input));
+        assert_eq!(size, input.len() as u64);
+        assert_eq!(target.metadata().expect("metadata").len(), size);
+        target.rewind().expect("rewind target");
+        let mut output = Vec::new();
+        target.read_to_end(&mut output).expect("read target");
+        assert_eq!(output, input);
     }
 }

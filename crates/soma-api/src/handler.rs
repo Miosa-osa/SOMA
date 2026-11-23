@@ -1,10 +1,14 @@
 mod capacity;
+pub(crate) mod checkpoint;
+mod create;
+mod pause;
 mod prepared;
 pub(crate) mod prewarm;
 mod support;
 pub(crate) mod suspension;
 mod volume;
 mod volumes;
+use create::{create, lifecycle};
 use support::{control_body, optional_body, parse, refuse, success};
 use volume::binding as volume_binding;
 
@@ -49,6 +53,19 @@ pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> R
     }
 }
 
+fn list_sandboxes(
+    facade: &mut (impl SandboxFacade + ?Sized),
+    operation: &'static str,
+) -> Result<Response, ApiError> {
+    let listing = facade.list().map_err(|failure| managed_error(&failure))?;
+    Ok(success(
+        200,
+        operation,
+        &SandboxListReport::from_listing(&listing),
+        None,
+    ))
+}
+
 fn dispatch<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     route: Route,
@@ -58,15 +75,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     let operation = route.operation();
     match route {
         Route::CreateSandbox => create(facade, body),
-        Route::ListSandboxes => {
-            let listing = facade.list().map_err(|f| managed_error(&f))?;
-            Ok(success(
-                200,
-                operation,
-                &SandboxListReport::from_listing(&listing),
-                None,
-            ))
-        }
+        Route::ListSandboxes => list_sandboxes(facade, operation),
         Route::Filesystem(instance_id, file_operation) => {
             filesystem(facade, instance_id, file_operation, body)
         }
@@ -87,6 +96,16 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 Some(&snapshot.receipt),
             ))
         }
+        Route::PauseSandbox(instance_id) => {
+            pause::serve(facade, instance_id, body, pause::Transition::Pause)
+        }
+        Route::ResumeSandbox(instance_id) => {
+            pause::serve(facade, instance_id, body, pause::Transition::Resume)
+        }
+        Route::CheckpointSandbox(instance_id) => checkpoint::serve(facade, &instance_id, body),
+        Route::DiscardCheckpoint(instance_id) => checkpoint::discard(facade, &instance_id, body),
+        Route::RestoreSandbox(instance_id) => checkpoint::restore(facade, instance_id, body),
+        Route::ForkSandbox(source) => checkpoint::fork(facade, &source, body),
         Route::StopSandbox(instance_id) => {
             let request = control_body(body)?.into_stop(instance_id.clone())?;
             let stop = request.operation_id().clone();
@@ -267,64 +286,4 @@ fn terminal<F: SandboxFacade + ?Sized>(
     })?;
     let report = TerminalReport::new(outcome.instance_id, outcome.operation, &outcome.answer);
     Ok(success(200, "sandbox.terminal", &report, None))
-}
-
-fn create<F: SandboxFacade + ?Sized>(facade: &mut F, body: &[u8]) -> Result<Response, ApiError> {
-    let body = parse::<CreateSandboxBody>(body)?;
-    let named_volume = body.volume_id.clone();
-    let (instance_id, request) = body.into_facade()?;
-    // A start that names its volume binds that file and no other: the host resolves it from the
-    // volume this Instance owns, and a disagreement between the two is refused rather than
-    // resolved by guessing which is right.
-    let (request, volume, fsck) = match named_volume.as_deref() {
-        Some(named) => {
-            let (attachment, fsck) = volume_binding(facade, &instance_id, named)?;
-            (
-                request.with_volume(attachment),
-                Some(VolumeReady {
-                    volume_id: named.to_ascii_lowercase(),
-                    state: "attached",
-                    device: VOLUME_DEVICE,
-                }),
-                Some(fsck),
-            )
-        }
-        None => (request, None, None),
-    };
-    // Refused before a machine is built rather than answered 201 with an identity that dies
-    // with this connection. A caller that keeps the identity and returns is the whole point of
-    // the create route, and there would be nothing here for it to return to.
-    if !facade.hosts_addressable_sandboxes() {
-        return Err(MissingCapability::DurableMachineHosting.error());
-    }
-    let outcome = facade.launch(request).map_err(|f| managed_error(&f))?;
-    // A created sandbox answers 201, matching what a provider contract expects of a create call
-    // that produced a new addressable resource.
-    Ok(Response::new(
-        201,
-        render(&Envelope::success(
-            "sandbox.create",
-            &SandboxReport {
-                instance_id: outcome.instance_id,
-                state: "ready",
-                volume,
-                fsck,
-            },
-            Some(&outcome.receipt),
-        )),
-    ))
-}
-
-fn lifecycle(
-    operation: &'static str,
-    state: &'static str,
-    instance_id: &soma::InstanceId,
-    receipt: &ExecutionReceipt,
-) -> Response {
-    success(
-        200,
-        operation,
-        &SandboxReport::new(instance_id.clone(), state),
-        Some(receipt),
-    )
 }

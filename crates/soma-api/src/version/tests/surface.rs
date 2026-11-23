@@ -5,10 +5,7 @@
 //! changes the generated text, and this test fails until the document records it under a new
 //! version: a new minor for an addition, a new major for anything an older client cannot survive.
 
-use std::fmt::Write as _;
-
 use serde::de::DeserializeOwned;
-use sha2::{Digest as _, Sha256};
 
 use crate::{
     envelope::{ApiError, ENVELOPE_SCHEMA, failure_body},
@@ -23,6 +20,10 @@ use crate::{
     volumes::VolumeOperation,
     wire::{ControlBody, CreateSandboxBody, RunCommandBody},
 };
+mod document;
+mod paths;
+use document::{digest, documented_surface, documented_versions};
+use paths::{concrete, template};
 
 const DOCUMENT: &str = include_str!("../../../../../docs/product/reference/api-surface.md");
 const INSTANCE: &str = "33333333333333333333333333333333";
@@ -54,6 +55,12 @@ fn every_route() -> Vec<Route> {
         Route::ResumeSuspension(SUSPENSION.to_owned()),
         Route::DestroySuspension(SUSPENSION.to_owned()),
         Route::RunCommand(instance()),
+        Route::PauseSandbox(instance()),
+        Route::ResumeSandbox(instance()),
+        Route::CheckpointSandbox(instance()),
+        Route::DiscardCheckpoint(instance()),
+        Route::RestoreSandbox(instance()),
+        Route::ForkSandbox(instance()),
         Route::Resources(instance(), false),
         Route::Tunnel(instance(), 8080),
         Route::Volume(VolumeOperation::Read, Some(VOLUME.to_owned())),
@@ -93,46 +100,6 @@ fn every_route() -> Vec<Route> {
         .map(|operation| Route::Volume(operation, None)),
     );
     routes
-}
-
-/// The path template of a route, with `{instance}`, `{port}`, `{volume}`, and `{suspension}` for
-/// its values.
-fn template(route: &Route) -> String {
-    match route {
-        Route::Version => "/v1/version".to_owned(),
-        Route::Prewarm(_) => "/v1/prewarm".to_owned(),
-        Route::PrunePrepared => "/v1/prepared/prune".to_owned(),
-        Route::Capacity => "/v1/capacity".to_owned(),
-        Route::Autosize(..) => "/v1/sandboxes/{instance}/autosize".to_owned(),
-        Route::CreateSandbox | Route::ListSandboxes => "/v1/sandboxes".to_owned(),
-        Route::GetSandbox(_) | Route::DestroySandbox(_) => "/v1/sandboxes/{instance}".to_owned(),
-        Route::StopSandbox(_) => "/v1/sandboxes/{instance}/stop".to_owned(),
-        Route::SuspendSandbox(_) => "/v1/sandboxes/{instance}/suspend".to_owned(),
-        Route::ResumeSuspension(_) => "/v1/suspensions/{suspension}/resume".to_owned(),
-        Route::DestroySuspension(_) => "/v1/suspensions/{suspension}".to_owned(),
-        Route::RunCommand(_) => "/v1/sandboxes/{instance}/commands".to_owned(),
-        Route::Filesystem(_, operation) => {
-            format!("/v1/sandboxes/{{instance}}/filesystem/{}", operation.name())
-        }
-        Route::Terminal(_, operation) => {
-            format!("/v1/sandboxes/{{instance}}/terminal/{}", operation.name())
-        }
-        Route::Tunnel(_, _) => "/v1/sandboxes/{instance}/tunnel/{port}".to_owned(),
-        Route::Resources(_, _) => "/v1/sandboxes/{instance}/resources".to_owned(),
-        Route::Volume(VolumeOperation::Read, _) => "/v1/volumes/{volume}".to_owned(),
-        Route::Volume(operation, _) => format!(
-            "/v1/volumes/{}",
-            operation.name().trim_start_matches("volume.")
-        ),
-    }
-}
-
-fn concrete(template: &str) -> String {
-    template
-        .replace("{instance}", INSTANCE)
-        .replace("{port}", "8080")
-        .replace("{volume}", VOLUME)
-        .replace("{suspension}", SUSPENSION)
 }
 
 /// The fields a request body accepts, read from the refusal of an unknown field.
@@ -184,15 +151,46 @@ fn surface() -> String {
     routes.sort();
     routes.dedup();
     lines.extend(routes);
+    let operation_field = format!(r#"{{"operation_id":"{INSTANCE}"}}"#);
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::CheckpointBody>(&operation_field)
+            .is_ok()
+    );
+    assert!(serde_json::from_str::<crate::handler::checkpoint::CheckpointBody>("{}").is_err());
+    lines.push("body CheckpointBody operation_id(required)".to_owned());
+    let digest_field = format!(r#"{{"state_digest":"sha256:{}"}}"#, "a".repeat(64));
+    let discard_fields = format!(
+        r#"{{"checkpoint_id":"{INSTANCE}","state_digest":"sha256:{}"}}"#,
+        "a".repeat(64)
+    );
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::DiscardBody>(&discard_fields).is_ok()
+    );
+    let checkpoint_field = format!(r#"{{"checkpoint_id":"{INSTANCE}"}}"#);
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::DiscardBody>(&checkpoint_field).is_err()
+    );
+    assert!(
+        serde_json::from_str::<crate::handler::checkpoint::DiscardBody>(&digest_field).is_err()
+    );
     for (name, accepted) in [
         ("AutosizeBody", fields::<crate::autosize::AutosizeBody>()),
         ("ControlBody", fields::<ControlBody>()),
         ("CreateSandboxBody", fields::<CreateSandboxBody>()),
+        (
+            "DiscardBody",
+            "checkpoint_id(required) state_digest(required)".to_owned(),
+        ),
         ("FilesystemBody", fields::<FilesystemBody>()),
+        ("ForkBody", fields::<crate::handler::checkpoint::ForkBody>()),
         ("PrewarmSetBody", fields::<PrewarmSetBody>()),
         ("PrewarmTarget", fields::<soma_local::PrewarmTarget>()),
         ("PruneRequest", fields::<soma_local::PruneRequest>()),
         ("ResourcesBody", fields::<ResourcesBody>()),
+        (
+            "RestoreBody",
+            fields::<crate::handler::checkpoint::RestoreBody>(),
+        ),
         ("ResumeBody", fields::<ResumeBody>()),
         ("RunCommandBody", fields::<RunCommandBody>()),
         ("SuspendBody", fields::<SuspendBody>()),
@@ -201,45 +199,6 @@ fn surface() -> String {
         lines.push(format!("body {name} {accepted}"));
     }
     lines.join("\n") + "\n"
-}
-
-fn digest(text: &str) -> String {
-    let hash = Sha256::digest(text.as_bytes());
-    let hex = hash.iter().fold(String::new(), |mut hex, byte| {
-        // Writing to a `String` cannot fail.
-        let _ = write!(hex, "{byte:02x}");
-        hex
-    });
-    format!("sha256:{hex}")
-}
-
-/// The fenced block under `## Surface`.
-fn documented_surface() -> String {
-    let section = DOCUMENT
-        .split_once("\n## Surface\n")
-        .expect("the document has a Surface section")
-        .1;
-    let block = section
-        .split_once("```text\n")
-        .expect("the Surface section has a text block")
-        .1;
-    block
-        .split_once("```")
-        .expect("the text block ends")
-        .0
-        .to_owned()
-}
-
-/// The rows of the version table: `| 1.0 | sha256:... | ... |`.
-fn documented_versions() -> Vec<(String, String)> {
-    DOCUMENT
-        .lines()
-        .filter_map(|line| {
-            let cells: Vec<&str> = line.split('|').map(str::trim).collect();
-            (cells.len() > 3 && cells[2].starts_with("sha256:"))
-                .then(|| (cells[1].to_owned(), cells[2].to_owned()))
-        })
-        .collect()
 }
 
 #[test]

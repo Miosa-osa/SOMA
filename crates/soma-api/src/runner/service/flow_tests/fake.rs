@@ -51,6 +51,33 @@ impl SandboxFacade for Fake {
         }
     }
 
+    fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        Ok(self
+            .0
+            .listed
+            .lock()
+            .expect("listed")
+            .iter()
+            .find(|listed| listed.instance_id() == instance)
+            .and_then(|listed| listed.name().cloned()))
+    }
+
+    fn restore(
+        &mut self,
+        request: LaunchMachineRequest,
+        _: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.0
+            .restore_names
+            .lock()
+            .expect("restore names")
+            .push(request.machine_name().cloned());
+        Ok(lifecycle())
+    }
+
     fn inspect(&mut self, _: InspectMachineRequest) -> Result<SandboxSnapshot, ManagedFailure> {
         unreachable!("not a runner route")
     }
@@ -163,3 +190,5 @@ impl SandboxFacade for Fake {
         Ok(lifecycle())
     }
 }
+
+impl SandboxStorage for Fake {}

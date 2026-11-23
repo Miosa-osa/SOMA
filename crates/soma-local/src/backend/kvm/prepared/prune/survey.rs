@@ -14,7 +14,7 @@ use std::{
 use soma::GenerationId;
 
 use super::super::{
-    CANDIDATE, GENERATION_ID, GENERATION_ID_BYTES, MAX_REFERENCE_BYTES, REFERENCE,
+    CANDIDATE, GENERATION_ID, GENERATION_ID_BYTES, INCOMING, MAX_REFERENCE_BYTES, REFERENCE,
     entry::read_bounded,
 };
 use crate::PruneError;
@@ -71,7 +71,7 @@ pub(super) fn survey(root: &Path) -> Result<(Vec<Surveyed>, Vec<Surveyed>), Prun
     let entries = children(root, false)
         .map_err(|_| unavailable("the prepared root cannot be read"))?
         .into_iter()
-        .filter(|(name, _)| name != HOLDING)
+        .filter(|(name, _)| name != HOLDING && name != INCOMING)
         .map(|(name, path)| read(name, path))
         .collect();
     let holding = root.join(HOLDING);

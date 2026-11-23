@@ -9,10 +9,12 @@
 //! A release removes a record only when it is terminal at the revision that was read, so a live
 //! record, or one that moved since it was judged, is never taken.
 
-use crate::{InstanceId, StateStore};
+use crate::{Backend, InstanceId, OperationKind, StateStore};
 
 use super::{
-    Engine, ManagedFailure, machine_state::DurablePhase, managed_list::is_unreadable_record,
+    Engine, ManagedFailure,
+    machine_state::{DurablePhase, TerminalBasis},
+    managed_list::is_unreadable_record,
     managed_state::store_failure,
 };
 
@@ -56,12 +58,11 @@ pub enum MachineRelease {
     Released,
     /// No record exists, so there was nothing to remove.
     Absent,
-    /// The record has not reached a terminal phase, so its machine may still hold resources, and
-    /// it was kept.
+    /// The record was kept because the Instance may still own resources or be recoverable.
     Kept,
 }
 
-impl<B, S: StateStore> Engine<B, S> {
+impl<B: Backend, S: StateStore> Engine<B, S> {
     /// Counts the store's records and names the ones that reached a terminal phase.
     ///
     /// A record that cannot be decoded is counted and never named: nothing proves it terminal, so
@@ -108,6 +109,23 @@ impl<B, S: StateStore> Engine<B, S> {
             return Ok(MachineRelease::Absent);
         };
         if !matches!(stored.machine.phase, DurablePhase::Terminal { .. }) {
+            return Ok(MachineRelease::Kept);
+        }
+        if let DurablePhase::Terminal {
+            operation: OperationKind::Stop,
+            basis,
+            ..
+        } = &stored.machine.phase
+            && let TerminalBasis::Active { active } = basis.as_ref()
+            && let Some(generation) = active
+                .workload()
+                .and_then(crate::WorkloadIdentity::generation_id)
+            && active.backend() == self.backend.kind()
+            && self
+                .backend
+                .retains_stopped_checkpoint(instance_id, generation)
+                .map_err(|failure| ManagedFailure::Backend(failure.kind()))?
+        {
             return Ok(MachineRelease::Kept);
         }
         self.state

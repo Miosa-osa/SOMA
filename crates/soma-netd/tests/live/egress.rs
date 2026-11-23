@@ -43,20 +43,31 @@ fn bring_up(broker: &Broker, seed: u8, activated: bool) -> (Assigned, Guest) {
 }
 
 /// Counts the tracked flows of the calling namespace, or of one zone when `zone` is given.
-fn tracked(zone: Option<u16>) -> u32 {
+fn tracked(zone: Option<u16>) -> usize {
     let mut command = Command::new(CONNTRACK);
-    command.arg("-C");
     if let Some(zone) = zone {
-        command.args(["-w", &zone.to_string()]);
+        command.args(["-L", "--orig-zone", &zone.to_string()]);
+    } else {
+        command.arg("-C");
     }
     let output = command.output().expect("conntrack binary");
-    String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse()
-        .expect("conntrack count")
+    assert!(
+        output.status.success(),
+        "conntrack query failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if zone.is_some() {
+        stdout
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count()
+    } else {
+        stdout.trim().parse().expect("conntrack count")
+    }
 }
 
-fn sandbox_flows(assigned: &Assigned) -> u32 {
+fn sandbox_flows(assigned: &Assigned) -> usize {
     assigned
         .bundle()
         .namespace()
@@ -64,7 +75,7 @@ fn sandbox_flows(assigned: &Assigned) -> u32 {
         .expect("count sandbox flows")
 }
 
-fn zone_flows(assigned: &Assigned) -> u32 {
+fn zone_flows(assigned: &Assigned) -> usize {
     tracked(Some(assigned.bundle().zone().get()))
 }
 
@@ -161,7 +172,7 @@ fn egress_opens_and_closes_an_activated_bundle_and_a_close_leaves_no_tracked_flo
 #[ignore = "requires CAP_NET_ADMIN inside the pinned privileged container"]
 fn a_flow_opened_before_a_close_does_not_come_back_when_egress_reopens() {
     super::require_privilege();
-    let _world = world::World::build();
+    let _world = world::World::with_held_connections();
     let state = tempfile::tempdir().expect("state dir");
     let broker = super::broker(state.path(), 16);
     let (mut assigned, mut guest) = bring_up(&broker, 0xe4, true);
@@ -169,11 +180,11 @@ fn a_flow_opened_before_a_close_does_not_come_back_when_egress_reopens() {
     broker
         .set_egress(&mut assigned, EgressClass::PublicInternet, false)
         .expect("open");
-    let flow = guest
+    let mut flow = guest
         .tcp_open(world::PUBLIC_ADDRESS, world::PUBLIC_PORT, PROBE)
         .expect("a flow opened inside the window");
     assert!(
-        guest.tcp_data_answered(&flow, PROBE),
+        guest.tcp_data_answered(&mut flow, PROBE),
         "the flow is admitted while the window is open"
     );
 
@@ -181,7 +192,7 @@ fn a_flow_opened_before_a_close_does_not_come_back_when_egress_reopens() {
         .set_egress(&mut assigned, EgressClass::Denied, false)
         .expect("close");
     assert!(
-        !guest.tcp_data_answered(&flow, PROBE),
+        !guest.tcp_data_answered(&mut flow, PROBE),
         "the flow is cut while egress is closed"
     );
 
@@ -191,7 +202,7 @@ fn a_flow_opened_before_a_close_does_not_come_back_when_egress_reopens() {
         .set_egress(&mut assigned, EgressClass::PublicInternet, false)
         .expect("reopen");
     assert!(
-        !guest.tcp_data_answered(&flow, PROBE),
+        !guest.tcp_data_answered(&mut flow, PROBE),
         "a flow from an earlier window is not adopted after a reopen"
     );
     assert_eq!(

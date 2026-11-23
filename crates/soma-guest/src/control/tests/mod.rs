@@ -5,6 +5,7 @@ mod host_pty;
 mod host_ranged;
 mod host_secret;
 mod host_streaming;
+mod host_workspace;
 mod hostile;
 mod hostile_host;
 mod io_failures;

@@ -117,3 +117,36 @@ fn decode_hex(encoded: &str) -> Vec<u8> {
         })
         .collect()
 }
+
+#[test]
+fn fork_authority_binds_the_captured_source_and_a_different_destination() {
+    let source = [9; 16];
+    let target = [2; 16];
+    let material = HostLaunchMaterial::generate([1; 32], target, [3; 16], network())
+        .expect("fresh destination")
+        .for_fork(source)
+        .expect("valid source");
+    material
+        .deliver_with(|page| {
+            let mut original = *page;
+            let decoded =
+                GuestLaunchMaterial::take_from_page(&mut original).expect("valid fork page");
+            assert_eq!(decoded.fork_from(), Some(&source));
+            assert_eq!(decoded.binding().instance(), &target);
+            assert_eq!(original, [0; LAUNCH_PAGE_SIZE]);
+
+            let mut tampered = *page;
+            tampered[wire::DIGEST_OFFSET] ^= 1;
+            assert!(GuestLaunchMaterial::take_from_page(&mut tampered).is_err());
+            assert_eq!(tampered, [0; LAUNCH_PAGE_SIZE]);
+            Ok::<(), ()>(())
+        })
+        .unwrap();
+
+    assert!(
+        HostLaunchMaterial::generate([1; 32], target, [3; 16], network())
+            .unwrap()
+            .for_fork(target)
+            .is_err()
+    );
+}

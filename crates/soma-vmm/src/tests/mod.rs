@@ -2,6 +2,7 @@ mod execute;
 mod fixtures;
 mod launch;
 mod operation_safety;
+mod pause;
 mod platform;
 mod stop;
 mod streaming;

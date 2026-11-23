@@ -8,7 +8,7 @@ use super::super::error::SnapshotError;
 use crate::snapshot::{
     device_state::{DeviceSpecific, DeviceState},
     kvm_state::{ClockState, IrqRoutingState, IrqchipState, PitState, VcpuState, VmState},
-    manifest::Manifest,
+    manifest::StateView,
     section::SectionRole,
 };
 use crate::virtio::{DeviceSet, Slot};
@@ -32,7 +32,7 @@ impl Sections {
     /// Compatibility has already refused a manifest whose section set disagrees with that, so a
     /// missing section here is a malformed snapshot rather than a smaller machine.
     pub(super) fn read(
-        manifest: &Manifest,
+        manifest: StateView<'_>,
         devices: DeviceSet,
         vcpus: u16,
     ) -> Result<Self, SnapshotError> {
@@ -62,26 +62,20 @@ impl Sections {
     }
 }
 
-pub(super) fn section(manifest: &Manifest, role: SectionRole) -> Result<&[u8], SnapshotError> {
+pub(super) fn section(manifest: StateView<'_>, role: SectionRole) -> Result<&[u8], SnapshotError> {
     manifest
         .section(role)
         .map(crate::snapshot::section::Section::payload)
         .ok_or(SnapshotError::MissingSection(match role {
             SectionRole::VmState => "VmState",
             SectionRole::Vcpu0 => "Vcpu0",
-            SectionRole::Vcpu1
-            | SectionRole::Vcpu2
-            | SectionRole::Vcpu3
-            | SectionRole::Vcpu4
-            | SectionRole::Vcpu5
-            | SectionRole::Vcpu6
-            | SectionRole::Vcpu7 => "Vcpu",
             SectionRole::Irqchip => "Irqchip",
             SectionRole::IrqRouting => "IrqRouting",
             SectionRole::KvmClock => "KvmClock",
             SectionRole::Pit => "Pit",
             SectionRole::RepairPointMarker => "RepairPointMarker",
             SectionRole::HotplugRegion => "HotplugRegion",
+            role if role.vcpu_index().is_some() => "Vcpu",
             _ => "Device",
         }))
 }

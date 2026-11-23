@@ -9,7 +9,7 @@ use soma_api::runner::{
     service::{RunnerRequest, RunnerResponse},
 };
 
-use super::harness::{request, upload};
+use super::harness::{expect, json, request, upload};
 
 /// Larger than two 4 MiB transfers, and not a multiple of anything the transfers use.
 const FILE_BYTES: usize = 9 * 1024 * 1024 + 77;
@@ -30,6 +30,11 @@ pub(super) async fn all(runner: &Runner) -> Result<String, String> {
         .ok_or("the create named no id")?
         .to_owned();
     let proved = files(runner, &id).await;
+    let paused = if proved.is_ok() {
+        super::pause::run(runner, &id).await
+    } else {
+        Ok(())
+    };
     let destroyed = send(
         runner,
         "destroy",
@@ -37,6 +42,7 @@ pub(super) async fn all(runner: &Runner) -> Result<String, String> {
     )
     .await;
     let proved = proved?;
+    paused?;
     expect(&destroyed, 200)?;
     Ok(proved)
 }
@@ -205,7 +211,7 @@ async fn paths(runner: &Runner, on: &impl Fn(&str) -> String) -> Result<(), Stri
 }
 
 /// Sends one request and prints what it answered.
-async fn send(runner: &Runner, name: &str, call: RunnerRequest) -> RunnerResponse {
+pub(super) async fn send(runner: &Runner, name: &str, call: RunnerRequest) -> RunnerResponse {
     let started = Instant::now();
     let answer = runner.handle(call).await;
     println!(
@@ -245,27 +251,12 @@ async fn download(runner: &Runner, target: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn expect(answer: &RunnerResponse, status: u16) -> Result<(), String> {
-    if answer.status == status {
-        return Ok(());
-    }
-    Err(format!(
-        "expected {status}, got {}: {}",
-        answer.status,
-        String::from_utf8_lossy(&answer.body)
-    ))
-}
-
 fn same(what: &str, got: &serde_json::Value, wanted: &serde_json::Value) -> Result<(), String> {
     if got == wanted {
         Ok(())
     } else {
         Err(format!("{what}: got {got}, wanted {wanted}"))
     }
-}
-
-fn json(answer: &RunnerResponse) -> serde_json::Value {
-    serde_json::from_slice(&answer.body).unwrap_or(serde_json::Value::Null)
 }
 
 /// Bytes no compression or pattern in the path could flatter: a 64-bit xorshift stream.

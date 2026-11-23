@@ -1,8 +1,10 @@
+mod checkpoints;
+
 use soma::{
-    Backend as _, BackendKind, DestroyMachineRequest, Engine, ExecuteMachineRequest,
-    FileMachineRequest, LaunchMachineRequest, MachineDestroy, MachineExecution, MachineFile,
-    MachineInspection, MachineLaunch, MachinePty, MachineStop, ManagedFailure, PtyMachineRequest,
-    RunFailure, RunOutcome, RunRequest, SandboxEntry, StopMachineRequest,
+    Backend as _, BackendKind, Engine, ExecuteMachineRequest, FileMachineRequest,
+    LaunchMachineRequest, MachineExecution, MachineFile, MachineInspection, MachineLaunch,
+    MachinePty, ManagedFailure, PtyMachineRequest, RunFailure, RunOutcome, RunRequest,
+    SandboxEntry,
 };
 
 use crate::{
@@ -88,6 +90,39 @@ impl LocalRuntime {
         request: LaunchMachineRequest,
     ) -> Result<MachineLaunch, ManagedFailure> {
         self.engine.launch_machine(request)
+    }
+
+    /// Reads the persisted ownership label for a possibly recoverable Instance.
+    /// # Errors
+    /// Returns the durable-store failure if ownership cannot be read.
+    pub fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.engine.restore_owner(instance)
+    }
+
+    /// Restores an existing stopped Instance from a published checkpoint.
+    /// # Errors
+    /// Returns the typed managed failure if restore could not be admitted or completed.
+    pub fn restore_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.engine.restore_machine(request, checkpoint)
+    }
+
+    /// Forks a checkpoint into a distinct durably managed Machine with the same owner.
+    /// # Errors
+    /// Returns the typed managed failure if the fork could not be admitted or completed.
+    pub fn fork_machine(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<MachineLaunch, ManagedFailure> {
+        self.engine.fork_machine(request, source, checkpoint)
     }
 
     /// Executes one bounded command in a durably managed Machine.
@@ -194,86 +229,6 @@ impl LocalRuntime {
             .ok_or(crate::TunnelFailure::Unavailable)?;
         crate::tunnel::tunnel_machine(directory, instance, port)
     }
-
-    /// Changes the CPU and memory of a hosted Machine live, and reports what actually changed.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`crate::ResizeFailure`] when the Machine cannot be reached.
-    pub fn resize_machine(
-        &self,
-        instance: &soma::InstanceId,
-        request: crate::ResizeRequest,
-    ) -> Result<crate::ResizeOutcome, crate::ResizeFailure> {
-        let directory = self
-            .host_directory
-            .as_deref()
-            .ok_or(crate::ResizeFailure::Unavailable)?;
-        crate::resize::resize_machine(directory, instance, request)
-    }
-
-    /// Opens or closes the egress of a hosted Machine that was launched windowed.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`crate::EgressSetFailure`]; anything other than an outcome means the egress may
-    /// not be what was asked for.
-    pub fn set_egress_machine(
-        &self,
-        instance: &soma::InstanceId,
-        request: crate::EgressSetRequest,
-    ) -> Result<crate::EgressSetOutcome, crate::EgressSetFailure> {
-        let directory = self
-            .host_directory
-            .as_deref()
-            .ok_or(crate::EgressSetFailure::Unavailable)?;
-        crate::egress::set_egress_machine(directory, instance, request)
-    }
-
-    /// Gracefully attempts to stop and release one managed Machine.
-    ///
-    /// # Errors
-    ///
-    /// Returns the facade's typed managed failure.
-    pub fn stop_machine(
-        &mut self,
-        request: StopMachineRequest,
-    ) -> Result<MachineStop, ManagedFailure> {
-        self.engine.stop_machine(request)
-    }
-
-    /// Force-destroys and releases one managed Machine.
-    ///
-    /// # Errors
-    ///
-    /// Returns the facade's typed managed failure.
-    pub fn destroy_machine(
-        &mut self,
-        request: DestroyMachineRequest,
-    ) -> Result<MachineDestroy, ManagedFailure> {
-        self.engine.destroy_machine(request)
-    }
-
-    /// Counts the durable records and names the ones that reached a terminal phase.
-    ///
-    /// # Errors
-    ///
-    /// Returns the facade's typed managed failure when the store cannot be read.
-    pub fn terminal_census(&mut self) -> Result<soma::TerminalCensus, ManagedFailure> {
-        self.engine.terminal_census()
-    }
-
-    /// Releases the durable record of one Machine that reached a terminal phase.
-    ///
-    /// # Errors
-    ///
-    /// Returns the facade's typed managed failure.
-    pub fn release_machine(
-        &mut self,
-        instance: &soma::InstanceId,
-    ) -> Result<soma::MachineRelease, ManagedFailure> {
-        self.engine.release_machine(instance)
-    }
 }
 
 impl std::fmt::Debug for LocalRuntime {
@@ -286,4 +241,5 @@ impl std::fmt::Debug for LocalRuntime {
     }
 }
 
+mod control;
 mod suspension;

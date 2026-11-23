@@ -226,11 +226,14 @@ pub fn drive<W: Workload>(
         "[receipt] {receipt:?} over session transcript {}",
         hex(&transcript)
     );
+    work.bind_instance(identity.instance);
     let (repaired, output) = work.run(machine, repaired)?;
-    repaired
-        .shutdown(OperationId::new(session::random16()).unwrap())
-        .map_err(|error| format!("shutdown: {error}"))?;
-    machine.mark(Milestone::Shutdown);
+    if !machine.is_paused() {
+        repaired
+            .shutdown(OperationId::new(session::random16()).unwrap())
+            .map_err(|error| format!("shutdown: {error}"))?;
+        machine.mark(Milestone::Shutdown);
+    }
     Ok((output, transcript))
 }
 

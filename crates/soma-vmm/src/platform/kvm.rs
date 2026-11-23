@@ -10,8 +10,14 @@
 //! identifier and its launch material are transferred second. So a failure in either half is
 //! reported as the half it happened in rather than as one indivisible launch.
 
+mod command;
 mod faults;
+mod generation;
+mod network;
+use command::guest_command;
+mod recovery;
 mod resources;
+use network::network_for_cid;
 
 use std::fs::File;
 use std::time::Duration;
@@ -19,11 +25,12 @@ use std::time::Duration;
 use soma_guest::GuestCommand;
 use soma_jail::DescriptorManifest;
 use soma_kvm::memory_layout::{GuestLayout, HotplugRegion};
-use soma_kvm::x86_64::{GuestExit, Hypervisor, SnapshotObjects};
+use soma_kvm::x86_64::{GuestExit, Hypervisor, NetworkAttachment, SnapshotObjects};
 use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::sandbox::{
-    Assignment, Network, Session, SessionError, SterileSpec, guest_cid_for, link_down_network,
+    ActivationChannel, Assignment, AssignmentVolume, Network, Session, SessionError, SterileSpec,
+    guest_cid_for, link_down_network,
 };
 use crate::{Execute, Launch, Recovery, Stop};
 
@@ -47,6 +54,11 @@ pub(crate) struct KvmPlatform {
     /// This Instance's private head, held between the restore and the assignment that installs
     /// it. A sterile machine must not be holding one Instance's writable storage.
     overlay: Option<File>,
+    volume: Option<File>,
+    network: Option<(File, ActivationChannel)>,
+    recovery: Option<recovery::Selection>,
+    recovered: bool,
+    checkpoint_geometry: Option<([u8; 32], MachineContract, bool, bool)>,
     /// The parked or serving sandbox.
     session: Option<Session>,
 }
@@ -57,83 +69,36 @@ impl KvmPlatform {
         Some(Self {
             resources: Some(MachineResources::adopt(manifest)?),
             overlay: None,
+            volume: None,
+            network: None,
             session: None,
+            checkpoint_geometry: None,
+            recovery: None,
+            recovered: false,
         })
     }
 }
 
 impl Platform for KvmPlatform {
-    fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure> {
-        let Some(resources) = self.resources.take() else {
-            return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
-        };
-        let declared = launch.generation().devices();
-        let overlay_capacity_bytes = declared
-            .writable_disk()
-            .then(|| resources.overlay_capacity_bytes())
-            .flatten();
-        let MachineResources {
-            kvm,
-            state,
-            memory,
-            root,
-            overlay,
-        } = resources;
-        self.overlay = overlay;
-        let machine = launch.generation().machine();
-        // The contract arrives as the portable version the parent stated, and a version this
-        // build does not implement is refused here rather than restored as the wrong machine.
-        let shape = MachineContract::require(machine.contract().get())
-            .ok()
-            .zip(Some(machine.vcpus().get()));
-        let Some((contract, vcpus)) = shape else {
-            // A version this build does not implement, or a shape that does not fit the
-            // contract's own field widths, is a property of this host and its store rather
-            // than of the request, so it lands where the other restore faults do.
-            return Err(RestoreFailure::at_restore(faults::restore_recovery(
-                SessionError::Create,
-            )));
-        };
-        // The region is placed above this machine's RAM from the declared size alone, so a restore
-        // and a cold boot of the same Generation put it at the same address.
-        let hotplug = match machine.hotplug() {
-            None => None,
-            Some(bytes) => {
-                let placed = GuestLayout::new(machine.memory().get())
-                    .ok()
-                    .and_then(|layout| HotplugRegion::new(layout, bytes.get()).ok());
-                let Some(region) = placed else {
-                    return Err(RestoreFailure::at_restore(faults::restore_recovery(
-                        SessionError::Create,
-                    )));
-                };
-                Some(region)
-            }
-        };
-        let spec = SterileSpec {
-            objects: SnapshotObjects::adopt(state, memory, None),
-            hypervisor: Hypervisor::Adopted(kvm),
-            root,
-            overlay_capacity_bytes,
-            memory_bytes: machine.memory().get(),
-            vcpus,
-            contract,
-            devices: DeviceSet::new(declared.writable_disk(), declared.network())
-                .with_mem(hotplug.is_some()),
-            hotplug,
-        };
-        match Session::prepare(spec) {
-            Ok(session) => {
-                self.session = Some(session);
-                RestoredMachine::from_observation(RestoreProgress::from_steps([
-                    RestoreStep::ArtifactsVerified,
-                    RestoreStep::MachineRestored,
-                ]))
-            }
-            // Nothing is re-hashed on this path, so every failure here is in the restore rather
-            // than in a verification that never ran.
-            Err(error) => Err(RestoreFailure::at_restore(faults::restore_recovery(error))),
+    fn configure_recovery(
+        &mut self,
+        digest: soma_kvm::snapshot::Digest,
+        saved_overlay: Option<File>,
+        fork_from: Option<crate::InstanceId>,
+    ) -> Result<(), PlatformFailure> {
+        if digest.is_zero() || self.resources.is_none() || self.recovery.is_some() {
+            return Err(PlatformFailure::new(Recovery::DoNotRetry));
         }
+        self.recovery = Some(recovery::Selection {
+            digest,
+            saved_overlay,
+            fork_from,
+        });
+        Ok(())
+    }
+
+    fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure> {
+        self.restore_generation(launch)
     }
 
     fn authenticate_repair_and_ready(
@@ -141,38 +106,33 @@ impl Platform for KvmPlatform {
         launch: &Launch,
         _restored: RestoredMachine,
     ) -> Result<ReadyAuthenticatedGuest, ReadinessFailure> {
+        if self.recovered && self.session.is_some() {
+            return Ok(ReadyAuthenticatedGuest::authenticated());
+        }
         let overlay = self.overlay.take();
         let Some(session) = self.session.as_mut() else {
             return Err(faults::readiness(SessionError::Create));
         };
         let instance = *launch.instance_id().as_bytes();
         let guest_cid = guest_cid_for(instance);
-        let Some(network) = link_down_network(guest_cid) else {
-            return Err(faults::readiness(SessionError::Create));
-        };
+        let (network, activation) =
+            network_for_cid(self.network.take(), guest_cid).map_err(faults::readiness)?;
         let assignment = Assignment {
             overlay,
-            // A jailed machine is given no volume yet: the jail's descriptor table carries the
-            // head, and a volume reaches a machine over the resident path. A Generation that
-            // declares one therefore refuses to start inside a jail rather than serve an empty
-            // disk, which is the fail-closed direction until the jail carries it.
-            volume: None,
+            volume: self.volume.take().map(AssignmentVolume::Descriptor),
             generation: *launch.generation().id().as_bytes(),
             instance,
             operation: *launch.operation_id().as_bytes(),
             guest_cid,
-            network: Network {
-                launch: network,
-                // A jailed machine is given no frame path and no activation, so its one network
-                // device keeps the link-down placeholder it was captured with and carries
-                // nothing. An Instance that asked for egress is refused before a jail is built
-                // rather than served by a device that drops every packet.
-                attachment: None,
-                activation: None,
-            },
+            network,
             secrets: Vec::new(),
         };
-        match session.assign(assignment, &mut |_receipt| Err(SessionError::Network)) {
+        match session.assign(assignment, &mut |receipt| {
+            activation
+                .as_ref()
+                .ok_or(SessionError::Network)?
+                .ask(receipt)
+        }) {
             Ok(()) => Ok(ReadyAuthenticatedGuest::authenticated()),
             Err(error) => Err(faults::readiness(error)),
         }
@@ -197,24 +157,7 @@ impl Platform for KvmPlatform {
             .as_mut()
             .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
         let limits = execute.limits();
-        let command = GuestCommand::new(
-            execute.program().as_bytes().to_vec(),
-            execute
-                .arguments()
-                .iter()
-                .map(|argument| argument.as_bytes().to_vec())
-                .collect(),
-            limits.timeout().get(),
-            limits.output().get(),
-        )
-        .and_then(|command| {
-            if execute.context().is_empty() {
-                Ok(command)
-            } else {
-                command.with_context(execute.context().to_guest())
-            }
-        })
-        .map_err(|_| PlatformFailure::new(Recovery::DoNotRetry))?;
+        let command = guest_command(execute)?;
         let deadline = Duration::from_millis(u64::from(limits.timeout().get())) + COMMAND_SLACK;
         let completed = session
             .execute_streaming(command, deadline, |source, bytes| {
@@ -236,6 +179,19 @@ impl Platform for KvmPlatform {
         ))
     }
 
+    fn file(
+        &mut self,
+        operation: soma::FileOperation,
+    ) -> Result<soma::FileAnswer, PlatformFailure> {
+        let session = self
+            .session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
+        session
+            .file(operation)
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
     fn pty(&mut self, operation: &soma::PtyOperation) -> Result<soma::PtyAnswer, PlatformFailure> {
         let session = self
             .session
@@ -243,6 +199,55 @@ impl Platform for KvmPlatform {
             .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
         session
             .pty(operation.clone())
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
+    fn checkpoint(
+        &mut self,
+        job: crate::sandbox::CheckpointJob,
+        deadline: Duration,
+    ) -> Result<soma_kvm::snapshot::Digest, crate::sandbox::CheckpointJobError> {
+        if self.checkpoint_geometry
+            != Some((
+                job.source.candidate_id,
+                job.source.contract,
+                job.source.has_overlay,
+                job.source.has_volume,
+            ))
+        {
+            return Err(crate::sandbox::CheckpointJobError::CaptureRefused);
+        }
+        self.session
+            .as_mut()
+            .ok_or(crate::sandbox::CheckpointJobError::SourceUnconfirmed)?
+            .checkpoint(job, deadline)
+            .map(|manifest| soma_kvm::snapshot::Digest::of(&manifest.encode()))
+    }
+
+    fn change_workspace(
+        &mut self,
+        change: crate::sandbox::WorkspaceChange,
+    ) -> Result<soma_guest::WorkspaceOutcome, PlatformFailure> {
+        self.session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?
+            .change_workspace(change)
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
+    fn pause(&mut self) -> Result<(), PlatformFailure> {
+        self.session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?
+            .pause()
+            .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
+    }
+
+    fn resume(&mut self) -> Result<(), PlatformFailure> {
+        self.session
+            .as_mut()
+            .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?
+            .resume()
             .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
     }
 

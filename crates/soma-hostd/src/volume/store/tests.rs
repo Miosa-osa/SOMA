@@ -115,6 +115,7 @@ fn a_class_below_the_volume_own_is_refused() {
 fn a_detach_is_recorded_and_idempotent() {
     let (work, volumes) = store();
     volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    fs::File::create(volumes.file(volume(1))).expect("volume file");
     let detached = volumes.detach(&detach(1, 9, 2)).expect("detaches");
     assert_eq!(detached.state, VolumeState::Detached);
     assert_eq!(
@@ -122,6 +123,29 @@ fn a_detach_is_recorded_and_idempotent() {
         VolumeState::Detached
     );
     assert_eq!(record_count(work.path(), volume(1)), 6);
+}
+
+#[test]
+fn detach_keeps_a_live_volume_attached_until_its_worker_releases_the_lock() {
+    let (work, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    let worker = fs::File::create(volumes.file(volume(1))).expect("volume file");
+    worker.try_lock().expect("worker owns the volume");
+    let request = detach(1, 9, 2);
+    assert_eq!(
+        volumes.detach(&request),
+        Err(VolumeError::Busy("the volume is still in use"))
+    );
+    assert_eq!(
+        volumes.inspect(volume(1)).expect("attached").state,
+        VolumeState::Attached
+    );
+    assert_eq!(record_count(work.path(), volume(1)), 4);
+    drop(worker);
+    assert_eq!(
+        volumes.detach(&request).expect("retry after stop").state,
+        VolumeState::Detached
+    );
 }
 
 #[test]
@@ -159,38 +183,6 @@ fn a_reopened_store_rebuilds_the_volume_from_its_sidecar() {
 }
 
 /// A double that records the two filesystem operations in the order the store runs them.
-struct Recording {
-    calls: Arc<Mutex<Vec<&'static str>>>,
-}
-
-impl VolumeRepair for Recording {
-    fn create(&self, _volume: VolumeId, _file: &Path, size_bytes: u64) -> Result<(), CreateError> {
-        assert!(size_bytes > 0, "a volume is created with its class");
-        self.calls.lock().expect("lock").push("create");
-        Ok(())
-    }
-
-    fn repair(&self, volume: VolumeId, _file: &Path) -> RepairReceipt {
-        self.calls.lock().expect("lock").push("repair");
-        RepairReceipt::new(volume, RepairOutcome::Clean, 0, 0)
-    }
-}
-
-/// A double whose creation always refuses with the same error.
-struct Refusing {
-    error: CreateError,
-}
-
-impl VolumeRepair for Refusing {
-    fn create(&self, _volume: VolumeId, _file: &Path, _size_bytes: u64) -> Result<(), CreateError> {
-        Err(self.error)
-    }
-
-    fn repair(&self, volume: VolumeId, _file: &Path) -> RepairReceipt {
-        RepairReceipt::new(volume, RepairOutcome::Clean, 0, 0)
-    }
-}
-
 fn with_repairs(
     directory: &tempfile::TempDir,
     repairs: Box<dyn VolumeRepair + Send + Sync>,
@@ -206,59 +198,77 @@ fn with_repairs(
         )))
 }
 
-#[test]
-fn a_created_volume_is_made_and_then_repaired_and_an_existing_one_is_not_made_again() {
-    let directory = tempfile::tempdir().expect("temp dir");
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let volumes = with_repairs(
-        &directory,
-        Box::new(Recording {
-            calls: Arc::clone(&calls),
-        }),
-    );
-    volumes.attach(&attach(1, 1, 1, 10)).expect("attach");
-    assert_eq!(
-        *calls.lock().expect("lock"),
-        vec!["create", "repair"],
-        "a volume that does not exist yet is created before it is repaired"
-    );
-
-    calls.lock().expect("lock").clear();
-    volumes.attach(&attach(1, 1, 2, 10)).expect("re-attach");
-    assert_eq!(
-        *calls.lock().expect("lock"),
-        vec!["repair"],
-        "a volume that exists is repaired and never created again"
-    );
-}
-
-#[test]
-fn a_refused_create_is_a_typed_refusal_and_leaves_no_attached_volume() {
-    for (error, expected) in [
-        (
-            CreateError::Occupied,
-            VolumeError::Busy("the volume path already holds data"),
-        ),
-        (
-            CreateError::Size(0),
-            VolumeError::Geometry("the volume class has no size"),
-        ),
-        (
-            CreateError::Tool(1),
-            VolumeError::FsckFailed("the volume filesystem could not be created"),
-        ),
-    ] {
-        let directory = tempfile::tempdir().expect("temp dir");
-        let volumes = with_repairs(&directory, Box::new(Refusing { error }));
-        assert_eq!(volumes.attach(&attach(1, 1, 1, 10)).err(), Some(expected));
-        assert_eq!(
-            volumes.inspect(volume(1)).err(),
-            Some(VolumeError::Missing("no sidecar names this volume")),
-            "a volume that could not be created is not attached"
-        );
-    }
-}
-
 mod binding;
 mod encryption;
 mod keyring;
+mod repair;
+
+use repair::Recording;
+
+#[test]
+fn live_workspace_publishes_only_after_the_worker_holds_the_disk() {
+    let (_home, volumes) = store();
+    let initial = attach(1, 9, 1, 10);
+    volumes.attach(&initial).expect("create");
+    fs::File::create(volumes.file(volume(1))).expect("fixture backing file");
+    volumes.detach(&detach(1, 9, 2)).expect("detach");
+    let reattach = attach(1, 9, 3, 10);
+    let binding = volumes.stage_live_attach(&reattach).expect("stage");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Detached
+    );
+    assert!(matches!(
+        volumes.commit_live_attach(&reattach),
+        Err(VolumeError::Busy(_))
+    ));
+    let worker = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(binding.path)
+        .unwrap();
+    worker.try_lock().unwrap();
+    volumes
+        .commit_live_attach(&reattach)
+        .expect("worker lock confirmed");
+    volumes.commit_live_attach(&reattach).expect("replay");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Attached
+    );
+    assert!(matches!(
+        volumes.destroy(volume(1)),
+        Err(VolumeError::Busy(_))
+    ));
+    assert!(matches!(
+        volumes.validate_live_detach(&detach(1, 8, 4)),
+        Err(VolumeError::Busy(_))
+    ));
+    drop(worker);
+    volumes
+        .validate_live_detach(&detach(1, 9, 5))
+        .expect("owner");
+    volumes.detach(&detach(1, 9, 5)).expect("publish detach");
+    assert_eq!(
+        volumes.inspect(volume(1)).unwrap().state,
+        VolumeState::Detached
+    );
+}
+
+#[test]
+fn a_live_attach_cannot_change_the_workspace_geometry_or_owner() {
+    let (_home, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).unwrap();
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(1, 9, 2, 20)),
+        Err(VolumeError::ChangedIntent)
+    ));
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(1, 8, 3, 10)),
+        Err(VolumeError::Busy(_))
+    ));
+    assert!(matches!(
+        volumes.stage_live_attach(&attach(8, 9, 4, 10)),
+        Err(VolumeError::Missing(_))
+    ));
+}

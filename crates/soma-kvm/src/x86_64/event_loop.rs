@@ -30,6 +30,8 @@ use super::{devices::SharedBus, events::IrqLines, events::NotifyFds, memory::Sha
 use crate::virtio::{
     INTERRUPT_CONFIG_CHANGE, NET_RX_QUEUE, SLOT_COUNT, ServiceError, ServiceReport, Slot,
 };
+mod worker;
+use worker::Worker;
 
 const WORK_BUDGET: u32 = 64;
 const PASS_LIMIT: u32 = 8;
@@ -59,144 +61,34 @@ fn bump(counter: &mut u64) {
     *counter = counter.saturating_add(1);
 }
 
-struct Worker {
-    shared: Arc<SharedBus>,
-    memory: SharedRam,
-    notify: NotifyFds,
-    irq: IrqLines,
-    host_work: EventFd,
-    epoll: Epoll,
-    report: EventLoopReport,
-}
-
-impl Worker {
-    fn run(mut self) -> (EventLoopReport, NotifyFds, IrqLines) {
-        let mut events = vec![EpollEvent::default(); self.notify.entries().len() + 3];
-        'serve: loop {
-            let ready = match self.epoll.wait(-1, &mut events) {
-                Ok(ready) => ready,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => break 'serve,
-            };
-            for event in &events[..ready] {
-                match event.data() {
-                    TOKEN_STOP => break 'serve,
-                    TOKEN_HOST_WORK => self.host_work(),
-                    TOKEN_NET_RX => {
-                        bump(&mut self.report.host_wakeups);
-                        self.net_frames();
-                    }
-                    token => self.queue_work(token),
-                }
-            }
-        }
-        (self.report, self.notify, self.irq)
-    }
-
-    /// Delivers whatever the host side already holds for the guest.
-    ///
-    /// Both host-fed slots are served, because the eventfd says only that the host produced
-    /// work, not which device it belongs to: a caller that raises the network link has host
-    /// frames to place exactly as a control-channel writer has vsock packets to place.
-    fn host_work(&mut self) {
-        let _ignored = self.host_work.read();
-        bump(&mut self.report.host_wakeups);
-        let outcome = self
-            .shared
-            .lock()
-            .deliver_inbound(Slot::Vsock, &self.memory, WORK_BUDGET);
-        self.finish_pass(Slot::Vsock, 0, outcome);
-        self.net_frames();
-        self.memory_config_change();
-    }
-
-    /// Raises the memory device's interrupt when the host has changed its requested size and the
-    /// guest has not yet acknowledged it.
-    ///
-    /// The interrupt line belongs to this thread, so a host that flags a configuration change
-    /// wakes it rather than signalling the line itself.
-    fn memory_config_change(&mut self) {
-        let pending = self.shared.lock().interrupt_status(Slot::Mem) & INTERRUPT_CONFIG_CHANGE != 0;
-        if pending && self.irq.signal_slot(Slot::Mem) {
-            bump(&mut self.report.slots[usize::from(Slot::Mem.index())].interrupts);
-        }
-    }
-
-    /// Delivers frames the attached network backend already holds.
-    ///
-    /// The pass limit bounds one wakeup exactly as a queue notification is bounded, so a host
-    /// that keeps the backend readable cannot starve the control channel.
-    fn net_frames(&mut self) {
-        for _ in 0..PASS_LIMIT {
-            let outcome = self
-                .shared
-                .lock()
-                .deliver_inbound(Slot::Net, &self.memory, WORK_BUDGET);
-            if !self.finish_pass(Slot::Net, NET_RX_QUEUE, outcome) {
-                return;
-            }
-        }
-    }
-
-    fn queue_work(&mut self, token: u64) {
-        let Some(index) = usize::try_from(token).ok() else {
-            return;
-        };
-        let Some(entry) = self.notify.entries().get(index) else {
-            return;
-        };
-        let (slot, queue) = (entry.slot, entry.queue);
-        let _ignored = entry.fd.read();
-        bump(&mut self.report.slots[usize::from(slot.index())].wakeups);
-        for _ in 0..PASS_LIMIT {
-            let outcome = self
-                .shared
-                .lock()
-                .service(slot, queue, &self.memory, WORK_BUDGET);
-            if !self.finish_pass(slot, queue, outcome) {
-                return;
-            }
-        }
-        // Work remains after the pass limit: re-arm and yield to the other descriptors.
-        if let Some(entry) = self.notify.entries().get(index) {
-            let _ignored = entry.fd.write(1);
-        }
-    }
-
-    /// Signals the slot's interrupt when the driver wants it and wakes control waiters;
-    /// returns whether the queue still has work to do.
-    fn finish_pass(
-        &mut self,
-        slot: Slot,
-        queue: u16,
-        outcome: Result<ServiceReport, ServiceError>,
-    ) -> bool {
-        let activity = &mut self.report.slots[usize::from(slot.index())];
-        let exhausted = if let Ok(report) = outcome {
-            activity.completed = activity
-                .completed
-                .saturating_add(u64::from(report.completed));
-            activity.rejected = activity.rejected.saturating_add(u64::from(report.rejected));
-            if report.interrupt && self.irq.signal_slot(slot) {
-                bump(&mut activity.interrupts);
-            }
-            report.exhausted
-        } else {
-            bump(&mut activity.faults);
-            if self.report.first_fault.is_none() {
-                self.report.first_fault = Some((slot, queue));
-            }
-            false
-        };
-        self.shared.notify_all();
-        exhausted
-    }
+/// The eventfds assigned to one VM's device bus.
+pub(crate) struct DeviceRoutes {
+    pub(crate) notify: NotifyFds,
+    pub(crate) irq: IrqLines,
 }
 
 /// The running device thread and the descriptor that stops it.
 pub(crate) struct EventLoop {
-    worker: Option<JoinHandle<(EventLoopReport, NotifyFds, IrqLines)>>,
+    worker: Option<JoinHandle<Worker>>,
+    stop: Option<EventFd>,
+}
+
+/// A quiescent device loop retaining its queue registrations and epoll instance.
+pub(crate) struct ParkedDevices {
+    worker: Worker,
     stop: EventFd,
+}
+
+impl ParkedDevices {
+    pub(crate) fn resume(self) -> io::Result<EventLoop> {
+        // Consume the wakeup that ended the previous thread before re-entering epoll.
+        self.stop.read()?;
+        EventLoop::start_worker(self.worker, self.stop)
+    }
+
+    pub(crate) fn release(self) -> (EventLoopReport, NotifyFds, IrqLines) {
+        (self.worker.report, self.worker.notify, self.worker.irq)
+    }
 }
 
 impl EventLoop {
@@ -204,11 +96,11 @@ impl EventLoop {
     pub(crate) fn spawn(
         shared: Arc<SharedBus>,
         memory: SharedRam,
-        notify: NotifyFds,
-        irq: IrqLines,
+        routes: DeviceRoutes,
         host_work: EventFd,
         net_rx: Option<RawFd>,
     ) -> io::Result<Self> {
+        let DeviceRoutes { notify, irq } = routes;
         let stop = EventFd::new(libc::EFD_NONBLOCK)?;
         let epoll = Epoll::new()?;
         for (index, entry) in notify.entries().iter().enumerate() {
@@ -245,26 +137,37 @@ impl EventLoop {
             epoll,
             report: EventLoopReport::default(),
         };
+        Self::start_worker(worker, stop)
+    }
+
+    fn start_worker(worker: Worker, stop: EventFd) -> io::Result<Self> {
         let handle = thread::Builder::new()
             .name("soma-kvm-devices".to_owned())
             .spawn(move || worker.run())?;
         Ok(Self {
             worker: Some(handle),
-            stop,
+            stop: Some(stop),
         })
     }
 
+    /// Joins the thread while retaining the resources it can resume with.
+    pub(crate) fn park(mut self) -> Option<ParkedDevices> {
+        let stop = self.stop.take()?;
+        let _ignored = stop.write(1);
+        let worker = self.worker.take()?.join().ok()?;
+        Some(ParkedDevices { worker, stop })
+    }
+
     /// Stops the thread and returns its report together with the descriptors it owned.
-    pub(crate) fn stop(mut self) -> Option<(EventLoopReport, NotifyFds, IrqLines)> {
-        let _ignored = self.stop.write(1);
-        self.worker.take().and_then(|worker| worker.join().ok())
+    pub(crate) fn stop(self) -> Option<(EventLoopReport, NotifyFds, IrqLines)> {
+        self.park().map(ParkedDevices::release)
     }
 }
 
 impl Drop for EventLoop {
     fn drop(&mut self) {
-        if let Some(worker) = self.worker.take() {
-            let _ignored = self.stop.write(1);
+        if let (Some(worker), Some(stop)) = (self.worker.take(), self.stop.take()) {
+            let _ignored = stop.write(1);
             let _ignored = worker.join();
         }
     }

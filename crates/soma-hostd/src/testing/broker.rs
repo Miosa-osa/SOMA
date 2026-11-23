@@ -14,7 +14,7 @@ use std::{
 };
 
 use soma_netd::{BundleId, CleanupGeneration};
-use soma_storage::{HeadLedger, HeadName, HeadToken};
+use soma_storage::{HeadLedger, HeadToken};
 
 use launch::{launch_identity, pair, sterile_token};
 
@@ -31,7 +31,7 @@ pub struct SterileResources {
     tap: OwnedFd,
     control: OwnedFd,
     bundle: BundleId,
-    name: HeadName,
+    token: HeadToken,
 }
 
 /// Counters the tests assert on.
@@ -140,7 +140,7 @@ impl ResourceBroker for InProcessBroker {
             tap: pair(Resource::Network)?,
             control: pair(Resource::Control)?,
             bundle,
-            name: sterile_token(worker).head_name(),
+            token: sterile_token(worker),
         };
         self.bundles
             .lock()
@@ -169,15 +169,14 @@ impl ResourceBroker for InProcessBroker {
             let _ = self.release_sterile(sterile);
             return Err(fault);
         }
-        let token = HeadToken::new(*intent.instance.as_bytes()).map_err(|_| ResourceFault {
-            resource: Resource::Disk,
-            kind: ResourceFaultKind::Lease,
-        })?;
+        // Each worker owns one single-use head. An Instance may run on a new worker
+        // after Stop, so its stable identifier cannot be the retired lease token.
+        let token = sterile.token;
         let receipt = self
             .heads
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .lease(token, sterile.name.clone())
+            .lease(token, token.head_name())
             .map_err(|_| ResourceFault {
                 resource: Resource::Disk,
                 kind: ResourceFaultKind::Lease,

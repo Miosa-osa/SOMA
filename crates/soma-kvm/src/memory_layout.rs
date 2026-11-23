@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use crate::contract::{MIN_MEMORY_BYTES, V2_MAX_MEMORY_BYTES};
+use crate::contract::{MIN_MEMORY_BYTES, V5_MAX_MEMORY_BYTES};
 
 mod hotplug;
 mod region;
@@ -30,7 +30,7 @@ pub const PAGE_SIZE: u64 = 4096;
 /// Smallest guest RAM any contract admits.
 pub const MIN_RAM_BYTES: u64 = MIN_MEMORY_BYTES;
 /// Largest guest RAM any contract admits.
-pub const MAX_RAM_BYTES: u64 = V2_MAX_MEMORY_BYTES;
+pub const MAX_RAM_BYTES: u64 = V5_MAX_MEMORY_BYTES;
 
 /// First byte of the reserved legacy hole, reported reserved on every contract.
 pub const LEGACY_HOLE_START: u64 = 0x000a_0000;

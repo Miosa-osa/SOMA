@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 use soma::{
@@ -40,7 +42,7 @@ pub struct CreateSandboxBody {
 /// The command is split into executable and arguments exactly as `DirectCommand` requires. There
 /// is no shell string field, because the facade never interposes a shell and accepting one would
 /// promise a behavior the engine does not have.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RunCommandBody {
     pub executable: String,
@@ -53,6 +55,9 @@ pub struct RunCommandBody {
     /// A script longer than one argument may be run as `sh -s` with the script here.
     #[serde(default)]
     pub stdin: Option<String>,
+    /// Environment variables for this execution only.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub operation_id: Option<OperationId>,
 }
@@ -114,8 +119,8 @@ impl RunCommandBody {
                 "the command must name an absolute executable within the facade's bounds",
             )
         })?;
-        let command = match self.stdin {
-            None => command,
+        let stdin = match self.stdin {
+            None => Vec::new(),
             Some(encoded) => {
                 let stdin = STANDARD
                     .decode(encoded)
@@ -128,13 +133,14 @@ impl RunCommandBody {
                         false,
                     ));
                 }
-                let context = soma::CommandContext::new(Vec::new(), None, None, stdin)
-                    .map_err(|_| ApiError::invalid("the standard input is not acceptable"))?;
-                command.with_context(context).map_err(|_| {
-                    ApiError::invalid("the command with this input does not fit one record")
-                })?
+                stdin
             }
         };
+        let context = soma::CommandContext::new(self.env.into_iter().collect(), None, None, stdin)
+            .map_err(|_| ApiError::invalid("the command context is not acceptable"))?;
+        let command = command.with_context(context).map_err(|_| {
+            ApiError::invalid("the command with this context does not fit one record")
+        })?;
         let limits = self.limits.unwrap_or_else(default_limits);
         Ok(ExecuteMachineRequest::new(
             operation_id(self.operation_id)?,

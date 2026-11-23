@@ -171,7 +171,10 @@ fn serve_connection<M, F>(
 /// it learns anything about this runner's load.
 fn admit(request: &Request, admission: &CreateAdmission) -> Result<Option<CreatePermit>, Response> {
     let is_create = identify(request.header(TENANT_HEADER)).is_ok()
-        && matches!(resolve(request), Ok(Route::CreateSandbox));
+        && matches!(
+            resolve(request),
+            Ok(Route::CreateSandbox | Route::ForkSandbox(_))
+        );
     if !is_create {
         return Ok(None);
     }

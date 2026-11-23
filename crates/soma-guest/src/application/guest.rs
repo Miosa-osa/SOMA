@@ -1,6 +1,8 @@
 use crate::Error;
 
-use super::{FileOutcome, OperationId, OutputChunk, PtyOutcome, TerminalReport, frame};
+use super::{
+    FileOutcome, OperationId, OutputChunk, PtyOutcome, TerminalReport, WorkspaceOutcome, frame,
+};
 
 /// A guest-to-host application message carried by one authenticated record.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -44,6 +46,13 @@ pub enum GuestMessage {
         operation: OperationId,
         /// What the guest's terminal did, or why it did not.
         outcome: PtyOutcome,
+    },
+    /// Reports whether the workspace changed mount state.
+    WorkspaceOutcome {
+        /// Identity of this exact mount operation.
+        operation: OperationId,
+        /// Result of the mount transaction.
+        outcome: WorkspaceOutcome,
     },
     /// Acknowledges a graceful Shutdown request.
     ShutdownAck {
@@ -131,6 +140,9 @@ impl GuestMessage {
             Self::PtyOutcome { operation, outcome } => {
                 frame::encode(frame::Kind::PtyOutcome, *operation, &outcome.encode_body())
             }
+            Self::WorkspaceOutcome { operation, outcome } => {
+                frame::encode(frame::Kind::WorkspaceOutcome, *operation, &[*outcome as u8])
+            }
             Self::ShutdownAck { operation } => {
                 frame::encode(frame::Kind::ShutdownAck, *operation, &[])
             }
@@ -171,6 +183,10 @@ impl GuestMessage {
                 decoded.operation,
                 PtyOutcome::decode_body(decoded.body)?,
             )),
+            frame::Kind::WorkspaceOutcome => Ok(Self::WorkspaceOutcome {
+                operation: decoded.operation,
+                outcome: WorkspaceOutcome::decode(decoded.body)?,
+            }),
             frame::Kind::ShutdownAck if decoded.body.is_empty() => {
                 Ok(Self::shutdown_ack(decoded.operation))
             }
@@ -178,6 +194,7 @@ impl GuestMessage {
                 Ok(Self::suspend_ack(decoded.operation))
             }
             frame::Kind::File
+            | frame::Kind::Workspace
             | frame::Kind::Suspend
             | frame::Kind::SuspendAck
             | frame::Kind::Pty

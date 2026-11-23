@@ -4,17 +4,26 @@ use std::fs::File;
 use std::sync::mpsc::{Receiver, Sender};
 
 use soma_guest::HostLaunchMaterial;
-use soma_kvm::x86_64::{RestoreRequest, SandboxMachine, restore};
+use soma_kvm::x86_64::{NetworkAttachment, RestoreRequest, SandboxConfig, SandboxMachine, restore};
 
+use super::super::pending::PendingActivation;
 use super::super::session::{Request, Response, SessionError};
-use super::super::source::{Boot, Network, Source};
-use super::drive::{drive_cold, drive_restored};
+use super::super::source::{Boot, Source};
+use super::drive::{drive_checkpoint, drive_cold, drive_restored};
 use super::finish::{Ending, report};
 use super::inputs::LaunchInputs;
 use super::suspend::{self, SuspendDisks};
 
+mod recovery;
+
+use recovery::{matches_recovery_source, recover};
+
 /// Owns one machine for its whole life and answers requests about it.
 pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Response>) {
+    let Some(material) = admitted_material(&boot) else {
+        let _ignored = responses.send(Response::Failed(SessionError::Create));
+        return;
+    };
     let Boot {
         source,
         generation,
@@ -24,36 +33,32 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
         network,
         secrets,
     } = boot;
-    let Network {
-        launch,
-        attachment,
-        activation,
-    } = network;
-    let Ok(material) = HostLaunchMaterial::generate(generation, instance, operation, launch) else {
-        let _ignored = responses.send(Response::Failed(SessionError::Create));
-        return;
-    };
+    let attachment = network.attachment;
+    let activation = network.activation;
 
     match source {
-        Source::ColdBoot(config) => {
-            let Ok(mut sandbox) = SandboxMachine::create(config) else {
-                let _ignored = responses.send(Response::Failed(SessionError::Create));
-                return;
-            };
-            // The frame path is attached before the vCPU runs, so the device thread can watch it
-            // from its first wakeup. The link stays down until the assignment is activated.
-            if let Some(attachment) = attachment {
-                sandbox.attach_network(attachment);
-            }
-            // The machine is finished on every path out of here, including a failed boot, so no
-            // descriptor or thread outlives the sandbox that owned it.
-            let inputs = LaunchInputs {
+        Source::ResidentCheckpoint(request) | Source::CheckpointFork(request) => {
+            recover(
+                *request,
                 material,
-                secrets: &secrets,
-                suspendable: false,
-            };
-            let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
-            report(sandbox, &outcome, responses, instance);
+                (instance, operation),
+                (attachment, activation),
+                requests,
+                responses,
+            );
+        }
+        Source::ColdBoot(config) => {
+            serve_cold(
+                config,
+                LaunchInputs {
+                    material,
+                    secrets: &secrets,
+                    suspendable: false,
+                },
+                (instance, attachment, activation),
+                requests,
+                responses,
+            );
         }
         Source::Restore {
             objects,
@@ -128,6 +133,46 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
     }
 }
 
+fn admitted_material(boot: &Boot) -> Option<HostLaunchMaterial> {
+    if !matches_recovery_source(boot) {
+        return None;
+    }
+    HostLaunchMaterial::generate(
+        boot.generation,
+        boot.instance,
+        boot.operation,
+        boot.network.launch,
+    )
+    .ok()
+}
+
+fn serve_cold(
+    config: SandboxConfig,
+    inputs: LaunchInputs<'_>,
+    network: (
+        [u8; 16],
+        Option<NetworkAttachment>,
+        Option<PendingActivation>,
+    ),
+    requests: &Receiver<Request>,
+    responses: &Sender<Response>,
+) {
+    let (instance, attachment, activation) = network;
+    let Ok(mut sandbox) = SandboxMachine::create(config) else {
+        let _ignored = responses.send(Response::Failed(SessionError::Create));
+        return;
+    };
+    // The frame path is attached before the vCPU runs, so the device thread can watch it
+    // from its first wakeup. The link stays down until the assignment is activated.
+    if let Some(attachment) = attachment {
+        sandbox.attach_network(attachment);
+    }
+    // The machine is finished on every path out of here, including a failed boot, so no
+    // descriptor or thread outlives the sandbox that owned it.
+    let outcome = drive_cold(&mut sandbox, inputs, activation, requests, responses);
+    report(sandbox, &outcome, responses, instance);
+}
+
 /// Duplicates the two descriptors a suspension reads before the restore takes the originals.
 fn duplicate(disks: &soma_kvm::x86_64::SandboxDisks) -> std::io::Result<SuspendDisks> {
     Ok(SuspendDisks {
@@ -156,4 +201,86 @@ fn open_volume(volume: Option<&soma::VolumeAttachment>) -> std::io::Result<Optio
     volume
         .map(|attachment| super::super::volume::open(&attachment.path))
         .transpose()
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sandbox::source::Network;
+
+    use super::{Boot, Source, matches_recovery_source};
+    use soma_guest::LaunchNetwork;
+    use soma_kvm::{
+        DeviceSet, MachineContract,
+        snapshot::Digest,
+        x86_64::{Hypervisor, ResidentRestoreRequest, SnapshotObjects},
+    };
+
+    fn recovery_boot() -> Boot {
+        let file = || tempfile::tempfile().expect("test file");
+        Boot {
+            source: Source::ResidentCheckpoint(Box::new(ResidentRestoreRequest {
+                objects: SnapshotObjects::adopt(file(), file(), None),
+                hypervisor: Hypervisor::Device,
+                root: file(),
+                head: None,
+                volume: None,
+                instance_id: [1; 16],
+                candidate_id: [2; 32],
+                state_digest: Digest::of(b"state"),
+                devices: DeviceSet::new(false, false),
+                guest_cid: 4,
+                memory_bytes: 1 << 30,
+                vcpus: 1,
+                contract: MachineContract::V1,
+                hotplug: None,
+            })),
+            instance: [1; 16],
+            generation: [2; 32],
+            operation: [3; 16],
+            guest_cid: 4,
+            network: Network {
+                launch: LaunchNetwork::new(
+                    4,
+                    4,
+                    [2, 0, 0, 0, 0, 1],
+                    [10, 0, 0, 2],
+                    24,
+                    [10, 0, 0, 1],
+                    [10, 0, 0, 1],
+                    1,
+                )
+                .expect("link-down test network"),
+                attachment: None,
+                activation: None,
+            },
+            secrets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_checkpoint_worker_refuses_mismatched_launch_authority_before_kvm() {
+        let mut boot = recovery_boot();
+        assert!(matches_recovery_source(&boot));
+        boot.instance = [4; 16];
+        assert!(!matches_recovery_source(&boot));
+        boot.instance = [1; 16];
+        boot.generation = [4; 32];
+        assert!(!matches_recovery_source(&boot));
+        boot.generation = [2; 32];
+        boot.guest_cid = 5;
+        assert!(!matches_recovery_source(&boot));
+    }
+    #[test]
+    fn a_checkpoint_fork_requires_a_distinct_destination_and_no_new_authority() {
+        let mut boot = recovery_boot();
+        let Source::ResidentCheckpoint(request) = boot.source else {
+            unreachable!();
+        };
+        boot.source = Source::CheckpointFork(request);
+        assert!(!matches_recovery_source(&boot));
+        boot.instance = [5; 16];
+        assert!(matches_recovery_source(&boot));
+        boot.guest_cid = 5;
+        assert!(!matches_recovery_source(&boot));
+    }
 }

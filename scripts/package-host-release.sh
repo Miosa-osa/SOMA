@@ -5,7 +5,7 @@
 #
 #   SOMA_RELEASE_TAG=v1.0.0 scripts/package-host-release.sh
 #
-# The bundle holds soma-api, soma-hostd, soma-netd, soma-vmm, and the static soma-guest-agent.
+# The bundle also holds the template compiler and boot-snapshot capture tool.
 # The agent is built by scripts/build-guest-agent.sh, exactly as a Generation build takes it. The
 # bundle, its binary records, and its checksums land in SOMA_RELEASE_OUTPUT, by default
 # target/release-parts/TAG/host-x86_64-unknown-linux-gnu.
@@ -25,9 +25,20 @@ if [[ "$(uname -s)" != Linux || "$(uname -m)" != x86_64 ]]; then
 fi
 
 "$REPO_ROOT/scripts/build-guest-agent.sh"
+cargo_home="${CARGO_HOME:-${HOME}/.cargo}"
+remap="--remap-path-prefix=${REPO_ROOT}=/soma --remap-path-prefix=${cargo_home}=/cargo"
+RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }${remap}" "$REPO_ROOT/scripts/build-identity.sh" \
+    cargo build --release --locked --target "$HOST_TARGET" \
+    -p soma-generation --example prepare_from_template \
+    -p soma-local --example capture_snapshot --example install_generation
+
+tools_dir="target/${HOST_TARGET}/release/examples"
 exec "$REPO_ROOT/scripts/package-binaries.sh" host "$HOST_TARGET" \
     soma-api:soma-api \
     soma-hostd:soma-hostd \
     soma-netd:soma-netd \
     soma-vmm:soma-vmm \
+    "${tools_dir}/prepare_from_template=prepare_from_template" \
+    "${tools_dir}/capture_snapshot=capture_snapshot" \
+    "${tools_dir}/install_generation=install_generation" \
     "${AGENT}=soma-guest-agent"

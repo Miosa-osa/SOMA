@@ -10,7 +10,7 @@
 use std::{
     io::{self, Read, Write},
     net::{Shutdown, TcpStream},
-    os::{fd::OwnedFd, unix::net::UnixStream},
+    os::unix::net::UnixStream,
     path::Path,
     sync::{
         Arc,
@@ -91,7 +91,16 @@ pub(super) fn serve(
 ) {
     let (instance, port) = target;
     let (answer, guest) = match backend.connect_resident(instance, port) {
-        Ok(guest) => (Answer::Tunneled, Some(guest)),
+        Ok(descriptor) => {
+            let guest = TcpStream::from(descriptor);
+            // The broker hands out nonblocking descriptors. This relay uses blocking copy
+            // threads, so an idle guest would otherwise close the tunnel on its first read.
+            if guest.set_nonblocking(false).is_ok() {
+                (Answer::Tunneled, Some(guest))
+            } else {
+                (Answer::TunnelRefused(TunnelFailure::Unavailable), None)
+            }
+        }
         Err(failure) => (Answer::TunnelRefused(failure), None),
     };
     if channel::write_line(&mut caller, &answer).is_err() {
@@ -103,8 +112,12 @@ pub(super) fn serve(
 }
 
 /// Copies bytes between the caller and the guest until either side closes.
-fn pump(caller: UnixStream, guest: OwnedFd, activity: Arc<AtomicU64>, started: Instant) {
-    let guest = TcpStream::from(guest);
+fn pump(caller: UnixStream, guest: TcpStream, activity: Arc<AtomicU64>, started: Instant) {
+    // The host request timeout only applies to reading the command. The outer
+    // tunnel owns the idle policy once this socket carries guest traffic.
+    if caller.set_read_timeout(None).is_err() {
+        return;
+    }
     let (Ok(caller_read), Ok(guest_read)) = (caller.try_clone(), guest.try_clone()) else {
         return;
     };
@@ -172,12 +185,7 @@ mod tests {
             channel::write_line(&mut caller, &Answer::Tunneled).expect("answer");
             // Bytes sent right behind the answer line must reach the caller's stream.
             caller.write_all(b"banner").expect("banner");
-            pump(
-                caller,
-                OwnedFd::from(guest),
-                Arc::new(AtomicU64::new(0)),
-                Instant::now(),
-            );
+            pump(caller, guest, Arc::new(AtomicU64::new(0)), Instant::now());
         });
     }
 
@@ -219,6 +227,32 @@ mod tests {
         assert_eq!(&echoed, b"ping");
         // Closing the caller's end closes the guest's: the echo server reads end of stream.
         stream.shutdown(Shutdown::Both).expect("shutdown");
+    }
+
+    #[test]
+    fn the_host_request_deadline_does_not_close_an_idle_tunnel() {
+        let (mut client, host) = UnixStream::pair().expect("host connection");
+        host.set_read_timeout(Some(Duration::from_millis(40)))
+            .expect("set request deadline");
+        client
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("bound test");
+        let guest = TcpStream::connect(echo_server()).expect("guest connection");
+        pump(host, guest, Arc::new(AtomicU64::new(0)), Instant::now());
+
+        let mut response = [0_u8; 4];
+        client.write_all(b"ping").expect("first write");
+        client.read_exact(&mut response).expect("first echo");
+        assert_eq!(&response, b"ping");
+
+        thread::sleep(Duration::from_millis(150));
+        client
+            .write_all(b"pong")
+            .expect("write after request deadline");
+        client
+            .read_exact(&mut response)
+            .expect("echo after request deadline");
+        assert_eq!(&response, b"pong");
     }
 
     #[test]

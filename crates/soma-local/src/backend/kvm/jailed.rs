@@ -10,24 +10,35 @@
 
 mod anchors;
 mod build;
+mod checkpoint;
 mod command;
 mod control;
+mod file;
+mod launch;
 mod outcome;
+mod pause;
 mod pty;
+mod workspace;
 
-use std::time::{Duration, Instant};
+use std::{
+    fs::File,
+    time::{Duration, Instant},
+};
 
 use soma::{BackendFailureKind, CleanupMethod, InstanceId};
+use soma_guest::LaunchNetwork;
 use soma_jail::{JailHandle, ProbeReport};
-use soma_vmm::control::Request;
+use soma_vmm::control::{Outcome, Request};
+use soma_vmm::sandbox::{ActivationChannel, PendingActivation};
 use soma_vmm::{
-    DeclaredDevices, DiskBytes, Generation, GenerationId, HotplugBytes,
+    ContractVersion, DeclaredDevices, DiskBytes, Generation, GenerationId, HotplugBytes,
     InstanceId as VmmInstanceId, Launch, MachineSpec, MemoryBytes, OperationId, Stop, VcpuCount,
 };
 
 pub(super) use anchors::Anchors;
 
-use super::identity::fresh16;
+use super::identity::{fresh16, instance_bytes};
+use super::network::Egress;
 use super::prepared::PreparedGeneration;
 
 /// How long the worker has to attest its own containment before it is considered lost.
@@ -58,10 +69,21 @@ pub(super) struct Jailed {
 pub(super) struct Launching<'a> {
     pub(super) prepared: &'a PreparedGeneration,
     pub(super) instance: &'a InstanceId,
+    pub(super) operation: &'a soma::OperationId,
     pub(super) instance_bytes: [u8; 16],
     pub(super) generation_bytes: [u8; 32],
     pub(super) memory_mib: u64,
     pub(super) disk_mib: u64,
+    pub(super) checkpoint: Option<(&'a InstanceId, &'a soma::OperationId)>,
+    pub(super) volume: Option<&'a soma::VolumeAttachment>,
+}
+
+/// The network identity bound by the supervisor to an already claimed TAP.
+pub(super) struct NetworkLaunch<'a> {
+    pub(super) launch: LaunchNetwork,
+    pub(super) pending: PendingActivation,
+    pub(super) operation: [u8; 16],
+    pub(super) egress: &'a mut Egress,
 }
 
 impl Jailed {
@@ -77,23 +99,72 @@ impl Jailed {
     pub(super) fn launch(
         anchors: &Anchors,
         launching: &Launching<'_>,
+        network: Option<(File, NetworkLaunch<'_>)>,
     ) -> Result<Self, BackendFailureKind> {
         let devices = launching.prepared.manifest.device_set();
-        let spec = build::spec(
-            launching.instance,
-            launching.prepared.manifest.shape.vcpu_count,
-            launching.memory_mib,
-            launching.disk_mib,
-            devices.overlay(),
+        if network.is_some()
+            && (!devices.net()
+                || launching
+                    .checkpoint
+                    .is_some_and(|(source, _)| source != launching.instance))
+        {
+            return Err(BackendFailureKind::WorkloadRejected);
+        }
+        let (tap, activation) = network.map_or((None, None), |(tap, activation)| {
+            (Some(tap), Some(activation))
+        });
+        let checkpoint = launching
+            .checkpoint
+            .map(|(source, checkpoint)| {
+                super::checkpoint::restore_artifacts(source, &launching.prepared.id, checkpoint)
+                    .map_err(|error| match error {
+                        crate::CheckpointFailure::NotFound => BackendFailureKind::WorkloadRejected,
+                        crate::CheckpointFailure::Unsupported => BackendFailureKind::Unsupported,
+                        _ => BackendFailureKind::Unavailable,
+                    })
+            })
+            .transpose()?;
+        if let Some(artifacts) = checkpoint.as_ref() {
+            use soma_kvm::contract::MachineContract;
+            use soma_kvm::snapshot::compatibility::Incompatibility;
+            use soma_kvm::x86_64::{SnapshotError, check_checkpoint_cpu};
+
+            let manifest = &launching.prepared.manifest;
+            let contract = MachineContract::require(manifest.machine_contract.version)
+                .map_err(|_| BackendFailureKind::WorkloadRejected)?;
+            check_checkpoint_cpu(artifacts.cpu_template, contract, manifest.shape.vcpu_count)
+                .map_err(|error| {
+                    anchors.record(
+                        launching.instance.as_str(),
+                        &format!("checkpoint CPU preflight refused: {error}"),
+                    );
+                    match error {
+                        SnapshotError::Incompatible(Incompatibility::CpuTemplate { .. }) => {
+                            BackendFailureKind::CheckpointIncompatible
+                        }
+                        _ => BackendFailureKind::Unavailable,
+                    }
+                })?;
+        }
+        let mut recovery_volume = checkpoint
+            .as_ref()
+            .and_then(|artifacts| artifacts.volume.as_ref())
+            .map(|receipt| super::jailed_volume::recover(launching, receipt))
+            .transpose()?;
+        let (volume, volume_bytes) = super::jailed_volume::open(
+            launching,
+            recovery_volume.as_ref().map(|volume| &volume.attachment),
         )?;
-        let opened = build::open(
-            anchors,
-            launching.prepared,
-            launching.instance,
-            devices.overlay(),
-        )?;
-        let handle = soma_jail::launch(&spec, &anchors.host, opened.resources)
-            .map_err(|_| BackendFailureKind::IsolationFailure)?;
+        let spec = build::spec(launching, volume_bytes, tap.is_some())?;
+        let opened = build::open(anchors, launching, checkpoint, volume, tap)?;
+        let handle =
+            soma_jail::launch(&spec, &anchors.host, opened.resources).map_err(|error| {
+                anchors.record(
+                    launching.instance.as_str(),
+                    &format!("jail launch refused: {error}"),
+                );
+                BackendFailureKind::IsolationFailure
+            })?;
         let mut jailed = Self {
             handle: Some(handle),
             control: control::Control::adopt(opened.control),
@@ -103,75 +174,20 @@ impl Jailed {
             poisoned: false,
         };
         jailed.attestation = jailed.admit(anchors, launching.instance)?;
-        jailed.perform_launch(launching, devices.overlay(), devices.net())?;
+        let mut declared = DeclaredDevices::new(devices.overlay(), devices.net());
+        if let Some(capacity) = volume_bytes {
+            declared = declared.with_volume_capacity(capacity);
+        }
+        let activation = match (opened.activation, activation) {
+            (None, None) => None,
+            (Some(channel), Some(network)) => Some((ActivationChannel::new(channel), network)),
+            _ => return Err(BackendFailureKind::IsolationFailure),
+        };
+        jailed.perform_launch(anchors, launching, declared, opened.recovery, activation)?;
+        if let Some(workspace) = &mut recovery_volume {
+            workspace.publish()?;
+        }
         Ok(jailed)
-    }
-
-    /// Reads and checks the worker's own attestation before anything is asked of it.
-    ///
-    /// The worker already refuses to serve an attestation that does not describe a jail. This
-    /// side checks the same report for the same reason from the other end: a broker that
-    /// accepted a worker it could not see the containment of would be trusting the process it
-    /// exists to constrain.
-    fn admit(
-        &mut self,
-        anchors: &Anchors,
-        instance: &InstanceId,
-    ) -> Result<ProbeReport, BackendFailureKind> {
-        let text = self.control.receive(ATTESTATION_CEILING)?;
-        let pid = self.handle.as_ref().map_or(0, JailHandle::pid);
-        anchors.record(instance.as_str(), &format!("jailed pid={pid} {text}"));
-        let report =
-            ProbeReport::decode(&text).map_err(|_| BackendFailureKind::IsolationFailure)?;
-        if outcome::describes_a_jail(&report) {
-            Ok(report)
-        } else {
-            Err(BackendFailureKind::IsolationFailure)
-        }
-    }
-
-    /// Launches the machine and then narrows the worker's filter to its steady state.
-    ///
-    /// The order is the whole point of the two phases. Restoring a machine creates event
-    /// descriptors, epoll sets, and threads, which the startup filter admits; serving commands
-    /// needs none of them, so the filter narrows the moment the machine exists and every
-    /// startup-only syscall becomes a kill for the rest of the worker's life.
-    fn perform_launch(
-        &mut self,
-        launching: &Launching<'_>,
-        overlay: bool,
-        network: bool,
-    ) -> Result<(), BackendFailureKind> {
-        let mut machine = MachineSpec::new(
-            VcpuCount::new(1).map_err(|_| BackendFailureKind::WorkloadRejected)?,
-            MemoryBytes::new(launching.memory_mib.saturating_mul(MIB))
-                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
-            DiskBytes::new(launching.disk_mib.saturating_mul(MIB).max(MIB))
-                .map_err(|_| BackendFailureKind::WorkloadRejected)?,
-        );
-        // The region is declared by the Generation, so a launch carries it only when it did.
-        if let Some(bytes) = super::hotplug::declared_bytes(launching.prepared) {
-            machine = machine.with_hotplug(
-                HotplugBytes::new(bytes).map_err(|_| BackendFailureKind::WorkloadRejected)?,
-            );
-        }
-        let request = Request::Launch(Launch::new(
-            OperationId::new(fresh16()).map_err(|_| BackendFailureKind::WorkloadRejected)?,
-            self.instance,
-            Generation::new(
-                GenerationId::new(launching.generation_bytes)
-                    .map_err(|_| BackendFailureKind::WorkloadRejected)?,
-                machine,
-                DeclaredDevices::new(overlay, network),
-            ),
-        ));
-        outcome::ready(&self.control.ask(&request, LAUNCH_CEILING)?)?;
-        outcome::sealed(&self.control.ask(&Request::Seal, ATTESTATION_CEILING)?)
-    }
-
-    /// Whether this machine may still be addressed.
-    pub(super) const fn is_usable(&self) -> bool {
-        !self.poisoned
     }
 
     /// Releases the machine, and proves the jail is gone.
@@ -255,5 +271,7 @@ impl Drop for Jailed {
     }
 }
 
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod streaming_tests;

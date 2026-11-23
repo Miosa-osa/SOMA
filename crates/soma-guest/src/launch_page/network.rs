@@ -57,6 +57,25 @@ pub struct LaunchNetwork {
 }
 
 impl LaunchNetwork {
+    /// Size of the network identity on the launch-page wire.
+    pub const WIRE_SIZE: usize = ENCODED_SIZE;
+
+    /// Encodes the network identity for transfer to a supervisor's sealed worker.
+    #[must_use]
+    pub fn to_bytes(self) -> [u8; Self::WIRE_SIZE] {
+        let mut bytes = [0_u8; Self::WIRE_SIZE];
+        self.encode(&mut bytes);
+        bytes
+    }
+
+    /// Decodes and validates the complete launch-page network identity.
+    ///
+    /// # Errors
+    /// Returns [`Error::LaunchPageRejected`] when the identity is invalid.
+    pub fn from_bytes(bytes: &[u8; Self::WIRE_SIZE]) -> Result<Self, Error> {
+        Self::decode(bytes)
+    }
+
     /// Validates one fresh network identity against the declared IPv4 profile.
     ///
     /// # Errors

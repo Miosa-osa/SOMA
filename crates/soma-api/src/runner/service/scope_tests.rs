@@ -98,3 +98,128 @@ async fn the_tenant_default_timeout_applies_and_suspension_reaps() {
     assert_eq!(line["reason"], "suspended");
     assert_eq!(runner.sandboxes().live(), 0);
 }
+
+#[tokio::test]
+async fn resident_lifecycle_only_reaches_the_facade_for_the_owning_tenant() {
+    let engine = Arc::new(Engine::default());
+    let mine = SandboxId::mint('3');
+    let foreign = SandboxId::mint('3');
+    engine.listed.lock().expect("listed").extend([
+        labelled(&mine, TENANT),
+        labelled(&foreign, "5e6f7a8b-0000-4000-8000-000000000002"),
+    ]);
+    let runner = runner(&engine, r#""*""#, "null");
+    runner.recover_sandboxes().await;
+
+    for operation in ["pause", "resume"] {
+        let own = format!("/api/v1/sandboxes/{}/{operation}", mine.as_str());
+        let other = format!("/api/v1/sandboxes/{}/{operation}", foreign.as_str());
+        assert_eq!(
+            call(&runner, http::Method::POST, &other, "").await.status,
+            404
+        );
+        assert_eq!(
+            call(&runner, http::Method::POST, &own, "").await.status,
+            503
+        );
+        assert_eq!(
+            call(&runner, http::Method::POST, &own, r#"{"unexpected":true}"#)
+                .await
+                .status,
+            400
+        );
+    }
+}
+
+#[tokio::test]
+async fn checkpoint_checks_tenant_ownership_before_forwarding() {
+    let engine = Arc::new(Engine::default());
+    let own = SandboxId::mint('3');
+    let foreign = SandboxId::mint('3');
+    engine.listed.lock().expect("listed").extend([
+        labelled(&own, TENANT),
+        labelled(&foreign, "5e6f7a8b-0000-4000-8000-000000000002"),
+    ]);
+    let runner = runner(&engine, r#""*""#, "null");
+    runner.recover_sandboxes().await;
+    let path = |id: &SandboxId| format!("/api/v1/sandboxes/{}/checkpoints", id.as_str());
+    let body = r#"{"operation_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#;
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&foreign), body)
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), body)
+            .await
+            .status,
+        409
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), "{}")
+            .await
+            .status,
+        400
+    );
+}
+
+#[tokio::test]
+async fn restore_verifies_the_durable_tenant_after_losing_its_registry() {
+    let engine = Arc::new(Engine::default());
+    let own = SandboxId::mint('3');
+    let foreign = SandboxId::mint('3');
+    let foreign_tenant = "5e6f7a8b-0000-4000-8000-000000000002";
+    engine
+        .listed
+        .lock()
+        .expect("listed")
+        .extend([labelled(&own, TENANT), labelled(&foreign, foreign_tenant)]);
+    let runner = runner(&engine, r#""*""#, "1");
+    assert_eq!(runner.sandboxes().live(), 0);
+    let path = |id: &SandboxId| format!("/api/v1/sandboxes/{}/restore", id.as_str());
+    let body = serde_json::json!({
+        "operation_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "checkpoint_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "image": "node:22",
+        "shape": soma::MachineShape::new(1, 1024, 256).unwrap(),
+        "name": format!("t-{foreign_tenant}"),
+    })
+    .to_string();
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&foreign), &body)
+            .await
+            .status,
+        404
+    );
+    assert!(
+        engine
+            .restore_names
+            .lock()
+            .expect("restore names")
+            .is_empty()
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), "{}")
+            .await
+            .status,
+        400
+    );
+    assert_eq!(
+        runner.sandboxes().live(),
+        0,
+        "failed attempt returns its reservation"
+    );
+    assert_eq!(
+        call(&runner, http::Method::POST, &path(&own), &body)
+            .await
+            .status,
+        200
+    );
+    assert_eq!(runner.sandboxes().live(), 1);
+    let seen = engine.restore_names.lock().expect("restore names");
+    assert_eq!(
+        seen.as_slice(),
+        &[Some(MachineName::parse(format!("t-{TENANT}")).unwrap())]
+    );
+}

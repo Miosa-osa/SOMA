@@ -10,13 +10,6 @@ use std::{fs, path::Path};
 use super::{CgroupError, CgroupLeaf, errno_of, parse_max, read, require_cgroup2};
 use crate::spec::CpuMax;
 
-/// The smallest period the kernel accepts, in microseconds.
-const MIN_PERIOD_US: u64 = 1_000;
-/// The largest period the kernel accepts, in microseconds.
-const MAX_PERIOD_US: u64 = 1_000_000;
-/// The smallest quota the kernel accepts, in microseconds.
-const MIN_QUOTA_US: u64 = 1_000;
-
 impl CgroupLeaf {
     /// Creates, or reopens, a leaf that limits CPU and nothing else.
     ///
@@ -62,8 +55,7 @@ impl CgroupLeaf {
     /// Returns [`CgroupError::Readback`] for a quota or period the kernel would not accept, and
     /// a write or read failure otherwise.
     pub fn set_cpu_max(&self, cpu: CpuMax) -> Result<CpuMax, CgroupError> {
-        if cpu.quota_us < MIN_QUOTA_US || !(MIN_PERIOD_US..=MAX_PERIOD_US).contains(&cpu.period_us)
-        {
+        if !cpu.is_valid() {
             return Err(CgroupError::Readback {
                 file: "cpu.max",
                 expected: "quota >= 1000 and period 1000..=1000000".to_owned(),

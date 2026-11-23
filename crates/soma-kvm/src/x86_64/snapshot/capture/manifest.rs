@@ -17,26 +17,42 @@ use crate::snapshot::{
 use crate::virtio::Slot;
 use crate::x86_64::snapshot::{device, error::SnapshotError, marker, profile};
 
-pub(super) struct Parts<'a> {
-    pub(super) contract: MachineContract,
-    pub(super) cpu_template: Digest,
-    pub(super) irqchip: &'a crate::snapshot::kvm_state::IrqchipState,
-    pub(super) routing: &'a crate::snapshot::kvm_state::IrqRoutingState,
-    pub(super) clock: &'a crate::snapshot::kvm_state::ClockState,
-    pub(super) pit: &'a crate::snapshot::kvm_state::PitState,
-    pub(super) devices: &'a [(Slot, DeviceState)],
-    pub(super) device_set: crate::virtio::DeviceSet,
-    pub(super) memory: MemoryDescriptor,
+pub(in crate::x86_64::snapshot) struct Parts<'a> {
+    pub(in crate::x86_64::snapshot) contract: MachineContract,
+    pub(in crate::x86_64::snapshot) cpu_template: Digest,
+    pub(in crate::x86_64::snapshot) irqchip: &'a crate::snapshot::kvm_state::IrqchipState,
+    pub(in crate::x86_64::snapshot) routing: &'a crate::snapshot::kvm_state::IrqRoutingState,
+    pub(in crate::x86_64::snapshot) clock: &'a crate::snapshot::kvm_state::ClockState,
+    pub(in crate::x86_64::snapshot) pit: &'a crate::snapshot::kvm_state::PitState,
+    pub(in crate::x86_64::snapshot) devices: &'a [(Slot, DeviceState)],
+    pub(in crate::x86_64::snapshot) device_set: crate::virtio::DeviceSet,
+    pub(in crate::x86_64::snapshot) memory: MemoryDescriptor,
     /// Geometry of the hotplug region, for a machine that has one.
-    pub(super) hotplug: Option<crate::memory_layout::HotplugRegion>,
+    pub(in crate::x86_64::snapshot) hotplug: Option<crate::memory_layout::HotplugRegion>,
 }
 
-pub(super) fn build(
+pub(in crate::x86_64::snapshot) fn build(
     request: &CaptureRequest<'_>,
     vm_state: &VmState,
     vcpu_states: &[crate::snapshot::kvm_state::VcpuState],
     parts: &Parts<'_>,
 ) -> Result<Manifest, SnapshotError> {
+    let (header, mut sections) = build_parts(request.candidate_id, vm_state, vcpu_states, parts)?;
+    let marker = Section::new(
+        SectionRole::RepairPointMarker,
+        marker::encode(&request.repair_point_line),
+    )?;
+    let index = sections.partition_point(|section| section.role().code() < marker.role().code());
+    sections.insert(index, marker);
+    Ok(Manifest::new(header, sections)?)
+}
+
+pub(in crate::x86_64::snapshot) fn build_parts(
+    candidate_id: [u8; 32],
+    vm_state: &VmState,
+    vcpu_states: &[crate::snapshot::kvm_state::VcpuState],
+    parts: &Parts<'_>,
+) -> Result<(ManifestHeader, Vec<Section>), SnapshotError> {
     let (Some(first), vcpus) = (
         vcpu_states.first(),
         u16::try_from(vcpu_states.len()).map_err(|_| {
@@ -56,7 +72,7 @@ pub(super) fn build(
     let header = ManifestHeader {
         architecture: Architecture::X86_64,
         page_size: PageSize::FOUR_KIB,
-        candidate_id: CandidateId::new(request.candidate_id)?,
+        candidate_id: CandidateId::new(candidate_id)?,
         machine_contract: profile::machine_contract(parts.contract, parts.device_set),
         device_contract: profile::device_contract(parts.device_set, parts.contract),
         cpu_template: parts.cpu_template,
@@ -73,8 +89,8 @@ pub(super) fn build(
         Section::new(SectionRole::KvmClock, parts.clock.encode())?,
         Section::new(SectionRole::Pit, parts.pit.encode())?,
     ];
-    // The second and later processors take the codes immediately after the timer, so the
-    // sequence stays ascending without renumbering a role version 1 already published.
+    // vCPU roles added after the original eight sort after the device roles. Stable
+    // numeric codes keep the original layout readable by every newer runtime.
     for (index, state) in vcpu_states.iter().enumerate().skip(1) {
         let role = SectionRole::vcpu(
             u16::try_from(index).map_err(|_| SnapshotError::NotQuiescent("vCPU index overflow"))?,
@@ -91,9 +107,6 @@ pub(super) fn build(
     if let Some(region) = parts.hotplug {
         sections.push(crate::snapshot::hotplug::section(region)?);
     }
-    sections.push(Section::new(
-        SectionRole::RepairPointMarker,
-        marker::encode(&request.repair_point_line),
-    )?);
-    Ok(Manifest::new(header, sections)?)
+    sections.sort_unstable_by_key(|section| section.role().code());
+    Ok((header, sections))
 }

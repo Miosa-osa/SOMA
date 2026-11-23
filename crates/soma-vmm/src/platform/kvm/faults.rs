@@ -33,9 +33,12 @@ pub(super) const fn execute_recovery(error: SessionError) -> Recovery {
         | SessionError::Gone
         | SessionError::Execute
         | SessionError::File
-        | SessionError::Pty => Recovery::ReplaceMachine,
+        | SessionError::Pty
+        | SessionError::Workspace
+        | SessionError::Pause
+        | SessionError::Resume => Recovery::ReplaceMachine,
         // Nothing was sent and the session stands, but this guest refuses the same command again.
-        SessionError::GuestAgentOutdated => Recovery::DoNotRetry,
+        SessionError::GuestAgentOutdated | SessionError::GuestPaused => Recovery::DoNotRetry,
         _ => Recovery::RepairHost,
     }
 }
@@ -49,7 +52,10 @@ pub(super) const fn execute_recovery(error: SessionError) -> Recovery {
 /// including repair, and a failure of the receipt itself completed all four.
 pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
     match error {
-        SessionError::Create | SessionError::LaunchPage | SessionError::Boot => {
+        SessionError::Create
+        | SessionError::CheckpointIncompatible
+        | SessionError::LaunchPage
+        | SessionError::Boot => {
             ReadinessFailure::for_platform(ReadinessProgress::from_steps([]), Recovery::RepairHost)
         }
         SessionError::Secret | SessionError::Network => ReadinessFailure::for_platform(
@@ -63,8 +69,12 @@ pub(super) fn readiness(error: SessionError) -> ReadinessFailure {
         SessionError::Ready
         | SessionError::Execute
         | SessionError::GuestAgentOutdated
+        | SessionError::Pause
+        | SessionError::Resume
+        | SessionError::GuestPaused
         | SessionError::File
         | SessionError::Pty
+        | SessionError::Workspace
         | SessionError::Gone
         | SessionError::Poisoned
         | SessionError::Suspend => ReadinessFailure::for_platform(

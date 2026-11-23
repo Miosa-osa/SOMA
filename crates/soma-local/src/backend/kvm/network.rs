@@ -158,6 +158,14 @@ impl Egress {
         }
     }
 
+    /// Activates a sealed worker synchronously before allowing it to raise the link.
+    pub(super) fn activate_sealed(&mut self, receipt: &ActivationReceipt) -> bool {
+        match self {
+            Self::Declined => false,
+            Self::Leased(lease) => lease.activate(receipt).is_ok(),
+        }
+    }
+
     /// Releases whatever this Instance held, and reports whether the broker verified it gone.
     pub(super) fn release(&mut self) -> Released {
         match self {

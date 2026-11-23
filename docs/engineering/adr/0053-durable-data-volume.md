@@ -58,3 +58,24 @@ Step A's device and lifecycle work is a prerequisite of both.
 - Whether `vdc` is also offered, empty, to non-persistent Instances for scratch use (no: keep the default device set small).
 - Backup and cross-host replication for persistent volumes (follow-up).
 - Billing metering of volume bytes for stopped Instances (control plane).
+
+## Sealed KVM worker handoff
+
+The machine host opens the volume certified by the existing volume store and passes the file as the sealed descriptor role `data-volume`.
+The worker receives no host path or directory handle.
+A `launch_volume` worker request carries the Generation's declared volume size in bytes and uses the existing launch fields for the rest of the machine shape.
+Ordinary launches keep their existing encoding.
+A volume launch must hold the matching descriptor and a snapshot with the matching volume slot.
+Older workers reject both the new role and the new request.
+Resident checkpoint capture and recovery continue to refuse launches with attached volumes.
+
+The guest first mounts the workspace volume after receiving launch authority, so the capture never mounts a placeholder and an accepted launch cannot quietly use ephemeral workspace paths.
+It invalidates block cache left by early device probes, validates the ext4 superblock, and mounts the persistent paths before reporting readiness.
+
+A start after Stop keeps the same Instance and requires the stopped record's owner, Generation, and shape.
+Its launch fingerprint also binds the certified volume ID.
+A host-local launch lease covers admission and is transferred to the hosted worker until launch settles.
+This prevents a retry from reaping a worker that is still starting and lets an exact retry recover an interrupted launch.
+
+The sealed worker holds an exclusive lock on the volume inode until it closes the device.
+Offline filesystem repair acquires the same lock and refuses a volume held by a live worker.

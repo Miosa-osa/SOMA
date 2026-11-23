@@ -40,9 +40,7 @@ impl KvmBackend {
         instance: &InstanceId,
         operation: &FileOperation,
     ) -> Result<FileAnswer, BackendFailureKind> {
-        let Some(live) = self.live_for(instance) else {
-            return Err(self.absent_kind(instance));
-        };
+        let live = self.running_for(instance)?;
         live.held.file(operation.clone())
     }
 }

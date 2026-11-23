@@ -29,7 +29,7 @@ pub use capability::MissingCapability;
 pub use envelope::{ApiError, ENVELOPE_SCHEMA, Envelope, FailureBody};
 pub use facade::{
     CommandOutcome, FileOutcome, LifecycleOutcome, ResizeFailure, ResizeOutcome, ResizeRequest,
-    SandboxFacade, SandboxSnapshot, TerminalOutcome, TunnelFailure,
+    SandboxFacade, SandboxSnapshot, SandboxStorage, TerminalOutcome, TunnelFailure,
 };
 pub use filesystem::{FilesystemBody, FilesystemReport};
 pub use handler::{handle, handle_prewarm};

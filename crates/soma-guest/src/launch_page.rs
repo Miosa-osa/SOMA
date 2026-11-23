@@ -9,9 +9,11 @@ use crate::{
 
 use self::wire::{ENTROPY_SIZE, RESPONDER_SECRET_SIZE};
 
+mod identity;
 mod network;
 mod session;
 mod wire;
+use identity::validate_identity;
 
 pub use network::LaunchNetwork;
 pub use session::{DeliveredHostLaunchMaterial, GuestSessionMaterial};
@@ -24,6 +26,9 @@ pub const LAUNCH_PAGE_SIZE: usize = 4096;
 /// Schema 3 appends the fresh per-Instance responder static secret decided by ADR 0024,
 /// per-Instance guest responder authority.
 pub const LAUNCH_PAGE_SCHEMA_VERSION: u16 = wire::PAGE_SCHEMA_VERSION;
+
+/// The launch-page schema used only for forks of an already-running Instance.
+pub const FORK_LAUNCH_PAGE_SCHEMA_VERSION: u16 = wire::FORK_SCHEMA_VERSION;
 
 /// Fixed guest-physical address of the dedicated launch-page memory slot.
 ///
@@ -61,6 +66,7 @@ const RANDOM_ATTEMPTS: usize = 4;
 /// ```
 pub struct HostLaunchMaterial {
     binding: SessionBinding,
+    fork_from: Option<[u8; 16]>,
     psk: InstancePsk,
     entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
     network: LaunchNetwork,
@@ -71,6 +77,7 @@ pub struct HostLaunchMaterial {
 /// Guest-owned launch secrets removed from one non-snapshot page.
 pub struct GuestLaunchMaterial {
     binding: SessionBinding,
+    fork_from: Option<[u8; 16]>,
     psk: InstancePsk,
     entropy: Zeroizing<[u8; ENTROPY_SIZE]>,
     network: LaunchNetwork,
@@ -128,6 +135,7 @@ impl HostLaunchMaterial {
                 let binding = SessionBinding::new(generation, instance, operation, launch_nonce)?;
                 return Ok(Self {
                     binding,
+                    fork_from: None,
                     psk: InstancePsk::from_zeroizing(instance, psk)?,
                     entropy,
                     network,
@@ -137,6 +145,17 @@ impl HostLaunchMaterial {
             }
         }
         Err(Error::RandomnessUnavailable)
+    }
+
+    /// Marks this fresh launch authority as a fork of the named resident Instance.
+    /// # Errors
+    /// Refuses an absent source or a source equal to the new destination.
+    pub fn for_fork(mut self, source: [u8; 16]) -> Result<Self, Error> {
+        if source == [0; 16] || self.binding.instance() == &source {
+            return Err(Error::LaunchPageRejected);
+        }
+        self.fork_from = Some(source);
+        Ok(self)
     }
 
     /// Returns the fresh public responder identity of this one Instance.
@@ -177,6 +196,7 @@ impl HostLaunchMaterial {
             &mut page,
             &wire::PageFields {
                 binding: &self.binding,
+                fork_from: self.fork_from,
                 psk: self.psk.as_bytes(),
                 entropy: &self.entropy,
                 network: self.network,
@@ -210,11 +230,18 @@ impl GuestLaunchMaterial {
         page.zeroize();
         decoded.map(|decoded| Self {
             binding: decoded.binding,
+            fork_from: decoded.fork_from,
             psk: decoded.psk,
             entropy: decoded.entropy,
             network: decoded.network,
             responder: decoded.responder,
         })
+    }
+
+    /// Identifies the captured Instance that may consume this fork page.
+    #[must_use]
+    pub const fn fork_from(&self) -> Option<&[u8; 16]> {
+        self.fork_from.as_ref()
     }
 
     /// Borrows the transcript binding before entropy repair.
@@ -248,17 +275,6 @@ impl GuestLaunchMaterial {
             self.responder,
         ))
     }
-}
-
-fn validate_identity(
-    generation: [u8; 32],
-    instance: [u8; 16],
-    operation: [u8; 16],
-) -> Result<(), Error> {
-    if generation == [0; 32] || instance == [0; 16] || operation == [0; 16] {
-        return Err(Error::InvalidBinding);
-    }
-    Ok(())
 }
 
 macro_rules! redacted_debug {

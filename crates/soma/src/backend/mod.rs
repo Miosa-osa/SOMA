@@ -61,6 +61,78 @@ pub trait Backend: Send {
         request: LaunchRequest<'_, Self::PreparedWorkload>,
     ) -> Result<LaunchObservation, BackendFailure>;
 
+    /// Takes this host's exclusive recoverable launch lease for the Instance.
+    /// # Errors
+    /// Returns a typed refusal if restore is unavailable or another request owns the lease.
+    fn acquire_restore(
+        &self,
+        _instance: &InstanceId,
+    ) -> Result<Box<dyn std::any::Any + Send>, BackendFailure> {
+        Err(BackendFailure::new(
+            crate::BackendFailureKind::Unsupported,
+            0,
+        ))
+    }
+
+    /// Starts a Machine with its certified workspace disk, holding the Instance launch lease.
+    /// # Errors
+    /// Returns a typed refusal when the backend cannot prove a leased workspace start.
+    fn launch_workspace(
+        &mut self,
+        _request: LaunchRequest<'_, Self::PreparedWorkload>,
+        _lease: &(dyn std::any::Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
+        Err(BackendFailure::new(
+            crate::BackendFailureKind::Unsupported,
+            0,
+        ))
+    }
+
+    /// Launches from a published checkpoint.
+    ///
+    /// A source Instance denotes a fork into the requested destination; its absence denotes
+    /// recovery of the original stopped Instance.
+    /// # Errors
+    /// Backends that cannot prove checkpoint restoration refuse the operation.
+    fn launch_checkpoint(
+        &mut self,
+        _request: LaunchRequest<'_, Self::PreparedWorkload>,
+        _checkpoint: &crate::OperationId,
+        _fork_source: Option<&InstanceId>,
+        _lease: &(dyn std::any::Any + Send),
+    ) -> Result<LaunchObservation, BackendFailure> {
+        Err(BackendFailure::new(
+            crate::BackendFailureKind::Unsupported,
+            0,
+        ))
+    }
+
+    /// Reconciles backend storage for an exact unfinished same-Instance checkpoint launch.
+    ///
+    /// The caller holds the restore lease and has confirmed worker teardown.
+    /// # Errors
+    /// Returns a backend failure if its storage state cannot be reconciled safely.
+    fn reconcile_checkpoint_launch(
+        &mut self,
+        _instance: &InstanceId,
+        _operation: &crate::OperationId,
+        _checkpoint: &crate::OperationId,
+        _generation: Option<&crate::GenerationId>,
+    ) -> Result<(), BackendFailure> {
+        Ok(())
+    }
+
+    /// Whether published checkpoints still depend on this stopped Instance record.
+    /// # Errors
+    /// Backends with checkpoint storage report a typed failure when they cannot inspect it.
+    fn retains_stopped_checkpoint(
+        &self,
+        _instance: &InstanceId,
+        _generation: &crate::GenerationId,
+    ) -> Result<bool, BackendFailure> {
+        Ok(false)
+    }
+
     /// Executes one bounded direct command in an exact Instance.
     ///
     /// # Errors

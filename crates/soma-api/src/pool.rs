@@ -136,6 +136,30 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().launch(request)
     }
 
+    fn restore_owner(
+        &mut self,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        self.deref_mut().restore_owner(instance)
+    }
+
+    fn restore(
+        &mut self,
+        request: LaunchMachineRequest,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.deref_mut().restore(request, checkpoint)
+    }
+
+    fn fork(
+        &mut self,
+        request: LaunchMachineRequest,
+        source: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        self.deref_mut().fork(request, source, checkpoint)
+    }
+
     fn inspect(
         &mut self,
         request: InspectMachineRequest,
@@ -192,11 +216,11 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         self.deref_mut().suspend(request)
     }
 
-    fn resume(
+    fn resume_suspension(
         &mut self,
         request: &soma_local::ResumeRequest,
     ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
-        self.deref_mut().resume(request)
+        self.deref_mut().resume_suspension(request)
     }
 
     fn capacity(&mut self) -> Option<soma_local::capacity::HostCapacity> {
@@ -215,6 +239,14 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
         request: DestroyMachineRequest,
     ) -> Result<LifecycleOutcome, ManagedFailure> {
         self.deref_mut().destroy(request)
+    }
+
+    fn pause(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::PauseFailure> {
+        self.deref_mut().pause(instance_id)
+    }
+
+    fn resume(&mut self, instance_id: &soma::InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        self.deref_mut().resume(instance_id)
     }
 
     fn resize(
@@ -240,29 +272,9 @@ impl<F: SandboxFacade> SandboxFacade for FacadeLease<F> {
     ) -> Result<crate::tunnel::GuestStream, soma_local::TunnelFailure> {
         self.deref_mut().tunnel(instance_id, port)
     }
-
-    fn volume(
-        &mut self,
-        operation: crate::volumes::VolumeOperation,
-        body: &crate::volumes::VolumeBody,
-    ) -> Result<crate::volumes::VolumeReport, crate::volumes::VolumeFailure> {
-        self.deref_mut().volume(operation, body)
-    }
-
-    fn volume_owned(
-        &mut self,
-        instance: &str,
-    ) -> Result<Option<crate::volumes::OwnedVolume>, crate::volumes::VolumeFailure> {
-        self.deref_mut().volume_owned(instance)
-    }
-
-    fn volume_binding(
-        &mut self,
-        instance: &str,
-    ) -> Result<crate::volumes::VolumeBinding, crate::volumes::VolumeFailure> {
-        self.deref_mut().volume_binding(instance)
-    }
 }
+
+mod storage;
 
 #[cfg(test)]
 #[path = "pool_tests.rs"]

@@ -1,0 +1,275 @@
+use std::time::{Duration, Instant};
+
+use soma_guest::GuestControl;
+
+use crate::repair::{Captured, Controller, Fault, Poisoned, State, Step};
+use crate::timings::{self, Step as Measured};
+use crate::{
+    boot, capture_warm, console, control, entropy, identity, launch_page, lifecycle,
+    network_repair, pid1, priority, tuning, warm,
+};
+
+/// Console line the agent prints once it is parked at the disconnected repair point.
+///
+/// A snapshot builder waits for this exact line before it quiesces and captures.
+pub const REPAIR_POINT_LINE: &str = "awaiting launch material";
+
+/// Console line the agent prints once a suspended session is retired and it is parked again.
+///
+/// The host reads the machine into a Suspension only after this exact line.
+pub const SUSPENSION_POINT_LINE: &str = "suspended, awaiting launch material";
+
+/// Interval between launch-page probes while the agent is parked at the repair point.
+///
+/// The host writes the fresh page into its slot before it resumes the vCPU, so the page is
+/// already present the moment the restored guest runs again and the only cost left is how
+/// long the interrupted sleep still had to run. That remainder is bounded by this
+/// interval, so it is short; the wakeups it buys are paid only while the machine is parked
+/// waiting to be captured, never by a running Instance.
+const PAGE_POLL: Duration = Duration::from_micros(100);
+const ENTROPY_BUDGET: Duration = Duration::from_secs(5);
+const TRANSPORT_BUDGET: Duration = Duration::from_secs(10);
+const HANDSHAKE_BUDGET: Duration = Duration::from_secs(10);
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the guest's capture, assignment, repair, and Ready ordering stays explicit"
+)]
+pub fn run() -> ! {
+    pid1::install_panic_hook();
+    if !pid1::is_pid1() {
+        console::report("refusing to run outside PID 1");
+        pid1::poweroff();
+    }
+    // The control path outranks the workload it supervises, so a command that spins cannot
+    // starve the agent that would answer the next request. The policy is guest kernel state
+    // and a capture carries it, so a restored Instance starts already protected.
+    console::report(&format!("scheduling {}", priority::raise()));
+    let controller = Controller::captured();
+    // The capture warm plan lives in the initramfs, so it is read while the initramfs is
+    // still the root; early init leaves it behind. A present plan that cannot be decoded
+    // means the verified initramfs is not the one that booted.
+    let Ok(warm_plan) = capture_warm::declared() else {
+        console::report("capture warm plan unreadable");
+        destroy(&controller.poison(Fault::Boot));
+    };
+    let declared = match boot::early_init(Instant::now() + boot::BOOT_BUDGET) {
+        Ok(declared) => declared,
+        Err(failure) => {
+            console::report(&format!(
+                "boot failed at {:?} errno {}",
+                failure.step, failure.errno
+            ));
+            destroy(&controller.poison(Fault::Boot));
+        }
+    };
+    // The disconnected repair point. Everything the Generation needs on disk is already
+    // written, so the agent flushes the private overlay and announces the wait before it
+    // blocks: a Generation builder captures the machine exactly here, with no launch
+    // material, no session, and no Instance identity anywhere in guest memory.
+    // Reading the workload runtime here makes its pages resident, so the capture records
+    // them and every restored Instance finds them already in memory instead of faulting
+    // them in one sandbox at a time. Nothing is executed and nothing fails the boot.
+    let warmed = warm::runtime();
+    if warmed > 0 {
+        console::report(&format!("warmed {warmed} runtime files"));
+    }
+    // The Generation's declared warm commands run here too, for the same reason and at the
+    // same point: before launch material exists, confined so that page cache is all they
+    // leave, and with every process they started killed before the capture.
+    if let Some(plan) = &warm_plan {
+        let outcome = capture_warm::execute(plan);
+        console::report(&format!(
+            "capture warm ran {} of {} commands, swept {}",
+            outcome.succeeded,
+            outcome.succeeded + outcome.failed,
+            outcome.swept
+        ));
+    }
+    // Tune the guest before the repair point, and clear the golden boot's kernel log so no
+    // restored Instance carries it. Both are guest state and are captured with the machine.
+    // The tuning runs after the warm commands so the kernel log it clears holds theirs too.
+    console::report(&tuning::apply().to_string());
+    tuning::clear_boot_log();
+    pid1::sync();
+    console::report(REPAIR_POINT_LINE);
+    // Every pass of this loop is one Instance's life on this machine: the first from the
+    // capture point, every later one from a suspension point (ADR 0034), which is the same
+    // disconnected wait. A resume writes fresh launch material and gets new entropy,
+    // transport, network and session as a launch does, but keeps its session state.
+    let mut workspace = boot::Workspace::new(declared.volume);
+    let mut parked = instance(controller, declared, false, &mut workspace);
+    loop {
+        parked = instance(parked, declared, true, &mut workspace);
+    }
+}
+
+/// One Instance's life on this machine, from the parked launch-page wait to its suspension.
+///
+/// It returns only when the host suspended the Instance, parked at the suspension point; a
+/// fault destroys the guest and a Shutdown powers it off, so neither comes back here.
+///
+/// `resumed` is whether this machine was suspended and is now resumed, which only this
+/// agent's own memory can say: a resume keeps the session state a fresh Instance is given.
+fn instance(
+    controller: Controller<Captured>,
+    declared: boot::Declared,
+    resumed: bool,
+    workspace: &mut boot::Workspace,
+) -> Controller<Captured> {
+    let (controller, material) =
+        advance(controller.accept_material(
+            launch_page::await_and_consume(PAGE_POLL).map_err(|_| Fault::LaunchPage),
+        ));
+    if material.fork_from().is_some() {
+        console::report("fork authority rejected on a cold launch");
+        pid1::poweroff();
+    }
+    if let Err(failure) = workspace.boot() {
+        console::report(&format!(
+            "workspace mount failed at {:?} errno {}",
+            failure.step, failure.errno
+        ));
+        destroy(&controller.poison(Fault::Boot));
+    }
+    let binding = *material.binding();
+    let network = material.network();
+    let hostname = identity::hostname(binding.instance());
+    let entropy_deadline = Instant::now() + ENTROPY_BUDGET;
+    let (controller, session) = advance(
+        controller.repair_entropy(
+            material
+                .reseed_with(|seed| entropy::repair(seed, entropy_deadline))
+                .map_err(|_| Fault::Entropy),
+        ),
+    );
+    let (controller, transport) = advance(
+        controller.freshen_transport(
+            control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
+                .map_err(|_| Fault::Transport),
+        ),
+    );
+    let repaired = timings::measure(Measured::Identity, || {
+        if resumed {
+            identity::repair_resumed(network.time_sample_nanos())
+        } else {
+            identity::repair(binding.instance(), network.time_sample_nanos(), declared)
+        }
+    });
+    let (controller, ()) =
+        advance(controller.repair_identity(repaired.map_err(|_| Fault::Identity)));
+    // A machine with no network device has no interface to install an identity on, so the
+    // repair reduces to raising loopback: a sandbox that cannot reach the network still has
+    // to be able to reach itself. Skipping the step entirely would leave `lo` down and
+    // break every workload that binds to its own address.
+    let installed = timings::measure(Measured::Network, || {
+        if declared.net {
+            network_repair::repair(&network, &hostname)
+        } else {
+            network_repair::repair_loopback_only()
+        }
+    });
+    let (controller, ()) =
+        advance(controller.repair_network(installed.map_err(|_| Fault::Network)));
+    let authenticated = timings::around(
+        Measured::HandshakeWait,
+        Measured::HandshakeSend,
+        Measured::HandshakeWork,
+        || GuestControl::connect(session, transport, Instant::now() + HANDSHAKE_BUDGET),
+    );
+    let (controller, authenticated) =
+        advance(controller.authenticate(authenticated.map_err(|_| Fault::Control)));
+    let (controller, prepared) = advance(controller.prepare(lifecycle::prepare(authenticated)));
+    let (controller, ()) = advance(controller.ready(Ok(())));
+    console::report("ready");
+    #[cfg(feature = "timing-report")]
+    for line in timings::lines() {
+        console::report(&line);
+    }
+    let mut binding = binding;
+    let mut current_network = declared.net.then_some(network);
+    // Taken before the acknowledgement: the host reads the machine as soon as it has it.
+    let quiesce = || {
+        let down = network_repair::link_down(declared.net).map_err(|_| Fault::Network);
+        pid1::sync();
+        down
+    };
+    match lifecycle::serve(
+        controller,
+        prepared,
+        || reconnect(&mut binding, declared.overlay, &mut current_network),
+        quiesce,
+        workspace,
+    ) {
+        lifecycle::Served::Poisoned(poisoned) => destroy(&poisoned),
+        lifecycle::Served::Suspended(suspending) => {
+            // The link was taken down and the overlay flushed before the acknowledgement,
+            // and the session went with it; what is left is to park and say so.
+            let (captured, ()) = advance(suspending.park(Ok(())));
+            console::report(SUSPENSION_POINT_LINE);
+            captured
+        }
+    }
+}
+
+fn reconnect(
+    binding: &mut soma_guest::SessionBinding,
+    writable_root: bool,
+    current_network: &mut Option<soma_guest::LaunchNetwork>,
+) -> Result<GuestControl<control::StreamIo<std::os::unix::net::UnixStream>>, Fault> {
+    let material = launch_page::consume_if_present()
+        .map_err(|_| Fault::LaunchPage)?
+        .ok_or(Fault::Control)?;
+    let next = *material.binding();
+    let fork_from = material.fork_from();
+    let identity_allowed = match fork_from {
+        None => next.instance() == binding.instance(),
+        Some(from) => from == binding.instance() && next.instance() != binding.instance(),
+    };
+    let forking = fork_from.is_some();
+    if !identity_allowed
+        || next.generation() != binding.generation()
+        || next.operation() == binding.operation()
+    {
+        return Err(Fault::Control);
+    }
+    let network = material.network();
+    let deadline = Instant::now() + ENTROPY_BUDGET;
+    let session = material
+        .reseed_with(|seed| entropy::repair(seed, deadline))
+        .map_err(|_| Fault::Entropy)?;
+    if forking {
+        identity::repair_hostname(next.instance(), writable_root).map_err(|_| Fault::Identity)?;
+    }
+    identity::set_clock(network.time_sample_nanos()).map_err(|_| Fault::Identity)?;
+    if let Some(previous) = current_network {
+        network_repair::reconnect(previous, &network, &identity::hostname(next.instance()))
+            .map_err(|_| Fault::Network)?;
+        *previous = network;
+    }
+    let transport = control::connect_vsock(network.vsock_cid(), Instant::now() + TRANSPORT_BUDGET)
+        .map_err(|_| Fault::Transport)?;
+    let deadline = Instant::now() + HANDSHAKE_BUDGET;
+    let connected =
+        GuestControl::connect(session, transport, deadline).map_err(|_| Fault::Control)?;
+    let ready = lifecycle::prepare_before(connected, deadline)?;
+    *binding = next;
+    console::report("resident control session reconnected");
+    Ok(ready)
+}
+
+fn advance<S: State, T>(step: Step<S, T>) -> (Controller<S>, T) {
+    match step {
+        Ok(next) => next,
+        Err(poisoned) => destroy(&poisoned),
+    }
+}
+
+fn destroy(poisoned: &Controller<Poisoned>) -> ! {
+    console::report(&format!(
+        "poisoned by {:?} after {:?}",
+        poisoned.fault(),
+        poisoned.ledger().repair_chain()
+    ));
+    pid1::poweroff()
+}

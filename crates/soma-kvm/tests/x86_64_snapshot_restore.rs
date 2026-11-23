@@ -75,6 +75,10 @@ mod x86_64_snapshot_restore_instance;
 mod x86_64_snapshot_restore_workload;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_snapshot_restore/resident.rs"]
+mod x86_64_snapshot_restore_resident;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_snapshot_restore/capability.rs"]
 mod x86_64_snapshot_restore_capability;
 
@@ -97,6 +101,10 @@ mod x86_64_snapshot_restore_certification;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[path = "x86_64_snapshot_restore/prepared.rs"]
 mod x86_64_snapshot_restore_prepared;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[path = "x86_64_snapshot_restore/live_resident.rs"]
+mod x86_64_snapshot_restore_live_resident;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod live {

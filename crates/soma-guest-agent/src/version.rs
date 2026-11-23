@@ -8,13 +8,17 @@
 use soma_version::{Build, Protocol, Speaks};
 
 /// The guest protocols this agent speaks, with the versions this build speaks.
-const PROTOCOLS: [Protocol; 3] = [
+const PROTOCOLS: [Protocol; 4] = [
     Protocol::new(
         "guest-application",
         soma_guest::APPLICATION_PROTOCOL_VERSION as u32,
     ),
     Protocol::new("guest-api", soma_guest::GUEST_API_LEVEL as u32),
     Protocol::new("launch-page", soma_guest::LAUNCH_PAGE_SCHEMA_VERSION as u32),
+    Protocol::new(
+        "launch-page-fork",
+        soma_guest::FORK_LAUNCH_PAGE_SCHEMA_VERSION as u32,
+    ),
 ];
 
 /// The report `soma-guest-agent --version` prints.
@@ -38,7 +42,7 @@ mod tests {
         )));
         assert!(report.contains("\ncommit: unknown\n"));
         assert!(report.contains("\nprotocol.guest-application: 1\n"));
-        assert!(report.contains("\nprotocol.guest-api: 4\n"));
+        assert!(report.contains("\nprotocol.guest-api: 6\n"));
         assert!(report.contains("\nprotocol.launch-page: 3\n"));
     }
 }

@@ -6,6 +6,8 @@ use super::progress::{ProgressAssessment, RESTORE_SEQUENCE, RestoreProgress};
 pub(crate) enum RestoreFailurePoint {
     ArtifactVerification,
     Restore,
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    CheckpointCompatibility,
 }
 
 /// Type-state evidence that the exact Generation was verified and its machine restored.
@@ -66,6 +68,14 @@ impl RestoreFailure {
         Self::at(RestoreFailurePoint::Restore, recovery)
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub(crate) const fn checkpoint_incompatible() -> Self {
+        Self::at(
+            RestoreFailurePoint::CheckpointCompatibility,
+            Recovery::DoNotRetry,
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(progress: RestoreProgress, recovery: Recovery) -> Self {
         Self::from_progress(progress, recovery)
@@ -79,6 +89,8 @@ impl RestoreFailure {
         match self.point {
             RestoreFailurePoint::ArtifactVerification => 0,
             RestoreFailurePoint::Restore => 1,
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            RestoreFailurePoint::CheckpointCompatibility => 1,
         }
     }
 

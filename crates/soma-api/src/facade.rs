@@ -7,11 +7,14 @@ use soma::{
 use crate::tunnel::GuestStream;
 
 mod outcomes;
+mod storage;
 
+use outcomes::unsupported_suspension;
 pub use outcomes::{
     CommandOutcome, FileOutcome, LifecycleOutcome, SandboxSnapshot, TerminalOutcome,
 };
 pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
+pub use storage::SandboxStorage;
 
 pub use crate::volumes::{
     OwnedVolume, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
@@ -28,7 +31,7 @@ pub use crate::volumes::{
 /// A method that cannot be implemented honestly is worse here than no method at all, so every
 /// method on it is one the engine can actually perform. What a given backend cannot serve is
 /// reported as the capability that is missing, not as an invented answer.
-pub trait SandboxFacade {
+pub trait SandboxFacade: SandboxStorage {
     /// Whether a sandbox this facade creates can still be addressed by a later request.
     ///
     /// This service opens one runtime per connection, so a backend that keeps the machine in
@@ -43,6 +46,43 @@ pub trait SandboxFacade {
     /// Returns the facade's typed managed failure.
     fn launch(&mut self, request: LaunchMachineRequest)
     -> Result<LifecycleOutcome, ManagedFailure>;
+
+    /// Looks up the persisted ownership label for restore and exact replay.
+    /// # Errors
+    /// Returns a storage failure if ownership could not be verified.
+    fn restore_owner(
+        &mut self,
+        _instance: &soma::InstanceId,
+    ) -> Result<Option<soma::MachineName>, ManagedFailure> {
+        Ok(None)
+    }
+
+    /// Restores a stopped sandbox from its own published checkpoint.
+    /// # Errors
+    /// Returns the managed restore refusal or launch failure.
+    fn restore(
+        &mut self,
+        _request: LaunchMachineRequest,
+        _checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        Err(ManagedFailure::Backend(
+            soma::BackendFailureKind::Unsupported,
+        ))
+    }
+
+    /// Forks a checkpoint into a separate managed sandbox.
+    /// # Errors
+    /// Returns a typed refusal if the backend cannot establish the fork.
+    fn fork(
+        &mut self,
+        _request: LaunchMachineRequest,
+        _source: &soma::InstanceId,
+        _checkpoint: &soma::OperationId,
+    ) -> Result<LifecycleOutcome, ManagedFailure> {
+        Err(ManagedFailure::Backend(
+            soma::BackendFailureKind::Unsupported,
+        ))
+    }
 
     /// Reads back one managed sandbox by exact instance id.
     ///
@@ -155,7 +195,7 @@ pub trait SandboxFacade {
     /// # Errors
     ///
     /// Returns the typed suspension failure; the Suspension is kept when nothing resumed.
-    fn resume(
+    fn resume_suspension(
         &mut self,
         _request: &soma_local::ResumeRequest,
     ) -> Result<LifecycleOutcome, soma_local::SuspensionFailure> {
@@ -206,6 +246,24 @@ pub trait SandboxFacade {
         Err(TunnelFailure::Unavailable)
     }
 
+    /// Pauses guest execution and keeps the sandbox resident.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner's failure when no pause can be confirmed.
+    fn pause(&mut self, _instance_id: &InstanceId) -> Result<(), soma_local::PauseFailure> {
+        Err(soma_local::PauseFailure::Unavailable)
+    }
+
+    /// Resumes the exact hosted machine after the owning runtime confirms it.
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner's failure when no resume can be confirmed.
+    fn resume(&mut self, _instance_id: &InstanceId) -> Result<(), soma_local::ResumeFailure> {
+        Err(soma_local::ResumeFailure::Unavailable)
+    }
+
     /// Changes the CPU and memory of one hosted sandbox live, and reports what is now true.
     /// An empty request changes nothing and reports the current values.
     ///
@@ -234,52 +292,4 @@ pub trait SandboxFacade {
     ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
         Err(soma_local::EgressSetFailure::Unavailable)
     }
-
-    /// Performs one durable data volume operation through the host daemon.
-    ///
-    /// The volume store lives inside `soma-hostd` (ADR 0053 Step A), so a backend with no host
-    /// control socket configured reports the missing capability rather than an invented answer.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed volume failure: the missing capability when no socket is configured,
-    /// the daemon's stable refusal, or a transport failure.
-    fn volume(
-        &mut self,
-        _operation: VolumeOperation,
-        _body: &VolumeBody,
-    ) -> Result<VolumeReport, VolumeFailure> {
-        Err(VolumeFailure::Unconfigured)
-    }
-
-    /// Reads which volume one Instance owns, for a stop that must detach it.
-    ///
-    /// The default answers that this host serves no volumes, which is what a service with no
-    /// host control socket has to say rather than a refusal.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed volume failure the host daemon refused with.
-    fn volume_owned(&mut self, _instance: &str) -> Result<Option<OwnedVolume>, VolumeFailure> {
-        Ok(None)
-    }
-
-    /// Opens the volume attached to one Instance, for the launch that binds a machine to it.
-    ///
-    /// The default reports the missing capability, because a service with no host control socket
-    /// serves no volume and a launch that needs one must be refused rather than served without.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed volume failure the host daemon refused with.
-    fn volume_binding(&mut self, _instance: &str) -> Result<VolumeBinding, VolumeFailure> {
-        Err(VolumeFailure::Unconfigured)
-    }
-}
-
-/// The answer of a facade that cannot suspend: the sandbox keeps running.
-const fn unsupported_suspension() -> soma_local::SuspensionFailure {
-    soma_local::SuspensionFailure::Managed(ManagedFailure::Backend(
-        soma::BackendFailureKind::Unsupported,
-    ))
 }

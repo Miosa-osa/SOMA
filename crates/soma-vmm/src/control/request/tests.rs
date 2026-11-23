@@ -104,8 +104,22 @@ fn every_request_round_trips() {
         Request::Seal,
         Request::Shutdown(-1),
         Request::Launch(launch()),
+        Request::Recover(launch(), [5; 32]),
+        Request::Fork(launch(), [5; 32], InstanceId::new([9; 16]).unwrap()),
         Request::Execute(execute()),
         Request::Stop(Stop::new(operation(), instance())),
+        Request::Pause(instance()),
+        Request::Resume(instance()),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::Workspace {
+            instance: instance(),
+            attach: true,
+        },
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::Workspace {
+            instance: instance(),
+            attach: false,
+        },
         Request::Output(
             OutputWindow::new(operation(), OutputStream::Stderr, 1024, 4096).expect("window"),
         ),
@@ -168,4 +182,85 @@ fn terminal_requests_round_trip_binary_input_without_logging_it() {
     let encoded = request.encode();
     assert!(encoded.is_ascii() && !encoded.contains('\n'));
     assert_eq!(Request::decode(&encoded), Ok(request));
+}
+
+#[test]
+fn a_volume_launch_carries_the_certified_capacity_and_ordinary_launch_stays_unchanged() {
+    use std::num::NonZeroU64;
+    let normal = launch();
+    let generation = normal.generation();
+    let capacity = NonZeroU64::new(10 * 1024 * 1024 * 1024).unwrap();
+    let persistent_launch = Launch::new(
+        normal.operation_id(),
+        normal.instance_id(),
+        Generation::new(
+            generation.id(),
+            generation.machine(),
+            generation.devices().with_volume_capacity(capacity),
+        ),
+    );
+    let persistent = Request::Launch(persistent_launch.clone());
+    let encoded = persistent.encode();
+    assert_eq!(Request::decode(&encoded), Ok(persistent));
+    assert!(encoded.starts_with("launch_volume 10737418240 "));
+    assert!(
+        Request::Launch(normal.clone())
+            .encode()
+            .starts_with("launch ")
+    );
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    let recovery = Request::Recover(persistent_launch.clone(), [7; 32]);
+    let encoded = recovery.encode();
+    assert_eq!(Request::decode(&encoded), Ok(recovery));
+    assert!(encoded.starts_with("recover_volume 10737418240 "));
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    assert!(
+        Request::Recover(normal.clone(), [7; 32])
+            .encode()
+            .starts_with("recover ")
+    );
+    let source = InstanceId::new([9; 16]).unwrap();
+    let fork = Request::Fork(persistent_launch, [7; 32], source);
+    let encoded = fork.encode();
+    assert!(encoded.starts_with("fork_volume 10737418240 "));
+    assert_eq!(Request::decode(&encoded), Ok(fork));
+    assert!(Request::decode(&encoded.replacen("10737418240", "0", 1)).is_err());
+    assert!(
+        Request::Fork(normal, [7; 32], source)
+            .encode()
+            .starts_with("fork ")
+    );
+}
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn checkpoint_disk_flags_preserve_legacy_requests_and_round_trip_a_volume() {
+    const WIRE_OVERLAY: u8 = 1;
+    const WIRE_OVERLAY_AND_VOLUME: u8 = 3;
+    let source = crate::sandbox::CheckpointSource {
+        instance_id: [1; 16],
+        candidate_id: [2; 32],
+        root_digest: soma_kvm::snapshot::Digest::from_bytes([3; 32]),
+        contract: soma_kvm::MachineContract::V1,
+        has_overlay: true,
+        has_volume: false,
+    };
+    for (source, flags) in [
+        (source, WIRE_OVERLAY),
+        (
+            crate::sandbox::CheckpointSource {
+                has_volume: true,
+                ..source
+            },
+            WIRE_OVERLAY_AND_VOLUME,
+        ),
+    ] {
+        let request = Request::Checkpoint(source);
+        let encoded = request.encode();
+        assert_eq!(
+            encoded.split_whitespace().last(),
+            Some(flags.to_string().as_str())
+        );
+        assert_eq!(Request::decode(&encoded), Ok(request));
+    }
 }

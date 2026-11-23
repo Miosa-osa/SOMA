@@ -206,6 +206,18 @@ pub(super) fn backend_failure_details(
             ),
             ProcessExit::CapabilityUnavailable,
         ),
+        BackendFailureKind::CheckpointIncompatible => (
+            FailureBody::new(
+                "checkpoint_incompatible",
+                "this checkpoint requires a compatible host",
+                false,
+            ),
+            ProcessExit::Conflict,
+        ),
+        BackendFailureKind::SandboxPaused => (
+            FailureBody::new("sandbox_paused", "the sandbox is paused", false),
+            ProcessExit::Conflict,
+        ),
         BackendFailureKind::ResourceConflict => (
             FailureBody::new(
                 "resource_conflict",

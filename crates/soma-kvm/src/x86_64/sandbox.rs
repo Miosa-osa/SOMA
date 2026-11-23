@@ -6,15 +6,19 @@
 //! per vCPU; the caller drives the byte-level [`ControlChannel`] with `soma-guest`, retires the
 //! launch page at the repair commit, marks its milestones, and `finish` reclaims every vCPU.
 
+mod access;
 mod config;
 pub(in crate::x86_64) mod evidence;
 mod launch;
 mod memory;
 mod network;
-mod pause;
+pub(in crate::x86_64) mod pause;
 pub(in crate::x86_64) mod restored;
 mod start;
 mod teardown;
+#[cfg(test)]
+mod testing;
+mod workspace;
 
 use std::sync::{Arc, Mutex, PoisonError, atomic::AtomicBool};
 
@@ -32,7 +36,7 @@ use super::{
     console_tap::ConsoleTap,
     cpuid,
     devices::{self, SharedBus},
-    event_loop::{EventLoop, EventLoopReport},
+    event_loop::{EventLoop, ParkedDevices},
     events::{IrqLines, NotifyFds},
     exits::ExitLedger,
     launch_page::LaunchPageSlot,
@@ -60,7 +64,9 @@ struct Running {
 /// A machine whose device thread stopped and whose vCPUs left `KVM_RUN`, every resource owned.
 struct Paused {
     reports: Vec<RunReport>,
-    devices: EventLoopReport,
+    devices: Option<ParkedDevices>,
+    complete: bool,
+    context: Option<RunContext>,
 }
 
 enum Stage {
@@ -80,9 +86,8 @@ pub struct SandboxMachine {
     console: Option<Arc<ConsoleTap>>,
     /// The shared port bus, one console buffer whatever the vCPU count, taken back at the end.
     ports: Option<PortBusHandle>,
-    /// Both sides of every `KVM_RUN` this machine's vCPUs make.
     exits: Arc<ExitLedger>,
-    stage: Stage,
+    stage: std::cell::RefCell<Stage>,
     clock: Stopwatch,
     timeline: Mutex<Timeline>,
     /// Where the ranges a guest reads from this machine's head are recorded, when a session asked
@@ -92,7 +97,6 @@ pub struct SandboxMachine {
     entry: u64,
     initramfs: Option<(u64, u64)>,
     /// Whether this machine exists to be captured rather than to serve a guest.
-    ///
     /// A capture's machine is built over the placeholder its Generation declares, and the run
     /// check that protects a serving guest from an empty disk is skipped for it: the guest sees a
     /// device with no capacity and skips the volume steps, so nothing is mounted and the snapshot
@@ -222,7 +226,8 @@ impl SandboxMachine {
                 serial_line,
                 irq,
                 notify,
-            }),
+            })
+            .into(),
             clock,
             timeline: Mutex::new(timeline),
             head_reads: Mutex::new(None),
@@ -231,70 +236,5 @@ impl SandboxMachine {
             initramfs: loaded.initramfs,
             capture,
         })
-    }
-
-    /// Adds the empty hotplug region behind its own KVM memory slot and returns the backing the
-    /// memory device hands unplugged blocks to.
-    ///
-    /// Call it before [`Self::start`]. Boot RAM, the memory object, and the certified slot list
-    /// are untouched; the region is neither captured nor restored as memory.
-    ///
-    /// # Errors
-    ///
-    /// Fails when the machine already has a region or the host refuses the mapping or slot.
-    pub fn attach_hotplug(
-        &mut self,
-        region: crate::memory_layout::HotplugRegion,
-    ) -> Result<crate::x86_64::HotplugBacking, MachineError> {
-        if self.machine.ram.hotplug().is_some() {
-            return Err(MachineError::invalid(
-                Phase::MapMemory,
-                "the machine already has a hotplug region",
-            ));
-        }
-        self.machine.ram.attach_hotplug(region)?;
-        let ram = self.machine.ram.hotplug().ok_or_else(|| {
-            MachineError::invalid(Phase::MapMemory, "the hotplug region was not attached")
-        })?;
-        ram.register(&self.machine.vm)?;
-        Ok(crate::x86_64::HotplugBacking::new(ram))
-    }
-
-    /// The backing over the machine's hotplug region, for a machine built with one or restored
-    /// from a snapshot that carried one. Every call shares the same mapping, so the memory
-    /// device can be rebuilt from it after a restore.
-    #[must_use]
-    pub fn hotplug_backing(&self) -> Option<crate::x86_64::HotplugBacking> {
-        self.machine.ram.hotplug_backing()
-    }
-
-    /// The hotplug region, when the machine has one.
-    #[must_use]
-    pub fn hotplug_region(&self) -> Option<crate::memory_layout::HotplugRegion> {
-        self.machine.ram.hotplug().map(|ram| ram.region())
-    }
-
-    /// The byte channel over the guest's control connection.
-    #[must_use]
-    pub fn control(&self) -> ControlChannel {
-        ControlChannel::new(
-            Arc::clone(&self.shared),
-            Arc::clone(&self.host_work),
-            Arc::clone(&self.finished),
-        )
-    }
-
-    /// Records a caller-observed milestone.
-    pub fn mark(&self, milestone: Milestone) {
-        self.timeline
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .mark(milestone);
-    }
-
-    /// The exact command line written to the guest.
-    #[must_use]
-    pub fn cmdline(&self) -> &str {
-        &self.cmdline
     }
 }

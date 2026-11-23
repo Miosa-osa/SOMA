@@ -18,6 +18,7 @@ use super::{
     super::manifest::{DEFAULT_VOLUME_CLASS_GIB, PersistenceBinding, STEP_A_PERSISTENCE_PATHS},
     CompilerProfile, GIB, MIB, ProfileLimits,
 };
+mod validate;
 
 /// The writable class the version 2 machine is defined at, in bytes.
 ///
@@ -45,6 +46,14 @@ const XL_WRITABLE_CLASS_BYTES: u64 = 40 * GIB;
 /// `vdc` slot in its device vocabulary, so version 4 declares the volume in the Generation's
 /// device contract, binds the same machine contract as version 3, and writes manifest group 17.
 pub const PERSISTENCE_POLICY_VERSION: u16 = 4;
+/// The compiler policy for the fixed-memory machine with up to sixteen processors.
+pub const WIDE_CPU_POLICY_VERSION: u16 = 5;
+/// The compiler policy for the 32 GiB fixed-memory machine.
+pub const WIDE_MEMORY_POLICY_VERSION: u16 = 6;
+/// The compiler policy that also admits a 160 GiB writable disk.
+pub const LARGE_DISK_POLICY_VERSION: u16 = 7;
+/// The compiler policy for the machine with fixed guest cache geometry.
+pub const GUEST_CACHE_POLICY_VERSION: u16 = 8;
 
 /// The hotplug region a version 3 profile has when the builder names none: one gigabyte.
 pub const DEFAULT_HOTPLUG_BYTES: u64 = GIB;
@@ -149,6 +158,48 @@ impl CompilerProfile {
         }
     }
 
+    /// Returns the profile for machine contract version 4.
+    #[must_use]
+    pub fn v5() -> Self {
+        Self {
+            policy_version: WIDE_CPU_POLICY_VERSION,
+            machine_contract: MachineContract::V4,
+            ..Self::v2()
+        }
+    }
+
+    /// Returns the profile for machine contract version 5.
+    #[must_use]
+    pub fn v6() -> Self {
+        Self {
+            policy_version: WIDE_MEMORY_POLICY_VERSION,
+            machine_contract: MachineContract::V5,
+            ..Self::v5()
+        }
+    }
+
+    /// Returns the fixed-memory profile with a 160 GiB writable disk class.
+    #[must_use]
+    pub fn v7() -> Self {
+        let mut profile = Self::v6();
+        profile.policy_version = LARGE_DISK_POLICY_VERSION;
+        profile.overlay_capacities.push(160 * GIB);
+        profile
+    }
+
+    /// Returns the fixed-memory profile with valid cache alignment in guest CPUID.
+    #[must_use]
+    pub fn v8() -> Self {
+        let mut profile = Self::v7();
+        profile.policy_version = GUEST_CACHE_POLICY_VERSION;
+        profile.machine_contract = MachineContract::V6;
+        profile
+            .overlay_capacities
+            .extend([DEFAULT_WRITABLE_CLASS_BYTES, XL_WRITABLE_CLASS_BYTES]);
+        profile.overlay_capacities.sort_unstable();
+        profile
+    }
+
     /// This profile with a different hotplug region: the ceiling minus the boot memory.
     ///
     /// Only a profile whose machine has the memory device admits a non-zero region; `validate`
@@ -176,71 +227,11 @@ impl CompilerProfile {
             // and restore path, so a host admits a Generation built under it.
             3 => Some(Self::v3()),
             PERSISTENCE_POLICY_VERSION => Some(Self::v4()),
+            WIDE_CPU_POLICY_VERSION => Some(Self::v5()),
+            WIDE_MEMORY_POLICY_VERSION => Some(Self::v6()),
+            LARGE_DISK_POLICY_VERSION => Some(Self::v7()),
+            GUEST_CACHE_POLICY_VERSION => Some(Self::v8()),
             _ => None,
         }
-    }
-
-    /// Whether this profile's machine is the one its policy version defines.
-    ///
-    /// Versions 1 to 3 each define their own machine, so the version and the contract agree
-    /// exactly. Version 4 is the first policy that adds a device without changing the machine:
-    /// it declares the durable volume in the Generation's device contract and binds version 3's
-    /// machine contract, so the equality is stated as the rule it is rather than as a comparison
-    /// a later device-only policy would have to break.
-    fn machine_is_policy(&self) -> bool {
-        match self.policy_version {
-            PERSISTENCE_POLICY_VERSION => self.machine_contract == MachineContract::V3,
-            version => self.machine_contract.version() == version,
-        }
-    }
-
-    /// Whether the hotplug region is one this profile's machine can have: none without the
-    /// memory device, and a whole number of blocks with it.
-    fn hotplug_valid(&self) -> bool {
-        if self.machine_contract.has_memory_device() {
-            self.hotplug_bytes > 0 && self.hotplug_bytes.is_multiple_of(HOTPLUG_BLOCK_BYTES)
-        } else {
-            self.hotplug_bytes == 0
-        }
-    }
-
-    pub(crate) fn validate(&self) -> Result<(), CompileError> {
-        let bounds = self.tree;
-        let zero = bounds.max_entries == 0
-            || bounds.max_path_bytes == 0
-            || bounds.max_link_bytes == 0
-            || bounds.max_metadata_bytes == 0
-            || bounds.max_file_bytes == 0
-            || bounds.max_content_bytes == 0
-            || self.max_stream_bytes == 0
-            || self.max_root_bytes == 0
-            || self.max_kernel_bytes == 0
-            || self.max_executable_bytes == 0
-            || self.max_initramfs_bytes == 0
-            || self.tool_deadline.is_zero();
-        let capacities_valid = !self.overlay_capacities.is_empty()
-            && self.overlay_capacities.len() <= 16
-            && self
-                .overlay_capacities
-                .windows(2)
-                .all(|pair| pair[1] > pair[0])
-            && self
-                .overlay_capacities
-                .iter()
-                .all(|capacity| *capacity >= 64 * MIB && capacity.is_multiple_of(4 * MIB));
-        let limits_declared = ProfileLimits::for_version(self.policy_version).is_some();
-        if zero
-            || !limits_declared
-            || !self.machine_is_policy()
-            || !self.hotplug_valid()
-            || !capacities_valid
-            || self.guest_agent_provenance.len() > 256
-        {
-            return Err(CompileError::new(
-                CompilePhase::ResolveInputs,
-                CompileErrorKind::InvalidInput,
-            ));
-        }
-        Ok(())
     }
 }

@@ -4,8 +4,8 @@ mod model;
 mod tombstone;
 
 pub(super) use model::{
-    ActiveMachine, DurableMachine, DurablePhase, ExecutionTombstone, LaunchIntent, TerminalBasis,
-    VersionedMachine,
+    ActiveMachine, DurableMachine, DurablePhase, ExecutionTombstone, LaunchIntent, RecoverySource,
+    TerminalBasis, VersionedMachine,
 };
 
 pub(super) const MAX_EXECUTION_TOMBSTONES: usize = 1_024;

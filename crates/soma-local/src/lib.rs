@@ -3,13 +3,21 @@
 
 mod backend;
 pub mod capacity;
+mod checkpoint;
 mod config;
 mod egress;
 mod error;
 mod file_store;
+mod pause;
 mod prewarm;
 mod prune;
 mod resize;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use backend::{CheckpointArtifact, CheckpointExport};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use checkpoint::ColdWorkspaceTarget;
+pub use checkpoint::{CheckpointFailure, CheckpointReceipt, CheckpointVolumeReceipt};
+pub use pause::{PauseFailure, ResumeFailure};
 mod runtime;
 mod suspension;
 mod tunnel;

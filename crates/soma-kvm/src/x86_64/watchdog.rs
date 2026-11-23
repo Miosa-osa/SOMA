@@ -4,16 +4,17 @@
 //! out of `KVM_RUN`. If a thread still cannot be joined within a bounded grace period the
 //! process aborts, because releasing guest memory under a live vCPU is never acceptable.
 //!
-//! The interrupt handler is process-wide, so it is installed once per machine and every worker
-//! thread shares it: a second installation would replace the first and leave the earlier threads
-//! unkickable. [`RunContext`] holds that handler and the process-wide serialization guard;
-//! [`VcpuRun`] is one worker, and a machine with several vCPUs holds one per processor.
+//! The interrupt handler is process-wide and shared by every active machine. [`RunContext`]
+//! holds one reference while a machine is running or resident. [`VcpuRun`] is one worker,
+//! and a machine with several vCPUs holds one per processor.
 
+mod vcpu;
 mod worker;
+pub(crate) use vcpu::VcpuRun;
 
 use std::{
     sync::{
-        Arc, Mutex, MutexGuard, PoisonError,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError},
     },
@@ -35,7 +36,14 @@ use super::{
 
 const STARTUP_GRACE: Duration = Duration::from_secs(2);
 pub(super) const CANCELLATION_GRACE: Duration = Duration::from_secs(2);
-static PROCESS_HANDLER_LOCK: Mutex<()> = Mutex::new(());
+static PROCESS_HANDLER: Mutex<Option<ProcessHandler>> = Mutex::new(None);
+
+struct ProcessHandler {
+    _handler: HandlerGuard,
+    signal: libc::c_int,
+    owners: usize,
+    retain_until_exit: bool,
+}
 
 enum WorkerEvent {
     Ready,
@@ -46,33 +54,55 @@ enum WorkerEvent {
     ),
 }
 
-/// The process-wide interrupt handler and serialization guard every worker of one machine shares.
+/// One machine's ownership of the shared process-wide interrupt handler.
 pub(crate) struct RunContext {
     signal: libc::c_int,
-    _handler: HandlerGuard,
-    _lock: MutexGuard<'static, ()>,
 }
 
 impl RunContext {
-    /// Installs the handler once and holds the process-wide guard for the whole run.
-    ///
-    /// A poisoned lock only means a previous proof panicked after installing its handler; the
-    /// guard restored it, so the lock is safe to reuse.
-    ///
-    /// # Errors
-    ///
-    /// Returns the signal-selection or handler-installation failure.
+    /// Acquires the same handler for all running or resident machines.
     pub(crate) fn acquire() -> Result<Self, MachineError> {
-        let lock = PROCESS_HANDLER_LOCK
+        let mut active = PROCESS_HANDLER
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
+        if let Some(handler) = active.as_mut() {
+            handler.owners += 1;
+            return Ok(Self {
+                signal: handler.signal,
+            });
+        }
         let signal = kick::signal_number()?;
-        let handler = HandlerGuard::install(signal)?;
-        Ok(Self {
+        *active = Some(ProcessHandler {
+            _handler: HandlerGuard::install(signal)?,
             signal,
-            _handler: handler,
-            _lock: lock,
-        })
+            owners: 1,
+            retain_until_exit: false,
+        });
+        Ok(Self { signal })
+    }
+}
+
+impl Drop for RunContext {
+    fn drop(&mut self) {
+        let mut active = PROCESS_HANDLER
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let handler = active.as_mut().expect("a live context owns the handler");
+        handler.owners -= 1;
+        if handler.owners == 0 && !handler.retain_until_exit {
+            // Restore the previous signal action before another caller may acquire it.
+            *active = None;
+        }
+    }
+}
+
+/// Keeps the installed watchdog handler for the lifetime of a dedicated VMM process.
+pub(super) fn retain_process_handler() {
+    let mut active = PROCESS_HANDLER
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if let Some(handler) = active.as_mut() {
+        handler.retain_until_exit = true;
     }
 }
 
@@ -102,6 +132,12 @@ impl RunReport {
             result: Err(error),
             vcpu: None,
         }
+    }
+}
+
+impl From<MachineError> for RunReport {
+    fn from(error: MachineError) -> Self {
+        Self::failed(None, error)
     }
 }
 
@@ -155,128 +191,5 @@ pub(crate) fn run_with_deadline(
     ) {
         Ok(run) => run.wait(timeout),
         Err(report) => report,
-    }
-}
-
-/// One vCPU thread that has entered `KVM_RUN` with its interrupt mask installed.
-pub(crate) struct VcpuRun {
-    worker: JoinHandle<()>,
-    receiver: Receiver<WorkerEvent>,
-    signal: libc::c_int,
-    pause: Arc<AtomicBool>,
-}
-
-impl VcpuRun {
-    /// Starts one worker thread and waits until it has entered its run mask.
-    ///
-    /// # Errors
-    ///
-    /// Returns a report carrying the bus and dispatcher when the thread could not start; a
-    /// worker that neither reports readiness nor finishes within the startup grace aborts
-    /// the process because its run mask state is unknown.
-    pub(crate) fn start(
-        context: &RunContext,
-        vcpu: VcpuFd,
-        bus: &PortBusHandle,
-        mmio: Option<MmioDispatch>,
-        sentinel: Option<Vec<u8>>,
-        ledger: &Arc<ExitLedger>,
-    ) -> Result<Self, RunReport> {
-        let signal = context.signal;
-        let (sender, receiver) = mpsc::sync_channel(2);
-        let mmio = mmio.map(Box::new);
-        let pause = Arc::new(AtomicBool::new(false));
-        let worker_pause = Arc::clone(&pause);
-        let worker_ledger = Arc::clone(ledger);
-        let worker_bus = bus.clone();
-        let worker = match thread::Builder::new()
-            .name("soma-kvm-vcpu".to_owned())
-            .spawn(move || {
-                worker_main(
-                    vcpu,
-                    &worker_bus,
-                    mmio,
-                    sentinel.as_deref(),
-                    &Control {
-                        signal,
-                        pause: &worker_pause,
-                        sender: &sender,
-                        ledger: &worker_ledger,
-                    },
-                );
-            }) {
-            Ok(worker) => worker,
-            Err(error) => {
-                return Err(RunReport {
-                    mmio: None,
-                    result: Err(MachineError::io(Phase::Run, &error)),
-                    vcpu: None,
-                });
-            }
-        };
-        match receiver.recv_timeout(STARTUP_GRACE) {
-            Ok(WorkerEvent::Ready) => Ok(Self {
-                worker,
-                receiver,
-                signal,
-                pause,
-            }),
-            Ok(WorkerEvent::Finished(mmio, result, vcpu)) => {
-                Err(finish(worker, mmio, result, vcpu))
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                Err(join_then(worker, RunReport::lost(Phase::Run)))
-            }
-            // The worker's KVM_RUN mask may not be installed, so neither a kick nor a return is safe.
-            Err(RecvTimeoutError::Timeout) => std::process::abort(),
-        }
-    }
-
-    /// Waits for this vCPU to stop, kicking it out of `KVM_RUN` after `timeout`.
-    pub(crate) fn wait(self, timeout: Duration) -> RunReport {
-        let Self {
-            worker,
-            receiver,
-            signal,
-            pause: _pause,
-        } = self;
-        match receiver.recv_timeout(timeout) {
-            Ok(WorkerEvent::Finished(mmio, result, vcpu)) => finish(worker, mmio, result, vcpu),
-            Ok(WorkerEvent::Ready) => std::process::abort(),
-            Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Run)),
-            Err(RecvTimeoutError::Timeout) => cancel(worker, &receiver, signal),
-        }
-    }
-
-    /// Kicks this vCPU out of `KVM_RUN` at a safe point and reclaims its descriptor.
-    ///
-    /// The guest is not stopped: KVM has already saved every architectural register, so the
-    /// returned [`RunReport::vcpu`] can be read with `KVM_GET_*` while nothing runs it.
-    ///
-    /// A worker that neither reports nor disconnects within `grace` may still own a live
-    /// vCPU, so the process aborts rather than releasing guest memory underneath it.
-    pub(crate) fn pause(self, grace: Duration) -> RunReport {
-        let Self {
-            worker,
-            receiver,
-            signal,
-            pause,
-        } = self;
-        pause.store(true, Ordering::Release);
-        if let Err(error) = kick::kick(&worker, signal) {
-            return join_then(
-                worker,
-                RunReport {
-                    mmio: None,
-                    result: Err(error),
-                    vcpu: None,
-                },
-            );
-        }
-        match receiver.recv_timeout(grace) {
-            Ok(WorkerEvent::Finished(mmio, result, vcpu)) => finish(worker, mmio, result, vcpu),
-            Err(RecvTimeoutError::Disconnected) => join_then(worker, RunReport::lost(Phase::Join)),
-            Ok(WorkerEvent::Ready) | Err(RecvTimeoutError::Timeout) => std::process::abort(),
-        }
     }
 }

@@ -6,7 +6,10 @@
 //! stops answering is therefore a machine that is gone, and saying so promptly is the only way
 //! a bounded operation stays bounded.
 
-use std::time::Duration;
+use std::{
+    os::fd::{AsFd as _, BorrowedFd},
+    time::Duration,
+};
 
 use soma::BackendFailureKind;
 use soma_jail::ControlSocket;
@@ -37,6 +40,30 @@ impl Control {
         self.tell(request)?;
         let text = self.receive(within)?;
         Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
+    }
+
+    pub(super) fn ask_with_files(
+        &self,
+        request: &Request,
+        files: &[BorrowedFd<'_>],
+        within: Duration,
+    ) -> Result<Outcome, BackendFailureKind> {
+        self.tell_with_files(request, files)?;
+        let text = self.receive(within)?;
+        Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
+    }
+
+    pub(super) fn tell_with_files(
+        &self,
+        request: &Request,
+        files: &[BorrowedFd<'_>],
+    ) -> Result<(), BackendFailureKind> {
+        soma_supervise::send_descriptor_packet(
+            self.socket.as_fd(),
+            request.encode().as_bytes(),
+            files,
+        )
+        .map_err(|_| BackendFailureKind::Unavailable)
     }
 
     /// Sends one request and does not wait for an answer.

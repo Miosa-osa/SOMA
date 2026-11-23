@@ -7,7 +7,7 @@ use crate::{
 
 pub(super) const STATE_SCHEMA_VERSION: u16 = 2;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub(in crate::engine) struct DurableMachine {
     pub(super) schema_version: u16,
     pub(in crate::engine) instance_id: InstanceId,
@@ -19,6 +19,8 @@ pub(in crate::engine) struct DurableMachine {
 pub(in crate::engine) enum DurablePhase {
     Launching {
         intent: Box<LaunchIntent>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prior_stop: Option<Box<DurableMachine>>,
     },
     Active {
         active: Box<ActiveMachine>,
@@ -34,6 +36,10 @@ pub(in crate::engine) enum DurablePhase {
         operation_id: OperationId,
         request_fingerprint: RequestFingerprint,
     },
+    Recovery {
+        source: Box<RecoverySource>,
+        installed: bool,
+    },
     Terminal {
         basis: Box<TerminalBasis>,
         operation: OperationKind,
@@ -48,6 +54,16 @@ pub(in crate::engine) enum DurablePhase {
 pub(in crate::engine) enum TerminalBasis {
     Launch { intent: Box<LaunchIntent> },
     Active { active: Box<ActiveMachine> },
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(in crate::engine) struct RecoverySource {
+    pub(in crate::engine) owner: MachineName,
+    pub(in crate::engine) checkpoint: OperationId,
+    pub(in crate::engine) generation: crate::GenerationId,
+    pub(in crate::engine) receipt_digest: crate::GenerationId,
+    pub(in crate::engine) backend: BackendKind,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]

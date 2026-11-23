@@ -59,6 +59,12 @@ A frame or message a build does not understand is refused, never guessed at.
 
 ### Guest API levels
 
+Hostd protocol 3 adds fixed workspace restore stage, publish, and abort requests.
+Hostd protocol 5 adds verified import into a detached workspace for a cold recovery.
+Hostd protocol 4 adds reconciliation of an exact unfinished workspace restore after worker teardown.
+The broker and host daemon must both support those requests for same-instance recovery of a mounted workspace.
+Worker control protocol 3 carries the certified volume capacity on the same-instance recovery request.
+
 The guest API level is the one protocol number a host learns at run time, from the agent's answer to the probe of ADR 0051, because a guest agent is built into each Generation and can be older or newer than its host.
 Each level is defined once, here, and `soma_guest::GUEST_API_LEVEL` is the highest level this release speaks.
 
@@ -112,7 +118,7 @@ A release publishes these files, all built from the tagged commit:
 | File | What it is |
 | --- | --- |
 | `soma-vX.Y.Z-source.tar.gz` | The committed tree, from `git archive`, byte-identical for one commit. |
-| `soma-host-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` | `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, and the static `soma-guest-agent`. |
+| `soma-host-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` | `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, the static `soma-guest-agent`, `prepare_from_template`, `capture_snapshot`, and `install_generation`. |
 | `soma-vX.Y.Z-TARGET.tar.gz` | The `soma` command line and `soma-mcp` for Linux x86_64, macOS arm64, and Windows x86_64. |
 | `soma-vX.Y.Z-manifest.json` | The release manifest described below. |
 | `SHA256SUMS` | The SHA-256 of every other file. |
@@ -227,7 +233,7 @@ protocol.netd: 1
 protocol.runner: 1
 ```
 
-The binaries are `soma`, `soma-mcp`, `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, and `soma-guest-agent`.
+The binaries are `soma`, `soma-mcp`, `soma-api`, `soma-hostd`, `soma-netd`, `soma-vmm`, `soma-guest-agent`, `prepare_from_template`, `capture_snapshot`, and `install_generation`.
 The first line is for people and the `key: value` lines after it are a stable contract, which `soma_version::ParsedReport` reads back.
 `api` appears only for `soma-api`, and each binary lists only the protocols it speaks.
 A running `soma-api` reports the same facts at `GET /v1/version`.

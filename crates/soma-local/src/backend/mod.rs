@@ -18,15 +18,25 @@ use crate::{LocalFailure, LocalFailureKind};
 use selection::resolve_selection;
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::change_workspace;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::host_machine;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::open_tunnel;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use kvm::{CheckpointArtifact, CheckpointExport};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::{
+    checkpoint_machine, pause_machine, resize_machine, resume_machine, set_egress_machine,
+};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use kvm::{
+    discard_checkpoint, import_cold_workspace, install_import, open_export, verify_import,
+};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
     prewarm_machine_hosts, prewarm_status, prune_prepared, set_prewarm_targets, start_prewarm,
 };
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub(crate) use kvm::{resize_machine, set_egress_machine};
 pub(crate) use local::LocalBackend;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

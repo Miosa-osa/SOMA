@@ -139,6 +139,7 @@ const fn refusal(kind: FailureKind) -> BackendFailureKind {
         | FailureKind::OperationCapacityExceeded
         | FailureKind::InvalidLifecycle
         | FailureKind::InstanceMismatch => BackendFailureKind::ResourceConflict,
+        FailureKind::CheckpointIncompatible => BackendFailureKind::CheckpointIncompatible,
         // The artifacts this host presented as prepared did not produce a machine.
         FailureKind::GenerationVerificationFailed | FailureKind::RestoreFailed => {
             BackendFailureKind::Unavailable
@@ -149,7 +150,9 @@ const fn refusal(kind: FailureKind) -> BackendFailureKind {
         | FailureKind::IdentityRepairFailed
         | FailureKind::NetworkRepairFailed
         | FailureKind::ReadinessProbeFailed
-        | FailureKind::ExecuteFailed => BackendFailureKind::GuestFailure,
+        | FailureKind::ExecuteFailed
+        | FailureKind::PauseFailed
+        | FailureKind::ResumeFailed => BackendFailureKind::GuestFailure,
         FailureKind::StopFailed => BackendFailureKind::CleanupFailure,
     }
 }

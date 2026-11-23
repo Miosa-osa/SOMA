@@ -1,9 +1,9 @@
 //! The supervisor's end of one jailed process's control socket.
 //!
 //! A jailed process may not create, bind, listen on, or accept a socket: all four are in the
-//! documented denial surface, and the compiled filter kills them in both phases. Its one
-//! conversation therefore has to exist before it does. The launcher seals one end of a
-//! connected `SOCK_SEQPACKET` pair into the manifest's control slot; this is the other end.
+//! documented denial surface, and the compiled filter kills them in both phases. Any conversation
+//! with the supervisor has to exist before the worker does. The launcher seals one end of a
+//! connected `SOCK_SEQPACKET` pair into the manifest.
 //!
 //! `SOCK_SEQPACKET` is what makes the exchange framing-free: one packet out is one request and
 //! one packet in is one reply, so neither side has a length prefix to get wrong and an
@@ -13,7 +13,7 @@
 #![allow(unsafe_code)]
 
 use std::io;
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd as _, BorrowedFd, FromRawFd as _, OwnedFd};
 use std::time::Duration;
 
 /// Why a control exchange did not complete.
@@ -79,16 +79,24 @@ impl ControlSocket {
     ///
     /// Returns [`ControlError::Truncated`] when the packet did not leave whole.
     pub fn send(&self, text: &str) -> Result<(), ControlError> {
-        // SAFETY: the pointer and length describe a live string slice.
+        self.send_bytes(text.as_bytes())
+    }
+
+    /// Sends one whole binary packet.
+    ///
+    /// # Errors
+    /// Returns [`ControlError::Truncated`] when the packet did not leave whole.
+    pub fn send_bytes(&self, packet: &[u8]) -> Result<(), ControlError> {
+        // SAFETY: the pointer and length describe a live byte slice.
         let sent = unsafe {
             libc::send(
                 self.socket.as_raw_fd(),
-                text.as_ptr().cast(),
-                text.len(),
+                packet.as_ptr().cast(),
+                packet.len(),
                 libc::MSG_NOSIGNAL,
             )
         };
-        if usize::try_from(sent).is_ok_and(|count| count == text.len()) {
+        if usize::try_from(sent).is_ok_and(|count| count == packet.len()) {
             Ok(())
         } else {
             Err(ControlError::Truncated)
@@ -101,6 +109,18 @@ impl ControlSocket {
     ///
     /// Returns [`ControlError::Silent`] when the deadline passes first or the peer is gone.
     pub fn receive(&self, capacity: usize, within: Duration) -> Result<String, ControlError> {
+        let mut buffer = vec![0_u8; capacity];
+        let count = self.receive_into(&mut buffer, within)?;
+        buffer.truncate(count);
+        String::from_utf8(buffer).map_err(|_| ControlError::Silent)
+    }
+
+    /// Receives one whole packet into the caller's buffer.
+    ///
+    /// # Errors
+    /// Returns [`ControlError::Silent`] on timeout or closure and
+    /// [`ControlError::Truncated`] if the packet exceeds the buffer.
+    pub fn receive_into(&self, buffer: &mut [u8], within: Duration) -> Result<usize, ControlError> {
         let mut poll = libc::pollfd {
             fd: self.socket.as_raw_fd(),
             events: libc::POLLIN,
@@ -111,22 +131,29 @@ impl ControlSocket {
         if unsafe { libc::poll(&raw mut poll, 1, millis) } <= 0 {
             return Err(ControlError::Silent);
         }
-        let mut buffer = vec![0_u8; capacity];
         // SAFETY: the pointer and length describe valid writable storage.
         let received = unsafe {
             libc::recv(
                 self.socket.as_raw_fd(),
                 buffer.as_mut_ptr().cast(),
                 buffer.len(),
-                0,
+                libc::MSG_TRUNC,
             )
         };
         let count = usize::try_from(received)
             .ok()
             .filter(|count| *count > 0)
             .ok_or(ControlError::Silent)?;
-        buffer.truncate(count);
-        String::from_utf8(buffer).map_err(|_| ControlError::Silent)
+        if count > buffer.len() {
+            return Err(ControlError::Truncated);
+        }
+        Ok(count)
+    }
+}
+
+impl AsFd for ControlSocket {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.socket.as_fd()
     }
 }
 

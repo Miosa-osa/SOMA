@@ -24,6 +24,8 @@ use soma_hostd::{
     client::{ClientError, HostClient, Registration},
 };
 
+use super::identity::{LaunchIdentity, hex16};
+
 /// The environment locator naming the Host Runtime socket this Backend registers with.
 pub(super) const SOCKET_VARIABLE: &str = "SOMA_HOSTD_SOCKET";
 
@@ -71,7 +73,35 @@ impl Ownership {
         let Self::HostRuntime(client) = self else {
             return Ok(());
         };
-        let frame = frame::launch_frame(instance, operation, vsock_cid)?;
+        Self::register_frame(client, instance, hex16(operation.as_str())?, vsock_cid)
+    }
+
+    pub(super) fn register_jailed(
+        &self,
+        instance: &InstanceId,
+        operation: &OperationId,
+        launch: LaunchIdentity,
+        restoring_in_place: bool,
+    ) -> Result<(), BackendFailureKind> {
+        if !restoring_in_place {
+            return self.register(instance, operation, launch.guest_cid);
+        }
+        let Self::HostRuntime(client) = self else {
+            return Ok(());
+        };
+        // The broker serializes same-instance restores under its restore lease and
+        // confirms teardown before retrying. Keep the logical operation stable in
+        // the broker, while hostd allocates each attempt under a fresh claim.
+        Self::register_frame(client, instance, launch.operation, launch.guest_cid)
+    }
+
+    fn register_frame(
+        client: &HostClient,
+        instance: &InstanceId,
+        claim: [u8; 16],
+        vsock_cid: u32,
+    ) -> Result<(), BackendFailureKind> {
+        let frame = frame::launch_frame(instance, claim, vsock_cid)?;
         match client.launch(&frame) {
             Ok(Registration::Live { .. }) => Ok(()),
             // The Host holds a worker for this operation whose launch page it cannot repeat,

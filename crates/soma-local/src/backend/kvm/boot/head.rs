@@ -5,6 +5,7 @@
 //! about paying for it once, from the quiesced template the snapshot carries, and about leaving
 //! nothing behind on every path out.
 
+use std::io::{self, Read as _, Seek as _, SeekFrom};
 use std::num::NonZeroUsize;
 use std::os::fd::{AsFd, AsRawFd};
 use std::path::PathBuf;
@@ -135,12 +136,53 @@ fn copied_head(
         .map_err(|_| BackendFailureKind::Unavailable)?;
     // A failed copy must not leave a partly written head named on the filesystem, so the
     // destination is removed before the failure is returned.
-    if std::io::copy(&mut template, &mut head).is_err() {
+    if copy_template(&mut template, &mut head).is_err() {
         let _ignored = std::fs::remove_file(&path);
         return Err(BackendFailureKind::Unavailable);
     }
     std::fs::remove_file(&path).map_err(|_| BackendFailureKind::Unavailable)?;
     Ok(head)
+}
+
+/// Copy only data extents when the source filesystem exposes them. The new file's
+/// untouched gaps read as zeros, including the hole after its last data extent.
+fn copy_template(template: &mut std::fs::File, head: &mut std::fs::File) -> io::Result<()> {
+    use rustix::{
+        fs::{SeekFrom as Extent, seek},
+        io::Errno,
+    };
+
+    let length = template.metadata()?.len();
+    let mut data = seek(&*template, Extent::Data(0));
+    if matches!(data, Err(Errno::INVAL | Errno::OPNOTSUPP)) {
+        template.rewind()?;
+        if io::copy(template, head)? != length {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        return Ok(());
+    }
+    loop {
+        let start = match data {
+            Ok(offset) => offset,
+            Err(Errno::NXIO) => break,
+            Err(error) => return Err(error.into()),
+        };
+        let end = seek(&*template, Extent::Hole(start))?.min(length);
+        if start >= end {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        template.seek(SeekFrom::Start(start))?;
+        head.seek(SeekFrom::Start(start))?;
+        let span = end - start;
+        if io::copy(&mut (&mut *template).take(span), head)? != span {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        if end == length {
+            break;
+        }
+        data = seek(&*template, Extent::Data(end));
+    }
+    head.set_len(length)
 }
 
 fn directory_path(directory: &std::fs::File) -> Result<PathBuf, BackendFailureKind> {
@@ -152,4 +194,37 @@ fn directory_path(directory: &std::fs::File) -> Result<PathBuf, BackendFailureKi
 fn unlink(directory: &std::fs::File, name: &str) -> Result<(), BackendFailureKind> {
     let path = directory_path(directory)?.join(name);
     std::fs::remove_file(path).map_err(|_| BackendFailureKind::Unavailable)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_template;
+    use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
+    use std::os::unix::fs::MetadataExt as _;
+
+    #[test]
+    fn head_copy_preserves_sparse_ranges_across_the_copy_fallback() {
+        let mut source = tempfile::tempfile().unwrap();
+        let mut head = tempfile::tempfile().unwrap();
+        let span = 1024 * 1024;
+        source.set_len(8 * span).unwrap();
+        source.seek(SeekFrom::Start(span)).unwrap();
+        source.write_all(b"first extent").unwrap();
+        source.seek(SeekFrom::Start(5 * span)).unwrap();
+        source.write_all(b"second extent").unwrap();
+        source.seek(SeekFrom::Start(2 * span)).unwrap();
+
+        copy_template(&mut source, &mut head).unwrap();
+
+        let metadata = head.metadata().unwrap();
+        assert_eq!(metadata.len(), 8 * span);
+        assert!(metadata.blocks() * 512 < span);
+        let mut actual = Vec::new();
+        head.rewind().unwrap();
+        head.read_to_end(&mut actual).unwrap();
+        let mut expected = Vec::new();
+        source.rewind().unwrap();
+        source.read_to_end(&mut expected).unwrap();
+        assert_eq!(actual, expected);
+    }
 }

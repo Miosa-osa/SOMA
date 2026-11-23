@@ -4,9 +4,19 @@ use soma_kvm::MachineContract;
 
 #[test]
 fn each_profile_declares_the_bounds_of_its_own_contract() {
-    for contract in MachineContract::ALL {
-        let limits = ProfileLimits::for_version(contract.version())
-            .expect("every contract this implementation builds has a profile");
+    for profile in [
+        CompilerProfile::v1(),
+        CompilerProfile::v2(),
+        CompilerProfile::v3(),
+        CompilerProfile::v4(),
+        CompilerProfile::v5(),
+        CompilerProfile::v6(),
+        CompilerProfile::v7(),
+        CompilerProfile::v8(),
+    ] {
+        let contract = profile.machine_contract;
+        let limits = ProfileLimits::for_version(profile.policy_version)
+            .expect("each profile declares its machine limits");
         assert_eq!(limits.max_vcpus, contract.max_vcpus());
         assert_eq!(
             limits.max_memory_mib * 1024 * 1024,
@@ -25,6 +35,12 @@ fn each_profile_declares_the_bounds_of_its_own_contract() {
     assert!(CompilerProfile::v2().validate().is_ok());
     assert_eq!(CompilerProfile::v3().machine_contract, MachineContract::V3);
     assert!(CompilerProfile::v3().validate().is_ok());
+    assert_eq!(CompilerProfile::v5().machine_contract, MachineContract::V4);
+    assert!(CompilerProfile::v5().validate().is_ok());
+    assert_eq!(CompilerProfile::v6().machine_contract, MachineContract::V5);
+    assert!(CompilerProfile::v6().validate().is_ok());
+    assert_eq!(CompilerProfile::v8().machine_contract, MachineContract::V6);
+    assert!(CompilerProfile::v8().validate().is_ok());
 }
 
 #[test]
@@ -41,6 +57,19 @@ fn a_host_admits_version_three_now_that_the_machine_builds_its_device() {
         CompilerProfile::from_policy_version(4),
         Some(CompilerProfile::v4())
     );
+}
+
+#[test]
+fn the_large_disk_profile_admits_a_160_gib_class_without_changing_older_profiles() {
+    const LARGE_CLASS: u64 = 160 * 1024 * 1024 * 1024;
+    let large_disk = CompilerProfile::v7();
+    assert_eq!(large_disk.overlay_capacities.last(), Some(&LARGE_CLASS));
+    assert!(
+        !CompilerProfile::v6()
+            .overlay_capacities
+            .contains(&LARGE_CLASS)
+    );
+    assert!(large_disk.validate().is_ok());
 }
 
 #[test]
@@ -62,7 +91,7 @@ fn the_v4_profile_declares_the_durable_volume_over_version_threes_machine() {
     );
     // A version this build knows is admitted, and no earlier profile changes at all.
     assert_eq!(
-        CompilerProfile::from_policy_version(5),
+        CompilerProfile::from_policy_version(9),
         None,
         "a version with no profile is refused rather than admitted under the wrong one"
     );

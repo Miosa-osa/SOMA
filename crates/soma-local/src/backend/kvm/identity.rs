@@ -45,7 +45,7 @@ impl LaunchIdentity {
 /// evidence described another, and no reader could tell. This is the only conversion between
 /// them, and it is exact rather than derived: a `InstanceId` is thirty-two lowercase hexadecimal
 /// characters, which is these sixteen bytes written out.
-fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
+pub(super) fn instance_bytes(instance: &InstanceId) -> Result<[u8; 16], BackendFailureKind> {
     let hex = instance.as_str();
     if hex.len() != 32 {
         return Err(BackendFailureKind::WorkloadRejected);

@@ -22,6 +22,7 @@ mod finish;
 mod inputs;
 mod pty;
 mod suspend;
+mod workspace;
 
 pub use drive::drive_restored;
 pub use entry::serve;

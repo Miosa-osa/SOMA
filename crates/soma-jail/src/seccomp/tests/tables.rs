@@ -54,13 +54,15 @@ fn numbers_match_libc_and_kvm_bindings() {
 
     use kvm_bindings::{
         kvm_clock_data, kvm_cpuid2, kvm_fpu, kvm_irq_routing, kvm_irqchip, kvm_irqfd,
-        kvm_lapic_state, kvm_msrs, kvm_nested_state, kvm_pit_config, kvm_pit_state2, kvm_regs,
-        kvm_signal_mask, kvm_sregs, kvm_userspace_memory_region, kvm_vcpu_events, kvm_xcrs,
-        kvm_xsave,
+        kvm_lapic_state, kvm_msr_list, kvm_msrs, kvm_nested_state, kvm_pit_config, kvm_pit_state2,
+        kvm_regs, kvm_signal_mask, kvm_sregs, kvm_userspace_memory_region, kvm_vcpu_events,
+        kvm_xcrs, kvm_xsave,
     };
 
-    let sizes: [(&str, usize); 18] = [
+    let sizes: [(&str, usize); 20] = [
         ("KVM_GET_SUPPORTED_CPUID", size_of::<kvm_cpuid2>()),
+        ("KVM_GET_CPUID2", size_of::<kvm_cpuid2>()),
+        ("KVM_GET_MSR_INDEX_LIST", size_of::<kvm_msr_list>()),
         (
             "KVM_SET_USER_MEMORY_REGION",
             size_of::<kvm_userspace_memory_region>(),

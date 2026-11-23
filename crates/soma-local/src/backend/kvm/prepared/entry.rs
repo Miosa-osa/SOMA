@@ -39,6 +39,7 @@ pub(in crate::backend::kvm) fn from_handoff(
         .map_err(|_| PreparedError::Damaged)?;
     let admitted_id = admitted.id.clone();
     let (manifest, artifacts) = admitted.into_parts();
+    verify_source_pin(&reference, &manifest.source.oci_manifest_digest)?;
     let artifacts = artifacts
         .into_iter()
         .map(|(descriptor, file)| (descriptor, Arc::new(file)))
@@ -180,6 +181,7 @@ pub(super) fn read_entry(
         admit_installed_generation(&store, &id, &profile).map_err(|_| PreparedError::Damaged)?;
     let admitted_id = admitted.id.clone();
     let (manifest, artifacts) = admitted.into_parts();
+    verify_source_pin(reference, &manifest.source.oci_manifest_digest)?;
     let artifacts = artifacts
         .into_iter()
         .map(|(descriptor, file)| (descriptor, Arc::new(file)))
@@ -191,4 +193,41 @@ pub(super) fn read_entry(
         manifest,
         artifacts,
     })
+}
+
+/// A digest-pinned reference may only name the OCI manifest bound by certification.
+/// Existing tag-only references retain their prepared-store behavior.
+fn verify_source_pin(
+    reference: &str,
+    manifest_digest: &soma_generation::Sha256Digest,
+) -> Result<(), PreparedError> {
+    if let Some((repository, digest)) = reference.split_once('@')
+        && (repository.is_empty() || digest != manifest_digest.to_oci().as_str())
+    {
+        return Err(PreparedError::Damaged);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn a_pinned_reference_must_match_the_certified_oci_digest() {
+    let certified = soma_generation::Sha256Digest::of(b"certified image");
+    assert_eq!(verify_source_pin("node:22", &certified), Ok(()));
+    assert_eq!(
+        verify_source_pin(&format!("node:22@{certified}"), &certified),
+        Ok(())
+    );
+    let different = soma_generation::Sha256Digest::of(b"different image");
+    for reference in [
+        format!("node:22@{different}"),
+        format!("@{certified}"),
+        format!("node:22@@{certified}"),
+        "node:22@".to_owned(),
+    ] {
+        assert_eq!(
+            verify_source_pin(&reference, &certified),
+            Err(PreparedError::Damaged)
+        );
+    }
 }

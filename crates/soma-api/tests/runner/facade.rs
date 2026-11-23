@@ -10,8 +10,8 @@ use soma::{
     LaunchMachineRequest, ManagedFailure, PtyMachineRequest, StopMachineRequest, TerminalStatus,
 };
 use soma_api::{
-    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
-    runner::FacadeOpener,
+    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, SandboxStorage,
+    TerminalOutcome, runner::FacadeOpener,
 };
 
 use crate::support::receipt;
@@ -154,6 +154,8 @@ impl SandboxFacade for FakeFacade {
         })
     }
 }
+
+impl SandboxStorage for FakeFacade {}
 
 pub(crate) fn opener(engine: &Arc<Engine>) -> FacadeOpener {
     let engine = Arc::clone(engine);

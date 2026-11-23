@@ -116,7 +116,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             {
                 self.admit_ended_destroy(revision, instance_id, mode, *basis)
             }
-            DurablePhase::Terminal { .. } => {
+            DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::MachineStopped))
             }
             DurablePhase::Terminating { .. } => {

@@ -201,3 +201,42 @@ fn a_command_the_guest_cannot_decode_is_refused_and_the_session_runs_the_next_on
     drop(session);
     stand_in.join().expect("stand-in");
 }
+
+#[test]
+fn a_paused_session_refuses_guest_operations_and_remains_usable_for_lifecycle_requests() {
+    let (requests, received_requests) = channel();
+    let (replies, responses) = channel();
+    let worker = std::thread::spawn(move || {
+        assert!(matches!(received_requests.recv(), Ok(Request::Pause)));
+        replies.send(Response::Paused).unwrap();
+        assert!(matches!(received_requests.recv(), Ok(Request::Execute(_))));
+        replies.send(Response::GuestPaused).unwrap();
+        assert!(matches!(received_requests.recv(), Ok(Request::Pause)));
+        replies.send(Response::Paused).unwrap();
+        assert!(matches!(received_requests.recv(), Ok(Request::Resume)));
+        replies.send(Response::Resumed).unwrap();
+        assert!(matches!(received_requests.recv(), Ok(Request::Resume)));
+        replies.send(Response::Resumed).unwrap();
+        assert!(matches!(received_requests.recv(), Ok(Request::Abort)));
+        replies.send(Response::Halted).unwrap();
+    });
+    let mut session = Session {
+        requests,
+        responses,
+        thread: Some(worker),
+        poisoned: false,
+        pending: None,
+        head_reads: Vec::new(),
+    };
+
+    session.pause().expect("worker confirmed the pause");
+    assert_eq!(
+        session.execute(command(), Duration::from_secs(5)).err(),
+        Some(SessionError::GuestPaused)
+    );
+    assert!(session.is_usable());
+    session.pause().expect("replay the completed pause");
+    session.resume().expect("resume the original machine");
+    session.resume().expect("retry resume");
+    session.abort().expect("destroy the resumed machine").wait();
+}

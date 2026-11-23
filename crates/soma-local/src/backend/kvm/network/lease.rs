@@ -230,11 +230,11 @@ impl Lease {
         ) {
             return Err(ClientError::Protocol);
         }
-        // A dial gets its own connection: the claim's has been silent since the launch and the
-        // broker closes idle ones, so a later tunnel died on a broken pipe (#176). The broker
-        // authenticates the new one by the same kernel identity.
-        let client = BrokerClient::connect(&self.socket)?;
-        client.connect_guest(self.instance, self.bundle, self.generation, port)
+        // A viewer may open a new stream long after the broker closed the idle claim
+        // connection. Use an authenticated control connection for each dial. The returned
+        // guest socket remains open independently of that connection.
+        let connection = BrokerClient::connect(&self.socket)?;
+        connection.connect_guest(self.instance, self.bundle, self.generation, port)
     }
 
     pub(super) fn release(&mut self) -> Released {
@@ -273,24 +273,7 @@ impl Drop for Lease {
 
 /// Rebuilds the launch-page network values from the exact bytes the broker replied with.
 fn decode_launch(bytes: &[u8; 35]) -> Option<LaunchNetwork> {
-    let word =
-        |at: usize| u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]]);
-    let quad = |at: usize| [bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]];
-    let mut mac = [0_u8; 6];
-    mac.copy_from_slice(&bytes[8..14]);
-    let mut sample = [0_u8; 8];
-    sample.copy_from_slice(&bytes[27..35]);
-    LaunchNetwork::new(
-        word(0),
-        word(4),
-        mac,
-        quad(14),
-        bytes[18],
-        quad(19),
-        quad(23),
-        u64::from_be_bytes(sample),
-    )
-    .ok()
+    LaunchNetwork::from_bytes(bytes).ok()
 }
 
 #[cfg(test)]

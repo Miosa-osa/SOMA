@@ -5,30 +5,79 @@
 //! order that keeps a volume safe: create, then repair, then bind, each with its write-ahead
 //! records around it.
 
-use std::path::Path;
+mod create;
+mod owner;
+
+pub(super) use owner::{owned_volume, refusal};
 
 use super::{
     AttachOutcome, AttachRequest, DetachOutcome, DetachRequest, DirectoryVolumes, VOLUME_DEVICE,
     VolumeError, VolumeRecordKind, VolumeSidecar, VolumeState, VolumeStore, fs, now_nanos,
 };
-use crate::volume::repair::{CreateError, RepairOutcome};
 use crate::volume::service::VolumeBinding;
 use crate::{InstanceId, VolumeId};
 
-/// Bytes in one GiB, the unit a volume's class is stated in.
-const GIB: u64 = 1 << 30;
-
-/// The refusal one unusable repair produces, shared by the attach and the start paths.
-fn refusal(outcome: RepairOutcome) -> VolumeError {
-    match outcome {
-        RepairOutcome::Refused => {
-            VolumeError::RepairRefused("the volume needs a repair beyond the policy")
-        }
-        _ => VolumeError::FsckFailed("the offline repair could not make the volume consistent"),
-    }
-}
-
 impl VolumeStore for DirectoryVolumes {
+    #[cfg(target_os = "linux")]
+    fn import_workspace(
+        &self,
+        request: &crate::volume::WorkspaceImportRequest,
+    ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
+        self.install_workspace_backup(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn clone_checkpoint(
+        &self,
+        request: &crate::volume::CheckpointVolumeRequest,
+    ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
+        self.copy_checkpoint(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn recovery_stage(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<crate::volume::CheckpointVolumeBinding, VolumeError> {
+        self.stage_workspace_restore(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn recovery_publish(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<AttachOutcome, VolumeError> {
+        self.activate_workspace_restore(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn recovery_abort(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<(), VolumeError> {
+        self.abort_workspace_restore(request)
+    }
+
+    fn stage_live_attach(&self, request: &AttachRequest) -> Result<VolumeBinding, VolumeError> {
+        self.stage_workspace(request)
+    }
+
+    fn commit_live_attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
+        self.publish_workspace(request)
+    }
+
+    fn validate_live_detach(&self, request: &DetachRequest) -> Result<VolumeState, VolumeError> {
+        self.admit_workspace_detach(request)
+    }
+
+    #[cfg(target_os = "linux")]
+    fn recovery_reconcile(
+        &self,
+        request: &crate::volume::WorkspaceRestoreRequest,
+    ) -> Result<(), VolumeError> {
+        self.reconcile_workspace_restore(request)
+    }
+
     fn attach(&self, request: &AttachRequest) -> Result<AttachOutcome, VolumeError> {
         self.check_operation(request.operation, request.fingerprint)?;
         // A host whose volume root is not on its encrypted data mount refuses the attach before
@@ -43,7 +92,18 @@ impl VolumeStore for DirectoryVolumes {
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
         Self::admit(state.get(&request.volume), request)?;
+        if state
+            .values()
+            .any(|sidecar| sidecar.instance == request.instance && sidecar.volume != request.volume)
+        {
+            return Err(VolumeError::Busy(
+                "the Instance already owns another volume",
+            ));
+        }
         let existing = state.get(&request.volume);
+        if existing.is_some() {
+            self.require_unstaged_workspace(request.volume)?;
+        }
         let mut sidecar = VolumeSidecar {
             volume: request.volume,
             instance: request.instance,
@@ -57,24 +117,7 @@ impl VolumeStore for DirectoryVolumes {
         };
         let file = self.file(request.volume);
         if existing.is_none() {
-            self.transition(VolumeRecordKind::CreateBegin, request.volume)?;
-            // The data key is sealed and recorded before the sidecar names it, so a volume never
-            // exists without the key whose destruction is what proves its destruction.
-            let sealed = self.keys.seal(request.volume).map_err(|_| {
-                VolumeError::Encryption("the volume's data key could not be sealed")
-            })?;
-            self.keys.record(request.volume, &sealed).map_err(|_| {
-                VolumeError::Encryption("the volume's data key could not be recorded")
-            })?;
-            sidecar.dek_id = sealed.dek_id;
-            self.write_sidecar(&VolumeSidecar {
-                state: VolumeState::Detached,
-                ..sidecar.clone()
-            })?;
-            // The file and its filesystem are created here, so the repair below runs on a real
-            // ext4 filesystem rather than on a path that does not exist yet.
-            self.make(request.volume, &file, sidecar.size_class_gib)?;
-            self.transition(VolumeRecordKind::CreateEnd, request.volume)?;
+            self.create_volume(request.volume, &mut sidecar, &file)?;
         }
         let receipt = self.repairs.repair(request.volume, &file);
         if !receipt.is_usable() {
@@ -107,11 +150,8 @@ impl VolumeStore for DirectoryVolumes {
         // A start resolves the volume this Instance owns, detached or already attached: a stop
         // leaves it detached, and a start is what reattaches it. A volume a delete is in progress
         // on is not one a machine may be given.
-        let sidecar = state
-            .values()
-            .find(|sidecar| sidecar.instance == instance && sidecar.state != VolumeState::Deleting)
-            .cloned()
-            .ok_or(VolumeError::Missing("no volume belongs to this Instance"))?;
+        let sidecar = owned_volume(state.values(), instance)?.clone();
+        self.require_unstaged_workspace(sidecar.volume)?;
         let file = self.file(sidecar.volume);
         // The repair runs here rather than in the guest, on a file no machine holds yet: this is
         // the one place a start can check the filesystem without racing a running guest.
@@ -144,11 +184,7 @@ impl VolumeStore for DirectoryVolumes {
             .state
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
-        state
-            .values()
-            .find(|sidecar| sidecar.instance == instance)
-            .cloned()
-            .ok_or(VolumeError::Missing("no volume belongs to this Instance"))
+        owned_volume(state.values(), instance).cloned()
     }
 
     fn detach(&self, request: &DetachRequest) -> Result<DetachOutcome, VolumeError> {
@@ -165,6 +201,23 @@ impl VolumeStore for DirectoryVolumes {
         }
         if existing.state == VolumeState::Deleting {
             return Err(VolumeError::Busy("a delete is in progress"));
+        }
+        self.require_unstaged_workspace(request.volume)?;
+        // This inode is held for the lifetime of a worker. Keep the lock until
+        // the detached sidecar and its ledger have both been published.
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.file(request.volume))
+            .map_err(|_| VolumeError::Ledger("the volume file could not be opened for detach"))?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(fs::TryLockError::WouldBlock) => {
+                return Err(VolumeError::Busy("the volume is still in use"));
+            }
+            Err(fs::TryLockError::Error(_)) => {
+                return Err(VolumeError::Ledger("the volume lock could not be checked"));
+            }
         }
         let detached = VolumeSidecar {
             state: VolumeState::Detached,
@@ -191,6 +244,25 @@ impl VolumeStore for DirectoryVolumes {
             // replay after a lost answer succeeds rather than reporting a volume nobody owns.
             return Ok(());
         }
+        self.require_unstaged_workspace(volume)?;
+        // Do not unlink a disk while a live workspace owns its file description.
+        let locked = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.file(volume));
+        let _guard = match locked {
+            Ok(file) => match file.try_lock() {
+                Ok(()) => Some(file),
+                Err(fs::TryLockError::WouldBlock) => {
+                    return Err(VolumeError::Busy("the volume is still in use"));
+                }
+                Err(fs::TryLockError::Error(_)) => {
+                    return Err(VolumeError::Ledger("the volume lock could not be checked"));
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(VolumeError::Ledger("the volume could not be opened")),
+        };
         self.transition(VolumeRecordKind::DestroyBegin, volume)?;
         let directory = self.directory(volume);
         fs::remove_dir_all(&directory).map_err(|_| VolumeError::Ledger("volume unlink"))?;
@@ -213,24 +285,5 @@ impl VolumeStore for DirectoryVolumes {
             .get(&volume)
             .cloned()
             .ok_or(VolumeError::Missing("no sidecar names this volume"))
-    }
-}
-
-impl DirectoryVolumes {
-    /// Creates the volume's file and filesystem at the class it was admitted with.
-    ///
-    /// A refusal here is a volume that does not exist: the file is left as it was found, so a
-    /// later attach retries rather than inheriting a half-created volume.
-    fn make(&self, volume: VolumeId, file: &Path, class_gib: u32) -> Result<(), VolumeError> {
-        let bytes = u64::from(class_gib) * GIB;
-        self.repairs
-            .create(volume, file, bytes)
-            .map_err(|error| match error {
-                CreateError::Occupied => VolumeError::Busy("the volume path already holds data"),
-                CreateError::Size(_) => VolumeError::Geometry("the volume class has no size"),
-                CreateError::Tool(_) => {
-                    VolumeError::FsckFailed("the volume filesystem could not be created")
-                }
-            })
     }
 }

@@ -14,6 +14,7 @@ pub(super) enum Kind {
     File = 4,
     Pty = 5,
     Suspend = 6,
+    Workspace = 7,
     RepairComplete = 129,
     Stdout = 130,
     Stderr = 131,
@@ -22,6 +23,7 @@ pub(super) enum Kind {
     FileOutcome = 134,
     PtyOutcome = 135,
     SuspendAck = 136,
+    WorkspaceOutcome = 137,
 }
 
 impl Kind {
@@ -33,6 +35,7 @@ impl Kind {
             4 => Ok(Self::File),
             5 => Ok(Self::Pty),
             6 => Ok(Self::Suspend),
+            7 => Ok(Self::Workspace),
             129 => Ok(Self::RepairComplete),
             130 => Ok(Self::Stdout),
             131 => Ok(Self::Stderr),
@@ -41,6 +44,7 @@ impl Kind {
             134 => Ok(Self::FileOutcome),
             135 => Ok(Self::PtyOutcome),
             136 => Ok(Self::SuspendAck),
+            137 => Ok(Self::WorkspaceOutcome),
             _ => Err(Error::ApplicationMessageRejected),
         }
     }

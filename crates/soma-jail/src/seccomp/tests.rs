@@ -2,6 +2,7 @@
 //!
 //! `tables.rs` holds the table-invariant tests that share the interpreter.
 
+mod phases;
 mod tables;
 
 use super::{
@@ -82,20 +83,13 @@ fn programs_assemble_deterministically() {
     let steady = program_for(Phase::SteadyState);
     assert!(startup.len() > steady.len());
     assert_ne!(startup.fingerprint(), steady.fingerprint());
-    println!(
-        "GOLDEN startup {} {:#018x} steady {} {:#018x}",
-        startup.len(),
-        startup.fingerprint(),
-        steady.len(),
-        steady.fingerprint()
-    );
     assert_eq!(
         (startup.len(), startup.fingerprint()),
-        (222, 0x40b7_c33a_9001_c79b)
+        (248, 0x0a7f_432a_726c_408b)
     );
     assert_eq!(
         (steady.len(), steady.fingerprint()),
-        (136, 0x5a7e_7f52_4fbf_f350)
+        (176, 0xd94b_986b_b822_76d1)
     );
 }
 
@@ -237,30 +231,10 @@ fn clone_admits_threads_only_and_clone3_reports_enosys() {
 }
 
 #[test]
-fn phase_difference_is_exactly_the_documented_set() {
-    let mut computed = startup_only_syscalls();
-    computed.sort_unstable();
-    let mut documented = policy::STARTUP_ONLY.to_vec();
-    documented.sort_unstable();
-    assert_eq!(computed, documented);
-    let mut steady: Vec<&str> = ioctls::IOCTL_RULES
-        .iter()
-        .filter(|rule| rule.phases == ioctls::IoctlPhases::Both)
-        .map(|rule| rule.name)
-        .collect();
-    steady.sort_unstable();
-    let mut documented = ioctls::STEADY_REQUESTS.to_vec();
-    documented.sort_unstable();
-    assert_eq!(steady, documented);
-    let tightened: Vec<&str> = policy::RULES
-        .iter()
-        .filter(|rule| rule.steady.is_some_and(|steady| steady != rule.startup))
-        .map(|rule| rule.name)
-        .collect();
-    assert_eq!(tightened, ["mmap", "mprotect", "prctl"]);
-    assert!(
-        policy::RULES
-            .iter()
-            .any(|rule| rule.startup == ArgCheck::IoctlAllowlist)
-    );
+fn set_clock_uses_the_linux_request_and_remains_startup_only() {
+    let ioctl = nr("ioctl");
+    let args = |request| [0, request, 0, 0, 0, 0];
+    assert_eq!(run(Phase::Startup, ioctl, args(0x4030_ae7b)), ALLOW);
+    assert_eq!(run(Phase::Startup, ioctl, args(0x4030_ae7d)), KILL);
+    assert_eq!(run(Phase::SteadyState, ioctl, args(0x4030_ae7b)), KILL);
 }

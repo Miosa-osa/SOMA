@@ -5,7 +5,10 @@
 //! Constant-size header checks run before any section payload is decoded, so a large
 //! artifact is never mapped for an incompatible snapshot.
 
+mod device;
 mod reason;
+pub use device::check_device;
+use device::{check_state_device, exact};
 #[cfg(test)]
 mod tests;
 
@@ -16,7 +19,7 @@ use super::{
     device_state::{DeviceKind, DeviceState, MAX_QUEUES},
     hotplug,
     kvm_state::VmState,
-    manifest::{Architecture, HostCapability, Manifest, PageSize, SCHEMA_VERSION},
+    manifest::{Architecture, HostCapability, Manifest, PageSize, SCHEMA_VERSION, StateView},
     section::SectionRole,
 };
 
@@ -62,14 +65,21 @@ pub struct HostProfile {
 ///
 /// Returns the first [`Incompatibility`] in the fixed check order.
 pub fn check(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibility> {
-    check_header(host, manifest)?;
+    check_state(host, manifest.state())
+}
+
+pub(crate) fn check_state(
+    host: &HostProfile,
+    manifest: StateView<'_>,
+) -> Result<(), Incompatibility> {
+    check_state_header(host, manifest)?;
     check_vcpu_sections(host, manifest)?;
-    check_vm_layout(manifest)?;
+    check_state_layout(manifest)?;
     for (index, expectation) in host.devices.iter().enumerate() {
         let slot =
             u8::try_from(index).map_err(|_| Incompatibility::NoExpectationForSlot(u8::MAX))?;
         if expectation.is_some() {
-            check_device(host, manifest, slot)?;
+            check_state_device(host, manifest, slot)?;
         } else if let Some(role) =
             device_role(slot).filter(|role| manifest.section(*role).is_some())
         {
@@ -94,6 +104,13 @@ pub fn check_hotplug(
     expected: Option<crate::memory_layout::HotplugRegion>,
     manifest: &Manifest,
 ) -> Result<(), Incompatibility> {
+    check_state_hotplug(expected, manifest.state())
+}
+
+pub(crate) fn check_state_hotplug(
+    expected: Option<crate::memory_layout::HotplugRegion>,
+    manifest: StateView<'_>,
+) -> Result<(), Incompatibility> {
     let actual = manifest
         .section(SectionRole::HotplugRegion)
         .map(|section| hotplug::decode(section.payload()))
@@ -106,17 +123,14 @@ pub fn check_hotplug(
     }
 }
 
-/// The largest vCPU section set the format admits.
-const MAX_VCPU_SECTIONS: u16 = 8;
-
 /// Requires exactly one vCPU state section per certified processor and no more.
 ///
 /// The header already compares the count, but a count alone would let a manifest carry the
 /// wrong sections: a machine with one processor could carry `Vcpu0` and `Vcpu1` and still say
 /// one, and a machine with eight could carry only `Vcpu0`. Both restore into a machine that is
 /// not the one that was captured, so the section set is checked rather than inferred.
-fn check_vcpu_sections(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibility> {
-    for index in 0..MAX_VCPU_SECTIONS {
+fn check_vcpu_sections(host: &HostProfile, manifest: StateView<'_>) -> Result<(), Incompatibility> {
+    for index in 0..crate::mptable::MAX_PROCESSORS {
         let Some(role) = SectionRole::vcpu(index) else {
             continue;
         };
@@ -143,7 +157,11 @@ fn device_role(slot: u8) -> Option<SectionRole> {
 ///
 /// Returns the first header [`Incompatibility`].
 pub fn check_header(host: &HostProfile, manifest: &Manifest) -> Result<(), Incompatibility> {
-    let header = manifest.header();
+    check_state_header(host, manifest.state())
+}
+
+fn check_state_header(host: &HostProfile, manifest: StateView<'_>) -> Result<(), Incompatibility> {
+    let header = manifest.header;
     exact(host.schema_version, SCHEMA_VERSION, |expected, actual| {
         Incompatibility::SchemaVersion { expected, actual }
     })?;
@@ -209,11 +227,15 @@ pub fn check_header(host: &HostProfile, manifest: &Manifest) -> Result<(), Incom
 ///
 /// Returns [`Incompatibility::MalformedVmState`] or [`Incompatibility::MemoryLayout`].
 pub fn check_vm_layout(manifest: &Manifest) -> Result<(), Incompatibility> {
+    check_state_layout(manifest.state())
+}
+
+fn check_state_layout(manifest: StateView<'_>) -> Result<(), Incompatibility> {
     let section = manifest
         .section(SectionRole::VmState)
         .ok_or(Incompatibility::MissingSection(SectionRole::VmState))?;
     let vm = VmState::decode(section.payload()).map_err(Incompatibility::MalformedVmState)?;
-    let expected = manifest.header().memory.size();
+    let expected = manifest.header.memory.size();
     let covered = vm.total_bytes();
     let in_bounds = vm.slots().iter().all(|slot| {
         slot.memory_offset
@@ -227,61 +249,4 @@ pub fn check_vm_layout(manifest: &Manifest) -> Result<(), Incompatibility> {
         });
     }
     Ok(())
-}
-
-/// Decodes one device section and compares queue limits and negotiated features with the
-/// host expectation for that slot.
-///
-/// # Errors
-///
-/// Returns the first device [`Incompatibility`] for `slot`.
-pub fn check_device(
-    host: &HostProfile,
-    manifest: &Manifest,
-    slot: u8,
-) -> Result<(), Incompatibility> {
-    let expectation = host
-        .devices
-        .get(usize::from(slot))
-        .and_then(|expectation| expectation.as_ref())
-        .filter(|expectation| expectation.kind.slot() == slot)
-        .ok_or(Incompatibility::NoExpectationForSlot(slot))?;
-    let role = device_role(slot).ok_or(Incompatibility::NoExpectationForSlot(slot))?;
-    let section = manifest
-        .section(role)
-        .ok_or(Incompatibility::MissingSection(role))?;
-    let state = DeviceState::decode_for_slot(slot, section.payload())
-        .map_err(|error| Incompatibility::MalformedDevice { slot, error })?;
-    for (index, queue) in state.queues().iter().enumerate() {
-        let expected = expectation.queue_limits[index];
-        if queue.max_size != expected {
-            return Err(Incompatibility::QueueLimit {
-                slot,
-                queue: u8::try_from(index).unwrap_or(u8::MAX),
-                expected,
-                actual: queue.max_size,
-            });
-        }
-    }
-    exact(
-        expectation.negotiated_features,
-        state.negotiated_features(),
-        |expected, actual| Incompatibility::FeatureNegotiation {
-            slot,
-            expected,
-            actual,
-        },
-    )
-}
-
-fn exact<T: PartialEq + Copy>(
-    expected: T,
-    actual: T,
-    reason: impl FnOnce(T, T) -> Incompatibility,
-) -> Result<(), Incompatibility> {
-    if expected == actual {
-        Ok(())
-    } else {
-        Err(reason(expected, actual))
-    }
 }

@@ -17,6 +17,7 @@ mod bootstrap;
 pub(super) mod channel;
 mod client_launch;
 mod command;
+mod control;
 mod live_cgroup;
 mod reaper;
 mod serve;
@@ -26,6 +27,7 @@ mod tunnel;
 mod warm;
 mod warm_gate;
 mod wire;
+pub(crate) use control::{checkpoint, pause, resize, resume, set_egress, workspace};
 
 #[cfg(test)]
 mod tests;
@@ -41,6 +43,7 @@ use soma::{
 };
 
 pub(crate) use bootstrap::host_machine;
+pub(in crate::backend) use client_launch::LaunchHandoff;
 pub(super) use client_launch::{HostedLaunch, launch};
 pub(super) use command::{execute, execute_streaming};
 pub(in crate::backend::kvm) use live_cgroup::under_root_lock;
@@ -134,55 +137,6 @@ pub(super) fn pty(
     }
 }
 
-/// Reports whether a host process is serving this Instance right now.
-///
-/// It connects and does nothing else. What that proves is exactly one thing and it is worth
-/// naming: a process has the Instance's socket bound and accepted a connection on it. It is not
-/// a claim that the guest inside is healthy, which is what an inspection by exact identity
-/// answers; it is the difference between a durable record whose host is running and one whose
-/// host is gone.
-///
-/// A socket nothing answers on is removed by the connect itself, so a host that died leaves no
-/// name behind for a second listing to report.
-/// Asks the host that holds `instance` to change its CPU and memory live.
-pub(crate) fn resize(
-    directory: &Path,
-    instance: &InstanceId,
-    request: crate::ResizeRequest,
-) -> Result<crate::ResizeOutcome, crate::ResizeFailure> {
-    let call = Call::Resize {
-        instance_id: instance.clone(),
-        request,
-    };
-    match ask(directory, instance, &call, CONTROL_CEILING) {
-        Ok(Answer::Resized(outcome)) => Ok(outcome),
-        Ok(Answer::ResizeRefused(failure)) => Err(failure),
-        Err(HostFailure::Absent) => Err(crate::ResizeFailure::NotFound),
-        _ => Err(crate::ResizeFailure::Unavailable),
-    }
-}
-
-/// Asks the host that holds `instance` to open or close its egress.
-///
-/// Anything that is not the host's own outcome is a failure the caller must read as "the egress
-/// may not be what I asked for", including a host that does not know the call.
-pub(crate) fn set_egress(
-    directory: &Path,
-    instance: &InstanceId,
-    request: crate::EgressSetRequest,
-) -> Result<crate::EgressSetOutcome, crate::EgressSetFailure> {
-    let call = Call::SetEgress {
-        instance_id: instance.clone(),
-        request,
-    };
-    match ask(directory, instance, &call, CONTROL_CEILING) {
-        Ok(Answer::EgressSet(outcome)) => Ok(outcome),
-        Ok(Answer::EgressRefused(failure)) => Err(failure),
-        Err(HostFailure::Absent) => Err(crate::EgressSetFailure::NotFound),
-        _ => Err(crate::EgressSetFailure::Unavailable),
-    }
-}
-
 pub(super) fn liveness(directory: &Path, instance: &InstanceId) -> SandboxLiveness {
     match channel::connect(directory, instance) {
         Ok(_) => SandboxLiveness::Live,
@@ -204,12 +158,6 @@ pub(super) fn inspect(
     }
 }
 
-/// Releases the hosted machine, and waits for the host to close the connection.
-///
-/// The host releases everything it owns before it answers, and closes only on its way out, so a
-/// close observed after the evidence is the point at which nothing of this Instance is left in
-/// any process. The socket is then removed, because an Instance with no host must not leave a
-/// name behind that a later lookup would report as one.
 /// How long a suspension may take: reading every byte of guest memory and the private head.
 const SUSPEND_CEILING: Duration = Duration::from_mins(11);
 
@@ -231,6 +179,9 @@ pub(super) fn suspend(
     }
 }
 
+/// Releases the hosted machine, and waits for the host to close the connection.
+///
+/// The host removes its socket and releases the guest before closing the connection.
 pub(super) fn cleanup(
     directory: &Path,
     instance: &InstanceId,
@@ -247,6 +198,5 @@ pub(super) fn cleanup(
         _ => return Err(HostFailure::Refused(BackendFailureKind::CleanupFailure)),
     };
     await_close(&mut stream)?;
-    let _ignored = std::fs::remove_file(channel::socket_path(directory, instance));
     Ok(evidence)
 }
