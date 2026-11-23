@@ -54,6 +54,34 @@ Four concurrent runs through the SOMA alpha.5 Docker backend each trained for 2,
 Each run had a distinct instance ID and reported complete machine and storage cleanup.
 The results apply to the deterministic 4×4 map and these seeds.
 
+## Try the workload through MIOSA
+
+The MIOSA CLI can run the same Python workload on an existing sandbox with Python 3.10 or later, the Python `venv` module, curl, and outbound access to GitHub and PyPI.
+Create a private sandbox without a workspace environment if you need a temporary one.
+Check which runtime MIOSA placed before attributing results to SOMA.
+
+```sh
+miosa create frozenlake-trial --runtime auto --size xs --no-env --visibility private --ttl 30m --wait
+miosa --json sandbox resources frozenlake-trial
+miosa --timeout 120 exec frozenlake-trial -- sh -eu -c '
+  work=$(mktemp -d)
+  trap '\''rm -rf "$work"'\'' EXIT
+  source=https://raw.githubusercontent.com/Miosa-osa/SOMA/09cfacd9dc76f815740685f8646226eed07eddf7/workloads/rl-frozenlake
+  curl -fsSL "$source/train.py" -o "$work/train.py"
+  curl -fsSL "$source/requirements.txt" -o "$work/requirements.txt"
+  python3 -m venv "$work/python"
+  "$work/python/bin/python" -m pip install -q --only-binary=:all: -r "$work/requirements.txt"
+  "$work/python/bin/python" "$work/train.py" --seed 42
+'
+miosa destroy frozenlake-trial --yes
+```
+
+The managed sandbox smoke used auto placement and reported `capabilities.runtime_engine=firecracker`.
+It reached the goal 100 times out of 100, compared with 1 for the random baseline.
+To require SOMA, use `--runtime soma` with a supported size such as `small` and check runtime capacity before running the workload.
+This CLI example installs the workload inside the guest.
+The published OCI image is an input for the separate SOMA Generation workflow.
+
 ## Larger training workloads
 
 This workload trains a small policy inside each instance.
