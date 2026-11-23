@@ -105,14 +105,14 @@ done < <(
     # `find -printf` is GNU only. On BSD find it fails, the pipeline yields nothing, and the
     # loop below never runs, so duplicate decision records pass silently on macOS. The base
     # name is taken with sed instead, which every POSIX find can feed.
-    find docs/adr -type f -name '[0-9][0-9][0-9][0-9]-*.md' \
+    find docs/engineering/adr -type f -name '[0-9][0-9][0-9][0-9]-*.md' \
         | sed 's|.*/||' \
         | cut -c1-4 \
         | sort \
         | uniq -d
 )
 
-readonly CLAIM_LEDGER=docs/claim-ledger.md
+readonly CLAIM_LEDGER=docs/engineering/claim-ledger.md
 
 if [[ ! -f "${CLAIM_LEDGER}" ]]; then
     printf '%s is missing; every capability claim must have a ledger row\n' "${CLAIM_LEDGER}" >&2
@@ -146,7 +146,7 @@ else
             | grep -v '^https\{0,1\}:' \
             | sort -u \
             | while IFS= read -r relative; do
-                if [[ ! -e "docs/${relative}" ]]; then
+                if [[ ! -e "${CLAIM_LEDGER%/*}/${relative}" ]]; then
                     printf '%s\n' "$relative"
                 fi
             done

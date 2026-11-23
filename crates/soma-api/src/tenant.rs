@@ -23,7 +23,7 @@ impl TenantId {
 /// TENANCY SEAM. This is the single place where caller identity is established, and it is
 /// deliberately unfinished.
 ///
-/// SOMA has no tenancy decision record yet: `docs/adr/` stops at 0033 and nothing there defines
+/// SOMA has no tenancy decision record yet: `docs/engineering/adr/` stops at 0033 and nothing there defines
 /// how a caller proves who it is. Rather than invent a token format, a signing scheme, or a key
 /// store that a later decision would have to undo, this function reads one header, validates only
 /// its shape, and refuses every request that omits it. Replace the body of this function, and

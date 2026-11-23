@@ -24,7 +24,7 @@
 //! - [`lease`], `release`, and `reconcile` own single-use head ownership, destruction, and
 //!   the audit of a head directory against the ownership ledger.
 //! - `bench` is the retained measurement matrix behind the on-demand versus prepared-head
-//!   decision in `docs/evidence`.
+//!   decision in `docs/engineering/evidence`.
 //!
 //! Portable types compile everywhere.
 //! Every kernel mechanism is Linux-only and fails closed elsewhere.

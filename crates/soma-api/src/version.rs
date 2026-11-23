@@ -4,7 +4,7 @@
 //! envelope, and a change no older client can survive needs a new major beside the old one. The
 //! minor counts additive revisions of that surface, so a client that needs a route added in
 //! `1.2` can say so and be refused cleanly by a `1.1` service instead of meeting a 404.
-//! `docs/protocol/api-surface.md` records the surface of every minor, and a test fails when the
+//! `docs/product/reference/api-surface.md` records the surface of every minor, and a test fails when the
 //! surface changes without it.
 
 use std::fmt;

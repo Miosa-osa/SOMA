@@ -50,7 +50,7 @@ Reports are especially valuable in these areas:
 - Denial of service that escapes the declared Machine resource limits.
 - Dependency, build, release, signing, SBOM, or provenance compromise.
 
-The detailed intended model is in [docs/threat-model.md](docs/threat-model.md).
+The detailed intended model is in [docs/engineering/threat-model.md](docs/engineering/threat-model.md).
 That document defines intended invariants and does not claim the pre-alpha implementation satisfies them.
 
 ## Supported versions

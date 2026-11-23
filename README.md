@@ -13,11 +13,11 @@
 
 <p align="center">
   <strong>Secure Optimized Machine Architecture</strong><br>
-  Give every agent a body built to be trusted.
+  An open-source runtime for isolated Linux workloads.
 </p>
 
 <p align="center">
-  <a href="VERSION"><img alt="Version 1.0.0-alpha.4" src="https://img.shields.io/badge/version-1.0.0--alpha.4-7c3aed?style=flat-square"></a>
+  <a href="VERSION"><img alt="Alpha release" src="https://img.shields.io/badge/release-alpha-7c3aed?style=flat-square"></a>
   <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI workflow" src="https://img.shields.io/badge/CI-workflow-555555?style=flat-square&logo=githubactions"></a>
   <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security workflow" src="https://img.shields.io/badge/security-workflow-555555?style=flat-square&logo=githubactions"></a>
   <a href="rust-toolchain.toml"><img alt="Rust 1.98" src="https://img.shields.io/badge/rust-1.98-000000?style=flat-square&logo=rust"></a>
@@ -25,196 +25,175 @@
   <a href="LICENSE"><img alt="Apache-2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-111111?style=flat-square"></a>
 </p>
 
-The name describes the role.
-The model is the mind, while SOMA is the disposable machine body that executes its work.
+SOMA starts and manages isolated Linux workloads from OCI images.
+On Linux x86_64, it uses its Rust virtual machine monitor and KVM to run each workload in a microVM.
+SOMA exposes a CLI, Rust library, HTTP API, and MCP server.
 
-For engineers, SOMA is one open-source KVM runtime for every Linux machine.
-Each SOMA instance is a hardware-isolated machine built from an OCI image that starts in milliseconds.
-An instance becomes whatever its image and settings make it: a sandbox, a desktop with computer use, a browser, a database, an app server or a function.
-Instances resize their CPU and memory live within set limits, and they can be checkpointed, forked and given durable volumes.
-SOMA provides a small CLI, a portable Rust interface, an HTTP API and an MCP server for agents, backed by explicit lifecycle and execution evidence.
+A **SOMA instance** is one concrete, independently identified lifetime of a machine launched by SOMA.
+The same machine type can run an agent sandbox, an interactive desktop, or a web service.
+The workload image supplies the software inside the instance.
+The platform or caller supplies product features such as deployment URLs, release management, scheduling, and billing.
 
-## Where to go
+**Start here** · [Product and usage docs](docs/product/README.md) · [Engineering docs](docs/engineering/README.md) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
 
-| I want to understand or do this | Open this file |
-|---|---|
-| Learn what the sandbox, VMM, KVM, guest, Template, Generation, and Instance are | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
-| Follow one sandbox end to end, from Template to cleanup, as it exists on the Linux KVM path today | [How one SOMA sandbox works today](docs/guides/how-it-works.md) |
-| Prove the whole flow still works on a host, from setup to a sandbox that left nothing behind | [The end to end check](docs/guides/end-to-end-check.md) |
-| See exactly what sits on top of what, what connects, and which pieces are required | [What makes one SOMA sandbox](docs/architecture/sandbox-stack.md) |
-| Understand the measurable engineering bar for state-of-the-art admission | [SOMA engineering standard](docs/standards/sota-engineering-standard.md) |
-| See every capability against one status vocabulary with its evidence | [Claim ledger](docs/claim-ledger.md) |
-| See the complete machine as plain-text pictures | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
-| Understand where Node, Python, shells, and user agent programs come from | [Workload selection and execution](docs/architecture/visual-atlas.md#5-where-node-python-or-another-runtime-comes-from) |
-| Build reusable templates for Claude Code, Codex, OSA, Hermes, or another workload | [Composable template system](docs/architecture/template-system.md) |
-| Author a Template from a working example and see every field in one table | [Templates](docs/guides/templates.md) |
-| Write your first Template and learn what the Template compiler accepts, rejects, and locks | [Creating a Template](docs/guides/creating-templates.md) |
-| Implement the template system in dependency order | [Template implementation map](docs/research/template-implementation-map.md) |
-| Understand vCPUs, overcommit, shared memory, and how 200 sandboxes fit on 80 threads | [Host capacity and density](docs/architecture/visual-atlas.md#how-200-sandboxes-can-fit-on-80-hardware-threads) |
-| Learn capacity incrementally from one sandbox through larger Hosts and overload | [Incremental capacity ladder](docs/architecture/visual-atlas.md#15-capacity-ladder-from-one-sandbox-to-a-fleet) |
-| See what limits 100,000 sandboxes and how a fleet reaches that scale | [100,000-sandbox model](docs/architecture/visual-atlas.md#16-can-one-host-create-100000-sandboxes) |
-| Find the exact meaning of a SOMA or virtualization term | [Glossary](GLOSSARY.md) |
-| Navigate every Rust crate and responsibility | [Module map](docs/architecture/module-map.md) |
-| Compare Docker, Apple VMs, and Linux KVM honestly | [Local sandbox reality](docs/architecture/local-sandbox-reality.md) |
-| Implement or continue the Linux custom VMM | [Linux VMM handoff](docs/operations/linux-vmm-handoff.md) |
-| Follow the remaining VMM work in dependency order | [VMM decision map](docs/research/vmm-decision-map.md) |
-| Understand the researched production architecture and credible path to 10 ms | [Production sandbox architecture research](docs/research/production-sandbox-deep-research.md) |
-| Understand the custom Rust VMM, KVM ownership, memory, vCPUs, virtio, snapshots, and exact implementation tickets | [Rust VMM engineering deep dive](docs/research/rust-vmm-engineering-deep-dive.md) |
-| Compare hidden Rust VMM repositories and the exact ideas SOMA should borrow or reject | [Rust VMM GitHub hidden gems](docs/research/rust-vmm-github-hidden-gems.md) |
-| Review the broad GitHub VMM census, mistakes, failure patterns, and resulting SOMA guardrails | [Rust VMM GitHub census and failure atlas](docs/research/rust-vmm-github-census-and-failure-atlas.md) |
-| Compare the newest finds directly with SOMA and decide what to adopt, adapt, or reject | [Competitive module adoption audit](docs/research/competitive-module-adoption-audit.md) |
-| Integrate Claude Code, Codex, OSA, Hermes, or another agent | [Agent integration guide](docs/integrations/agents.md) |
-| Evaluate isolation and security claims | [Threat model](docs/threat-model.md) and [security policy](SECURITY.md) |
-| Read the current overall engineering assessment | [Dated engineering assessment](docs/reviews/2026-08-29-overall-engineering-assessment.md) |
-| Review and repair the independently collected Isorun telemetry before relying on it | [Isorun evidence review](docs/reviews/2026-08-30-isorun-evidence-review.md) |
-| Understand performance measurements and claims | [Benchmark contract](docs/benchmark-contract.md) |
-| Contribute code or documentation | [Contribution guide](CONTRIBUTING.md) |
+## What you can run
 
-## What makes SOMA different
+| Use case | What runs in the instance |
+| --- | --- |
+| Agent sandbox, build, or test | A headless Linux image with the tools needed to execute commands and work with files |
+| Browser automation | A Linux image with a browser and its automation tools |
+| Interactive desktop | A Linux desktop image with a graphical session, computer-use driver, and browser viewer |
+| Web service or API | A Linux image with a server process and an exposed guest port |
+| Function or scheduled job | A Linux image with a handler or command invoked by the integrating platform |
+| Database process | A Linux image with the database and a storage configuration suited to its data lifecycle |
 
-- One explicitly identified Linux container per local Docker sandbox today, with a custom hardware-isolated VMM planned for Linux hosts.
-- Direct argument-vector execution without a host shell.
-- Bounded commands, time, output, and control responses.
-- User-selected CPU, memory, storage, image, and human-readable Machine metadata.
-- Exact OCI manifest identity with explicit observed-only or launch-enforced binding evidence.
-- Fail-closed platform selection with no silent downgrade to host processes or namespace-only isolation.
-- Evidence-carrying receipts for workload identity, Instance identity, isolation, preparation, shape, timing, command outcome, and cleanup.
-- One portable use-case surface for humans, agents, and cloud control planes.
+See the [desktop workload](workloads/desktop/README.md) for the reference desktop, and [use-case architecture](docs/engineering/architecture/use-cases.md) for the lifecycle available to callers.
+Public routing, replica management, and stable application identity belong to the platform integrating SOMA.
 
-## Try it locally with Docker Desktop
+## How an instance starts
 
-The current working local path uses Docker Desktop on macOS or Docker Engine on Linux.
-Docker must be running.
-The Docker Backend resolves the Host's own architecture, so an x86_64 Host uses `linux/amd64` images and an ARM64 Host uses `linux/arm64`.
+1. Choose an OCI image and the vCPU, memory, and writable-storage shape.
+   Use a [Template](docs/product/guides/templates.md) to reuse the recipe.
+2. Prepare a **Generation**, the immutable set of machine artifacts used to launch instances.
+   A prepared Generation can carry a captured snapshot for restore.
+3. **Launch** a fresh instance with its own identity and private writable state.
+   The guest agent completes repair and authenticates before the instance is reported **Ready**.
+4. Address the instance by its **Instance ID** to execute commands, work with files, or perform lifecycle operations.
+   A **Receipt** records the effective isolation, operation outcome, timings, and cleanup where applicable.
+
+An instance's display name is descriptive metadata.
+A platform can keep an application or workspace identity stable across replacement instances.
+The glossary defines [Instance](GLOSSARY.md#instance), [Machine](GLOSSARY.md#machine), and [Generation](GLOSSARY.md#generation).
+
+## Try one isolated command
+
+This development example requires a running Docker Desktop or Docker Engine.
+It executes one command and cleans up the local workload.
 
 ```sh
 git clone https://github.com/Miosa-osa/SOMA.git
 cd SOMA
-cargo run --locked -p soma-cli -- doctor
+cargo run --locked -p soma-cli -- --backend docker doctor
 cargo run --locked -p soma-cli -- --backend docker run node:22 -- /usr/local/bin/node --version
 ```
 
-The final command pulls or reuses `node:22`, creates a constrained Docker container, runs Node directly, returns its exact bytes, and proves cleanup.
-Use `--backend docker` to select Docker explicitly.
-Ubuntu, Python, Kali, and other compatible Linux ARM64 OCI images use the same interface.
-This local path is a container boundary inside Docker Desktop's Linux VM, not a per-sandbox hardware VM.
+The Docker backend uses a Linux container for local development.
+For the hardware-isolated Linux path, follow the [KVM host setup](docs/product/operations/server-setup.md) and [end-to-end check](docs/product/guides/end-to-end-check.md).
 
-### What works on macOS
+## Control and inspect instances
 
-The Apple backend creates a Linux VM through Apple Virtualization.
-The Docker backend creates a Linux container inside Docker Desktop's Linux VM.
-Both are usable local SOMA sandbox paths, with different isolation guarantees.
+| Interface | Use it for |
+| --- | --- |
+| CLI | Run a one-shot command with `soma run` or manage an instance with `soma machine` |
+| HTTP | Create, inspect, execute, change resources, suspend, resume, and destroy through `soma-api` |
+| MCP | Give an agent access to bounded command execution and managed lifecycle operations |
+| Rust | Embed the portable SOMA interface in a local tool or runtime integration |
 
-The custom Rust KVM VMM and other Linux-KVM VMMs require Linux `/dev/kvm` and cannot run natively on macOS.
-A Docker image can compile the VMM and run KVM-independent tests, but Docker Desktop does not turn the Mac into a reliable nested-KVM host.
-Real VMM execution and latency benchmarks belong on a Linux KVM host.
+The [HTTP API surface](docs/product/reference/api-surface.md) describes the routes, fields, and versioning.
+Existing API paths such as `/v1/sandboxes/{instance}` address SOMA instances.
+The [agent integration guide](docs/product/integrations/agents.md) documents the MCP tool contracts.
 
-## Shape and customize a sandbox
-
-Every run or managed launch carries an explicit Machine shape with vCPU, memory, and writable-storage dimensions.
-It can also carry a bounded human display name, while a globally unique Instance ID remains the only lifecycle and ownership identity.
-
-OCI layers are the reproducible customization mechanism.
-Change a Dockerfile or build input, produce a new image digest, and SOMA resolves that digest into a separately identified Generation instead of mutating a shared base VM.
-Persistent mutable project data will use an explicitly sized workspace volume with its own ownership contract, while disposable Machine state is destroyed after use.
-
-Backends must report each effective dimension independently.
-If a backend cannot prove that a requested disk, CPU, memory, or network property was enforced, the receipt reports that dimension as unavailable rather than inventing a value.
-The current Apple development backend enforces requested CPU and memory but reports root writable-storage enforcement as unavailable.
-
-## Built for agents
-
-SOMA exposes bounded stdio MCP tools for one-shot execution and managed launch, execute, inspect, stop, and destroy operations.
-Guest commands are structured argument arrays rather than shell strings, and arbitrary binary output is returned with explicit base64 encoding.
-
-Claude Code, Codex, OSA, Hermes, and other MCP clients can use the same local server.
-See the [agent integration guide](docs/integrations/agents.md) for exact setup and tool contracts.
-
-## Security model
-
-SOMA treats security state as evidence instead of a marketing label.
-The interface records what was observed, what was enforced, what remained unavailable, and whether owned resources were cleaned up.
-
-The current implementation includes constrained Docker-container execution for local development, direct process invocation, strict input bounds, output and timeout enforcement, ownership checks before lifecycle mutations, redacted diagnostics, typed failures, and dependency and secret scanning.
-On the KVM path a reusable Generation carries public identity only: the responder static secret is sampled fresh for every Instance and delivered in the non-snapshot launch page, so retrieving every artifact of a Generation grants no guest authentication authority.
-The production design additionally requires authenticated guest readiness, fresh identity repair, private copy-on-write memory and disk state, a constrained VMM process, and certified immutable Generations before stable `1.0.0`.
-
-Read the [threat model](docs/threat-model.md) and [security policy](SECURITY.md) before evaluating trust claims.
-Report vulnerabilities privately rather than through a public issue.
+Supported backends can report effective CPU, memory, storage, and network properties.
+The HTTP service exposes capability-gated live CPU and memory resizing, autosizing, host capacity, and encrypted suspension.
+Resuming a suspension creates a fresh instance identity.
 
 ## Platform status
 
-Portable clients and local isolation engines earn support independently.
-An unsupported local engine returns an explicit error and never runs the workload on the host as a fallback.
-Status words below are the five terms defined in [the engineering standard](docs/standards/sota-engineering-standard.md#status-vocabulary), and [the claim ledger](docs/claim-ledger.md) lists every capability against them.
+| Host | Engine and scope |
+| --- | --- |
+| Linux x86_64 with KVM | Native microVM path and the target for production admission |
+| Apple Silicon macOS | Local Linux VM development through Apple Virtualization, with Docker available as a separate container backend |
+| Linux or macOS with Docker | Local container development and portable interface testing |
+| Other hosts | Portable client support varies by target, and local execution requires a supported backend |
 
-| Host | CLI, library, and MCP | Local sandbox engine | Current evidence |
-| --- | --- | --- | --- |
-| macOS with Docker Desktop | Native validation | Linux container per OCI sandbox inside Docker's Linux VM | Live Ubuntu and Node 22 lifecycle, command, and cleanup validation |
-| Ubuntu 24.04 and 26.04 x86_64 | Native CI | KVM capability probe; test-only cold boot of a compiled Generation and test-only snapshot capture and restore | Live-proved at `71161ea`: a compiled busybox Generation booted on a real host with the five virtio-mmio devices, the static guest agent authenticated over vsock, one bounded command returned its bytes and exit status, and cleanup was proven. Live-proved at `7c1127d`: a `node:22` Generation was captured at its repair point and restored repeatedly into independent authenticated Instances. Both runs are historical, because the guest authority model changed afterwards, so on current bytes this path is component-tested. No network egress, jail, prepared workers, or sandbox lifecycle process |
-| Windows Server 2025 x86_64 | Native CI | None | Portable client only |
-| Linux ARM64 | Native development validation | KVM capability probe | Explicit-fixture cold boot and direct command execution exist only as dedicated ignored tests, not a custom sandbox lifecycle |
-| Intel macOS, Windows ARM64 | Compile gate | None | Portable client only |
+SOMA refuses an unavailable backend explicitly.
+The [portability guide](docs/product/operations/deployment-portability.md) explains host requirements and the difference between client portability and local engine support.
 
-Linux OCI guests are the first workload contract.
-An authenticated remote engine is planned for clients without a supported local engine, but it is not implemented in this alpha.
-The [deployment portability contract](docs/operations/deployment-portability.md) explains how suitable AWS, Google Cloud, other Linux cloud, and on-premises hosts earn engine support while managed function runtimes remain remote callers.
-
-## Architecture
+## Architecture and security
 
 ```text
-human CLI      agent MCP      Rust caller
-    \              |              /
-       portable SOMA use-case facade
-                    |
-       capability-gated backend seam
-              /                 \
- Apple Container 1.3       SOMA KVM path
- development backend       production target
-              |                 |
-       Linux ARM64 VM      soma-vmm + Linux VM
+CLI, HTTP, MCP, or Rust caller
+             |
+      SOMA lifecycle API
+             |
+   Capability-gated backend
+             |
+   Isolated guest and workload
 ```
 
-The latency-sensitive production design uses a node-local prepared-worker allocator, one VMM process per Machine, immutable Generation artifacts, private copy-on-write state, and one fused authenticated repair and readiness operation.
-Provider placement, billing, tenant policy, and public control planes remain outside this repository.
-The [complete architecture diagrams](docs/architecture/diagrams.md) include the one-shot transaction, 100-sandbox burst path, durable managed lifecycle, customization flow, and security boundaries.
+The [architecture diagrams](docs/engineering/architecture/diagrams.md) trace launch, command execution, and cleanup.
 
-## Performance contract
+### How SOMA applies zero trust
 
-These are admission targets for the future certified KVM engine, not current benchmark claims.
+SOMA treats workload code, guest messages, and guest-controlled device state as untrusted at the host boundary.
+Code running as root inside an instance still runs on the guest side of that boundary.
+
+- **Verify before launch.** SOMA binds a prepared Generation to immutable artifacts and checks compatibility before restore.
+  An incompatible artifact or unavailable backend fails explicitly.
+- **Isolate each instance.** On Linux KVM, a VMM process owns the instance and its virtual devices.
+  Instances can share immutable Generation artifacts, and each gets private writable memory and disk state.
+- **Authenticate readiness.** Every launch creates fresh guest authority.
+  The guest agent completes identity, entropy, time, network, and transport repair before it can prove readiness over its own authenticated session.
+- **Scope execution and cleanup.** Guest commands use direct argument arrays with bounded time and output.
+  Lifecycle operations check ownership, and receipts report the result and cleanup state where applicable.
+
+The host kernel, hardware virtualization, SOMA release, and operator policy are part of the trusted base.
+The [threat model](docs/engineering/threat-model.md) describes those assumptions, the adversaries, and the evidence required before production use.
+
+### How we verify it during development
+
+The [contribution guide](CONTRIBUTING.md) describes the test workflow and review process.
+Changes to public interfaces, snapshot compatibility, or trust assumptions require an [architecture decision](docs/engineering/adr).
+Rust `unsafe` code requires a local safety explanation and a test or invariant that supports it.
+
+The repository checks correctness and dependency policy in CI, scans for secrets and vulnerable dependencies, and runs a separate smoke workflow on real KVM.
+The [end-to-end check](docs/product/guides/end-to-end-check.md) verifies launch, guest execution, and cleanup on a prepared host.
+The [claim ledger](docs/engineering/claim-ledger.md) records what evidence exists and the revisions it applies to.
+
+Report suspected vulnerabilities through the private process in the [security policy](SECURITY.md).
+
+## Release status and performance
+
+The Linux x86_64 alpha.4 draft host package is **7.70 MB compressed**.
+Its VMM executable is **1.93 MB** on disk, and its guest agent is **0.91 MB**.
+The [size and memory footprint guide](docs/product/reference/footprint.md) covers package sizes and workload memory.
+The [runtime comparison](docs/product/reference/runtime-comparison.md) compares executable sizes and capabilities with Firecracker, Cloud Hypervisor, gVisor, and Kata Containers.
+
+SOMA is in alpha.
+The [source version](VERSION), [versioning policy](docs/product/reference/versioning.md), and [claim ledger](docs/engineering/claim-ledger.md) describe the release, compatibility rules, and retained evidence.
+The repository includes a [real KVM runner file-contract test](docs/engineering/evidence/2026-11-20-runner-file-contract-live.md) and a [desktop proof harness](scripts/desktop-proof.sh).
+Production admission requires host-specific evidence and the gates in the [roadmap](ROADMAP.md).
+
+These are engineering targets for the certified KVM path.
 
 | Measured boundary | Target p50 | Target p99 |
-| --- | ---: | ---: |
+| --- | --- | --- |
 | Complete server-side create | Below 5 ms | Below 10 ms |
-| First bounded command from accepted launch | Below 10 ms | Below 20 ms |
-| Exact 100-way ComputeSDK Burst TTI | Below 50 ms median | Below 90 ms |
+| First bounded command from accepted Launch | Below 10 ms | Below 20 ms |
+| 100-way ComputeSDK Burst TTI | Below 50 ms | Below 90 ms |
 
-Every published result must retain raw samples, failures, cleanup outcomes, cache state, and the exact timer boundary described in the [benchmark contract](docs/benchmark-contract.md).
+The [benchmark contract](docs/engineering/benchmark-contract.md) defines the timing boundaries, raw samples, cache state, failures, and cleanup results required to support a performance claim.
 
-## Project status
+## Where to go next
 
-The source version is `1.0.0-alpha.1`.
-The first stable release will be `1.0.0` only after the custom Ubuntu 24.04 x86_64 KVM path can build an OCI-derived Generation and complete real launch, authenticated command readiness, execution, cleanup, isolation, and burst-performance gates.
-The current custom-VMM tracer bullets are the test-only [ARM64 explicit-fixture cold-boot proof](docs/adr/0014-arm64-kvm-cold-boot-proof.md) and [challenge-bound guest-command proof](docs/adr/0016-challenge-bound-arm64-guest-command-proof.md).
-Their retained [cold-boot](docs/evidence/2026-08-28-arm64-kvm-cold-boot.md) and [command](docs/evidence/2026-08-28-arm64-kvm-command-proof.md) results are diagnostic evidence, not published performance benchmarks.
-The workspace also contains a bounded deterministic OCI-layout importer, a canonical logical rootfs normalizer, a Generation compiler for phases 1 through 3 and 6, a static Linux guest agent, a snapshot format and its live x86_64 capture and restore, a privileged network broker, an XFS reflink storage profile, a VMM jail launcher, and a prepared-worker allocator.
-Every one of those is component-tested, and several have live-proved runs whose commits and evidence are named in [the claim ledger](docs/claim-ledger.md).
-The retained [real Node 22 OCI-import verification](docs/evidence/2026-08-29-node22-oci-import.md) and [Apple hardware-VM one-shot validation](docs/evidence/2026-08-29-apple-node22-one-shot.md) document the exact current evidence and its nonclaims.
-Nothing is integrated: no end-to-end Instance receipt covering allocation through proven cleanup exists, the proven KVM runs were driven by test processes rather than the `soma-vmm` binary, and the public KVM Backend still answers every lifecycle call with a typed unavailable failure.
-The next implementation boundary is one real KVM Instance through `soma-hostd`, a real `soma-vmm`, the jail, prepared storage, TAP networking, authenticated guest execution, and complete cleanup, exposed through the public Backend.
+The [documentation index](docs/README.md) groups the guides by task.
 
-The [roadmap](ROADMAP.md) lists the evidence required for each phase.
-The [competitor and prior-art ledger](COMPETITORS.md) separates primary-source facts, external claims, unknowns, transferable lessons, and measured results.
+| I want to | Read |
+| --- | --- |
+| Understand the machine from the host to the guest | [Beginner architecture guide](docs/engineering/architecture/beginners-guide.md) |
+| Follow the original KVM bring-up and trace the boot path | [How one SOMA instance works](docs/engineering/architecture/how-it-works.md) |
+| Build a reusable workload | [Creating a Template](docs/product/guides/creating-templates.md) |
+| Check the meaning of a term | [Glossary](GLOSSARY.md) and [naming guide](docs/engineering/architecture/naming.md) |
+| Find the owner of a Rust crate or subsystem | [Module map](docs/engineering/architecture/module-map.md) |
+| Learn the engineering and evidence standards | [SOMA engineering standard](docs/engineering/standards/sota-engineering-standard.md) |
+| Explore capacity, isolation, and the workload stack | [SOMA visual atlas](docs/engineering/architecture/visual-atlas.md) |
 
 ## Contributing
 
-SOMA welcomes contributors in virtualization, Linux systems, Rust, security, OCI tooling, performance engineering, agent protocols, testing, and documentation.
-Start with the [contribution guide](CONTRIBUTING.md), [mission](MISSION.md), [module map](docs/architecture/module-map.md), and accepted [architecture decisions](docs/adr).
-
-Please use the design issue template for interface, topology, snapshot, trust, or compatibility changes.
-Security findings follow the private process in [SECURITY.md](SECURITY.md).
+Start with the [contribution guide](CONTRIBUTING.md), [mission](MISSION.md), and accepted [architecture decisions](docs/engineering/adr).
+Use the design issue template for interface, topology, snapshot, trust, or compatibility changes.
 
 ## License
 
 SOMA source code is licensed under [Apache License 2.0](LICENSE).
-MIOSA and SOMA names and logos remain subject to the attribution and marks terms in [BRAND.md](BRAND.md).
+MIOSA and SOMA names and logos follow the terms in [BRAND.md](BRAND.md).

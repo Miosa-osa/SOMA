@@ -146,6 +146,11 @@ fn run() -> i32 {
     {
         return code;
     }
+    let restored =
+        soma_api::autosize::remember_in(config.state_root().join(soma_api::autosize::SAVED_FILE));
+    if restored > 0 {
+        eprintln!("soma-api: automatic sizing restored for {restored} sandbox(es)");
+    }
     start_autosize(pool.clone());
     if !start_record_sweep(pool.clone()) {
         return 71;
