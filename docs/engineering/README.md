@@ -15,6 +15,7 @@ Understand the implementation, work on the code, and trace decisions and claims 
 
 ## Security, tests, and evidence
 
+- [Management-plane security](management-plane-security.md) maps identity and access enforcement to the platform and runner.
 - [Threat model](threat-model.md) describes the trusted base, adversaries, and requirements for production use.
 - [How SOMA verifies security during development](../../README.md#how-we-verify-it-during-development) covers review, CI, and live KVM checks.
 - [Dependency policy](dependency-policy.md) explains how dependencies are selected and audited.

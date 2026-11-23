@@ -3,7 +3,7 @@
 ## Product and usage docs
 
 Start with the [product docs](product/README.md) to understand SOMA instances, run a workload, or integrate with the HTTP API.
-[How SOMA applies zero trust](../README.md#how-soma-applies-zero-trust) explains the security model from a user's perspective.
+[Management-plane security](../README.md#zero-trust-in-the-management-plane) explains who can access an instance and where the platform enforces that access.
 
 ## Engineering docs
 

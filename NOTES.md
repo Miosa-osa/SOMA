@@ -1019,3 +1019,6 @@ The documentation tree has separate product and engineering layers, with referen
 Footprint documentation treats download bytes, executable sizes, configured guest capacity, and resident memory as separate measurements.
 
 The runtime comparison measures named peer executables on disk and links each runtime memory and latency figure to its own measurement boundary.
+
+Zero trust documentation scopes access decisions to the management plane and describes instance isolation and guest readiness as runtime controls.
+The runner and host HTTP API have different identity boundaries.

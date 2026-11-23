@@ -7,6 +7,12 @@ The `/v1/sandboxes` routes use the existing API vocabulary for creating and mana
 The `{instance}` path parameter is an Instance ID regardless of the software running in the guest.
 A test in `crates/soma-api/src/version/tests/surface.rs` generates the surface from the router and the request bodies and fails when it differs from the block below, so the page and the code cannot drift apart.
 
+## Access boundary
+
+The host API at `/v1` accepts a tenant identity from `x-soma-tenant` and validates its format.
+Keep it behind a trusted caller or gateway that verifies the client, authorizes the request, and supplies the tenant identity.
+The platform runner at `/api/v1` has a separate bearer-key and tenant policy check. [Management-plane security](../../engineering/management-plane-security.md)
+
 ## The API version
 
 The API version is `MAJOR.MINOR`, owned by `soma_api::API_VERSION`.
