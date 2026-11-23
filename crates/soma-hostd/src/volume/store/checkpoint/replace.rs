@@ -2,7 +2,7 @@
 
 use std::{
     fs::{self, File},
-    io::{ErrorKind, Read as _},
+    io::ErrorKind,
     os::unix::fs::MetadataExt as _,
     path::{Path, PathBuf},
 };
@@ -10,9 +10,14 @@ use std::{
 use sha2::{Digest as _, Sha256};
 
 mod file;
+mod intent;
 mod interruption;
+mod swap;
+mod undo;
 
 use file::{inode, lock, open_regular, private_file, sync};
+use intent::{INTENT, Intent};
+use swap::{publish, require_worker_lock, rollback, verify_stage};
 
 use super::{
     CheckpointVolumeBinding, DirectoryVolumes, IO_FAILURE, Request, Staging, VOLUME_FILE,
@@ -26,53 +31,9 @@ use crate::{
     },
 };
 
-const INTENT: &str = "restore-intent";
-const RETAINED: &str = "previous.img";
-const DISPLACED: &str = "displaced.img";
-const ROLLBACK: &str = "rollback.img";
-const INTENT_BYTES: usize = 56;
-
-#[derive(Clone, Copy)]
-struct Intent {
-    fingerprint: [u8; 32],
-    original: u64,
-    replacement: u64,
-    transition: u64,
-}
-
-impl Intent {
-    fn read(path: &Path, fingerprint: [u8; 32]) -> Result<Self, VolumeError> {
-        let mut bytes = [0; INTENT_BYTES];
-        let mut file = private_file(&path.join(INTENT), false)?;
-        file.read_exact(&mut bytes).map_err(|_| IO_FAILURE)?;
-        if file.metadata().map_err(|_| IO_FAILURE)?.len() != INTENT_BYTES as u64 {
-            return Err(IO_FAILURE);
-        }
-        if bytes[..32] != fingerprint {
-            return Err(VolumeError::ChangedIntent);
-        }
-        let word = |offset| {
-            let mut bytes_at = [0; 8];
-            bytes_at.copy_from_slice(&bytes[offset..offset + 8]);
-            u64::from_be_bytes(bytes_at)
-        };
-        Ok(Self {
-            fingerprint,
-            original: word(32),
-            replacement: word(40),
-            transition: word(48),
-        })
-    }
-
-    fn encode(self) -> [u8; INTENT_BYTES] {
-        let mut bytes = [0; INTENT_BYTES];
-        bytes[..32].copy_from_slice(&self.fingerprint);
-        bytes[32..40].copy_from_slice(&self.original.to_be_bytes());
-        bytes[40..48].copy_from_slice(&self.replacement.to_be_bytes());
-        bytes[48..].copy_from_slice(&self.transition.to_be_bytes());
-        bytes
-    }
-}
+pub(super) const RETAINED: &str = "previous.img";
+pub(super) const DISPLACED: &str = "displaced.img";
+pub(super) const ROLLBACK: &str = "rollback.img";
 
 impl DirectoryVolumes {
     /// Stages a verified checkpoint disk beside its existing, detached workspace.
@@ -253,86 +214,6 @@ impl DirectoryVolumes {
         })
     }
 
-    /// Discards an uncommitted replacement after the failed worker released its backing.
-    ///
-    /// A committed replacement and the prior version are left available for explicit rollback.
-    ///
-    /// # Errors
-    ///
-    /// Refuses a changed restore intent, an active stage, or an unavailable encrypted store.
-    pub fn abort_workspace_restore(
-        &self,
-        request: &WorkspaceRestoreRequest,
-    ) -> Result<(), VolumeError> {
-        let fingerprint = self.restore_fingerprint(request)?;
-        let state = self.state.lock().map_err(|_| IO_FAILURE)?;
-        let owner = owned_volume(state.values(), request.checkpoint.source)?;
-        if owner.generation != request.checkpoint.generation || owner.volume != request.volume {
-            return Err(VolumeError::ChangedIntent);
-        }
-        let directory = self.directory(owner.volume);
-        let path = restore_path(&directory, request.operation);
-        if !stage_exists(&path)? {
-            return Ok(());
-        }
-        let intent = Intent::read(&path, fingerprint)?;
-        let backing = open_regular(&self.file(owner.volume), false)?;
-        if inode(&backing)? == intent.replacement {
-            return Ok(());
-        }
-        if inode(&backing)? != intent.original {
-            return Err(VolumeError::ChangedIntent);
-        }
-        self.discard_staged_restore(&directory, &path, intent)
-    }
-
-    fn discard_staged_restore(
-        &self,
-        directory: &Path,
-        path: &Path,
-        intent: Intent,
-    ) -> Result<(), VolumeError> {
-        let staged = private_file(&path.join(VOLUME_FILE), true)?;
-        if inode(&staged)? != intent.replacement {
-            return Err(VolumeError::ChangedIntent);
-        }
-        lock(&staged)?;
-        let retired = Staging::new(&self.root)?;
-        fs::rename(path, retired.path.join("retired-restore")).map_err(|_| IO_FAILURE)?;
-        sync(&retired.path)?;
-        sync(directory)
-    }
-
-    /// Restores the preceding backing after the replacement's worker has stopped.
-    ///
-    /// Retains a link to the displaced replacement so a rollback does not erase later writes.
-    /// The caller must hold a stopped Instance's separately authorized rollback lease.
-    ///
-    /// # Errors
-    ///
-    /// Refuses an attached workspace or a volume whose restore operation is no longer current.
-    pub fn rollback_workspace_restore(
-        &self,
-        request: &WorkspaceRestoreRequest,
-    ) -> Result<(), VolumeError> {
-        let fingerprint = self.restore_fingerprint(request)?;
-        let state = self.state.lock().map_err(|_| IO_FAILURE)?;
-        let owner = owned_volume(state.values(), request.checkpoint.source)?;
-        if owner.generation != request.checkpoint.generation || owner.volume != request.volume {
-            return Err(VolumeError::ChangedIntent);
-        }
-        if owner.state != VolumeState::Detached {
-            return Err(VolumeError::Busy("the workspace is attached"));
-        }
-        let directory = self.directory(owner.volume);
-        let path = restore_path(&directory, request.operation);
-        if !stage_exists(&path)? {
-            return Err(VolumeError::Missing("the workspace restore does not exist"));
-        }
-        let intent = Intent::read(&path, fingerprint)?;
-        rollback(&directory, &path, &self.file(owner.volume), intent)
-    }
-
     fn restore_fingerprint(
         &self,
         request: &WorkspaceRestoreRequest,
@@ -360,126 +241,6 @@ fn stage_exists(path: &Path) -> Result<bool, VolumeError> {
         Ok(meta) if meta.is_dir() && meta.mode().trailing_zeros() >= 6 => Ok(true),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
         _ => Err(IO_FAILURE),
-    }
-}
-
-fn verify_stage(
-    path: &Path,
-    intent: Intent,
-    original: u64,
-    transition: u64,
-    class_gib: u32,
-) -> Result<(), VolumeError> {
-    if original != intent.original || transition != intent.transition {
-        return Err(VolumeError::ChangedIntent);
-    }
-    let staged = private_file(&path.join(VOLUME_FILE), true)?;
-    let meta = staged.metadata().map_err(|_| IO_FAILURE)?;
-    if meta.ino() != intent.replacement || meta.len() != u64::from(class_gib) << 30 {
-        return Err(VolumeError::ChangedIntent);
-    }
-    lock(&staged)
-}
-
-fn publish(
-    directory: &Path,
-    path: &Path,
-    backing: &Path,
-    intent: Intent,
-    state: VolumeState,
-    transition: u64,
-) -> Result<(), VolumeError> {
-    let current = open_regular(backing, true)?;
-    let current_inode = inode(&current)?;
-    let retained = path.join(RETAINED);
-    if current_inode == intent.replacement {
-        if inode(&open_regular(&retained, false)?)? != intent.original {
-            return Err(VolumeError::ChangedIntent);
-        }
-        sync(directory)?;
-        return sync(path);
-    }
-    if current_inode != intent.original
-        || transition != intent.transition
-        || state != VolumeState::Detached
-    {
-        return Err(VolumeError::ChangedIntent);
-    }
-    lock(&current)?;
-    let staged_path = path.join(VOLUME_FILE);
-    let staged = private_file(&staged_path, true)?;
-    if inode(&staged)? != intent.replacement {
-        return Err(VolumeError::ChangedIntent);
-    }
-    require_worker_lock(&staged)?;
-    retain_link(backing, &retained, intent.original)?;
-    sync(path)?;
-    fs::rename(&staged_path, backing).map_err(|_| IO_FAILURE)?;
-    sync(directory)?;
-    sync(path)
-}
-
-fn rollback(
-    directory: &Path,
-    path: &Path,
-    backing: &Path,
-    intent: Intent,
-) -> Result<(), VolumeError> {
-    if path.join(VOLUME_FILE).exists() {
-        return Err(VolumeError::Busy(
-            "the workspace restore has not been published",
-        ));
-    }
-    let previous_path = path.join(RETAINED);
-    let previous = open_regular(&previous_path, true)?;
-    if inode(&previous)? != intent.original {
-        return Err(VolumeError::ChangedIntent);
-    }
-    let current = open_regular(backing, true)?;
-    lock(&current)?;
-    let displaced = path.join(DISPLACED);
-    match inode(&current)? {
-        current_inode if current_inode == intent.original => {
-            if inode(&private_file(&displaced, false)?)? != intent.replacement {
-                return Err(VolumeError::ChangedIntent);
-            }
-            sync(directory)?;
-            return sync(path);
-        }
-        current_inode if current_inode == intent.replacement => {}
-        _ => return Err(VolumeError::ChangedIntent),
-    }
-
-    lock(&previous)?;
-    retain_link(backing, &displaced, intent.replacement)?;
-    let restored = path.join(ROLLBACK);
-    retain_link(&previous_path, &restored, intent.original)?;
-    sync(path)?;
-    fs::rename(&restored, backing).map_err(|_| IO_FAILURE)?;
-    sync(directory)?;
-    sync(path)
-}
-
-fn require_worker_lock(staged: &File) -> Result<(), VolumeError> {
-    match staged.try_lock() {
-        Err(fs::TryLockError::WouldBlock) => Ok(()),
-        Ok(()) => Err(VolumeError::Busy(
-            "the recovered worker does not own its workspace",
-        )),
-        Err(fs::TryLockError::Error(_)) => Err(IO_FAILURE),
-    }
-}
-
-fn retain_link(source: &Path, destination: &Path, expected: u64) -> Result<(), VolumeError> {
-    match fs::hard_link(source, destination) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-            if inode(&open_regular(destination, false)?)? != expected {
-                return Err(VolumeError::ChangedIntent);
-            }
-            Ok(())
-        }
-        Err(_) => Err(IO_FAILURE),
     }
 }
 

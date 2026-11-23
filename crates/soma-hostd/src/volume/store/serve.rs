@@ -5,45 +5,17 @@
 //! order that keeps a volume safe: create, then repair, then bind, each with its write-ahead
 //! records around it.
 
-use std::path::Path;
+mod create;
+mod owner;
+
+pub(super) use owner::{owned_volume, refusal};
 
 use super::{
     AttachOutcome, AttachRequest, DetachOutcome, DetachRequest, DirectoryVolumes, VOLUME_DEVICE,
     VolumeError, VolumeRecordKind, VolumeSidecar, VolumeState, VolumeStore, fs, now_nanos,
 };
-use crate::volume::repair::{CreateError, RepairOutcome};
 use crate::volume::service::VolumeBinding;
 use crate::{InstanceId, VolumeId};
-
-/// Bytes in one GiB, the unit a volume's class is stated in.
-const GIB: u64 = 1 << 30;
-
-/// The refusal one unusable repair produces, shared by the attach and the start paths.
-pub(super) fn refusal(outcome: RepairOutcome) -> VolumeError {
-    match outcome {
-        RepairOutcome::Refused => {
-            VolumeError::RepairRefused("the volume needs a repair beyond the policy")
-        }
-        _ => VolumeError::FsckFailed("the offline repair could not make the volume consistent"),
-    }
-}
-
-pub(super) fn owned_volume<'a>(
-    volumes: impl Iterator<Item = &'a VolumeSidecar>,
-    instance: InstanceId,
-) -> Result<&'a VolumeSidecar, VolumeError> {
-    let mut volumes = volumes
-        .filter(|sidecar| sidecar.instance == instance && sidecar.state != VolumeState::Deleting);
-    let volume = volumes
-        .next()
-        .ok_or(VolumeError::Missing("no volume belongs to this Instance"))?;
-    if volumes.next().is_some() {
-        return Err(VolumeError::Busy(
-            "multiple volumes belong to this Instance",
-        ));
-    }
-    Ok(volume)
-}
 
 impl VolumeStore for DirectoryVolumes {
     #[cfg(target_os = "linux")]
@@ -145,24 +117,7 @@ impl VolumeStore for DirectoryVolumes {
         };
         let file = self.file(request.volume);
         if existing.is_none() {
-            self.transition(VolumeRecordKind::CreateBegin, request.volume)?;
-            // The data key is sealed and recorded before the sidecar names it, so a volume never
-            // exists without the key whose destruction is what proves its destruction.
-            let sealed = self.keys.seal(request.volume).map_err(|_| {
-                VolumeError::Encryption("the volume's data key could not be sealed")
-            })?;
-            self.keys.record(request.volume, &sealed).map_err(|_| {
-                VolumeError::Encryption("the volume's data key could not be recorded")
-            })?;
-            sidecar.dek_id = sealed.dek_id;
-            self.write_sidecar(&VolumeSidecar {
-                state: VolumeState::Detached,
-                ..sidecar.clone()
-            })?;
-            // The file and its filesystem are created here, so the repair below runs on a real
-            // ext4 filesystem rather than on a path that does not exist yet.
-            self.make(request.volume, &file, sidecar.size_class_gib)?;
-            self.transition(VolumeRecordKind::CreateEnd, request.volume)?;
+            self.create_volume(request.volume, &mut sidecar, &file)?;
         }
         let receipt = self.repairs.repair(request.volume, &file);
         if !receipt.is_usable() {
@@ -330,24 +285,5 @@ impl VolumeStore for DirectoryVolumes {
             .get(&volume)
             .cloned()
             .ok_or(VolumeError::Missing("no sidecar names this volume"))
-    }
-}
-
-impl DirectoryVolumes {
-    /// Creates the volume's file and filesystem at the class it was admitted with.
-    ///
-    /// A refusal here is a volume that does not exist: the file is left as it was found, so a
-    /// later attach retries rather than inheriting a half-created volume.
-    fn make(&self, volume: VolumeId, file: &Path, class_gib: u32) -> Result<(), VolumeError> {
-        let bytes = u64::from(class_gib) * GIB;
-        self.repairs
-            .create(volume, file, bytes)
-            .map_err(|error| match error {
-                CreateError::Occupied => VolumeError::Busy("the volume path already holds data"),
-                CreateError::Size(_) => VolumeError::Geometry("the volume class has no size"),
-                CreateError::Tool(_) => {
-                    VolumeError::FsckFailed("the volume filesystem could not be created")
-                }
-            })
     }
 }
