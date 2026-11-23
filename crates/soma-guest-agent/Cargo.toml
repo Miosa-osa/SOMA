@@ -18,8 +18,8 @@ path = "src/main.rs"
 timing-report = []
 
 [dependencies]
-soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.4" }
-soma-version = { path = "../soma-version", version = "=1.0.0-alpha.4" }
+soma-guest = { path = "../soma-guest", version = "=1.0.0-alpha.5" }
+soma-version = { path = "../soma-version", version = "=1.0.0-alpha.5" }
 zeroize = "=1.9.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
