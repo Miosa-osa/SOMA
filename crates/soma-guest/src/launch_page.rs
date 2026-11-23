@@ -9,9 +9,11 @@ use crate::{
 
 use self::wire::{ENTROPY_SIZE, RESPONDER_SECRET_SIZE};
 
+mod identity;
 mod network;
 mod session;
 mod wire;
+use identity::validate_identity;
 
 pub use network::LaunchNetwork;
 pub use session::{DeliveredHostLaunchMaterial, GuestSessionMaterial};
@@ -273,17 +275,6 @@ impl GuestLaunchMaterial {
             self.responder,
         ))
     }
-}
-
-fn validate_identity(
-    generation: [u8; 32],
-    instance: [u8; 16],
-    operation: [u8; 16],
-) -> Result<(), Error> {
-    if generation == [0; 32] || instance == [0; 16] || operation == [0; 16] {
-        return Err(Error::InvalidBinding);
-    }
-    Ok(())
 }
 
 macro_rules! redacted_debug {
