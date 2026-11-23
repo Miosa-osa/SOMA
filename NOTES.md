@@ -1027,3 +1027,6 @@ Reinforcement-learning environments use the instance lifecycle for rollout worke
 
 The FrozenLake reference image trains and evaluates a tabular policy, with separate termination and truncation semantics.
 Four concurrent runs through the local SOMA backend verified learned outcomes, unique instance identities, and cleanup.
+
+The FrozenLake distribution workflow publishes the verified x86_64 OCI image and exercises the same digest through the standalone KVM check.
+The MIOSA CLI smoke succeeded on auto placement with Firecracker, while explicit SOMA placement reported no eligible hosts for the tested sizes and organizations.

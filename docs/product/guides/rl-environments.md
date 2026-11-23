@@ -9,7 +9,7 @@ SOMA supplies the isolated execution environment and the lifecycle for starting 
 
 ## Train a small policy
 
-The [FrozenLake workload](../../../workloads/rl-frozenlake/README.md) builds a Gymnasium image, trains a policy, and compares it with a random baseline.
+The [FrozenLake workload](../../../workloads/rl-frozenlake/README.md) provides a published Gymnasium image, build instructions, and a policy training example that compares its results with a random baseline.
 
 ## Run one episode locally
 

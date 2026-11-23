@@ -1,0 +1,117 @@
+name: RL workload
+
+on:
+  pull_request:
+    paths:
+      - workloads/rl-frozenlake/**
+      - .github/workflows/rl-workload.yml
+  push:
+    branches: [main]
+    paths:
+      - workloads/rl-frozenlake/**
+      - .github/workflows/rl-workload.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rl-workload-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/miosa-osa/soma-rl-frozenlake
+
+jobs:
+  image:
+    name: Build and verify FrozenLake
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write # Publish the verified OCI image on main pushes.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: |
+          docker build --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$IMAGE:$GITHUB_SHA" workloads/rl-frozenlake
+
+      - name: Verify training without guest network access
+        run: |
+          for seed in 42 43 44 45; do
+            result=$(docker run --rm --network none "$IMAGE:$GITHUB_SHA" --seed "$seed")
+            jq -e --argjson seed "$seed" '
+              .environment == "FrozenLake-v1" and
+              .seed == $seed and .training_episodes == 2000 and .evaluation_episodes == 100 and
+              .trained_goal_count == 100 and .random_goal_count < .trained_goal_count and
+              (.policy | length) == 16
+            ' <<< "$result" >/dev/null
+            printf '%s\n' "$result"
+          done
+
+      - name: Publish the verified image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" |
+            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
+          docker push "$IMAGE:main"
+          docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  kvm:
+    name: Run the published workload on KVM
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read # Pull the exact published image by digest.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare the disposable runner
+        run: |
+          test -c /dev/kvm
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+          rustup target add x86_64-unknown-linux-musl
+          ./scripts/build-fs-tools.sh "$RUNNER_TEMP/fs-tools"
+
+      - name: Compile the image and verify two real VM runs
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" |
+            skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$GITHUB_SHA")
+          ./scripts/end-to-end-check.sh \
+            --image "$IMAGE@$digest" \
+            --fs-tools "$RUNNER_TEMP/fs-tools" \
+            --work "$RUNNER_TEMP/rl-kvm" \
+            --expect '"trained_goal_count": 100' \
+            --purge \
+            --command /usr/local/bin/python3 /opt/soma-rl/train.py --seed 42
+
+      - name: Retain run evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rl-kvm-evidence
+          path: |
+            ${{ runner.temp }}/rl-kvm/results.json
+            ${{ runner.temp }}/rl-kvm/cleanup-checks.tsv
+            ${{ runner.temp }}/rl-kvm/run-*.json
+            ${{ runner.temp }}/rl-kvm/logs/*.log
