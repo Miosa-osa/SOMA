@@ -31,8 +31,8 @@ It owns guest memory, virtual CPUs, devices, storage attachments, and network at
 
 ## Instance
 
-An Instance is one globally unique lifetime of a Machine.
-Each launch creates a fresh Instance identity even when many launches use the same Generation.
+A SOMA instance is one globally unique lifetime of a Machine.
+Each launch creates a fresh Instance identity, even when launches use the same Generation or serve the same application.
 
 ## Launch
 
@@ -69,6 +69,11 @@ It is scheduled onto a Host hardware thread and does not imply permanent ownersh
 ## Host
 
 A Host is the physical or virtual machine that supplies CPU time, memory, storage, networking, and process ownership for a set of independent Instances.
+
+## Workload
+
+A Workload is the software and activity an instance runs, such as an agent sandbox, an interactive desktop, a build, or a web service.
+A product can use new instances over time while keeping its own identity.
 
 ## Workload runtime
 

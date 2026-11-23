@@ -2,7 +2,7 @@ use crate::{Backend, StateStore};
 
 use crate::engine::{
     Engine, ManagedFailure, ManagedStateError,
-    machine_state::{ActiveMachine, DurableMachine, DurablePhase},
+    machine_state::{ActiveMachine, DurableMachine, DurablePhase, TerminalBasis},
 };
 
 use super::mode::TerminationMode;
@@ -10,6 +10,10 @@ use super::mode::TerminationMode;
 pub(super) enum TerminationAdmission {
     Proceed(TerminationContext),
     Replay(crate::ExecutionReceipt),
+    /// A destroy of an Instance that already ended (a failed command, a stop) with its cleanup
+    /// complete. The machine owes the host nothing, so the destroy records itself without asking
+    /// the backend for anything.
+    AlreadyEnded(TerminationContext),
 }
 
 pub(super) struct TerminationContext {
@@ -107,6 +111,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             DurablePhase::Launching { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::RecoveryRequired))
             }
+            DurablePhase::Terminal { basis, receipt, .. }
+                if matches!(mode, TerminationMode::Forced) && receipt.cleanup().is_complete() =>
+            {
+                self.admit_ended_destroy(revision, instance_id, mode, *basis)
+            }
             DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
                 Err(ManagedFailure::State(ManagedStateError::MachineStopped))
             }
@@ -114,6 +123,34 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 Err(ManagedFailure::State(ManagedStateError::OperationConflict))
             }
         }
+    }
+}
+
+impl<B: Backend, S: StateStore> Engine<B, S> {
+    /// Admits the destroy of an Instance whose end already cleaned it up.
+    ///
+    /// Before this, a sandbox whose command took the machine down answered every destroy with
+    /// 409 for good, so a caller could never let go of it.
+    fn admit_ended_destroy(
+        &self,
+        revision: crate::StateRevision,
+        instance_id: &crate::InstanceId,
+        mode: TerminationMode,
+        basis: TerminalBasis,
+    ) -> Result<TerminationAdmission, ManagedFailure> {
+        let TerminalBasis::Active { active } = basis else {
+            return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
+        };
+        ensure_backend(&active, self.backend.kind())?;
+        let workload = active.workload().ok_or(ManagedFailure::StateStore(
+            crate::StateStoreFailureKind::Corrupt,
+        ))?;
+        let fingerprint = mode.fingerprint(workload, instance_id);
+        Ok(TerminationAdmission::AlreadyEnded(TerminationContext {
+            revision,
+            active: *active,
+            fingerprint,
+        }))
     }
 }
 

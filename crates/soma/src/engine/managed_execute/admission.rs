@@ -5,9 +5,7 @@ use super::{
     durable_with_phase,
 };
 use crate::engine::{
-    machine_state::{
-        ActiveMachine, DurablePhase, MAX_EXECUTION_TOMBSTONES, TerminalBasis, VersionedMachine,
-    },
+    machine_state::{ActiveMachine, DurablePhase, TerminalBasis, VersionedMachine},
     managed::ReplayEvidence,
 };
 
@@ -47,11 +45,6 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     } else {
                         Err(ManagedFailure::State(ManagedStateError::OperationConflict))
                     };
-                }
-                if active.completed_executions.len() >= MAX_EXECUTION_TOMBSTONES {
-                    return Err(ManagedFailure::State(
-                        ManagedStateError::ReplayCapacityReached,
-                    ));
                 }
                 let executing = durable_with_phase(
                     &request.instance_id,

@@ -2,11 +2,11 @@
 
 Entries are dated and append-only.
 Each one records what was true when it was written, and none of them is updated afterwards.
-For the current status of any capability, read [the claim ledger](docs/claim-ledger.md) rather than an entry below.
+For the current status of any capability, read [the claim ledger](docs/engineering/claim-ledger.md) rather than an entry below.
 
 ## 2026-08-31 - The contract, the dimensions, and the gap map
 
-SOMA is measured against an interface that already exists rather than against a competitor feature list. ComputeSDK defines one provider surface and MIOSA is already on its provider list beside E2B, Modal, Vercel, Daytona, Runloop, Superserve, Isorun, and Declaw, so the interface is a specification. The three records are [the provider contract](docs/research/provider-contract-gap-analysis.md), [the capability survey](docs/research/sandbox-provider-capability-survey.md), and [the gap map](docs/research/gap-map.md).
+SOMA is measured against an interface that already exists rather than against a competitor feature list. ComputeSDK defines one provider surface and MIOSA is already on its provider list beside E2B, Modal, Vercel, Daytona, Runloop, Superserve, Isorun, and Declaw, so the interface is a specification. The three records are [the provider contract](docs/engineering/research/provider-contract-gap-analysis.md), [the capability survey](docs/engineering/research/sandbox-provider-capability-survey.md), and [the gap map](docs/engineering/research/gap-map.md).
 
 The gap that costs the most is not a missing subsystem but an unwired one. `soma-netd` is about 7,800 lines of namespaces, netlink, nftables, address management, DNS, ingress, and reconciliation, and `soma-kvm` implements a TAP backend, and the KVM Backend uses neither: `link_down_network` hands the guest a placeholder with the link down. Installing a package, cloning a repository, pulling an image, and calling a model API are the same missing thing wearing four names.
 
@@ -24,11 +24,11 @@ eval-1 was never off. `ssh eval-1` resolved to 192.168.1.1 through a wildcard `.
 
 Checking the retained files before quoting them found that two of the three figures in use had nothing behind them. There was no 62.6 ms sequential result anywhere; the only retained sequential sample was a single run at 79.9 ms, which is not a distribution. The stage medians that the whole prepared-worker argument rested on had never been written down at all, because the script that produced them only printed. The one figure that was real was 164.9 ms at concurrency 100.
 
-So all of it was measured again on `b65f41f` and retained, in [the eval-1 burst and sequential record](docs/evidence/2026-08-31-eval1-burst-and-sequential.md). Sequential is 65.5 ms over 25 samples, close to the figure that had been quoted and now with a file behind it. Concurrency 100 is a cohort p50 between 166.0 and 233.5 ms with a cohort median of 181.4 ms, over five cohorts, and **five hundred of five hundred sandboxes succeeded**.
+So all of it was measured again on `b65f41f` and retained, in [the eval-1 burst and sequential record](docs/engineering/evidence/2026-08-31-eval1-burst-and-sequential.md). Sequential is 65.5 ms over 25 samples, close to the figure that had been quoted and now with a file behind it. Concurrency 100 is a cohort p50 between 166.0 and 233.5 ms with a cohort median of 181.4 ms, over five cohorts, and **five hundred of five hundred sandboxes succeeded**.
 
 The spread is the finding that matters for method. Sixty-seven milliseconds between the fastest and slowest cohort is about 40 percent of the median, so a single hundred-way cohort is not a point estimate, and the previously retained 164.9 ms sits at the optimistic edge of the same distribution rather than showing a regression. Comparing one cohort against one cohort, which is what had been done, cannot distinguish a change from noise. Cohort order was not a factor and the host held no leaked state between runs.
 
-Stage medians are now retained beside the totals they describe, from the same sandboxes: machine construction 48.0 ms, Ready a further 57.7 ms, the command a further 79.0 ms. Machine construction is the segment a prepared worker removes and it measured 2.71 ms uncontended, so the prepared-worker case now rests on artifacts. Removing all of it would leave about 133 ms, which is arithmetic rather than a measurement, and 133 ms against Isorun's 73 ms is why [host class](docs/research/host-class-and-burst-projection.md) remains part of the result.
+Stage medians are now retained beside the totals they describe, from the same sandboxes: machine construction 48.0 ms, Ready a further 57.7 ms, the command a further 79.0 ms. Machine construction is the segment a prepared worker removes and it measured 2.71 ms uncontended, so the prepared-worker case now rests on artifacts. Removing all of it would leave about 133 ms, which is arithmetic rather than a measurement, and 133 ms against Isorun's 73 ms is why [host class](docs/engineering/research/host-class-and-burst-projection.md) remains part of the result.
 
 Both harnesses now write their samples and their stage medians to disk from one cohort. The reason a stage median could be quoted that no file contained is that the two came from different scripts on different runs and one of them only printed.
 
@@ -36,11 +36,11 @@ Both harnesses now write their samples and their stage medians to disk from one 
 
 Two findings, one a defect and one a constraint.
 
-`f614458` broke every restored sandbox and the break reached `main`. It derived a per-Instance vsock context identifier for the machine and left the launch page carrying the constant that identifier replaced, and the guest agent refuses a session when the two disagree, so a restored machine reached its repair point and died there with `poisoned by Transport`. `c0fd993` repairs it and adds the regression test that compares the two values, which is the whole of the defect. The record is [the launch page context identifier defect](docs/evidence/2026-08-30-launch-page-context-identifier-defect.md). Measurements taken before `f614458` are unaffected, because one constant then served both the machine and the page and they agreed.
+`f614458` broke every restored sandbox and the break reached `main`. It derived a per-Instance vsock context identifier for the machine and left the launch page carrying the constant that identifier replaced, and the guest agent refuses a session when the two disagree, so a restored machine reached its repair point and died there with `poisoned by Transport`. `c0fd993` repairs it and adds the regression test that compares the two values, which is the whole of the defect. The record is [the launch page context identifier defect](docs/engineering/evidence/2026-08-30-launch-page-context-identifier-defect.md). Measurements taken before `f614458` are unaffected, because one constant then served both the machine and the page and they agreed.
 
-Finding the defect needed the guest console, which the failure path discarded: a sandbox that fails never reaches cleanup, and only cleanup received the machine's evidence. `SOMA_KVM_TIMELINE` now writes each sandbox's milestone offsets and per-phase durations, and a failed one's console beside them. It is a diagnostic with no signature, no identity binding, and no stable schema, and it produced the first per-stage breakdown of a restored sandbox, retained as [the restore stage timeline](docs/evidence/2026-08-30-x86_64-restore-stage-timeline.md). That breakdown shows machine construction at 2.71 ms uncontended against the 44.4 ms the eval-1 hundred-way cohort spends on the same segment, which is the prepared-worker case stated in measured numbers.
+Finding the defect needed the guest console, which the failure path discarded: a sandbox that fails never reaches cleanup, and only cleanup received the machine's evidence. `SOMA_KVM_TIMELINE` now writes each sandbox's milestone offsets and per-phase durations, and a failed one's console beside them. It is a diagnostic with no signature, no identity binding, and no stable schema, and it produced the first per-stage breakdown of a restored sandbox, retained as [the restore stage timeline](docs/engineering/evidence/2026-08-30-x86_64-restore-stage-timeline.md). That breakdown shows machine construction at 2.71 ms uncontended against the 44.4 ms the eval-1 hundred-way cohort spends on the same segment, which is the prepared-worker case stated in measured numbers.
 
-The constraint is that eval-1 cannot produce a leading burst figure. Removing all 44.4 ms of machine construction leaves about 128 ms against Isorun's observed 73 ms, so the gap is not software that remains to be written; it is a 2017 processor. Reporting an eval-1 burst figure would understate the engine while appearing to measure it. Host class is therefore part of the result and must be named in the artifact, and a burst campaign needs a current high-core-count server part. The reasoning, and the clear line between what is measured and what is projected, is in [host class and the burst result](docs/research/host-class-and-burst-projection.md).
+The constraint is that eval-1 cannot produce a leading burst figure. Removing all 44.4 ms of machine construction leaves about 128 ms against Isorun's observed 73 ms, so the gap is not software that remains to be written; it is a 2017 processor. Reporting an eval-1 burst figure would understate the engine while appearing to measure it. Host class is therefore part of the result and must be named in the artifact, and a burst campaign needs a current high-core-count server part. The reasoning, and the clear line between what is measured and what is projected, is in [host class and the burst result](docs/engineering/research/host-class-and-burst-projection.md).
 
 `98cb00c` then landed the machine half of the prepared worker. `restore_sterile` produces a machine that has paid for memory mapping, VM creation, vCPU and device restoration, interrupt routing, and the event loop, and holds neither of the two authorities that belong to an Instance: the private disk head and the context identifier. `Sterile::assign` installs both. Every restore now composes those two halves, so a prepared worker and a direct restore cannot reach different device state, and installing the identifier moved into assignment because that is the only place it can happen for a worker built before its Instance exists.
 
@@ -51,7 +51,7 @@ Two defects are open and deliberately not folded into either commit. A restored 
 The new Isorun experiment is a valuable burst signal but currently records provider-reported `create_ms` without a retained harness or raw samples, so it must be classified as independently collected vendor telemetry rather than independently measured server timing.
 Its observed Node cohorts returned 22 ms p50 sequentially and 73 ms p50 in two concurrency-100 runs, which does not prove the cause but demonstrates that sequential behavior did not predict burst behavior in those cohorts.
 SOMA should respond by finishing the real jailed prepared-worker transaction, reserving every bottleneck before claim, bounding replenishment outside Launch, returning explicit overload or a named slower preparation class on depletion, and measuring concurrency rungs with per-stage evidence.
-The required evidence corrections are in `docs/reviews/2026-08-30-isorun-evidence-review.md`, and the architectural consequences are in `docs/research/competitive-module-adoption-audit.md`.
+The required evidence corrections are in `docs/engineering/reviews/2026-08-30-isorun-evidence-review.md`, and the architectural consequences are in `docs/engineering/research/competitive-module-adoption-audit.md`.
 
 ## 2026-08-29 - Adversarial GitHub pass found Amber and code-signature-only VMMs
 
@@ -62,7 +62,7 @@ Its retained M1 Pro evidence reports five warm exec samples between 30 and 32 ms
 Source inspection also found warning-only KVM GIC restore failures, ignored agent I/O results, and several files above 1,000 lines, so SOMA should import the mechanisms and cross-platform lessons while keeping fail-closed restoration, authenticated repair, smaller modules, and stronger benchmark evidence.
 The comparative adoption decision is to prioritize the real jailed worker integration, public evidence-bound runtime capabilities, a unified dirty-producer ledger, and live resource feedback.
 Amber's software GIC and userspace network belong to a later native macOS research profile, not the Linux version 1 critical path.
-The permanent learning record is the ten-insight section in `docs/research/competitive-module-adoption-audit.md`.
+The permanent learning record is the ten-insight section in `docs/engineering/research/competitive-module-adoption-audit.md`.
 It preserves the mechanism, reason, and SOMA adoption rule for software interrupt state, warm workers, dirty producers, capability negotiation, live pressure, private mappings, honest timing, process containment, executable teaching, and clean-room modular adoption.
 
 ## 2026-08-30 - soma-hostd review: durable replay, admitted claims, and exact capacity
@@ -87,7 +87,7 @@ Two items are outside this crate and remain open. `crates/soma-netd/src/ingress.
 
 SOMA now defines state of the art as simultaneous admission across architecture, modularity, correctness, isolation, compatibility, evidence, performance, density, portability, operability, supply chain, and usability.
 No average score exists, and one red applicable dimension blocks a support or performance claim.
-The permanent standard is `docs/standards/sota-engineering-standard.md`, while the dated current assessment is `docs/reviews/2026-08-29-overall-engineering-assessment.md`.
+The permanent standard is `docs/engineering/standards/sota-engineering-standard.md`, while the dated current assessment is `docs/engineering/reviews/2026-08-29-overall-engineering-assessment.md`.
 The standard preserves one production sandbox architecture, deep modules with small interfaces, capability-triggered safety primitives, explicit evidence classes, and dependency-ordered closure before breadth.
 
 ## 2026-08-29 - Template compiler slice 1 emits canonical Template Locks
@@ -132,7 +132,7 @@ The guest agent now flushes filesystems and announces the repair point on the co
 Three implementation facts came out of the live runs and are now contract: `KVM_GET_SUPPORTED_CPUID` answers from whichever host core services the call, so the CPU template pins the topology and cache leaves as well as the initial APIC identifier; `IA32_XSS` must be carried or the restored guest faults in `XRSTORS` the first time a task returns to user mode; and `IA32_SPEC_CTRL` must be carried or a restored machine runs with weaker mitigations than the one that was captured.
 A real `node:22` Generation was captured once and restored thirteen times on one host: every Instance reached `Ready`, ran `/usr/local/bin/node --version`, and shut down orderly, two Instances differed in Instance identity, hostname, machine identity, context identifier, and private overlay head, a file one Instance wrote was invisible to the other, and the memory object's digest was unchanged afterwards.
 A flipped byte in the state manifest, a flipped byte in the memory object under installation-time verification, and a foreign CPU-template digest are all rejected before any VM exists, and the published objects carry no decodable launch page.
-The retained result is `docs/evidence/2026-08-29-x86_64-snapshot-restore.md`; it proves no cold page cache, no hundred-way burst, no jail, no prepared workers, no network egress, and no latency objective.
+The retained result is `docs/engineering/evidence/2026-08-29-x86_64-snapshot-restore.md`; it proves no cold page cache, no hundred-way burst, no jail, no prepared workers, no network egress, and no latency objective.
 
 ## 2026-08-29 - XFS reflink heads must be prepared outside Launch
 
@@ -144,7 +144,7 @@ Clones of one template serialize on the template inode, so a 100-way burst costs
 The `ioctl` cost is proportional to the source extent count at about 0.6 us per extent, so template size hardly matters but a fragmented template must never be certified.
 `FICLONE` maps unwritten source extents as holes rather than shared extents, so a head never inherits its template's `fallocate` reservation and the free-space evidence plus the `ENOSPC` proof remain the only capacity guard.
 The in-process `ioctl` beats the `cp` subprocess by five times per head, and cleanup must also stay off the request path because 100 concurrent unlinks raised the 100-way p99 from 21.5 ms to 57.1 ms.
-The retained result is in `docs/evidence/2026-08-29-xfs-reflink-profile.md`; it is a loop-backed decision input, not a production-host latency claim, and the next dependency is the prepared-head pool in the host allocator.
+The retained result is in `docs/engineering/evidence/2026-08-29-xfs-reflink-profile.md`; it is a loop-backed decision input, not a production-host latency claim, and the next dependency is the prepared-head pool in the host allocator.
 
 ## 2026-08-29 - soma-netd prepares sterile bundles and activates only after repair
 
@@ -154,13 +154,13 @@ The version 1 firewall mechanism is generated ruleset text fed to the pinned `/u
 The protected destination list is the ADR 0012 and threat-model set plus the cloud metadata endpoints named in `RESOURCES.md`: AWS `169.254.169.254`, `169.254.169.253`, `169.254.169.123`, `169.254.170.2`, and `fd00:ec2::254`; Google `169.254.169.254`; Azure `169.254.169.254` and `168.63.129.16`; together with `0.0.0.0/8`, RFC 1918, `100.64.0.0/10`, loopback, `169.254.0.0/16`, `192.0.0.0/24`, `198.18.0.0/15`, multicast, `240.0.0.0/4`, broadcast, `::/128`, `::1/128`, `::ffff:0:0/96`, `fc00::/7`, `fe80::/10`, `ff00::/8`, every lease and transit plan, every host address, and every control-plane prefix an operator adds.
 Google's IPv6 metadata address is covered by the ULA block rather than listed as a separate literal because the exact literal was not verified from a primary source during this slice.
 A denied DNS policy delivers the gateway as the launch-page resolver so the guest never learns an operator resolver, and the ruleset drops every port 53 packet regardless.
-The live container run proved a down guest link and no forwarding before activation, gateway ARP and ICMP plus public TCP egress and declared DNS after activation, metadata, undeclared DNS, host, peer guest, and peer gateway drops in `PublicInternet` mode, complete release, and a clean 100-way prepare, assign, activate, release burst; the retained result is `docs/evidence/2026-08-29-linux-network-profile-live.md`.
+The live container run proved a down guest link and no forwarding before activation, gateway ARP and ICMP plus public TCP egress and declared DNS after activation, metadata, undeclared DNS, host, peer guest, and peer gateway drops in `PublicInternet` mode, complete release, and a clean 100-way prepare, assign, activate, release burst; the retained result is `docs/engineering/evidence/2026-08-29-linux-network-profile-live.md`.
 The conntrack zone is bound with `ct original zone set` on the host veth so masqueraded replies still match, and the sandbox namespace's own conntrack table is the primary per-bundle isolation.
 The daemon skeleton does not authenticate its peer, ingress ports are reserved but never forwarded, proxy attachment is typed `Unimplemented`, and the broker's socket mechanisms have not been exercised from a jailed VMM; those are the next dependencies together with the virtio-net attach of the transferred TAP.
 
 ## 2026-08-29 - Recent implementation audit requires corrective work
 
-The reviewed x86_64 KVM boot, launch-page identity, static guest-agent, Generation compiler, and Template-binding series has an agent-ready handoff in `docs/reviews/2026-08-29-implementation-audit.md`.
+The reviewed x86_64 KVM boot, launch-page identity, static guest-agent, Generation compiler, and Template-binding series has an agent-ready handoff in `docs/engineering/reviews/2026-08-29-implementation-audit.md`.
 The PVH kernel boot, modularity, OCI normalization, and guest protocol are strong foundations.
 Priority 0 corrections cover published responder authority, unbounded guest-output queues, incomplete Generation tool deadlines, premature Generation publication, and incomplete hostile manifest validation.
 Priority 1 corrections cover entropy crediting, target-specific ioctl layouts, unusable subnet addresses, executable provenance, and structured workload commands.
@@ -235,7 +235,7 @@ The same proof run with the in-kernel controller therefore ends only through the
 The watchdog reuses the KVM signal-mask technique from the ARM64 proof: the vCPU thread blocks one real-time signal everywhere except inside `KVM_RUN`, so a kick is never lost between iterations.
 The PVH `hvm_start_info`, memory map, and diagnostic command line are written at their contract addresses even though the raw guest ignores them, so the layout encoding is exercised before the kernel slice.
 The Docker backend now derives its OCI platform from the host architecture instead of assuming `linux/arm64`, and its macOS-only availability helper is target-gated so the workspace compiles on Linux under `-D warnings`.
-The retained result is in `docs/evidence/2026-08-29-x86_64-kvm-halt-guest.md` and proves the machine floor only, not a kernel boot, device, sandbox, or latency claim.
+The retained result is in `docs/engineering/evidence/2026-08-29-x86_64-kvm-halt-guest.md` and proves the machine floor only, not a kernel boot, device, sandbox, or latency claim.
 
 ## 2026-08-29 - Virtio transport and split queues are hostile-input seams, not devices
 
@@ -259,7 +259,7 @@ Nothing here is an MMIO bus, ioeventfd, irqfd, device backend, event loop, snaps
 Decision-map ticket #4 now has its kernel input: Linux `v6.12.107` built as an uncompressed ELF `vmlinux` with `XEN_ELFNOTE_PHYS32_ENTRY` at `0x01000000`, `CONFIG_RELOCATABLE=n`, no modules, no PCI, no ACPI, and only the five virtio-mmio device drivers plus EROFS, ext4, OverlayFS, and the pseudo filesystems.
 `kernel/build.sh` pins the source tarball by SHA-256, compiles inside an Ubuntu 24.04 image pinned by digest with verified gcc 13.3.0 and binutils 2.42, fixes every `KBUILD_*` and `SOURCE_DATE_EPOCH` value, fails closed if `make olddefconfig` changes any pinned symbol, and records a manifest with every digest.
 `kernel/verify-pvh.py` parses the ELF with the standard library only and rejects a missing note, a segment below the contract floor, overlapping segments, or an entry outside executable loaded bytes.
-Two consecutive builds on the same host produced byte-identical output; the evidence is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-build.md`.
+Two consecutive builds on the same host produced byte-identical output; the evidence is in `docs/engineering/evidence/2026-08-29-x86_64-pvh-kernel-build.md`.
 This is a build and layout proof only, not KVM boot evidence, device discovery evidence, or a Generation.
 A first build with `CONFIG_DEVMEM=n` was superseded the same day because the guest agent reads the launch page through `/dev/mem`; the retained evidence records both digests.
 
@@ -305,7 +305,7 @@ The cold-boot proof is diagnostic evidence only and cannot be presented as a wor
 
 ## 2026-08-29 - Custom VMM research is sequenced by a decision map
 
-The custom VMM work now uses `docs/research/vmm-decision-map.md` as its canonical dependency graph.
+The custom VMM work now uses `docs/engineering/research/vmm-decision-map.md` as its canonical dependency graph.
 Resolved architecture decisions remain linked to their ADRs and architecture assets, while unresolved Linux work is split into focused research or prototype tickets.
 The frontier begins with the exact x86_64 machine contract, minimal device surface, and deterministic Generation compiler before snapshot, guest integration, network, disk, allocator, backend wiring, and fleet work.
 
@@ -460,7 +460,7 @@ They are not treated as local VMM hosts and cannot trigger a silent weaker fallb
 The repository will not be published until the real Apple development backend has repeated retained boot-to-command measurements across multiple images, shapes, network policies, lifecycle modes, cache states, and concurrency levels.
 The matrix must include CLI and MCP callers, failures, exact timer boundaries, success rates, and cleanup evidence.
 Apple results remain development evidence and must not be cited as Ubuntu KVM, production restore, or ComputeSDK-comparable performance.
-The production KVM release gate remains the larger corpus and exact external benchmark contract in `docs/benchmark-contract.md`.
+The production KVM release gate remains the larger corpus and exact external benchmark contract in `docs/engineering/benchmark-contract.md`.
 
 ## 2026-08-28 - Core proof before managed integration
 
@@ -678,7 +678,7 @@ The port bus answers only the eight UART ports and the keyboard-controller pair;
 The kernel boot needs the in-kernel PIT: without it Linux still reaches `/init` and prints the sentinel, but the local APIC timer is never calibrated and a 20 ms `nanosleep` in `/init` never returns, so the PIT is part of the version 1 profile.
 The CPUID template requires KVM's paravirtual signature leaf so the guest selects `kvm-clock`, and pins the bootstrap APIC identifiers to zero.
 The command line is composed only in `cmdline.rs` from the fixed contract set plus `rdinit=/init` and `soma.nonce=<hex>`, which is the seam that later becomes part of `GenerationId`.
-The retained result, including single-sample host residency numbers, is in `docs/evidence/2026-08-29-x86_64-pvh-kernel-boot.md`; it proves the cold-boot machine contract only, not a device, root filesystem, guest agent, readiness, snapshot, or latency claim.
+The retained result, including single-sample host residency numbers, is in `docs/engineering/evidence/2026-08-29-x86_64-pvh-kernel-boot.md`; it proves the cold-boot machine contract only, not a device, root filesystem, guest agent, readiness, snapshot, or latency claim.
 
 ## 2026-08-29 - Generation compiler compiles uncertified x86_64 machine artifacts
 
@@ -702,7 +702,7 @@ The `soma-kvm` live tests take `soma`, `soma-generation`, and `soma-guest` as pa
 The first boots exposed three guest-side contract bugs that are now fixed: early init must create or verify the `upper` and `work` directories the sterile template already carries, tmpfs session mounts must not repeat `nosuid,nodev` inside the option string, and the stop path must use the restart command because power-off degrades to an invisible in-kernel halt without ACPI.
 Initramfs layout v2 carries `/dev/console`, `/dev/null`, and the Generation-scoped responder private key as a fifth compiler input, since the Rust runtime aborts PID 1 without standard descriptors and the agent takes the key from the initramfs before switching root; the responder public key is still carried out of band rather than bound into the manifest.
 The run happened inside an `ubuntu:24.04` container with `/dev/kvm` passed through because the host seat session ended mid-work and `logind` moved the device's `uaccess` ACL to the display manager; the container adds no privilege and the evidence document records this.
-Nothing here proves network egress, snapshot restore, a jail, prepared workers, certification, or any latency objective, and the retained result is `docs/evidence/2026-08-29-x86_64-first-sandbox-command.md`.
+Nothing here proves network egress, snapshot restore, a jail, prepared workers, certification, or any latency objective, and the retained result is `docs/engineering/evidence/2026-08-29-x86_64-first-sandbox-command.md`.
 
 ## 2026-08-29 - The VMM jail launcher constrains the probe on Ubuntu 24.04
 
@@ -710,7 +710,7 @@ Decision-map ticket #9 now has an implementation: `crates/soma-jail` records own
 The allocation-free pre-exec child sets the parent-death signal, drops to the ephemeral identity, clears dumpable, applies rlimits, enters an empty read-only tmpfs through `pivot_root` with the old root detached, seals the fixed descriptor table with `dup3` and `close_range`, verifies every slot by `fstat` and device number, installs `no_new_privs` and the startup seccomp filter, and executes from an open descriptor with `execveat(AT_EMPTY_PATH)`; a failed step is reported through a twelve-byte pipe message before `_exit`.
 The seccomp filters are hand-assembled classic BPF with no libseccomp dependency, default to kill-process, reject every other architecture and the x32 bit, filter `ioctl` on the request number, require `CLONE_THREAD` and forbid every namespace flag on `clone`, answer `clone3` with `ENOSYS`, and drop the setup-only syscalls and ioctls in steady state; golden tests pin the startup program at 222 instructions with fingerprint `0x40b7c33a9001c79b` and the steady program at 135 instructions with fingerprint `0xe748c586d5877538`.
 `JailLedger` records every resource before its effect, `reconcile` is idempotent and also runs on drop, and `recover` releases a crashed launcher's leaf and jail root from the durable record alone.
-Unprivileged user namespaces are blocked on this host by Ubuntu's AppArmor restriction, so the fifteen live acceptance tests run as root inside a digest-pinned privileged Ubuntu 24.04 container with a private cgroup namespace and a delegated cgroup2 subtree; `scripts/jail-live-tests.sh` builds the static musl probe and test binary on the host and drives the container, and the retained result is in `docs/evidence/2026-08-29-vmm-jail-live.md`.
+Unprivileged user namespaces are blocked on this host by Ubuntu's AppArmor restriction, so the fifteen live acceptance tests run as root inside a digest-pinned privileged Ubuntu 24.04 container with a private cgroup namespace and a delegated cgroup2 subtree; `scripts/jail-live-tests.sh` builds the static musl probe and test binary on the host and drives the container, and the retained result is in `docs/engineering/evidence/2026-08-29-vmm-jail-live.md`.
 The inventory is labeled measured or reserved per entry: the probe trace measured `open`, `close`, `stat`, `fstat`, `poll`, `mmap`, `mprotect`, `munmap`, `brk`, `rt_sigaction`, `rt_sigprocmask`, `sendto`, `recvfrom`, `clone`, `fcntl`, the four identity getters, `sigaltstack`, `prctl`, `arch_prctl`, `gettid`, `futex`, `getdents64`, `set_tid_address`, `exit_group`, `prlimit64`, and `seccomp`; `soma-kvm` code measured `read`, `write`, `rt_sigreturn`, `ioctl`, `getpid`, `exit`, `tkill`, `tgkill`, and `eventfd2`; the disk backend, virtio devices, descriptor transfer, event loop, glibc runtime, allocator, and snapshot ioctl entries are reserved and were never observed.
 Two musl facts changed the table during the run: musl issues the legacy `open` and `stat` syscalls where glibc issues `openat` and `newfstatat` or `statx`, and every new Rust thread calls `gettid` first, so those are admitted and `open` and `stat` are startup-only.
 `pivot_root` needs one descriptor above the inherited table, so `RLIMIT_NOFILE` is applied right after the seal instead of before it, while the other rlimits keep the profile's order.
@@ -725,7 +725,7 @@ The new privileged network broker nevertheless has two production blockers: acti
 Restore readiness is still caller-asserted, privileged network tools have no complete deadline and capture bounds, network reply delivery does not reject a short send, and the new burst tests break the portable repository gate through incompatible relative imports.
 Two accepted ADR files also share number 0024 while specifying incompatible responder-key models, and retained snapshot evidence describes the obsolete reusable-key implementation rather than current bytes.
 The required order is to restore the portable gate, secure the network authority boundary, bind readiness to authenticated evidence, repair the decision record, rerun current snapshot evidence, and then integrate one complete KVM lifecycle before adding more subsystems or publishing performance claims.
-The detailed handoff is `docs/reviews/2026-08-29-implementation-reaudit.md`.
+The detailed handoff is `docs/engineering/reviews/2026-08-29-implementation-reaudit.md`.
 
 ## 2026-08-29 - Production sandbox research favors one deep lifecycle and multiple preparation classes
 
@@ -734,7 +734,7 @@ Cold build, cold boot, warm restore, prepared worker, paused pool, and ready poo
 The public seam should be one small `SandboxBackend` interface backed by a deep Instance Lifecycle module that owns ordering, deadlines, compensation, receipts, crash recovery, and terminal cleanup proof.
 KVM is the primary tenant boundary but production isolation also requires a jailed VMM, narrow privileged brokers, authenticated guest control, network policy, storage ownership, cgroups, and proven cleanup.
 The credible 10 ms target is prepared claim to authenticated Ready on a memory-local Linux Host, not OCI conversion or cold boot.
-The detailed source-backed recommendation is `docs/research/production-sandbox-deep-research.md`.
+The detailed source-backed recommendation is `docs/engineering/research/production-sandbox-deep-research.md`.
 
 ## 2026-08-29 - SOMA already owns a substantial custom Rust VMM
 
@@ -743,7 +743,7 @@ The strategic direction remains a custom minimal VMM, but the crate currently ex
 The highest-risk technical question is guest-memory soundness under concurrent KVM and device access, followed by custom virtqueue semantic correctness, the existence of multiple Machine ownership shapes, reactor lock behavior, and complete restore ordering.
 SOMA should retain `kvm-bindings`, `kvm-ioctls`, and `vmm-sys-util`, then evaluate `vm-memory` and `virtio-queue` through adapters and differential evidence rather than immediately rewriting or rejecting them.
 The implementation order is interface contraction, memory soundness, queue differential testing, one Machine owner, bounded reactor behavior, restore typestate, real VMM jail integration, hostile guest testing, restore profiling, and production admission.
-The complete research and ten implementation tickets are in `docs/research/rust-vmm-engineering-deep-dive.md`.
+The complete research and ten implementation tickets are in `docs/engineering/research/rust-vmm-engineering-deep-dive.md`.
 
 ## 2026-08-29 - Hidden Rust VMM research favors Dillo-shaped boundaries
 
@@ -752,7 +752,7 @@ Vibemon contains the broadest relevant mechanism set, including versioned cross-
 Panorama is explicitly broken but demonstrates a valuable dirty-only reset loop that merges KVM dirty logging with device-originated writes before coalesced restore.
 Hyperlight, Ignition, deterministic-vmm, ai-vmm, alvm, teaching VMMs, Firecracker runtimes, and type-1 hypervisors were classified separately so SOMA does not confuse a narrower guest ABI, an orchestrator, or a different virtualization layer with its production Linux KVM machine.
 The resulting design direction is a Dillo-like backend seam, selected Vibemon mechanisms behind SOMA-owned interfaces, Panorama-inspired dirty-reset evidence, bounded-model proofs for hostile arithmetic, and independent measurement of every imported idea.
-The detailed pinned-source review is `docs/research/rust-vmm-github-hidden-gems.md`.
+The detailed pinned-source review is `docs/engineering/research/rust-vmm-github-hidden-gems.md`.
 
 ## 2026-08-29 - Expanded GitHub census changes the diamond from one project to four
 
@@ -760,10 +760,10 @@ Overlapping GitHub repository and code searches across VMM, KVM, microVM, hyperv
 Dillo remains the best minimal backend-interface reference, while Google Alioth is the strongest newly found low-level cross-platform VMM reference, Nanvix is the strongest co-designed VMM and guest-OS density reference, and Clone is the strongest newly found warm-fork mechanism reference.
 The source audit also found recurring mistakes: warning and continuing after snapshot failures, substituting empty state, omitting device-originated dirty writes, incomplete Host external-state restoration, measuring KVM object restoration as spawn latency, ignoring KVM restore errors, sharing all tenants inside one unsafe process, mixing dead planned paths with performance targets, and cloning identity or PRNG state.
 SOMA therefore requires fail-closed state capture, a unified dirty-producer ledger, explicit external-resource recreation, checked restore counts, bounded hostile snapshot parsers, one jailed VMM process per Machine, backend-specific evidence, and separate restore, Ready, command, and cleanup measurements.
-The expanded pinned-source inventory, failure atlas, guardrails, and implementation tickets are in `docs/research/rust-vmm-github-census-and-failure-atlas.md`.
+The expanded pinned-source inventory, failure atlas, guardrails, and implementation tickets are in `docs/engineering/research/rust-vmm-github-census-and-failure-atlas.md`.
 ## 2026-08-30 - The x86_64 warm path optimization pass, end to end
 
-The warm restore of a `node:22` Generation was measured, changed three times, and re-measured, and the consolidated retained result is `docs/evidence/2026-08-30-warm-path-optimization.md`.
+The warm restore of a `node:22` Generation was measured, changed three times, and re-measured, and the consolidated retained result is `docs/engineering/evidence/2026-08-30-warm-path-optimization.md`.
 Two baselines bound the pass: the 2026-08-29 debug-build loop at `Ready` p50 27.18 ms and p99 30.00 ms, and the same test with an optimized host build and no source change at p50 17.80 ms and p99 19.44 ms; the 9.4 ms between them is host-side device, serial, and vsock emulation running optimized and is a build profile rather than a change to SOMA.
 The three code changes were each measured against the state immediately before it and are all measured against the release baseline: the launch-page poll on both sides of the resume fell from 2 ms and 1 ms to 100 us, the executor's flat 5 ms wait for a reapable child became a 50 us first check doubling to the same ceiling, and the launch-page memory slot moved to before the vCPU exists, where the identical ioctl costs tens of microseconds instead of two milliseconds.
 At the branch head, ten iterations gave `Ready` p50 12.20 ms and p99 13.86 ms with a spread of 10.78 ms to 13.86 ms; with ten samples the nearest-rank p99 is the largest sample rather than an interior order statistic, and neither endpoint reproduces to four figures across three sessions, so the supported claim is a reduction between 30% and 39% from 17.80 ms.
@@ -775,24 +775,24 @@ This is a single-restore measurement on one loaded host in a container with a wa
 
 ## 2026-08-30 - The second implementation audit is answered in code, with one finding left open
 
-Every finding of `docs/reviews/2026-08-29-implementation-reaudit.md` now maps to a commit and to the regression test that proves each acceptance gate, and the mapping is `docs/reviews/2026-08-29-implementation-reaudit-response.md`.
+Every finding of `docs/engineering/reviews/2026-08-29-implementation-reaudit.md` now maps to a commit and to the regression test that proves each acceptance gate, and the mapping is `docs/engineering/reviews/2026-08-29-implementation-reaudit-response.md`.
 P0.1 removed the assertion-style repair attestation and made the broker mint a single-use challenge that only the claiming peer can convert into a receipt bound to Instance, assignment generation, operation, network intent and live transcript; P0.2 put the control socket in an owned directory with verified owner, group and mode, admitted peers only on a kernel-derived identity holding the capability the operation requires, bounded the receive side, and bound a release to the peer recorded in the durable assignment.
 P1.2 extracted the process-group, absolute-deadline, bounded-capture primitive into `soma-supervise` and put the privileged `nft` and `conntrack` invocations behind it, P1.3 made every reply require complete delivery with the lifecycle mutation committing before delivery and replay answered from the operation identity, and P1.1 replaced `Restored::ready` with a transition that consumes a readiness receipt naming the session the published launch page binds.
-P0.3 renumbered the duplicate pre-launch capture decision to ADR 0030 and marked its responder-key provisions superseded, and P1.6 defined one five-term status vocabulary in the engineering standard and added `docs/claim-ledger.md` as the single place that states what SOMA can do today; both are now enforced by `scripts/check-architecture.sh` rather than by review.
+P0.3 renumbered the duplicate pre-launch capture decision to ADR 0030 and marked its responder-key provisions superseded, and P1.6 defined one five-term status vocabulary in the engineering standard and added `docs/engineering/claim-ledger.md` as the single place that states what SOMA can do today; both are now enforced by `scripts/check-architecture.sh` rather than by review.
 P1.4, the portable benchmark gate the burst tests broke with relative imports, was fixed on `main` in `e7a076a` and this branch is rebased on it.
 Two closures carry a residual that the documentation and a named test now pin rather than hide: the activation capability proves claimant continuity and single use and not guest repair, because the broker itself hands the claiming peer the only secret in the scheme, and the readiness receipt records the restored ready transition but gates nothing yet, because no execution or network-activation seam consumes it.
 P1.5 remains open and no commit can close it: it needs a fresh capture-and-restore run on a KVM host at the current commit with fresh per-Instance authority, so the retained snapshot artifact is labeled historical at `7c1127d` and the ledger records the current design as component-tested.
 The incomplete production gates the audit lists are capability gaps rather than defects, and each of them is a designed or component-tested ledger row: real guest networking, Generation certification, a jail around the real `soma-vmm`, production connectivity, prepared overlay heads in the launch path, Host composition, the public KVM Backend, and an admitted KVM burst campaign.
 ## 2026-08-30 - Public KVM Backend audit at 08e4d45
 
-The public KVM Backend now reaches a real cold-boot KVM lifecycle, but the audit in `docs/reviews/2026-08-30-public-kvm-backend-audit.md` records two P0 identity violations and six P1 lifecycle, ownership, cleanup, and production-composition gaps.
+The public KVM Backend now reaches a real cold-boot KVM lifecycle, but the audit in `docs/engineering/reviews/2026-08-30-public-kvm-backend-audit.md` records two P0 identity violations and six P1 lifecycle, ownership, cleanup, and production-composition gaps.
 No performance result from this path is admissible until certified Generation admission and exact public-to-guest Instance identity are enforced.
 
 ## 2026-08-30 - Prepared-store follow-up closes selection ambiguity, not immutable admission
 
 Commit `174dc18` makes duplicate reference claims fail as ambiguous and makes the ADR-number checker portable across GNU and BSD userlands.
 The prepared-store gate remains open because it still checks and reopens mutable pathnames, retains a store path across Resolve and Launch, reads hostile files without explicit bounds, discards directory-iteration errors, and admits decoded Candidate data without certification or complete artifact verification.
-The updated gate status and required descriptor-relative correction are recorded in `docs/reviews/2026-08-30-public-kvm-backend-audit.md`.
+The updated gate status and required descriptor-relative correction are recorded in `docs/engineering/reviews/2026-08-30-public-kvm-backend-audit.md`.
 Commit `6f149d6` subsequently added default refusal for uncertified Candidates unless `SOMA_ALLOW_UNCERTIFIED_GENERATION=1`, which is a useful development mitigation but not the required structural Candidate-to-Generation admission barrier.
 Its named refusal test uses malformed bytes and stops at `Damaged`, so a valid Candidate reaching the `Uncertified` branch still needs public-boundary evidence.
 
@@ -804,7 +804,7 @@ Restore-only, boot-only, authenticated Ready, first-command, and external TTI me
 
 ## 2026-08-30 - Full KVM and server-setup re-audit found executable-flow blockers
 
-The comprehensive re-audit from `08e4d45` through `50cd82e` is recorded in `docs/reviews/2026-08-30-kvm-and-server-setup-full-reaudit.md`.
+The comprehensive re-audit from `08e4d45` through `50cd82e` is recorded in `docs/engineering/reviews/2026-08-30-kvm-and-server-setup-full-reaudit.md`.
 The audit confirms real fixes to Instance binding, second-Launch rejection, unknown cleanup reporting, reference ambiguity, bounded prepared reads, and checker portability.
 It also records that certified admission, descriptor-pinned store identity, bounded timeout reclamation, descriptor-relative head cleanup, current live evidence, and the production composition remain open.
 The new server flow is not executable as documented because repository acquisition is ordered after its first script, `/srv/soma` is never provisioned, failed readiness checks return success, strict doctor overclaims its checks, and OCI naming is incomplete.
@@ -962,7 +962,7 @@ does is move the wait, and it moves it exactly: its create answers in 10 µs and
 reports 7.736 ms of waiting, against the 7.883 ms the synchronous create spent on the same launch, timed by
 the same receipts. The whole of the gain is one round trip for the caller, which on loopback is a fraction
 of a millisecond and across a region is seven. The full record is
-[docs/evidence/2026-10-17-runner-early-create-answer-and-create-and-run.md](docs/evidence/2026-10-17-runner-early-create-answer-and-create-and-run.md).
+[docs/engineering/evidence/2026-10-17-runner-early-create-answer-and-create-and-run.md](docs/engineering/evidence/2026-10-17-runner-early-create-answer-and-create-and-run.md).
 
 A hosted launch is started by re-entering the running executable with `machine-host`, which makes the
 program a caller compiles a part of the sandbox-hosting contract whether or not it means to be. An example
@@ -982,7 +982,7 @@ and answers a repeated destroy from its own ten-minute memory, so the only reade
 replaying its own operation. That is why the retention window is ten minutes and why it is counted from the
 first sweep that saw the record terminal rather than from a time stored in the record: no record carries a
 wall-clock time, and counting from the sweep makes a restart wait a whole window instead of releasing
-everything at once. [ADR 0055](docs/adr/0055-release-terminal-machine-records.md) states the rule.
+everything at once. [ADR 0055](docs/engineering/adr/0055-release-terminal-machine-records.md) states the rule.
 
 The network broker expires silent control connections after 30 seconds, independently of guest tunnel lifetime.
 A desktop viewer opens new tunnels to load pages, fetch assets, and stream after the guest has been idle.
@@ -1129,3 +1129,34 @@ The recovery transaction admits the same Instance and checkpoint, reuses ordinar
 The host CLI verifies a backup receipt and installs the workspace through the host daemon.
 Protocol level 5 binds the source capture and destination tenant, Instance, volume, Generation, and operation in a single import frame.
 The daemon publishes a fresh detached disk with a fresh key, and an exact replay cannot overwrite writes made after recovery.
+
+## SOMA instance documentation
+
+Use SOMA instance for a concrete machine lifetime and retain the workload or product name when describing what it does.
+The README points to API 1.3 and current workload guides, with historical KVM proofs linked as evidence from their own revisions.
+
+The README describes the zero-trust principles at the guest and host boundary, the trusted base, and the checks that support individual security claims.
+
+The documentation index groups current entry points by task and links directly to the README’s zero-trust explanation and the threat model.
+
+The documentation index gives product and usage docs and engineering docs separate entry points while keeping existing file paths stable.
+
+The documentation tree has separate product and engineering layers, with reference material and historical evidence grouped under its owning layer.
+
+Footprint documentation treats download bytes, executable sizes, configured guest capacity, and resident memory as separate measurements.
+
+The runtime comparison measures named peer executables on disk and links each runtime memory and latency figure to its own measurement boundary.
+
+Zero trust documentation scopes access decisions to the management plane and describes instance isolation and guest readiness as runtime controls.
+The runner and host HTTP API have different identity boundaries.
+
+Reinforcement-learning environments use the instance lifecycle for rollout workers while the trainer owns reward logic, policy updates, and model checkpoints.
+
+The FrozenLake reference image trains and evaluates a tabular policy, with separate termination and truncation semantics.
+Four concurrent runs through the local SOMA backend verified learned outcomes, unique instance identities, and cleanup.
+
+The FrozenLake distribution workflow publishes the verified x86_64 OCI image and exercises the same digest through the standalone KVM check.
+The MIOSA CLI smoke succeeded on auto placement with Firecracker, while explicit SOMA placement reported no eligible hosts for the tested sizes and organizations.
+
+Seeded CartPole vector rollouts produced identical episode results in sync and async modes.
+On the local Docker backend, synchronous mode had higher transition throughput for this lightweight environment across the tested worker counts.

@@ -5,7 +5,7 @@ extend-exclude = [
     "target/",
     # Retained raw evidence is base64 and hex captured from real runs. It is data, not prose, and
     # it must stay byte for byte as it was recorded, so it is never spell corrected.
-    "docs/evidence/raw/",
+    "docs/engineering/evidence/raw/",
     # Shell test fixtures are captured machine envelopes, carrying base64 output and digests from
     # a real run. They are data the tests compare against, so nothing in them may be rewritten.
     "scripts/tests/fixtures/",

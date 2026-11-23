@@ -4,7 +4,7 @@ use soma_version::Protocol;
 
 /// Every protocol this build of the local runtime speaks, with the version it speaks.
 ///
-/// The names are the ones `docs/versioning.md` lists. Only the Linux KVM engine talks to a guest
+/// The names are the ones `docs/product/reference/versioning.md` lists. Only the Linux KVM engine talks to a guest
 /// agent and to the host daemons, so a build for any other target speaks none of them and its
 /// report says so by listing nothing.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

@@ -92,7 +92,7 @@ Exit evidence:
 - Signed manifest, SBOM, build provenance, revocation identity, and retained test results.
 - No registry credential or mutable tag in the VMM protocol.
 - Template build state, immutable publication, revocation, retention, and garbage collection are explicit and crash-safe.
-- The [Template implementation map](docs/research/template-implementation-map.md) passes through certification and publication before any Template is described as launchable.
+- The [Template implementation map](docs/engineering/research/template-implementation-map.md) passes through certification and publication before any Template is described as launchable.
 
 ## Phase 6: Burst performance
 
@@ -131,5 +131,5 @@ Exit evidence:
 
 Every roadmap change must preserve or strengthen hardware isolation, private mutable state, authenticated readiness, exact compatibility, idempotent recovery, and honest measurement.
 A faster result that weakens one of those properties does not advance SOMA toward the north star.
-Every claimed capability must also pass every applicable row in the [SOMA state-of-the-art engineering standard](docs/standards/sota-engineering-standard.md).
+Every claimed capability must also pass every applicable row in the [SOMA state-of-the-art engineering standard](docs/engineering/standards/sota-engineering-standard.md).
 There is no average admission score, and one red applicable dimension blocks support and performance claims.

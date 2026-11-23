@@ -1,92 +1,78 @@
-# SOMA Linux desktop
+# Run a desktop on a SOMA instance
 
-The Ubuntu 24.04 desktop runs in a SOMA virtual machine using the desktop kernel variant.
-Xvfb provides the X display through a shared-memory framebuffer, Openbox manages windows, and Xfce Terminal is the default terminal.
-The CUA driver reads the display, inspects accessibility through AT-SPI, and sends X input.
+A desktop Generation packages a Linux graphical session for an ordinary SOMA instance.
+It uses the desktop kernel variant and starts the desktop session after the instance is Ready.
 
-The browser viewer shares the same display.
-Voxl sends H.264 video and human input over WebSockets on guest port 6080.
-The CUA driver can operate while these viewer processes are stopped.
-The platform must authenticate and authorize access before opening the viewer tunnel.
-An image without Voxl uses the pre-paired Sunshine and moonlight-web viewer on the same port.
+| Role | Component | When it runs |
+| --- | --- | --- |
+| Display | Xvfb with a shared-memory framebuffer and Openbox | During the desktop session |
+| Agent input and accessibility | `cua-driver` through its owner-only Unix socket, using XTEST and AT-SPI | During the desktop session |
+| Browser viewer | voxl serves the display on guest port 6080 through the SOMA tunnel | The viewer listens during the session and streams when a browser connects |
+| Optional streaming viewer | Sunshine and moonlight-web on guest port 6081 by default | Started separately with the viewer command |
 
-## Build the image and Generation
+The desktop includes PCManFM, a dock, wallpapers, Chrome, and a terminal.
+The agent driver and browser viewer connect to the same display independently.
+The integrating platform controls who may open the tunnel.
 
-Run the following from the SOMA repository root.
-The image pins the Ubuntu base, CUA driver, Voxl, Sunshine, and moonlight-web in the Dockerfiles.
+## Pinned inputs
 
-```sh
-docker build -f workloads/desktop/base.Dockerfile -t soma-desktop-base:2 workloads/desktop
-docker build --build-arg BASE_IMAGE=soma-desktop-base:2 -t soma-desktop:2 workloads/desktop
-```
+| Input | Pin |
+| --- | --- |
+| Ubuntu | `ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517` |
+| voxl | Source revision pinned in the [Dockerfile](Dockerfile) |
+| cua-driver | `cua-driver-rs-0.55.0-linux-x86_64.tar.gz`, SHA-256 `fd863defadb13573d53fd327e7d09268460a658224651329cb0b857b0c8752ac` |
+| Sunshine | `sunshine_2026.914.233613-1+ubuntu24.04_amd64.deb`, SHA-256 `c38e9c705f650f8705f61702717e99bec34044c5028fcb8f23a08fe041292c21` |
+| moonlight-web | `moonlight-web-x86_64-unknown-linux-gnu.tar.gz` v3.0.2, SHA-256 `4b6de5c1c35553e9d35bd67a3343ebd01f67d0a4216116c09b78b12adccc03df` |
+| Kernel | the desktop variant, `kernel/build-variant.sh desktop`: version 1 plus evdev and uinput only |
 
-An existing root filesystem can supply the base if it includes Xorg with the dummy video driver, Openbox, Xfce Terminal, D-Bus, and the configuration at `/etc/soma-desktop/xorg.conf`.
+Only the MIT cua driver binary, its licence and its third-party notices are installed; the build fails if any `cua-spacesd`, `cua-relay` or `cua-perception` file appears.
 
-```sh
-workloads/desktop/import-rootfs.sh <rootfs.ext4> desktop-rootfs:1
-docker build --build-arg BASE_IMAGE=desktop-rootfs:1 -t soma-desktop:2 workloads/desktop
-```
+## Build
 
-Compile and capture the Generation on a KVM host after building SOMA and its filesystem tools.
+Set `SOMA_STORE` to the Generation store directory and `SOMA_FS_TOOLS` to the directory containing the pinned filesystem tools.
+Run the Generation build on a Linux KVM host prepared with the [host setup guide](../../docs/product/operations/server-setup.md).
 
 ```sh
 kernel/build-variant.sh desktop
-cargo build --release -p soma-generation --example prepare_generation -p soma-local --example capture_snapshot
-scripts/desktop-generation.sh soma-desktop:2 soma-desktop:small-2 <store> <fs-tools> small
+docker build -f workloads/desktop/base.Dockerfile -t soma-desktop-base:3 workloads/desktop
+docker build --build-arg BASE_IMAGE=soma-desktop-base:3 -t soma-desktop:3 workloads/desktop
+scripts/desktop-generation.sh soma-desktop:3 soma-desktop:small-3 "$SOMA_STORE" "$SOMA_FS_TOOLS" small
 ```
 
-The `small` shape has 2 vCPUs, 4096 MiB of memory, and 20480 MiB of writable storage.
-The desktop kernel variant enables evdev and `uinput` for the browser viewer.
-The kernel verifier reports the explicit input override and checks that physical input drivers stay disabled.
+The build pairs moonlight-web with Sunshine once for the optional streaming viewer.
+The pairing procedure lives in [the viewer build script](viewer/pair.py).
 
-Optional Windows application support uses a separate Wine layer.
+Windows programs run through Wine in an optional layer, so a plain desktop does not carry it:
 
 ```sh
-docker build -f workloads/desktop/wine.Dockerfile \
-  --build-arg DESKTOP_IMAGE=soma-desktop:2 -t soma-desktop-wine:2 workloads/desktop
+docker build -f workloads/desktop/wine.Dockerfile --build-arg DESKTOP_IMAGE=soma-desktop:3 -t soma-desktop-wine:3 workloads/desktop
 ```
 
-Start applications with `wine program.exe`.
-The layer waits for wineserver to write the registry before publishing the Wine prefix.
+The guest kernel has no binfmt_misc, so a program starts as `wine program.exe`.
 
-## MIOSA desktop API image
+## How the session runs
 
-Build `desktopd` from MIOSA Compute's `envd` module at the revision selected for deployment.
+The snapshot holds no running process, so the desktop starts after Ready:
 
-```sh
-cd /path/to/miosa-compute/envd
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /path/to/bridge/desktopd ./cmd/desktopd
-```
+1. `soma-desktop-session start` runs as root through exec.
+   It registers the desktop cgroup so the guest agent keeps session processes alive between commands.
+2. The launcher starts the desktop user's session, including D-Bus, Xvfb on `:0`, the accessibility bus, Openbox, voxl, and `cua-driver serve`.
+3. It waits for `session_ready` and prints every milestone as JSON.
 
-From the SOMA repository root, add the executable to the desktop image and use the resulting image as the source for Generation capture.
+Reach voxl through `GET /v1/sandboxes/{instance}/tunnel/6080`.
+`soma-desktop-session viewer start` starts the optional Sunshine and moonlight-web viewer, and `viewer stop` ends it.
 
-```sh
-docker build -f workloads/desktop/platform.Dockerfile \
-  --build-arg DESKTOP_IMAGE=soma-desktop:2 -t soma-desktop:platform-2 /path/to/bridge
-```
+`soma-desktop-call` runs one driver command as the desktop user, for example `soma-desktop-call call get_desktop_state '{"max_image_dimension":0}'`.
 
-Before starting the session, the platform writes that computer's bearer credential to `/run/desktopd/token` as a regular file owned by `ubuntu` with mode 0600.
-The credential is provisioned per computer and stays out of the image.
-On this image, session startup waits for `desktopd` on guest port 49985.
-It serves the same authenticated desktop HTTP routes as envd and uses the CUA driver socket on the guest.
-The platform opens the desktop port only through its authenticated tunnel.
+## cua-driver configuration
 
-## Start and operate a desktop
+- `standard` permission mode with `session/cua-capabilities.yaml` as a ceiling: the desktop display, the terminal's and Openbox's windows, and one writable directory for screenshots.
+  Recording, scripting, browser control and process termination are not in it.
+- Telemetry and the update check are off for every caller, in the environment and in the persisted preference.
+- An application the agent launches is not given keyboard focus; `bring_to_front` gives it, and a person's click does the same.
 
-The certified startup snapshot starts the guest agent.
-Once the VM reports Ready, run `soma-desktop-session start` as root through guest exec.
-The launcher starts the session in the `/soma-desktop` cgroup so the guest agent can preserve it when the startup command exits.
-The command returns the session state and timestamps for D-Bus, the X display, accessibility, Openbox, and driver startup.
+## Verification
 
-Run `soma-desktop-call doctor` to check the driver.
-For example, `soma-desktop-call call get_desktop_state '{"max_image_dimension":0}'` reads the display and current windows.
-The capability manifest in `session/cua-capabilities.yaml` limits accessible applications, operations, and screenshot storage.
-The driver wrapper disables telemetry and automatic update checks.
-
-Run `soma-desktop-session viewer start` when a human opens the desktop.
-Tunnel guest port 6080 using the authorized SOMA endpoint.
-Run `soma-desktop-session viewer stop` when the viewer closes.
-The stop command waits for the viewer supervisor and its children to exit.
-The X session and CUA driver remain available.
-
-The [original Xfce and KasmVNC experiment](../../docs/evidence/2026-11-20-desktop-generation-cua-m1.md) records the earlier design and measurements.
+The [desktop proof harness](../../scripts/desktop-proof.sh) checks launch, agent input, viewer access, and cleanup on KVM.
+Verify suspend, resume, and viewer reconnect with the desktop Generation you intend to run.
+The reference viewer serves video and input with audio disabled.

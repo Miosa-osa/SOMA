@@ -30,6 +30,20 @@ impl ActiveMachine {
         Ok(())
     }
 
+    /// Keeps a completed execution's tombstone, forgetting the oldest when the ledger is full.
+    ///
+    /// A full ledger used to refuse every later command ("full replay ledger requires
+    /// replacement"), so a sandbox could run 1,024 commands in its life and then none (seen
+    /// 2026-11-23 on desktops polled for screenshots). A tombstone answers a retried operation
+    /// instead of running it twice; retries come within seconds, so the oldest tombstones are
+    /// the ones nothing can still be retrying, and they make room.
+    pub(in crate::engine) fn record_completed(&mut self, tombstone: ExecutionTombstone) {
+        while self.completed_executions.len() >= MAX_EXECUTION_TOMBSTONES {
+            self.completed_executions.remove(0);
+        }
+        self.completed_executions.push(tombstone);
+    }
+
     pub(in crate::engine) fn workload(&self) -> Option<&WorkloadIdentity> {
         match self.launch_receipt.workload() {
             WorkloadEvidence::Resolved { identity } => Some(identity),

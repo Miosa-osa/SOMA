@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::{Execute, Executed, Failure, Launch, OperationId, Ready, Stop, Stopped};
 
@@ -13,6 +13,9 @@ const MAX_EXECUTE_RECEIPTS: usize = MAX_OPERATION_RECEIPTS - 2;
 pub(super) struct OperationLedger {
     launch: Option<LaunchRecord>,
     executes: HashMap<OperationId, ExecuteRecord>,
+    /// Execute receipts in the order they were recorded, oldest first, so room is made by
+    /// forgetting the oldest receipt rather than by refusing every later command.
+    execute_order: VecDeque<OperationId>,
     stop: Option<StopRecord>,
     retained_execute_bytes: usize,
 }
@@ -26,19 +29,33 @@ impl OperationLedger {
         }
     }
 
+    /// Makes room for one more Execute receipt by forgetting the oldest ones.
+    ///
+    /// The ledger used to refuse every command once it held 1,022 receipts or 64 MiB, so a
+    /// machine that had run that many commands could run no more for the rest of its life
+    /// (seen 2026-11-23: desktops polled for screenshots stopped answering after about a
+    /// thousand commands). A receipt exists so a retried request is answered from it instead of
+    /// running twice; retries arrive within seconds, not a thousand commands later, so the
+    /// oldest receipts are the ones no caller can still be waiting on. Only a single request
+    /// whose own receipt could exceed the byte budget is still refused.
     pub(super) fn ensure_execute_capacity(
-        &self,
+        &mut self,
         request: &Execute,
     ) -> Result<(), OperationCapacity> {
-        if self.executes.len() >= MAX_EXECUTE_RECEIPTS {
+        let needed = maximum_execute_receipt_bytes(request);
+        if needed > MAX_OPERATION_RECEIPT_BYTES {
             return Err(OperationCapacity);
         }
-        let retained_bytes = self
-            .retained_execute_bytes
-            .checked_add(maximum_execute_receipt_bytes(request))
-            .ok_or(OperationCapacity)?;
-        if retained_bytes > MAX_OPERATION_RECEIPT_BYTES {
-            return Err(OperationCapacity);
+        while self.executes.len() >= MAX_EXECUTE_RECEIPTS
+            || self.retained_execute_bytes.saturating_add(needed) > MAX_OPERATION_RECEIPT_BYTES
+        {
+            let Some(oldest) = self.execute_order.pop_front() else {
+                return Err(OperationCapacity);
+            };
+            if let Some(record) = self.executes.remove(&oldest) {
+                let freed = execute_receipt_bytes(&record.request, &record.outcome);
+                self.retained_execute_bytes = self.retained_execute_bytes.saturating_sub(freed);
+            }
         }
         Ok(())
     }
@@ -94,9 +111,11 @@ impl OperationLedger {
         let retained_bytes = execute_receipt_bytes(&request, &outcome);
         self.retained_execute_bytes = self.retained_execute_bytes.saturating_add(retained_bytes);
         debug_assert!(self.retained_execute_bytes <= MAX_OPERATION_RECEIPT_BYTES);
+        let operation_id = request.operation_id();
         let replaced = self
             .executes
-            .insert(request.operation_id(), ExecuteRecord { request, outcome });
+            .insert(operation_id, ExecuteRecord { request, outcome });
+        self.execute_order.push_back(operation_id);
         debug_assert!(
             replaced.is_none(),
             "new Execute replaced an existing receipt"

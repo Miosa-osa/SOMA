@@ -11,8 +11,8 @@ mod support;
 use std::sync::{Arc, Mutex};
 
 use soma::{
-    BackendFailureKind, CleanupDisposition, CleanupMethod, DirectCommand, Engine,
-    ExecuteMachineRequest, ExecutionLimits, FailurePhase, InstanceId, LaunchMachineRequest,
+    BackendFailureKind, CleanupDisposition, CleanupMethod, DestroyMachineRequest, DirectCommand,
+    Engine, ExecuteMachineRequest, ExecutionLimits, FailurePhase, InstanceId, LaunchMachineRequest,
     MachineShape, ManagedFailure, OciImage, OperationId, RunFailure, RunFailureKind,
     TerminalStatus,
 };
@@ -68,6 +68,16 @@ impl Sandbox {
             self.command_with_limit(digit, max_output_bytes)
                 .expect_err("the command fails"),
         )
+    }
+
+    /// Force-destroys the sandbox and returns the receipt.
+    fn destroy(&mut self, digit: char) -> Result<soma::ExecutionReceipt, ManagedFailure> {
+        self.engine
+            .destroy_machine(DestroyMachineRequest::new(
+                operation_id(digit),
+                self.instance.clone(),
+            ))
+            .map(|destroyed| destroyed.receipt().clone())
     }
 
     fn calls(&self) -> Vec<&'static str> {
@@ -236,6 +246,32 @@ fn an_unobserved_failure_still_ends_the_sandbox() {
     assert_eq!(
         stopped,
         ManagedFailure::State(soma::ManagedStateError::MachineStopped)
+    );
+}
+
+#[test]
+fn a_sandbox_a_failed_command_ended_can_still_be_destroyed() {
+    let mut sandbox = launched(Mode::CommandFailure);
+    let _ = sandbox.refused('4', 16 * 1024 * 1024);
+
+    let destroyed = sandbox
+        .destroy('5')
+        .expect("an ended sandbox can be let go of");
+    assert_eq!(destroyed.terminal_status(), &TerminalStatus::Destroyed);
+    assert_eq!(destroyed.cleanup().machine(), CleanupDisposition::NotOwned);
+    destroyed.validate().expect("the destroy receipt is valid");
+    assert_eq!(
+        sandbox.destroy('5').expect("the same destroy replays"),
+        destroyed
+    );
+    let again = sandbox
+        .destroy('6')
+        .expect("a later destroy is answered the same way");
+    assert_eq!(again.terminal_status(), &TerminalStatus::Destroyed);
+    assert_eq!(
+        sandbox.calls(),
+        ["resolve", "launch", "execute", "cleanup"],
+        "the machine was cleaned once, when it ended"
     );
 }
 

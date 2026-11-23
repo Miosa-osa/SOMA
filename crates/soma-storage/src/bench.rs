@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use cell::{Cell, Method};
 use stats::Percentiles;
 
-/// Disk-head share of the fresh-resource-activation budget from `docs/architecture/fast-path.md`,
+/// Disk-head share of the fresh-resource-activation budget from `docs/engineering/architecture/fast-path.md`,
 /// `below 1.00 ms` at p99.
 pub const DEFAULT_BUDGET_NS: u64 = 1_000_000;
 

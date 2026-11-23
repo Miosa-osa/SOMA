@@ -132,7 +132,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let tombstone = ExecutionTombstone::from_receipt(&receipt)
             .map_err(|failure| ManagedFailure::StateStore(failure.kind()))?;
         let mut active = admission.active;
-        active.completed_executions.push(tombstone);
+        active.record_completed(tombstone);
         let next = durable_with_phase(
             &request.instance_id,
             DurablePhase::Active {

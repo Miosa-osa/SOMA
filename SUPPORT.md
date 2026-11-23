@@ -34,6 +34,6 @@ Questions about a product built on SOMA should go to that product's operator unl
 
 ## Performance questions
 
-Attach raw samples and the metadata required by [docs/benchmark-contract.md](docs/benchmark-contract.md).
+Attach raw samples and the metadata required by [docs/engineering/benchmark-contract.md](docs/engineering/benchmark-contract.md).
 State whether the test measured a cold Generation build, cold-cache restore, warm-cache restore, prepared resources, a paused Machine, or an already-Ready Machine.
 Internal VMM milestones and exact ComputeSDK Burst TTI are different measurements and must not be presented as interchangeable.

@@ -5,7 +5,7 @@ It is an open-source virtual machine monitor and launch runtime for fast, hardwa
 
 ## North star
 
-SOMA aims to become the state-of-the-art hardware-isolated sandbox engine across clouds, bare-metal operators, workload images, machine shapes, and storage sizes.
+SOMA aims to become the state-of-the-art runtime for hardware-isolated Linux workloads across clouds, bare-metal operators, workload images, machine shapes, and storage sizes.
 Portability is earned through explicit capability contracts and conformance evidence rather than a claim that every host behaves alike.
 The initial Ubuntu 24.04 x86_64 KVM target is the first rigorously supported substrate, not a permanent product boundary.
 The client library and command-line interface target Linux, macOS, and Windows, while local isolation engines and remote hosts earn support independently.
@@ -61,5 +61,5 @@ These are engineering targets, not current claims.
 
 ## Current status
 
-SOMA is pre-alpha research and implementation work.
-It is not yet safe for untrusted production workloads.
+SOMA is in alpha.
+See the [source version](VERSION) and [claim ledger](docs/engineering/claim-ledger.md) for the current release line and the evidence supporting each capability.
