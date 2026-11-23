@@ -1015,3 +1015,5 @@ The documentation index groups current entry points by task and links directly t
 The documentation index gives product and usage docs and engineering docs separate entry points while keeping existing file paths stable.
 
 The documentation tree has separate product and engineering layers, with reference material and historical evidence grouped under its owning layer.
+
+Footprint documentation treats download bytes, executable sizes, configured guest capacity, and resident memory as separate measurements.
