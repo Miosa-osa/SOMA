@@ -30,6 +30,17 @@ wait_port() {
 
 trap 'kill 0' TERM INT
 
+# The screen people watch is voxl on 6080, started with the desktop. Sunshine and moonlight-web are
+# a second, optional stream: they cost about 150 MB and an encoder while running, so they start only
+# when SOMA_DESKTOP_MOONLIGHT=1. Otherwise the viewer is ready as soon as voxl answers.
+if [[ "${SOMA_DESKTOP_MOONLIGHT:-0}" != 1 ]]; then
+    wait_port viewer_port 6080 || exit 1
+    mark viewer_ready
+    sleep infinity &
+    wait
+    exit 0
+fi
+
 sunshine "$HOME/.config/sunshine/sunshine.conf" >"$STATE/logs/sunshine.log" 2>&1 &
 wait_port viewer_encoder 47989 || exit 1
 
