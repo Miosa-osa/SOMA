@@ -126,4 +126,4 @@ This file records the primary sources that constrain SOMA's design.
 ## Documentation references
 
 - [Modal's GPU Glossary](https://modal.com/gpu-glossary/readme) is a documentation-pattern reference for an interlinked glossary that connects terms across multiple technical layers.
-- SOMA glossary definitions remain original to this project and use the accepted terminology in `docs/architecture/naming.md` and the architecture decision records.
+- SOMA glossary definitions remain original to this project and use the accepted terminology in `docs/engineering/architecture/naming.md` and the architecture decision records.

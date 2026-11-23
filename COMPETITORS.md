@@ -56,8 +56,8 @@ The strongest currently comparable external result is ComputeSDK TTI because it 
 The strongest mechanism evidence comes from repositories that expose raw samples and stage boundaries even when their headline number is not directly comparable.
 
 Primary evidence is linked in each project profile below.
-SOMA's retained Isorun samples are in [the Isorun create-latency report](docs/evidence/2026-08-30-isorun-create-latency.md).
-SOMA's current warm result is in [the warm-path optimization report](docs/evidence/2026-08-30-warm-path-optimization.md).
+SOMA's retained Isorun samples are in [the Isorun create-latency report](docs/engineering/evidence/2026-08-30-isorun-create-latency.md).
+SOMA's current warm result is in [the warm-path optimization report](docs/engineering/evidence/2026-08-30-warm-path-optimization.md).
 
 ## ComputeSDK benchmark snapshot
 
@@ -110,7 +110,7 @@ Primary benchmark sources are the [immutable 2026-08-28 raw result](https://gith
 - **Default shape:** **Verified design disclosure.** The quickstart states that a sandbox defaults to 1 vCPU, 1 GiB of memory, and a 4 GiB disk.
 - **Performance:** **Independent observation, 2026-08-28.** ComputeSDK recorded 63.90 ms median TTI, 79.35 ms p95, 79.86 ms p99, and 100% success.
 - **Published claim:** **Vendor claim.** The API reference contains an illustrative create response with `create_ms: 9`, and the public site states that sandboxes are "ready in 10ms".
-- **Creation telemetry:** **Independently collected vendor telemetry, 2026-08-30.** Isorun's own `create_ms` field was collected over 250 destroyed sandboxes in six cohorts: 22 ms p50 sequential `node:22`, 73 ms p50 and about 208 ms p99 at concurrency 100 across two agreeing cohorts, lowest reported value 19 ms, and no sample at or below 15 ms. The field's timer endpoints are undocumented, so it is not equivalent to a SOMA `Ready` result or to ComputeSDK TTI. Cohorts, raw records, regeneration command, and the hypotheses this does and does not support are in [the retained measurement](docs/evidence/2026-08-30-isorun-create-latency.md).
+- **Creation telemetry:** **Independently collected vendor telemetry, 2026-08-30.** Isorun's own `create_ms` field was collected over 250 destroyed sandboxes in six cohorts: 22 ms p50 sequential `node:22`, 73 ms p50 and about 208 ms p99 at concurrency 100 across two agreeing cohorts, lowest reported value 19 ms, and no sample at or below 15 ms. The field's timer endpoints are undocumented, so it is not equivalent to a SOMA `Ready` result or to ComputeSDK TTI. Cohorts, raw records, regeneration command, and the hypotheses this does and does not support are in [the retained measurement](docs/engineering/evidence/2026-08-30-isorun-create-latency.md).
 - **Published scale claim:** **Vendor claim.** Isorun's builder reports creating 100,000 concurrent sandboxes in 24 seconds in the ComputeSDK Scale Invitational, but the reviewed material does not expose raw per-sandbox samples or a directly comparable Burst TTI boundary for that event.
 - **Best insight for SOMA:** Make fork, hibernate, snapshot, and restore explicit lifecycle capabilities instead of hiding them behind a generic start operation.
 - **Second insight for SOMA:** A creation figure collected at one concurrency did not predict the same figure at another, so SOMA's own admitted result must report every concurrency rung rather than extrapolating a sequential best case.
@@ -157,7 +157,7 @@ The official product spelling reviewed here is Declaw, while some supplied mater
 - **Best insight for SOMA:** Keep template builds outside Launch, preallocate namespace, veth, TAP, and policy resources outside the critical restore path, and support host-side credential injection when a protocol can be safely mediated.
 - **Pitfall or unknown:** Snapshot artifacts require authenticated provenance and restore-time uniqueness repair, while a transparent proxy also needs explicit bypass resistance and trust-store policy.
 - **Primary sources:** [Firecracker architecture](https://docs.declaw.ai/architecture/firecracker), [templates](https://docs.declaw.ai/features/templates), [networking](https://docs.declaw.ai/features/networking), [credential vault](https://docs.declaw.ai/security/credential-vault), and [MCP sandboxing](https://docs.declaw.ai/cli/mcp).
-- **Detailed research:** [Declaw public architecture research](docs/research/declaw.md).
+- **Detailed research:** [Declaw public architecture research](docs/engineering/research/declaw.md).
 
 ### Blaxel
 
@@ -336,7 +336,7 @@ No reviewed primary source establishes Dragonball as CubeSandbox's VMM, so this 
 - **Performance:** **Project claim, reviewed 2026-08-28.** The architecture page claims sub-100 ms cold starts from presnapshotted templates and a RustVMM restore path, while the repository overview claims a fully serviceable sandbox in under 60 ms and under 5 MB of memory overhead.
 - **Best insight for SOMA:** CubeHypervisor, node-local ownership, reflink storage, eBPF policy, and host-side secret injection are separable modules that can sit behind narrow seams.
 - **Pitfall or unknown:** CubeSandbox's Redis, scheduler, proxy, containerd, and cluster control plane solve a broader problem than SOMA's one-machine process, so copying the topology would add unnecessary depth and failure modes to the local core.
-- **Primary sources:** [CubeSandbox architecture](https://github.com/TencentCloud/CubeSandbox/blob/master/docs/architecture/overview.md) and [CubeSandbox repository](https://github.com/TencentCloud/CubeSandbox).
+- **Primary sources:** [CubeSandbox architecture](https://github.com/TencentCloud/CubeSandbox/blob/master/docs/engineering/architecture/overview.md) and [CubeSandbox repository](https://github.com/TencentCloud/CubeSandbox).
 
 ### Dragonball in Kata Containers
 
@@ -404,7 +404,7 @@ These projects are architecture references rather than a claim that each is a ho
 - **Performance:** **Unknown for this comparison, reviewed 2026-08-28.** The project has an open benchmark-dashboard issue rather than a current primary-source TTI distribution suitable for this ledger.
 - **Best insight for SOMA:** Specify restore behavior for entropy, timers, sockets, port forwards, machine identity, and architecture compatibility rather than treating memory restoration as sufficient.
 - **Pitfall or unknown:** Public benchmark evidence and a hardened hostile-tenant security claim remain incomplete, so feature completeness must not be mistaken for provider-grade isolation evidence.
-- **Primary sources:** [Machinen context](https://github.com/redwoodjs/machinen/blob/main/CONTEXT.md), [snapshot, restore, and fork guide](https://github.com/redwoodjs/machinen/blob/main/docs/guides/snapshot-restore-fork.md), and [benchmark dashboard issue](https://github.com/redwoodjs/machinen/issues/951).
+- **Primary sources:** [Machinen context](https://github.com/redwoodjs/machinen/blob/main/CONTEXT.md), [snapshot, restore, and fork guide](https://github.com/redwoodjs/machinen/blob/main/docs/product/guides/snapshot-restore-fork.md), and [benchmark dashboard issue](https://github.com/redwoodjs/machinen/issues/951).
 
 ### libkrun and Microsandbox
 

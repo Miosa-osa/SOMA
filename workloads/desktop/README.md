@@ -30,7 +30,7 @@ Only the MIT cua driver binary, its licence and its third-party notices are inst
 ## Build
 
 Set `SOMA_STORE` to the Generation store directory and `SOMA_FS_TOOLS` to the directory containing the pinned filesystem tools.
-Run the Generation build on a Linux KVM host prepared with the [host setup guide](../../docs/operations/server-setup.md).
+Run the Generation build on a Linux KVM host prepared with the [host setup guide](../../docs/product/operations/server-setup.md).
 
 ```sh
 kernel/build-variant.sh desktop

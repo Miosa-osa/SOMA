@@ -62,4 +62,4 @@ These are engineering targets, not current claims.
 ## Current status
 
 SOMA is in alpha.
-See the [source version](VERSION) and [claim ledger](docs/claim-ledger.md) for the current release line and the evidence supporting each capability.
+See the [source version](VERSION) and [claim ledger](docs/engineering/claim-ledger.md) for the current release line and the evidence supporting each capability.

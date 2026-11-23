@@ -2,14 +2,14 @@
 """Recompute every table cell in the Isorun evidence from the retained records.
 
 A reviewer runs this without an Isorun account. It reads only the redacted JSONL
-under docs/evidence/raw/2026-08-30-isorun and prints the cohort table, the
+under docs/engineering/evidence/raw/2026-08-30-isorun and prints the cohort table, the
 combined distribution, and the cleanup and billing scopes.
 """
 import json
 import pathlib
 import sys
 
-RAW = pathlib.Path("docs/evidence/raw/2026-08-30-isorun")
+RAW = pathlib.Path("docs/engineering/evidence/raw/2026-08-30-isorun")
 COHORTS = [
     ("c1.jsonl", "node:22, sequential", 1),
     ("c10.jsonl", "node:22, concurrency 10", 10),

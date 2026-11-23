@@ -2,8 +2,8 @@
 
 ## Purpose
 
-This directory produces the pinned guest kernel required by the [x86_64 machine contract v1](../docs/research/x86_64-machine-contract.md) and the [Generation compiler kernel contract](../docs/research/generation-compiler.md).
-The output is one uncompressed Linux ELF `vmlinux` that carries the `XEN_ELFNOTE_PHYS32_ENTRY` note, links every `PT_LOAD` segment at or above guest-physical `0x01000000`, and contains only the facilities the [minimal device surface](../docs/research/minimal-device-surface.md) needs.
+This directory produces the pinned guest kernel required by the [x86_64 machine contract v1](../docs/engineering/research/x86_64-machine-contract.md) and the [Generation compiler kernel contract](../docs/engineering/research/generation-compiler.md).
+The output is one uncompressed Linux ELF `vmlinux` that carries the `XEN_ELFNOTE_PHYS32_ENTRY` note, links every `PT_LOAD` segment at or above guest-physical `0x01000000`, and contains only the facilities the [minimal device surface](../docs/engineering/research/minimal-device-surface.md) needs.
 The build is reproducible: the same inputs produce the same `vmlinux` bytes, and every input is pinned by digest.
 
 The kernel is a Generation input.
@@ -103,7 +103,7 @@ Symbols the fragment cannot disable in Linux 6.12 because Kconfig forces them: `
   The kernel has not been entered through KVM, and the serial console, virtio-mmio discovery, EROFS root, OverlayFS composition, vsock, and entropy paths are unverified until the KVM boot slice runs.
 - `verify-pvh.py` proves ELF layout and note presence, not that the PVH entry code executes correctly under SOMA's initial vCPU state.
 - The toolchain is pinned by base-image digest and verified package versions, not by an immutable apt snapshot, so a future rebuild can fail closed if Ubuntu updates gcc-13 or binutils.
-- Reproducibility evidence covers two builds on one host on one date and is recorded in `docs/evidence/`; it is not a cross-host reproducibility claim.
+- Reproducibility evidence covers two builds on one host on one date and is recorded in `docs/engineering/evidence/`; it is not a cross-host reproducibility claim.
 - No size, boot-time, or restore-time target is claimed.
 
 ## Docker support

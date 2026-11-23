@@ -34,7 +34,7 @@ The same machine type can run an agent sandbox, an interactive desktop, or a web
 The workload image supplies the software inside the instance.
 The platform or caller supplies product features such as deployment URLs, release management, scheduling, and billing.
 
-**Start here** · [Product and usage docs](docs/README.md#product-and-usage-docs) · [Engineering docs](docs/README.md#engineering-docs) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
+**Start here** · [Product and usage docs](docs/product/README.md) · [Engineering docs](docs/engineering/README.md) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
 
 ## What you can run
 
@@ -47,13 +47,13 @@ The platform or caller supplies product features such as deployment URLs, releas
 | Function or scheduled job | A Linux image with a handler or command invoked by the integrating platform |
 | Database process | A Linux image with the database and a storage configuration suited to its data lifecycle |
 
-See the [desktop workload](workloads/desktop/README.md) for the reference desktop, and [use-case architecture](docs/architecture/use-cases.md) for the lifecycle available to callers.
+See the [desktop workload](workloads/desktop/README.md) for the reference desktop, and [use-case architecture](docs/engineering/architecture/use-cases.md) for the lifecycle available to callers.
 Public routing, replica management, and stable application identity belong to the platform integrating SOMA.
 
 ## How an instance starts
 
 1. Choose an OCI image and the vCPU, memory, and writable-storage shape.
-   Use a [Template](docs/guides/templates.md) to reuse the recipe.
+   Use a [Template](docs/product/guides/templates.md) to reuse the recipe.
 2. Prepare a **Generation**, the immutable set of machine artifacts used to launch instances.
    A prepared Generation can carry a captured snapshot for restore.
 3. **Launch** a fresh instance with its own identity and private writable state.
@@ -78,7 +78,7 @@ cargo run --locked -p soma-cli -- --backend docker run node:22 -- /usr/local/bin
 ```
 
 The Docker backend uses a Linux container for local development.
-For the hardware-isolated Linux path, follow the [KVM host setup](docs/operations/server-setup.md) and [end-to-end check](docs/guides/end-to-end-check.md).
+For the hardware-isolated Linux path, follow the [KVM host setup](docs/product/operations/server-setup.md) and [end-to-end check](docs/product/guides/end-to-end-check.md).
 
 ## Control and inspect instances
 
@@ -89,9 +89,9 @@ For the hardware-isolated Linux path, follow the [KVM host setup](docs/operation
 | MCP | Give an agent access to bounded command execution and managed lifecycle operations |
 | Rust | Embed the portable SOMA interface in a local tool or runtime integration |
 
-The [HTTP API surface](docs/protocol/api-surface.md) describes the routes, fields, and versioning.
+The [HTTP API surface](docs/product/reference/api-surface.md) describes the routes, fields, and versioning.
 Existing API paths such as `/v1/sandboxes/{instance}` address SOMA instances.
-The [agent integration guide](docs/integrations/agents.md) documents the MCP tool contracts.
+The [agent integration guide](docs/product/integrations/agents.md) documents the MCP tool contracts.
 
 Supported backends can report effective CPU, memory, storage, and network properties.
 The HTTP service exposes capability-gated live CPU and memory resizing, autosizing, host capacity, and encrypted suspension.
@@ -107,7 +107,7 @@ Resuming a suspension creates a fresh instance identity.
 | Other hosts | Portable client support varies by target, and local execution requires a supported backend |
 
 SOMA refuses an unavailable backend explicitly.
-The [portability guide](docs/operations/deployment-portability.md) explains host requirements and the difference between client portability and local engine support.
+The [portability guide](docs/product/operations/deployment-portability.md) explains host requirements and the difference between client portability and local engine support.
 
 ## Architecture and security
 
@@ -121,7 +121,7 @@ CLI, HTTP, MCP, or Rust caller
    Isolated guest and workload
 ```
 
-The [architecture diagrams](docs/architecture/diagrams.md) trace launch, command execution, and cleanup.
+The [architecture diagrams](docs/engineering/architecture/diagrams.md) trace launch, command execution, and cleanup.
 
 ### How SOMA applies zero trust
 
@@ -138,25 +138,25 @@ Code running as root inside an instance still runs on the guest side of that bou
   Lifecycle operations check ownership, and receipts report the result and cleanup state where applicable.
 
 The host kernel, hardware virtualization, SOMA release, and operator policy are part of the trusted base.
-The [threat model](docs/threat-model.md) describes those assumptions, the adversaries, and the evidence required before production use.
+The [threat model](docs/engineering/threat-model.md) describes those assumptions, the adversaries, and the evidence required before production use.
 
 ### How we verify it during development
 
 The [contribution guide](CONTRIBUTING.md) describes the test workflow and review process.
-Changes to public interfaces, snapshot compatibility, or trust assumptions require an [architecture decision](docs/adr).
+Changes to public interfaces, snapshot compatibility, or trust assumptions require an [architecture decision](docs/engineering/adr).
 Rust `unsafe` code requires a local safety explanation and a test or invariant that supports it.
 
 The repository checks correctness and dependency policy in CI, scans for secrets and vulnerable dependencies, and runs a separate smoke workflow on real KVM.
-The [end-to-end check](docs/guides/end-to-end-check.md) verifies launch, guest execution, and cleanup on a prepared host.
-The [claim ledger](docs/claim-ledger.md) records what evidence exists and the revisions it applies to.
+The [end-to-end check](docs/product/guides/end-to-end-check.md) verifies launch, guest execution, and cleanup on a prepared host.
+The [claim ledger](docs/engineering/claim-ledger.md) records what evidence exists and the revisions it applies to.
 
 Report suspected vulnerabilities through the private process in the [security policy](SECURITY.md).
 
 ## Release status and performance
 
 SOMA is in alpha.
-The [source version](VERSION), [versioning policy](docs/versioning.md), and [claim ledger](docs/claim-ledger.md) describe the release, compatibility rules, and retained evidence.
-The repository includes a [real KVM runner file-contract test](docs/evidence/2026-11-20-runner-file-contract-live.md) and a [desktop proof harness](scripts/desktop-proof.sh).
+The [source version](VERSION), [versioning policy](docs/product/reference/versioning.md), and [claim ledger](docs/engineering/claim-ledger.md) describe the release, compatibility rules, and retained evidence.
+The repository includes a [real KVM runner file-contract test](docs/engineering/evidence/2026-11-20-runner-file-contract-live.md) and a [desktop proof harness](scripts/desktop-proof.sh).
 Production admission requires host-specific evidence and the gates in the [roadmap](ROADMAP.md).
 
 These are engineering targets for the certified KVM path.
@@ -167,7 +167,7 @@ These are engineering targets for the certified KVM path.
 | First bounded command from accepted Launch | Below 10 ms | Below 20 ms |
 | 100-way ComputeSDK Burst TTI | Below 50 ms | Below 90 ms |
 
-The [benchmark contract](docs/benchmark-contract.md) defines the timing boundaries, raw samples, cache state, failures, and cleanup results required to support a performance claim.
+The [benchmark contract](docs/engineering/benchmark-contract.md) defines the timing boundaries, raw samples, cache state, failures, and cleanup results required to support a performance claim.
 
 ## Where to go next
 
@@ -175,17 +175,17 @@ The [documentation index](docs/README.md) groups the guides by task.
 
 | I want to | Read |
 | --- | --- |
-| Understand the machine from the host to the guest | [Beginner architecture guide](docs/architecture/beginners-guide.md) |
-| Follow the original KVM bring-up and trace the boot path | [How one SOMA instance works](docs/guides/how-it-works.md) |
-| Build a reusable workload | [Creating a Template](docs/guides/creating-templates.md) |
-| Check the meaning of a term | [Glossary](GLOSSARY.md) and [naming guide](docs/architecture/naming.md) |
-| Find the owner of a Rust crate or subsystem | [Module map](docs/architecture/module-map.md) |
-| Learn the engineering and evidence standards | [SOMA engineering standard](docs/standards/sota-engineering-standard.md) |
-| Explore capacity, isolation, and the workload stack | [SOMA visual atlas](docs/architecture/visual-atlas.md) |
+| Understand the machine from the host to the guest | [Beginner architecture guide](docs/engineering/architecture/beginners-guide.md) |
+| Follow the original KVM bring-up and trace the boot path | [How one SOMA instance works](docs/engineering/architecture/how-it-works.md) |
+| Build a reusable workload | [Creating a Template](docs/product/guides/creating-templates.md) |
+| Check the meaning of a term | [Glossary](GLOSSARY.md) and [naming guide](docs/engineering/architecture/naming.md) |
+| Find the owner of a Rust crate or subsystem | [Module map](docs/engineering/architecture/module-map.md) |
+| Learn the engineering and evidence standards | [SOMA engineering standard](docs/engineering/standards/sota-engineering-standard.md) |
+| Explore capacity, isolation, and the workload stack | [SOMA visual atlas](docs/engineering/architecture/visual-atlas.md) |
 
 ## Contributing
 
-Start with the [contribution guide](CONTRIBUTING.md), [mission](MISSION.md), and accepted [architecture decisions](docs/adr).
+Start with the [contribution guide](CONTRIBUTING.md), [mission](MISSION.md), and accepted [architecture decisions](docs/engineering/adr).
 Use the design issue template for interface, topology, snapshot, trust, or compatibility changes.
 
 ## License

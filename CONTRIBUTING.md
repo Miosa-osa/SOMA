@@ -1,6 +1,6 @@
 # Contributing to SOMA
 
-All implementation work is reviewed against the [SOMA state-of-the-art engineering standard](docs/standards/sota-engineering-standard.md).
+All implementation work is reviewed against the [SOMA state-of-the-art engineering standard](docs/engineering/standards/sota-engineering-standard.md).
 Passing unit tests alone does not admit a capability when its real production seam, failure behavior, isolation, cleanup, compatibility, or evidence gates remain open.
 
 SOMA by MIOSA welcomes security research, design review, documentation, tests, performance work, and implementation contributions.
@@ -18,7 +18,7 @@ Changes that introduce those concerns into the public interface should be propos
 
 ## Before contributing
 
-Read [MISSION.md](MISSION.md), [NOTES.md](NOTES.md), [the glossary](GLOSSARY.md), [the architecture diagrams](docs/architecture/diagrams.md), [the threat model](docs/threat-model.md), and the accepted decisions in [docs/adr](docs/adr).
+Read [MISSION.md](MISSION.md), [NOTES.md](NOTES.md), [the glossary](GLOSSARY.md), [the architecture diagrams](docs/engineering/architecture/diagrams.md), [the threat model](docs/engineering/threat-model.md), and the accepted decisions in [docs/engineering/adr](docs/engineering/adr).
 Search existing issues and pull requests before opening duplicate work.
 For a significant interface, snapshot-format, process-topology, device-surface, or trust-model change, open a design issue before writing the implementation.
 
@@ -82,14 +82,14 @@ Performance changes must preserve correctness and isolation before comparing lat
 Provide raw samples, exact commands, commit identities, host metadata, cache state, preparation outside the timer, errors, and cleanup outcomes.
 Keep cold build, cold-cache restore, warm-cache restore, prepared-resource restore, paused-Machine lease, and already-Ready lease results separate.
 
-Claims against ComputeSDK must follow [docs/benchmark-contract.md](docs/benchmark-contract.md) exactly.
+Claims against ComputeSDK must follow [docs/engineering/benchmark-contract.md](docs/engineering/benchmark-contract.md) exactly.
 Do not modify the upstream benchmark to create a favorable boundary.
 Use a provider adapter outside the upstream ComputeSDK repository when integration is required.
 
 ## Documentation
 
 Write one complete sentence per physical line in substantial Markdown documents.
-Use the canonical terms in [docs/architecture/naming.md](docs/architecture/naming.md).
+Use the canonical terms in [docs/engineering/architecture/naming.md](docs/engineering/architecture/naming.md).
 Call the project `SOMA`, the public attribution `SOMA by MIOSA`, and the public repository `SOMA`.
 Use lowercase `soma` for commands, package names, and source paths where required by platform convention.
 Do not invent implementation details for another VMM or provider without primary public evidence.
