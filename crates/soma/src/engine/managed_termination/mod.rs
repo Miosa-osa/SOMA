@@ -90,6 +90,9 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let admission = match self.admit_termination(&operation_id, instance_id, mode)? {
             TerminationAdmission::Proceed(admission) => admission,
             TerminationAdmission::Replay(receipt) => return Ok(receipt),
+            TerminationAdmission::AlreadyEnded(context) => {
+                return self.record_ended_destroy(operation_id, instance_id, mode, context);
+            }
         };
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
         // A suspension reads the machine before anything is released. A refusal means nothing
@@ -150,6 +153,46 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             receipt.clone(),
         );
         if let Err(failure) = self.replace_machine(admission.revision, &terminal_state) {
+            return Err(store_operation_failure(&failure, receipt));
+        }
+        Ok(receipt)
+    }
+
+    /// Records the destroy of an Instance that had already ended with its cleanup complete.
+    ///
+    /// Nothing is cleaned a second time: the end already released the machine, so this destroy
+    /// owns nothing and says so. The record becomes a destroy, so the same request replays and a
+    /// new one is answered the same way.
+    fn record_ended_destroy(
+        &mut self,
+        operation_id: crate::OperationId,
+        instance_id: &crate::InstanceId,
+        mode: TerminationMode,
+        context: admission::TerminationContext,
+    ) -> Result<crate::ExecutionReceipt, ManagedFailure> {
+        let receipt = termination_receipt(
+            &operation_id,
+            instance_id,
+            &context.active,
+            context.fingerprint.clone(),
+            mode,
+            vec![
+                Milestone::new(MilestoneKind::Accepted, 0),
+                Milestone::new(MilestoneKind::CleanupStarted, 0),
+                Milestone::new(MilestoneKind::CleanupFinished, 0),
+            ],
+            mode.terminal_status(),
+            crate::CleanupEvidence::not_owned(),
+        );
+        let terminal_state = durable_with_terminal(
+            instance_id,
+            context.active,
+            mode.operation(),
+            operation_id,
+            context.fingerprint,
+            receipt.clone(),
+        );
+        if let Err(failure) = self.replace_machine(context.revision, &terminal_state) {
             return Err(store_operation_failure(&failure, receipt));
         }
         Ok(receipt)
