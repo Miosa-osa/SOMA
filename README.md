@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="VERSION"><img alt="Version 1.0.0-alpha.1" src="https://img.shields.io/badge/version-1.0.0--alpha.1-7c3aed?style=flat-square"></a>
+  <a href="VERSION"><img alt="Version 1.0.0-alpha.4" src="https://img.shields.io/badge/version-1.0.0--alpha.4-7c3aed?style=flat-square"></a>
   <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/ci.yml"><img alt="CI workflow" src="https://img.shields.io/badge/CI-workflow-555555?style=flat-square&logo=githubactions"></a>
   <a href="https://github.com/Miosa-osa/SOMA/actions/workflows/security.yml"><img alt="Security workflow" src="https://img.shields.io/badge/security-workflow-555555?style=flat-square&logo=githubactions"></a>
   <a href="rust-toolchain.toml"><img alt="Rust 1.98" src="https://img.shields.io/badge/rust-1.98-000000?style=flat-square&logo=rust"></a>
@@ -28,8 +28,11 @@
 The name describes the role.
 The model is the mind, while SOMA is the disposable machine body that executes its work.
 
-For engineers, SOMA is an open-source sandbox engine for Linux workloads from OCI images.
-It provides a small CLI, a portable Rust interface, and an MCP server for agents, backed by explicit lifecycle and execution evidence.
+For engineers, SOMA is one open-source KVM runtime for every Linux machine.
+Each SOMA instance is a hardware-isolated machine built from an OCI image that starts in milliseconds.
+An instance becomes whatever its image and settings make it: a sandbox, a desktop with computer use, a browser, a database, an app server or a function.
+Instances resize their CPU and memory live within set limits, and they can be checkpointed, forked and given durable volumes.
+SOMA provides a small CLI, a portable Rust interface, an HTTP API and an MCP server for agents, backed by explicit lifecycle and execution evidence.
 
 ## Where to go
 

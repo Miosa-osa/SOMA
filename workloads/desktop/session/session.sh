@@ -111,6 +111,15 @@ export QT_ACCESSIBILITY=1 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 GNOME_ACCESSIBILITY
 /usr/libexec/at-spi-bus-launcher --launch-immediately &
 wait_for a11y_bus 50 dbus-send --session --print-reply --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress || exit 1
 
+# cua-driver, the agent's hands and eyes, starts here, as soon as the screen and the accessibility
+# bus exist, so its start (about 1.2 s of the 1.8 s session, measured 2026-11-23) runs while the
+# window manager, wallpaper, bar and dock come up instead of after them. Its socket is still the
+# last milestone, so "ready" keeps meaning the agent can act.
+cua-driver serve \
+    --permission-mode standard \
+    --capability-manifest "$MANIFEST" \
+    --approve-capability-manifest &
+
 openbox --sm-disable --config-file /etc/soma-desktop/openbox.xml &
 # The desktop is up once Openbox has claimed the screen: it sets _NET_SUPPORTING_WM_CHECK on the
 # root window when it manages it. The background is painted after that.
@@ -153,10 +162,6 @@ tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 # settings and the MIOSA theme come from the image (dconf "local" and /usr/share/plank/themes).
 plank >"$STATE/logs/dock.log" 2>&1 &
 
-cua-driver serve \
-    --permission-mode standard \
-    --capability-manifest "$MANIFEST" \
-    --approve-capability-manifest &
 wait_for driver_socket 150 test -S "$HOME/.cache/cua-driver/cua-driver.sock" || exit 1
 mark session_ready
 log "desktop ready on :0"
