@@ -7,6 +7,6 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 WORKDIR /opt/soma-rl
 COPY requirements.txt .
 RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
-COPY train.py .
+COPY train.py rollouts.py .
 
 ENTRYPOINT ["/usr/local/bin/python3", "/opt/soma-rl/train.py"]

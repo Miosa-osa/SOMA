@@ -115,3 +115,68 @@ scripts/end-to-end-check.sh \
 The check uses a private test work directory and an uncertified Generation.
 A hosted runner result applies to the tested OCI digest and SOMA source revision.
 MIOSA fleet placement and a customer template require their own live verification.
+
+## Measure parallel CartPole rollouts
+
+The same Gymnasium image includes a CartPole-v1 rollout benchmark.
+It compares synchronous vector execution in one process with asynchronous vector execution using one spawned process per environment.
+The random policy provides a baseline, and the balancing controller uses a fixed feedback rule.
+[CartPole environment](https://gymnasium.farama.org/v1.2.3/environments/classic_control/cart_pole/) · [Gymnasium vector API](https://gymnasium.farama.org/api/vector/)
+
+```sh
+docker run --rm --network none --cpus 4 --entrypoint /usr/local/bin/python3 \
+  soma-rl-frozenlake:release /opt/soma-rl/rollouts.py \
+  --mode async --workers 4 --episodes-per-worker 25 --policy balance --seed 42
+```
+
+Use `--mode sync` to measure the same episode workload in one process.
+Use `--policy random` to evaluate random moves.
+The default run records the first 25 completed episodes from each of four environments.
+The vector environment resets a finished lane in the same step, so resets never count as transitions.
+If a step both terminates and reaches the time limit, the result counts it as a termination.
+[Gymnasium autoreset modes](https://gymnasium.farama.org/main/api/vector/autoreset/)
+
+The result reports startup and rollout time separately.
+`recorded_steps` counts steps in the requested episodes.
+`simulator_steps` also includes work on lanes that already met their episode quota while other lanes finished.
+The throughput rate uses simulator steps and excludes startup and cleanup.
+Use matching seeds, worker counts, and CPU limits across repeated runs.
+
+CI checks that both vector modes complete the same seeded episodes and produce identical counters.
+The timing fields are reported as observations because process and IPC overhead vary by host.
+
+
+### Local SOMA measurements
+
+These runs used the SOMA alpha.5 Docker backend on Apple Silicon with a two-vCPU container limit, 1 GiB of RAM, and guest networking disabled.
+The image was already built and present in the local registry.
+Each mode and worker count ran in three fresh instances with seeds 42, 43, and 44.
+Each worker recorded 25 episodes under the balancing controller, and all 12 instances reported complete machine and storage cleanup.
+The timing excludes OCI image retrieval, SOMA launch, and cleanup.
+
+| Mode | Workers | Median startup | Median simulator steps/s |
+| --- | ---: | ---: | ---: |
+| sync | 1 | 0.002 s | 54,455 |
+| async | 1 | 0.282 s | 5,974 |
+| sync | 4 | 0.002 s | 117,175 |
+| async | 4 | 0.461 s | 14,824 |
+
+<details>
+<summary>Individual samples</summary>
+
+| Mode | Workers | Seed | Simulator steps | Startup (ms) | Rollout (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| async | 1 | 42 | 12500 | 256.73 | 2092.39 |
+| async | 1 | 43 | 12500 | 282.03 | 2192.12 |
+| async | 1 | 44 | 12500 | 290.09 | 2086.34 |
+| async | 4 | 42 | 50000 | 522.48 | 3703.08 |
+| async | 4 | 43 | 50000 | 459.35 | 3315.35 |
+| async | 4 | 44 | 50000 | 460.71 | 3372.92 |
+| sync | 1 | 42 | 12500 | 1.99 | 230.37 |
+| sync | 1 | 43 | 12500 | 1.70 | 229.55 |
+| sync | 1 | 44 | 12500 | 2.08 | 228.08 |
+| sync | 4 | 42 | 50000 | 2.25 | 426.71 |
+| sync | 4 | 43 | 50000 | 2.24 | 435.71 |
+| sync | 4 | 44 | 50000 | 2.45 | 409.63 |
+
+</details>

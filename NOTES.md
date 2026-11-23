@@ -1030,3 +1030,6 @@ Four concurrent runs through the local SOMA backend verified learned outcomes, u
 
 The FrozenLake distribution workflow publishes the verified x86_64 OCI image and exercises the same digest through the standalone KVM check.
 The MIOSA CLI smoke succeeded on auto placement with Firecracker, while explicit SOMA placement reported no eligible hosts for the tested sizes and organizations.
+
+Seeded CartPole vector rollouts produced identical episode results in sync and async modes.
+On the local Docker backend, synchronous mode had higher transition throughput for this lightweight environment across the tested worker counts.
