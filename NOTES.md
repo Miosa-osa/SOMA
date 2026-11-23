@@ -1002,3 +1002,8 @@ The desktop workload uses a static 1920 by 1080 alpine JPEG, with the main ridge
 At 103,293 bytes it is smaller than the previous wallpaper.
 The refreshed wallpaper and panel settings were applied to the existing Host 12 SOMA preview.
 The browser viewer showed the new wallpaper and streamed a terminal launched from the dock.
+
+## SOMA instance documentation
+
+Use SOMA instance for a concrete machine lifetime and retain the workload or product name when describing what it does.
+The README points to API 1.3 and current workload guides, with historical KVM proofs linked as evidence from their own revisions.

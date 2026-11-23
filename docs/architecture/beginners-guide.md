@@ -8,7 +8,8 @@ Use the [SOMA visual atlas](visual-atlas.md) for exploded machine views, filesys
 
 ## The shortest correct answer
 
-The actual sandbox is the isolated environment that runs the workload.
+A **SOMA instance** is one lifetime of the isolated machine that runs the workload.
+An agent sandbox is one use of that machine, alongside an interactive desktop or a service.
 On the production KVM path, that environment is one Linux virtual machine with private memory, virtual CPUs, devices, storage, networking, guest identity, and a bounded control channel.
 
 `soma-vmm` is the host process that constructs and owns one such Machine.

@@ -191,8 +191,10 @@ Related: [Backend](#backend), [KVM](#kvm), [prepared resource bundle](#prepared-
 
 ### Instance
 
-An Instance is one concrete Machine lifetime with fresh identity, mutable state, entropy, network identity, and guest authority.
-Changing the image, shape, or immutable startup configuration creates a new Instance rather than mutating an existing lifetime.
+A SOMA instance is one concrete Machine lifetime with its own identity, mutable state, entropy, network identity, and guest authority.
+Use **SOMA instance** in prose and **Instance** in lifecycle descriptions that already establish the context.
+An instance can run a sandbox, a desktop session, or a service.
+Launch can create a new instance from the same Generation, and supported resource changes can resize a running instance while keeping its identity.
 
 Related: [Instance ID](#instance-id), [Machine](#machine), [Generation](#generation).
 
@@ -213,8 +215,8 @@ Related: [VMM](#vmm), [microVM](#microvm), [Host](#host).
 
 ### Machine
 
-A Machine is one hardware-isolated runtime governed by the SOMA lifecycle contract.
-The term names the technical resource, while sandbox names the user-facing execution product.
+A Machine is the hardware-virtualized guest governed by the SOMA lifecycle contract.
+A SOMA instance identifies one lifetime of that Machine and can serve a user-facing workload such as a sandbox.
 
 Related: [sandbox](#sandbox), [Instance](#instance), [Machine shape](#machine-shape).
 
@@ -394,8 +396,8 @@ Related: [Generation](#generation), [OCI image](#oci-image), [Machine shape](#ma
 ### SOMA
 
 SOMA is the Secure Optimized Machine Architecture by MIOSA.
-The model is the mind, while SOMA is the disposable machine body that executes its work.
-Technically, SOMA is an open-source hardware-isolated sandbox runtime and custom VMM architecture for Linux workloads from OCI inputs.
+SOMA is an open-source runtime and virtual machine monitor for isolated Linux workloads from OCI images.
+A [SOMA instance](#instance) runs a workload such as an agent sandbox, interactive desktop, or web service.
 
 Related: [sandbox](#sandbox), [VMM](#vmm), [Generation](#generation).
 

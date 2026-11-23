@@ -3,6 +3,8 @@
 ## Status
 
 This page is the documented schema of the SOMA HTTP API that `soma-api` serves under `/v1`.
+The `/v1/sandboxes` routes use the existing API vocabulary for creating and managing SOMA instances.
+The `{instance}` path parameter is an Instance ID regardless of the software running in the guest.
 A test in `crates/soma-api/src/version/tests/surface.rs` generates the surface from the router and the request bodies and fails when it differs from the block below, so the page and the code cannot drift apart.
 
 ## The API version

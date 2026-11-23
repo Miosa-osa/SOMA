@@ -9,7 +9,13 @@ The library owns the lifecycle required to produce that outcome and delegates ha
 The public surface must stay small enough for humans and agents to discover without learning KVM, Virtualization.framework, snapshot formats, TAP devices, cgroups, or provider APIs.
 Internal modules remain deep and cohesive so performance and security mechanisms can evolve without changing every caller.
 
-## Stable use cases
+## Workloads on SOMA instances
+
+A SOMA instance is the machine lifetime that executes a workload.
+Agent sandboxes, build jobs, interactive desktops, and web services use the same instance model and select the guest software and capabilities they need.
+A platform may keep a product resource or service URL across replacement instances.
+
+## Core use cases
 
 ### Run one isolated command
 
@@ -57,7 +63,7 @@ Remote transport does not weaken isolation, readiness, output bounds, cleanup, o
 
 This is the universal path for Windows, unsupported local hosts, thin clients, and fleet control planes.
 
-## Planned use cases
+## Additional use cases
 
 ### Branch an evaluation tree
 
@@ -67,8 +73,14 @@ Receipts let an evaluator prove that every branch used the same source Generatio
 
 ### Run a browser or computer session
 
-A longer-lived Machine exposes explicitly authorized ports, display transport, input, and persistent-volume leases.
-The browser layer remains outside the VMM and cannot redefine Machine readiness or isolation.
+A desktop Generation launches a SOMA instance with a graphical session and a computer-use driver.
+The guest exposes the human viewer through an authorized tunnel.
+The [desktop workload guide](../../workloads/desktop/README.md) describes the reference image and the session lifecycle.
+
+### Run a web service
+
+A SOMA instance can run a web server or API and expose its guest port.
+The integrating platform owns public ingress, release management, and replica placement.
 
 ### Run CI and builds
 

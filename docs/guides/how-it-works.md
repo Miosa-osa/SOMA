@@ -1,6 +1,8 @@
-# How one SOMA sandbox works today
+# How one SOMA instance works
 
-This guide follows one sandbox from a Template document to cleanup on the Linux KVM path as it exists on `main`, and says where the chain is not yet joined.
+This guide traces the original Linux KVM bring-up from a Template document to instance cleanup.
+The historical evidence below describes the revisions named in each proof.
+For the current interfaces and workloads, start with the [README](../../README.md) and [HTTP API surface](../protocol/api-surface.md).
 It is written for an engineer who has never opened the repository.
 It describes only what the code does and what the retained evidence shows.
 Every number is a single-sample, debug-build observation from one named evidence file unless the sentence says otherwise, and none of them is a benchmark.
@@ -22,7 +24,7 @@ This guide adds machine terms that neither CONTEXT.md nor [GLOSSARY.md](../../GL
 
 ## 1. The one-paragraph answer
 
-A SOMA sandbox is one hardware-isolated Linux virtual machine, the Machine, created and owned by one host-side process for exactly one Instance lifetime.
+On the Linux KVM path, a SOMA instance is one lifetime of a hardware-isolated Linux virtual machine.
 At build time the Template compiler turns a Template into a Template Lock.
 The Generation compiler then turns a lock and the normalized image tree into an immutable Generation.
 At Launch time the owner process creates the Machine through Linux KVM, boots the Generation, delivers fresh per-Instance material through a dedicated launch page, waits for the Guest agent inside the Machine to complete Repair and authenticate over vsock, and only then reports Ready.
