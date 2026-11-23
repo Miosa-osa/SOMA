@@ -8,7 +8,8 @@ Learn what SOMA does, run workloads, and integrate it with your platform.
 - [Size and memory footprint](reference/footprint.md) breaks down download sizes, binaries, and workload memory.
 - [Runtime comparison](reference/runtime-comparison.md) compares SOMA with Firecracker and other isolation runtimes.
 - [How an instance starts](../../README.md#how-an-instance-starts) defines Templates, Generations, and instance lifetimes.
-- [How SOMA applies zero trust](../../README.md#how-soma-applies-zero-trust) explains artifact verification, per-instance isolation, and authenticated readiness.
+- [Management-plane security](../../README.md#zero-trust-in-the-management-plane) explains access to instance management APIs.
+- [Instance isolation](../../README.md#instance-isolation) explains how SOMA separates guest workloads.
 
 ## Run a workload
 

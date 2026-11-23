@@ -34,7 +34,7 @@ The same machine type can run an agent sandbox, an interactive desktop, or a web
 The workload image supplies the software inside the instance.
 The platform or caller supplies product features such as deployment URLs, release management, scheduling, and billing.
 
-**Start here** · [Product and usage docs](docs/product/README.md) · [Engineering docs](docs/engineering/README.md) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
+**Start here** · [Product and usage docs](docs/product/README.md) · [Engineering docs](docs/engineering/README.md) · [Management-plane security](#zero-trust-in-the-management-plane)
 
 ## What you can run
 
@@ -123,7 +123,18 @@ CLI, HTTP, MCP, or Rust caller
 
 The [architecture diagrams](docs/engineering/architecture/diagrams.md) trace launch, command execution, and cleanup.
 
-### How SOMA applies zero trust
+<a name="how-soma-applies-zero-trust"></a>
+
+### Zero trust in the management plane
+
+The management plane controls who may launch, connect to, inspect, or stop a SOMA instance.
+In a zero-trust deployment, the management plane authenticates the caller and authorizes access to the requested resource based on identity and policy, regardless of network location.
+Agents running inside an instance use ordinary guest permissions for their work.
+When a human, service, or agent calls an instance management API, the platform applies its access policy at that boundary.
+
+The [management-plane security guide](docs/engineering/management-plane-security.md) explains the existing runner checks, the trust assumption on the host API, and what belongs to the platform.
+
+### Instance isolation
 
 SOMA treats workload code, guest messages, and guest-controlled device state as untrusted at the host boundary.
 Code running as root inside an instance still runs on the guest side of that boundary.

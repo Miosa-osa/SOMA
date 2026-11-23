@@ -2,7 +2,8 @@
 
 ## Status
 
-This threat model defines the intended security architecture.
+This threat model defines the intended security architecture for instance execution.
+The [management-plane security guide](management-plane-security.md) describes access policy and the HTTP trust boundaries.
 For evidence about the alpha implementation, consult the [claim ledger](claim-ledger.md) and the revision named in each proof.
 
 ## Protected assets
