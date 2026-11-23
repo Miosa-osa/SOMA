@@ -396,8 +396,8 @@ Related: [Generation](#generation), [OCI image](#oci-image), [Machine shape](#ma
 ### SOMA
 
 SOMA is the Secure Optimized Machine Architecture by MIOSA.
-The model is the mind, while SOMA is the disposable machine body that executes its work.
-Technically, SOMA is an open-source hardware-isolated sandbox runtime and custom VMM architecture for Linux workloads from OCI inputs.
+SOMA is an open-source runtime and virtual machine monitor for isolated Linux workloads from OCI images.
+A [SOMA instance](#instance) runs a workload such as an agent sandbox, interactive desktop, or web service.
 
 Related: [sandbox](#sandbox), [VMM](#vmm), [Generation](#generation).
 
