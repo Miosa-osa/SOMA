@@ -125,7 +125,7 @@ jobs:
       - name: Prepare the disposable runner
         run: |
           test -c /dev/kvm
-          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          sudo usermod -aG kvm "$(id -un)"
           sudo apt-get update -qq
           sudo apt-get install -y -qq skopeo xfsprogs
           work="$RUNNER_TEMP/rl-kvm"
@@ -144,15 +144,19 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" |
             skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
           digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$GITHUB_SHA")
+          export RL_KVM_IMAGE="$IMAGE@$digest"
           export SOMA_MACHINE_HOST_LOG="$RUNNER_TEMP/rl-kvm/machine-host.log"
           df -h "$RUNNER_TEMP" "$RUNNER_TEMP/rl-kvm"
+          sg kvm -c 'bash -eu -s' <<'SCRIPT'
+          test -r /dev/kvm && test -w /dev/kvm
           ./scripts/end-to-end-check.sh \
-            --image "$IMAGE@$digest" \
+            --image "$RL_KVM_IMAGE" \
             --fs-tools "$RUNNER_TEMP/fs-tools" \
             --work "$RUNNER_TEMP/rl-kvm" \
             --expect '"trained_goal_count": 100' \
             --purge \
             --command /usr/local/bin/python3 /opt/soma-rl/train.py --seed 42
+          SCRIPT
 
       - name: Retain run evidence
         if: always()
