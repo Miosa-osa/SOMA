@@ -7,6 +7,10 @@ The environment defines observations, actions, rewards, and when an episode ends
 Your trainer chooses actions, collects trajectories, and updates its policy.
 SOMA supplies the isolated execution environment and the lifecycle for starting workers, running code, retrieving results, and cleaning up.
 
+## Train a small policy
+
+The [FrozenLake workload](../../../workloads/rl-frozenlake/README.md) builds a Gymnasium image, trains a policy, and compares it with a random baseline.
+
 ## Run one episode locally
 
 Run the example from a SOMA checkout with Docker running.
