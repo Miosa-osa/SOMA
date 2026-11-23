@@ -67,6 +67,7 @@ wait_for session_bus 50 test -S "$XDG_RUNTIME_DIR/bus" || exit 1
 if [[ "${SOMA_DESKTOP_SCREEN:-xvfb}" == xvfb ]] && command -v Xvfb >/dev/null; then
     Xvfb :0 -screen 0 "${SOMA_DESKTOP_GEOMETRY:-1920x1080}x24" -shmem -ac -nolisten tcp -noreset \
         +extension RANDR +extension RENDER +extension XTEST >"$STATE/logs/xvfb.log" 2>&1 &
+    SCREEN_PID=$!
 elif [[ "${SOMA_DESKTOP_SCREEN}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null; then
     Xkasmvnc :0 \
         -publicIP 127.0.0.1 \
@@ -86,6 +87,7 @@ elif [[ "${SOMA_DESKTOP_SCREEN}" == kasmvnc ]] && command -v Xkasmvnc >/dev/null
         -FrameRate=30 \
         -nolisten tcp \
         >"$STATE/logs/kasmvnc.log" 2>&1 &
+    SCREEN_PID=$!
 else
     # Xorg with the dummy driver: a frame buffer in memory, no device, no VNC. It runs as the
     # desktop user, started directly (not through the setuid wrapper), and opens no terminal.
@@ -98,6 +100,7 @@ else
         -sharevts \
         -keeptty \
         +extension RANDR +extension RENDER +extension XTEST &
+    SCREEN_PID=$!
 fi
 wait_for x_socket 150 test -S /tmp/.X11-unix/X0 || exit 1
 export DISPLAY=:0
@@ -107,6 +110,15 @@ export DISPLAY=:0
 export QT_ACCESSIBILITY=1 QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1 GNOME_ACCESSIBILITY=1
 /usr/libexec/at-spi-bus-launcher --launch-immediately &
 wait_for a11y_bus 50 dbus-send --session --print-reply --dest=org.a11y.Bus /org/a11y/bus org.a11y.Bus.GetAddress || exit 1
+
+# cua-driver, the agent's hands and eyes, starts here, as soon as the screen and the accessibility
+# bus exist, so its start (about 1.2 s of the 1.8 s session, measured 2026-11-23) runs while the
+# window manager, wallpaper, bar and dock come up instead of after them. Its socket is still the
+# last milestone, so "ready" keeps meaning the agent can act.
+cua-driver serve \
+    --permission-mode standard \
+    --capability-manifest "$MANIFEST" \
+    --approve-capability-manifest &
 
 openbox --sm-disable --config-file /etc/soma-desktop/openbox.xml &
 # The desktop is up once Openbox has claimed the screen: it sets _NET_SUPPORTING_WM_CHECK on the
@@ -150,13 +162,28 @@ tint2 -c /etc/soma-desktop/tint2/bar.tint2rc >"$STATE/logs/bar.log" 2>&1 &
 # settings and the MIOSA theme come from the image (dconf "local" and /usr/share/plank/themes).
 plank >"$STATE/logs/dock.log" 2>&1 &
 
-cua-driver serve \
-    --permission-mode standard \
-    --capability-manifest "$MANIFEST" \
-    --approve-capability-manifest &
 wait_for driver_socket 150 test -S "$HOME/.cache/cua-driver/cua-driver.sock" || exit 1
 mark session_ready
 log "desktop ready on :0"
 
-# The session lives as long as its X server does.
-wait
+# The session lives as long as its screen server does. A bare `wait` would also wait for the
+# desktop-icons loop above, which never ends, so a dead screen used to leave a session that still
+# reported "running" with a black screen (seen 2026-11-23 after the screen server was killed for
+# memory). The session waits for the screen server alone; when it dies, every other process of
+# the desktop goes with it and the session starts again, up to SOMA_DESKTOP_MAX_RESTARTS times.
+wait "$SCREEN_PID"
+status=$?
+mark screen_exited
+log "screen server exited with $status; restarting the desktop"
+for pid in $(cat /sys/fs/cgroup/soma-desktop/cgroup.procs 2>/dev/null); do
+    [[ "$pid" == "$$" ]] || kill -KILL "$pid" 2>/dev/null
+done
+rm -f /tmp/.X11-unix/X0 /tmp/.X0-lock "$XDG_RUNTIME_DIR/bus"
+restarts=$((${SOMA_DESKTOP_RESTARTS:-0} + 1))
+if ((restarts > ${SOMA_DESKTOP_MAX_RESTARTS:-5})); then
+    log "the screen server stopped $restarts times; leaving the desktop stopped"
+    mark failed_screen
+    exit 1
+fi
+sleep 1
+SOMA_DESKTOP_RESTARTS=$restarts exec /bin/bash "$0"

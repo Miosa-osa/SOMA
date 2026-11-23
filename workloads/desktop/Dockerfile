@@ -124,6 +124,7 @@ COPY session/cua-driver-wrapper.sh /usr/local/bin/cua-driver
 COPY session/soma-desktop-session.sh /usr/local/sbin/soma-desktop-session
 COPY session/soma-desktop-call.sh /usr/local/bin/soma-desktop-call
 COPY session/session.sh /usr/local/libexec/soma-desktop/session.sh
+COPY session/warm-pages.sh /usr/local/libexec/soma-desktop/warm-pages.sh
 COPY session/cua-capabilities.yaml /etc/soma-desktop/cua-capabilities.yaml
 COPY viewer/viewer.sh /usr/local/libexec/soma-desktop/viewer.sh
 COPY viewer/pair.py /usr/local/libexec/soma-desktop/pair.py
@@ -133,6 +134,7 @@ COPY viewer/sunshine.conf /home/ubuntu/.config/sunshine/sunshine.conf
 # and asserted: the wrapper must export both switches and both files must say false.
 RUN chmod 0755 /usr/local/bin/cua-driver /usr/local/sbin/soma-desktop-session \
       /usr/local/bin/soma-desktop-call /usr/local/libexec/soma-desktop/session.sh \
+      /usr/local/libexec/soma-desktop/warm-pages.sh \
  && chmod 0644 /etc/soma-desktop/cua-capabilities.yaml \
  && for home in /root /home/ubuntu; do \
       mkdir -p "$home/.cua-driver"; \
@@ -254,7 +256,11 @@ RUN set -e; \
     for t in WhiteSur-Dark WhiteSur-Light; do tar -xJf "/tmp/wsg/release/${t}.tar.xz" -C /usr/share/themes; done; \
     rm -r -f /tmp/wsg /tmp/whitesur-gtk.tar.gz; \
     test -f /usr/share/themes/WhiteSur-Dark/gtk-3.0/gtk.css; \
-    command -v pcmanfm plank gsimplecal Xvfb mousepad ristretto mupdf galculator rofi scrot htop
+    command -v pcmanfm plank gsimplecal Xvfb mousepad ristretto mupdf galculator rofi scrot htop; \
+    rm -f /usr/share/gvfs/remote-volume-monitors/*.monitor
+# GVfs stays for the Trash; its volume monitors go (udisks2, MTP, GPhoto2, AFC, GOA): a SOMA guest
+# has no removable disks, phones or cameras, and each monitor was a resident process in every
+# desktop (about 8 MB each, measured 2026-11-23).
 COPY --from=wallpapers /out/ /usr/share/backgrounds/miosa/
 COPY look/launcher/miosa.rasi /etc/soma-desktop/miosa.rasi
 # MIOSA Apps: a catalog, a root-owned installer (the one command the desktop user may run as root,

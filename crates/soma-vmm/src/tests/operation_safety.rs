@@ -145,23 +145,23 @@ fn reusing_an_execute_operation_id_with_different_arguments_conflicts() {
 }
 
 #[test]
-fn operation_receipt_limit_fails_closed_but_reserves_stop_capacity() {
+fn a_full_receipt_ledger_forgets_the_oldest_and_keeps_running_commands() {
     let mut machine = Machine::with_platform(DeterministicPlatform::healthy());
     machine.launch(launch()).expect("launch is ready");
 
-    for sequence in 0..(MAX_OPERATION_RECEIPTS - 2) {
+    // Twice the ledger's size: every command still runs, none is refused.
+    for sequence in 0..(2 * MAX_OPERATION_RECEIPTS) {
         let operation_id = (sequence as u128 + 100).to_le_bytes();
         machine
             .execute(execute(operation_id))
-            .expect("receipt capacity remains");
+            .expect("a full ledger makes room instead of refusing");
     }
 
-    let failure = machine
-        .execute(execute([0xfe; 16]))
-        .expect_err("new execution must fail before its side effect when receipts are full");
-    assert_eq!(failure.kind(), FailureKind::OperationCapacityExceeded);
-    assert_eq!(failure.phase(), FailurePhase::Idempotency);
-    assert_eq!(failure.recovery(), Recovery::DoNotRetry);
+    // The newest receipt is still there: retrying it replays, it does not conflict.
+    let newest = ((2 * MAX_OPERATION_RECEIPTS - 1) as u128 + 100).to_le_bytes();
+    machine
+        .execute(execute(newest))
+        .expect("the newest receipt replays");
 
     machine
         .stop(stop([0xff; 16]))
