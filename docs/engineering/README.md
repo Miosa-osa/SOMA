@@ -25,6 +25,7 @@ Understand the implementation, work on the code, and trace decisions and claims 
 ## Design history and reference material
 
 - [Evidence reports and samples](evidence/) record what was measured at specific revisions.
+- [Runtime footprint measurements](evidence/2026-11-22-runtime-footprint.md) record artifact sizes and a desktop process sample.
 - [Research](research/) and [reviews](reviews/) contain design investigations and dated assessments.
 - [August 2026 handover](HANDOVER.md) records the state of the early KVM implementation.
 

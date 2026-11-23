@@ -5,6 +5,7 @@ Learn what SOMA does, run workloads, and integrate it with your platform.
 ## Learn what SOMA does
 
 - [What you can run](../../README.md#what-you-can-run) explains how agent sandboxes, desktops, and services use SOMA instances.
+- [Size and memory footprint](reference/footprint.md) breaks down download sizes, binaries, and workload memory.
 - [How an instance starts](../../README.md#how-an-instance-starts) defines Templates, Generations, and instance lifetimes.
 - [How SOMA applies zero trust](../../README.md#how-soma-applies-zero-trust) explains artifact verification, per-instance isolation, and authenticated readiness.
 

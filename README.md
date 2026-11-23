@@ -154,6 +154,10 @@ Report suspected vulnerabilities through the private process in the [security po
 
 ## Release status and performance
 
+The Linux x86_64 alpha.4 draft host package is **7.70 MB compressed**.
+Its VMM executable is **1.93 MB** on disk, and its guest agent is **0.91 MB**.
+The [size and memory footprint guide](docs/product/reference/footprint.md) breaks down package sizes, guest memory, and the measurements available for the desktop.
+
 SOMA is in alpha.
 The [source version](VERSION), [versioning policy](docs/product/reference/versioning.md), and [claim ledger](docs/engineering/claim-ledger.md) describe the release, compatibility rules, and retained evidence.
 The repository includes a [real KVM runner file-contract test](docs/engineering/evidence/2026-11-20-runner-file-contract-live.md) and a [desktop proof harness](scripts/desktop-proof.sh).
