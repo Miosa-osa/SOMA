@@ -7,10 +7,10 @@ Four rules, each of which failed in the corpus at least once:
   ledger     every live-proved claim-ledger row names a commit that is in history, and links
              at least one retained evidence artifact
   retention  every evidence document that quotes a time figure retains a sample: a link into
-             docs/evidence/raw/, or a transcript fenced in the document itself
-  orphans    every directory under docs/evidence/raw/ is cited by some document
+             docs/engineering/evidence/raw/, or a transcript fenced in the document itself
+  orphans    every directory under docs/engineering/evidence/raw/ is cited by some document
 
-What this deliberately does not check is written in docs/evidence/README.md.
+What this deliberately does not check is written in docs/engineering/evidence/README.md.
 
 Usage: check-evidence.py [docs-directory]
 """
@@ -140,7 +140,7 @@ def check_retention(evidence, failures):
 
 
 def check_orphans(docs, failures):
-    raw = docs / "evidence" / "raw"
+    raw = docs / "engineering" / "evidence" / "raw"
     if not raw.is_dir():
         return
     cited = set()
@@ -166,8 +166,8 @@ def main(argv):
         return 2
     failures = []
     check_links(docs, failures)
-    check_ledger(docs / "claim-ledger.md", failures)
-    check_retention(docs / "evidence", failures)
+    check_ledger(docs / "engineering" / "claim-ledger.md", failures)
+    check_retention(docs / "engineering" / "evidence", failures)
     check_orphans(docs, failures)
     if failures:
         print(f"check-evidence: {len(failures)} problems", file=sys.stderr)

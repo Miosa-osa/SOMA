@@ -250,7 +250,7 @@ fn attempt(
 
 /// What a prepared worker must refuse, and prove it refused before anything could run.
 ///
-/// [ADR 0033](../../../docs/adr/0033-sterile-restored-machine-authority-boundary.md) requires
+/// [ADR 0033](../../../docs/engineering/adr/0033-sterile-restored-machine-authority-boundary.md) requires
 /// that a wrong private head shape and an unassignable context identifier both destroy the
 /// worker without it reaching Ready. These are the tests that hold it to that: a sterile machine
 /// is built, assignment is given something it must reject, and the machine is gone afterwards.

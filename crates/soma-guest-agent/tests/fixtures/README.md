@@ -27,7 +27,7 @@ and SHA-256 that the Generation manifest pins.
 
 Layout version 3 carries no secret at all.
 The archive holds exactly two byte bodies and both are executables.
-Layout v2 carried a Generation-scoped responder private key at `/etc/soma/responder.key`; [ADR 0024, per-Instance guest responder authority](../../../../docs/adr/0024-per-instance-guest-responder-authority.md) removed it, and `verify_initramfs` rejects a v2 archive because that entry is not in the v3 allowlist.
+Layout v2 carried a Generation-scoped responder private key at `/etc/soma/responder.key`; [ADR 0024, per-Instance guest responder authority](../../../../docs/engineering/adr/0024-per-instance-guest-responder-authority.md) removed it, and `verify_initramfs` rejects a v2 archive because that entry is not in the v3 allowlist.
 
 No shell, library, or other executable is required.
 `/dev/console` is provided by the kernel-created initramfs node and by devtmpfs.

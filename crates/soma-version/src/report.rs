@@ -10,7 +10,7 @@ use crate::Build;
 /// One wire or file protocol a binary speaks, with the version this build speaks.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Protocol {
-    /// The protocol's name, as `docs/versioning.md` lists it.
+    /// The protocol's name, as `docs/product/reference/versioning.md` lists it.
     pub name: &'static str,
     /// The version this build speaks.
     pub version: u32,

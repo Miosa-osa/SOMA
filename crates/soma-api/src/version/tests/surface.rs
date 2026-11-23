@@ -1,6 +1,6 @@
 //! The `/v1` surface, generated from the router and the request bodies, held to its document.
 //!
-//! `docs/protocol/api-surface.md` holds the surface of the current API version and the digest of
+//! `docs/product/reference/api-surface.md` holds the surface of the current API version and the digest of
 //! every version's surface. A change to a route, a method, a request field, or the envelope
 //! changes the generated text, and this test fails until the document records it under a new
 //! version: a new minor for an addition, a new major for anything an older client cannot survive.
@@ -24,7 +24,7 @@ use crate::{
     wire::{ControlBody, CreateSandboxBody, RunCommandBody},
 };
 
-const DOCUMENT: &str = include_str!("../../../../../docs/protocol/api-surface.md");
+const DOCUMENT: &str = include_str!("../../../../../docs/product/reference/api-surface.md");
 const INSTANCE: &str = "33333333333333333333333333333333";
 const VOLUME: &str = "44444444444444444444444444444444";
 const SUSPENSION: &str = "55555555555555555555555555555555";
@@ -247,7 +247,7 @@ fn the_documented_surface_is_the_surface_this_build_serves() {
     let generated = surface();
     assert!(
         documented_surface() == generated,
-        "the /v1 surface changed; record it in docs/protocol/api-surface.md under a new API \
+        "the /v1 surface changed; record it in docs/product/reference/api-surface.md under a new API \
          version (a minor for an addition, a major otherwise), then put this in its Surface \
          block:\n{generated}"
     );

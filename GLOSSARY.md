@@ -466,6 +466,6 @@ Related: [private writable root](#private-writable-root), [Machine shape](#machi
 
 ## Source of truth
 
-The shorter canonical naming rules remain in [the architecture naming document](docs/architecture/naming.md).
-Accepted design decisions live in [the ADR directory](docs/adr), and implementation status lives in [the roadmap](ROADMAP.md).
+The shorter canonical naming rules remain in [the architecture naming document](docs/engineering/architecture/naming.md).
+Accepted design decisions live in [the ADR directory](docs/engineering/adr), and implementation status lives in [the roadmap](ROADMAP.md).
 External provider facts and hypotheses remain isolated in [the competitor ledger](COMPETITORS.md).

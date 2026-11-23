@@ -11,7 +11,7 @@ use soma_template::{
     resolve_with,
 };
 
-/// The minimum Template document from `docs/architecture/template-system.md`.
+/// The minimum Template document from `docs/engineering/architecture/template-system.md`.
 pub const EXAMPLE: &str = r#"schema = "soma.template/v1alpha1"
 name = "claude-code-python"
 

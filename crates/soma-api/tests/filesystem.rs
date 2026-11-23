@@ -2,7 +2,7 @@
 //!
 //! These prove the shape of the service: that each route reaches the engine, that the answer
 //! document says what happened, and that bytes survive the round trip. What the guest itself does
-//! with a path is proved live, against a real sandbox, and recorded under `docs/evidence`.
+//! with a path is proved live, against a real sandbox, and recorded under `docs/engineering/evidence`.
 
 #[allow(
     dead_code,
