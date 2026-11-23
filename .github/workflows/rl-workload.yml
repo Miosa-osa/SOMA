@@ -148,7 +148,7 @@ jobs:
           export SOMA_MACHINE_HOST_LOG="$RUNNER_TEMP/rl-kvm/machine-host.log"
           df -h "$RUNNER_TEMP" "$RUNNER_TEMP/rl-kvm"
           sg kvm -c 'bash -eu -s' <<'SCRIPT'
-          test -r /dev/kvm && test -w /dev/kvm
+          : <> /dev/kvm
           ./scripts/end-to-end-check.sh \
             --image "$RL_KVM_IMAGE" \
             --fs-tools "$RUNNER_TEMP/fs-tools" \
