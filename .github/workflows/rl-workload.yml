@@ -105,7 +105,13 @@ jobs:
           test -c /dev/kvm
           sudo setfacl -m "u:$(id -un):rw" /dev/kvm
           sudo apt-get update -qq
-          sudo apt-get install -y -qq skopeo
+          sudo apt-get install -y -qq skopeo xfsprogs
+          work="$RUNNER_TEMP/rl-kvm"
+          mkdir -p "$work"
+          truncate -s 16G "$RUNNER_TEMP/rl-kvm.xfs"
+          mkfs.xfs -q -m reflink=1 "$RUNNER_TEMP/rl-kvm.xfs"
+          sudo mount -o loop "$RUNNER_TEMP/rl-kvm.xfs" "$work"
+          sudo chown "$(id -u):$(id -g)" "$work"
           rustup target add x86_64-unknown-linux-musl
           ./scripts/build-fs-tools.sh "$RUNNER_TEMP/fs-tools"
 
@@ -116,6 +122,8 @@ jobs:
           printf '%s' "$REGISTRY_TOKEN" |
             skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
           digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$GITHUB_SHA")
+          export SOMA_MACHINE_HOST_LOG="$RUNNER_TEMP/rl-kvm/machine-host.log"
+          df -h "$RUNNER_TEMP" "$RUNNER_TEMP/rl-kvm"
           ./scripts/end-to-end-check.sh \
             --image "$IMAGE@$digest" \
             --fs-tools "$RUNNER_TEMP/fs-tools" \
@@ -133,4 +141,6 @@ jobs:
             ${{ runner.temp }}/rl-kvm/results.json
             ${{ runner.temp }}/rl-kvm/cleanup-checks.tsv
             ${{ runner.temp }}/rl-kvm/run-*.json
+            ${{ runner.temp }}/rl-kvm/run-*.err
+            ${{ runner.temp }}/rl-kvm/machine-host.log
             ${{ runner.temp }}/rl-kvm/logs/*.log
