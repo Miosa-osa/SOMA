@@ -105,7 +105,7 @@ jobs:
           test -c /dev/kvm
           sudo setfacl -m "u:$(id -un):rw" /dev/kvm
           sudo apt-get update -qq
-          sudo apt-get install -y -qq skopeo xfsprogs
+          sudo apt-get install -y -qq skopeo xfsprogs strace
           work="$RUNNER_TEMP/rl-kvm"
           mkdir -p "$work"
           truncate -s 16G "$RUNNER_TEMP/rl-kvm.xfs"
@@ -118,6 +118,8 @@ jobs:
       - name: Compile the image and verify two real VM runs
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
+          CARGO_PROFILE_RELEASE_LTO: "false"
         run: |
           printf '%s' "$REGISTRY_TOKEN" |
             skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
@@ -146,5 +148,6 @@ jobs:
             ${{ runner.temp }}/rl-kvm/cleanup-checks.tsv
             ${{ runner.temp }}/rl-kvm/run-*.json
             ${{ runner.temp }}/rl-kvm/run-*.err
+            ${{ runner.temp }}/rl-kvm/restore-*.trace
             ${{ runner.temp }}/rl-kvm/machine-host.log
             ${{ runner.temp }}/rl-kvm/logs/*.log

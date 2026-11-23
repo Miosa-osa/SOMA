@@ -148,6 +148,7 @@ soma_run_command() {
     SOMA_GENERATION_STORE="$STORE" \
     SOMA_HEAD_DIR="$HEAD_DIR" \
     SOMA_ALLOW_UNCERTIFIED_GENERATION=1 \
+        strace -f -qq -e trace=openat,ioctl,mmap -e status=failed -o "$WORK/restore-$tag.trace" \
         ./target/release/soma --format json --backend kvm --state-root "$STATE_ROOT" \
         run --memory-mib "$MEMORY_MIB" --storage-mib "$STORAGE_MIB" "$IMAGE" -- "$@" \
         >"$WORK/run-$tag.json" 2>"$WORK/run-$tag.err"
