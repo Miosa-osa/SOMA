@@ -190,3 +190,5 @@ impl SandboxFacade for Fake {
         Ok(lifecycle())
     }
 }
+
+impl SandboxStorage for Fake {}

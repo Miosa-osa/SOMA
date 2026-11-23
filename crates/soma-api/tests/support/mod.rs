@@ -8,7 +8,7 @@ use soma::{
 };
 use soma_api::{
     CommandOutcome, FileOutcome, LifecycleOutcome, Request, SandboxFacade, SandboxSnapshot,
-    TerminalOutcome, TunnelFailure, handle,
+    SandboxStorage, TerminalOutcome, TunnelFailure, handle,
 };
 
 mod filesystem;

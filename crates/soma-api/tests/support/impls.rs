@@ -43,42 +43,6 @@ impl SandboxFacade for FakeFacade {
         self.lifecycle(Call::Launch)
     }
 
-    fn volume_binding(
-        &mut self,
-        instance: &str,
-    ) -> Result<soma_api::volumes::VolumeBinding, soma_api::volumes::VolumeFailure> {
-        self.volume_calls.push(instance.to_owned());
-        self.binding
-            .clone()
-            .ok_or(soma_api::volumes::VolumeFailure::Refused(14))
-    }
-
-    fn volume_owned(
-        &mut self,
-        _instance: &str,
-    ) -> Result<Option<soma_api::volumes::OwnedVolume>, soma_api::volumes::VolumeFailure> {
-        Ok(self.owned.clone())
-    }
-
-    fn volume(
-        &mut self,
-        operation: VolumeOperation,
-        _body: &VolumeBody,
-    ) -> Result<VolumeReport, VolumeFailure> {
-        self.volume_operations.push(operation.name());
-        Ok(VolumeReport {
-            volume_id: self
-                .owned
-                .as_ref()
-                .map_or_else(String::new, |owned| owned.volume.clone()),
-            operation: operation.name(),
-            device: "vdc",
-            state: "detached",
-            ready: true,
-            fsck: None,
-        })
-    }
-
     fn inspect(
         &mut self,
         _request: InspectMachineRequest,
@@ -162,5 +126,43 @@ impl SandboxFacade for FakeFacade {
         _request: DestroyMachineRequest,
     ) -> Result<LifecycleOutcome, ManagedFailure> {
         self.lifecycle(Call::Destroy)
+    }
+}
+
+impl SandboxStorage for FakeFacade {
+    fn volume_binding(
+        &mut self,
+        instance: &str,
+    ) -> Result<soma_api::volumes::VolumeBinding, soma_api::volumes::VolumeFailure> {
+        self.volume_calls.push(instance.to_owned());
+        self.binding
+            .clone()
+            .ok_or(soma_api::volumes::VolumeFailure::Refused(14))
+    }
+
+    fn volume_owned(
+        &mut self,
+        _instance: &str,
+    ) -> Result<Option<soma_api::volumes::OwnedVolume>, soma_api::volumes::VolumeFailure> {
+        Ok(self.owned.clone())
+    }
+
+    fn volume(
+        &mut self,
+        operation: VolumeOperation,
+        _body: &VolumeBody,
+    ) -> Result<VolumeReport, VolumeFailure> {
+        self.volume_operations.push(operation.name());
+        Ok(VolumeReport {
+            volume_id: self
+                .owned
+                .as_ref()
+                .map_or_else(String::new, |owned| owned.volume.clone()),
+            operation: operation.name(),
+            device: "vdc",
+            state: "detached",
+            ready: true,
+            fsck: None,
+        })
     }
 }

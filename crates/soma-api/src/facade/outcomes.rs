@@ -54,3 +54,10 @@ pub struct SandboxSnapshot {
     pub backend: BackendKind,
     pub receipt: ExecutionReceipt,
 }
+
+/// The answer of a facade that cannot suspend: the sandbox keeps running.
+pub(super) const fn unsupported_suspension() -> soma_local::SuspensionFailure {
+    soma_local::SuspensionFailure::Managed(soma::ManagedFailure::Backend(
+        soma::BackendFailureKind::Unsupported,
+    ))
+}

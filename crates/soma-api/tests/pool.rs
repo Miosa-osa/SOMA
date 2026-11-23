@@ -6,7 +6,7 @@ mod support;
 
 use std::time::Duration;
 
-use soma_api::{FacadePool, SandboxFacade};
+use soma_api::{FacadePool, SandboxStorage};
 use support::{FIXTURE_INSTANCE_ID, FakeFacade, Mode};
 
 #[test]

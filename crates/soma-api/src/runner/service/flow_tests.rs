@@ -20,7 +20,7 @@ use super::{Runner, RunnerRequest, RunnerResponse};
 use crate::{
     facade::{
         CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot,
-        TerminalOutcome,
+        SandboxStorage, TerminalOutcome,
     },
     runner::{
         backend::Backend,

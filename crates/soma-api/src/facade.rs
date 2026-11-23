@@ -7,11 +7,14 @@ use soma::{
 use crate::tunnel::GuestStream;
 
 mod outcomes;
+mod storage;
 
+use outcomes::unsupported_suspension;
 pub use outcomes::{
     CommandOutcome, FileOutcome, LifecycleOutcome, SandboxSnapshot, TerminalOutcome,
 };
 pub use soma_local::{ResizeFailure, ResizeOutcome, ResizeRequest, TunnelFailure};
+pub use storage::SandboxStorage;
 
 pub use crate::volumes::{
     OwnedVolume, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
@@ -28,7 +31,7 @@ pub use crate::volumes::{
 /// A method that cannot be implemented honestly is worse here than no method at all, so every
 /// method on it is one the engine can actually perform. What a given backend cannot serve is
 /// reported as the capability that is missing, not as an invented answer.
-pub trait SandboxFacade {
+pub trait SandboxFacade: SandboxStorage {
     /// Whether a sandbox this facade creates can still be addressed by a later request.
     ///
     /// This service opens one runtime per connection, so a backend that keeps the machine in
@@ -261,33 +264,6 @@ pub trait SandboxFacade {
         Err(soma_local::ResumeFailure::Unavailable)
     }
 
-    /// Captures a running sandbox for the supplied operation identity.
-    ///
-    /// # Errors
-    ///
-    /// Returns the ownership, capture, or publication failure.
-    fn checkpoint(
-        &mut self,
-        _instance: &soma::InstanceId,
-        _operation: &soma::OperationId,
-    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
-        Err(soma_local::CheckpointFailure::Unsupported)
-    }
-
-    /// Discards an exact published checkpoint after its consumer is finished.
-    ///
-    /// # Errors
-    ///
-    /// Returns a refusal if the durable publication cannot be safely removed.
-    fn discard_checkpoint(
-        &mut self,
-        _instance: &soma::InstanceId,
-        _checkpoint: &soma::OperationId,
-        _state_digest: &soma::GenerationId,
-    ) -> Result<(), soma_local::CheckpointFailure> {
-        Err(soma_local::CheckpointFailure::Unsupported)
-    }
-
     /// Changes the CPU and memory of one hosted sandbox live, and reports what is now true.
     /// An empty request changes nothing and reports the current values.
     ///
@@ -316,52 +292,4 @@ pub trait SandboxFacade {
     ) -> Result<soma_local::EgressSetOutcome, soma_local::EgressSetFailure> {
         Err(soma_local::EgressSetFailure::Unavailable)
     }
-
-    /// Performs one durable data volume operation through the host daemon.
-    ///
-    /// The volume store lives inside `soma-hostd` (ADR 0053 Step A), so a backend with no host
-    /// control socket configured reports the missing capability rather than an invented answer.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed volume failure: the missing capability when no socket is configured,
-    /// the daemon's stable refusal, or a transport failure.
-    fn volume(
-        &mut self,
-        _operation: VolumeOperation,
-        _body: &VolumeBody,
-    ) -> Result<VolumeReport, VolumeFailure> {
-        Err(VolumeFailure::Unconfigured)
-    }
-
-    /// Reads which volume one Instance owns, for a stop that must detach it.
-    ///
-    /// The default answers that this host serves no volumes, which is what a service with no
-    /// host control socket has to say rather than a refusal.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed volume failure the host daemon refused with.
-    fn volume_owned(&mut self, _instance: &str) -> Result<Option<OwnedVolume>, VolumeFailure> {
-        Ok(None)
-    }
-
-    /// Opens the volume attached to one Instance, for the launch that binds a machine to it.
-    ///
-    /// The default reports the missing capability, because a service with no host control socket
-    /// serves no volume and a launch that needs one must be refused rather than served without.
-    ///
-    /// # Errors
-    ///
-    /// Returns the typed volume failure the host daemon refused with.
-    fn volume_binding(&mut self, _instance: &str) -> Result<VolumeBinding, VolumeFailure> {
-        Err(VolumeFailure::Unconfigured)
-    }
-}
-
-/// The answer of a facade that cannot suspend: the sandbox keeps running.
-const fn unsupported_suspension() -> soma_local::SuspensionFailure {
-    soma_local::SuspensionFailure::Managed(ManagedFailure::Backend(
-        soma::BackendFailureKind::Unsupported,
-    ))
 }

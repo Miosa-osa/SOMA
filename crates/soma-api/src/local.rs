@@ -7,7 +7,8 @@ use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
 use crate::facade::{
     CommandOutcome, FileOutcome, LifecycleOutcome, OwnedVolume, SandboxFacade, SandboxSnapshot,
-    TerminalOutcome, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation, VolumeReport,
+    SandboxStorage, TerminalOutcome, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation,
+    VolumeReport,
 };
 use crate::volumes::VolumeClient;
 
@@ -208,24 +209,6 @@ impl SandboxFacade for LocalFacade {
         self.runtime.resume_machine(instance_id)
     }
 
-    fn checkpoint(
-        &mut self,
-        instance: &soma::InstanceId,
-        operation: &soma::OperationId,
-    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
-        self.runtime.checkpoint_machine(instance, operation)
-    }
-
-    fn discard_checkpoint(
-        &mut self,
-        instance: &soma::InstanceId,
-        checkpoint: &soma::OperationId,
-        state_digest: &soma::GenerationId,
-    ) -> Result<(), soma_local::CheckpointFailure> {
-        self.runtime
-            .discard_checkpoint(instance, checkpoint, state_digest)
-    }
-
     fn resize(
         &mut self,
         instance_id: &soma::InstanceId,
@@ -249,6 +232,26 @@ impl SandboxFacade for LocalFacade {
         port: u16,
     ) -> Result<crate::tunnel::GuestStream, soma_local::TunnelFailure> {
         self.runtime.tunnel_machine(instance_id, port)
+    }
+}
+
+impl SandboxStorage for LocalFacade {
+    fn checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        operation: &soma::OperationId,
+    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
+        self.runtime.checkpoint_machine(instance, operation)
+    }
+
+    fn discard_checkpoint(
+        &mut self,
+        instance: &soma::InstanceId,
+        checkpoint: &soma::OperationId,
+        state_digest: &soma::GenerationId,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        self.runtime
+            .discard_checkpoint(instance, checkpoint, state_digest)
     }
 
     /// The volume store lives in the host daemon, so this forwards to the control socket and
