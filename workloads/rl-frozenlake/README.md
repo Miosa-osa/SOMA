@@ -144,3 +144,39 @@ Use matching seeds, worker counts, and CPU limits across repeated runs.
 
 CI checks that both vector modes complete the same seeded episodes and produce identical counters.
 The timing fields are reported as observations because process and IPC overhead vary by host.
+
+
+### Local SOMA measurements
+
+These runs used the SOMA alpha.5 Docker backend on Apple Silicon with a two-vCPU container limit, 1 GiB of RAM, and guest networking disabled.
+The image was already built and present in the local registry.
+Each mode and worker count ran in three fresh instances with seeds 42, 43, and 44.
+Each worker recorded 25 episodes under the balancing controller, and all 12 instances reported complete machine and storage cleanup.
+The timing excludes OCI image retrieval, SOMA launch, and cleanup.
+
+| Mode | Workers | Median startup | Median simulator steps/s |
+| --- | ---: | ---: | ---: |
+| sync | 1 | 0.002 s | 54,455 |
+| async | 1 | 0.282 s | 5,974 |
+| sync | 4 | 0.002 s | 117,175 |
+| async | 4 | 0.461 s | 14,824 |
+
+<details>
+<summary>Individual samples</summary>
+
+| Mode | Workers | Seed | Simulator steps | Startup (ms) | Rollout (ms) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| async | 1 | 42 | 12500 | 256.73 | 2092.39 |
+| async | 1 | 43 | 12500 | 282.03 | 2192.12 |
+| async | 1 | 44 | 12500 | 290.09 | 2086.34 |
+| async | 4 | 42 | 50000 | 522.48 | 3703.08 |
+| async | 4 | 43 | 50000 | 459.35 | 3315.35 |
+| async | 4 | 44 | 50000 | 460.71 | 3372.92 |
+| sync | 1 | 42 | 12500 | 1.99 | 230.37 |
+| sync | 1 | 43 | 12500 | 1.70 | 229.55 |
+| sync | 1 | 44 | 12500 | 2.08 | 228.08 |
+| sync | 4 | 42 | 50000 | 2.25 | 426.71 |
+| sync | 4 | 43 | 50000 | 2.24 | 435.71 |
+| sync | 4 | 44 | 50000 | 2.45 | 409.63 |
+
+</details>
