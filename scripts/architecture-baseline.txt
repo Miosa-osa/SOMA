@@ -6,17 +6,13 @@
 # Split debt: crates/soma-netd/src/daemon.rs, crates/soma-netd/src/reconcile.rs and
 # crates/soma-netd/tests/live/recovery.rs are recorded at their post-PR-66 counts.
 #
-./crates/soma-api/src/handler.rs 330
 ./crates/soma-api/src/runner/config.rs 348
-./crates/soma-api/src/runner/service/flow_tests.rs 301
 ./crates/soma-api/src/runner/transport.rs 330
 ./crates/soma-api/src/tunnel.rs 314
 ./crates/soma-api/tests/runner/tunnel.rs 319
 ./crates/soma-api/tests/support/mod.rs 378
-./crates/soma-generation/src/generation/contracts.rs 343
 ./crates/soma-generation/src/store.rs 307
 ./crates/soma-kvm/src/snapshot/compatibility/tests.rs 351
-./crates/soma-kvm/src/snapshot/section.rs 301
 ./crates/soma-kvm/src/x86_64/devices.rs 380
 ./crates/soma-kvm/src/x86_64/snapshot/profile.rs 301
 ./crates/soma-kvm/src/x86_64/snapshot/restore.rs 303
