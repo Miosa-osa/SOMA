@@ -34,6 +34,8 @@ The same machine type can run an agent sandbox, an interactive desktop, or a web
 The workload image supplies the software inside the instance.
 The platform or caller supplies product features such as deployment URLs, release management, scheduling, and billing.
 
+**Start here** · [Documentation](docs/README.md) · [Quick start](#try-one-isolated-command) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
+
 ## What you can run
 
 | Use case | What runs in the instance |
@@ -168,6 +170,8 @@ These are engineering targets for the certified KVM path.
 The [benchmark contract](docs/benchmark-contract.md) defines the timing boundaries, raw samples, cache state, failures, and cleanup results required to support a performance claim.
 
 ## Where to go next
+
+The [documentation index](docs/README.md) groups the guides by task.
 
 | I want to | Read |
 | --- | --- |
