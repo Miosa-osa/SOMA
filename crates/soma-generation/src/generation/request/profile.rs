@@ -234,5 +234,4 @@ impl CompilerProfile {
             _ => None,
         }
     }
-
 }

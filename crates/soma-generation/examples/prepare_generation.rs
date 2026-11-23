@@ -50,11 +50,14 @@ use soma_generation::{
 };
 use soma_guest::{CaptureWarmPlan, WarmCommand};
 
+#[path = "prepare_generation/args.rs"]
+mod args;
 #[path = "prepare_generation/build.rs"]
 mod build;
 #[path = "prepare_generation/publication.rs"]
 mod publication;
 
+use args::parse_args;
 use build::BuildInputs;
 
 const DEFAULT_MEMORY_MIB: u64 = 1024;
@@ -245,5 +248,3 @@ fn main() {
 #[cfg(test)]
 #[path = "prepare_generation/tests.rs"]
 mod tests;
-mod args;
-use args::{parse_args};

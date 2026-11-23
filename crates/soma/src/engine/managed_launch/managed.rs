@@ -1,8 +1,18 @@
 //! Launch a managed machine: admit it, launch it on the backend, and record its receipt.
 
-use super::{Backend, CleanupEvidence, DurableMachine, DurablePhase, Engine, FailurePhase, LaunchAdmission, LaunchIntent, LaunchMachineRequest, LockedLaunch, MachineLaunch, ManagedFailure, ManagedLaunch, ManagedStateError, Milestone, MilestoneKind, RunFailureKind, StateStore, TerminalStatus, WorkloadEvidence, admission, append_failure, append_launch, append_milestone, failure, fork, launch_receipt, operation_failure, receipt, store_operation_failure, validate_launch};
+use super::{
+    Backend, CleanupEvidence, DurableMachine, DurablePhase, Engine, FailurePhase, LaunchAdmission,
+    LaunchIntent, LaunchMachineRequest, LockedLaunch, MachineLaunch, ManagedFailure, ManagedLaunch,
+    ManagedStateError, Milestone, MilestoneKind, RunFailureKind, StateStore, TerminalStatus,
+    WorkloadEvidence, append_failure, append_launch, append_milestone, launch_receipt,
+    operation_failure, store_operation_failure, validate_launch,
+};
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
+    #[allow(
+        clippy::too_many_lines,
+        reason = "fresh launch and restore share the write-ahead transaction"
+    )]
     pub(super) fn launch_managed(
         &mut self,
         request: &LaunchMachineRequest,

@@ -1,9 +1,9 @@
 mod admission;
 mod failure;
 mod fork;
+mod managed;
 mod receipt;
 mod recovery;
-mod managed;
 
 use crate::{
     Backend, CleanupEvidence, Milestone, MilestoneKind, StateStore, TerminalStatus,
@@ -134,9 +134,4 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             }),
         )
     }
-
-    #[allow(
-        clippy::too_many_lines,
-        reason = "fresh launch and restore share the write-ahead transaction"
-    )]
 }

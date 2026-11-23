@@ -43,9 +43,7 @@ fn command_line_selects_the_contract_base_argument_set() {
     // The memory device comes from the device set, not from the contract.
     assert!(!String::from_utf8_lossy(&v3).contains("0xd0005000"));
     let with_mem = kernel_command_line_for(DeviceSet::FULL_WITH_MEM, 3).expect("a line");
-    assert!(
-        String::from_utf8_lossy(&with_mem).contains("virtio_mmio.device=4K@0xd0005000:10:5")
-    );
+    assert!(String::from_utf8_lossy(&with_mem).contains("virtio_mmio.device=4K@0xd0005000:10:5"));
     assert_ne!(
         device_contract_statement(DeviceSet::FULL),
         device_contract_statement(DeviceSet::FULL_WITH_MEM)

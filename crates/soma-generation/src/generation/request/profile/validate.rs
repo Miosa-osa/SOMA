@@ -1,6 +1,10 @@
 //! Check that a compiler profile is one of the certified policies and its hotplug fits.
 
-use super::{CompileError, CompileErrorKind, CompilePhase, CompilerProfile, GUEST_CACHE_POLICY_VERSION, HOTPLUG_BLOCK_BYTES, LARGE_DISK_POLICY_VERSION, MIB, MachineContract, PERSISTENCE_POLICY_VERSION, ProfileLimits, WIDE_CPU_POLICY_VERSION, WIDE_MEMORY_POLICY_VERSION};
+use super::{
+    CompileError, CompileErrorKind, CompilePhase, CompilerProfile, GUEST_CACHE_POLICY_VERSION,
+    HOTPLUG_BLOCK_BYTES, LARGE_DISK_POLICY_VERSION, MIB, MachineContract,
+    PERSISTENCE_POLICY_VERSION, ProfileLimits, WIDE_CPU_POLICY_VERSION, WIDE_MEMORY_POLICY_VERSION,
+};
 
 impl CompilerProfile {
     /// Whether this profile's machine is the one its policy version defines.
