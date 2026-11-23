@@ -1024,3 +1024,6 @@ Zero trust documentation scopes access decisions to the management plane and des
 The runner and host HTTP API have different identity boundaries.
 
 Reinforcement-learning environments use the instance lifecycle for rollout workers while the trainer owns reward logic, policy updates, and model checkpoints.
+
+The FrozenLake reference image trains and evaluates a tabular policy, with separate termination and truncation semantics.
+Four concurrent runs through the local SOMA backend verified learned outcomes, unique instance identities, and cleanup.

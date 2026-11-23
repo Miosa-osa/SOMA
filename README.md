@@ -48,7 +48,7 @@ The platform or caller supplies product features such as deployment URLs, releas
 | Function or scheduled job | A Linux image with a handler or command invoked by the integrating platform |
 | Database process | A Linux image with the database and a storage configuration suited to its data lifecycle |
 
-See the [desktop workload](workloads/desktop/README.md) for the reference desktop and the [RL environment guide](docs/product/guides/rl-environments.md) for an example episode.
+See the [desktop workload](workloads/desktop/README.md) for the reference desktop and the [RL environment guide](docs/product/guides/rl-environments.md) for an example episode and a runnable Gymnasium training workload.
 The [use-case architecture](docs/engineering/architecture/use-cases.md) describes the lifecycle available to callers.
 Public routing, replica management, and stable application identity belong to the platform integrating SOMA.
 
