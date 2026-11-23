@@ -1011,3 +1011,5 @@ The README points to API 1.3 and current workload guides, with historical KVM pr
 The README describes the zero-trust principles at the guest and host boundary, the trusted base, and the checks that support individual security claims.
 
 The documentation index groups current entry points by task and links directly to the README’s zero-trust explanation and the threat model.
+
+The documentation index gives product and usage docs and engineering docs separate entry points while keeping existing file paths stable.
