@@ -59,6 +59,12 @@ For a training job, replace the example with your environment and policy client.
 
 ## Run parallel episodes
 
+The [CartPole rollout benchmark](../../../workloads/rl-frozenlake/README.md#measure-parallel-cartpole-rollouts) measures one process stepping multiple environments and separate worker processes stepping the same seeded workload.
+It reports episode returns, termination and time-limit counts, worker startup, and transitions per second.
+Gymnasium recommends measuring across worker counts because process communication can outweigh parallelism for small environments.
+[Gymnasium vectorization guide](https://gymnasium.farama.org/main/introduction/speed_up_env/)
+
+
 1. Package the environment and its dependencies in a versioned OCI image.
 2. Start workers from the same image or prepared Generation.
    Set a seed and episode ID for every worker.

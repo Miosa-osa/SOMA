@@ -54,6 +54,28 @@ jobs:
             printf '%s\n' "$result"
           done
 
+      - name: Verify CartPole episode accounting across vector modes
+        run: |
+          for policy in random balance; do
+            for mode in sync async; do
+              result=$(docker run --rm --network none --cpus 4 --entrypoint /usr/local/bin/python3 \
+                "$IMAGE:$GITHUB_SHA" /opt/soma-rl/rollouts.py --mode "$mode" --policy "$policy")
+              jq -e '
+                .environment == "CartPole-v1" and .completed_episodes == 100 and
+                .episodes_per_worker == [25,25,25,25] and
+                (.terminated_episodes + .time_limit_episodes == .completed_episodes) and
+                (.simulator_steps >= .recorded_steps and .simulator_steps_per_second > 0)
+              ' <<< "$result" >/dev/null
+              printf '%s\n' "$result"
+              jq -S 'del(.mode, .startup_seconds, .rollout_seconds, .simulator_steps_per_second)' \
+                <<< "$result" > "$RUNNER_TEMP/$policy-$mode.json"
+            done
+            diff "$RUNNER_TEMP/$policy-sync.json" "$RUNNER_TEMP/$policy-async.json"
+          done
+          jq -e '.mean_return < 50' "$RUNNER_TEMP/random-sync.json" >/dev/null
+          jq -e '.time_limit_episodes == 100 and .recorded_steps == 50000' \
+            "$RUNNER_TEMP/balance-sync.json" >/dev/null
+
       - name: Publish the verified image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:

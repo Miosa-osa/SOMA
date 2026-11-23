@@ -115,3 +115,32 @@ scripts/end-to-end-check.sh \
 The check uses a private test work directory and an uncertified Generation.
 A hosted runner result applies to the tested OCI digest and SOMA source revision.
 MIOSA fleet placement and a customer template require their own live verification.
+
+## Measure parallel CartPole rollouts
+
+The same Gymnasium image includes a CartPole-v1 rollout benchmark.
+It compares synchronous vector execution in one process with asynchronous vector execution using one spawned process per environment.
+The random policy provides a baseline, and the balancing controller uses a fixed feedback rule.
+[CartPole environment](https://gymnasium.farama.org/v1.2.3/environments/classic_control/cart_pole/) · [Gymnasium vector API](https://gymnasium.farama.org/api/vector/)
+
+```sh
+docker run --rm --network none --cpus 4 --entrypoint /usr/local/bin/python3 \
+  soma-rl-frozenlake:release /opt/soma-rl/rollouts.py \
+  --mode async --workers 4 --episodes-per-worker 25 --policy balance --seed 42
+```
+
+Use `--mode sync` to measure the same episode workload in one process.
+Use `--policy random` to evaluate random moves.
+The default run records the first 25 completed episodes from each of four environments.
+The vector environment resets a finished lane in the same step, so resets never count as transitions.
+If a step both terminates and reaches the time limit, the result counts it as a termination.
+[Gymnasium autoreset modes](https://gymnasium.farama.org/main/api/vector/autoreset/)
+
+The result reports startup and rollout time separately.
+`recorded_steps` counts steps in the requested episodes.
+`simulator_steps` also includes work on lanes that already met their episode quota while other lanes finished.
+The throughput rate uses simulator steps and excludes startup and cleanup.
+Use matching seeds, worker counts, and CPU limits across repeated runs.
+
+CI checks that both vector modes complete the same seeded episodes and produce identical counters.
+The timing fields are reported as observations because process and IPC overhead vary by host.
