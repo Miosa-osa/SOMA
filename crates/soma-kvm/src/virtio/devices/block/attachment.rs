@@ -9,7 +9,7 @@ use super::{BlockBackend, BlockConfigError, BlockDevice, BlockRole, SECTOR_SIZE}
 
 impl BlockDevice {
     /// Flushes and relinquishes the durable volume while retaining its device geometry.
-    #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(any(all(test, unix), all(target_os = "linux", target_arch = "x86_64")))]
     pub(crate) fn release_volume(&mut self) -> Result<(), super::backend::BackendError> {
         if self.role != BlockRole::DurableVolume {
             return Err(super::backend::BackendError::OutOfRange);
