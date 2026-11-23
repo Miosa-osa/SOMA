@@ -277,49 +277,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     }
 }
 
-fn tunnel(method: Method, instance: InstanceId, port: &str) -> Result<Route, ApiError> {
-    let port = port
-        .parse::<u16>()
-        .ok()
-        .filter(|port| *port != 0)
-        .ok_or_else(|| {
-            ApiError::new(
-                400,
-                "invalid_port",
-                "the tunnel port must be 1 to 65535",
-                false,
-            )
-        })?;
-    match method {
-        Method::Get => Ok(Route::Tunnel(instance, port)),
-        _ => Err(ApiError::method_not_allowed()),
-    }
-}
-
-fn autosize(request: &Request, instance: &str) -> Result<Route, ApiError> {
-    let instance_id = path_instance_id(instance)?;
-    match request.method {
-        Method::Get => Ok(Route::Autosize(instance_id, false)),
-        Method::Put => Ok(Route::Autosize(instance_id, true)),
-        _ => Err(ApiError::method_not_allowed()),
-    }
-}
-
-fn get_only(request: &Request, route: Route) -> Result<Route, ApiError> {
-    if request.method == Method::Get {
-        Ok(route)
-    } else {
-        Err(ApiError::method_not_allowed())
-    }
-}
-
-fn post_only(request: &Request, route: Route) -> Result<Route, ApiError> {
-    if request.method == Method::Post {
-        Ok(route)
-    } else {
-        Err(ApiError::method_not_allowed())
-    }
-}
-
+mod methods;
 mod operations;
+use methods::{autosize, get_only, post_only, tunnel};
 use operations::{filesystem_operation, terminal_operation};
