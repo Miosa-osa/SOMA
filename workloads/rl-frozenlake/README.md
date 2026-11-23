@@ -62,5 +62,20 @@ Gymnasium defines how to seed and reset workers and how to report termination an
 
 RLlib's EnvRunner architecture illustrates another scaling model, with multiple environments per runner and multiple runners per trainer. [RLlib scaling guide](https://docs.ray.io/en/latest/rllib/scaling-guide.html)
 
-For KVM, build the image for Linux x86_64 and follow the [Generation and host preparation guide](../../docs/product/guides/end-to-end-check.md).
-This workload's SOMA runs were verified on the local Docker backend.
+## Verify on a KVM host
+
+Use a prepared Linux x86_64 test host and the existing [end-to-end check](../../docs/product/guides/end-to-end-check.md).
+Pass the published x86_64 digest to compile a Generation, take a snapshot, run the workload twice, and check cleanup.
+The release workflow runs this check separately from the container tests and retains the VM receipts.
+
+```sh
+scripts/end-to-end-check.sh \
+  --image "ghcr.io/miosa-osa/soma-rl-frozenlake@${DIGEST:?set DIGEST from the release workflow}" \
+  --fs-tools ./fs-tools \
+  --expect '"trained_goal_count": 100' \
+  --command /usr/local/bin/python3 /opt/soma-rl/train.py --seed 42
+```
+
+The check uses a private test work directory and an uncertified Generation.
+A hosted runner result applies to the tested OCI digest and SOMA source revision.
+MIOSA fleet placement and a customer template require their own live verification.

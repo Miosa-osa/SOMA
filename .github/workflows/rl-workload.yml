@@ -65,3 +65,53 @@ jobs:
           docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
           docker push "$IMAGE:main"
           docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  kvm:
+    name: Run the published workload on KVM
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Prepare the disposable runner
+        run: |
+          test -c /dev/kvm
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq skopeo
+          rustup target add x86_64-unknown-linux-musl
+          ./scripts/build-fs-tools.sh "$RUNNER_TEMP/fs-tools"
+
+      - name: Compile the image and verify two real VM runs
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" |
+            skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
+          digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$GITHUB_SHA")
+          ./scripts/end-to-end-check.sh \
+            --image "$IMAGE@$digest" \
+            --fs-tools "$RUNNER_TEMP/fs-tools" \
+            --work "$RUNNER_TEMP/rl-kvm" \
+            --expect '"trained_goal_count": 100' \
+            --purge \
+            --command /usr/local/bin/python3 /opt/soma-rl/train.py --seed 42
+
+      - name: Retain run evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rl-kvm-evidence
+          path: |
+            ${{ runner.temp }}/rl-kvm/results.json
+            ${{ runner.temp }}/rl-kvm/cleanup-checks.tsv
+            ${{ runner.temp }}/rl-kvm/run-*.json
+            ${{ runner.temp }}/rl-kvm/logs/*.log
