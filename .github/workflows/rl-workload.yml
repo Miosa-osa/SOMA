@@ -1,0 +1,67 @@
+name: RL workload
+
+on:
+  pull_request:
+    paths:
+      - workloads/rl-frozenlake/**
+      - .github/workflows/rl-workload.yml
+  push:
+    branches: [main]
+    paths:
+      - workloads/rl-frozenlake/**
+      - .github/workflows/rl-workload.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rl-workload-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/miosa-osa/soma-rl-frozenlake
+
+jobs:
+  image:
+    name: Build and verify FrozenLake
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: |
+          docker build --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "$IMAGE:$GITHUB_SHA" workloads/rl-frozenlake
+
+      - name: Verify training without guest network access
+        run: |
+          for seed in 42 43 44 45; do
+            result=$(docker run --rm --network none "$IMAGE:$GITHUB_SHA" --seed "$seed")
+            jq -e --argjson seed "$seed" '
+              .environment == "FrozenLake-v1" and
+              .seed == $seed and .training_episodes == 2000 and .evaluation_episodes == 100 and
+              .trained_goal_count == 100 and .random_goal_count < .trained_goal_count and
+              (.policy | length) == 16
+            ' <<< "$result" >/dev/null
+            printf '%s\n' "$result"
+          done
+
+      - name: Publish the verified image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$REGISTRY_TOKEN" |
+            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
+          docker push "$IMAGE:main"
+          docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"

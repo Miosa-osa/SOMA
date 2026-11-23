@@ -3,14 +3,23 @@
 This image runs Gymnasium's deterministic 4×4 FrozenLake environment.
 A tabular Q-learning policy learns from rewards and is evaluated against random actions on the same evaluation seeds. [Environment contract](https://gymnasium.farama.org/v1.2.3/environments/toy_text/frozen_lake/)
 
+## Run the published image
+
+The release workflow verifies the Linux x86_64 image before publishing it to the [SOMA container registry](https://github.com/orgs/Miosa-osa/packages/container/package/soma-rl-frozenlake).
+Use the `main` tag to try the latest build and the OCI digest recorded in the workflow summary for reproducible runs.
+
+```sh
+image=ghcr.io/miosa-osa/soma-rl-frozenlake:main
+docker run --rm --platform linux/amd64 --network none "$image" --seed 42
+```
+
 ## Build and run locally
 
 From the repository root, build for your Docker host architecture.
 
 ```sh
 docker build -t soma-rl-frozenlake:1 workloads/rl-frozenlake
-docker run --rm --network none soma-rl-frozenlake:1 \
-  /usr/local/bin/python3 /opt/soma-rl/train.py --seed 42
+docker run --rm --network none soma-rl-frozenlake:1 --seed 42
 ```
 
 The command prints one JSON object with the seed, episode counts, goals reached by each policy, and the trained action for each observation.
@@ -19,12 +28,11 @@ Adjust `--train-episodes`, `--eval-episodes`, or `--seed` to run another trial.
 ## Run through SOMA
 
 The local Docker backend resolves images from a registry.
-Set `REGISTRY` to a registry your Docker daemon can reach and where you can push test images.
+The published image is x86_64.
+On an ARM host, build locally, then tag and push that build to a test registry the Docker daemon can reach and set `image` to that reference.
 
 ```sh
-image="${REGISTRY:?set REGISTRY to your test registry}/soma-rl-frozenlake:1"
-docker tag soma-rl-frozenlake:1 "$image"
-docker push "$image"
+image=ghcr.io/miosa-osa/soma-rl-frozenlake:main
 cargo run --locked -p soma-cli -- --backend docker run "$image" -- \
   /usr/local/bin/python3 /opt/soma-rl/train.py --seed 42
 ```
