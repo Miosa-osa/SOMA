@@ -6,7 +6,7 @@ on:
       - workloads/rl-frozenlake/**
       - .github/workflows/rl-workload.yml
   push:
-    branches: [main]
+    branches: [main, fix/rl-kvm-launch]
     paths:
       - workloads/rl-frozenlake/**
       - .github/workflows/rl-workload.yml
@@ -87,7 +87,7 @@ jobs:
 
   kvm:
     name: Run the published workload on KVM
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     needs: image
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -121,7 +121,11 @@ jobs:
         run: |
           printf '%s' "$REGISTRY_TOKEN" |
             skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
-          digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$GITHUB_SHA")
+          revision="$GITHUB_SHA"
+          if [[ "$GITHUB_REF" != refs/heads/main ]]; then
+            revision=642dec1f93fcbd99c162cf5a202d2b9b49a8b211
+          fi
+          digest=$(skopeo inspect --format '{{.Digest}}' "docker://$IMAGE:$revision")
           export SOMA_MACHINE_HOST_LOG="$RUNNER_TEMP/rl-kvm/machine-host.log"
           df -h "$RUNNER_TEMP" "$RUNNER_TEMP/rl-kvm"
           ./scripts/end-to-end-check.sh \

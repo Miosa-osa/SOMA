@@ -236,7 +236,10 @@ impl KvmBackend {
             volume,
             resume.as_deref(),
         )
-        .map_err(|kind| self.fail(operation, kind))?;
+        .map_err(|kind| {
+            eprintln!("[DEBUG-rl-kvm] open prepared launch artifacts: {kind:?}");
+            self.fail(operation, kind)
+        })?;
         self.register(operation, instance, boot.guest_cid)?;
         let launched = self.clocks.elapsed_ns(operation);
         match Session::launch(boot, &mut |receipt| {
@@ -251,7 +254,10 @@ impl KvmBackend {
                 // A machine that built its own disk built it where the guest can reach it already.
                 head_reads: Vec::new(),
             }),
-            Err(error) => Err(self.withdraw(operation, instance, error)),
+            Err(error) => {
+                eprintln!("[DEBUG-rl-kvm] launch session: {error:?}");
+                Err(self.withdraw(operation, instance, error))
+            }
         }
     }
 

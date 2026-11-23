@@ -40,7 +40,9 @@ fn clone_or_copy(
     certified_digest: Option<[u8; 32]>,
     instance: &InstanceId,
 ) -> Result<std::fs::File, BackendFailureKind> {
-    let directory = head_directory()?;
+    let directory = head_directory().inspect_err(|kind| {
+        eprintln!("[DEBUG-rl-kvm] open head directory: {kind:?}");
+    })?;
     let template = match certified_digest {
         Some(digest) => fanned(template, digest),
         None => template,
@@ -72,7 +74,10 @@ fn clone_or_copy(
         Err(CloneError::ReflinkUnsupported | CloneError::CrossDevice) => {
             copied_head(template, &directory, name.as_str())
         }
-        Err(_) => Err(BackendFailureKind::Unavailable),
+        Err(error) => {
+            eprintln!("[DEBUG-rl-kvm] clone private disk: {error:?}");
+            Err(BackendFailureKind::Unavailable)
+        }
     }
 }
 

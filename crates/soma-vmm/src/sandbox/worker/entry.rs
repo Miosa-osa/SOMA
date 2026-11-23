@@ -102,9 +102,13 @@ pub fn serve(boot: Boot, requests: &Receiver<Request>, responses: &Sender<Respon
                 network: attachment,
                 reads: Some(std::sync::Arc::clone(&reads)),
             });
-            let Ok(mut restored) = restored else {
-                let _ignored = responses.send(Response::Failed(SessionError::Create));
-                return;
+            let mut restored = match restored {
+                Ok(restored) => restored,
+                Err(error) => {
+                    eprintln!("[DEBUG-rl-kvm] snapshot restore: {error:?}");
+                    let _ignored = responses.send(Response::Failed(SessionError::Create));
+                    return;
+                }
             };
             let inputs = LaunchInputs {
                 material,
