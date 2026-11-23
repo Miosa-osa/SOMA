@@ -91,13 +91,13 @@ impl World {
             let stop = Arc::clone(&stop);
             let peers = Arc::clone(&peers);
             threads.push(thread::spawn(move || {
-                let mut held_connections = Vec::new();
+                let mut open_streams = Vec::new();
                 while !stop.load(Ordering::Relaxed) {
                     match listener.accept() {
                         Ok((mut stream, peer)) => {
                             peers.lock().expect("peers").push(peer);
                             if hold_connections {
-                                held_connections.push(stream);
+                                open_streams.push(stream);
                                 continue;
                             }
                             let _ = stream.write_all(b"world");
