@@ -34,7 +34,7 @@ The same machine type can run an agent sandbox, an interactive desktop, or a web
 The workload image supplies the software inside the instance.
 The platform or caller supplies product features such as deployment URLs, release management, scheduling, and billing.
 
-**Start here** · [Documentation](docs/README.md) · [Quick start](#try-one-isolated-command) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
+**Start here** · [Product and usage docs](docs/README.md#product-and-usage-docs) · [Engineering docs](docs/README.md#engineering-docs) · [How SOMA applies zero trust](#how-soma-applies-zero-trust)
 
 ## What you can run
 

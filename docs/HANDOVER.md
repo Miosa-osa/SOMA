@@ -1,5 +1,8 @@
 # SOMA handover - 2026-08-31
 
+This handover records the repository at the August 31, 2026 revision below.
+For current guides and references, start at the [documentation index](README.md).
+
 Written so work can continue on another machine, by someone who was not here. It states what is
 finished with the evidence that proves it, and what is left with enough detail to start on.
 
