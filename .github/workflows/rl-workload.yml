@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write # Upload the public image archive as a release asset.
       packages: write # Publish the verified OCI image on main pushes.
     steps:
       - name: Check out source
@@ -65,6 +65,25 @@ jobs:
           docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:main"
           docker push "$IMAGE:main"
           docker buildx imagetools inspect "$IMAGE:$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish a public image archive
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="rl-frozenlake-${GITHUB_SHA:0:12}"
+          archive=soma-rl-frozenlake-linux-amd64.tar.gz
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            docker tag "$IMAGE:$GITHUB_SHA" soma-rl-frozenlake:release
+            docker save soma-rl-frozenlake:release | gzip -n > "$archive"
+            sha256sum "$archive" > "$archive.sha256"
+            gh release create "$tag" "$archive" "$archive.sha256" \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false --prerelease \
+              --title "FrozenLake workload ${GITHUB_SHA:0:12}" \
+              --notes "Verified Linux x86_64 FrozenLake workload image built from $GITHUB_SHA."
+          fi
+          url=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json url --jq .url)
+          printf '\n[Download the verified workload image](%s)\n' "$url" >> "$GITHUB_STEP_SUMMARY"
 
   kvm:
     name: Run the published workload on KVM
