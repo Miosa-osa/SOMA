@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      packages: write
+      packages: write # Publish the verified OCI image on main pushes.
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 35
     permissions:
       contents: read
-      packages: read
+      packages: read # Pull the exact published image by digest.
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
