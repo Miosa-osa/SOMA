@@ -10,8 +10,10 @@ The repository name is `SOMA`, and its canonical public path is `Miosa-osa/SOMA`
 Always write the project name as `SOMA` in prose.
 Do not introduce `Soma`, `SomaVM`, `SomaOS`, `SOMA Sandbox`, or a second expansion.
 
-SOMA names a provider-neutral sandbox engine and machine execution architecture, not one provider's customer-facing sandbox product.
-An operator may build a sandbox, function, computer, runner, or agent environment on top of SOMA without changing SOMA's category.
+SOMA names the provider-neutral engine.
+A **SOMA instance** is one concrete machine lifetime launched by the engine.
+A sandbox, desktop, web service, function, or build runner is an application of the instance.
+Use the product name for the customer’s task and the Instance ID for lifecycle operations.
 
 ## Software names
 
@@ -30,14 +32,14 @@ An operator may build a sandbox, function, computer, runner, or agent environmen
 | Artifact | One immutable content-addressed file within a Generation | Asset, blob |
 | Snapshot | The captured memory and machine state within a Generation | Generation |
 | Machine | One hardware-virtualized guest owned by one `soma-vmm` process | Container, process |
-| Instance | One globally unique concrete Machine lifetime owned by one `soma-vmm` process | Stable resource, sandbox |
+| SOMA instance (Instance) | One globally unique lifetime of a Machine | Stable product resource, Generation |
 | Launch | The atomic request that creates or restores an Instance and proves readiness | Boot, spawn |
 | Milestone | One monotonic observation within Launch | Status, log line |
 | Ready | Clone repair is complete and reported under the Instance's own authenticated session | Running, resumed, connected |
 | Repair | Replacement of cloned identity, entropy, time, network, and transport state | Initialization |
 | Receipt | The immutable result that binds a request, Instance, Generation, milestones, and outcome | Response |
 
-The word `sandbox` remains a product-level term owned by callers.
+The word `sandbox` describes a workload or a product-level resource and remains in public identifiers such as `/v1/sandboxes/{instance}`.
 The VMM does not decide tenant plans, billing, placement, pooling policy, or public resource semantics.
 An operator may retain a stable resource identity across multiple Instance lifetimes, but that identity remains outside the per-Machine VMM interface.
 An `InstanceId` must never be reused for another Machine lifetime.
