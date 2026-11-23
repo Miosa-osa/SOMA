@@ -6,7 +6,7 @@ on:
       - workloads/rl-frozenlake/**
       - .github/workflows/rl-workload.yml
   push:
-    branches: [main, fix/rl-kvm-launch]
+    branches: [main, fix/rl-kvm-release-trace]
     paths:
       - workloads/rl-frozenlake/**
       - .github/workflows/rl-workload.yml
@@ -118,8 +118,6 @@ jobs:
       - name: Compile the image and verify two real VM runs
         env:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_PROFILE_RELEASE_OPT_LEVEL: "0"
-          CARGO_PROFILE_RELEASE_LTO: "false"
         run: |
           printf '%s' "$REGISTRY_TOKEN" |
             skopeo login --username "$GITHUB_ACTOR" --password-stdin ghcr.io
