@@ -1017,3 +1017,5 @@ The documentation index gives product and usage docs and engineering docs separa
 The documentation tree has separate product and engineering layers, with reference material and historical evidence grouped under its owning layer.
 
 Footprint documentation treats download bytes, executable sizes, configured guest capacity, and resident memory as separate measurements.
+
+The runtime comparison measures named peer executables on disk and links each runtime memory and latency figure to its own measurement boundary.

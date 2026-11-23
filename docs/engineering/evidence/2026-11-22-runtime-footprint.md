@@ -45,3 +45,14 @@ The sample excludes total guest memory, VMM overhead, and the current Xvfb/voxl 
 The [earlier KVM boot proof](2026-08-29-x86_64-pvh-kernel-boot.md#host-side-resident-overhead-for-one-1-vcpu-guest-with-256-mib-ram) reports about 3.6 MiB of non-guest resident memory in one debug cold-boot sample.
 That measurement applies only to its 1-vCPU fixture and excludes the guest RAM and kernel image buffer.
 A current engine comparison needs a matched workload and shape, with the same measurement boundary and cache state.
+
+## Peer VMM executable sizes
+
+The Linux x86_64 Firecracker v1.18.0 archive was verified against its GitHub release asset digest.
+Its archive entry for the main executable is 3,921,872 bytes.
+The compressed archive is 7,606,252 bytes and contains other tools and debug artifacts.
+The archive SHA-256 is `1ac8eec866dd5eea14efecf6323e22b23eea24054545338a5b34bc5bca6623cd`. [Firecracker release](https://github.com/firecracker-microvm/firecracker/releases/tag/v1.18.0)
+
+The uncompressed Cloud Hypervisor v55.0 static executable is 7,709,448 bytes.
+Its ELF header identifies x86-64.
+The SHA-256 is `ce7133bf535ed5a4e2a63ea1f26025445a5b1241f73ddfb81ff2fbcb2e803a59`. [Cloud Hypervisor release](https://github.com/cloud-hypervisor/cloud-hypervisor/releases/tag/v55.0)

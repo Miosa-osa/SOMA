@@ -1,6 +1,7 @@
 # SOMA size and memory footprint
 
 A SOMA download, an instance's memory, and its workload image are separate measurements.
+See the [runtime comparison](runtime-comparison.md) for peer executable sizes and capabilities.
 Use the one that matches what you are comparing.
 
 ## Download and binary sizes
