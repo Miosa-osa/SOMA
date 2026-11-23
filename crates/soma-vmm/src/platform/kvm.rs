@@ -10,9 +10,14 @@
 //! identifier and its launch material are transferred second. So a failure in either half is
 //! reported as the half it happened in rather than as one indivisible launch.
 
+mod command;
 mod faults;
+mod generation;
+mod network;
+use command::guest_command;
 mod recovery;
 mod resources;
+use network::network_for_cid;
 
 use std::fs::File;
 use std::time::Duration;
@@ -73,38 +78,6 @@ impl KvmPlatform {
         })
     }
 }
-fn network_for_cid(
-    resources: Option<(File, ActivationChannel)>,
-    guest_cid: u32,
-) -> Result<(Network, Option<ActivationChannel>), SessionError> {
-    let Some((tap, channel)) = resources else {
-        let launch = link_down_network(guest_cid).ok_or(SessionError::Create)?;
-        return Ok((
-            Network {
-                launch,
-                attachment: None,
-                activation: None,
-            },
-            None,
-        ));
-    };
-    let (launch, pending) = channel.read_offer()?;
-    if launch.vsock_cid() != guest_cid {
-        return Err(SessionError::Network);
-    }
-    let attachment = NetworkAttachment {
-        tap,
-        mac: launch.mac(),
-    };
-    Ok((
-        Network {
-            launch,
-            attachment: Some(attachment),
-            activation: Some(pending),
-        },
-        Some(channel),
-    ))
-}
 
 impl Platform for KvmPlatform {
     fn configure_recovery(
@@ -125,98 +98,7 @@ impl Platform for KvmPlatform {
     }
 
     fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure> {
-        let Some(resources) = self.resources.take() else {
-            return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
-        };
-        if let Some(selection) = self.recovery.take() {
-            return self.restore_checkpoint(launch, resources, selection);
-        }
-        let declared = launch.generation().devices();
-        if resources.network.is_some() && !declared.network() {
-            return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
-        }
-        let volume_capacity_bytes = declared.volume_capacity().map(std::num::NonZeroU64::get);
-        if !resources.volume_matches_capacity(declared.volume_capacity()) {
-            return Err(RestoreFailure::at_restore(Recovery::DoNotRetry));
-        }
-        let overlay_capacity_bytes = declared
-            .writable_disk()
-            .then(|| resources.overlay_capacity_bytes())
-            .flatten();
-        let MachineResources {
-            kvm,
-            state,
-            memory,
-            root,
-            overlay,
-            volume,
-            network,
-        } = resources;
-        self.overlay = overlay;
-        self.volume = volume;
-        let machine = launch.generation().machine();
-        // The contract arrives as the portable version the parent stated, and a version this
-        // build does not implement is refused here rather than restored as the wrong machine.
-        let shape = MachineContract::require(machine.contract().get())
-            .ok()
-            .zip(Some(machine.vcpus().get()));
-        let Some((contract, vcpus)) = shape else {
-            // A version this build does not implement, or a shape that does not fit the
-            // contract's own field widths, is a property of this host and its store rather
-            // than of the request, so it lands where the other restore faults do.
-            return Err(RestoreFailure::at_restore(faults::restore_recovery(
-                SessionError::Create,
-            )));
-        };
-        // The region is placed above this machine's RAM from the declared size alone, so a restore
-        // and a cold boot of the same Generation put it at the same address.
-        let hotplug = match machine.hotplug() {
-            None => None,
-            Some(bytes) => {
-                let placed = GuestLayout::new(machine.memory().get())
-                    .ok()
-                    .and_then(|layout| HotplugRegion::new(layout, bytes.get()).ok());
-                let Some(region) = placed else {
-                    return Err(RestoreFailure::at_restore(faults::restore_recovery(
-                        SessionError::Create,
-                    )));
-                };
-                Some(region)
-            }
-        };
-        let spec = SterileSpec {
-            objects: SnapshotObjects::adopt(state, memory, None),
-            hypervisor: Hypervisor::Adopted(kvm),
-            root,
-            overlay_capacity_bytes,
-            memory_bytes: machine.memory().get(),
-            vcpus,
-            contract,
-            devices: DeviceSet::new(declared.writable_disk(), declared.network())
-                .with_mem(hotplug.is_some())
-                .with_volume(volume_capacity_bytes.is_some()),
-            hotplug,
-            volume_capacity_bytes,
-        };
-        match Session::prepare(spec) {
-            Ok(session) => {
-                self.session = Some(session);
-                self.network = network;
-                self.checkpoint_geometry = Some((
-                    *launch.generation().id().as_bytes(),
-                    contract,
-                    declared.writable_disk(),
-                    volume_capacity_bytes.is_some(),
-                ));
-                RestoredMachine::from_observation(RestoreProgress::from_steps([
-                    RestoreStep::ArtifactsVerified,
-                    RestoreStep::MachineRestored,
-                ]))
-            }
-            // Nothing is re-hashed on this path, so every failure here is in the restore rather
-            // than in a verification that never ran.
-            Err(error) => Err(RestoreFailure::at_restore(faults::restore_recovery(error))),
-        }
+        self.restore_generation(launch)
     }
 
     fn authenticate_repair_and_ready(
@@ -275,24 +157,7 @@ impl Platform for KvmPlatform {
             .as_mut()
             .ok_or_else(|| PlatformFailure::new(Recovery::RepairHost))?;
         let limits = execute.limits();
-        let command = GuestCommand::new(
-            execute.program().as_bytes().to_vec(),
-            execute
-                .arguments()
-                .iter()
-                .map(|argument| argument.as_bytes().to_vec())
-                .collect(),
-            limits.timeout().get(),
-            limits.output().get(),
-        )
-        .and_then(|command| {
-            if execute.context().is_empty() {
-                Ok(command)
-            } else {
-                command.with_context(execute.context().to_guest())
-            }
-        })
-        .map_err(|_| PlatformFailure::new(Recovery::DoNotRetry))?;
+        let command = guest_command(execute)?;
         let deadline = Duration::from_millis(u64::from(limits.timeout().get())) + COMMAND_SLACK;
         let completed = session
             .execute_streaming(command, deadline, |source, bytes| {
