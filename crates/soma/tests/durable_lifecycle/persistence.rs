@@ -1,6 +1,6 @@
 use soma::{
-    Engine, InspectMachineRequest, ManagedFailure, ManagedStateError, MemoryStateStore,
-    OperationId, StateRecord, StateStoreFailureKind, StopMachineRequest,
+    Engine, InspectMachineRequest, ManagedFailure, MemoryStateStore, OperationId, StateRecord,
+    StateStoreFailureKind, StopMachineRequest,
 };
 
 use crate::{
@@ -96,32 +96,22 @@ fn corrupt_mismatched_and_unsupported_documents_fail_before_backend_calls() {
 }
 
 #[test]
-fn replay_tombstone_capacity_rejects_before_a_new_guest_command() {
+fn a_full_replay_ledger_forgets_the_oldest_and_keeps_running_commands() {
     let (backend, calls) = TestBackend::new(Mode::Happy);
     let mut engine = Engine::new(backend);
     let instance = instance();
     engine
         .launch_machine(launch_request(operation('f'), instance.clone()))
         .expect("launch");
-    for sequence in 1_u128..=1_024 {
+    for sequence in 1_u128..=2_048 {
         engine
             .execute_machine(execute_request(
                 OperationId::new(format!("{sequence:032x}")).expect("operation"),
                 instance.clone(),
             ))
-            .expect("bounded execution ledger");
+            .expect("a full ledger makes room instead of refusing");
     }
-    let failure = engine
-        .execute_machine(execute_request(
-            OperationId::new(format!("{:032x}", 1_025_u128)).expect("operation"),
-            instance,
-        ))
-        .expect_err("full replay ledger requires replacement");
 
-    assert_eq!(
-        failure,
-        ManagedFailure::State(ManagedStateError::ReplayCapacityReached)
-    );
     assert_eq!(
         calls
             .lock()
@@ -129,6 +119,6 @@ fn replay_tombstone_capacity_rejects_before_a_new_guest_command() {
             .iter()
             .filter(|call| **call == "execute")
             .count(),
-        1_024
+        2_048
     );
 }

@@ -53,7 +53,10 @@ report() {
         "$1" "$(cat "$STATE/launcher_start" 2>/dev/null || echo null)" "$(milestones_json)"
 }
 
-running() { [[ -f "$STATE/pid" ]] && kill -0 "$(cat "$STATE/pid")" 2>/dev/null; }
+# Running means the session AND its screen are alive: a live session with no screen server is a
+# black desktop, and reporting it as running hid exactly that (2026-11-23).
+screen_alive() { [[ -S /tmp/.X11-unix/X0 ]] && pgrep -x 'Xvfb|Xorg|Xkasmvnc' >/dev/null 2>&1; }
+running() { [[ -f "$STATE/pid" ]] && kill -0 "$(cat "$STATE/pid")" 2>/dev/null && screen_alive; }
 viewer_running() { [[ -f "$STATE/viewer.pid" ]] && kill -0 "$(cat "$STATE/viewer.pid")" 2>/dev/null; }
 
 # udev, so Xorg adds the pointer and keyboard the viewer creates through /dev/uinput. A SOMA guest
@@ -96,6 +99,10 @@ start() {
     if running; then
         report running
         return 0
+    fi
+    # A session whose screen died: end what is left of it before starting a fresh one.
+    if [[ -f "$STATE/pid" ]] && kill -0 "$(cat "$STATE/pid")" 2>/dev/null; then
+        stop >/dev/null
     fi
     local uid gid
     uid="$(id -u "$USER_NAME")" || die "no user $USER_NAME in this image"

@@ -124,6 +124,7 @@ COPY session/cua-driver-wrapper.sh /usr/local/bin/cua-driver
 COPY session/soma-desktop-session.sh /usr/local/sbin/soma-desktop-session
 COPY session/soma-desktop-call.sh /usr/local/bin/soma-desktop-call
 COPY session/session.sh /usr/local/libexec/soma-desktop/session.sh
+COPY session/warm-pages.sh /usr/local/libexec/soma-desktop/warm-pages.sh
 COPY session/cua-capabilities.yaml /etc/soma-desktop/cua-capabilities.yaml
 COPY viewer/viewer.sh /usr/local/libexec/soma-desktop/viewer.sh
 COPY viewer/pair.py /usr/local/libexec/soma-desktop/pair.py
@@ -133,6 +134,7 @@ COPY viewer/sunshine.conf /home/ubuntu/.config/sunshine/sunshine.conf
 # and asserted: the wrapper must export both switches and both files must say false.
 RUN chmod 0755 /usr/local/bin/cua-driver /usr/local/sbin/soma-desktop-session \
       /usr/local/bin/soma-desktop-call /usr/local/libexec/soma-desktop/session.sh \
+      /usr/local/libexec/soma-desktop/warm-pages.sh \
  && chmod 0644 /etc/soma-desktop/cua-capabilities.yaml \
  && for home in /root /home/ubuntu; do \
       mkdir -p "$home/.cua-driver"; \
