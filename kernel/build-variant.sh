@@ -7,6 +7,7 @@
 #
 #   large    soma-large.fragment: compressed swap (D3) and transparent huge pages (D4)
 #   desktop  soma-desktop.fragment: the input subsystem and uinput, for a desktop viewer
+#   ci       soma-ci.fragment: the nf_tables numgen and limit expressions, for CI network-policy tests
 #
 # Inputs:  source.json, soma-v1.fragment, soma-<variant>.fragment, required-config.txt,
 #          Dockerfile (config-x86_64-soma-v1 is NOT read). Outputs: out-<variant>/vmlinux-<ver>-
@@ -22,8 +23,8 @@ KDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 VARIANT="${VARIANT:-}"
 [ "${1:-}" = "--inner" ] || { VARIANT="${1:-}"; shift || true; }
 case "$VARIANT" in
-  large|desktop) ;;
-  *) echo "usage: $0 large|desktop [build|regen-config]" >&2; exit 64 ;;
+  large|desktop|ci) ;;
+  *) echo "usage: $0 large|desktop|ci [build|regen-config]" >&2; exit 64 ;;
 esac
 OUT="$KDIR/out-$VARIANT"
 CONFIG_NAME="config-x86_64-soma-$VARIANT"
@@ -140,7 +141,7 @@ main() {
   fi
   case "${1:-build}" in
     build|regen-config) host "${1:-build}" ;;
-    *) echo "usage: $0 large|desktop [build|regen-config]" >&2; exit 64 ;;
+    *) echo "usage: $0 large|desktop|ci [build|regen-config]" >&2; exit 64 ;;
   esac
 }
 

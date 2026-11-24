@@ -1,0 +1,12 @@
+# CI additions on top of soma-v1.fragment.
+#
+# A CI machine runs the platform's own network-policy tests inside the guest: they load the host's
+# real nf_tables policy (round-robin DNAT with `numgen`, rate meters with `limit`) into a scratch
+# network namespace. Version 1 builds nf_tables with masquerade, NAT and conntrack but not these two
+# expressions, so `nft` refuses the policy and the check fails on every SOMA CI machine.
+#
+# Nothing is removed and nothing else is reconfigured: this fragment only adds two nf_tables
+# expressions, so a guest that never loads a rule using them behaves exactly as the version 1 kernel
+# does. The version 1 kernel and its pinned config are untouched; the CI Generation binds this kernel.
+CONFIG_NFT_NUMGEN=y
+CONFIG_NFT_LIMIT=y
