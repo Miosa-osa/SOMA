@@ -17,7 +17,7 @@ implementation = "crates/soma-kernels/src/ring.rs RingSize (safe Rust: a type th
 reference = "crates/soma-kernels/src/ring.rs ring_slot_reference (the remainder)"
 equivalence = "crates/soma-kernels/tests/ring_slot.rs: all 65536 indices x every power-of-two size; RingSize::new refuses zero and every non-power-of-two (all 65536 values); wraparound; plus the 428 existing soma-kvm tests"
 benchmark = "cargo bench -p soma-kernels --bench ring_slot"
-native_backend = "none: the standard's Phase B (generated object code) is not needed when safe Rust wins"
+native_backend = "rejected: zero-cc evaluated 2026-11-24, safe Rust wins (see the zero-cc result below)"
 decision = "admit (function level); workload and fleet effect not yet measured"
 
 [[candidate.results]]
@@ -29,3 +29,12 @@ remainder_ns_median = [2.494, 2.460, 2.470]
 ring_size_slot_ns_median = [1.370, 1.373, 1.377]
 bare_mask_ns_median = [0.816, 0.825, 0.838]
 summary = "RingSize::slot is 1.8x faster than the remainder per call. The function is a small share of a descriptor's path (guest memory reads, chain walk), so by Amdahl the instance-level gain is far smaller; IOPS and host CPU per I/O under a block or network workload are the next measurement."
+
+[[candidate.results]]
+date = "2026-11-24"
+host = "miosa-host-12, Intel Xeon Gold 6252, kernel 7.0.0-43"
+toolchain = "zero-cc 1e708b8f63918b9463c8ffb2258be6879513a5a6 (github.com/blindlabs-ai/zero-cc), x86_64 ELF64 ET_REL"
+method = "zero-cc ring.rs --kernel <k> --emit-elf, on the reference `index % size` (domain index 0..=65535, size 1..=32768) and on the mask form `index & mask`"
+zero_cc_reference = "ops 33->25, divs 8->8: the division stays, because its domain lattice (interval + modular congruence) cannot express that size is a power of two"
+zero_cc_mask = "ops 33->25, divs 0->0, 89 instructions, an 8-lane batch kernel"
+summary = "zero-cc does not remove the division the queue pays for; with the property expressed in the type (RingSize) the slot is one inlined AND, which a batched FFI object cannot beat for a single slot per call and would need unsafe code the workspace denies. Decision: keep the safe Rust RingSize (admitted); zero-cc rejected for this candidate."
