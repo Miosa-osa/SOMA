@@ -1,5 +1,6 @@
 //! Split-virtqueue geometry validation: size, alignment, containment, overlap.
 
+use soma_kernels::ring::RingSize;
 use std::fmt;
 
 use crate::virtio::guest_memory::{GuestAddress, GuestMemory};
@@ -55,7 +56,7 @@ pub fn validate_size(size: u16, max: u16) -> Result<u16, LayoutViolation> {
 /// A validated queue geometry whose rings lie wholly in registered memory.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct QueueLayout {
-    size: u16,
+    ring: RingSize,
     desc: GuestAddress,
     avail: GuestAddress,
     used: GuestAddress,
@@ -74,7 +75,9 @@ impl QueueLayout {
         avail: GuestAddress,
         used: GuestAddress,
     ) -> Result<Self, LayoutViolation> {
-        let size = validate_size(size, max)?;
+        // `validate_size` admits only a nonzero power of two, which is exactly a `RingSize`.
+        let ring = RingSize::new(validate_size(size, max)?)
+            .ok_or(LayoutViolation::SizeNotPowerOfTwo { size })?;
         if !desc.is_aligned(DESC_ALIGN) {
             return Err(LayoutViolation::DescMisaligned);
         }
@@ -85,7 +88,7 @@ impl QueueLayout {
             return Err(LayoutViolation::UsedMisaligned);
         }
         let layout = Self {
-            size,
+            ring,
             desc,
             avail,
             used,
@@ -112,7 +115,13 @@ impl QueueLayout {
     /// Negotiated queue size.
     #[must_use]
     pub const fn size(&self) -> u16 {
-        self.size
+        self.ring.get()
+    }
+
+    /// The ring slot a free-running 16-bit index names: `index % size`, as one mask.
+    #[must_use]
+    pub const fn slot(&self, index: u16) -> u16 {
+        self.ring.slot(index)
     }
 
     /// Descriptor table base.
@@ -136,18 +145,18 @@ impl QueueLayout {
     /// Descriptor table length: `16 * size`.
     #[must_use]
     pub const fn desc_len(&self) -> u64 {
-        self.size as u64 * DESCRIPTOR_SIZE
+        self.ring.get() as u64 * DESCRIPTOR_SIZE
     }
 
     /// Available ring length without the event-idx word: `6 + 2 * size`.
     #[must_use]
     pub const fn avail_len(&self) -> u64 {
-        6 + 2 * self.size as u64
+        6 + 2 * self.ring.get() as u64
     }
 
     /// Used ring length without the event-idx word: `6 + 8 * size`.
     #[must_use]
     pub const fn used_len(&self) -> u64 {
-        6 + 8 * self.size as u64
+        6 + 8 * self.ring.get() as u64
     }
 }

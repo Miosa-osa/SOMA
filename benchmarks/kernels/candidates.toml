@@ -1,0 +1,31 @@
+# Computational kernel ledger (SOMA Performance Engineering Standard, "Required inventory record").
+# One entry per candidate. A candidate is admitted only with equivalence evidence and a measured
+# gain against the optimized baseline; a rejected one keeps its record so it is not re-proposed
+# without new evidence. Function-level results are not workload or fleet results.
+
+[[candidate]]
+id = "01-virtio-ring-slot"
+category = "VirtIO ring indexing"
+class = "A"
+owner = "SOMA runtime"
+functions = [
+  "crates/soma-kvm/src/virtio/queue.rs Queue::pop_descriptor_chain (next_avail % size)",
+  "crates/soma-kvm/src/virtio/queue.rs Queue::add_used (next_used % size)",
+]
+input_contract = "u16 free-running index; u16 size validated nonzero power of two by virtio::queue::layout::validate_size"
+implementation = "crates/soma-kernels/src/ring.rs RingSize (safe Rust: a type that can only hold a nonzero power of two, so slot() is one mask); QueueLayout holds it"
+reference = "crates/soma-kernels/src/ring.rs ring_slot_reference (the remainder)"
+equivalence = "crates/soma-kernels/tests/ring_slot.rs: all 65536 indices x every power-of-two size; RingSize::new refuses zero and every non-power-of-two (all 65536 values); wraparound; plus the 428 existing soma-kvm tests"
+benchmark = "cargo bench -p soma-kernels --bench ring_slot"
+native_backend = "none: the standard's Phase B (generated object code) is not needed when safe Rust wins"
+decision = "admit (function level); workload and fleet effect not yet measured"
+
+[[candidate.results]]
+date = "2026-11-24"
+host = "miosa-host-12, Intel Xeon Gold 6252 @ 2.10GHz, kernel 7.0.0-43, pinned to one core (taskset -c 5)"
+toolchain = "rustc 1.98.0, cargo bench release profile, no target-cpu flags"
+method = "4,194,304 calls per trial, 41 trials, 3 runs; sizes from a runtime table of 128, 256 and 1024"
+remainder_ns_median = [2.494, 2.460, 2.470]
+ring_size_slot_ns_median = [1.370, 1.373, 1.377]
+bare_mask_ns_median = [0.816, 0.825, 0.838]
+summary = "RingSize::slot is 1.8x faster than the remainder per call. The function is a small share of a descriptor's path (guest memory reads, chain walk), so by Amdahl the instance-level gain is far smaller; IOPS and host CPU per I/O under a block or network workload are the next measurement."

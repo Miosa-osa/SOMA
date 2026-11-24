@@ -183,7 +183,7 @@ impl Queue {
             return Ok(None);
         }
         let layout = self.ready_layout()?;
-        let slot = u64::from(self.next_avail % layout.size());
+        let slot = u64::from(layout.slot(self.next_avail));
         let head_addr = self.ring_addr(layout.avail(), 4 + 2 * slot)?;
         let head = mem
             .read_obj_at::<u16>(head_addr)
@@ -213,7 +213,7 @@ impl Queue {
                 capacity: chain.writable_len(),
             }));
         }
-        let slot = u64::from(self.next_used % layout.size());
+        let slot = u64::from(layout.slot(self.next_used));
         let elem = self.ring_addr(layout.used(), 4 + 8 * slot)?;
         let idx_addr = self.ring_addr(layout.used(), 2)?;
         let mut raw = [0u8; 8];
