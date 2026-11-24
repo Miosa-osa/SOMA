@@ -26,6 +26,14 @@ mod pipes;
 
 /// Time the killed process group is given to die while its pipes are drained.
 pub const KILL_GRACE: Duration = Duration::from_millis(500);
+/// How long the pipes are drained after a command's deadline, before the reap.
+///
+/// The terminal report must reach the host within [`crate::lifecycle::DELIVERY_GRACE`] of the
+/// deadline, or the session is lost with the Instance. A process the command moved out of its
+/// group (`setsid`, `timeout`, a daemon) can keep the command's pipe open after the group is
+/// killed; the reap's sweep ends it, but a drain of the whole [`KILL_GRACE`] first would spend
+/// the delivery allowance. So after a deadline the drain is a fraction of it.
+pub const TIMEOUT_DRAIN: Duration = Duration::from_millis(100);
 /// Resident bytes one command may cost the agent beyond its fixed stacks and the sink.
 ///
 /// The bounded loop owns one `MAX_CHUNK_BYTES` read buffer and hands the sink one borrowed

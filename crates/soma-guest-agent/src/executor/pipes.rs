@@ -14,12 +14,12 @@ use std::fs::File;
 use std::io::{ErrorKind, Read as _};
 use std::os::fd::{AsRawFd as _, OwnedFd, RawFd};
 use std::process::{ChildStderr, ChildStdout};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::descendants;
 use crate::output::OutputBudget;
 
-use super::{KILL_GRACE, OutputSink, RESIDENT_OUTPUT_BYTES, SinkFault};
+use super::{KILL_GRACE, OutputSink, RESIDENT_OUTPUT_BYTES, SinkFault, TIMEOUT_DRAIN};
 
 /// Upper bound on one `poll` wait so a lost wake-up cannot stall the loop.
 const POLL_CEILING_MILLIS: libc::c_int = 250;
@@ -79,7 +79,7 @@ pub(super) fn stream(
             }
             observed.timed_out = true;
             killed = true;
-            kill(&mut observed, process_group);
+            kill(&mut observed, process_group, TIMEOUT_DRAIN);
             continue;
         };
         let mut fds: Vec<libc::pollfd> = sources.iter().map(Source::pollfd).collect();
@@ -104,7 +104,7 @@ pub(super) fn stream(
             let open = outcome.unwrap_or(false);
             if (observed.sink_failed || observed.limit_hit) && !killed {
                 killed = true;
-                kill(&mut observed, process_group);
+                kill(&mut observed, process_group, KILL_GRACE);
             }
             if open {
                 index += 1;
@@ -117,9 +117,9 @@ pub(super) fn stream(
     observed
 }
 
-fn kill(observed: &mut Streamed, process_group: i32) {
+fn kill(observed: &mut Streamed, process_group: i32, drain: Duration) {
     descendants::kill_group(process_group);
-    observed.kill_by = Instant::now() + KILL_GRACE;
+    observed.kill_by = Instant::now() + drain;
 }
 
 /// Returns the bounded `poll` timeout, or `None` when the current bound has elapsed.
