@@ -8,6 +8,7 @@ members = [
     "crates/soma-guest-agent",
     "crates/soma-hostd",
     "crates/soma-jail",
+    "crates/soma-kernels",
     "crates/soma-kvm",
     "crates/soma-local",
     "crates/soma-macos",

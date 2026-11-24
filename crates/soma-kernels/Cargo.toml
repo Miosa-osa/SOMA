@@ -1,0 +1,15 @@
+[package]
+name = "soma-kernels"
+description = "Typed computational kernels for SOMA hot paths, each with a reference implementation and equivalence tests"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "ring_slot"
+harness = false

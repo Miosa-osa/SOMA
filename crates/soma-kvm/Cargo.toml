@@ -11,6 +11,7 @@ version.workspace = true
 workspace = true
 
 [dependencies]
+soma-kernels = { path = "../soma-kernels", version = "=1.0.0-alpha.6" }
 sha2 = { version = "=0.11.0", default-features = false }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
