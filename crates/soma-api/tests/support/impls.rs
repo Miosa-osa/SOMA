@@ -58,6 +58,7 @@ impl SandboxFacade for FakeFacade {
             },
             backend: receipt.backend(),
             receipt,
+            machine_lost: self.mode == Mode::Lost,
         })
     }
 

@@ -125,8 +125,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 request_fingerprint,
             )),
             DurablePhase::Launching { intent, .. } => never_launched(mode, revision, intent),
+            // An Instance a command already took down (or another end with its cleanup complete)
+            // is destroyed, or stopped, without asking the backend for anything (SOMA#220).
             DurablePhase::Terminal { basis, receipt, .. }
-                if matches!(mode, TerminationMode::Forced) && receipt.cleanup().is_complete() =>
+                if matches!(mode, TerminationMode::Forced | TerminationMode::Graceful)
+                    && receipt.cleanup().is_complete() =>
             {
                 self.admit_ended_destroy(revision, instance_id, mode, *basis)
             }
@@ -154,6 +157,9 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     ) -> Result<TerminationAdmission, ManagedFailure> {
         let active = match basis {
             TerminalBasis::Active { active } => active,
+            TerminalBasis::Launch { .. } if !matches!(mode, TerminationMode::Forced) => {
+                return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
+            }
             TerminalBasis::Launch { intent } => {
                 return Ok(TerminationAdmission::NeverLaunched {
                     revision,

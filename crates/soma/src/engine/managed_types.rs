@@ -253,9 +253,16 @@ impl MachineStop {
 pub struct MachineInspection {
     pub(super) state: MachineState,
     pub(super) receipt: ExecutionReceipt,
+    pub(super) machine_lost: bool,
 }
 
 impl MachineInspection {
+    /// Whether the machine is gone without a stop: its worker died, or a command took it down.
+    #[must_use]
+    pub const fn machine_lost(&self) -> bool {
+        self.machine_lost
+    }
+
     #[must_use]
     pub const fn state(&self) -> MachineState {
         self.state
