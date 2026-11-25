@@ -26,6 +26,7 @@ pub mod limits;
 pub mod owner;
 pub mod peers;
 pub mod principal;
+mod public_bind;
 pub mod public_wire;
 pub mod quic;
 pub mod rate_limit;
@@ -115,10 +116,10 @@ async fn start(config: Arc<RunnerConfig>, opener: FacadeOpener) -> io::Result<St
     };
     let runner = Arc::new(runner);
     runner.recover_sandboxes().await;
-    let tcp = tokio::net::TcpListener::bind(config.listen).await?;
-    // HTTP/3 binds the port TCP got, so an ephemeral port in tests is one port for both.
-    let address = tcp.local_addr()?;
-    let quic = quic::bind_quic(address, &certificates)?;
+    let (tcp, address, quic) = public_bind::bind_pair(config.listen, |address| {
+        quic::bind_quic(address, &certificates)
+    })
+    .await?;
     feed_client::spawn(Arc::clone(&control_plane), Arc::clone(runner.keys()));
     shipper::spawn(
         control_plane,
