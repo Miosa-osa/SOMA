@@ -79,4 +79,8 @@ pub enum MachineState {
     Ready,
     Paused,
     Stopping,
+    /// The machine is gone: its record says running, but the backend reports its host absent, as
+    /// after its worker crashed or was killed. Only an inspection reports it; the record is left
+    /// as it is, and a stop or a create of the same identity releases it (SOMA#220).
+    Stopped,
 }

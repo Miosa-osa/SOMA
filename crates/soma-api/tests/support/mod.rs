@@ -40,6 +40,8 @@ pub enum Mode {
     Conflict,
     /// The backend holds no machine a later call could address, which is what a macOS host does.
     Unsupported,
+    /// The machine's worker died: an inspection reads it as stopped.
+    Lost,
 }
 
 /// Which facade call the handler made.
@@ -178,7 +180,7 @@ impl FakeFacade {
     fn record(&mut self, call: Call) -> Result<(), ManagedFailure> {
         self.calls.push(call);
         match self.mode {
-            Mode::Succeed => Ok(()),
+            Mode::Succeed | Mode::Lost => Ok(()),
             Mode::NotFound => Err(ManagedFailure::State(ManagedStateError::MachineNotFound)),
             Mode::Conflict => Err(ManagedFailure::State(ManagedStateError::OperationConflict)),
             Mode::Unsupported => Err(ManagedFailure::Backend(BackendFailureKind::Unsupported)),

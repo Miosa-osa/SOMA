@@ -217,6 +217,9 @@ impl Backend for TestBackend {
         request: soma::InspectionRequest<'_>,
     ) -> Result<soma::InspectionObservation, BackendFailure> {
         self.record("inspect");
+        if self.mode == Mode::Crashed {
+            return Err(BackendFailure::new(BackendFailureKind::Unavailable, 1));
+        }
         Ok(soma::InspectionObservation::observed(
             request,
             BackendKind::MacosVirtualization,
