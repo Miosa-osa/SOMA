@@ -112,6 +112,7 @@ impl DirectoryVolumes {
                 state.insert(sidecar.volume, sidecar);
             }
         }
+        reclaim::forget_ended(records, &state);
         Ok(Self {
             root: root.to_path_buf(),
             records: records.to_path_buf(),
@@ -258,6 +259,7 @@ impl VolumeRepair for CleanRepair {
 
 #[cfg(target_os = "linux")]
 mod checkpoint;
+mod reclaim;
 mod serve;
 mod workspace;
 

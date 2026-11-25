@@ -201,6 +201,7 @@ fn with_repairs(
 mod binding;
 mod encryption;
 mod keyring;
+mod reclaim;
 mod repair;
 mod takeover;
 

@@ -280,6 +280,7 @@ impl VolumeStore for DirectoryVolumes {
             .map_err(|_| VolumeError::Encryption("the volume's data key could not be destroyed"))?;
         self.transition(VolumeRecordKind::DestroyEnd, volume)?;
         state.remove(&volume);
+        self.forget(volume);
         Ok(())
     }
 
