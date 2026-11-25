@@ -202,9 +202,10 @@ fn serve_tunnel<M, F>(
         let response = Response::new(error.status(), failure_body("sandbox.tunnel", error));
         let _ignored = response.write_to(&mut &*stream);
     };
-    if let Err(error) = identify(request.header(TENANT_HEADER)) {
-        return refuse(error);
-    }
+    let tenant = match identify(request.header(TENANT_HEADER)) {
+        Ok(tenant) => tenant,
+        Err(error) => return refuse(error),
+    };
     if !tunnel::asks_for_upgrade(request.header("connection"), request.header("upgrade")) {
         return refuse(ApiError::new(
             426,
@@ -219,7 +220,13 @@ fn serve_tunnel<M, F>(
     };
     // The guest is dialled before the 101, so a refusal reaches the caller as an HTTP status.
     let guest = match open_facade() {
-        Ok(mut facade) => facade.tunnel(instance_id, port),
+        Ok(mut facade) => {
+            let route = Route::Tunnel(instance_id.clone(), port);
+            if let Err(error) = crate::handler::scope::admit(&facade, &route, &tenant) {
+                return refuse(error);
+            }
+            facade.tunnel(instance_id, port)
+        }
         Err(error) => return refuse(error),
     };
     let guest = match guest {

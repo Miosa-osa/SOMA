@@ -9,10 +9,12 @@ use crate::{
     envelope::ApiError,
     facade::SandboxFacade,
     http::response::Response,
-    volumes::{VolumeBody, VolumeFailure, VolumeOperation},
+    owners::Resource,
+    tenant::TenantId,
+    volumes::{VolumeBody, VolumeOperation},
 };
 
-use super::success;
+use super::{scope, success};
 
 /// Serves one volume operation.
 ///
@@ -25,11 +27,37 @@ pub(super) fn serve<F: SandboxFacade + ?Sized>(
     operation: VolumeOperation,
     path_volume: Option<String>,
     body: &[u8],
+    tenant: &TenantId,
 ) -> Result<Response, ApiError> {
     let request = parse(operation, path_volume, body)?;
-    let report = facade
-        .volume(operation, &request)
-        .map_err(VolumeFailure::refusal)?;
+    // The volume is recorded under the tenant the request is identified as, so a body that names
+    // another one is a confused caller, refused before anything is recorded or changed.
+    if request
+        .tenant
+        .as_deref()
+        .is_some_and(|named| named != tenant.as_str())
+    {
+        return Err(malformed());
+    }
+    if !request.instance_id.is_empty() {
+        scope::require(facade, Resource::Sandbox, &request.instance_id, tenant)?;
+    }
+    let volume = request.volume_id.as_str();
+    let claimed = if operation == VolumeOperation::Attach {
+        scope::claim(facade, Resource::Volume, volume, tenant)?
+    } else {
+        scope::require(facade, Resource::Volume, volume, tenant)?;
+        false
+    };
+    let report = facade.volume(operation, &request).map_err(|failure| {
+        if claimed {
+            scope::release(facade, Resource::Volume, volume);
+        }
+        failure.refusal()
+    })?;
+    if operation == VolumeOperation::Destroy {
+        scope::release(facade, Resource::Volume, volume);
+    }
     Ok(success(200, operation.name(), &report, None))
 }
 

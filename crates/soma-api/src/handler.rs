@@ -4,6 +4,7 @@ mod create;
 mod pause;
 mod prepared;
 pub(crate) mod prewarm;
+pub(crate) mod scope;
 mod support;
 pub(crate) mod suspension;
 mod volume;
@@ -22,8 +23,7 @@ use crate::{
     filesystem::{FilesystemBody, FilesystemReport},
     http::{request::Request, response::Response},
     report::{
-        CommandReport, InspectionReport, OutputBytes, SandboxListReport, SandboxReport,
-        VolumeReady, command_status,
+        CommandReport, InspectionReport, OutputBytes, SandboxReport, VolumeReady, command_status,
     },
     resources::{ResourcesBody, ResourcesReport, nothing_applied, remember, replayed},
     route::{FilesystemOperation, Route, TerminalOperation, resolve},
@@ -53,19 +53,6 @@ pub fn handle<F: SandboxFacade + ?Sized>(facade: &mut F, request: &Request) -> R
     }
 }
 
-fn list_sandboxes(
-    facade: &mut (impl SandboxFacade + ?Sized),
-    operation: &'static str,
-) -> Result<Response, ApiError> {
-    let listing = facade.list().map_err(|failure| managed_error(&failure))?;
-    Ok(success(
-        200,
-        operation,
-        &SandboxListReport::from_listing(&listing),
-        None,
-    ))
-}
-
 fn dispatch<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     route: Route,
@@ -73,9 +60,10 @@ fn dispatch<F: SandboxFacade + ?Sized>(
     tenant: &crate::tenant::TenantId,
 ) -> Result<Response, ApiError> {
     let operation = route.operation();
+    scope::admit(facade, &route, tenant)?;
     match route {
-        Route::CreateSandbox => create(facade, body),
-        Route::ListSandboxes => list_sandboxes(facade, operation),
+        Route::CreateSandbox => create(facade, body, tenant),
+        Route::ListSandboxes => scope::list(facade, operation, tenant),
         Route::Filesystem(instance_id, file_operation) => {
             filesystem(facade, instance_id, file_operation, body)
         }
@@ -105,7 +93,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
         Route::CheckpointSandbox(instance_id) => checkpoint::serve(facade, &instance_id, body),
         Route::DiscardCheckpoint(instance_id) => checkpoint::discard(facade, &instance_id, body),
         Route::RestoreSandbox(instance_id) => checkpoint::restore(facade, instance_id, body),
-        Route::ForkSandbox(source) => checkpoint::fork(facade, &source, body),
+        Route::ForkSandbox(source) => checkpoint::fork(facade, &source, body, tenant),
         Route::StopSandbox(instance_id) => {
             let request = control_body(body)?.into_stop(instance_id.clone())?;
             let stop = request.operation_id().clone();
@@ -168,7 +156,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
             ))
         }
         Route::Volume(volume_operation, path_volume) => {
-            volumes::serve(facade, volume_operation, path_volume, body)
+            volumes::serve(facade, volume_operation, path_volume, body, tenant)
         }
     }
 }

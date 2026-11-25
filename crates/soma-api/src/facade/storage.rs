@@ -7,6 +7,13 @@ use super::{OwnedVolume, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperati
 /// Every [`super::SandboxFacade`] is one of these. A backend with no host control socket keeps
 /// the defaults, which report the missing capability rather than an invented answer.
 pub trait SandboxStorage {
+    /// The tenant owner records this facade's sandboxes and volumes are answered by.
+    ///
+    /// The default keeps none, and every tenant is then answered alike.
+    fn owners(&self) -> Option<&crate::owners::Owners> {
+        None
+    }
+
     /// Captures a running sandbox for the supplied operation identity.
     ///
     /// # Errors

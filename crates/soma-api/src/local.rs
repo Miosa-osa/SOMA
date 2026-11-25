@@ -10,7 +10,7 @@ use crate::facade::{
     SandboxStorage, TerminalOutcome, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation,
     VolumeReport,
 };
-use crate::volumes::VolumeClient;
+use crate::{owners::Owners, volumes::VolumeClient};
 
 /// The production facade: a durable local runtime, driven exactly as the CLI drives it.
 ///
@@ -20,6 +20,7 @@ use crate::volumes::VolumeClient;
 pub struct LocalFacade {
     runtime: LocalRuntime,
     volumes: VolumeClient,
+    owners: Owners,
 }
 
 impl LocalFacade {
@@ -30,7 +31,9 @@ impl LocalFacade {
     /// Returns the typed local setup failure when backend selection, probing, or state-store
     /// setup cannot be completed safely.
     pub fn open(config: LocalRuntimeConfig) -> Result<Self, LocalFailure> {
+        let owners = Owners::under_state_root(config.state_root());
         Ok(Self {
+            owners,
             runtime: LocalRuntime::open(config)?,
             volumes: VolumeClient::from_env(),
         })
@@ -236,6 +239,10 @@ impl SandboxFacade for LocalFacade {
 }
 
 impl SandboxStorage for LocalFacade {
+    fn owners(&self) -> Option<&Owners> {
+        Some(&self.owners)
+    }
+
     fn checkpoint(
         &mut self,
         instance: &soma::InstanceId,

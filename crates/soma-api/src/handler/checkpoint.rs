@@ -167,6 +167,7 @@ pub(super) fn fork<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     source: &InstanceId,
     body: &[u8],
+    tenant: &crate::tenant::TenantId,
 ) -> Result<Response, ApiError> {
     if !facade.hosts_addressable_sandboxes() {
         return Err(super::MissingCapability::DurableMachineHosting.error());
@@ -179,12 +180,20 @@ pub(super) fn fork<F: SandboxFacade + ?Sized>(
     }
     let image = soma::OciImage::parse(body.image)
         .map_err(|_| ApiError::invalid("the image reference is not a valid OCI reference"))?;
+    let destination = body.instance_id.clone();
+    let sandbox = crate::owners::Resource::Sandbox;
+    let claimed = super::scope::claim(facade, sandbox, destination.as_str(), tenant)?;
     let request =
         soma::LaunchMachineRequest::new(body.operation_id, body.instance_id, image, body.shape)
             .with_name(body.name);
     let result = facade
         .fork(request, source, &body.checkpoint_id)
-        .map_err(|failure| super::managed_error(&failure))?;
+        .map_err(|failure| {
+            if claimed {
+                super::scope::release(facade, sandbox, destination.as_str());
+            }
+            super::managed_error(&failure)
+        })?;
     Ok(super::lifecycle(
         "sandbox.fork",
         "ready",

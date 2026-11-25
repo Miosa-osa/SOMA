@@ -1,5 +1,7 @@
 //! Create a sandbox and answer a lifecycle change.
 
+use crate::owners::Resource;
+
 use super::{
     ApiError, CreateSandboxBody, Envelope, ExecutionReceipt, MissingCapability, Response,
     SandboxFacade, SandboxReport, VOLUME_DEVICE, VolumeReady, managed_error, parse, render,
@@ -9,16 +11,41 @@ use super::{
 pub(super) fn create<F: SandboxFacade + ?Sized>(
     facade: &mut F,
     body: &[u8],
+    tenant: &crate::tenant::TenantId,
 ) -> Result<Response, ApiError> {
     let body = parse::<CreateSandboxBody>(body)?;
     let named_volume = body.volume_id.clone();
     let (instance_id, request) = body.into_facade()?;
+    // The identity is the caller's before anything is built on it, and a create that fails
+    // gives a newly taken identity back.
+    let claimed = super::scope::claim(facade, Resource::Sandbox, instance_id.as_str(), tenant)?;
+    let created = launch(
+        facade,
+        &instance_id,
+        request,
+        named_volume.as_deref(),
+        tenant,
+    );
+    if claimed && created.is_err() {
+        super::scope::release(facade, Resource::Sandbox, instance_id.as_str());
+    }
+    created
+}
+
+fn launch<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    instance_id: &soma::InstanceId,
+    request: soma::LaunchMachineRequest,
+    named_volume: Option<&str>,
+    tenant: &crate::tenant::TenantId,
+) -> Result<Response, ApiError> {
     // A start that names its volume binds that file and no other: the host resolves it from the
     // volume this Instance owns, and a disagreement between the two is refused rather than
     // resolved by guessing which is right.
-    let (request, volume, fsck) = match named_volume.as_deref() {
+    let (request, volume, fsck) = match named_volume {
         Some(named) => {
-            let (attachment, fsck) = volume_binding(facade, &instance_id, named)?;
+            super::scope::require(facade, Resource::Volume, named, tenant)?;
+            let (attachment, fsck) = volume_binding(facade, instance_id, named)?;
             (
                 request.with_volume(attachment),
                 Some(VolumeReady {

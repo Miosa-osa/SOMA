@@ -90,11 +90,13 @@ pub struct FakeFacade {
     pub owned: Option<soma_api::volumes::OwnedVolume>,
     /// Every volume operation the routes asked for, by name.
     pub volume_operations: Vec<&'static str>,
+    /// Which tenant owns each sandbox and volume, as the routes recorded it.
+    pub owners: soma_api::owners::Owners,
 }
 
 impl FakeFacade {
     #[must_use]
-    pub const fn new(mode: Mode) -> Self {
+    pub fn new(mode: Mode) -> Self {
         Self {
             mode,
             calls: Vec::new(),
@@ -112,6 +114,7 @@ impl FakeFacade {
             launched_volume: None,
             owned: None,
             volume_operations: Vec::new(),
+            owners: soma_api::owners::Owners::in_memory(),
         }
     }
 
@@ -210,6 +213,12 @@ pub fn call(facade: &mut FakeFacade, raw: &str) -> (u16, serde_json::Value) {
 #[must_use]
 pub fn identified(method: &str, path: &str, body: &str) -> String {
     request_with_headers(method, path, "x-soma-tenant: acme\r\n", body)
+}
+
+/// Builds a raw HTTP request carrying the identity of one named tenant.
+#[must_use]
+pub fn as_tenant(tenant: &str, method: &str, path: &str, body: &str) -> String {
+    request_with_headers(method, path, &format!("x-soma-tenant: {tenant}\r\n"), body)
 }
 
 /// Builds a raw HTTP request with no tenant identity at all.
