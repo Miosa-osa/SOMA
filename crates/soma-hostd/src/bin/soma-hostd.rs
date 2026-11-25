@@ -215,6 +215,18 @@ mod linux {
         // `e2fsck` under the automatic policy. Both tools must be on this host's PATH, because a
         // store that cannot check a volume must refuse the attach rather than serve unchecked
         // bytes to the guest. `CleanRepair` remains for tests and for a host that has no volumes.
+        // A host that declares its encrypted data mount holds tenant volumes there: without the
+        // mount it stops here, rather than serving an empty store on the system disk.
+        volume::refuse_missing_mount(
+            &config.volumes,
+            std::env::var(volume::ENCRYPTED_MOUNT_ENV).ok().as_deref(),
+        )
+        .map_err(|error| {
+            format!(
+                "volume root {} is unusable: {error}",
+                config.volumes.display()
+            )
+        })?;
         let volumes = volume::DirectoryVolumes::open(
             &config.volumes,
             &config.records,
