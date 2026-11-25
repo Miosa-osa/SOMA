@@ -44,6 +44,8 @@ pub struct DirectoryVolumes {
     /// A host without one must not hold a persistent volume, because the file would sit on
     /// unencrypted disk: an attach is refused rather than a tenant's bytes written.
     encrypted: bool,
+    /// Free bytes the volume root keeps for the volumes it already holds; see `require_room`.
+    reserve: u64,
     state: Mutex<BTreeMap<VolumeId, VolumeSidecar>>,
     operations: Mutex<BTreeMap<OperationId, RequestFingerprint>>,
 }
@@ -121,12 +123,20 @@ impl DirectoryVolumes {
             // each sealed volume key under the durable record root.
             keys: Box::new(HostKeyring::from_env(records)),
             encrypted,
+            reserve: serve::create::VOLUME_ROOT_RESERVE,
             state: Mutex::new(state),
             operations: Mutex::new(BTreeMap::new()),
         })
     }
 
     /// This store with a different keyring, for a caller that states where keys come from.
+    /// Sets the free bytes a new volume must leave on the volume root.
+    #[must_use]
+    pub const fn with_reserve(mut self, bytes: u64) -> Self {
+        self.reserve = bytes;
+        self
+    }
+
     #[must_use]
     pub fn with_keys(mut self, keys: Box<dyn VolumeKeys + Send + Sync>) -> Self {
         self.keys = keys;

@@ -20,8 +20,8 @@ impl VolumeRepair for Recording {
 }
 
 /// A double whose creation always refuses with the same error.
-struct Refusing {
-    error: CreateError,
+pub(super) struct Refusing {
+    pub(super) error: CreateError,
 }
 
 impl VolumeRepair for Refusing {

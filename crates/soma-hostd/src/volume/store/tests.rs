@@ -199,6 +199,7 @@ fn with_repairs(
 }
 
 mod binding;
+mod capacity;
 mod encryption;
 mod keyring;
 mod reclaim;

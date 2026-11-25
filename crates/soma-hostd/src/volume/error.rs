@@ -24,6 +24,8 @@ pub enum VolumeError {
     ChangedIntent,
     /// The durable records refused the append, or hold a record that fails its checksum.
     Ledger(&'static str),
+    /// The volume store has no room for another volume.
+    Capacity(&'static str),
 }
 
 impl VolumeError {
@@ -37,7 +39,8 @@ impl VolumeError {
             | Self::RepairRefused(detail)
             | Self::Encryption(detail)
             | Self::Geometry(detail)
-            | Self::Ledger(detail) => detail,
+            | Self::Ledger(detail)
+            | Self::Capacity(detail) => detail,
             Self::ChangedIntent => "changed intent under a replayed volume operation",
         }
     }
@@ -66,6 +69,7 @@ mod tests {
             VolumeError::Geometry("below the volume class"),
             VolumeError::ChangedIntent,
             VolumeError::Ledger("checksum"),
+            VolumeError::Capacity("full"),
         ];
         for error in errors {
             assert!(!error.detail().is_empty());

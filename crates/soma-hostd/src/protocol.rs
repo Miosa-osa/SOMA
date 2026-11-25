@@ -143,6 +143,7 @@ pub const fn volume_failure_code(error: &VolumeError) -> FailureCode {
         VolumeError::Geometry(_) => FailureCode::VolumeGeometry,
         VolumeError::ChangedIntent => FailureCode::Conflict,
         VolumeError::Ledger(_) => FailureCode::Ledger,
+        VolumeError::Capacity(_) => FailureCode::Capacity,
     }
 }
 
