@@ -98,6 +98,7 @@ impl SandboxFacade for LocalFacade {
             state: outcome.state(),
             backend: receipt.backend(),
             receipt: receipt.clone(),
+            machine_lost: outcome.machine_lost(),
         })
     }
 

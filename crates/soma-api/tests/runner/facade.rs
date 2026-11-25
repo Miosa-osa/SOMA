@@ -97,6 +97,7 @@ impl SandboxFacade for FakeFacade {
             state: soma::MachineState::Ready,
             backend: receipt.backend(),
             receipt,
+            machine_lost: false,
         })
     }
 

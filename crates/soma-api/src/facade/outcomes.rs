@@ -53,6 +53,8 @@ pub struct SandboxSnapshot {
     pub state: MachineState,
     pub backend: BackendKind,
     pub receipt: ExecutionReceipt,
+    /// The machine is gone without a stop: its worker died, or a command took it down.
+    pub machine_lost: bool,
 }
 
 /// The answer of a facade that cannot suspend: the sandbox keeps running.

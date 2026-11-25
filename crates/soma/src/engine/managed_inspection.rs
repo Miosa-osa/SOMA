@@ -7,7 +7,7 @@ use crate::{
 use super::{
     Engine, FailurePhase, InspectMachineRequest, MachineInspection, ManagedFailure,
     ManagedStateError, RunFailureKind,
-    machine_state::{ActiveMachine, DurablePhase},
+    machine_state::{ActiveMachine, DurablePhase, TerminalBasis},
     managed_receipt::{ManagedLaunch, ManagedReceipt, managed_receipt, operation_failure},
     run_evidence::{append_failure, append_milestone},
 };
@@ -32,6 +32,12 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let revision = stored.revision;
         let active = match stored.machine.phase {
             DurablePhase::Active { active } => active,
+            // A command took the machine down, so it reads as a machine that was lost.
+            DurablePhase::Terminal {
+                basis,
+                operation: OperationKind::Execute,
+                ..
+            } => return self.ended_by_command(&request, *basis),
             DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
                 return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
             }
@@ -117,7 +123,29 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             TerminalStatus::Inspected { state },
             Some(effective_network),
         );
-        Ok(MachineInspection { state, receipt })
+        Ok(MachineInspection {
+            state,
+            receipt,
+            machine_lost: false,
+        })
+    }
+}
+
+impl<B: Backend, S: StateStore> Engine<B, S> {
+    fn ended_by_command(
+        &self,
+        request: &InspectMachineRequest,
+        basis: TerminalBasis,
+    ) -> Result<MachineInspection, ManagedFailure> {
+        let TerminalBasis::Active { active } = basis else {
+            return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
+        };
+        ensure_backend(&active, self.backend.kind())?;
+        let workload = active.workload().ok_or(ManagedFailure::StateStore(
+            crate::StateStoreFailureKind::Corrupt,
+        ))?;
+        let fingerprint = crate::fingerprint::inspect(workload, &request.instance_id);
+        Ok(lost_machine(request, &active, fingerprint))
     }
 }
 
@@ -140,7 +168,11 @@ fn lost_machine(
         TerminalStatus::Inspected { state },
         None,
     );
-    MachineInspection { state, receipt }
+    MachineInspection {
+        state,
+        receipt,
+        machine_lost: true,
+    }
 }
 
 fn inspection_receipt(
