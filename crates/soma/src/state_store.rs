@@ -197,4 +197,37 @@ pub trait StateStore: Send {
     /// found a name it cannot account for reports `Corrupt` rather than omitting it, because an
     /// omission would be indistinguishable from an Instance that does not exist.
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure>;
+
+    /// Waits for, then holds, the one turn at addressing `instance_id`'s machine.
+    ///
+    /// The turn is exclusive across every process sharing the store, and it ends when the
+    /// returned value is dropped or its holder dies. The engine holds it for a whole command,
+    /// filesystem or terminal operation, so an Executing record it reads while holding the turn
+    /// was left by a holder that is gone, never by one still running (SOMA#243).
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed failure when the store cannot take the turn at all.
+    fn turn(&self, instance_id: &InstanceId) -> Result<InstanceTurn, StateStoreFailure>;
+}
+
+/// One caller's turn at addressing an Instance's machine, held until it is dropped.
+#[must_use = "the turn ends as soon as this is dropped"]
+pub struct InstanceTurn {
+    _held: Box<dyn Send>,
+}
+
+impl InstanceTurn {
+    /// Wraps whatever keeps the turn held: the turn ends when `held` is dropped.
+    pub fn new(held: impl Send + 'static) -> Self {
+        Self {
+            _held: Box::new(held),
+        }
+    }
+}
+
+impl fmt::Debug for InstanceTurn {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("InstanceTurn")
+    }
 }

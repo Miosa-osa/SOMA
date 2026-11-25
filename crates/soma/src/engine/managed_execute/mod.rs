@@ -56,6 +56,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         request: ExecuteMachineRequest,
         sink: crate::OutputSink<'_>,
     ) -> Result<MachineExecution, ManagedFailure> {
+        let _turn = self.take_turn(&request.instance_id)?;
         let admission = self.admit_execution(&request)?;
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];
         let observation = self.backend.execute_streaming(

@@ -1,17 +1,43 @@
 use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
+    collections::{BTreeMap, BTreeSet},
+    sync::{Arc, Condvar, Mutex},
 };
 
 use crate::{
-    InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StateStoreFailureKind,
-    StoredState,
+    InstanceId, InstanceTurn, StateRecord, StateRevision, StateStore, StateStoreFailure,
+    StateStoreFailureKind, StoredState,
 };
 
 /// A clone-shareable, process-local state store for tests and ephemeral development only.
 #[derive(Clone, Default)]
 pub struct MemoryStateStore {
     records: Arc<Mutex<BTreeMap<InstanceId, StoredState>>>,
+    turns: Arc<Turns>,
+}
+
+/// The Instances someone holds the turn for, and the signal that one was given back.
+#[derive(Default)]
+struct Turns {
+    held: Mutex<BTreeSet<InstanceId>>,
+    returned: Condvar,
+}
+
+struct HeldTurn {
+    turns: Arc<Turns>,
+    instance_id: InstanceId,
+}
+
+impl Drop for HeldTurn {
+    fn drop(&mut self) {
+        let mut held = self
+            .turns
+            .held
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        held.remove(&self.instance_id);
+        drop(held);
+        self.turns.returned.notify_all();
+    }
 }
 
 impl MemoryStateStore {
@@ -81,6 +107,20 @@ impl StateStore for MemoryStateStore {
             .lock()
             .map_err(|_| unavailable())
             .map(|records| records.keys().cloned().collect())
+    }
+
+    fn turn(&self, instance_id: &InstanceId) -> Result<InstanceTurn, StateStoreFailure> {
+        let held = self.turns.held.lock().map_err(|_| unavailable())?;
+        let mut held = self
+            .turns
+            .returned
+            .wait_while(held, |held| held.contains(instance_id))
+            .map_err(|_| unavailable())?;
+        held.insert(instance_id.clone());
+        Ok(InstanceTurn::new(HeldTurn {
+            turns: Arc::clone(&self.turns),
+            instance_id: instance_id.clone(),
+        }))
     }
 }
 

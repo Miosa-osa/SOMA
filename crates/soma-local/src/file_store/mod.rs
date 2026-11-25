@@ -5,6 +5,7 @@ mod filesystem;
 mod layout;
 mod lock;
 mod revision;
+mod turn;
 
 use std::{
     fmt,
@@ -12,7 +13,10 @@ use std::{
     sync::Arc,
 };
 
-use soma::{InstanceId, StateRecord, StateRevision, StateStore, StateStoreFailure, StoredState};
+use soma::{
+    InstanceId, InstanceTurn, StateRecord, StateRevision, StateStore, StateStoreFailure,
+    StoredState,
+};
 
 pub(crate) use self::layout::MACHINE_HOST_DIRECTORY;
 pub use self::layout::SERVICE_DIRECTORY;
@@ -179,6 +183,10 @@ impl StateStore for FileStateStore {
 
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
         instance_identities(&self.root)
+    }
+
+    fn turn(&self, instance_id: &InstanceId) -> Result<InstanceTurn, StateStoreFailure> {
+        turn::take(&self.locks, instance_id)
     }
 }
 

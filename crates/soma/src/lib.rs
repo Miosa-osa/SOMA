@@ -55,6 +55,6 @@ pub use request::{
     ValidationError,
 };
 pub use state_store::{
-    MAX_STATE_RECORD_BYTES, MemoryStateStore, StateRecord, StateRevision, StateStore,
+    InstanceTurn, MAX_STATE_RECORD_BYTES, MemoryStateStore, StateRecord, StateRevision, StateStore,
     StateStoreFailure, StateStoreFailureKind, StoredState,
 };

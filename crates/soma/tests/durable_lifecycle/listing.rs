@@ -138,6 +138,10 @@ impl StateStore for UnavailableList {
             StateStoreFailureKind::Unavailable,
         ))
     }
+
+    fn turn(&self, _: &InstanceId) -> Result<soma::InstanceTurn, soma::StateStoreFailure> {
+        unreachable!("listing addresses no machine")
+    }
 }
 
 /// A store in which one record cannot be read at the moment, as when another process holds it.
@@ -188,6 +192,13 @@ impl StateStore for OneRecordBusy {
 
     fn list(&mut self) -> Result<Vec<InstanceId>, soma::StateStoreFailure> {
         self.inner.list()
+    }
+
+    fn turn(
+        &self,
+        instance_id: &InstanceId,
+    ) -> Result<soma::InstanceTurn, soma::StateStoreFailure> {
+        self.inner.turn(instance_id)
     }
 }
 
