@@ -3,7 +3,9 @@
 use super::*;
 
 /// SOMA#231: the machine that owned the volume is gone (it crashed, or it was detached), so an
-/// attach for another Instance of the same tenant takes the volume over.
+/// attach for another Instance of the same tenant takes the volume over. Only Linux has the
+/// process table the proof reads; elsewhere a takeover is refused.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_volume_whose_machine_is_gone_is_taken_over_by_a_new_instance() {
     for detached_first in [true, false] {
