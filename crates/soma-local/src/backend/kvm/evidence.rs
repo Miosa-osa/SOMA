@@ -177,11 +177,7 @@ pub(super) fn observation(
     stderr: Vec<u8>,
     times: CommandTimes,
 ) -> CommandObservation {
-    // The guest bounds the combined allowance and returns exactly what it kept, so the observed
-    // byte counts are the lengths of the bytes themselves rather than a separate claim.
-    let observed_stdout = stdout.len() as u64;
-    let observed_stderr = stderr.len() as u64;
-    let output = ObservedOutput::new(stdout, observed_stdout, stderr, observed_stderr);
+    let output = observed_output(status, stdout, stderr);
     CommandObservation::new(
         request.operation_id().clone(),
         request.instance_id().clone(),
@@ -190,6 +186,36 @@ pub(super) fn observation(
         times,
     )
 }
+
+/// What the guest's kept bytes say was observed.
+///
+/// The guest bounds the combined allowance and returns exactly what it kept, so a command that
+/// finished observed the lengths of its bytes. One the guest stopped at the allowance offered at
+/// least one byte more than it kept, and only a count above the allowance says so: reporting the
+/// kept lengths as observed made the engine read the stop as evidence that contradicts itself,
+/// answer `evidence_mismatch`, and release the machine (SOMA#213). The guest does not say which
+/// stream offered the byte past the allowance, so it is counted on stdout, or on stderr when the
+/// command wrote nothing to stdout.
+pub(super) fn observed_output(
+    status: CommandStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+) -> ObservedOutput {
+    let mut observed_stdout = stdout.len() as u64;
+    let mut observed_stderr = stderr.len() as u64;
+    if matches!(status, CommandStatus::OutputLimitExceeded) {
+        if stdout.is_empty() && !stderr.is_empty() {
+            observed_stderr += 1;
+        } else {
+            observed_stdout += 1;
+        }
+    }
+    ObservedOutput::new(stdout, observed_stdout, stderr, observed_stderr)
+}
+
+#[cfg(test)]
+#[path = "evidence_output_tests.rs"]
+mod output_tests;
 
 #[cfg(test)]
 mod shape_tests {
