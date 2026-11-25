@@ -66,6 +66,7 @@ pub(super) fn claim(
         None => match fresh_id().and_then(|id| state.broker.prepare(id)) {
             Ok(bundle) => bundle,
             Err(error) => {
+                eprintln!("soma-netd: claim refused: no bundle could be prepared: {error}");
                 abandon(state);
                 return Reply::Failed(error_code(&error));
             }
@@ -78,6 +79,10 @@ pub(super) fn claim(
         {
             Ok(assigned) => assigned,
             Err(AssignFailure { bundle, error }) => {
+                eprintln!(
+                    "soma-netd: claim refused: bundle {} could not be assigned: {error}",
+                    bundle.id().short_hex()
+                );
                 let record = (bundle.leases().guest.index(), bundle.zone());
                 if release_sterile(&state.broker, *bundle, Vec::new()).complete {
                     state.broker.recycle(record.0, record.1);
@@ -95,6 +100,7 @@ pub(super) fn claim(
             reply
         }
         Err(error) => {
+            eprintln!("soma-netd: claim refused: the frame path could not be delivered: {error}");
             let record = assigned.record().clone();
             if release(&state.broker, assigned).complete {
                 state.recycle(&record);
