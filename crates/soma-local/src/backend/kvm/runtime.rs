@@ -15,7 +15,7 @@ mod frame;
 
 use std::{
     ffi::{OsStr, OsString},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use soma::{BackendFailureKind, InstanceId, OperationId};
@@ -36,7 +36,9 @@ pub(super) enum Ownership {
     InProcess,
     /// The Host Runtime behind this connection owns every Instance this Backend launches, so
     /// a later process addresses the same Instance by identity.
-    HostRuntime(HostClient),
+    /// The connection this process opened, and the socket it was opened on, for a call that has
+    /// to be made again after the Host restarted (SOMA#241).
+    HostRuntime(HostClient, PathBuf),
 }
 
 impl Ownership {
@@ -56,7 +58,8 @@ impl Ownership {
     pub(super) fn resolve(locator: Option<&OsStr>) -> Result<Self, ClientError> {
         match locator {
             None => Ok(Self::InProcess),
-            Some(path) => HostClient::connect(Path::new(path)).map(Self::HostRuntime),
+            Some(path) => HostClient::connect(Path::new(path))
+                .map(|client| Self::HostRuntime(client, PathBuf::from(path))),
         }
     }
 
@@ -70,7 +73,7 @@ impl Ownership {
         operation: &OperationId,
         vsock_cid: u32,
     ) -> Result<(), BackendFailureKind> {
-        let Self::HostRuntime(client) = self else {
+        let Self::HostRuntime(client, _) = self else {
             return Ok(());
         };
         Self::register_frame(client, instance, hex16(operation.as_str())?, vsock_cid)
@@ -86,7 +89,7 @@ impl Ownership {
         if !restoring_in_place {
             return self.register(instance, operation, launch.guest_cid);
         }
-        let Self::HostRuntime(client) = self else {
+        let Self::HostRuntime(client, _) = self else {
             return Ok(());
         };
         // The broker serializes same-instance restores under its restore lease and
@@ -118,10 +121,10 @@ impl Ownership {
     /// Host owning an Instance no process is serving, which reconciliation would later have to
     /// discover.
     pub(super) fn withdraw(&self, instance: &InstanceId) {
-        if let Self::HostRuntime(client) = self
+        if let Self::HostRuntime(client, socket) = self
             && let Ok(instance) = frame::host_instance(instance)
         {
-            let _ignored = client.destroy(instance);
+            let _ignored = again_if_restarted(client, socket, |host| host.destroy(instance));
         }
     }
 
@@ -136,11 +139,11 @@ impl Ownership {
     /// Returns [`BackendFailureKind::CleanupFailure`] when the Host refused the terminal
     /// operation, because a Machine record that no client has ended is a leak.
     pub(super) fn release(&self, instance: &InstanceId) -> Result<bool, BackendFailureKind> {
-        let Self::HostRuntime(client) = self else {
+        let Self::HostRuntime(client, socket) = self else {
             return Ok(true);
         };
         let identity = frame::host_instance(instance)?;
-        match client.destroy(identity) {
+        match again_if_restarted(client, socket, |host| host.destroy(identity)) {
             Ok(receipt) => Ok(receipt.complete),
             // An Instance no durable record carries was never owned, so there is nothing left
             // to end; every other refusal leaves ownership unresolved and is reported.
@@ -151,10 +154,12 @@ impl Ownership {
 
     /// Whether the Host Runtime still reports this Instance as live.
     pub(super) fn is_live(&self, instance: &InstanceId) -> bool {
-        let Self::HostRuntime(client) = self else {
+        let Self::HostRuntime(client, socket) = self else {
             return false;
         };
-        frame::host_instance(instance).is_ok_and(|identity| client.get(identity).is_ok())
+        frame::host_instance(instance).is_ok_and(|identity| {
+            again_if_restarted(client, socket, |host| host.get(identity)).is_ok()
+        })
     }
 }
 
@@ -172,6 +177,26 @@ const fn launch_refusal(error: ClientError) -> BackendFailureKind {
             BackendFailureKind::WorkloadRejected
         }
         _ => BackendFailureKind::Unavailable,
+    }
+}
+
+/// Makes one idempotent call to the Host, and once more on a fresh connection when the first
+/// one failed in transport.
+///
+/// A machine host keeps the connection it opened at start for its machine's life, and a Host that
+/// restarts closes it. A destroy sent on it then failed in transport for good, so a delete after a
+/// hostd restart answered 500 for as long as the machine lived (SOMA#241). Only calls the Host
+/// answers the same way twice (destroy, get) come through here.
+fn again_if_restarted<T>(
+    client: &HostClient,
+    socket: &Path,
+    call: impl Fn(&HostClient) -> Result<T, ClientError>,
+) -> Result<T, ClientError> {
+    match call(client) {
+        Err(ClientError::Send(_) | ClientError::Receive(_)) => {
+            HostClient::connect(socket).and_then(|fresh| call(&fresh))
+        }
+        answered => answered,
     }
 }
 

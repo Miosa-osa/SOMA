@@ -52,6 +52,11 @@ impl Host {
         }
     }
 
+    /// The socket the daemon serves.
+    pub(super) fn socket(&self) -> &Path {
+        &self.socket
+    }
+
     /// One fresh client connection, exactly as a separate process would open one.
     pub(super) fn connect(&self) -> Ownership {
         Ownership::resolve(Some(OsStr::new(&self.socket))).expect("the daemon is serving")
