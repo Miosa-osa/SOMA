@@ -57,6 +57,10 @@ impl ExecutionReceipt {
             .matches_request(self.requested_shape.capabilities().network_policy())
             || (self.terminal_status == TerminalStatus::Failed
                 && self.effective_network.all_not_reached())
+            // The destroy of an Instance whose launch never finished has no network to report
+            // (SOMA#220).
+            || (self.operation == OperationKind::Destroy
+                && self.effective_network.all_not_reached())
     }
 
     fn allowed_milestones(&self) -> bool {

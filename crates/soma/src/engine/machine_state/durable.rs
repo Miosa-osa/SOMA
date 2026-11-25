@@ -209,14 +209,16 @@ impl DurableMachine {
                 basis.validate(&self.instance_id)?;
                 if !matches!(
                     (basis.as_ref(), operation),
-                    (TerminalBasis::Launch { .. }, OperationKind::Launch)
-                        | (
-                            TerminalBasis::Active { .. },
-                            OperationKind::Stop
-                                | OperationKind::Destroy
-                                | OperationKind::Suspend
-                                | OperationKind::Execute
-                        )
+                    (
+                        TerminalBasis::Launch { .. },
+                        OperationKind::Launch | OperationKind::Destroy
+                    ) | (
+                        TerminalBasis::Active { .. },
+                        OperationKind::Stop
+                            | OperationKind::Destroy
+                            | OperationKind::Suspend
+                            | OperationKind::Execute
+                    )
                 ) || receipt.operation() != *operation
                     || receipt.operation_id() != operation_id
                     || receipt.instance_id() != &self.instance_id

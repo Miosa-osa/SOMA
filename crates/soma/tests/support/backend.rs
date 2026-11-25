@@ -103,7 +103,11 @@ impl Backend for TestBackend {
 
     fn liveness(&mut self, _instance_id: &InstanceId) -> SandboxLiveness {
         self.record("liveness");
-        SandboxLiveness::Live
+        if self.mode == Mode::Crashed {
+            SandboxLiveness::Absent
+        } else {
+            SandboxLiveness::Live
+        }
     }
 
     fn launch(

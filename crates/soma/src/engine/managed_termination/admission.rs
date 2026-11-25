@@ -2,7 +2,7 @@ use crate::{Backend, StateStore};
 
 use crate::engine::{
     Engine, ManagedFailure, ManagedStateError,
-    machine_state::{ActiveMachine, DurableMachine, DurablePhase, TerminalBasis},
+    machine_state::{ActiveMachine, DurableMachine, DurablePhase, LaunchIntent, TerminalBasis},
 };
 
 use super::mode::TerminationMode;
@@ -14,6 +14,14 @@ pub(super) enum TerminationAdmission {
     /// complete. The machine owes the host nothing, so the destroy records itself without asking
     /// the backend for anything.
     AlreadyEnded(TerminationContext),
+    /// A destroy of an Instance whose launch never finished: one left launching (the host restarted
+    /// under it), or one whose launch failed. `cleaned` says the failed launch already released
+    /// the host; a launch left launching is rolled back first (SOMA#220).
+    NeverLaunched {
+        revision: crate::StateRevision,
+        intent: Box<LaunchIntent>,
+        cleaned: bool,
+    },
 }
 
 pub(super) struct TerminationContext {
@@ -97,6 +105,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             } if existing_operation == *operation_id => {
                 Err(ManagedFailure::State(ManagedStateError::OperationConflict))
             }
+            // A stop of a stopped Instance is answered with the stop that stopped it (SOMA#220).
+            DurablePhase::Terminal {
+                operation: crate::OperationKind::Stop,
+                receipt,
+                ..
+            } if matches!(mode, TerminationMode::Graceful) => {
+                Ok(TerminationAdmission::Replay(*receipt))
+            }
             DurablePhase::Executing {
                 active,
                 operation_id,
@@ -108,9 +124,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 operation_id,
                 request_fingerprint,
             )),
-            DurablePhase::Launching { .. } => {
-                Err(ManagedFailure::State(ManagedStateError::RecoveryRequired))
-            }
+            DurablePhase::Launching { intent, .. } => never_launched(mode, revision, intent),
             DurablePhase::Terminal { basis, receipt, .. }
                 if matches!(mode, TerminationMode::Forced) && receipt.cleanup().is_complete() =>
             {
@@ -138,8 +152,15 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         mode: TerminationMode,
         basis: TerminalBasis,
     ) -> Result<TerminationAdmission, ManagedFailure> {
-        let TerminalBasis::Active { active } = basis else {
-            return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
+        let active = match basis {
+            TerminalBasis::Active { active } => active,
+            TerminalBasis::Launch { intent } => {
+                return Ok(TerminationAdmission::NeverLaunched {
+                    revision,
+                    intent,
+                    cleaned: true,
+                });
+            }
         };
         ensure_backend(&active, self.backend.kind())?;
         let workload = active.workload().ok_or(ManagedFailure::StateStore(
@@ -151,6 +172,23 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             active: *active,
             fingerprint,
         }))
+    }
+}
+
+/// A destroy of a launch left launching rolls it back; any other request waits for recovery.
+fn never_launched(
+    mode: TerminationMode,
+    revision: crate::StateRevision,
+    intent: Box<LaunchIntent>,
+) -> Result<TerminationAdmission, ManagedFailure> {
+    if matches!(mode, TerminationMode::Forced) {
+        Ok(TerminationAdmission::NeverLaunched {
+            revision,
+            intent,
+            cleaned: false,
+        })
+    } else {
+        Err(ManagedFailure::State(ManagedStateError::RecoveryRequired))
     }
 }
 

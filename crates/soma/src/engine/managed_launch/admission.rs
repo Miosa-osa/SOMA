@@ -1,4 +1,6 @@
-use crate::{Backend, CleanupReason, Milestone, MilestoneKind, OperationKind, StateStore};
+use crate::{
+    Backend, CleanupReason, Milestone, MilestoneKind, OperationKind, SandboxLiveness, StateStore,
+};
 
 use crate::engine::{
     Engine, LaunchMachineRequest, ManagedFailure, ManagedStateError, RunFailureKind,
@@ -206,6 +208,20 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                     ReplayEvidence::from_receipt(receipt.as_ref().clone()),
                 ))
             }
+            // The machine this record names is gone (its worker crashed or was killed), so a
+            // create of the same identity releases what is left and boots it again (SOMA#220).
+            DurablePhase::Active { active }
+                if active.backend() == self.backend.kind()
+                    && self.backend.liveness(&request.instance_id) == SandboxLiveness::Absent =>
+            {
+                let launch = active.launch_receipt.operation_id().clone();
+                self.release_lost_machine(&launch, &request.instance_id, milestones)?;
+                *milestones = vec![
+                    Milestone::new(MilestoneKind::Accepted, 0),
+                    Milestone::new(MilestoneKind::WorkloadResolved, resolved_at),
+                ];
+                self.replace_pending(stored.revision, &pending)
+            }
             DurablePhase::Active { .. } => Err(ManagedFailure::State(
                 ManagedStateError::MachineAlreadyExists,
             )),
@@ -217,17 +233,51 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 if operation_id != &request.operation_id
                     && self.owes_nothing(&stored.machine)? =>
             {
-                self.replace_machine(stored.revision, &pending)
-                    .map(|revision| LaunchAdmission::Proceed(revision, None))
-                    .map_err(|failure| {
-                        if is_store_conflict(&failure) {
-                            ManagedFailure::State(ManagedStateError::OperationConflict)
-                        } else {
-                            failure
-                        }
-                    })
+                self.replace_pending(stored.revision, &pending)
             }
             _ => Err(ManagedFailure::State(ManagedStateError::OperationConflict)),
         }
+    }
+
+    /// Releases what a machine whose host is gone left behind, before a launch reuses its
+    /// identity. Only the backend's own liveness answer leads here, so a machine it reports live
+    /// keeps its record, and a cleanup that cannot finish keeps it too.
+    fn release_lost_machine(
+        &mut self,
+        launch: &crate::OperationId,
+        instance_id: &crate::InstanceId,
+        milestones: &mut Vec<Milestone>,
+    ) -> Result<(), ManagedFailure> {
+        let cleanup = self.perform_cleanup(
+            launch,
+            instance_id,
+            CleanupReason::ForcedDestroy,
+            milestones,
+        );
+        if cleanup.complete {
+            Ok(())
+        } else {
+            Err(ManagedFailure::State(
+                ManagedStateError::MachineAlreadyExists,
+            ))
+        }
+    }
+
+    /// Puts a new launch over a record that may be replaced, against the revision read, so a
+    /// record that moved meanwhile is kept.
+    fn replace_pending(
+        &mut self,
+        revision: crate::StateRevision,
+        pending: &DurableMachine,
+    ) -> Result<LaunchAdmission, ManagedFailure> {
+        self.replace_machine(revision, pending)
+            .map(|revision| LaunchAdmission::Proceed(revision, None))
+            .map_err(|failure| {
+                if is_store_conflict(&failure) {
+                    ManagedFailure::State(ManagedStateError::OperationConflict)
+                } else {
+                    failure
+                }
+            })
     }
 }
