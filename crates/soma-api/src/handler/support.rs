@@ -24,6 +24,15 @@ pub(super) fn success<T: Serialize>(
 }
 
 pub(super) fn refuse(operation: &'static str, error: ApiError) -> Response {
+    // Every 5xx leaves a line naming what answered it; a managed failure's cause is logged where
+    // it is translated (`failure::managed_error`).
+    if error.status() >= 500 {
+        eprintln!(
+            "soma-api: {operation} answered {} {}",
+            error.status(),
+            error.body().code
+        );
+    }
     Response::new(error.status(), failure_body(operation, error))
 }
 

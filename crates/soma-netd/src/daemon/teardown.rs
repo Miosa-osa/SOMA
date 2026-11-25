@@ -40,6 +40,7 @@ pub(super) fn release_request(state: &State, peer: PeerIdentity, slot: Slot) -> 
             }
             Ok(entry) => {
                 let evidence = release_record(&state.broker, &entry.record);
+                log_release(&entry.record, &evidence);
                 if evidence.complete {
                     state.forget((entry.record.instance, entry.record.operation));
                     if !entry.released {
@@ -55,7 +56,15 @@ pub(super) fn release_request(state: &State, peer: PeerIdentity, slot: Slot) -> 
         Ok(evidence) => Reply::Released {
             complete: evidence.complete,
         },
-        Err(error) => Reply::Failed(error_code(&error)),
+        Err(error) => {
+            // A refused release leaves the machine's cleanup unproven, so its delete fails; the
+            // reason has to be on the broker's log.
+            eprintln!(
+                "soma-netd: release of bundle {} refused: {error}",
+                bundle.short_hex()
+            );
+            Reply::Failed(error_code(&error))
+        }
     }
 }
 
