@@ -38,6 +38,8 @@ mod hotplug;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod identity;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod idle_reaper;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod ioctl;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod launch_page;

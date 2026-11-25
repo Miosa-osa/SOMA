@@ -17,6 +17,7 @@ use std::process::Child;
 use soma_guest::{MAX_PTY_CHUNK_BYTES, PtyFailure, PtyOutcome, PtySize};
 
 use crate::descendants;
+use crate::idle_reaper;
 
 use super::device;
 
@@ -36,6 +37,10 @@ impl Session {
         let pair = device::open(size).map_err(|_| ())?;
         let child = device::spawn(&pair.slave).map_err(|_| ())?;
         drop(pair.slave);
+        // The shell leads its own group; the idle reaper leaves that group to this session.
+        if let Ok(group) = i32::try_from(child.id()) {
+            idle_reaper::keep_group(group);
+        }
         set_nonblocking(pair.master.as_raw_fd());
         Ok(Self {
             master: pair.master,
@@ -115,12 +120,21 @@ impl Session {
         }
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.release();
+    }
+
+    /// Hands the shell's group back to the idle reaper, once the shell itself is reaped.
+    fn release(&self) {
+        if let Ok(group) = i32::try_from(self.child.id()) {
+            idle_reaper::release_group(group);
+        }
     }
 
     /// Reaps the shell and reports the one end of this stream.
     fn ended(&mut self) -> PtyOutcome {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        self.release();
         PtyOutcome::Output {
             bytes: Box::default(),
             end: true,

@@ -12,6 +12,7 @@ use soma_guest::{
 
 use crate::executor::{self, ExecutorFault, OutputSink, SinkFault};
 use crate::filesystem;
+use crate::idle_reaper;
 use crate::pty::Terminal;
 use crate::repair::{Controller, Fault, Poisoned, Ready, Suspending};
 use crate::shutdown;
@@ -158,8 +159,10 @@ pub fn serve<I: ControlIo>(
     // be there when the caller's next request arrives. It is created here rather than lazily so
     // that the loop owns it for exactly as long as it owns the session.
     let mut terminal = Terminal::new();
+    idle_reaper::start();
     loop {
-        let (next, request) = match control.next_request(Instant::now() + IDLE_CEILING) {
+        let waited = idle_reaper::while_idle(|| control.next_request(Instant::now() + IDLE_CEILING));
+        let (next, request) = match waited {
             Ok(request) => request,
             Err(error) if error.class() == ControlFailureClass::Io => match reconnect() {
                 Ok(connected) => {
