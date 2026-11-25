@@ -72,6 +72,30 @@ fn require_released(
     }
 }
 
+/// Refuses a volume whose lock a live machine holds, before a start repairs it or hands it to a
+/// second machine. A repair under a held lock cannot run, and reported the volume as needing a
+/// repair it does not need; a second create of one sandbox reaching this while the first one's
+/// machine holds the volume is refused as busy instead (SOMA#234).
+///
+/// # Errors
+///
+/// Returns `Busy` while the lock is held.
+pub(in crate::volume::store) fn require_unlocked(path: &Path) -> Result<(), VolumeError> {
+    let file = match fs::OpenOptions::new().read(true).write(true).open(path) {
+        Ok(file) => file,
+        // A start of a volume with no file is refused by its repair, with that reason.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(_) => return Err(VolumeError::Ledger("the volume could not be opened")),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(()),
+        Err(fs::TryLockError::WouldBlock) => Err(VolumeError::Busy("the volume is still in use")),
+        Err(fs::TryLockError::Error(_)) => {
+            Err(VolumeError::Ledger("the volume lock could not be checked"))
+        }
+    }
+}
+
 /// Whether any process other than this one has the same file open.
 #[cfg(target_os = "linux")]
 fn held_elsewhere(file: &fs::File) -> io::Result<bool> {

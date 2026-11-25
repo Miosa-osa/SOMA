@@ -159,6 +159,7 @@ impl VolumeStore for DirectoryVolumes {
         let sidecar = owned_volume(state.values(), instance)?.clone();
         self.require_unstaged_workspace(sidecar.volume)?;
         let file = self.file(sidecar.volume);
+        takeover::require_unlocked(&file)?;
         // The repair runs here rather than in the guest, on a file no machine holds yet: this is
         // the one place a start can check the filesystem without racing a running guest.
         let repair = self.repairs.repair(sidecar.volume, &file);

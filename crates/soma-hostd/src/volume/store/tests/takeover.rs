@@ -59,3 +59,22 @@ fn a_volume_of_another_tenant_is_never_taken_over() {
         Err(VolumeError::Busy("the volume belongs to another Instance"))
     );
 }
+
+/// SOMA#234: a start of a volume a live machine holds is refused as busy, not repaired.
+#[test]
+fn a_start_of_a_volume_a_live_machine_holds_is_refused_as_busy() {
+    let (_work, volumes) = store();
+    volumes.attach(&attach(1, 9, 1, 10)).expect("attaches");
+    let worker = fs::File::create(volumes.file(volume(1))).expect("volume file");
+    worker
+        .try_lock()
+        .expect("the first create's machine holds the volume");
+    assert_eq!(
+        volumes.binding(instance(9)).map(|binding| binding.volume),
+        Err(VolumeError::Busy("the volume is still in use"))
+    );
+    drop(worker);
+    volumes
+        .binding(instance(9))
+        .expect("once the machine is gone the start proceeds");
+}
