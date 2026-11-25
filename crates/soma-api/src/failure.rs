@@ -13,6 +13,41 @@ use crate::envelope::ApiError;
 /// code in its place.
 #[must_use]
 pub fn managed_error(failure: &ManagedFailure) -> ApiError {
+    let error = refusal(failure);
+    if let Some(line) = server_error_line(failure, error) {
+        eprintln!("{line}");
+    }
+    error
+}
+
+/// The log line a refusal the server is responsible for leaves, naming its cause; none for a
+/// refusal of the caller's request. A 5xx with nothing on the service's log could not be
+/// diagnosed after the fact.
+#[must_use]
+pub fn server_error_line(failure: &ManagedFailure, error: ApiError) -> Option<String> {
+    if error.status() < 500 {
+        return None;
+    }
+    let cause = match failure {
+        ManagedFailure::Operation(run) => format!(
+            "{:?} on {:?} {}",
+            run.kind(),
+            run.receipt().operation(),
+            run.receipt().instance_id().as_str()
+        ),
+        ManagedFailure::State(state) => format!("state {state:?}"),
+        ManagedFailure::StateStore(kind) => format!("state store {kind:?}"),
+        ManagedFailure::Backend(kind) => format!("backend {kind:?}"),
+        ManagedFailure::ReplayUnavailable(_) => "replay unavailable".to_owned(),
+    };
+    Some(format!(
+        "soma-api: answered {} {}: {cause}",
+        error.status(),
+        error.body().code
+    ))
+}
+
+fn refusal(failure: &ManagedFailure) -> ApiError {
     match failure {
         ManagedFailure::Operation(failure) => run_error(failure),
         ManagedFailure::State(state) => state_error(*state),
@@ -166,5 +201,24 @@ fn state_error(kind: ManagedStateError) -> ApiError {
             "sandbox state rejected the operation",
             false,
         ),
+    }
+}
+
+#[cfg(test)]
+mod logging_tests {
+    use super::*;
+
+    #[test]
+    fn a_server_failure_names_its_cause_on_the_log() {
+        let failure = ManagedFailure::StateStore(StateStoreFailureKind::Corrupt);
+        let line = server_error_line(&failure, managed_error(&failure)).expect("a 5xx is logged");
+        assert!(line.contains("500 state_store_failure"), "{line}");
+        assert!(line.contains("state store Corrupt"), "{line}");
+    }
+
+    #[test]
+    fn a_refusal_of_the_callers_request_is_not_logged() {
+        let failure = ManagedFailure::State(ManagedStateError::MachineNotFound);
+        assert_eq!(server_error_line(&failure, managed_error(&failure)), None);
     }
 }
