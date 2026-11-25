@@ -32,20 +32,12 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let revision = stored.revision;
         let active = match stored.machine.phase {
             DurablePhase::Active { active } => active,
-            // A command took the machine down, so it reads as a machine that was lost.
-            DurablePhase::Terminal {
-                basis,
-                operation: OperationKind::Execute,
-                ..
-            } => return self.ended_by_command(&request, *basis),
-            DurablePhase::Terminal { .. } | DurablePhase::Recovery { .. } => {
-                return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
-            }
             DurablePhase::Launching { .. }
             | DurablePhase::Executing { .. }
             | DurablePhase::Terminating { .. } => {
                 return Err(ManagedFailure::State(ManagedStateError::RecoveryRequired));
             }
+            ended => return self.ended(&request, ended),
         };
         ensure_backend(&active, self.backend.kind())?;
         let workload = active
@@ -132,6 +124,30 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
 }
 
 impl<B: Backend, S: StateStore> Engine<B, S> {
+    /// What reading an Instance whose record ended answers.
+    fn ended(
+        &self,
+        request: &InspectMachineRequest,
+        phase: DurablePhase,
+    ) -> Result<MachineInspection, ManagedFailure> {
+        match phase {
+            // A command took the machine down, so it reads as a machine that was lost.
+            DurablePhase::Terminal {
+                basis,
+                operation: OperationKind::Execute,
+                ..
+            } => self.ended_by_command(request, *basis),
+            // A create that failed made no sandbox, and a destroyed one is gone. What the record
+            // still holds is the answer an exact repeat replays, so reading the identity says
+            // there is no sandbox rather than that its state refused the read.
+            DurablePhase::Terminal {
+                operation: OperationKind::Launch | OperationKind::Destroy,
+                ..
+            } => Err(ManagedFailure::State(ManagedStateError::MachineNotFound)),
+            _ => Err(ManagedFailure::State(ManagedStateError::MachineStopped)),
+        }
+    }
+
     fn ended_by_command(
         &self,
         request: &InspectMachineRequest,
