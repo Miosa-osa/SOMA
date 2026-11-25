@@ -44,17 +44,15 @@ pub fn start() {
         return;
     }
     START.call_once(|| {
-        let _ = thread::Builder::new()
-            .name("idle-reaper".into())
-            .spawn(|| {
-                loop {
-                    thread::sleep(INTERVAL);
-                    let state = state();
-                    if state.idle {
-                        reap_exited_orphans(&state.kept_groups);
-                    }
+        let _ = thread::Builder::new().name("idle-reaper".into()).spawn(|| {
+            loop {
+                thread::sleep(INTERVAL);
+                let state = state();
+                if state.idle {
+                    reap_exited_orphans(&state.kept_groups);
                 }
-            });
+            }
+        });
     });
 }
 
@@ -88,7 +86,11 @@ fn reap_exited_orphans(kept_groups: &[i32]) -> usize {
     };
     let mut reaped = 0;
     for entry in entries.flatten() {
-        let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse::<i32>().ok()) else {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<i32>().ok())
+        else {
             continue;
         };
         let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
@@ -134,7 +136,10 @@ mod tests {
 
     #[test]
     fn reads_state_parent_and_group_after_the_command_name() {
-        assert_eq!(parse_stat("4242 (sh) Z 1 4242 4242 0 -1"), Some(('Z', 1, 4242)));
+        assert_eq!(
+            parse_stat("4242 (sh) Z 1 4242 4242 0 -1"),
+            Some(('Z', 1, 4242))
+        );
         assert_eq!(
             parse_stat("77 (a (b) c) S 12 70 70 0 -1"),
             Some(('S', 12, 70)),
@@ -146,10 +151,19 @@ mod tests {
     #[test]
     fn reaps_only_exited_orphans_of_init_outside_kept_groups() {
         let kept = [500];
-        assert!(should_reap("10 (sh) Z 1 10 10 0", &kept), "an exited orphan");
+        assert!(
+            should_reap("10 (sh) Z 1 10 10 0", &kept),
+            "an exited orphan"
+        );
         assert!(!should_reap("11 (sh) S 1 11 11 0", &kept), "a live process");
-        assert!(!should_reap("12 (sh) Z 9 12 12 0", &kept), "another process's child");
-        assert!(!should_reap("501 (bash) Z 1 500 500 0", &kept), "a terminal's group");
+        assert!(
+            !should_reap("12 (sh) Z 9 12 12 0", &kept),
+            "another process's child"
+        );
+        assert!(
+            !should_reap("501 (bash) Z 1 500 500 0", &kept),
+            "a terminal's group"
+        );
     }
 
     #[test]
@@ -174,9 +188,12 @@ mod tests {
             return;
         }
         start();
-        let child = std::process::Command::new("/bin/true").spawn().expect("child");
+        let child = std::process::Command::new("/bin/true")
+            .spawn()
+            .expect("child");
         let pid = child.id();
-        let zombie = || fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.contains(") Z "));
+        let zombie =
+            || fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.contains(") Z "));
         while_idle(|| thread::sleep(INTERVAL * 3));
         assert!(!zombie(), "the exited child was left a zombie while idle");
     }
