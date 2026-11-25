@@ -136,7 +136,14 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 basis,
                 operation: OperationKind::Execute,
                 ..
-            } => self.ended_by_command(request, *basis),
+            } => self.ended_machine(request, *basis, true),
+            // A stopped sandbox reads as stopped: the platform reads that state to show it and
+            // to start it again.
+            DurablePhase::Terminal {
+                basis,
+                operation: OperationKind::Stop,
+                ..
+            } => self.ended_machine(request, *basis, false),
             // A create that failed made no sandbox, and a destroyed one is gone. What the record
             // still holds is the answer an exact repeat replays, so reading the identity says
             // there is no sandbox rather than that its state refused the read.
@@ -148,10 +155,13 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         }
     }
 
-    fn ended_by_command(
+    /// A stopped answer for a record that ended with its machine: lost when a command took the
+    /// machine down, not lost when the sandbox was stopped.
+    fn ended_machine(
         &self,
         request: &InspectMachineRequest,
         basis: TerminalBasis,
+        machine_lost: bool,
     ) -> Result<MachineInspection, ManagedFailure> {
         let TerminalBasis::Active { active } = basis else {
             return Err(ManagedFailure::State(ManagedStateError::MachineStopped));
@@ -161,7 +171,9 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             crate::StateStoreFailureKind::Corrupt,
         ))?;
         let fingerprint = crate::fingerprint::inspect(workload, &request.instance_id);
-        Ok(lost_machine(request, &active, fingerprint))
+        let mut inspection = lost_machine(request, &active, fingerprint);
+        inspection.machine_lost = machine_lost;
+        Ok(inspection)
     }
 }
 
