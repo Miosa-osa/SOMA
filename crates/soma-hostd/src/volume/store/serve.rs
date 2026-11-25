@@ -5,7 +5,7 @@
 //! order that keeps a volume safe: create, then repair, then bind, each with its write-ahead
 //! records around it.
 
-mod create;
+pub(super) mod create;
 mod owner;
 mod takeover;
 

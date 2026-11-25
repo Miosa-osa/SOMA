@@ -9,9 +9,52 @@ use crate::volume::repair::CreateError;
 /// Bytes in one GiB, the unit a volume's class is stated in.
 const GIB: u64 = 1 << 30;
 
+/// Free bytes the volume root keeps for the volumes it already holds.
+pub(in crate::volume::store) const VOLUME_ROOT_RESERVE: u64 = GIB;
+
 impl DirectoryVolumes {
     /// Creates a volume the store has never held, under its begin and end records.
     pub(super) fn create_volume(
+        &self,
+        volume: VolumeId,
+        sidecar: &mut VolumeSidecar,
+        file: &Path,
+    ) -> Result<(), VolumeError> {
+        self.require_room()?;
+        let fresh = !self.directory(volume).exists();
+        let created = self.create_steps(volume, sidecar, file);
+        if created.is_err() && fresh {
+            self.undo_create(volume);
+        }
+        created
+    }
+
+    /// Takes back what a create that failed had written: its sidecar and directory, its key and
+    /// its records. Left there, the sidecar named a volume with no filesystem the next time the
+    /// store opened. Only a directory this create made is removed, so a path that already held
+    /// data (`Occupied`) is never touched.
+    fn undo_create(&self, volume: VolumeId) {
+        let _ = std::fs::remove_dir_all(self.directory(volume));
+        let _ = self.keys.destroy(volume);
+        self.forget(volume);
+    }
+
+    /// Refuses a new volume when the volume root has less free space than its reserve.
+    ///
+    /// Volumes are sparse, so a new one takes little at first, but its filesystem is written at
+    /// once and every volume the root already holds grows into the same free space. A root
+    /// below its reserve answers a capacity refusal the caller can place elsewhere, instead of
+    /// failing part way through the create.
+    fn require_room(&self) -> Result<(), VolumeError> {
+        match free_bytes(&self.root) {
+            Some(free) if free < self.reserve => Err(VolumeError::Capacity(
+                "the volume store has no room for another volume",
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn create_steps(
         &self,
         volume: VolumeId,
         sidecar: &mut VolumeSidecar,
@@ -55,4 +98,30 @@ impl DirectoryVolumes {
                 }
             })
     }
+}
+
+/// The bytes an unprivileged writer may still use on the filesystem holding `path`.
+#[cfg(target_os = "linux")]
+#[allow(
+    unsafe_code,
+    reason = "statvfs is the one way to read a filesystem's free space"
+)]
+fn free_bytes(path: &Path) -> Option<u64> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let name = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: `name` is a NUL-terminated path and `stats` is a buffer `statvfs` fills on success.
+    if unsafe { libc::statvfs(name.as_ptr(), stats.as_mut_ptr()) } != 0 {
+        return None;
+    }
+    // SAFETY: `statvfs` returned 0, so it initialized `stats`.
+    let stats = unsafe { stats.assume_init() };
+    stats.f_bavail.checked_mul(stats.f_frsize)
+}
+
+/// No host this store serves volumes on runs another system, so the reserve is not measured.
+#[cfg(not(target_os = "linux"))]
+const fn free_bytes(_path: &Path) -> Option<u64> {
+    None
 }
