@@ -202,6 +202,7 @@ mod binding;
 mod encryption;
 mod keyring;
 mod repair;
+mod takeover;
 
 use repair::Recording;
 

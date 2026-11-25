@@ -7,6 +7,7 @@
 
 mod create;
 mod owner;
+mod takeover;
 
 pub(super) use owner::{owned_volume, refusal};
 
@@ -91,7 +92,12 @@ impl VolumeStore for DirectoryVolumes {
             .state
             .lock()
             .map_err(|_| VolumeError::Ledger("state lock"))?;
-        Self::admit(state.get(&request.volume), request)?;
+        let current = takeover::current(
+            state.get(&request.volume),
+            request,
+            &self.file(request.volume),
+        )?;
+        Self::admit(current.as_ref(), request)?;
         if state
             .values()
             .any(|sidecar| sidecar.instance == request.instance && sidecar.volume != request.volume)
