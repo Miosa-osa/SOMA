@@ -51,12 +51,13 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
     ///
     /// The unreadable records are reported, never dropped: the listing says which identities it
     /// could not read and why, so a caller cannot take their absence for the absence of the
-    /// sandboxes. Only a record that was read and found invalid, corrupt, or of an unsupported
-    /// version is treated this way; a store that cannot be read at all still fails the call.
+    /// sandboxes. Any record that could not be read is treated this way, whether it was found
+    /// invalid, corrupt, or of an unsupported version, or another process held it; a store that
+    /// cannot be enumerated at all still fails the call.
     ///
     /// # Errors
     ///
-    /// Returns a typed durable-store failure when the store cannot be enumerated or read.
+    /// Returns a typed durable-store failure when the store cannot be enumerated.
     pub fn list_machines_reporting_unreadable(&mut self) -> Result<MachineListing, ManagedFailure> {
         self.list_all(true)
     }
@@ -73,9 +74,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
                 // The record was released between the enumeration and this read. It is gone, and
                 // reporting it would name a sandbox that no longer exists.
                 Ok(None) => continue,
-                Err(ManagedFailure::StateStore(kind))
-                    if report_unreadable && is_unreadable_record(kind) =>
-                {
+                // A caller that asked for a report gets one for every record it could not read,
+                // not only for one it could not decode: one record another process holds must not
+                // hide every other sandbox on the host (SOMA#228).
+                Err(ManagedFailure::StateStore(kind)) if report_unreadable => {
                     listing
                         .unreadable
                         .push(UnreadableRecord { instance_id, kind });

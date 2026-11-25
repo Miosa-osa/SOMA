@@ -72,7 +72,6 @@ fn a_sizing_an_earlier_build_left_among_the_records_is_moved_once_and_kept() {
     let legacy = root.path().join("autosize.json");
     let sized = br#"{"sized":{"sbx-a":{"min_cpu":1,"max_cpu":4,"min_memory_mb":1024,"max_memory_mb":4096}}}"#;
     fs::write(&legacy, sized).expect("legacy file");
-    assert!(store.list().is_err(), "the legacy file breaks the listing");
 
     soma_api::autosize::adopt_legacy(root.path());
 

@@ -86,8 +86,8 @@ fn a_listed_sandbox_names_the_generation_it_was_launched_from() {
 
 #[test]
 fn a_store_that_cannot_be_read_still_fails_the_report() {
-    // Only a record that was read and found undecodable is reported. A listing with nothing to
-    // stand on must not look like an empty one.
+    // A record that cannot be read is reported, but a store that cannot be enumerated fails the
+    // call: a listing with nothing to stand on must not look like an empty one.
     let (backend, _) = TestBackend::new(Mode::Happy);
     let mut engine = Engine::with_state_store(backend, UnavailableList);
     assert!(matches!(
@@ -138,4 +138,85 @@ impl StateStore for UnavailableList {
             StateStoreFailureKind::Unavailable,
         ))
     }
+}
+
+/// A store in which one record cannot be read at the moment, as when another process holds it.
+#[derive(Clone)]
+struct OneRecordBusy {
+    inner: MemoryStateStore,
+    busy: InstanceId,
+}
+
+impl StateStore for OneRecordBusy {
+    fn create(
+        &mut self,
+        instance_id: &InstanceId,
+        record: StateRecord,
+    ) -> Result<soma::StateRevision, soma::StateStoreFailure> {
+        self.inner.create(instance_id, record)
+    }
+
+    fn load(
+        &mut self,
+        instance_id: &InstanceId,
+    ) -> Result<Option<soma::StoredState>, soma::StateStoreFailure> {
+        if instance_id == &self.busy {
+            return Err(soma::StateStoreFailure::new(
+                StateStoreFailureKind::Conflict,
+            ));
+        }
+        self.inner.load(instance_id)
+    }
+
+    fn compare_exchange(
+        &mut self,
+        instance_id: &InstanceId,
+        expected: soma::StateRevision,
+        replacement: StateRecord,
+    ) -> Result<soma::StateRevision, soma::StateStoreFailure> {
+        self.inner
+            .compare_exchange(instance_id, expected, replacement)
+    }
+
+    fn release(
+        &mut self,
+        instance_id: &InstanceId,
+        expected: soma::StateRevision,
+    ) -> Result<(), soma::StateStoreFailure> {
+        self.inner.release(instance_id, expected)
+    }
+
+    fn list(&mut self) -> Result<Vec<InstanceId>, soma::StateStoreFailure> {
+        self.inner.list()
+    }
+}
+
+/// SOMA#228: one record that cannot be read is reported, and the healthy ones are still listed.
+#[test]
+fn a_record_that_cannot_be_read_is_reported_and_the_others_are_still_listed() {
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut inner = MemoryStateStore::new();
+    inner
+        .create(&other_instance(), garbage())
+        .expect("plant the record that will read as busy");
+    let store = OneRecordBusy {
+        inner,
+        busy: other_instance(),
+    };
+    let mut engine = Engine::with_state_store(backend, store);
+    engine
+        .launch_machine(launch_request(operation('1'), instance()))
+        .expect("launch");
+
+    let listing = engine
+        .list_machines_reporting_unreadable()
+        .expect("one unreadable record does not fail the listing");
+    assert_eq!(listing.entries().len(), 1);
+    assert_eq!(listing.entries()[0].instance_id(), &instance());
+    assert_eq!(listing.unreadable().len(), 1);
+    assert_eq!(listing.unreadable()[0].instance_id(), &other_instance());
+    assert_eq!(
+        listing.unreadable()[0].kind(),
+        StateStoreFailureKind::Conflict
+    );
 }
