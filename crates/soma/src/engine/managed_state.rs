@@ -7,6 +7,14 @@ use super::{
 };
 
 impl<B, S: StateStore> Engine<B, S> {
+    /// Waits for the one turn at `instance_id`'s machine; see [`StateStore::turn`].
+    pub(super) fn take_turn(
+        &self,
+        instance_id: &InstanceId,
+    ) -> Result<crate::InstanceTurn, ManagedFailure> {
+        self.state.turn(instance_id).map_err(store_failure)
+    }
+
     pub(super) fn load_machine(
         &mut self,
         instance_id: &InstanceId,

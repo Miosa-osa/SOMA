@@ -7,7 +7,7 @@ use std::{
 };
 
 use soma::{
-    DirectCommand, Engine, ExecuteMachineRequest, ExecutionLimits, InstanceId,
+    DirectCommand, Engine, ExecuteMachineRequest, ExecutionLimits, InstanceId, InstanceTurn,
     LaunchMachineRequest, MachineShape, MemoryStateStore, OciImage, OperationId, StateRecord,
     StateRevision, StateStore, StateStoreFailure, StateStoreFailureKind, StoredState,
 };
@@ -69,6 +69,10 @@ impl StateStore for FailingCasStore {
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
         self.inner.list()
     }
+
+    fn turn(&self, instance_id: &InstanceId) -> Result<InstanceTurn, StateStoreFailure> {
+        self.inner.turn(instance_id)
+    }
 }
 
 pub(super) struct StaticStore {
@@ -113,6 +117,11 @@ impl StateStore for StaticStore {
 
     fn list(&mut self) -> Result<Vec<InstanceId>, StateStoreFailure> {
         Ok(Vec::new())
+    }
+
+    /// One caller reads this store at a time, so there is no turn to wait for.
+    fn turn(&self, _instance_id: &InstanceId) -> Result<InstanceTurn, StateStoreFailure> {
+        Ok(InstanceTurn::new(()))
     }
 }
 

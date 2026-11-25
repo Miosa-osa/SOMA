@@ -5,6 +5,7 @@ mod recovery;
 mod release;
 #[cfg(unix)]
 mod security;
+mod turn;
 
 use soma::{InstanceId, StateRecord};
 

@@ -34,6 +34,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         &mut self,
         request: PtyMachineRequest,
     ) -> Result<MachinePty, ManagedFailure> {
+        let _turn = self.take_turn(&request.instance_id)?;
         self.admit_operation(&request.instance_id)?;
         let observation = self
             .backend
