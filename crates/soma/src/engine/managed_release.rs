@@ -13,7 +13,7 @@ use crate::{Backend, InstanceId, OperationKind, StateStore};
 
 use super::{
     Engine, ManagedFailure,
-    machine_state::{DurablePhase, TerminalBasis},
+    machine_state::{DurableMachine, DurablePhase, TerminalBasis},
     managed_list::is_unreadable_record,
     managed_state::store_failure,
 };
@@ -108,14 +108,28 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         let Some(stored) = self.load_machine(instance_id)? else {
             return Ok(MachineRelease::Absent);
         };
-        if !matches!(stored.machine.phase, DurablePhase::Terminal { .. }) {
+        if !self.owes_nothing(&stored.machine)? {
             return Ok(MachineRelease::Kept);
         }
-        if let DurablePhase::Terminal {
-            operation: OperationKind::Stop,
-            basis,
-            ..
-        } = &stored.machine.phase
+        self.state
+            .release(instance_id, stored.revision)
+            .map_err(store_failure)?;
+        Ok(MachineRelease::Released)
+    }
+
+    /// Whether a record is terminal and holds nothing the Instance could still need: the rule a
+    /// release applies, and the one that lets a new create replace the record at once.
+    pub(super) fn owes_nothing(
+        &mut self,
+        machine: &DurableMachine,
+    ) -> Result<bool, ManagedFailure> {
+        let DurablePhase::Terminal {
+            operation, basis, ..
+        } = &machine.phase
+        else {
+            return Ok(false);
+        };
+        if *operation == OperationKind::Stop
             && let TerminalBasis::Active { active } = basis.as_ref()
             && let Some(generation) = active
                 .workload()
@@ -123,14 +137,11 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             && active.backend() == self.backend.kind()
             && self
                 .backend
-                .retains_stopped_checkpoint(instance_id, generation)
+                .retains_stopped_checkpoint(&machine.instance_id, generation)
                 .map_err(|failure| ManagedFailure::Backend(failure.kind()))?
         {
-            return Ok(MachineRelease::Kept);
+            return Ok(false);
         }
-        self.state
-            .release(instance_id, stored.revision)
-            .map_err(store_failure)?;
-        Ok(MachineRelease::Released)
+        Ok(true)
     }
 }
