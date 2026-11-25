@@ -1,5 +1,6 @@
 mod admission;
 mod mode;
+mod never_launched;
 mod receipt;
 
 use std::path::Path;
@@ -92,6 +93,19 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             TerminationAdmission::Replay(receipt) => return Ok(receipt),
             TerminationAdmission::AlreadyEnded(context) => {
                 return self.record_ended_destroy(operation_id, instance_id, mode, context);
+            }
+            TerminationAdmission::NeverLaunched {
+                revision,
+                intent,
+                cleaned,
+            } => {
+                return self.destroy_never_launched(
+                    operation_id,
+                    instance_id,
+                    revision,
+                    *intent,
+                    cleaned,
+                );
             }
         };
         let mut milestones = vec![Milestone::new(MilestoneKind::Accepted, 0)];

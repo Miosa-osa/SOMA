@@ -43,4 +43,7 @@ pub enum Mode {
     Signaled,
     GracefulFallback,
     UnverifiedNetworkDenial,
+    /// Every call succeeds, but the backend reports the machine's host gone, as after its worker
+    /// was killed.
+    Crashed,
 }
