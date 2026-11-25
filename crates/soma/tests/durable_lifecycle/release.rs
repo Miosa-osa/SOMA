@@ -161,3 +161,68 @@ fn a_long_run_of_create_and_destroy_with_release_leaves_the_store_empty() {
         assert!(store.list().expect("list").is_empty(), "cycle {cycle}");
     }
 }
+
+/// SOMA#223: a destroyed Instance's identity is free for a new create at once, not only after
+/// the retention sweep released its record.
+#[test]
+fn a_destroyed_identity_may_be_created_again_before_its_record_is_released() {
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::with_state_store(backend, MemoryStateStore::new());
+    engine
+        .launch_machine(launch_request(operation('1'), instance()))
+        .expect("launch");
+    engine
+        .destroy_machine(destroy('2', instance()))
+        .expect("destroy");
+
+    engine
+        .launch_machine(launch_request(operation('3'), instance()))
+        .expect("a new create reuses the destroyed identity");
+    assert!(
+        engine
+            .terminal_census()
+            .expect("census")
+            .terminal()
+            .is_empty(),
+        "the new create replaced the terminal record"
+    );
+}
+
+/// SOMA#223: a create the backend refused leaves no record that blocks the next create.
+#[test]
+fn a_failed_launch_does_not_block_the_next_create_of_the_same_identity() {
+    let (failing, _) = TestBackend::new(Mode::LaunchFailure);
+    let store = MemoryStateStore::new();
+    let mut refused = Engine::with_state_store(failing, store.clone());
+    assert!(matches!(
+        refused.launch_machine(launch_request(operation('1'), instance())),
+        Err(ManagedFailure::Operation(_))
+    ));
+
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::with_state_store(backend, store);
+    engine
+        .launch_machine(launch_request(operation('2'), instance()))
+        .expect("a create after a failed one reuses the identity");
+}
+
+/// An exact repeat of the operation that ended the record still reads that answer, so a retry
+/// after a lost reply cannot start a second machine.
+#[test]
+fn an_exact_repeat_of_a_failed_launch_still_replays_instead_of_launching() {
+    let (failing, _) = TestBackend::new(Mode::LaunchFailure);
+    let store = MemoryStateStore::new();
+    let mut refused = Engine::with_state_store(failing, store.clone());
+    assert!(
+        refused
+            .launch_machine(launch_request(operation('1'), instance()))
+            .is_err()
+    );
+
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::with_state_store(backend, store);
+    assert!(matches!(
+        engine.launch_machine(launch_request(operation('1'), instance())),
+        Err(ManagedFailure::ReplayUnavailable(_))
+    ));
+}

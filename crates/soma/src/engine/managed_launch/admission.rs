@@ -209,6 +209,24 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             DurablePhase::Active { .. } => Err(ManagedFailure::State(
                 ManagedStateError::MachineAlreadyExists,
             )),
+            // A destroyed Instance, or a launch that failed, ended with its cleanup complete: the
+            // record holds only the evidence an exact repeat replays, which the arm above still
+            // answers. A new operation takes the identity at once rather than after the retention
+            // sweep, and the swap is against the revision read, so a record that moved is kept.
+            DurablePhase::Terminal { operation_id, .. }
+                if operation_id != &request.operation_id
+                    && self.owes_nothing(&stored.machine)? =>
+            {
+                self.replace_machine(stored.revision, &pending)
+                    .map(|revision| LaunchAdmission::Proceed(revision, None))
+                    .map_err(|failure| {
+                        if is_store_conflict(&failure) {
+                            ManagedFailure::State(ManagedStateError::OperationConflict)
+                        } else {
+                            failure
+                        }
+                    })
+            }
             _ => Err(ManagedFailure::State(ManagedStateError::OperationConflict)),
         }
     }
