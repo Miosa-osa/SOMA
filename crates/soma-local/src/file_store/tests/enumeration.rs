@@ -1,6 +1,6 @@
 use std::fs;
 
-use soma::{StateStore, StateStoreFailureKind};
+use soma::StateStore;
 
 use super::{FileStateStore, TempRoot, instance, record};
 use crate::file_store::MACHINE_HOST_DIRECTORY;
@@ -32,16 +32,19 @@ fn records_are_listed_beside_the_machine_directory() {
     assert_eq!(store.list().expect("listed"), vec![instance()]);
 }
 
+/// SOMA#228: a stray name is skipped (and reported on the service's log), and the records beside
+/// it are still listed. Failing the whole enumeration made every listing on the host fail.
 #[test]
-fn any_other_stray_name_is_still_a_corruption() {
+fn a_stray_name_is_skipped_and_the_records_beside_it_are_still_listed() {
     let root = TempRoot::new("stray");
     let mut store = FileStateStore::open(root.path()).expect("open state store");
+    store
+        .create(&instance(), record(b"active"))
+        .expect("create state");
     fs::create_dir_all(root.path().join("not-an-instance")).expect("stray directory");
+    fs::write(root.path().join("autosize.json"), b"{}").expect("stray file");
 
-    assert_eq!(
-        store.list().expect_err("a stray name").kind(),
-        StateStoreFailureKind::Corrupt
-    );
+    assert_eq!(store.list().expect("listed"), vec![instance()]);
 }
 
 #[test]
@@ -59,18 +62,12 @@ fn the_persisted_prewarm_set_is_not_a_corruption() {
 }
 
 #[test]
-fn a_link_or_directory_under_the_prewarm_name_is_still_a_corruption() {
+fn a_directory_under_the_prewarm_name_is_skipped_and_never_listed() {
     let root = TempRoot::new("prewarm-link");
     let mut store = FileStateStore::open(root.path()).expect("open state store");
     fs::create_dir_all(root.path().join(PERSISTED_FILE)).expect("a directory by that name");
 
-    assert_eq!(
-        store
-            .list()
-            .expect_err("a directory is not the file")
-            .kind(),
-        StateStoreFailureKind::Corrupt
-    );
+    assert!(store.list().expect("listed").is_empty());
 }
 
 #[test]

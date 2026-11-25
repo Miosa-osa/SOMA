@@ -6,18 +6,24 @@
 //! is still not in it, so the honest description is "the identities that existed while this ran",
 //! and the caller reads each record back under its own lock before reporting anything about it.
 //!
-//! A name that is not an Instance identity and is not one of the root's known entries (the store's
-//! locks, the hosted machines' sockets, the sealed Suspensions, the HTTP service's own directory,
-//! and the persisted prewarm set with its temporary file) is a
-//! corruption rather than something to skip. Skipping it would make a store somebody wrote a stray file into report a smaller set of
-//! sandboxes than it holds, silently.
+//! The root's known entries (the store's locks, the hosted machines' sockets, the sealed
+//! Suspensions, the HTTP service's own directory, and the persisted prewarm set with its temporary
+//! file) are not records. Any other
+//! name that is not an Instance record directory is skipped rather than failing the whole read:
+//! one stray file once made every listing on its host fail (SOMA#228). It is not skipped
+//! silently; the first time this process meets it, it is named on the service's log.
 
-use std::{fs, path::Path};
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Mutex, PoisonError},
+};
 
 use soma::{InstanceId, StateStoreFailure};
 
 use super::{
-    failure::{corrupt, unavailable},
+    failure::unavailable,
     layout::{LOCK_DIRECTORY, MACHINE_HOST_DIRECTORY, SERVICE_DIRECTORY, SUSPENSION_DIRECTORY},
 };
 use crate::prewarm::PERSISTED_FILE;
@@ -28,7 +34,8 @@ pub(super) fn instance_identities(root: &Path) -> Result<Vec<InstanceId>, StateS
         let entry = entry.map_err(|_| unavailable())?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
-            return Err(corrupt());
+            report_stray(&entry.path());
+            continue;
         };
         if [
             LOCK_DIRECTORY,
@@ -42,17 +49,34 @@ pub(super) fn instance_identities(root: &Path) -> Result<Vec<InstanceId>, StateS
         }
         let file_type = entry.file_type().map_err(|_| unavailable())?;
         // The desired prewarm set lives beside the records (ADR 0052). It is a plain file, written
-        // through a temporary name, and is not a record; a link by either name is still a stray.
-        if name == PERSISTED_FILE || name.strip_suffix(".tmp") == Some(PERSISTED_FILE) {
-            if file_type.is_file() {
-                continue;
+        // through a temporary name, and is not a record.
+        if (name == PERSISTED_FILE || name.strip_suffix(".tmp") == Some(PERSISTED_FILE))
+            && file_type.is_file()
+        {
+            continue;
+        }
+        match InstanceId::new(name.to_owned()) {
+            Ok(identity) if file_type.is_dir() && !file_type.is_symlink() => {
+                identities.push(identity);
             }
-            return Err(corrupt());
+            _ => report_stray(&entry.path()),
         }
-        if file_type.is_symlink() || !file_type.is_dir() {
-            return Err(corrupt());
-        }
-        identities.push(InstanceId::new(name.to_owned()).map_err(|_| corrupt())?);
     }
     Ok(identities)
+}
+
+/// Names a stray entry on the service's log, once per process, so a listing that skips it every
+/// minute does not repeat it every minute.
+fn report_stray(path: &Path) {
+    static REPORTED: Mutex<BTreeSet<PathBuf>> = Mutex::new(BTreeSet::new());
+    let first = REPORTED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(path.to_path_buf());
+    if first {
+        eprintln!(
+            "soma: {} is not a sandbox record; listings skip it",
+            path.display()
+        );
+    }
 }
