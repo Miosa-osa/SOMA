@@ -138,3 +138,41 @@ fn a_crashed_machine_reads_as_stopped_and_the_read_writes_nothing() {
         "the read wrote nothing"
     );
 }
+
+/// A create the backend refused never made a sandbox, so reading it answers that there is none
+/// rather than a conflict, while its record still replays an exact repeat.
+#[test]
+fn a_failed_launch_reads_as_no_sandbox() {
+    let (backend, _) = TestBackend::new(Mode::LaunchFailure);
+    let mut engine = Engine::with_state_store(backend, soma::MemoryStateStore::new());
+    assert!(
+        engine
+            .launch_machine(launch_request(operation('1'), instance()))
+            .is_err()
+    );
+    assert_eq!(
+        engine
+            .inspect_machine(soma::InspectMachineRequest::new(operation('2'), instance()))
+            .expect_err("no sandbox"),
+        ManagedFailure::State(ManagedStateError::MachineNotFound)
+    );
+}
+
+/// A destroyed sandbox is gone, so reading it answers that there is none rather than a conflict.
+#[test]
+fn a_destroyed_sandbox_reads_as_no_sandbox() {
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::with_state_store(backend, soma::MemoryStateStore::new());
+    engine
+        .launch_machine(launch_request(operation('1'), instance()))
+        .expect("launch");
+    engine
+        .destroy_machine(soma::DestroyMachineRequest::new(operation('2'), instance()))
+        .expect("destroy");
+    assert_eq!(
+        engine
+            .inspect_machine(soma::InspectMachineRequest::new(operation('3'), instance()))
+            .expect_err("no sandbox"),
+        ManagedFailure::State(ManagedStateError::MachineNotFound)
+    );
+}
