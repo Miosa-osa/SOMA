@@ -110,6 +110,10 @@ fn held_elsewhere(file: &fs::File) -> io::Result<bool> {
 
 /// Without a process table to read, nothing proves the file unused, so a takeover is refused.
 #[cfg(not(target_os = "linux"))]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the Linux scan, so the caller is one shape on every host"
+)]
 fn held_elsewhere(_file: &fs::File) -> io::Result<bool> {
     Ok(true)
 }
