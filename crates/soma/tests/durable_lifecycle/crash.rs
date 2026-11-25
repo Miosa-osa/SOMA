@@ -176,3 +176,22 @@ fn a_destroyed_sandbox_reads_as_no_sandbox() {
         ManagedFailure::State(ManagedStateError::MachineNotFound)
     );
 }
+
+/// The platform reads a stopped sandbox's state to show it and to start it again, so a stopped
+/// sandbox reads as stopped rather than as a conflict.
+#[test]
+fn a_stopped_sandbox_reads_as_stopped() {
+    let (backend, _) = TestBackend::new(Mode::Happy);
+    let mut engine = Engine::with_state_store(backend, soma::MemoryStateStore::new());
+    engine
+        .launch_machine(launch_request(operation('1'), instance()))
+        .expect("launch");
+    engine
+        .stop_machine(StopMachineRequest::new(operation('2'), instance()))
+        .expect("stop");
+    let inspection = engine
+        .inspect_machine(soma::InspectMachineRequest::new(operation('3'), instance()))
+        .expect("a stopped sandbox is read");
+    assert_eq!(inspection.state(), soma::MachineState::Stopped);
+    assert!(!inspection.machine_lost(), "a stop is not a lost machine");
+}
