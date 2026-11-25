@@ -50,16 +50,14 @@ pub(super) fn open_locked(
     if !info.is_file() || info.len() != capacity.get() {
         return Err(BackendFailureKind::WorkloadRejected);
     }
-    match file.try_lock() {
-        Ok(()) => {}
-        Err(std::fs::TryLockError::WouldBlock) => {
-            return Err(BackendFailureKind::ResourceConflict);
+    // A store operation holds the lock for a moment; a live machine holds it for good (SOMA#234).
+    match soma_vmm::sandbox::lock_volume(&file, path, soma_vmm::sandbox::VOLUME_LOCK_WAIT) {
+        Ok(()) => Ok(file),
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+            Err(BackendFailureKind::ResourceConflict)
         }
-        Err(std::fs::TryLockError::Error(_)) => {
-            return Err(BackendFailureKind::Unavailable);
-        }
+        Err(_) => Err(BackendFailureKind::Unavailable),
     }
-    Ok(file)
 }
 
 pub(super) struct RecoveryWorkspace {

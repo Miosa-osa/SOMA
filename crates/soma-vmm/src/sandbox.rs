@@ -35,6 +35,7 @@ mod sterile;
 mod timeline;
 mod volume;
 mod workspace;
+pub use volume::{VOLUME_LOCK_WAIT, lock_volume};
 pub use workspace::WorkspaceChange;
 mod worker;
 
