@@ -25,7 +25,7 @@ use guest::measure;
 
 pub use decide::{Policy, Sample};
 pub use route::{AutosizeBody, serve};
-pub use saved::{FILE as SAVED_FILE, remember_in};
+pub use saved::{FILE as SAVED_FILE, adopt_legacy, remember_in};
 
 use crate::facade::SandboxFacade;
 

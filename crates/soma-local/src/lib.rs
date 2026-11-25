@@ -188,7 +188,7 @@ pub const fn host_machine(_expected_socket: Option<&std::path::Path>) -> i32 {
 }
 pub use config::LocalRuntimeConfig;
 pub use error::{LocalFailure, LocalFailureKind};
-pub use file_store::FileStateStore;
+pub use file_store::{FileStateStore, SERVICE_DIRECTORY};
 pub use runtime::LocalRuntime;
 pub use suspension::{
     RESUME_GENERATION_FILE, ResumeRequest, SuspendRequest, Suspended, SuspensionFailure,

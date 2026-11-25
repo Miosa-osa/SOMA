@@ -72,3 +72,12 @@ fn a_link_or_directory_under_the_prewarm_name_is_still_a_corruption() {
         StateStoreFailureKind::Corrupt
     );
 }
+
+#[test]
+fn the_service_directory_is_not_a_record() {
+    let root = TempRoot::new("service");
+    let mut store = FileStateStore::open(root.path()).expect("open state store");
+    fs::create_dir_all(root.path().join(crate::file_store::SERVICE_DIRECTORY)).expect("service");
+
+    assert!(store.list().expect("listed").is_empty());
+}
