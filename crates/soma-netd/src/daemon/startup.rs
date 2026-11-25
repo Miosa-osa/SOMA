@@ -17,6 +17,12 @@ use crate::{
 /// able to name one of its own. A failure to decide must not stop egress brokering, so it is
 /// reported and the daemon starts anyway.
 pub(super) fn plan_reap(broker: &Broker) -> ReapPlan {
+    // What the ledger still names keeps its addresses and zone; this process must not hand them
+    // out again before it builds its first bundle (SOMA#238).
+    match broker.reserve_assigned() {
+        Ok(reserved) => eprintln!("soma-netd: start reserved {reserved} assigned bundle(s)"),
+        Err(error) => eprintln!("soma-netd: start could not reserve assigned bundles: {error}"),
+    }
     match reap_plan(broker) {
         Ok(plan) => plan,
         Err(error) => {
