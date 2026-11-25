@@ -10,6 +10,8 @@ pub(super) const LOCK_DIRECTORY: &str = ".locks";
 pub(crate) const MACHINE_HOST_DIRECTORY: &str = "machines";
 /// The sealed Suspensions of this host and their staging (ADR 0034); not a record.
 pub(crate) const SUSPENSION_DIRECTORY: &str = "suspensions";
+/// What the HTTP service keeps beside the records (its saved sizing, for one); not a record.
+pub const SERVICE_DIRECTORY: &str = "api";
 const REVISION_DIGITS: usize = 20;
 const REVISION_SUFFIX: &str = ".state";
 const TEMP_PID_DIGITS: usize = 10;

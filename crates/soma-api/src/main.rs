@@ -146,6 +146,7 @@ fn run() -> i32 {
     {
         return code;
     }
+    soma_api::autosize::adopt_legacy(config.state_root());
     let restored =
         soma_api::autosize::remember_in(config.state_root().join(soma_api::autosize::SAVED_FILE));
     if restored > 0 {
