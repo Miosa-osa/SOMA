@@ -13,7 +13,7 @@ use create::{create, lifecycle};
 use support::{control_body, optional_body, parse, refuse, success};
 use volume::binding as volume_binding;
 
-use soma::ExecutionReceipt;
+use soma::{ExecutionReceipt, MachineState};
 
 use crate::{
     capability::MissingCapability,
@@ -80,6 +80,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                     instance_id: snapshot.instance_id,
                     state: snapshot.state,
                     backend: snapshot.backend,
+                    reason: (snapshot.state == MachineState::Stopped).then_some("machine_lost"),
                 },
                 Some(&snapshot.receipt),
             ))

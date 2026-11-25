@@ -1,6 +1,7 @@
 use crate::{
     Backend, CleanupEvidence, MeasurementClass, Milestone, MilestoneKind, Observation,
-    ObservationUnavailable, OperationKind, StateStore, TerminalStatus, WorkloadEvidence,
+    ObservationUnavailable, OperationKind, SandboxLiveness, StateStore, TerminalStatus,
+    WorkloadEvidence,
 };
 
 use super::{
@@ -56,6 +57,12 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
             active.shape(),
         )) {
             Ok(observation) => observation,
+            // The machine is gone. A caller that restarts a stopped sandbox has to be told so,
+            // not handed a backend failure it cannot act on. Nothing is written: the record is
+            // released by the stop or create the caller sends next.
+            Err(_) if self.backend.liveness(&request.instance_id) == SandboxLiveness::Absent => {
+                return Ok(lost_machine(&request, &active, fingerprint));
+            }
             Err(failure) => {
                 let kind = if append_failure(&mut milestones, failure) {
                     RunFailureKind::Backend {
@@ -112,6 +119,28 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         );
         Ok(MachineInspection { state, receipt })
     }
+}
+
+/// What an inspection answers for a machine whose host is gone: stopped, and nothing written.
+fn lost_machine(
+    request: &InspectMachineRequest,
+    active: &ActiveMachine,
+    fingerprint: crate::RequestFingerprint,
+) -> MachineInspection {
+    let state = crate::MachineState::Stopped;
+    let milestones = vec![
+        Milestone::new(MilestoneKind::Accepted, 0),
+        Milestone::new(MilestoneKind::Inspected, 0),
+    ];
+    let receipt = inspection_receipt(
+        request,
+        active,
+        fingerprint,
+        milestones,
+        TerminalStatus::Inspected { state },
+        None,
+    );
+    MachineInspection { state, receipt }
 }
 
 fn inspection_receipt(

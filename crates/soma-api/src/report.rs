@@ -58,6 +58,10 @@ pub struct InspectionReport {
     pub instance_id: InstanceId,
     pub state: MachineState,
     pub backend: BackendKind,
+    /// Why a sandbox the caller did not stop reads `stopped`: `machine_lost`, when its machine is
+    /// gone. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
 }
 
 /// One sandbox in a listing.

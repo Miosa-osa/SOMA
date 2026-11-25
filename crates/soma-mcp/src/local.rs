@@ -237,6 +237,7 @@ const fn machine_state(state: soma::MachineState) -> MachineState {
         soma::MachineState::Ready => MachineState::Ready,
         soma::MachineState::Paused => MachineState::Paused,
         soma::MachineState::Stopping => MachineState::Stopping,
+        soma::MachineState::Stopped => MachineState::Stopped,
     }
 }
 

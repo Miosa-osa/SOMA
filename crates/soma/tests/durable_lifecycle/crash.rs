@@ -113,3 +113,28 @@ fn a_second_stop_answers_like_the_first() {
         .expect("a second stop is not a conflict");
     assert_eq!(first.receipt(), second.receipt());
 }
+
+/// SOMA#220: a running machine whose worker died reads as stopped, and the read changes nothing,
+/// so the platform restarts it and the restart's create releases the record.
+#[test]
+fn a_crashed_machine_reads_as_stopped_and_the_read_writes_nothing() {
+    use soma::StateStore as _;
+    let mut store = soma::MemoryStateStore::new();
+    let (live, _) = TestBackend::new(Mode::Happy);
+    Engine::with_state_store(live, store.clone())
+        .launch_machine(launch_request(operation('1'), instance()))
+        .expect("launch");
+    let before = store.load(&instance()).expect("load");
+
+    let (crashed, _) = TestBackend::new(Mode::Crashed);
+    let mut engine = Engine::with_state_store(crashed, store.clone());
+    let inspection = engine
+        .inspect_machine(soma::InspectMachineRequest::new(operation('2'), instance()))
+        .expect("a lost machine is answered, not failed");
+    assert_eq!(format!("{:?}", inspection.state()), "Stopped");
+    assert_eq!(
+        store.load(&instance()).expect("load"),
+        before,
+        "the read wrote nothing"
+    );
+}

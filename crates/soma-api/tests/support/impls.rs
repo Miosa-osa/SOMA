@@ -51,7 +51,11 @@ impl SandboxFacade for FakeFacade {
         let receipt = receipt();
         Ok(SandboxSnapshot {
             instance_id: receipt.instance_id().clone(),
-            state: MachineState::Ready,
+            state: if self.mode == Mode::Lost {
+                MachineState::Stopped
+            } else {
+                MachineState::Ready
+            },
             backend: receipt.backend(),
             receipt,
         })
