@@ -61,7 +61,15 @@ impl<F: SandboxFacade + ?Sized> TerminalRecords for F {
     }
 
     fn release(&mut self, instance_id: &InstanceId) -> Result<MachineRelease, ManagedFailure> {
-        SandboxFacade::release(self, instance_id)
+        let released = SandboxFacade::release(self, instance_id)?;
+        // A released identity reads as never created, so the tenant that owned it holds it no
+        // longer either.
+        if released != MachineRelease::Kept
+            && let Some(owners) = self.owners()
+        {
+            let _ignored = owners.forget(crate::owners::Resource::Sandbox, instance_id.as_str());
+        }
+        Ok(released)
     }
 }
 

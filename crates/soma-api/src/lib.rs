@@ -11,6 +11,7 @@ pub mod filesystem;
 pub mod handler;
 pub mod http;
 pub mod local;
+pub mod owners;
 pub mod pool;
 pub mod report;
 pub mod resources;

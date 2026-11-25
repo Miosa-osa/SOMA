@@ -130,6 +130,10 @@ impl SandboxFacade for FakeFacade {
 }
 
 impl SandboxStorage for FakeFacade {
+    fn owners(&self) -> Option<&soma_api::owners::Owners> {
+        Some(&self.owners)
+    }
+
     fn volume_binding(
         &mut self,
         instance: &str,

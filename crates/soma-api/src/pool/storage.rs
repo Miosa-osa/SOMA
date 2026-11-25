@@ -6,6 +6,10 @@ use super::FacadeLease;
 use crate::facade::{SandboxFacade, SandboxStorage};
 
 impl<F: SandboxFacade> SandboxStorage for FacadeLease<F> {
+    fn owners(&self) -> Option<&crate::owners::Owners> {
+        (**self).owners()
+    }
+
     fn checkpoint(
         &mut self,
         instance: &soma::InstanceId,
