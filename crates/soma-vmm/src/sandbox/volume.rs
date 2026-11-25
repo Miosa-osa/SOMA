@@ -14,17 +14,28 @@ use std::io;
 use std::os::unix::fs::OpenOptionsExt as _;
 use std::path::Path;
 
-/// Opens one volume file read-write, by the path the assignment carried.
+/// Opens one volume file read-write, by the path the assignment carried, and takes its exclusive
+/// lock for as long as the machine holds the descriptor.
+///
+/// The lock is the volume store's proof that a live machine owns the file: its destroy, detach and
+/// repair each try it first and refuse while it is held. The sealed launch path locks the same
+/// way before it hands the descriptor over.
 ///
 /// # Errors
 ///
-/// Returns the error of the failed open; the caller refuses the launch rather than proceeding.
+/// Returns the error of the failed open, or `WouldBlock` when another holder has the lock; the
+/// caller refuses the launch rather than proceeding.
 pub(super) fn open(path: &Path) -> io::Result<File> {
-    OpenOptions::new()
+    let file = OpenOptions::new()
         .read(true)
         .write(true)
         .custom_flags(libc::O_CLOEXEC)
-        .open(path)
+        .open(path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(io::ErrorKind::WouldBlock.into()),
+        Err(std::fs::TryLockError::Error(error)) => Err(error),
+    }
 }
 
 #[cfg(test)]
@@ -52,5 +63,28 @@ mod tests {
             open(&directory.path().join("absent.img")).is_err(),
             "a missing volume refuses the launch rather than serving an empty disk"
         );
+    }
+
+    #[test]
+    fn an_opened_volume_holds_the_store_lock_until_the_machine_lets_it_go() {
+        let directory = tempfile::tempdir().expect("temp dir");
+        let file = directory.path().join("volume.img");
+        std::fs::write(&file, b"a volume").expect("write");
+        let opened = open(&file).expect("opens");
+        // The volume store's destroy, detach and repair each take this same lock first, and
+        // refuse while a live machine holds it.
+        let store = std::fs::File::open(&file).expect("store handle");
+        assert!(
+            matches!(store.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
+            "a running machine's volume is locked against the store"
+        );
+        assert!(
+            open(&file).is_err(),
+            "a second machine is refused a volume another one holds"
+        );
+        drop(opened);
+        store
+            .try_lock()
+            .expect("the lock goes with the machine's descriptor");
     }
 }
