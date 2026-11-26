@@ -12,19 +12,19 @@ The change time moves on any write, resize, rename-over, or permission change an
 
 ## Decision
 
-A trusted broker hands the sealed worker an attestation for each restore input that nothing may write after publication: the checkpoint memory and the Generation root.
+A trusted broker hands the sealed worker an attestation for the checkpoint memory, the Generation root, and a private head it has just cloned from an attested saved overlay.
 An attestation is a digest and the stamp the file had when that digest was known to describe it.
 The worker skips a hash only when the descriptor it is about to map has that exact stamp and size and the attested digest equals the digest its record names.
 Any other case hashes the file exactly as before, so an absent, damaged, or stale attestation costs a hash and is never a refusal or a skip.
 The worker still compares the result with its record, so an attestation can only replace a read and cannot admit bytes the record does not name.
 
-The private writable head and the durable volume are never attested and are always hashed.
-They are writable by a running guest, so a stamp proves nothing about their content.
+The durable volume is never attested and is always hashed, because a running guest can write it and a stamp proves nothing about its content.
+A head created any other way, fresh from a Generation template or by a resume, is not attested and is hashed as before.
 
-### Checkpoint memory
+### Checkpoint memory and saved overlay
 
-Capture already writes the memory, syncs it, and reads it back against the manifest's memory digest before it reports success.
-After the directory rename that publishes the checkpoint, the broker records that digest with the file's stamp in `memory.attest`, without reading the memory again.
+Capture already writes the memory and the saved overlay, syncs each, and reads each back against the manifest's digest before it reports success.
+After the directory rename that publishes the checkpoint, the broker records each digest with the file's stamp in `memory.attest` and `overlay.attest`, without reading either again.
 A directory rename leaves the stamps of the files inside it unchanged on XFS and ext4.
 The record follows a fixed order.
 The file is synced first, which cleans and write-protects any shared mapping, so a later write through a mapping a writer kept moves the change time as a write call does.
@@ -41,10 +41,14 @@ The broker records the stamp of every artifact of a prepared Generation straight
 Launch already uses those admitted handles without re-reading them, because only the installer may write the store.
 The root attestation is the root's descriptor digest with its admission stamp, so a restore skips the root read only when the root has not changed since admission.
 
-### Saved overlay
+### Private head
 
-The saved overlay is not hashed at restore today, so there is nothing to skip.
-Restore hashes the private head, a reflink clone of the saved overlay the broker made for this restore, and the head stays hashed under this decision.
+Restore hashes the private head, a reflink clone of the saved overlay; the saved overlay itself is never hashed at restore.
+The broker clones the head, then checks in the same step that the saved overlay still has its recorded stamp, so the clone carried the recorded bytes.
+It vouches for the head with the overlay's digest and the head's own stamp, taken after the head is unlinked and before any descriptor reaches the worker.
+The worker skips the head hash only when the head descriptor has exactly that stamp and the digest equals the one the manifest expects for the overlay.
+Without an overlay record, or when the saved overlay's stamp has moved, the head is hashed as before.
+Only the broker holds the unlinked head until the worker has checked it, and any write to the head after the broker's stamp moves the stamp, so the head is then hashed and refused.
 
 ### Transport
 
@@ -56,7 +60,7 @@ The stamp type is shared with the Generation admission ledger, and the ledger's 
 ## Trust
 
 A record is trusted exactly as far as the directory it describes.
-Only the broker can write the checkpoint directory, and only the installer can write the Generation store; the worker receives descriptors and never a path.
+Only the broker can write the checkpoint directory and an unlinked head, and only the installer can write the Generation store; the worker receives descriptors and never a path.
 Whoever can write a record can already write the file it describes, so a record grants no new authority.
 A writer that keeps a descriptor to a recorded file moves the change time with any later write, so its file is hashed.
 This relies on the filesystem updating file times on shared-mapping writes, which XFS and ext4 do through their page-write fault handlers and tmpfs does not.
@@ -66,6 +70,6 @@ Neither record detects silent media corruption after it is made, which a restore
 ## Consequences
 
 Capture pays no extra read: the broker's record costs a sync and two stats.
-Every restore and fork of an unchanged memory file and root skips both reads.
-The private head and the durable volume are still hashed on every restore.
+Every restore and fork of an unchanged memory file, root, and saved overlay skips all three reads.
+The durable volume is still hashed on every restore.
 A checkpoint imported from another host has no memory record and is hashed on every restore.
