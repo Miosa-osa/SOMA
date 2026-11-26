@@ -104,14 +104,15 @@ impl KvmBackend {
         shape: &MachineShape,
         extras: LaunchExtras<'_>,
     ) -> Result<Launched, BackendFailure> {
+        let volume = super::scratch_volume::resolve(&extras, instance, prepared)
+            .map_err(|kind| self.fail(operation, kind))?;
         let LaunchExtras {
-            volume,
             windowed,
             checkpoint,
             resume,
+            ..
         } = extras;
-        // A jailed worker is handed its machine's descriptors by a protocol that carries no
-        // Suspension yet, so a resume there is refused rather than served by a fresh machine.
+        // A jailed worker is given descriptors by a protocol with no Suspension: no resume there.
         if resume.is_some() && (self.jail.is_some() || checkpoint.is_some()) {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
@@ -224,8 +225,7 @@ impl KvmBackend {
             storage_mib: shape.storage_mib(),
             network,
             secrets: Vec::new(),
-            // The volume the host resolved, when the Generation declares one; a machine given
-            // none refuses to start rather than serve an empty disk.
+            // The volume the host resolved, or the scratch disk (`scratch_volume`).
             volume,
             checkpoint,
             resume,

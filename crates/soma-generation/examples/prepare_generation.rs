@@ -23,10 +23,10 @@
 //! hotplug region as the ceiling minus the boot memory, and it must be above the boot memory.
 //! Without it the Generation is built with no memory device and cannot be resized in memory.
 //!
-//! `SOMA_PREPARE_PERSISTENCE=1` declares the durable data volume: it targets compiler profile
-//! version 4, whose manifest carries the persistence group and the class the volume is created
-//! at, so a capture of this Generation declares the device and every launch of it binds a file
-//! of the same class. Nothing about a shape implies it, so it is a setting rather than a rule.
+//! Every Generation declares the durable data volume unless `SOMA_PREPARE_PERSISTENCE=0` says
+//! otherwise (SOMA#262): the disk is part of every instance, not a feature of one image. A small
+//! machine targets compiler profile version 4; the fixed-memory machines (versions 5 to 8)
+//! declare it under their own policy, whose manifest already carries the persistence group.
 //!
 //! Usage:
 //!
@@ -103,17 +103,13 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
         _ => return Err("SOMA_PREPARE_COMPILER_POLICY must be 8 when set".into()),
     };
     let profile = if guest_cache {
-        if persistence || args.inputs.ceiling_mib.is_some() {
-            return Err(
-                "compiler policy 8 requires fixed memory and an ephemeral writable disk".into(),
-            );
+        if args.inputs.ceiling_mib.is_some() {
+            return Err("compiler policy 8 requires fixed memory".into());
         }
         CompilerProfile::v8()
     } else if large_storage || large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
-        if persistence || args.inputs.ceiling_mib.is_some() {
-            return Err(
-                "the requested machine uses fixed memory and an ephemeral writable disk".into(),
-            );
+        if args.inputs.ceiling_mib.is_some() {
+            return Err("the requested machine uses fixed memory".into());
         }
         if large_storage {
             CompilerProfile::v7()
@@ -131,6 +127,13 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
     } else {
         CompilerProfile::v1()
     };
+    // Every instance takes its own disk (SOMA#262): the fixed-memory machines declare the volume
+    // under their own policy, whose manifest already carries the persistence group.
+    let profile = if persistence && profile.policy_version > 4 {
+        profile.with_persistence()
+    } else {
+        profile
+    };
     Ok((shape, profile))
 }
 
@@ -146,8 +149,8 @@ pub(crate) fn persistence_requested() -> Result<bool, String> {
 /// The same reading of one configured value, so the rule is testable without the environment.
 pub(crate) fn persistence_from(configured: Option<&str>) -> Result<bool, String> {
     match configured {
-        None | Some("" | "0" | "false") => Ok(false),
-        Some("1" | "true") => Ok(true),
+        Some("0" | "false") => Ok(false),
+        None | Some("" | "1" | "true") => Ok(true),
         Some(other) => Err(format!(
             "SOMA_PREPARE_PERSISTENCE must be 1 or 0, got {other:?}"
         )),

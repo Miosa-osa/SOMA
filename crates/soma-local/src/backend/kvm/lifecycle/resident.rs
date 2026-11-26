@@ -147,6 +147,7 @@ impl KvmBackend {
         let Live {
             held, mut egress, ..
         } = live;
+        super::super::scratch_volume::remove(instance);
         let method = held
             .release(instance, matches!(force, Force::Immediately))
             .ok();
