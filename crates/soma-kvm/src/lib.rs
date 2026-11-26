@@ -72,9 +72,10 @@ pub use cmdline::{
     compose_generation_for as generation_command_line_for,
 };
 pub use contract::{
-    MEMORY_STEP_BYTES, MIN_MEMORY_BYTES, MachineContract, UnknownContractVersion,
-    V1_MAX_MEMORY_BYTES, V1_MAX_VCPUS, V2_MAX_MEMORY_BYTES, V2_MAX_VCPUS, V4_MAX_VCPUS,
-    V5_MAX_MEMORY_BYTES,
+    Firmware, MEMORY_STEP_BYTES, MIN_MEMORY_BYTES, MachineContract, UEFI_V1_MAX_MEMORY_BYTES,
+    UEFI_V1_MAX_VCPUS, UEFI_V1_MIN_MEMORY_BYTES, UEFI_V1_VERSION, UefiContract,
+    UnknownContractVersion, V1_MAX_MEMORY_BYTES, V1_MAX_VCPUS, V2_MAX_MEMORY_BYTES, V2_MAX_VCPUS,
+    V4_MAX_VCPUS, V5_MAX_MEMORY_BYTES,
 };
 
 pub use virtio::{
