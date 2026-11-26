@@ -21,7 +21,9 @@
 //! `SOMA_PREPARE_CEILING_MIB` declares the live-resize machine: the most guest memory the
 //! Generation can ever have. It targets compiler profile version 3, whose manifest records the
 //! hotplug region as the ceiling minus the boot memory, and it must be above the boot memory.
-//! Without it the Generation is built with no memory device and cannot be resized in memory.
+//! Without it the Generation is built with no memory device and cannot be resized in memory,
+//! and a persistent Generation (version 4, which always carries the device) is refused: its
+//! growth range would otherwise be the profile's 1 GiB default.
 //!
 //! `SOMA_PREPARE_PERSISTENCE=1` declares the durable data volume: it targets compiler profile
 //! version 4, whose manifest carries the persistence group and the class the volume is created
@@ -81,6 +83,30 @@ struct Args {
     network: bool,
 }
 
+/// Refuses a profile whose machine carries the memory device when no ceiling was named.
+///
+/// Without one the region would be the profile's default, and the Generation could never grow
+/// past its boot memory by more than that, whatever size it is later sold at.
+fn require_ceiling(profile: &CompilerProfile, ceiling_mib: Option<u64>) -> Result<(), String> {
+    if profile.hotplug_bytes == 0 {
+        return Ok(());
+    }
+    let most_mib = profile.machine_contract.max_memory_bytes() / MIB;
+    match ceiling_mib {
+        None => Err(format!(
+            "compiler profile version {} builds a machine that can grow its memory: name the most \
+             it may ever hold with SOMA_PREPARE_CEILING_MIB (at most {most_mib} MiB)",
+            profile.policy_version
+        )),
+        // Refused here rather than after the whole build, at certification.
+        Some(ceiling) if ceiling > most_mib => Err(format!(
+            "SOMA_PREPARE_CEILING_MIB {ceiling} is above the {most_mib} MiB its machine contract \
+             can hold"
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
 /// The shape and compiler profile this invocation builds.
 ///
 /// A shape above one vCPU or three gigabytes is the version 2 machine, which is the same rule
@@ -131,6 +157,7 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
     } else {
         CompilerProfile::v1()
     };
+    require_ceiling(&profile, args.inputs.ceiling_mib)?;
     Ok((shape, profile))
 }
 

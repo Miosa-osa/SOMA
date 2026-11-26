@@ -51,6 +51,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Every desktop can grow to the most its machine contract holds (16 GiB for the persistent machine),
+# whatever size it boots at. A memory device region that is declared but not plugged costs the guest
+# and the host nothing: the host mapping is lazily populated and the guest adds memory blocks only as
+# they are plugged.
+CEILING_MIB=16384
 case "$SHAPE" in
     small) VCPUS=2 MEMORY_MIB=4096 STORAGE_MIB=20480 ;;
     medium) VCPUS=4 MEMORY_MIB=8192 STORAGE_MIB=20480 ;;
@@ -85,6 +90,7 @@ SOMA_KERNEL="$KERNEL" \
 SOMA_IMAGE_SOURCE="docker-archive:$ARCHIVE" \
 SOMA_PREPARE_VCPUS="$VCPUS" \
 SOMA_PREPARE_NETWORK=public_internet \
+SOMA_PREPARE_CEILING_MIB="${SOMA_PREPARE_CEILING_MIB:-$CEILING_MIB}" \
 SOMA_ALLOW_COLD_BOOT_ENTRY=1 \
 SOMA_CAPTURE_WARM="${SOMA_CAPTURE_WARM-/bin/sh /usr/local/libexec/soma-desktop/warm-pages.sh}" \
     ./scripts/prepare-generation.sh "$REFERENCE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB"

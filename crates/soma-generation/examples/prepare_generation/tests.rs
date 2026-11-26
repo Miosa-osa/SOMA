@@ -2,8 +2,8 @@
 
 use soma_generation::CompilerProfile;
 
-use super::persistence_from;
 use super::{Args, BuildInputs, DEFAULT_MEMORY_MIB, DEFAULT_STORAGE_MIB, MIB, admit_storage};
+use super::{persistence_from, require_ceiling};
 
 fn args(vcpus: u16, memory_mib: u64, storage_mib: u64) -> Args {
     Args {
@@ -90,4 +90,27 @@ fn the_persistence_policy_is_asked_for_rather_than_implied() {
         assert_eq!(persistence_from(value), Ok(true), "value {value:?}");
     }
     assert!(persistence_from(Some("yes")).is_err());
+}
+
+/// A resizable machine built without a ceiling got the profile's 1 GiB default region, so the
+/// first desktop Generation (miosa-computer:small-3) could never be grown past 5 GiB.
+#[test]
+fn a_resizable_generation_must_name_its_ceiling() {
+    for profile in [CompilerProfile::v3(), CompilerProfile::v4()] {
+        let refused = require_ceiling(&profile, None).expect_err("no ceiling named");
+        assert!(refused.contains("SOMA_PREPARE_CEILING_MIB"), "{refused}");
+        assert_eq!(require_ceiling(&profile, Some(16 * 1024)), Ok(()));
+        // The certification refuses a ceiling above the machine contract (2026-11-26, small-4 at
+        // 32768); the prepare step names it before anything is built.
+        let above = require_ceiling(&profile, Some(32 * 1024)).expect_err("above the contract");
+        assert!(above.contains("16384 MiB"), "{above}");
+    }
+    for fixed in [CompilerProfile::v1(), CompilerProfile::v2()] {
+        assert_eq!(
+            require_ceiling(&fixed, None),
+            Ok(()),
+            "version {}",
+            fixed.policy_version
+        );
+    }
 }
