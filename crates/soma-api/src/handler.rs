@@ -34,6 +34,7 @@ use crate::{
 };
 
 pub use prewarm::handle_prewarm;
+pub use scope::ownerless;
 
 /// Serves one request against the sandbox facade.
 ///

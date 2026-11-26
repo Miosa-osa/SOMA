@@ -92,7 +92,7 @@ fn the_identity_header_is_matched_without_regard_to_case() {
     let mut facade = FakeFacade::new(Mode::Succeed);
     let raw = concat!(
         "GET /v1/sandboxes/89db112753324c3e890ef78b74381aa5 HTTP/1.1\r\n",
-        "X-Soma-Tenant: acme\r\n",
+        "X-Soma-Tenant: soma-platform\r\n",
         "content-length: 0\r\n\r\n",
     );
 

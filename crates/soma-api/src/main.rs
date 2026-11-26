@@ -156,6 +156,7 @@ fn run() -> i32 {
     if !start_record_sweep(pool.clone()) {
         return 71;
     }
+    report_ownerless(&pool);
     eprintln!(
         "soma-api: listening on {} (at most {} concurrent creates)",
         options.listen,
@@ -174,6 +175,26 @@ fn run() -> i32 {
 }
 
 /// Starts the automatic sizing controller on facades leased from the request pool.
+/// Names every sandbox a tenant cannot reach because no owner record names it.
+fn report_ownerless(pool: &FacadePool<LocalFacade>) {
+    let Some(mut facade) = pool.acquire_timeout(POOL_WAIT_TIMEOUT) else {
+        eprintln!("soma-api: WARNING: sandbox owners could not be checked at start");
+        return;
+    };
+    match soma_api::handler::ownerless(&mut *facade) {
+        Ok(ownerless) => {
+            for id in &ownerless {
+                eprintln!(
+                    "soma-api: WARNING: sandbox {} has no owner record, so every tenant reads it \
+                     as absent until the platform records its owner",
+                    id.as_str()
+                );
+            }
+        }
+        Err(_) => eprintln!("soma-api: WARNING: sandbox owners could not be checked at start"),
+    }
+}
+
 fn start_autosize(pool: FacadePool<LocalFacade>) {
     let started = soma_api::autosize::spawn(move || {
         pool.acquire_timeout(POOL_WAIT_TIMEOUT)

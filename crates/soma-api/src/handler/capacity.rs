@@ -20,6 +20,9 @@ struct CapacityReport {
     running_sandboxes: usize,
     /// For each size, how many more sandboxes of it fit in the memory left above the reserve.
     fits: Vec<Fit>,
+    /// Sandboxes not ending that no owner record names: every tenant reads them as absent until
+    /// the platform records their owner, so a host roll refuses while this is not empty.
+    ownerless_sandboxes: Vec<soma::InstanceId>,
 }
 
 #[derive(Serialize)]
@@ -53,6 +56,7 @@ pub(super) fn report<F: SandboxFacade + ?Sized>(
             sandboxes: host.fits(memory_mib),
         })
         .collect();
+    let ownerless_sandboxes = super::scope::ownerless(facade)?;
     Ok(success(
         200,
         operation,
@@ -60,6 +64,7 @@ pub(super) fn report<F: SandboxFacade + ?Sized>(
             host,
             running_sandboxes,
             fits,
+            ownerless_sandboxes,
         },
         None,
     ))

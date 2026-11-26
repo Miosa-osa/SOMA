@@ -39,20 +39,33 @@ pub(super) fn serve<F: SandboxFacade + ?Sized>(
     {
         return Err(malformed());
     }
-    if !request.instance_id.is_empty() {
-        scope::require(facade, Resource::Sandbox, &request.instance_id, tenant)?;
-    }
+    let instance = request.instance_id.as_str();
+    // An attach comes before the create of the sandbox it names, so it takes that identity too.
+    let reserved = match operation {
+        _ if instance.is_empty() => false,
+        VolumeOperation::Attach => scope::reserve(facade, instance, tenant)?,
+        _ => {
+            scope::require(facade, Resource::Sandbox, instance, tenant)?;
+            false
+        }
+    };
     let volume = request.volume_id.as_str();
     let claimed = if operation == VolumeOperation::Attach {
-        scope::claim(facade, Resource::Volume, volume, tenant)?
+        scope::claim(facade, Resource::Volume, volume, tenant)
     } else {
-        scope::require(facade, Resource::Volume, volume, tenant)?;
-        false
+        scope::require(facade, Resource::Volume, volume, tenant).map(|()| false)
     };
-    let report = facade.volume(operation, &request).map_err(|failure| {
+    let give_back = |facade: &mut F, claimed: bool| {
+        if reserved {
+            scope::release(facade, Resource::Sandbox, instance);
+        }
         if claimed {
             scope::release(facade, Resource::Volume, volume);
         }
+    };
+    let claimed = claimed.inspect_err(|_| give_back(facade, false))?;
+    let report = facade.volume(operation, &request).map_err(|failure| {
+        give_back(facade, claimed);
         failure.refusal()
     })?;
     if operation == VolumeOperation::Destroy {
