@@ -38,7 +38,7 @@ Restoring or forking may not duplicate host handles, guest control credentials, 
 
 The broker supplies the expected Instance and Generation IDs, the published state digest, and private open artifacts.
 The resident entry point checks compatibility and hashes the state, RAM, immutable root, and private writable head against the captured records before creating the VM.
-ADR 0068 lets it skip the RAM hash when the broker attests the unchanged memory file's exact stamp.
+ADR 0068 lets it skip the RAM and root hashes when the broker attests those unchanged files' exact stamps.
 It verifies that the private writable head is a different inode from the saved overlay.
 The restored VM retains the Instance identity and starts without network authority.
 The prepared VM is not an authenticated session or a Ready result.
