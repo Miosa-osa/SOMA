@@ -51,8 +51,15 @@ impl KvmBackend {
     ) -> Result<ResolutionObservation<Box<dyn std::any::Any + Send>>, BackendFailure> {
         let operation = request.operation_id();
         let reference = request.image().as_str();
-        let found = prepared::find(prepared::store_root().as_deref(), reference)
-            .map_err(|error| self.failure(operation, kind_for(&error)))?;
+        let found = prepared::find(prepared::store_root().as_deref(), reference).map_err(|error| {
+            if matches!(error, PreparedError::NotPrepared) {
+                eprintln!(
+                    "soma: refused {reference}: workload_rejected: no Generation on this host is \
+                     prepared for this exact image reference"
+                );
+            }
+            self.failure(operation, kind_for(&error))
+        })?;
         let workload = identity(&found)
             .ok_or_else(|| self.failure(operation, BackendFailureKind::WorkloadRejected))?;
         let elapsed = self.clocks.elapsed_ns(operation);

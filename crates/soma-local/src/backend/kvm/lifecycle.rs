@@ -134,8 +134,8 @@ impl KvmBackend {
         // not the shape asked for; the bounds come from the Generation it is built with.
         let booted_vcpus = prepared.manifest.shape.vcpu_count;
         let boot_mib = prepared.manifest.shape.memory_bytes / (1024 * 1024);
-        if !self.admits(prepared, shape) {
-            return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
+        if let Some(reason) = self.misfit(prepared, shape) {
+            return Err(self.fail(operation, fit::refuse(instance, &reason)));
         }
         let Some(storage_mib) = prepared
             .manifest
@@ -152,9 +152,6 @@ impl KvmBackend {
         else {
             return Err(self.fail(operation, BackendFailureKind::Unavailable));
         };
-        if shape.storage_mib() != storage_mib {
-            return Err(self.fail(operation, BackendFailureKind::WorkloadRejected));
-        }
         let identity =
             LaunchIdentity::derive(instance).map_err(|kind| self.fail(operation, kind))?;
         let checkpoint_source = soma_vmm::sandbox::CheckpointSource {
@@ -302,17 +299,3 @@ fn launch_answer(
 pub(super) mod lookup;
 mod resident;
 mod workspace;
-
-impl KvmBackend {
-    /// Whether this Backend can give a request the vCPUs and memory it names.
-    ///
-    /// A request may be smaller than the machine the Generation booted: the vCPUs it did not
-    /// ask for are withheld by a CPU quota applied before the launch answers. It can never be
-    /// larger, because the guest has only the processors it booted with. Memory is restored at
-    /// the Generation's own boot size and grown to the request, which needs the memory device
-    /// and a machine that is not jailed.
-    fn admits(&self, prepared: &PreparedGeneration, shape: &MachineShape) -> bool {
-        fit::request_fits(prepared, shape)
-            && (self.jail.is_none() || shape.memory_mib() == fit::boot_mib_of(prepared))
-    }
-}
