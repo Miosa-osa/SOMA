@@ -14,6 +14,13 @@ use std::fmt;
 
 use crate::mptable;
 
+mod uefi;
+
+pub use uefi::{
+    Firmware, UEFI_V1_MAX_MEMORY_BYTES, UEFI_V1_MAX_VCPUS, UEFI_V1_MIN_MEMORY_BYTES,
+    UEFI_V1_VERSION, UefiContract,
+};
+
 /// Smallest guest RAM a machine contract admits.
 pub const MIN_MEMORY_BYTES: u64 = 128 * 1024 * 1024;
 /// Guest RAM granularity every contract fixes.

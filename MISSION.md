@@ -51,12 +51,12 @@ These are engineering targets, not current claims.
 ## Non-goals for the first production generation
 
 - General-purpose PC emulation.
-- BIOS or UEFI boot.
-- PCI topology, USB, graphics, or device hotplug.
+- BIOS boot, and UEFI boot outside the UEFI machine contract of ADR 0068, which the owner asked for so Windows desktops run as SOMA Instances.
+- PCI topology, USB, graphics, or device hotplug, beyond the fixed virtio PCI devices of the UEFI machine contract.
 - Arbitrary guest kernels supplied at launch time.
 - Nested containers inside the guest as the default execution model.
 - macOS production virtualization.
-- Arbitrary non-Linux guest operating systems in the first stable release.
+- Arbitrary non-Linux guest operating systems in the first stable release; Windows runs only as a UEFI-contract Generation (ADR 0068).
 - Hiding cold OCI acquisition and image construction inside a warm-start measurement.
 
 ## Current status
