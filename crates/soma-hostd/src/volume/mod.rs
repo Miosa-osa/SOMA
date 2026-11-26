@@ -12,6 +12,7 @@
 pub mod error;
 pub mod ext4;
 pub mod keyring;
+pub mod mount;
 pub mod placement;
 pub mod rebuild;
 pub mod record;
@@ -23,9 +24,10 @@ pub mod store;
 pub use error::VolumeError;
 pub use ext4::{Ext4, outcome_from_exit};
 pub use keyring::{HostKeyring, KeyError, SealedKey, VolumeKeys};
+pub use mount::{declared_mount_missing, refuse_missing_mount};
 pub use placement::{
-    DEFAULT_RECORD_DIR, DEFAULT_VOLUME_DIR, RECORD_DIR_ENV, on_volatile_mount, record_dir,
-    refuse_volatile,
+    DEFAULT_RECORD_DIR, DEFAULT_VOLUME_DIR, ENCRYPTED_MOUNT_ENV, RECORD_DIR_ENV, on_volatile_mount,
+    record_dir, refuse_volatile,
 };
 pub use rebuild::{RebuildReport, StoppedVolume, rebuild};
 pub use record::{

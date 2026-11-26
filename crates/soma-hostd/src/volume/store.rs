@@ -90,10 +90,19 @@ impl DirectoryVolumes {
         repairs: Box<dyn VolumeRepair + Send + Sync>,
         encrypted: bool,
     ) -> io::Result<Self> {
-        fs::create_dir_all(root)?;
+        // A root off its data mount is never made: under an unmounted mount point it would be an
+        // empty skeleton on the system disk, and no volume can be attached there anyway.
+        if encrypted {
+            fs::create_dir_all(root)?;
+        }
         fs::create_dir_all(records)?;
         let mut state = BTreeMap::new();
-        for entry in fs::read_dir(root)? {
+        let entries = match fs::read_dir(root) {
+            Ok(entries) => Some(entries),
+            Err(error) if !encrypted && error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+        for entry in entries.into_iter().flatten() {
             let entry = entry?;
             if entry
                 .file_name()

@@ -47,3 +47,20 @@ fn the_certifying_constructor_refuses_exactly_the_roots_that_are_not_on_the_data
         );
     }
 }
+
+/// A volume root off its data mount is never made: under an unmounted mount point it would be an
+/// empty skeleton on the system disk.
+#[test]
+fn a_store_off_its_data_mount_creates_no_volume_root() {
+    let directory = tempfile::tempdir().expect("temp dir");
+    let root = directory.path().join("unmounted").join("volumes");
+    let volumes = DirectoryVolumes::open_uncertified(
+        &root,
+        &directory.path().join("records"),
+        Box::new(CleanRepair),
+        false,
+    )
+    .expect("opens with no volumes");
+    assert!(!root.exists(), "the store made a root off its data mount");
+    assert!(volumes.attach(&attach(1, 1, 1, 10)).is_err());
+}
