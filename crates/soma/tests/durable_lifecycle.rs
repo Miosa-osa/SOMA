@@ -6,6 +6,8 @@ mod concurrency;
 mod crash;
 #[path = "durable_lifecycle/fixtures.rs"]
 mod fixtures;
+#[path = "durable_lifecycle/fork.rs"]
+mod fork;
 #[path = "durable_lifecycle/listing.rs"]
 mod listing;
 #[path = "durable_lifecycle/persistence.rs"]

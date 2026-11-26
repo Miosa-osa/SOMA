@@ -31,20 +31,15 @@ impl KvmBackend {
         }
         let network = match (network.attachment, network.activation) {
             (None, None) => None,
-            (Some(attachment), Some(pending))
-                if checkpoint.is_none_or(|(source, _)| source == instance)
-                    && attachment.mac == network.launch.mac() =>
-            {
-                Some((
-                    attachment.tap,
-                    NetworkLaunch {
-                        launch: network.launch,
-                        pending,
-                        operation: identity.operation,
-                        egress,
-                    },
-                ))
-            }
+            (Some(attachment), Some(pending)) if attachment.mac == network.launch.mac() => Some((
+                attachment.tap,
+                NetworkLaunch {
+                    launch: network.launch,
+                    pending,
+                    operation: identity.operation,
+                    egress,
+                },
+            )),
             _ => return Err(self.fail(operation, BackendFailureKind::Unsupported)),
         };
         // Only a Generation with a captured machine can be restored from descriptors; a cold

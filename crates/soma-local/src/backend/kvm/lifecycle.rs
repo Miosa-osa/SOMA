@@ -115,13 +115,7 @@ impl KvmBackend {
         if resume.is_some() && (self.jail.is_some() || checkpoint.is_some()) {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
-        if checkpoint.is_some_and(|(source, _)| {
-            self.jail.is_none()
-                || volume.is_some()
-                || windowed
-                || (source != instance
-                    && *shape.capabilities().network_policy() != soma::NetworkPolicy::isolated())
-        }) {
+        if checkpoint.is_some() && (self.jail.is_none() || volume.is_some() || windowed) {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
         // This Backend owns at most one sandbox. Assigning over a live one would drop its

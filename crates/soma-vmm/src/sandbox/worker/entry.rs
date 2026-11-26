@@ -205,14 +205,14 @@ fn open_volume(volume: Option<&soma::VolumeAttachment>) -> std::io::Result<Optio
 
 #[cfg(test)]
 mod tests {
-    use crate::sandbox::source::Network;
+    use crate::sandbox::{PendingActivation, source::Network};
 
     use super::{Boot, Source, matches_recovery_source};
-    use soma_guest::LaunchNetwork;
+    use soma_guest::{ActivationChallenge, LaunchNetwork};
     use soma_kvm::{
         DeviceSet, MachineContract,
         snapshot::Digest,
-        x86_64::{Hypervisor, ResidentRestoreRequest, SnapshotObjects},
+        x86_64::{Hypervisor, NetworkAttachment, ResidentRestoreRequest, SnapshotObjects},
     };
 
     fn recovery_boot() -> Boot {
@@ -281,6 +281,47 @@ mod tests {
         boot.instance = [5; 16];
         assert!(matches_recovery_source(&boot));
         boot.guest_cid = 5;
+        assert!(!matches_recovery_source(&boot));
+    }
+
+    fn networked_fork() -> Boot {
+        let mut boot = recovery_boot();
+        let Source::ResidentCheckpoint(mut request) = boot.source else {
+            unreachable!();
+        };
+        request.devices = DeviceSet::new(false, true);
+        boot.source = Source::CheckpointFork(request);
+        boot.instance = [5; 16];
+        boot.network.attachment = Some(NetworkAttachment {
+            tap: tempfile::tempfile().expect("tap stand-in"),
+            mac: boot.network.launch.mac(),
+        });
+        boot.network.activation = Some(PendingActivation {
+            challenge: ActivationChallenge::from_bytes([9; 32]).expect("challenge"),
+            generation: 1,
+            intent: [7; 32],
+        });
+        boot
+    }
+
+    #[test]
+    fn a_checkpoint_fork_takes_its_own_network_on_a_network_device() {
+        let mut boot = networked_fork();
+        assert!(matches_recovery_source(&boot));
+        // The attachment must carry the MAC the child's own launch page names.
+        boot.network.attachment.as_mut().expect("attachment").mac = [2, 0, 0, 0, 0, 9];
+        assert!(!matches_recovery_source(&boot));
+
+        let mut boot = networked_fork();
+        let Source::CheckpointFork(request) = &mut boot.source else {
+            unreachable!();
+        };
+        // A checkpoint captured with no network device cannot be given one.
+        request.devices = DeviceSet::new(false, false);
+        assert!(!matches_recovery_source(&boot));
+
+        let mut boot = networked_fork();
+        boot.network.activation = None;
         assert!(!matches_recovery_source(&boot));
     }
 }

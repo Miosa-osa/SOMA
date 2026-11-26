@@ -112,13 +112,10 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
         checkpoint: &crate::OperationId,
         fork_source: Option<&crate::InstanceId>,
     ) -> Result<MachineLaunch, ManagedFailure> {
-        if request.operation_id == *checkpoint
-            || request.volume.is_some()
-            || request.windowed
-            || (fork_source.is_some()
-                && *request.shape.capabilities().network_policy()
-                    != crate::NetworkPolicy::isolated())
-        {
+        // A fork may name a network: the host claims it a fresh one, and the guest takes the new
+        // address and MAC from its launch page exactly as a same-Instance restore does. The
+        // source's network authority is never copied, because none of it is in the checkpoint.
+        if request.operation_id == *checkpoint || request.volume.is_some() || request.windowed {
             return Err(ManagedFailure::State(ManagedStateError::OperationConflict));
         }
         let lease = self
