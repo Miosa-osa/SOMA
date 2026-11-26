@@ -81,10 +81,13 @@ log "compiling $REFERENCE at $SHAPE ($VCPUS vCPUs, $MEMORY_MIB MiB, $STORAGE_MIB
 # restored desktop finds them in memory (workloads/desktop/session/warm-pages.sh). The capture
 # below is what makes this entry restore rather than cold boot, so the prepare step is
 # allowed to end on a cold-boot-only entry and this script is the one that refuses to.
+# A computer keeps its files across stop and start, so a desktop is always captured with its
+# durable data volume (compiler profile 4) and every launch binds the customer's volume.
 SOMA_KERNEL="$KERNEL" \
 SOMA_IMAGE_SOURCE="docker-archive:$ARCHIVE" \
 SOMA_PREPARE_VCPUS="$VCPUS" \
 SOMA_PREPARE_NETWORK=public_internet \
+SOMA_PREPARE_PERSISTENCE=1 \
 SOMA_ALLOW_COLD_BOOT_ENTRY=1 \
 SOMA_CAPTURE_WARM="${SOMA_CAPTURE_WARM-/bin/sh /usr/local/libexec/soma-desktop/warm-pages.sh}" \
     ./scripts/prepare-generation.sh "$REFERENCE" "$STORE" "$FS_TOOLS" "$MEMORY_MIB" "$STORAGE_MIB"
