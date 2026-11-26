@@ -78,7 +78,7 @@ mod tests {
         FileStamp::of(&file.metadata().expect("stat"))
     }
 
-    fn mismatch(result: Result<(), SnapshotError>) -> bool {
+    fn mismatch(result: &Result<(), SnapshotError>) -> bool {
         matches!(
             result,
             Err(SnapshotError::Memory(
@@ -96,7 +96,7 @@ mod tests {
         let mut file = memory(&vec![9_u8; 2 * PAGE]);
         let attestation = MemoryAttestation::new(Digest::of(&captured), stamp(&file));
         verify(&mut file, &record(&captured), Some(attestation)).expect("attested memory");
-        assert!(mismatch(verify(&mut file, &record(&captured), None)));
+        assert!(mismatch(&verify(&mut file, &record(&captured), None)));
     }
 
     #[test]
@@ -110,7 +110,7 @@ mod tests {
         file.seek(SeekFrom::Start(0)).expect("rewind");
         file.write_all(&[8]).expect("tamper");
         assert_ne!(stamp(&file), attestation.stamp());
-        assert!(mismatch(verify(
+        assert!(mismatch(&verify(
             &mut file,
             &record(&captured),
             Some(attestation)
@@ -123,7 +123,7 @@ mod tests {
         let mut file = memory(&captured);
         verify(&mut file, &record(&captured), None).expect("hashed memory");
         let mut other = memory(&vec![1_u8; 2 * PAGE]);
-        assert!(mismatch(verify(&mut other, &record(&captured), None)));
+        assert!(mismatch(&verify(&mut other, &record(&captured), None)));
     }
 
     #[test]
@@ -131,7 +131,7 @@ mod tests {
         let captured = vec![7_u8; 2 * PAGE];
         let mut file = memory(&vec![7_u8; 3 * PAGE]);
         let attestation = MemoryAttestation::new(Digest::of(&captured), stamp(&file));
-        assert!(mismatch(verify(
+        assert!(mismatch(&verify(
             &mut file,
             &record(&captured),
             Some(attestation)
