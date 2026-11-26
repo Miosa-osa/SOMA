@@ -103,12 +103,7 @@ impl Jailed {
         network: Option<(File, NetworkLaunch<'_>)>,
     ) -> Result<Self, BackendFailureKind> {
         let devices = launching.prepared.manifest.device_set();
-        if network.is_some()
-            && (!devices.net()
-                || launching
-                    .checkpoint
-                    .is_some_and(|(source, _)| source != launching.instance))
-        {
+        if network.is_some() && !devices.net() {
             return Err(BackendFailureKind::WorkloadRejected);
         }
         let (tap, activation) = network.map_or((None, None), |(tap, activation)| {

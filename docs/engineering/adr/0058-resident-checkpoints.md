@@ -104,7 +104,7 @@ An older guest agent rejects the fork page.
 The guest accepts a fork only after losing its captured idle control connection and only when the page names that captured Instance and Generation.
 It applies the destination hostname and machine ID, refreshes entropy and time, and authenticates a new control session.
 The guest keeps its workload processes, files, and scratch mounts.
-Host network authority and attached volumes are unavailable to this fork path.
+A fork names the same shape as its source, network included, and the host claims the destination a network of its own (see the amendment below).
 
 The sealed worker uses a distinct `fork` request naming the authorized source and the new launch, with the receipt digest.
 The broker opens the artifacts under the source identity and builds a private disk for the destination identity.
@@ -124,3 +124,12 @@ The authenticated runner exposes `POST /api/v1/sandboxes/{source}/fork` on the s
 The destination ID is derived from the tenant, source, and fork operation ID so a replay addresses the original destination.
 A new destination reserves a tenant slot and a replay of an active destination holds its existing slot.
 The server derives the durable owner label from the authenticated principal and accepts no owner label in the request body.
+
+## Amendment (2026-11-26): a restored or forked Instance gets its own network
+
+A same-Instance restore and a fork both take a fresh network claim from the host when their shape names a network.
+The attachment is the destination's own TAP, and its MAC must equal the MAC on the destination's launch page.
+The worker activates the link only after the reconnected guest answers the broker's activation challenge, as an ordinary launch does.
+The guest agent applies the new address, MAC and, for a fork, the destination hostname from the launch page when it reconnects.
+No source network authority is duplicated: the checkpoint carries no TAP, lease, or activation secret, only the guest's own memory of its previous address, which the launch page replaces.
+Earlier text in this record that says a restore or fork begins without a claimed network describes the first implementation and is superseded by this amendment.

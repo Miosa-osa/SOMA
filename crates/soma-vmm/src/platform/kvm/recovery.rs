@@ -34,8 +34,7 @@ impl KvmPlatform {
         let spec = launch.generation().machine();
         let declared = launch.generation().devices();
         if !resources.volume_matches_capacity(declared.volume_capacity())
-            || (resources.network.is_some()
-                && (!declared.network() || selection.fork_from.is_some()))
+            || (resources.network.is_some() && !declared.network())
         {
             return Err(invalid());
         }

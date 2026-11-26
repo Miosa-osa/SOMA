@@ -17,7 +17,13 @@ pub(super) fn matches_recovery_source(boot: &Boot) -> bool {
             request.instance_id == boot.instance,
             request.devices.net(),
         ),
-        Source::CheckpointFork(request) => (request, request.instance_id != boot.instance, false),
+        // A fork takes a network of its own: the attachment is the child's fresh claim and its
+        // MAC must be the one on the child's launch page, never the source's.
+        Source::CheckpointFork(request) => (
+            request,
+            request.instance_id != boot.instance,
+            request.devices.net(),
+        ),
         _ => return true,
     };
     let network_valid = match (&boot.network.attachment, &boot.network.activation) {
