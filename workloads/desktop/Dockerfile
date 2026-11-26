@@ -121,6 +121,13 @@ RUN set -e; \
     command -v sunshine; test -x /lib/systemd/systemd-udevd
 
 COPY session/cua-driver-wrapper.sh /usr/local/bin/cua-driver
+# Shut down and Restart: the guest has no systemd, so these ask PID 1 (the SOMA guest agent).
+COPY look/power/miosa-power /usr/local/sbin/miosa-power
+COPY look/power/command /usr/local/sbin/poweroff
+RUN chmod 0755 /usr/local/sbin/miosa-power /usr/local/sbin/poweroff \
+ && for name in reboot halt shutdown; do ln -sf poweroff /usr/local/sbin/$name; done \
+ && printf 'ubuntu ALL=(root) NOPASSWD: /usr/local/sbin/miosa-power\n' > /etc/sudoers.d/miosa-power \
+ && chmod 0440 /etc/sudoers.d/miosa-power && visudo -cf /etc/sudoers.d/miosa-power
 COPY session/soma-desktop-session.sh /usr/local/sbin/soma-desktop-session
 COPY session/soma-desktop-call.sh /usr/local/bin/soma-desktop-call
 COPY session/session.sh /usr/local/libexec/soma-desktop/session.sh
