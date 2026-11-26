@@ -108,6 +108,7 @@ impl Jailed {
                     }
                     _ => Request::Recover(launch, digest),
                 };
+                self.offer_attestations(anchors, instance, &recovery.attestations)?;
                 let budget = super::super::checkpoint::CHECKPOINT_CEILING + LAUNCH_CEILING;
                 let overlay = recovery.overlay.as_ref();
                 match (activation, overlay) {
@@ -142,6 +143,37 @@ impl Jailed {
             .inspect_err(|error| {
                 anchors.record(instance, &format!("jailed worker did not seal: {error:?}"));
             })
+    }
+
+    /// Hands the worker the broker's records of the immutable restore inputs before recovery.
+    ///
+    /// A worker that predates a record rejects only that packet, and its recovery then hashes
+    /// the artifact as before; only a broken control channel fails the launch.
+    fn offer_attestations(
+        &self,
+        anchors: &Anchors,
+        instance: &str,
+        attestations: &soma_kvm::snapshot::RestoreAttestations,
+    ) -> Result<(), BackendFailureKind> {
+        use soma_kvm::snapshot::AttestedArtifact;
+        for (kind, record) in [
+            (AttestedArtifact::Memory, attestations.memory),
+            (AttestedArtifact::Root, attestations.root),
+            (AttestedArtifact::Head, attestations.head),
+        ] {
+            let Some(record) = record else { continue };
+            let reply = self.control.ask(
+                &Request::AttestArtifact((kind, record)),
+                ATTESTATION_CEILING,
+            )?;
+            if !matches!(reply, Outcome::ArtifactAttested) {
+                anchors.record(
+                    instance,
+                    &format!("worker declined an attestation: {reply:?}"),
+                );
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn connected_launch(

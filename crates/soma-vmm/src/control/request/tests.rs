@@ -84,6 +84,22 @@ fn a_launch_without_a_region_encodes_exactly_as_before_and_one_with_it_round_tri
     );
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+#[test]
+fn a_volume_attestation_is_refused_as_an_unknown_artifact() {
+    let line = format!(
+        "{} 2049 77 4096 1 2 3 4",
+        soma_kvm::snapshot::Digest::of(b"volume")
+    );
+    for kind in ["volume", "workspace", ""] {
+        assert!(
+            Request::decode(&format!("artifact_attestation {kind} {line}")).is_err(),
+            "{kind}"
+        );
+    }
+    assert!(Request::decode(&format!("artifact_attestation head {line}")).is_ok());
+}
+
 #[test]
 fn a_malformed_or_extra_hotplug_field_is_refused() {
     let plain = Request::Launch(launch()).encode();
@@ -110,6 +126,14 @@ fn every_request_round_trips() {
         Request::Stop(Stop::new(operation(), instance())),
         Request::Pause(instance()),
         Request::Resume(instance()),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::AttestArtifact((
+            soma_kvm::snapshot::AttestedArtifact::Root,
+            soma_kvm::snapshot::ArtifactAttestation::new(
+                soma_kvm::snapshot::Digest::of(b"memory"),
+                soma_kvm::snapshot::FileStamp::new(2049, 77, 1 << 30, (1, 2), (-3, 999_999_999)),
+            ),
+        )),
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         Request::Workspace {
             instance: instance(),

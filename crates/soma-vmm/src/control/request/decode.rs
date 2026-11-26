@@ -22,6 +22,8 @@ use super::Request;
 
 pub(super) use super::super::field::end;
 
+pub(in crate::control) mod attestation;
+
 pub(super) fn volume_capacity(token: Option<&str>) -> Result<NonZeroU64, ControlError> {
     NonZeroU64::new(number(token, "volume capacity")?)
         .ok_or(ControlError::InvalidValue("volume capacity"))

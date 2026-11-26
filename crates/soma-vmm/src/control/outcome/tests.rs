@@ -111,6 +111,10 @@ fn every_reply_the_worker_sends_decodes_to_what_it_meant() {
         Ok(Outcome::Sealed)
     );
     assert_eq!(
+        Outcome::decode(&Reply::ArtifactAttested.encode()),
+        Ok(Outcome::ArtifactAttested)
+    );
+    assert_eq!(
         Outcome::decode(&Reply::Output(b"\x00\xff").encode()),
         Ok(Outcome::Output(vec![0, 255]))
     );

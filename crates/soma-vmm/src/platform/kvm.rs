@@ -85,6 +85,7 @@ impl Platform for KvmPlatform {
         digest: soma_kvm::snapshot::Digest,
         saved_overlay: Option<File>,
         fork_from: Option<crate::InstanceId>,
+        memory: soma_kvm::snapshot::RestoreAttestations,
     ) -> Result<(), PlatformFailure> {
         if digest.is_zero() || self.resources.is_none() || self.recovery.is_some() {
             return Err(PlatformFailure::new(Recovery::DoNotRetry));
@@ -93,6 +94,7 @@ impl Platform for KvmPlatform {
             digest,
             saved_overlay,
             fork_from,
+            memory,
         });
         Ok(())
     }

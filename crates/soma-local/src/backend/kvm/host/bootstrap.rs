@@ -56,11 +56,17 @@ fn serve_on_demand(
         };
         restore_lease = Some(lease);
     }
+    // A stamp the parent sent that does not decode is no stamp: the root is then hashed.
+    let root_stamp = request
+        .root_stamp
+        .as_deref()
+        .and_then(|text| soma_kvm::snapshot::FileStamp::decode(&mut text.split(' ')));
     let Ok(prepared) = prepared::from_handoff(
         request.reference.clone(),
         &request.generation_id,
         &request.manifest,
         descriptors,
+        root_stamp,
     ) else {
         return REFUSED;
     };
@@ -95,6 +101,7 @@ fn serve_primed(
         &plan.generation_id,
         &plan.manifest,
         descriptors,
+        None,
     ) else {
         return REFUSED;
     };

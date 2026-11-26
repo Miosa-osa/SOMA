@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use soma_kvm::snapshot::Digest;
+use soma_kvm::snapshot::{Digest, RestoreAttestations};
 
 use super::{Machine, State};
 use crate::{
@@ -11,6 +11,9 @@ use crate::{
 impl Machine {
     /// Launches the authorized checkpoint on a worker with no existing Instance.
     ///
+    /// `memory` holds the trusted broker's attestations of the checkpoint memory and root; each
+    /// file is re-read unless its attestation describes the mapped descriptor exactly.
+    ///
     /// # Errors
     ///
     /// Refuses a used worker and any invalid checkpoint or unauthenticated recovery.
@@ -19,8 +22,9 @@ impl Machine {
         launch: Launch,
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
+        memory: RestoreAttestations,
     ) -> Result<Ready, Failure> {
-        self.launch_checkpoint(launch, digest, saved_overlay, None)
+        self.launch_checkpoint(launch, digest, saved_overlay, None, memory)
     }
 
     /// Launches an authorized checkpoint in a fresh Instance with separate guest authority.
@@ -32,11 +36,12 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
         source: InstanceId,
+        memory: RestoreAttestations,
     ) -> Result<Ready, Failure> {
         if source == launch.instance_id() {
             return Err(super::fault::lifecycle_failure());
         }
-        self.launch_checkpoint(launch, digest, saved_overlay, Some(source))
+        self.launch_checkpoint(launch, digest, saved_overlay, Some(source), memory)
     }
 
     fn launch_checkpoint(
@@ -45,6 +50,7 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
         fork_from: Option<InstanceId>,
+        memory: RestoreAttestations,
     ) -> Result<Ready, Failure> {
         if self.state != State::New
             || saved_overlay.is_some() != launch.generation().devices().writable_disk()
@@ -52,7 +58,7 @@ impl Machine {
             return Err(super::fault::lifecycle_failure());
         }
         self.platform
-            .configure_recovery(digest, saved_overlay, fork_from)
+            .configure_recovery(digest, saved_overlay, fork_from, memory)
             .map_err(|_| super::fault::lifecycle_failure())?;
         self.launch(launch)
     }

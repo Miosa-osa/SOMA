@@ -29,6 +29,9 @@ pub enum Request {
     Recover(Launch, [u8; 32]),
     /// Fork from the named checkpoint source into the launch's new Instance.
     Fork(Launch, [u8; 32], InstanceId),
+    /// The broker's record of one immutable restore input; an older worker rejects only this.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    AttestArtifact(decode::attestation::Record),
     Execute(Execute),
     /// Run one command and send each output chunk back as it arrives, then the final reply.
     ///
@@ -102,6 +105,8 @@ impl Request {
                     launch,
                 )
             }
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::AttestArtifact(record) => decode::attestation::encode(record),
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
@@ -193,6 +198,7 @@ impl Request {
                 decode_launch(&mut tokens, capacity)
                     .map(|launch| Self::Fork(launch, digest, source))
             }
+            "artifact_attestation" => decode::attestation::decode(tokens),
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "pty" => decode::decode_pty(&mut tokens),

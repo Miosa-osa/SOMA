@@ -88,6 +88,33 @@ fn admission_retains_every_digest_verified_launch_handle() {
     assert_eq!(admitted.artifacts.len(), descriptors.len());
 }
 
+#[cfg(unix)]
+#[test]
+fn admission_returns_the_stamp_each_artifact_was_verified_under() {
+    let (root, id, profile, descriptors) = installed();
+    // The first admission hashes every artifact, the second matches the ledger without a read;
+    // both hand back the stamp the content was verified under.
+    for _ in 0..2 {
+        let admitted = admit_installed_generation(root.path(), &id, &profile).expect("admit");
+        let (_, stamped) = admitted.into_stamped_parts();
+        assert_eq!(stamped.len(), descriptors.len());
+        for (_, file, stamp) in &stamped {
+            let current = soma_kvm::snapshot::FileStamp::of(&file.metadata().expect("stat"));
+            assert_eq!(*stamp, Some(current));
+        }
+    }
+    let (manifest, files): (Vec<u8>, Vec<_>) = {
+        let admitted = admit_installed_generation(root.path(), &id, &profile).expect("admit");
+        let bytes = encode_manifest(&admitted.manifest).expect("encode");
+        let (_, artifacts) = admitted.into_parts();
+        (bytes, artifacts.into_iter().map(|(_, file)| file).collect())
+    };
+    // A handoff from another process carries no stamp, so nothing here vouches for its bytes.
+    let handed = admit_verified_handoff(&id, &manifest, files, &profile).expect("handoff");
+    let (_, stamped) = handed.into_stamped_parts();
+    assert!(stamped.iter().all(|(_, _, stamp)| stamp.is_none()));
+}
+
 #[test]
 fn same_size_corruption_is_refused() {
     let (root, id, profile, descriptors) = installed();

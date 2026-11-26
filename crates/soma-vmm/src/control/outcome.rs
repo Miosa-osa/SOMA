@@ -55,6 +55,8 @@ pub enum Outcome {
     Pty(soma::PtyAnswer),
     /// The filter reached its steady-state phase.
     Sealed,
+    /// The worker holds the broker's artifact attestation for the next recovery.
+    ArtifactAttested,
     /// The request was not performed and Machine state did not change.
     Rejected(String),
 }
@@ -70,6 +72,7 @@ impl Outcome {
         let (head, rest) = text.split_once(' ').unwrap_or((text, ""));
         match head {
             "sealed" => Ok(Self::Sealed),
+            "artifact_attested" => Ok(Self::ArtifactAttested),
             "rejected" => Ok(Self::Rejected(rest.to_owned())),
             "output" => field::bytes(Some(rest.trim()), "output").map(Self::Output),
             "chunk" => chunk(rest),
