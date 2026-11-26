@@ -9,7 +9,7 @@
 //! this service. It is written whole beside its final name and then linked into place, so a
 //! reader sees no owner or the whole owner, never a part of one, and two tenants racing for one
 //! identity cannot both win. An identity with no record was created before this service
-//! recorded owners, or by the runner, which keeps its own owners: it stays reachable as before.
+//! recorded owners, or by the runner, which keeps its own owners: only the platform reaches it.
 
 use std::{
     collections::HashMap,

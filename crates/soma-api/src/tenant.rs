@@ -6,6 +6,13 @@ pub const TENANT_HEADER: &str = "x-soma-tenant";
 /// Maximum accepted tenant identifier length, chosen to match the facade's bounded identifiers.
 pub const MAX_TENANT_BYTES: usize = 64;
 
+/// The identity the platform acts under on this host's loopback service.
+///
+/// It answers for every sandbox and volume here, whoever owns it, and is the only identity that
+/// reaches a record no tenant owns: one written before owners were recorded, or by the runner,
+/// which decides ownership itself before it forwards a call.
+pub const PLATFORM_TENANT: &str = "soma-platform";
+
 /// The identity a request acts under.
 ///
 /// This is a value the service carries but does not yet trust. It is not proof of anything: no
@@ -17,6 +24,12 @@ impl TenantId {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Whether this is the platform's own identity, [`PLATFORM_TENANT`].
+    #[must_use]
+    pub fn is_platform(&self) -> bool {
+        self.0 == PLATFORM_TENANT
     }
 }
 

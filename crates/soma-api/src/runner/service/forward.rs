@@ -9,14 +9,10 @@ use crate::{
     http::request::Request,
     report::SandboxListReport,
     runner::{ids::SandboxId, keys::Principal, public_wire::PlatformError, sandboxes::Unavailable},
-    tenant::TENANT_HEADER,
+    tenant::{PLATFORM_TENANT, TENANT_HEADER},
 };
 
 use super::{Runner, RunnerResponse, Timing, outcome, routing::Forward};
-
-/// The tenant label the loopback handler is given when the real tenant id does not fit its
-/// identity grammar. The handler only checks the shape; ownership was decided by the runner.
-const FALLBACK_TENANT_LABEL: &str = "runner";
 
 impl Runner {
     /// Serves one forwarded route for a sandbox the caller's tenant owns.
@@ -59,10 +55,9 @@ impl Runner {
         let request = Request::from_parts(
             method,
             format!("/v1/sandboxes/{}{suffix}", instance_id.as_str()),
-            vec![(
-                TENANT_HEADER.to_owned(),
-                tenant_label(&principal.key.tenant_id),
-            )],
+            // The runner decided ownership above and keeps its own owners, so the loopback
+            // handler is asked as the platform, which answers for a sandbox no tenant record names.
+            vec![(TENANT_HEADER.to_owned(), PLATFORM_TENANT.to_owned())],
             body.to_vec(),
         );
         match self
@@ -133,20 +128,5 @@ pub(super) fn unavailable(refused: &Unavailable) -> RunnerResponse {
         // create itself would have been. A call that arrived while the launch was still in
         // flight waited for it before it was held and read the same failure there.
         Unavailable::LaunchFailed(failure) => outcome::launch_failed(*failure),
-    }
-}
-
-fn tenant_label(tenant_id: &str) -> String {
-    let fits = !tenant_id.is_empty()
-        && tenant_id.len() <= crate::tenant::MAX_TENANT_BYTES
-        && tenant_id
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-        && tenant_id.starts_with(|first: char| first.is_ascii_alphanumeric())
-        && tenant_id.ends_with(|last: char| last.is_ascii_alphanumeric());
-    if fits {
-        tenant_id.to_owned()
-    } else {
-        FALLBACK_TENANT_LABEL.to_owned()
     }
 }

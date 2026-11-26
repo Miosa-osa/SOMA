@@ -102,7 +102,7 @@ fn an_upgrade_becomes_the_guests_stream_in_both_directions() {
     let (address, tunnels) = start(TunnelPolicy::default(), None);
     let (mut stream, head, rest) = open(
         &address,
-        &tunnel_request(9223, &format!("x-soma-tenant: acme\r\n{UPGRADE}")),
+        &tunnel_request(9223, &format!("x-soma-tenant: soma-platform\r\n{UPGRADE}")),
     );
     assert!(head.starts_with("HTTP/1.1 101 "), "{head}");
     assert!(
@@ -152,7 +152,7 @@ fn a_half_closed_client_still_receives_the_rest_of_the_answer() {
     let (address, _tunnels) = start(TunnelPolicy::default(), None);
     let (mut stream, head, rest) = open(
         &address,
-        &tunnel_request(9223, &format!("x-soma-tenant: acme\r\n{UPGRADE}")),
+        &tunnel_request(9223, &format!("x-soma-tenant: soma-platform\r\n{UPGRADE}")),
     );
     assert!(head.starts_with("HTTP/1.1 101 "), "{head}");
     stream.write_all(b"request").expect("write");
@@ -169,7 +169,7 @@ fn bytes_sent_straight_behind_the_request_reach_the_guest() {
     let (address, _tunnels) = start(TunnelPolicy::default(), None);
     let request = format!(
         "{}early",
-        tunnel_request(9223, &format!("x-soma-tenant: acme\r\n{UPGRADE}"))
+        tunnel_request(9223, &format!("x-soma-tenant: soma-platform\r\n{UPGRADE}"))
     );
     let (mut stream, head, rest) = open(&address, &request);
     assert!(head.starts_with("HTTP/1.1 101 "), "{head}");
@@ -194,8 +194,8 @@ fn every_refusal_is_a_status_before_any_upgrade() {
     let (code, head) = status(tunnel_request(9223, UPGRADE));
     assert_eq!(code, "401", "no tenant identity: {head}");
 
-    let tenant = format!("x-soma-tenant: acme\r\n{UPGRADE}");
-    let (code, head) = status(tunnel_request(9223, "x-soma-tenant: acme\r\n"));
+    let tenant = format!("x-soma-tenant: soma-platform\r\n{UPGRADE}");
+    let (code, head) = status(tunnel_request(9223, "x-soma-tenant: soma-platform\r\n"));
     assert_eq!(code, "426", "a plain GET: {head}");
     let (code, _) = status(tunnel_request(22, &tenant));
     assert_eq!(code, "403", "a port outside the policy");
@@ -223,7 +223,7 @@ fn the_guests_refusals_name_themselves() {
         let (address, tunnels) = start(TunnelPolicy::default(), Some(failure));
         let (mut stream, head, rest) = open(
             &address,
-            &tunnel_request(9223, &format!("x-soma-tenant: acme\r\n{UPGRADE}")),
+            &tunnel_request(9223, &format!("x-soma-tenant: soma-platform\r\n{UPGRADE}")),
         );
         assert_eq!(head.split(' ').nth(1), Some(status), "{head}");
         let mut body = rest;
@@ -247,7 +247,7 @@ fn a_sandbox_holds_only_as_many_tunnels_as_the_policy_allows() {
         ..TunnelPolicy::default()
     };
     let (address, tunnels) = start(policy, None);
-    let request = tunnel_request(9223, &format!("x-soma-tenant: acme\r\n{UPGRADE}"));
+    let request = tunnel_request(9223, &format!("x-soma-tenant: soma-platform\r\n{UPGRADE}"));
     let (first, head, _) = open(&address, &request);
     assert!(head.starts_with("HTTP/1.1 101 "), "{head}");
     let (_second, head, _) = open(&address, &request);
@@ -278,7 +278,7 @@ fn an_idle_tunnel_is_closed() {
     let (address, tunnels) = start(policy, None);
     let (mut stream, head, rest) = open(
         &address,
-        &tunnel_request(9223, &format!("x-soma-tenant: acme\r\n{UPGRADE}")),
+        &tunnel_request(9223, &format!("x-soma-tenant: soma-platform\r\n{UPGRADE}")),
     );
     assert!(head.starts_with("HTTP/1.1 101 "), "{head}");
     let _banner = read_exactly(&mut stream, rest, b"guest port 9223 ready\n".len());
