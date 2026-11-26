@@ -16,6 +16,7 @@ use soma_guest::{GuestCommand, TerminalStatus};
 
 use crate::descendants;
 use crate::environment::{InvalidInvocation, Invocation};
+use crate::leftovers::{self, Leftovers};
 use crate::output::{Ending, OutputBudget, terminal_status};
 use crate::pid1;
 use crate::survivors;
@@ -106,6 +107,15 @@ pub fn execute(
     command: &GuestCommand,
     sink: &mut impl OutputSink,
 ) -> Result<Completion, ExecutorFault> {
+    execute_under(command, sink, leftovers::EXEC_POLICY_FILE)
+}
+
+/// [`execute`] under the exec policy read from `leftovers_policy` when the command ends.
+fn execute_under(
+    command: &GuestCommand,
+    sink: &mut impl OutputSink,
+    leftovers_policy: &str,
+) -> Result<Completion, ExecutorFault> {
     let invocation = Invocation::from_command(command).map_err(ExecutorFault::Invocation)?;
     let deadline = Instant::now() + Duration::from_millis(u64::from(command.timeout_millis()));
     let mut child = match timings::measure(Step::Spawn, || spawn(&invocation, command.stdin())) {
@@ -139,9 +149,19 @@ pub fn execute(
     let ending = timings::measure(Step::Wait, || {
         wait_for_child(&mut child, streamed.kill_by, process_group)
     });
+    // A deadline the wait reached leaves the clock past `kill_by`; every other kill is flagged.
+    let ended_on_its_own = !streamed.timed_out
+        && !streamed.limit_hit
+        && !streamed.sink_failed
+        && Instant::now() < streamed.kill_by;
+    let keep = Leftovers::read(leftovers_policy).keeps(ended_on_its_own);
     timings::measure(Step::Reap, || {
-        descendants::kill_group(process_group);
-        descendants::reap_group(process_group);
+        if keep {
+            leftovers::keep(process_group);
+        } else {
+            descendants::kill_group(process_group);
+            descendants::reap_group(process_group);
+        }
         pid1::reap_orphans();
         survivors::sweep_strays_sparing(survivors::SURVIVORS_FILE);
     });
