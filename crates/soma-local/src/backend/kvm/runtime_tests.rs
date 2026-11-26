@@ -32,6 +32,8 @@ use super::Ownership;
 
 #[path = "runtime/test_host.rs"]
 mod host;
+#[path = "runtime/refusal_tests.rs"]
+mod refusal;
 #[path = "runtime/restart_tests.rs"]
 mod restart;
 

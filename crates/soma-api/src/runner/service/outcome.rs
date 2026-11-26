@@ -122,6 +122,13 @@ fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
             "the sandbox runtime refused this request",
             false,
         ),
+        // The request is sound and the host is full now, so it is retryable elsewhere.
+        BackendFailureKind::CapacityExhausted => PlatformError::new(
+            503,
+            "CAPACITY_EXHAUSTED",
+            "this host has no room for the sandbox now",
+            true,
+        ),
         // The one refusal whose cause is the sandbox rather than the request: its agent predates
         // the argument bound, so the caller is told what fixes it, and that the sandbox stays.
         BackendFailureKind::GuestAgentOutdated => alive(
