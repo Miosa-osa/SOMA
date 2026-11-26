@@ -257,6 +257,9 @@ mod tests {
         template.write_all(&[7_u8; 4096]).unwrap();
         let head = copied_head(template, &handle, "head").unwrap();
         assert_eq!(head.metadata().unwrap().mode() & 0o777, 0o600);
-        assert!(!directory.path().join("head").exists(), "the head is unlinked");
+        assert!(
+            !directory.path().join("head").exists(),
+            "the head is unlinked"
+        );
     }
 }

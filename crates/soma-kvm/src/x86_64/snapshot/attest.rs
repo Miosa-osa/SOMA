@@ -80,10 +80,9 @@ pub fn attest_all<const N: usize>(
         Err(_) => {}
     }
     let mut records = [None; N];
-    for ((record, (artifact, file, digest)), before) in records.iter_mut().zip(sealed).zip(before)
-    {
-        *record = (stamp(artifact, file)? == before)
-            .then_some(ArtifactAttestation::new(digest, before));
+    for ((record, (artifact, file, digest)), before) in records.iter_mut().zip(sealed).zip(before) {
+        *record =
+            (stamp(artifact, file)? == before).then_some(ArtifactAttestation::new(digest, before));
     }
     Ok(records)
 }

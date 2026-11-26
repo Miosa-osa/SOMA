@@ -93,7 +93,10 @@ impl Ledger {
         before: Option<Stamp>,
         file: &cap_std::fs::File,
     ) -> Option<Stamp> {
-        let after = file.metadata().ok().and_then(|metadata| stamp_of(&metadata));
+        let after = file
+            .metadata()
+            .ok()
+            .and_then(|metadata| stamp_of(&metadata));
         let hashed = before.filter(|stamp| after == Some(*stamp))?;
         self.record(version, name, hashed);
         Some(hashed)

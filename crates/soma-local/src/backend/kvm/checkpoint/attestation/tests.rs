@@ -75,7 +75,11 @@ fn no_attestation_is_produced_on_a_filesystem_whose_stamps_do_not_hold() {
     private(&directory.path().join(MEMORY), &[3_u8; 8192]);
     let overlay = private(&directory.path().join(OVERLAY), &[5_u8; 8192]);
     assert!(!stamps_hold(&overlay), "tmpfs stamps must not be trusted");
-    record(directory.path(), Digest::of(b"memory"), Some(Digest::of(b"overlay")));
+    record(
+        directory.path(),
+        Digest::of(b"memory"),
+        Some(Digest::of(b"overlay")),
+    );
     assert_eq!(read(directory.path(), MEMORY), None);
     assert_eq!(read(directory.path(), OVERLAY), None);
     let head = private(&directory.path().join("head"), &[5_u8; 8192]);
@@ -90,7 +94,11 @@ fn no_attestation_is_produced_on_a_filesystem_whose_stamps_do_not_hold() {
 fn a_fresh_head_of_an_unchanged_attested_overlay_is_vouched_at_its_own_stamp() {
     let directory = published();
     let saved_path = directory.path().join(OVERLAY);
-    record(directory.path(), Digest::of(&[3_u8; 8192]), Some(Digest::of(&[5_u8; 8192])));
+    record(
+        directory.path(),
+        Digest::of(&[3_u8; 8192]),
+        Some(Digest::of(&[5_u8; 8192])),
+    );
     let saved = File::open(&saved_path).expect("saved overlay");
     let head_path = directory.path().join("head");
     fs::copy(&saved_path, &head_path).expect("clone");
@@ -110,7 +118,11 @@ fn a_head_is_not_vouched_without_a_record_or_after_the_saved_overlay_changed() {
     let head = File::open(&head_path).expect("head");
     let saved = File::open(&saved_path).expect("saved overlay");
     assert_eq!(vouch_head(&saved, None, &head), None);
-    record(directory.path(), Digest::of(&[3_u8; 8192]), Some(Digest::of(&[5_u8; 8192])));
+    record(
+        directory.path(),
+        Digest::of(&[3_u8; 8192]),
+        Some(Digest::of(&[5_u8; 8192])),
+    );
     let recorded = read(directory.path(), OVERLAY);
     // An in-place write keeps the size, so only the change time can reveal it.
     std::thread::sleep(std::time::Duration::from_millis(20));
@@ -141,7 +153,11 @@ fn measure_head_vouch() {
         private(&memory, &[0_u8; 4096]);
     }
     let began = Instant::now();
-    record(directory, Digest::of(b"memory"), Some(Digest::of(b"sealed by capture")));
+    record(
+        directory,
+        Digest::of(b"memory"),
+        Some(Digest::of(b"sealed by capture")),
+    );
     let recorded = began.elapsed();
     let saved = File::open(&path).expect("saved overlay");
     let instance = soma::InstanceId::new("ab".repeat(16)).expect("instance");

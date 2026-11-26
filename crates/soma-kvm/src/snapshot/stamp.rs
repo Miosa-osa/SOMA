@@ -221,7 +221,10 @@ mod tests {
     fn a_durable_volume_can_never_be_named_for_attestation() {
         use super::{AttestedArtifact, RestoreAttestations};
         for token in ["memory", "root", "head"] {
-            assert_eq!(AttestedArtifact::from_token(token).map(AttestedArtifact::token), Some(token));
+            assert_eq!(
+                AttestedArtifact::from_token(token).map(AttestedArtifact::token),
+                Some(token)
+            );
         }
         for token in ["volume", "workspace", "overlay", ""] {
             assert_eq!(AttestedArtifact::from_token(token), None, "{token}");

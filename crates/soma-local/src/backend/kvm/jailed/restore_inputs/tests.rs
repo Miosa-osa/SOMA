@@ -39,7 +39,8 @@ fn checkpoint(overlay_recorded: bool) -> RestoreArtifacts {
 fn each_attestation_goes_to_its_own_input() {
     let checkpoint = checkpoint(true);
     let head = file_with(&[5_u8; 8192]);
-    let root = ArtifactAttestation::new(Digest::of(b"root"), FileStamp::new(7, 8, 9, (1, 1), (2, 2)));
+    let root =
+        ArtifactAttestation::new(Digest::of(b"root"), FileStamp::new(7, 8, 9, (1, 1), (2, 2)));
     let wired = Recovery::attestations(&checkpoint, Some(&head), Some(root), true);
     assert_eq!(wired.memory, checkpoint.memory_attestation);
     assert_eq!(wired.root, Some(root));
@@ -54,13 +55,25 @@ fn each_attestation_goes_to_its_own_input() {
 fn a_head_gets_no_attestation_without_a_record_a_private_root_or_a_head() {
     let head = file_with(&[5_u8; 8192]);
     let unrecorded = checkpoint(false);
-    assert_eq!(Recovery::attestations(&unrecorded, Some(&head), None, true).head, None);
+    assert_eq!(
+        Recovery::attestations(&unrecorded, Some(&head), None, true).head,
+        None
+    );
     let recorded = checkpoint(true);
-    assert_eq!(Recovery::attestations(&recorded, Some(&head), None, false).head, None);
-    assert_eq!(Recovery::attestations(&recorded, None, None, true).head, None);
+    assert_eq!(
+        Recovery::attestations(&recorded, Some(&head), None, false).head,
+        None
+    );
+    assert_eq!(
+        Recovery::attestations(&recorded, None, None, true).head,
+        None
+    );
     // A checkpoint without a saved overlay, like a Generation without writable storage, has no
     // head to vouch for whatever file is offered.
     let mut no_overlay = checkpoint(true);
     no_overlay.overlay = None;
-    assert_eq!(Recovery::attestations(&no_overlay, Some(&head), None, true).head, None);
+    assert_eq!(
+        Recovery::attestations(&no_overlay, Some(&head), None, true).head,
+        None
+    );
 }

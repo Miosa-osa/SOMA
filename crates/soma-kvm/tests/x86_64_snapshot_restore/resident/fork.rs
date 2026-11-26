@@ -100,7 +100,13 @@ struct Fork {
 }
 
 impl Fork {
-    fn prepare(fixture: &Fixture, saved: &Saved, original: [u8; 16], cid: u32, attested: bool) -> Self {
+    fn prepare(
+        fixture: &Fixture,
+        saved: &Saved,
+        original: [u8; 16],
+        cid: u32,
+        attested: bool,
+    ) -> Self {
         let mut overlay = saved.overlay.try_clone().unwrap();
         overlay.rewind().expect("rewind captured overlay");
         let head_path = fixture.scratch.join(format!("resident-fork-{cid}.ext4"));

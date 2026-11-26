@@ -88,7 +88,9 @@ pub(super) fn record(published: &Path, memory: Digest, overlay: Option<Digest>) 
             (Artifact::Memory, &memory_file, memory),
             (Artifact::Overlay, file, *digest),
         ]),
-        None => attest_all([(Artifact::Memory, &memory_file, memory)]).map(|[memory]| [memory, None]),
+        None => {
+            attest_all([(Artifact::Memory, &memory_file, memory)]).map(|[memory]| [memory, None])
+        }
     };
     let Ok(records) = records else {
         return;

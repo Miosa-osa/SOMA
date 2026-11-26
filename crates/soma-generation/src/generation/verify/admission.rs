@@ -60,7 +60,11 @@ impl InstalledGeneration {
         self,
     ) -> (
         GenerationManifest,
-        Vec<(ArtifactDescriptor, File, Option<soma_kvm::snapshot::FileStamp>)>,
+        Vec<(
+            ArtifactDescriptor,
+            File,
+            Option<soma_kvm::snapshot::FileStamp>,
+        )>,
     ) {
         let artifacts = self
             .artifacts
