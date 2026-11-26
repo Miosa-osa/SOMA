@@ -125,6 +125,9 @@ fn an_attested_root_is_not_read_and_a_touched_root_is() {
         expected,
     );
     assert_eq!(read.expect("vouched root"), expected);
+    // An in-place write keeps the size, so only the change time can reveal it.
+    std::thread::sleep(Duration::from_millis(20));
+    root.seek(SeekFrom::Start(0)).expect("rewind");
     root.write_all(&[1]).expect("touch");
     let metadata = root.metadata().expect("stat");
     let read = digest(
@@ -135,6 +138,42 @@ fn an_attested_root_is_not_read_and_a_touched_root_is() {
         expected,
     );
     assert_ne!(read.expect("hashed root"), expected);
+}
+
+#[test]
+fn a_head_modified_after_the_broker_stamped_it_is_hashed_and_refused() {
+    let captured = vec![4_u8; 2 * PAGE];
+    let expected = Digest::of(&captured);
+    // The broker's head step: a fresh clone of the saved overlay, stamped before handover.
+    let mut head = file_with(&captured);
+    let attestation = ArtifactAttestation::new(expected, stamp(&head));
+    let metadata = head.metadata().expect("stat");
+    let read = digest(
+        Artifact::Overlay,
+        &mut head,
+        &metadata,
+        Some(attestation),
+        expected,
+    );
+    assert_eq!(read.expect("vouched head"), expected);
+    // Any write after the stamp, even one restoring the size, moves the change time.
+    std::thread::sleep(Duration::from_millis(20));
+    head.seek(SeekFrom::Start(4096)).expect("seek");
+    head.write_all(&[9]).expect("tamper with the head");
+    let metadata = head.metadata().expect("stat");
+    assert_ne!(FileStamp::of(&metadata), attestation.stamp());
+    let read = digest(
+        Artifact::Overlay,
+        &mut head,
+        &metadata,
+        Some(attestation),
+        expected,
+    );
+    assert_ne!(
+        read.expect("hashed head"),
+        expected,
+        "a tampered head must be refused"
+    );
 }
 
 #[test]
@@ -219,8 +258,20 @@ fn measure_named_files() {
         let began = Instant::now();
         crate::x86_64::snapshot::artifacts::hash(Artifact::Root, &mut file).expect("hash");
         let elapsed = began.elapsed();
+        let metadata = file.metadata().expect("stat");
+        let held = ArtifactAttestation::new(Digest::of(b"measured"), FileStamp::of(&metadata));
+        let began = Instant::now();
+        let vouched = digest(
+            Artifact::Root,
+            &mut file,
+            &metadata,
+            Some(held),
+            held.digest(),
+        );
+        let skipped = began.elapsed();
+        assert_eq!(vouched.expect("vouched"), held.digest());
         eprintln!(
-            "[attested] {size} bytes ({} MiB) hashed in {elapsed:?}: {}",
+            "[attested] {size} bytes ({} MiB) hashed in {elapsed:?}, attested in {skipped:?}: {}",
             size >> 20,
             path.display()
         );

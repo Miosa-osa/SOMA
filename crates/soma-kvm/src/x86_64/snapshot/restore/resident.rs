@@ -38,9 +38,10 @@ pub struct ResidentRestoreRequest {
     pub vcpus: u16,
     pub contract: MachineContract,
     pub hotplug: Option<HotplugRegion>,
-    /// The broker's records of the checkpoint memory and the Generation root, filled only by the
-    /// broker that opened the descriptors. A file whose stamp, size, or digest differs is hashed;
-    /// the private head and durable volume are always hashed.
+    /// The broker's records of the checkpoint memory, the Generation root, and a head it has just
+    /// cloned from an attested saved overlay, filled only by the broker that opened the
+    /// descriptors. A file whose stamp, size, or digest differs is hashed; a durable volume
+    /// always is.
     pub attestations: RestoreAttestations,
 }
 
@@ -92,7 +93,8 @@ impl PreparedCheckpoint {
 ///
 /// All mapped artifacts must remain private to the trusted broker and immutable for the lifetime
 /// of the restored machine. The memory file and the root are hashed unless the broker's
-/// attestation vouches for their exact current stamps; the private head and volume always are.
+/// attestation vouches for their exact current stamps, and so is a head the broker has just
+/// cloned from an attested saved overlay; the durable volume always is.
 /// The broker owns the same-Instance lease and must exclude another active owner. This entry
 /// point performs no scheduling or tenant authorization of its own.
 ///
@@ -193,7 +195,12 @@ fn prepare_for(
     )?;
     let root_record = (Slot::Root, Artifact::Root, attestations.root);
     verify_disk(root_record, &mut root, &state)?;
-    verify_head(head.as_mut(), objects.overlay_template(), &state)?;
+    verify_head(
+        head.as_mut(),
+        objects.overlay_template(),
+        &state,
+        attestations.head,
+    )?;
     if let Some(file) = &mut volume {
         verify_disk((Slot::Volume, Artifact::Volume, None), file, &state)?;
     }
@@ -225,6 +232,7 @@ fn verify_head(
     head: Option<&mut File>,
     saved: Option<&mut File>,
     state: &super::Sections,
+    attestation: Option<ArtifactAttestation>,
 ) -> Result<(), SnapshotError> {
     match (head, saved, state.slot(Slot::Overlay)) {
         (None, None, None) => Ok(()),
@@ -236,14 +244,14 @@ fn verify_head(
                     "the writable head aliases the saved overlay",
                 ));
             }
-            verify_disk((Slot::Overlay, Artifact::Overlay, None), head, state)
+            verify_disk((Slot::Overlay, Artifact::Overlay, attestation), head, state)
         }
         _ => Err(SnapshotError::DeviceStateNotCanonical(Slot::Overlay)),
     }
 }
 
-/// Checks one disk against its captured block record. Only an immutable disk is ever attested:
-/// the private head and the durable volume pass `None` and are always hashed.
+/// Checks one disk against its captured block record. The durable volume passes `None` and is
+/// always hashed; the root and a freshly cloned head may carry the broker's attestation.
 fn verify_disk(
     (slot, artifact, attestation): (Slot, Artifact, Option<ArtifactAttestation>),
     file: &mut File,

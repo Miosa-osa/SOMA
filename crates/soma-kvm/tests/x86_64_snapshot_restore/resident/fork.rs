@@ -132,7 +132,7 @@ impl Fork {
                     memory_digest(&saved.memory),
                 )
                 .expect("attest the captured memory"),
-                root: None,
+                ..soma_kvm::snapshot::RestoreAttestations::default()
             },
         };
         let address = instance::Identity {

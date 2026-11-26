@@ -144,13 +144,15 @@ impl ArtifactAttestation {
 
 /// Which restore input an attestation describes.
 ///
-/// Only artifacts nothing may write after publication are listed: the checkpoint memory and the
-/// Generation root. A private head or durable volume is writable by its guest, so a stamp says
-/// nothing about its content and it is always hashed.
+/// The checkpoint memory and the Generation root are immutable after publication. A private head
+/// is listed only for the head the broker has just cloned from an attested saved overlay and
+/// stamped before any descriptor left it; any other head is hashed. A durable volume is writable
+/// by its guest, so a stamp says nothing about its content and it is always hashed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AttestedArtifact {
     Memory,
     Root,
+    Head,
 }
 
 impl AttestedArtifact {
@@ -159,6 +161,7 @@ impl AttestedArtifact {
         match self {
             Self::Memory => "memory",
             Self::Root => "root",
+            Self::Head => "head",
         }
     }
 
@@ -167,16 +170,18 @@ impl AttestedArtifact {
         match token {
             "memory" => Some(Self::Memory),
             "root" => Some(Self::Root),
+            "head" => Some(Self::Head),
             _ => None,
         }
     }
 }
 
 /// The attestations one resident restore received, each optional.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RestoreAttestations {
     pub memory: Option<ArtifactAttestation>,
     pub root: Option<ArtifactAttestation>,
+    pub head: Option<ArtifactAttestation>,
 }
 
 impl RestoreAttestations {
@@ -185,6 +190,7 @@ impl RestoreAttestations {
         match artifact {
             AttestedArtifact::Memory => self.memory = Some(attestation),
             AttestedArtifact::Root => self.root = Some(attestation),
+            AttestedArtifact::Head => self.head = Some(attestation),
         }
     }
 }
