@@ -14,18 +14,20 @@ use crate::envelope::ApiError;
 #[must_use]
 pub fn managed_error(failure: &ManagedFailure) -> ApiError {
     let error = refusal(failure);
-    if let Some(line) = server_error_line(failure, error) {
+    if let Some(line) = refusal_line(failure, error) {
         eprintln!("{line}");
     }
     error
 }
 
-/// The log line a refusal the server is responsible for leaves, naming its cause; none for a
-/// refusal of the caller's request. A 5xx with nothing on the service's log could not be
-/// diagnosed after the fact.
+/// The log line a refusal leaves, naming its cause; none for an absent resource.
+///
+/// A 5xx with nothing on the service's log could not be diagnosed after the fact, and neither
+/// could a 4xx: a create refused as `workload_rejected` gives its caller one code for many
+/// causes. A 404 is the answer to a poll for something already gone, so it would only be noise.
 #[must_use]
-pub fn server_error_line(failure: &ManagedFailure, error: ApiError) -> Option<String> {
-    if error.status() < 500 {
+pub fn refusal_line(failure: &ManagedFailure, error: ApiError) -> Option<String> {
+    if error.status() == 404 {
         return None;
     }
     let cause = match failure {
@@ -219,7 +221,7 @@ mod logging_tests {
     #[test]
     fn a_server_failure_names_its_cause_on_the_log() {
         let failure = ManagedFailure::StateStore(StateStoreFailureKind::Corrupt);
-        let line = server_error_line(&failure, managed_error(&failure)).expect("a 5xx is logged");
+        let line = refusal_line(&failure, managed_error(&failure)).expect("a 5xx is logged");
         assert!(line.contains("500 state_store_failure"), "{line}");
         assert!(line.contains("state store Corrupt"), "{line}");
     }
@@ -244,8 +246,17 @@ mod logging_tests {
     }
 
     #[test]
-    fn a_refusal_of_the_callers_request_is_not_logged() {
+    fn a_refusal_of_the_callers_request_names_its_cause_on_the_log() {
+        let failure = ManagedFailure::Backend(soma::BackendFailureKind::WorkloadRejected);
+        let line = refusal_line(&failure, managed_error(&failure)).expect("a 4xx is logged");
+        assert!(line.contains("400 workload_rejected"), "{line}");
+        assert!(line.contains("backend WorkloadRejected"), "{line}");
+    }
+
+    #[test]
+    fn an_absent_resource_is_not_logged() {
         let failure = ManagedFailure::State(ManagedStateError::MachineNotFound);
-        assert_eq!(server_error_line(&failure, managed_error(&failure)), None);
+        assert_eq!(managed_error(&failure).status(), 404);
+        assert_eq!(refusal_line(&failure, managed_error(&failure)), None);
     }
 }

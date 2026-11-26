@@ -59,6 +59,15 @@ impl KvmBackend {
             .prepared()
             .downcast_ref::<PreparedGeneration>()
             .ok_or_else(|| self.fail(operation, BackendFailureKind::WorkloadRejected))?;
+        // Decided here, in the process the caller talks to, so the reason is on its log: a
+        // machine host refuses in kinds alone. A jailed machine pairs the volume the same way.
+        let volume_misfit = (self.jail.is_some() && restore.is_none())
+            .then(|| super::fit::volume_misfit(prepared, request.volume()))
+            .flatten();
+        if let Some(reason) = self.misfit(prepared, request.shape()).or(volume_misfit) {
+            let kind = super::fit::refuse(request.instance_id(), &reason);
+            return Err(self.fail(operation, kind));
+        }
         let launched = match self.hosted_directory() {
             None if restore.is_some() => {
                 return Err(self.fail(operation, BackendFailureKind::Unsupported));
