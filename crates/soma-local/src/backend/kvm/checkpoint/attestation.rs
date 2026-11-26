@@ -25,7 +25,7 @@ use std::{
 
 use soma_kvm::{
     snapshot::{ArtifactAttestation, Digest, FileStamp},
-    x86_64::attest_sealed,
+    x86_64::{Artifact, attest_all},
 };
 
 use super::{MEMORY, OVERLAY, open_private, read_bounded, sync_directory};
@@ -43,9 +43,21 @@ pub(super) fn names() -> impl Iterator<Item = &'static str> {
         .flat_map(|(_, record, staging)| [record, staging])
 }
 
-/// Whether `name` is a published record rather than part of the checkpoint itself.
+/// Whether `name` is a record, published or left staged by a crash, rather than part of the
+/// checkpoint itself.
 pub(super) fn is_record(name: &str) -> bool {
-    RECORDS.iter().any(|(_, record, _)| *record == name)
+    names().any(|known| known == name)
+}
+
+/// Whether a file's stamps are trustworthy evidence that its bytes did not change.
+///
+/// Only filesystems known to move the change time on every write, including a write through a
+/// shared mapping, qualify: XFS and ext4. On any other an attestation is never produced, so the
+/// file is hashed.
+pub(in crate::backend::kvm) fn stamps_hold(file: &File) -> bool {
+    const XFS: rustix::fs::FsWord = 0x5846_5342;
+    const EXT4: rustix::fs::FsWord = 0xEF53;
+    rustix::fs::fstatfs(file).is_ok_and(|stat| matches!(stat.f_type, XFS | EXT4))
 }
 
 fn record_of(artifact: &str) -> Option<(&'static str, &'static str)> {
@@ -55,19 +67,37 @@ fn record_of(artifact: &str) -> Option<(&'static str, &'static str)> {
         .map(|(_, record, staging)| (record, staging))
 }
 
-/// Records the stamp of a just-published checkpoint's sealed `artifact` with its manifest digest.
+/// Records the stamps of a just-published checkpoint's sealed memory and, when there is one,
+/// saved overlay, with the digests capture sealed them against.
 ///
-/// This runs after the directory rename, so the stamp is the one restore will see, and it never
-/// reads the artifact. Any failure leaves no record, and a restore then hashes the artifact.
-pub(super) fn record(published: &Path, artifact: &str, digest: Digest) {
-    let Some((name, staging)) = record_of(artifact) else {
+/// This runs after the directory rename, so each stamp is the one restore will see, it never
+/// reads either file, and both wait out one settle together. Any failure leaves that record out,
+/// and a restore then hashes the artifact.
+pub(super) fn record(published: &Path, memory: Digest, overlay: Option<Digest>) {
+    let open = |artifact: &str| {
+        open_private(&published.join(artifact))
+            .ok()
+            .filter(stamps_hold)
+    };
+    let Some(memory_file) = open(MEMORY) else {
         return;
     };
-    let Ok(file) = open_private(&published.join(artifact)) else {
+    let overlay = overlay.and_then(|digest| Some((open(OVERLAY)?, digest)));
+    let records = match &overlay {
+        Some((file, digest)) => attest_all([
+            (Artifact::Memory, &memory_file, memory),
+            (Artifact::Overlay, file, *digest),
+        ]),
+        None => attest_all([(Artifact::Memory, &memory_file, memory)]).map(|[memory]| [memory, None]),
+    };
+    let Ok(records) = records else {
         return;
     };
-    if let Ok(Some(attestation)) = attest_sealed(&file, digest) {
-        let _ignored = write(published, (name, staging), &attestation);
+    // The records are in the order of `RECORDS`: memory, then overlay.
+    for ((_, name, staging), attestation) in RECORDS.into_iter().zip(records) {
+        if let Some(attestation) = attestation {
+            let _ignored = write(published, (name, staging), &attestation);
+        }
     }
 }
 
@@ -91,6 +121,9 @@ pub(in crate::backend::kvm) fn vouch_head(
     head: &File,
 ) -> Option<ArtifactAttestation> {
     let record = record?;
+    if !stamps_hold(saved) || !stamps_hold(head) {
+        return None;
+    }
     let saved = FileStamp::of(&saved.metadata().ok()?);
     let head = head.metadata().ok()?;
     (saved == record.stamp() && head.len() == record.stamp().size())

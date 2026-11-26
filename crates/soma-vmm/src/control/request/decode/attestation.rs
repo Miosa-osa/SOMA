@@ -9,7 +9,7 @@ use super::super::{ControlError, Request};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub type Record = (AttestedArtifact, ArtifactAttestation);
 
-/// `artifact_attestation <memory|root> <digest> <stamp fields>`.
+/// `artifact_attestation <memory|root|head> <digest> <stamp fields>`; there is no volume form.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(in crate::control) fn encode((kind, record): &Record) -> String {
     format!("artifact_attestation {} {}", kind.token(), record.encode())

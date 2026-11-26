@@ -88,6 +88,19 @@ pub(in crate::backend::kvm) fn head_root() -> PathBuf {
     )
 }
 
+/// Whether the head root is a real directory only this broker can enter.
+///
+/// A head is vouched for at its own stamp only when no other identity could have reached it by
+/// name between its creation and its unlink, which holds only under a private root.
+pub(in crate::backend::kvm) fn head_root_is_private() -> bool {
+    use std::os::unix::fs::MetadataExt as _;
+
+    std::fs::symlink_metadata(head_root()).is_ok_and(|metadata| {
+        let shared = metadata.mode() & 0o077 != 0;
+        metadata.is_dir() && !shared && metadata.uid() == rustix::process::geteuid().as_raw()
+    })
+}
+
 /// A shard of the head root, because creating and unlinking a head takes the directory's inode
 /// lock and a cohort of a hundred launches otherwise queues on one directory.
 fn head_directory() -> Result<std::fs::File, BackendFailureKind> {
@@ -128,9 +141,17 @@ fn copied_head(
     directory: &std::fs::File,
     name: &str,
 ) -> Result<std::fs::File, BackendFailureKind> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+
     let path = directory_path(directory)?.join(name);
     let mut options = std::fs::OpenOptions::new();
-    options.create_new(true).read(true).write(true);
+    // Private and never through a link, as the reflink path's head is.
+    options
+        .create_new(true)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW);
     let mut head = options
         .open(&path)
         .map_err(|_| BackendFailureKind::Unavailable)?;
@@ -198,7 +219,7 @@ fn unlink(directory: &std::fs::File, name: &str) -> Result<(), BackendFailureKin
 
 #[cfg(test)]
 mod tests {
-    use super::copy_template;
+    use super::{copied_head, copy_template};
     use std::io::{Read as _, Seek as _, SeekFrom, Write as _};
     use std::os::unix::fs::MetadataExt as _;
 
@@ -226,5 +247,16 @@ mod tests {
         source.rewind().unwrap();
         source.read_to_end(&mut expected).unwrap();
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn a_copied_head_is_private_like_a_reflinked_one() {
+        let directory = tempfile::tempdir().unwrap();
+        let handle = std::fs::File::open(directory.path()).unwrap();
+        let mut template = tempfile::tempfile().unwrap();
+        template.write_all(&[7_u8; 4096]).unwrap();
+        let head = copied_head(template, &handle, "head").unwrap();
+        assert_eq!(head.metadata().unwrap().mode() & 0o777, 0o600);
+        assert!(!directory.path().join("head").exists(), "the head is unlinked");
     }
 }

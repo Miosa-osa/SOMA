@@ -13,7 +13,7 @@ use soma_vmm::sandbox::{Boot, ColdBootInputs, Network, Source, cold_boot_config}
 mod head;
 mod resume;
 
-pub(in crate::backend::kvm) use head::{head_root, private_head_from};
+pub(in crate::backend::kvm) use head::{head_root, head_root_is_private, private_head_from};
 
 /// Opens the prepared artifacts and gives this Instance its own writable overlay head.
 ///

@@ -90,51 +90,6 @@ pub(super) struct Recovery {
     pub(super) attestations: soma_kvm::snapshot::RestoreAttestations,
 }
 
-impl Recovery {
-    /// A private head for this Instance cloned from the checkpoint's saved overlay.
-    fn clone_head(
-        checkpoint: &RestoreArtifacts,
-        instance: &soma::InstanceId,
-    ) -> Result<Option<File>, BackendFailureKind> {
-        checkpoint
-            .overlay
-            .as_ref()
-            .map(|template| {
-                let template = template
-                    .try_clone()
-                    .map_err(|_| BackendFailureKind::Unavailable)?;
-                private_head_from(template, instance)
-            })
-            .transpose()
-    }
-
-    /// The broker's attestations of the checkpoint memory, of the Generation root as admission
-    /// left it, and of the head this broker step has just cloned from the saved overlay.
-    ///
-    /// The head is vouched for here, after the clone and before any descriptor reaches the
-    /// worker, and only when the saved overlay still has its recorded stamp.
-    fn attestations(
-        checkpoint: &RestoreArtifacts,
-        head: Option<&File>,
-        prepared: &crate::backend::kvm::prepared::PreparedGeneration,
-    ) -> soma_kvm::snapshot::RestoreAttestations {
-        let root = prepared.attestation(&prepared.manifest.root.descriptor);
-        let head = checkpoint
-            .overlay
-            .as_ref()
-            .zip(head)
-            .and_then(|(saved, head)| {
-                crate::backend::kvm::checkpoint::vouch_head(
-                    saved,
-                    checkpoint.overlay_attestation,
-                    head,
-                )
-            });
-        let memory = checkpoint.memory_attestation;
-        soma_kvm::snapshot::RestoreAttestations { memory, root, head }
-    }
-}
-
 /// Opens every resource one jailed machine is built from.
 pub(super) fn open(
     anchors: &Anchors,
@@ -162,7 +117,9 @@ pub(super) fn open(
             return Err(BackendFailureKind::WorkloadRejected);
         }
         let head = Recovery::clone_head(&checkpoint, instance)?;
-        let attestations = Recovery::attestations(&checkpoint, head.as_ref(), prepared);
+        let root = prepared.attestation(&prepared.manifest.root.descriptor);
+        let private = crate::backend::kvm::boot::head_root_is_private();
+        let attestations = Recovery::attestations(&checkpoint, head.as_ref(), root, private);
         (
             checkpoint.memory,
             checkpoint.state,
