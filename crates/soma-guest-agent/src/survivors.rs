@@ -2,7 +2,8 @@
 //!
 //! The sweep that ends every command kills each process in the guest. A command that started a
 //! process on purpose to outlive it (the live browser is the first) names it in
-//! [`SURVIVORS_FILE`], and the sweep that ends a command spares it. Shutdown and the pre-capture
+//! [`SURVIVORS_FILE`], and the sweep that ends a command spares it, as it spares the groups
+//! [`crate::leftovers`] keeps. Shutdown and the pre-capture
 //! sweep call [`crate::descendants::sweep_strays`] directly and never spare anything.
 
 #![allow(unsafe_code)]
@@ -12,6 +13,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::descendants::{is_kernel_thread, other_pids, sweep_strays};
+use crate::leftovers;
 use crate::pid1;
 
 const INIT_PID: i32 = 1;
@@ -39,12 +41,14 @@ pub fn sweep_strays_sparing(survivors: &str) -> usize {
         return 0;
     }
     let text = fs::read_to_string(survivors).unwrap_or_default();
-    let ids = survivor_ids(&text);
+    let mut ids = survivor_ids(&text);
     let cgroups = spared_cgroups(&text);
-    if ids.is_empty() && cgroups.is_empty() {
+    if ids.is_empty() && cgroups.is_empty() && !leftovers::any_kept() {
         return sweep_strays();
     }
-    let targets: Vec<i32> = doomed(&ids, &process_groups())
+    let processes = process_groups();
+    ids.extend(leftovers::live(&processes));
+    let targets: Vec<i32> = doomed(&ids, &processes)
         .into_iter()
         .filter(|pid| {
             cgroups.is_empty()
