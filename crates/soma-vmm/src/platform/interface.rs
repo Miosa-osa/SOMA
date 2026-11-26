@@ -12,7 +12,7 @@ pub(crate) trait Platform: Send {
         _digest: soma_kvm::snapshot::Digest,
         _saved_overlay: Option<std::fs::File>,
         _fork_from: Option<crate::InstanceId>,
-        _memory: Option<soma_kvm::snapshot::MemoryAttestation>,
+        _memory: soma_kvm::snapshot::RestoreAttestations,
     ) -> Result<(), PlatformFailure> {
         Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
     }

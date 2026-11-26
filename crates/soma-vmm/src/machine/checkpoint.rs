@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use soma_kvm::snapshot::{Digest, MemoryAttestation};
+use soma_kvm::snapshot::{Digest, RestoreAttestations};
 
 use super::{Machine, State};
 use crate::{
@@ -11,8 +11,8 @@ use crate::{
 impl Machine {
     /// Launches the authorized checkpoint on a worker with no existing Instance.
     ///
-    /// `memory` is the trusted broker's attestation of the checkpoint memory file; the file is
-    /// re-read unless it describes the mapped descriptor exactly.
+    /// `memory` holds the trusted broker's attestations of the checkpoint memory and root; each
+    /// file is re-read unless its attestation describes the mapped descriptor exactly.
     ///
     /// # Errors
     ///
@@ -22,7 +22,7 @@ impl Machine {
         launch: Launch,
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
-        memory: Option<MemoryAttestation>,
+        memory: RestoreAttestations,
     ) -> Result<Ready, Failure> {
         self.launch_checkpoint(launch, digest, saved_overlay, None, memory)
     }
@@ -36,7 +36,7 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
         source: InstanceId,
-        memory: Option<MemoryAttestation>,
+        memory: RestoreAttestations,
     ) -> Result<Ready, Failure> {
         if source == launch.instance_id() {
             return Err(super::fault::lifecycle_failure());
@@ -50,7 +50,7 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
         fork_from: Option<InstanceId>,
-        memory: Option<MemoryAttestation>,
+        memory: RestoreAttestations,
     ) -> Result<Ready, Failure> {
         if self.state != State::New
             || saved_overlay.is_some() != launch.generation().devices().writable_disk()

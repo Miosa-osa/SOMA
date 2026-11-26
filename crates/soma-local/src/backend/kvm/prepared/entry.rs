@@ -43,14 +43,32 @@ pub(in crate::backend::kvm) fn from_handoff(
     let artifacts = artifacts
         .into_iter()
         .map(|(descriptor, file)| (descriptor, Arc::new(file)))
-        .collect();
+        .collect::<Vec<_>>();
+    let admitted_stamps = stamps(&artifacts);
     Ok(PreparedGeneration {
         store: PathBuf::new(),
         reference,
         id: admitted_id,
         manifest,
         artifacts,
+        admitted_stamps,
     })
+}
+
+/// The stamp of each artifact as admission left it, taken straight after admission.
+fn stamps(
+    artifacts: &[super::VerifiedArtifact],
+) -> Vec<(
+    soma_generation::ArtifactDescriptor,
+    soma_kvm::snapshot::FileStamp,
+)> {
+    artifacts
+        .iter()
+        .filter_map(|(descriptor, file)| {
+            let metadata = file.metadata().ok()?;
+            Some((*descriptor, soma_kvm::snapshot::FileStamp::of(&metadata)))
+        })
+        .collect()
 }
 
 /// The compiler profile one declared compiler-policy version names.
@@ -185,13 +203,15 @@ pub(super) fn read_entry(
     let artifacts = artifacts
         .into_iter()
         .map(|(descriptor, file)| (descriptor, Arc::new(file)))
-        .collect();
+        .collect::<Vec<_>>();
+    let admitted_stamps = stamps(&artifacts);
     Ok(PreparedGeneration {
         store,
         reference: reference.to_owned(),
         id: admitted_id,
         manifest,
         artifacts,
+        admitted_stamps,
     })
 }
 

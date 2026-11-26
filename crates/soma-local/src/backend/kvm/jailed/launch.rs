@@ -108,9 +108,7 @@ impl Jailed {
                     }
                     _ => Request::Recover(launch, digest),
                 };
-                if let Some(attestation) = recovery.memory_attestation {
-                    self.offer_memory_attestation(anchors, instance, attestation)?;
-                }
+                self.offer_attestations(anchors, instance, recovery.attestations)?;
                 let budget = super::super::checkpoint::CHECKPOINT_CEILING + LAUNCH_CEILING;
                 let overlay = recovery.overlay.as_ref();
                 match (activation, overlay) {
@@ -147,24 +145,32 @@ impl Jailed {
             })
     }
 
-    /// Hands the worker the broker's record of the checkpoint memory before the recovery.
+    /// Hands the worker the broker's records of the immutable restore inputs before recovery.
     ///
-    /// A worker that predates the record rejects only this packet, and its recovery then hashes
-    /// the memory as before; only a broken control channel fails the launch.
-    fn offer_memory_attestation(
+    /// A worker that predates a record rejects only that packet, and its recovery then hashes
+    /// the artifact as before; only a broken control channel fails the launch.
+    fn offer_attestations(
         &self,
         anchors: &Anchors,
         instance: &str,
-        attestation: soma_kvm::snapshot::MemoryAttestation,
+        attestations: soma_kvm::snapshot::RestoreAttestations,
     ) -> Result<(), BackendFailureKind> {
-        let reply = self
-            .control
-            .ask(&Request::AttestMemory(attestation), ATTESTATION_CEILING)?;
-        if !matches!(reply, Outcome::MemoryAttested) {
-            anchors.record(
-                instance,
-                &format!("worker declined the memory attestation: {reply:?}"),
-            );
+        use soma_kvm::snapshot::AttestedArtifact;
+        for (kind, record) in [
+            (AttestedArtifact::Memory, attestations.memory),
+            (AttestedArtifact::Root, attestations.root),
+        ] {
+            let Some(record) = record else { continue };
+            let reply = self.control.ask(
+                &Request::AttestArtifact((kind, record)),
+                ATTESTATION_CEILING,
+            )?;
+            if !matches!(reply, Outcome::ArtifactAttested) {
+                anchors.record(
+                    instance,
+                    &format!("worker declined an attestation: {reply:?}"),
+                );
+            }
         }
         Ok(())
     }

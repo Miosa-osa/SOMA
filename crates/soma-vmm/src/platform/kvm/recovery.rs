@@ -19,8 +19,8 @@ pub(super) struct Selection {
     pub(super) digest: Digest,
     pub(super) saved_overlay: Option<File>,
     pub(super) fork_from: Option<crate::InstanceId>,
-    /// The broker's record of the checkpoint memory file, when it sent one.
-    pub(super) memory: Option<soma_kvm::snapshot::MemoryAttestation>,
+    /// The broker's records of the immutable restore inputs it sent.
+    pub(super) memory: soma_kvm::snapshot::RestoreAttestations,
 }
 
 impl KvmPlatform {
@@ -78,7 +78,7 @@ impl KvmPlatform {
             vcpus: spec.vcpus().get(),
             contract,
             hotplug,
-            memory_attestation: selection.memory,
+            attestations: selection.memory,
         };
         let source = if selection.fork_from.is_some() {
             Source::CheckpointFork(Box::new(request))

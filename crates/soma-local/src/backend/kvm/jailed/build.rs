@@ -86,7 +86,20 @@ pub(super) struct Opened {
 pub(super) struct Recovery {
     pub(super) digest: soma_kvm::snapshot::Digest,
     pub(super) overlay: Option<File>,
-    pub(super) memory_attestation: Option<soma_kvm::snapshot::MemoryAttestation>,
+    /// The memory record from the checkpoint and the root record from Generation admission.
+    pub(super) attestations: soma_kvm::snapshot::RestoreAttestations,
+}
+
+impl Recovery {
+    /// The broker's attestations of the checkpoint memory and of the Generation root as
+    /// admission left it.
+    fn attestations(
+        memory: Option<soma_kvm::snapshot::ArtifactAttestation>,
+        prepared: &crate::backend::kvm::prepared::PreparedGeneration,
+    ) -> soma_kvm::snapshot::RestoreAttestations {
+        let root = prepared.attestation(&prepared.manifest.root.descriptor);
+        soma_kvm::snapshot::RestoreAttestations { memory, root }
+    }
 }
 
 /// Opens every resource one jailed machine is built from.
@@ -130,7 +143,7 @@ pub(super) fn open(
             Some(Recovery {
                 digest: checkpoint.digest,
                 overlay: checkpoint.overlay,
-                memory_attestation: checkpoint.memory_attestation,
+                attestations: Recovery::attestations(checkpoint.memory_attestation, prepared),
             }),
         )
     } else {

@@ -31,8 +31,8 @@ pub enum Reply<'a> {
     Pty(&'a soma::PtyAnswer),
     /// The seccomp filter now denies every startup-only syscall.
     Sealed,
-    /// The next checkpoint recovery may skip reading the attested memory file.
-    MemoryAttested,
+    /// The next checkpoint recovery may skip reading the attested artifact.
+    ArtifactAttested,
     /// The request was not performed and Machine state did not change.
     Rejected(&'a str),
 }
@@ -102,7 +102,7 @@ impl Reply<'_> {
                 hex(&serde_json::to_vec(answer).expect("terminal answer serializes"))
             ),
             Self::Sealed => "sealed".to_owned(),
-            Self::MemoryAttested => "memory_attested".to_owned(),
+            Self::ArtifactAttested => "artifact_attested".to_owned(),
             Self::Rejected(reason) => format!("rejected {reason}"),
         }
     }

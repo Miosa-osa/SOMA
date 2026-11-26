@@ -3,7 +3,7 @@
 use std::fs::File;
 
 use soma::{GenerationId, InstanceId, OperationId};
-use soma_kvm::snapshot::{Digest, MemoryAttestation};
+use soma_kvm::snapshot::{ArtifactAttestation, Digest};
 
 use super::{
     CheckpointFailure, CheckpointVolumeReceipt, MEMORY, OVERLAY, STATE, configured_root,
@@ -18,7 +18,7 @@ pub(in crate::backend::kvm) struct RestoreArtifacts {
     pub(in crate::backend::kvm) cpu_template: Digest,
     pub(in crate::backend::kvm) volume: Option<CheckpointVolumeReceipt>,
     /// The broker's record of the memory file, when one was written at publication.
-    pub(in crate::backend::kvm) memory_attestation: Option<MemoryAttestation>,
+    pub(in crate::backend::kvm) memory_attestation: Option<ArtifactAttestation>,
 }
 
 /// Opens the files named by a previously published checkpoint receipt.

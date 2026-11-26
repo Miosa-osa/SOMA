@@ -95,6 +95,12 @@ pub(super) struct PreparedGeneration {
     /// This makes verification an admission cost and prevents a path replacement after
     /// verification from changing the bytes a later machine consumes.
     artifacts: Vec<VerifiedArtifact>,
+    /// The stamp each verified artifact had when this entry was admitted.
+    ///
+    /// Launch already trusts these handles without re-reading them, because only the installer
+    /// may write the store. A resident restore also hashes the root; this lets it skip that read
+    /// for a root whose stamp has not moved since admission.
+    admitted_stamps: Vec<(ArtifactDescriptor, soma_kvm::snapshot::FileStamp)>,
 }
 
 impl PreparedGeneration {
@@ -110,6 +116,19 @@ impl PreparedGeneration {
             .map(|(_, file)| file)
             .ok_or(PreparedError::Damaged)?;
         independent_description(file).map_err(|_| PreparedError::Damaged)
+    }
+
+    /// The broker's attestation of one admitted artifact at the stamp it had when admitted.
+    pub(super) fn attestation(
+        &self,
+        descriptor: &ArtifactDescriptor,
+    ) -> Option<soma_kvm::snapshot::ArtifactAttestation> {
+        let (_, stamp) = self
+            .admitted_stamps
+            .iter()
+            .find(|(candidate, _)| candidate == descriptor)?;
+        let digest = soma_kvm::snapshot::Digest::from_bytes(*descriptor.digest.as_bytes());
+        Some(soma_kvm::snapshot::ArtifactAttestation::new(digest, *stamp))
     }
 
     /// Encodes the admitted manifest and opens independent verified handles for one child.

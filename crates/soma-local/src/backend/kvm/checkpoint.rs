@@ -113,7 +113,12 @@ pub(super) fn perform(
     )?
     .receipt;
     stage.publish(&root, &published, &receipt)?;
-    attestation::record(&published);
+    if let Ok(digest) = GenerationId::new(receipt.memory_digest.clone())
+        .map_err(|_| ())
+        .and_then(|digest| generation_bytes(&digest).map_err(|_| ()))
+    {
+        attestation::record(&published, Digest::from_bytes(digest));
+    }
     Ok(receipt)
 }
 

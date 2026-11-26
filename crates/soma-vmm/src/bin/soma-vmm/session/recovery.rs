@@ -1,6 +1,6 @@
 use std::{fs::File, os::fd::OwnedFd};
 
-use soma_kvm::snapshot::{Digest, MemoryAttestation};
+use soma_kvm::snapshot::{Digest, RestoreAttestations};
 use soma_vmm::{InstanceId, Launch, Machine, control::Reply};
 
 use crate::channel::Channel;
@@ -8,7 +8,7 @@ use crate::channel::Channel;
 pub(super) fn reply(
     machine: &mut Machine,
     control: &Channel,
-    (launch, digest, memory): (Launch, [u8; 32], Option<MemoryAttestation>),
+    (launch, digest, memory): (Launch, [u8; 32], RestoreAttestations),
     descriptors: Vec<OwnedFd>,
     fork_from: Option<InstanceId>,
 ) {

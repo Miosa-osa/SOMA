@@ -44,8 +44,8 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
         Machine::new()
     };
     let mut buffer = [0u8; MAX_REQUEST_BYTES];
-    // The broker's memory attestation, held only for the recovery that follows it.
-    let mut memory = None;
+    // The broker's attestations, held only for the recovery that follows them.
+    let mut attested = soma_kvm::snapshot::RestoreAttestations::default();
     for _ in 0..MAX_REQUESTS {
         let (count, descriptors) = match control.receive(&mut buffer) {
             Ok((0, _)) => return exit::SUPERVISOR_GONE,
@@ -77,10 +77,10 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
             checkpoint::reply(&mut machine, control, source, descriptors);
             continue;
         }
-        if let Request::AttestMemory(attestation) = request {
-            memory = descriptors.is_empty().then_some(attestation);
-            let reply = if memory.is_some() {
-                Reply::MemoryAttested
+        if let Request::AttestArtifact((kind, record)) = request {
+            let reply = if descriptors.is_empty() {
+                attested.set(kind, record);
+                Reply::ArtifactAttested
             } else {
                 Reply::Rejected("unexpected control descriptors")
             };
@@ -88,7 +88,7 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
             continue;
         }
         if let Request::Recover(launch, digest) = request {
-            let memory = memory.take();
+            let memory = std::mem::take(&mut attested);
             recovery::reply(
                 &mut machine,
                 control,
@@ -99,7 +99,7 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
             continue;
         }
         if let Request::Fork(launch, digest, source) = request {
-            let memory = memory.take();
+            let memory = std::mem::take(&mut attested);
             let checkpoint = (launch, digest, memory);
             recovery::reply(&mut machine, control, checkpoint, descriptors, Some(source));
             continue;
@@ -172,7 +172,7 @@ fn perform(
         Request::Workspace { .. } => unreachable!("descriptor requests are handled at receive"),
         Request::File(_)
         | Request::Checkpoint(_)
-        | Request::AttestMemory(_)
+        | Request::AttestArtifact(..)
         | Request::Recover(..)
         | Request::Fork(..) => {
             unreachable!("descriptor requests are handled at receive")

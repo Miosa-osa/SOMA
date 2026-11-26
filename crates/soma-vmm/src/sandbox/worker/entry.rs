@@ -233,7 +233,7 @@ mod tests {
                 vcpus: 1,
                 contract: MachineContract::V1,
                 hotplug: None,
-                memory_attestation: None,
+                attestations: soma_kvm::snapshot::RestoreAttestations::default(),
             })),
             instance: [1; 16],
             generation: [2; 32],
