@@ -1,4 +1,4 @@
-# 0069. An Instance may keep what a command leaves behind
+# 0071. An Instance may keep what a command leaves behind
 
 By default nothing survives a command.
 The agent kills the command's process group and then sweeps every other process except the ones named in `/run/soma/survivors`.
