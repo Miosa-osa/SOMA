@@ -198,7 +198,7 @@ pub(super) fn backend_failure_details(
             ),
             ProcessExit::UnsupportedBackend,
         ),
-        BackendFailureKind::Unavailable | BackendFailureKind::CapacityExhausted => (
+        BackendFailureKind::Unavailable => (
             FailureBody::new(
                 "backend_unavailable",
                 "backend capability is unavailable",

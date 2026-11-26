@@ -160,6 +160,8 @@ pub fn early_init(deadline: Instant) -> Result<Declared, BootFailure> {
     };
     move_mounts(root)?;
     switch_root(root)?;
+    // Shut down and restart work in every instance, whatever its image ships (SOMA#258).
+    crate::power::install_commands();
     Ok(declared)
 }
 

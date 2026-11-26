@@ -172,6 +172,11 @@ impl Jailed {
         Outcome::decode(&text).map_err(|_| BackendFailureKind::Unavailable)
     }
 
+    /// The worker process holding this machine, while it is held.
+    pub(in super::super) fn pid(&self) -> Option<i32> {
+        self.handle.as_ref().map(JailHandle::pid)
+    }
+
     /// Whether this machine may still be addressed.
     pub(in super::super) const fn is_usable(&self) -> bool {
         !self.poisoned

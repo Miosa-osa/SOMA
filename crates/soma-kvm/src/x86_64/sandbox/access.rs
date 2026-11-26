@@ -3,6 +3,15 @@
 use super::{Arc, ControlChannel, MachineError, Milestone, Phase, PoisonError, SandboxMachine};
 
 impl SandboxMachine {
+    /// How the guest ended this machine itself, once one of its vCPUs returned that end.
+    ///
+    /// A supervisor polls this while it waits for requests, so a guest shut down or restarted
+    /// from inside is noticed without anyone addressing it.
+    #[must_use]
+    pub fn guest_end(&self) -> Option<crate::x86_64::GuestEnd> {
+        self.exits.guest_end()
+    }
+
     /// Adds the empty hotplug region behind its own KVM memory slot and returns the backing the
     /// memory device hands unplugged blocks to.
     ///

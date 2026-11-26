@@ -6,7 +6,7 @@ use crate::repair::{Captured, Controller, Fault, Poisoned, State, Step};
 use crate::timings::{self, Step as Measured};
 use crate::{
     boot, capture_warm, console, control, entropy, identity, launch_page, lifecycle,
-    network_repair, pid1, priority, tuning, warm,
+    network_repair, pid1, power, priority, tuning, warm,
 };
 
 /// Console line the agent prints once it is parked at the disconnected repair point.
@@ -41,6 +41,9 @@ pub fn run() -> ! {
         console::report("refusing to run outside PID 1");
         pid1::poweroff();
     }
+    // A shutdown or restart asked for inside the guest (`poweroff`, `reboot`, a desktop's Shut
+    // down) arrives as a signal to init; without this it was lost and the machine ran on.
+    power::watch();
     // The control path outranks the workload it supervises, so a command that spins cannot
     // starve the agent that would answer the next request. The policy is guest kernel state
     // and a capture carries it, so a restored Instance starts already protected.

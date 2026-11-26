@@ -229,6 +229,17 @@ impl LocalRuntime {
             .ok_or(crate::TunnelFailure::Unavailable)?;
         crate::tunnel::tunnel_machine(directory, instance, port)
     }
+
+    /// Whether `instance`'s guest shut its machine down from inside (SOMA#258).
+    ///
+    /// The host that held the machine leaves a marker when it releases one its guest shut down,
+    /// and the next host for the Instance removes it, so the answer is about this machine.
+    #[must_use]
+    pub fn shut_down_by_guest(&self, instance: &soma::InstanceId) -> bool {
+        self.host_directory.as_deref().is_some_and(|directory| {
+            crate::backend::guest_shutdown_marker(directory, instance).exists()
+        })
+    }
 }
 
 impl std::fmt::Debug for LocalRuntime {

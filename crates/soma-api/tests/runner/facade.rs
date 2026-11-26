@@ -98,6 +98,7 @@ impl SandboxFacade for FakeFacade {
             backend: receipt.backend(),
             receipt,
             machine_lost: false,
+            shut_down_by_guest: false,
         })
     }
 

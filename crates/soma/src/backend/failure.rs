@@ -6,11 +6,6 @@ pub enum BackendFailureKind {
     /// The request was refused because the sandbox is paused.
     SandboxPaused,
     WorkloadRejected,
-    /// The host has no room for this machine now; another host, or this one later, may.
-    ///
-    /// Apart from [`Self::WorkloadRejected`], which is a request no host would run, so a caller
-    /// places this one elsewhere instead of fixing the request.
-    CapacityExhausted,
     /// The resident checkpoint cannot be restored on this host profile.
     CheckpointIncompatible,
     /// The sandbox's guest agent cannot decode this command (an argument longer than it carries),

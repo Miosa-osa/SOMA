@@ -23,6 +23,8 @@ pub enum Ending {
     /// The guest acknowledged Suspend and is parked; the machine is read into the target and then
     /// released by the caller, which alone holds it mutably.
     Suspended(Box<super::super::session::SuspendTarget>),
+    /// The guest ended the machine itself, shut down or restarted from inside.
+    GuestEnded(soma_kvm::x86_64::GuestEnd),
 }
 
 /// Finishes the machine and reports its evidence, or the failure that ended it.
@@ -52,6 +54,10 @@ pub fn report(
             let evidence = sandbox.finish(grace);
             let _ignored = responses.send(Response::Finished(Box::new(evidence)));
         }
+        Ok(Ending::GuestEnded(end)) => {
+            drop(sandbox.finish(grace));
+            super::super::guest_end::ended(*end);
+        }
         Err(error) => {
             let evidence = sandbox.finish(grace);
             // A failed sandbox never reaches cleanup, so this is the only chance to keep what it
@@ -68,7 +74,12 @@ pub fn report(
 /// would spend the whole grace on a guest idling in its command loop before the kick ended it.
 const fn exit_grace(outcome: &Result<Ending, SessionError>) -> Duration {
     match outcome {
-        Ok(Ending::Aborted | Ending::ReleasedWhilePaused | Ending::Suspended(_)) => Duration::ZERO,
+        Ok(
+            Ending::Aborted
+            | Ending::ReleasedWhilePaused
+            | Ending::Suspended(_)
+            | Ending::GuestEnded(_),
+        ) => Duration::ZERO,
         Ok(Ending::ShutDown) | Err(_) => EXIT_GRACE,
     }
 }

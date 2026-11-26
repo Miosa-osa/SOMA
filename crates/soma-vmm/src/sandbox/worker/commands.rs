@@ -16,12 +16,12 @@ use super::super::io::HostIo;
 use super::super::memory;
 use super::super::session::{Completed, Request, Response, SessionError};
 use super::Ending;
+use super::wait::{self, Next};
 use super::{files, pty};
 
 /// Announces Ready and serves bounded commands until the owner shuts the sandbox down.
 ///
-/// Reports how the loop ended so only a guest that acknowledged shutdown is given time to
-/// leave `KVM_RUN` on its own.
+/// Reports how the loop ended so only a guest that left on its own is given time to leave.
 pub(super) fn serve_commands(
     machine: &SandboxMachine,
     mut repaired: RepairedHostControl<HostIo<'_>>,
@@ -32,23 +32,19 @@ pub(super) fn serve_commands(
 ) -> Result<Ending, SessionError> {
     send_ready(responses, head_reads)?;
 
-    // What the guest answered to the API level probe, learned lazily by the first level 2 file
-    // operation or the first command with a long argument, and kept for the life of this session.
-    // A guest that cannot decode a command is answered `ExecuteRefused` with nothing sent, so the
-    // sandbox keeps answering every command it can.
+    // The guest's API level, probed lazily and kept for the session; a command the guest cannot
+    // decode is answered `ExecuteRefused` with nothing sent.
     let mut guest_api: Option<GuestApi> = None;
-
     let mut workspace = super::workspace::Workspace::default();
 
-    // A closed request channel is an ordinary end: the owner dropped the session, so the guest is
-    // shut down exactly as an explicit shutdown would.
-    while let Ok(request) = requests.recv() {
-        if machine.is_paused()
-            && !matches!(
-                request,
-                Request::Pause | Request::Resume | Request::Shutdown | Request::Abort
-            )
-        {
+    // A closed channel is an ordinary end: the owner dropped the session, as a shutdown would.
+    loop {
+        let request = match wait::next(machine, requests) {
+            Next::Request(request) => request,
+            Next::GuestEnded(end) => return Ok(Ending::GuestEnded(end)),
+            Next::Closed => break,
+        };
+        if wait::refused_while_paused(machine, &request) {
             responses
                 .send(Response::GuestPaused)
                 .map_err(|_| SessionError::Gone)?;

@@ -66,7 +66,7 @@ pub use self::{
     memory::{HotplugBacking, HotplugRam, SharedRam},
     mmio::MmioCounters,
     ports::BusCounters,
-    run::GuestExit,
+    run::{GuestEnd, GuestExit},
     sandbox::{
         Milestone, MilestoneMark, NetworkAttachment, SandboxConfig, SandboxEvidence, SandboxMachine,
     },

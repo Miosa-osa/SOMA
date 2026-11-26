@@ -66,9 +66,7 @@ const fn map_run_failure_kind(kind: RunFailureKind) -> RuntimeFailureKind {
     match kind {
         RunFailureKind::Backend { kind, .. } => match kind {
             BackendFailureKind::Unsupported => RuntimeFailureKind::Unsupported,
-            BackendFailureKind::Unavailable | BackendFailureKind::CapacityExhausted => {
-                RuntimeFailureKind::Unavailable
-            }
+            BackendFailureKind::Unavailable => RuntimeFailureKind::Unavailable,
             BackendFailureKind::ResourceConflict
             | BackendFailureKind::SandboxPaused
             | BackendFailureKind::CheckpointIncompatible => RuntimeFailureKind::Conflict,

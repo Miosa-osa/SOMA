@@ -117,6 +117,11 @@ pub(in crate::backend::kvm::host) enum Call {
     },
     /// End the host, because nothing has addressed its machine for long enough.
     Shutdown,
+    /// The guest ended its machine from inside; the host's own watcher sends it (SOMA#258).
+    GuestEnded {
+        /// A restart, which the host answers by starting the same Instance again in place.
+        reboot: bool,
+    },
 }
 
 /// Which stream of a running command a chunk belongs to.

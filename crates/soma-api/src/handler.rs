@@ -77,10 +77,10 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 200,
                 operation,
                 &InspectionReport {
+                    reason: snapshot.stopped_reason(),
                     instance_id: snapshot.instance_id,
                     state: snapshot.state,
                     backend: snapshot.backend,
-                    reason: snapshot.machine_lost.then_some("machine_lost"),
                 },
                 Some(&snapshot.receipt),
             ))

@@ -99,6 +99,7 @@ impl SandboxFacade for LocalFacade {
             backend: receipt.backend(),
             receipt: receipt.clone(),
             machine_lost: outcome.machine_lost(),
+            shut_down_by_guest: self.runtime.shut_down_by_guest(receipt.instance_id()),
         })
     }
 

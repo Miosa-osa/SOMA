@@ -147,14 +147,6 @@ fn backend_error(kind: BackendFailureKind) -> ApiError {
         BackendFailureKind::WorkloadRejected => {
             ApiError::new(400, "workload_rejected", "workload was rejected", false)
         }
-        // Retryable, and not a 400: the request is sound, the host is full now, and a caller
-        // with other hosts places it there.
-        BackendFailureKind::CapacityExhausted => ApiError::new(
-            503,
-            "capacity_exhausted",
-            "this host has no room for the sandbox now",
-            true,
-        ),
         BackendFailureKind::GuestAgentOutdated => ApiError::new(
             422,
             "guest_agent_outdated",
@@ -222,25 +214,6 @@ mod logging_tests {
         let line = server_error_line(&failure, managed_error(&failure)).expect("a 5xx is logged");
         assert!(line.contains("500 state_store_failure"), "{line}");
         assert!(line.contains("state store Corrupt"), "{line}");
-    }
-
-    /// A full host is retryable elsewhere, and a request no host would run stays a 400.
-    #[test]
-    fn a_full_host_is_a_retryable_capacity_refusal() {
-        let full = managed_error(&ManagedFailure::Backend(
-            soma::BackendFailureKind::CapacityExhausted,
-        ));
-        assert_eq!(
-            (full.status(), full.body().code, full.body().retryable),
-            (503, "capacity_exhausted", true)
-        );
-        let rejected = managed_error(&ManagedFailure::Backend(
-            soma::BackendFailureKind::WorkloadRejected,
-        ));
-        assert_eq!(
-            (rejected.status(), rejected.body().code),
-            (400, "workload_rejected")
-        );
     }
 
     #[test]

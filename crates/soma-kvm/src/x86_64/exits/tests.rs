@@ -1,7 +1,7 @@
 //! Unit proofs for the exit ledger: distinct classes, one recorded first pass, and the
 //! sampling limit that bounds what the instrument costs.
 
-use super::{ExitLedger, ExitReason, SAMPLE_LIMIT};
+use super::{ExitLedger, ExitReason, GuestEnd, SAMPLE_LIMIT};
 
 #[test]
 fn every_class_has_a_distinct_index_and_name() {
@@ -67,4 +67,29 @@ fn the_first_entry_and_return_are_never_overwritten() {
     sampler.returned(&Ok(kvm_ioctls::VcpuExit::Hlt));
     assert_eq!(ledger.first_entry(), Some(first));
     assert_eq!(ledger.first_return(), Some(first_return));
+}
+
+/// A guest's own end is kept, and only the first: a second vCPU's exit cannot change it.
+#[test]
+fn the_first_guest_end_is_the_one_recorded() {
+    let ledger = ExitLedger::new();
+    assert_eq!(ledger.guest_end(), None);
+    ledger.record_guest_end(GuestEnd::PowerOff);
+    ledger.record_guest_end(GuestEnd::Reboot);
+    assert_eq!(ledger.guest_end(), Some(GuestEnd::PowerOff));
+}
+
+#[test]
+fn only_a_reset_and_a_power_off_are_ends_the_guest_asked_for() {
+    use crate::x86_64::GuestExit;
+    assert_eq!(GuestExit::Reset.guest_end(), Some(GuestEnd::Reboot));
+    assert_eq!(GuestExit::PowerOff.guest_end(), Some(GuestEnd::PowerOff));
+    for other in [
+        GuestExit::Halt,
+        GuestExit::Shutdown,
+        GuestExit::Sentinel,
+        GuestExit::Paused,
+    ] {
+        assert_eq!(other.guest_end(), None);
+    }
 }
