@@ -3,9 +3,8 @@ use std::{fs, io::ErrorKind, os::unix::fs::MetadataExt as _, path::Path};
 use crate::{CheckpointFailure, CheckpointReceipt};
 
 use super::{
-    MEMORY, MEMORY_ATTESTATION, OVERLAY, RECEIPT, STATE, VOLUME, configured_root,
-    export::open_at, open_private,
-    published_path, rename_new, require_encrypted, sync_directory,
+    MEMORY, MEMORY_ATTESTATION, OVERLAY, RECEIPT, STATE, VOLUME, configured_root, export::open_at,
+    open_private, published_path, rename_new, require_encrypted, sync_directory,
 };
 
 pub(crate) fn install_import(

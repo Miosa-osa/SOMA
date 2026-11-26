@@ -89,7 +89,13 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
         }
         if let Request::Recover(launch, digest) = request {
             let memory = memory.take();
-            recovery::reply(&mut machine, control, (launch, digest, memory), descriptors, None);
+            recovery::reply(
+                &mut machine,
+                control,
+                (launch, digest, memory),
+                descriptors,
+                None,
+            );
             continue;
         }
         if let Request::Fork(launch, digest, source) = request {

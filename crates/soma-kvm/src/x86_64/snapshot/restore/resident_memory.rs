@@ -70,7 +70,8 @@ mod tests {
             Digest::of(bytes),
             u64::try_from(bytes.len()).expect("size"),
             4096,
-        ).expect("record")
+        )
+        .expect("record")
     }
 
     fn stamp(file: &File) -> FileStamp {
@@ -164,7 +165,12 @@ mod tests {
         let began = Instant::now();
         let attestation = attest_memory(&mut file).expect("hash").expect("attest");
         let recorded = began.elapsed();
-        let record = MemoryDescriptor::new(attestation.digest(), u64::try_from(GIB).expect("size"), 4096).expect("record");
+        let record = MemoryDescriptor::new(
+            attestation.digest(),
+            u64::try_from(GIB).expect("size"),
+            4096,
+        )
+        .expect("record");
         let mut samples = |attested: Option<MemoryAttestation>| -> Vec<Duration> {
             (0..5)
                 .map(|_| {

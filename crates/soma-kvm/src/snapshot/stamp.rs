@@ -138,10 +138,7 @@ impl MemoryAttestation {
         let mut fields = line.trim_end_matches('\n').split(' ');
         let digest = parse_digest(fields.next()?)?;
         let stamp = FileStamp::decode(&mut fields)?;
-        fields
-            .next()
-            .is_none()
-            .then_some(Self::new(digest, stamp))
+        fields.next().is_none().then_some(Self::new(digest, stamp))
     }
 }
 
