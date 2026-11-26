@@ -1,4 +1,4 @@
-# 0068 - Attested immutable restore inputs
+# 0069 - Attested immutable restore inputs
 
 Status: Accepted for implementation
 
