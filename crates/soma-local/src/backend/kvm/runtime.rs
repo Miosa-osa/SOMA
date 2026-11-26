@@ -168,13 +168,13 @@ impl Ownership {
 /// A refusal by the Host is about the Host or the request, never about the guest, so none of
 /// these may become a guest failure: an operator reading `GuestFailure` would look inside a
 /// machine that was never built.
-const fn launch_refusal(error: ClientError) -> BackendFailureKind {
+pub(super) const fn launch_refusal(error: ClientError) -> BackendFailureKind {
     match error {
         ClientError::Refused(FailureCode::Conflict | FailureCode::Terminated) => {
             BackendFailureKind::ResourceConflict
         }
         ClientError::Refused(FailureCode::Capacity | FailureCode::Exhausted) => {
-            BackendFailureKind::WorkloadRejected
+            BackendFailureKind::CapacityExhausted
         }
         _ => BackendFailureKind::Unavailable,
     }
