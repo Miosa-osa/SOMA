@@ -41,6 +41,36 @@ pub trait SandboxStorage {
         Err(soma_local::CheckpointFailure::Unsupported)
     }
 
+    /// Opens a published capture for an off-host backup, for its authorized owner (ADR 0064).
+    ///
+    /// # Errors
+    ///
+    /// Returns the owner, receipt, or storage refusal.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn open_checkpoint_export(
+        &mut self,
+        _owner: &soma::MachineName,
+        _receipt: &soma_local::CheckpointReceipt,
+    ) -> Result<soma_local::CheckpointExport, soma_local::CheckpointFailure> {
+        Err(soma_local::CheckpointFailure::Unsupported)
+    }
+
+    /// Verifies and publishes a capture received from off-host storage (ADR 0065, ADR 0066).
+    ///
+    /// # Errors
+    ///
+    /// Returns the import's refusal; the stage is kept for a retry or an abort.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn commit_checkpoint_import(
+        &mut self,
+        _owner: &soma::MachineName,
+        _receipt: &soma_local::CheckpointReceipt,
+        _stage: &soma_local::ImportStage,
+        _absent: bool,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        Err(soma_local::CheckpointFailure::Unsupported)
+    }
+
     /// Performs one durable data volume operation through the host daemon.
     ///
     /// The volume store lives inside `soma-hostd` (ADR 0053 Step A), so a backend with no host

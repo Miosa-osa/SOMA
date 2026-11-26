@@ -1,9 +1,10 @@
 //! The path template a route serves and one concrete path for it.
 
-use super::{INSTANCE, Route, SUSPENSION, VOLUME, VolumeOperation};
+use super::{IMPORT, INSTANCE, Route, SUSPENSION, VOLUME, VolumeOperation};
+use crate::route::TransferRoute;
 
-/// The path template of a route, with `{instance}`, `{port}`, `{volume}`, and `{suspension}` for
-/// its values.
+/// The path template of a route, with `{instance}`, `{port}`, `{volume}`, `{suspension}`, and
+/// `{import}` for its values.
 pub(super) fn template(route: &Route) -> String {
     match route {
         Route::Version => "/v1/version".to_owned(),
@@ -37,6 +38,16 @@ pub(super) fn template(route: &Route) -> String {
             "/v1/volumes/{}",
             operation.name().trim_start_matches("volume.")
         ),
+        Route::CheckpointTransfer(TransferRoute::Export) => "/v1/checkpoints/export".to_owned(),
+        Route::CheckpointTransfer(TransferRoute::Receive(_, artifact)) => {
+            format!("/v1/checkpoints/imports/{{import}}/{}", artifact.name())
+        }
+        Route::CheckpointTransfer(TransferRoute::Commit(_)) => {
+            "/v1/checkpoints/imports/{import}/commit".to_owned()
+        }
+        Route::CheckpointTransfer(TransferRoute::Abort(_)) => {
+            "/v1/checkpoints/imports/{import}".to_owned()
+        }
     }
 }
 
@@ -46,4 +57,5 @@ pub(super) fn concrete(template: &str) -> String {
         .replace("{port}", "8080")
         .replace("{volume}", VOLUME)
         .replace("{suspension}", SUSPENSION)
+        .replace("{import}", IMPORT)
 }

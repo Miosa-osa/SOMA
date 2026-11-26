@@ -127,6 +127,8 @@ pub enum Route {
     ///
     /// Served by the connection, not by a handler: it needs no sandbox facade.
     Version,
+    /// Moving a capture to and from off-host storage; the platform tenant only (ADR 0070).
+    CheckpointTransfer(TransferRoute),
 }
 
 impl Route {
@@ -161,6 +163,7 @@ impl Route {
             Self::PrunePrepared => "prepared.prune",
             Self::Volume(operation, _) => operation.name(),
             Self::Version => crate::version::VERSION_OPERATION,
+            Self::CheckpointTransfer(transfer) => transfer.operation(),
         }
     }
 }
@@ -178,6 +181,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     let segments = request.segments();
     match segments.as_slice() {
         ["v1", "version"] => get_only(request, Route::Version),
+        ["v1", "checkpoints", rest @ ..] => resolve_transfer(request.method, rest),
         ["v1", "prewarm"] => match request.method {
             Method::Get => Ok(Route::Prewarm(false)),
             Method::Put => Ok(Route::Prewarm(true)),
@@ -277,7 +281,13 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
     }
 }
 
+fn resolve_transfer(method: Method, rest: &[&str]) -> Result<Route, ApiError> {
+    transfer::resolve(method, rest).map(Route::CheckpointTransfer)
+}
+
 mod methods;
 mod operations;
+pub mod transfer;
 use methods::{autosize, get_only, post_only, tunnel};
 use operations::{filesystem_operation, terminal_operation};
+pub use transfer::{TransferArtifact, TransferRoute};

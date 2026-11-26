@@ -51,6 +51,14 @@ impl CheckpointExport {
         Ok(())
     }
 
+    /// The length and receipt digest of one artifact, or `None` when this capture has none.
+    #[must_use]
+    pub fn describe(&self, artifact: CheckpointArtifact) -> Option<(u64, &str)> {
+        self.artifacts[artifact as usize]
+            .as_ref()
+            .map(|input| (input.length, input.digest.as_str()))
+    }
+
     /// Streams and verifies an artifact. An absent optional artifact writes nothing.
     ///
     /// # Errors

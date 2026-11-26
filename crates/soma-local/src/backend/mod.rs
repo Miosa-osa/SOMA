@@ -24,7 +24,7 @@ pub(crate) use kvm::host_machine;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::open_tunnel;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub use kvm::{CheckpointArtifact, CheckpointExport};
+pub use kvm::{CheckpointArtifact, CheckpointExport, ImportStage};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
     checkpoint_machine, pause_machine, resize_machine, resume_machine, set_egress_machine,

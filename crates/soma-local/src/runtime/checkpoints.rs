@@ -80,6 +80,31 @@ impl LocalRuntime {
         crate::backend::import_cold_workspace(stage, expected, target)
     }
 
+    /// Publishes a checkpoint received into `stage` from off-host storage.
+    ///
+    /// The receipt is recorded beside the artifacts and the stage is then imported exactly as a
+    /// local bundle is: for the Instance's existing owner, or with `absent`, as recovery
+    /// authority for an Instance this host does not hold (ADR 0066).
+    ///
+    /// # Errors
+    ///
+    /// Returns the import's refusal; the stage is kept so the caller can retry or abort it.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    pub fn commit_checkpoint_import(
+        &mut self,
+        owner: &soma::MachineName,
+        expected: &crate::CheckpointReceipt,
+        stage: &crate::ImportStage,
+        absent: bool,
+    ) -> Result<(), crate::CheckpointFailure> {
+        stage.record_receipt(expected)?;
+        if absent {
+            self.recover_absent_checkpoint(owner, expected, stage.path())
+        } else {
+            self.import_checkpoint(owner, expected, stage.path())
+        }
+    }
+
     /// Installs a verified backup and reserves recovery authority for an absent Instance.
     ///
     /// The caller must authenticate the backup owner and fence the original Instance.

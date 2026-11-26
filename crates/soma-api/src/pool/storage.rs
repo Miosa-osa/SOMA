@@ -28,6 +28,27 @@ impl<F: SandboxFacade> SandboxStorage for FacadeLease<F> {
             .discard_checkpoint(instance, checkpoint, state_digest)
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn open_checkpoint_export(
+        &mut self,
+        owner: &soma::MachineName,
+        receipt: &soma_local::CheckpointReceipt,
+    ) -> Result<soma_local::CheckpointExport, soma_local::CheckpointFailure> {
+        self.deref_mut().open_checkpoint_export(owner, receipt)
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn commit_checkpoint_import(
+        &mut self,
+        owner: &soma::MachineName,
+        receipt: &soma_local::CheckpointReceipt,
+        stage: &soma_local::ImportStage,
+        absent: bool,
+    ) -> Result<(), soma_local::CheckpointFailure> {
+        self.deref_mut()
+            .commit_checkpoint_import(owner, receipt, stage, absent)
+    }
+
     fn volume(
         &mut self,
         operation: crate::volumes::VolumeOperation,
