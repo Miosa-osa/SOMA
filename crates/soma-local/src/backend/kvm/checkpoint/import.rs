@@ -3,8 +3,8 @@ use std::{fs, io::ErrorKind, os::unix::fs::MetadataExt as _, path::Path};
 use crate::{CheckpointFailure, CheckpointReceipt};
 
 use super::{
-    MEMORY, MEMORY_ATTESTATION, OVERLAY, RECEIPT, STATE, VOLUME, configured_root, export::open_at,
-    open_private, published_path, rename_new, require_encrypted, sync_directory,
+    MEMORY, OVERLAY, RECEIPT, STATE, VOLUME, configured_root, export::open_at, open_private,
+    published_path, rename_new, require_encrypted, sync_directory,
 };
 
 pub(crate) fn install_import(
@@ -81,7 +81,7 @@ fn validate_bundle(
     let mut seen = 0;
     for entry in fs::read_dir(path).map_err(storage)? {
         let name = entry.map_err(storage)?.file_name();
-        if published && name.to_str() == Some(MEMORY_ATTESTATION) {
+        if published && name.to_str().is_some_and(super::attestation::is_record) {
             continue;
         }
         let allowed = match name.to_str() {

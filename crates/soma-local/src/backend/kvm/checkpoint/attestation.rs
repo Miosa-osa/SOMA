@@ -1,56 +1,108 @@
-//! The broker's record of a published checkpoint's memory, kept beside it.
+//! The broker's records of a published checkpoint's sealed memory and overlay, kept beside them.
 //!
-//! Every restore and fork otherwise re-reads the whole memory file. Capture already wrote it,
-//! synced it, and read it back against the manifest's memory digest, so once the checkpoint is
-//! published the broker only records the stamp the sealed file has, with that digest. A restore
-//! hands the record to the worker, which skips the read only when the descriptor it maps still
-//! has exactly that stamp and the manifest names that digest.
+//! Every restore and fork otherwise re-reads the whole memory and the private head cloned from
+//! the saved overlay. Capture already wrote each of them, synced it, and read it back against the
+//! manifest's digest, so once the checkpoint is published the broker only records the stamp each
+//! sealed file has, with that digest. A restore hands the memory record to the worker as it is.
+//! For the overlay it clones the private head, checks the saved overlay still has its recorded
+//! stamp, and vouches for the new head at the head's own stamp, all before the head's descriptor
+//! leaves the broker. The worker skips a read only when the descriptor it maps still has exactly
+//! the vouched stamp and the manifest names the vouched digest.
 //!
 //! The digest is the capture worker's, as every manifest digest already is. A worker that lied
 //! about it could equally have written matching bytes and a matching manifest, so the restore
 //! hash never defended against it; what the restore hash defends against is a change after
-//! capture, and the stamp detects that without a read. The record is trusted exactly as far as
-//! the private checkpoint directory is: whoever can write it can already write the memory file.
+//! capture, and the stamp detects that without a read. A record is trusted exactly as far as the
+//! private checkpoint directory is: whoever can write it can already write the file it describes.
 //! A record that is absent, damaged, or stale only costs a hash.
 
 use std::{
-    fs::{self, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::Write as _,
     os::unix::fs::OpenOptionsExt as _,
     path::Path,
 };
 
 use soma_kvm::{
-    snapshot::{ArtifactAttestation, Digest},
+    snapshot::{ArtifactAttestation, Digest, FileStamp},
     x86_64::attest_sealed,
 };
 
-use super::{MEMORY, MEMORY_ATTESTATION, open_private, read_bounded, sync_directory};
+use super::{MEMORY, OVERLAY, open_private, read_bounded, sync_directory};
 
-/// Where a record is written before it replaces the published one.
-pub(super) const STAGING: &str = "memory.attest.tmp";
+/// Each sealed artifact with a record, the record's name, and where the record is staged.
+const RECORDS: [(&str, &str, &str); 2] = [
+    (MEMORY, "memory.attest", "memory.attest.tmp"),
+    (OVERLAY, "overlay.attest", "overlay.attest.tmp"),
+];
 
-/// Records the stamp of a just-published checkpoint's sealed memory with its manifest digest.
+/// Every name a record may have in a published checkpoint directory, staged or not.
+pub(super) fn names() -> impl Iterator<Item = &'static str> {
+    RECORDS
+        .into_iter()
+        .flat_map(|(_, record, staging)| [record, staging])
+}
+
+/// Whether `name` is a published record rather than part of the checkpoint itself.
+pub(super) fn is_record(name: &str) -> bool {
+    RECORDS.iter().any(|(_, record, _)| *record == name)
+}
+
+fn record_of(artifact: &str) -> Option<(&'static str, &'static str)> {
+    RECORDS
+        .into_iter()
+        .find(|(name, _, _)| *name == artifact)
+        .map(|(_, record, staging)| (record, staging))
+}
+
+/// Records the stamp of a just-published checkpoint's sealed `artifact` with its manifest digest.
 ///
 /// This runs after the directory rename, so the stamp is the one restore will see, and it never
-/// reads the memory. Any failure leaves no record, and a restore then hashes the memory.
-pub(super) fn record(published: &Path, digest: Digest) {
-    let Ok(memory) = open_private(&published.join(MEMORY)) else {
+/// reads the artifact. Any failure leaves no record, and a restore then hashes the artifact.
+pub(super) fn record(published: &Path, artifact: &str, digest: Digest) {
+    let Some((name, staging)) = record_of(artifact) else {
         return;
     };
-    if let Ok(Some(attestation)) = attest_sealed(&memory, digest) {
-        let _ignored = write(published, &attestation);
+    let Ok(file) = open_private(&published.join(artifact)) else {
+        return;
+    };
+    if let Ok(Some(attestation)) = attest_sealed(&file, digest) {
+        let _ignored = write(published, (name, staging), &attestation);
     }
 }
 
-/// The record of a published checkpoint, or `None` when there is no readable one.
-pub(super) fn read(published: &Path) -> Option<ArtifactAttestation> {
-    let bytes = read_bounded(&published.join(MEMORY_ATTESTATION)).ok()?;
+/// The record of one sealed artifact of a published checkpoint, or `None` without a readable one.
+pub(super) fn read(published: &Path, artifact: &str) -> Option<ArtifactAttestation> {
+    let (name, _) = record_of(artifact)?;
+    let bytes = read_bounded(&published.join(name)).ok()?;
     ArtifactAttestation::decode(std::str::from_utf8(&bytes).ok()?)
 }
 
-fn write(published: &Path, attestation: &ArtifactAttestation) -> std::io::Result<()> {
-    let staging = published.join(STAGING);
+/// The broker's attestation of a private head it has just cloned from `saved`.
+///
+/// The clone carries the saved overlay's bytes only if the saved overlay was unchanged while it
+/// was cloned, so its stamp must still equal its record after the clone. The head is then vouched
+/// for at its own stamp, taken here before its descriptor leaves the broker; any later write to it
+/// moves that stamp and the worker hashes it. Without a record for the saved overlay there is no
+/// attestation, and the head is hashed as before.
+pub(in crate::backend::kvm) fn vouch_head(
+    saved: &File,
+    record: Option<ArtifactAttestation>,
+    head: &File,
+) -> Option<ArtifactAttestation> {
+    let record = record?;
+    let saved = FileStamp::of(&saved.metadata().ok()?);
+    let head = head.metadata().ok()?;
+    (saved == record.stamp() && head.len() == record.stamp().size())
+        .then(|| ArtifactAttestation::new(record.digest(), FileStamp::of(&head)))
+}
+
+fn write(
+    published: &Path,
+    (name, staging): (&str, &str),
+    attestation: &ArtifactAttestation,
+) -> std::io::Result<()> {
+    let staging = published.join(staging);
     let _absent = fs::remove_file(&staging);
     let mut file = OpenOptions::new()
         .create_new(true)
@@ -60,62 +112,9 @@ fn write(published: &Path, attestation: &ArtifactAttestation) -> std::io::Result
         .open(&staging)?;
     file.write_all(format!("{}\n", attestation.encode()).as_bytes())?;
     file.sync_all()?;
-    fs::rename(&staging, published.join(MEMORY_ATTESTATION))?;
+    fs::rename(&staging, published.join(name))?;
     sync_directory(published).map_err(|_| std::io::Error::other("sync checkpoint directory"))
 }
 
 #[cfg(test)]
-mod tests {
-    use std::{fs, io::Write as _, os::unix::fs::OpenOptionsExt as _};
-
-    use soma_kvm::snapshot::{Digest, FileStamp};
-
-    use super::{MEMORY, MEMORY_ATTESTATION, read, record};
-
-    fn published() -> tempfile::TempDir {
-        let directory = tempfile::tempdir().expect("checkpoint directory");
-        let mut memory = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(directory.path().join(MEMORY))
-            .expect("memory");
-        memory.write_all(&[3_u8; 8192]).expect("write memory");
-        directory
-    }
-
-    #[test]
-    fn a_published_memory_file_is_recorded_at_its_current_stamp_without_a_read() {
-        let directory = published();
-        // The recorded digest is the sealed one handed in, never one computed from the file.
-        record(directory.path(), Digest::of(b"sealed by capture"));
-        let attestation = read(directory.path()).expect("recorded attestation");
-        let memory = fs::File::open(directory.path().join(MEMORY)).expect("memory");
-        assert_eq!(attestation.digest(), Digest::of(b"sealed by capture"));
-        assert_eq!(
-            attestation.stamp(),
-            FileStamp::of(&memory.metadata().expect("stat"))
-        );
-    }
-
-    #[test]
-    fn a_missing_damaged_or_shared_record_is_no_attestation() {
-        let directory = published();
-        assert_eq!(read(directory.path()), None);
-        fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(directory.path().join(MEMORY_ATTESTATION))
-            .and_then(|mut file| file.write_all(b"not a record"))
-            .expect("damage");
-        assert_eq!(read(directory.path()), None);
-        record(directory.path(), Digest::of(&[3_u8; 8192]));
-        assert!(read(directory.path()).is_some());
-        let path = directory.path().join(MEMORY_ATTESTATION);
-        let mut permissions = fs::metadata(&path).expect("stat").permissions();
-        std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o644);
-        fs::set_permissions(&path, permissions).expect("chmod");
-        assert_eq!(read(directory.path()), None);
-    }
-}
+mod tests;

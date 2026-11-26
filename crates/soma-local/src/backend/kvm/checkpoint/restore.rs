@@ -17,8 +17,9 @@ pub(in crate::backend::kvm) struct RestoreArtifacts {
     pub(in crate::backend::kvm) digest: Digest,
     pub(in crate::backend::kvm) cpu_template: Digest,
     pub(in crate::backend::kvm) volume: Option<CheckpointVolumeReceipt>,
-    /// The broker's record of the memory file, when one was written at publication.
+    /// The broker's records of the memory and saved overlay, when written at publication.
     pub(in crate::backend::kvm) memory_attestation: Option<ArtifactAttestation>,
+    pub(in crate::backend::kvm) overlay_attestation: Option<ArtifactAttestation>,
 }
 
 /// Opens the files named by a previously published checkpoint receipt.
@@ -44,6 +45,7 @@ pub(in crate::backend::kvm) fn restore_artifacts(
         digest: Digest::from_bytes(digest),
         cpu_template: published.cpu_template,
         volume: receipt.volume,
-        memory_attestation: super::attestation::read(&path),
+        memory_attestation: super::attestation::read(&path, MEMORY),
+        overlay_attestation: super::attestation::read(&path, OVERLAY),
     })
 }

@@ -12,6 +12,7 @@ mod attestation;
 mod read;
 mod restore;
 pub(super) mod retention;
+pub(super) use attestation::vouch_head;
 pub(crate) use discard::discard_checkpoint;
 use read::{read_bounded, read_published, read_staged};
 pub(super) use restore::{RestoreArtifacts, restore_artifacts};
@@ -55,8 +56,6 @@ const MEMORY: &str = "memory.raw";
 const OVERLAY: &str = "overlay.raw";
 const VOLUME: &str = "volume.raw";
 const RECEIPT: &str = "receipt.json";
-/// The broker's record of the stamp and digest of `memory.raw`, written after publication.
-const MEMORY_ATTESTATION: &str = "memory.attest";
 
 struct VerifiedCheckpoint {
     receipt: CheckpointReceipt,
@@ -113,11 +112,15 @@ pub(super) fn perform(
     )?
     .receipt;
     stage.publish(&root, &published, &receipt)?;
-    if let Ok(digest) = GenerationId::new(receipt.memory_digest.clone())
-        .map_err(|_| ())
-        .and_then(|digest| generation_bytes(&digest).map_err(|_| ()))
-    {
-        attestation::record(&published, Digest::from_bytes(digest));
+    // Each sealed artifact is recorded with the digest capture already verified; none is read.
+    for (artifact, digest) in [
+        (MEMORY, Some(&receipt.memory_digest)),
+        (OVERLAY, receipt.overlay_digest.as_ref()),
+    ] {
+        let sealed = digest.and_then(|digest| GenerationId::new(digest.clone()).ok());
+        if let Some(bytes) = sealed.and_then(|digest| generation_bytes(&digest).ok()) {
+            attestation::record(&published, artifact, Digest::from_bytes(bytes));
+        }
     }
     Ok(receipt)
 }

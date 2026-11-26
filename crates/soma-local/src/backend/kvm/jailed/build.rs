@@ -91,14 +91,47 @@ pub(super) struct Recovery {
 }
 
 impl Recovery {
-    /// The broker's attestations of the checkpoint memory and of the Generation root as
-    /// admission left it.
+    /// A private head for this Instance cloned from the checkpoint's saved overlay.
+    fn clone_head(
+        checkpoint: &RestoreArtifacts,
+        instance: &soma::InstanceId,
+    ) -> Result<Option<File>, BackendFailureKind> {
+        checkpoint
+            .overlay
+            .as_ref()
+            .map(|template| {
+                let template = template
+                    .try_clone()
+                    .map_err(|_| BackendFailureKind::Unavailable)?;
+                private_head_from(template, instance)
+            })
+            .transpose()
+    }
+
+    /// The broker's attestations of the checkpoint memory, of the Generation root as admission
+    /// left it, and of the head this broker step has just cloned from the saved overlay.
+    ///
+    /// The head is vouched for here, after the clone and before any descriptor reaches the
+    /// worker, and only when the saved overlay still has its recorded stamp.
     fn attestations(
-        memory: Option<soma_kvm::snapshot::ArtifactAttestation>,
+        checkpoint: &RestoreArtifacts,
+        head: Option<&File>,
         prepared: &crate::backend::kvm::prepared::PreparedGeneration,
     ) -> soma_kvm::snapshot::RestoreAttestations {
         let root = prepared.attestation(&prepared.manifest.root.descriptor);
-        soma_kvm::snapshot::RestoreAttestations { memory, root }
+        let head = checkpoint
+            .overlay
+            .as_ref()
+            .zip(head)
+            .and_then(|(saved, head)| {
+                crate::backend::kvm::checkpoint::vouch_head(
+                    saved,
+                    checkpoint.overlay_attestation,
+                    head,
+                )
+            });
+        let memory = checkpoint.memory_attestation;
+        soma_kvm::snapshot::RestoreAttestations { memory, root, head }
     }
 }
 
@@ -128,14 +161,8 @@ pub(super) fn open(
         if checkpoint.overlay.is_some() != overlay {
             return Err(BackendFailureKind::WorkloadRejected);
         }
-        let head = checkpoint
-            .overlay
-            .as_ref()
-            .map(|template| {
-                let template = template.try_clone().map_err(unavailable)?;
-                private_head_from(template, instance)
-            })
-            .transpose()?;
+        let head = Recovery::clone_head(&checkpoint, instance)?;
+        let attestations = Recovery::attestations(&checkpoint, head.as_ref(), prepared);
         (
             checkpoint.memory,
             checkpoint.state,
@@ -143,7 +170,7 @@ pub(super) fn open(
             Some(Recovery {
                 digest: checkpoint.digest,
                 overlay: checkpoint.overlay,
-                attestations: Recovery::attestations(checkpoint.memory_attestation, prepared),
+                attestations,
             }),
         )
     } else {
