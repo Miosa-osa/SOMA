@@ -53,6 +53,7 @@ use runtime::Ownership;
 use soma_vmm::sandbox::Session;
 
 pub(crate) use host::host_machine;
+pub(crate) use prepared::catalog as prepared_catalog;
 pub(crate) use prepared::prune as prune_prepared;
 pub(crate) use targets::{
     set as set_prewarm_targets, start as start_prewarm, status as prewarm_status,

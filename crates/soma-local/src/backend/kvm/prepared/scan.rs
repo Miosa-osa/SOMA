@@ -98,6 +98,69 @@ pub(in crate::backend::kvm) fn preload() -> Result<(), PreparedError> {
     Ok(())
 }
 
+/// Every entry in the root, each resolved through [`find`] as a launch would resolve it.
+///
+/// An entry that does not resolve is listed with the reason, so a damaged or uncertified entry
+/// is visible rather than missing, and one bad entry never hides the rest.
+pub(crate) fn catalog() -> Result<Vec<crate::PreparedSummary>, crate::CatalogError> {
+    catalog_in(&store_root().ok_or(crate::CatalogError::Unsupported)?)
+}
+
+pub(super) fn catalog_in(root: &Path) -> Result<Vec<crate::PreparedSummary>, crate::CatalogError> {
+    use crate::{CatalogError, PreparedSummary};
+    const MIB: u64 = 1024 * 1024;
+    let entries = std::fs::read_dir(root).map_err(|_| CatalogError::StoreUnavailable)?;
+    let mut catalog = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(|_| CatalogError::StoreUnavailable)?.path();
+        if path.file_name().is_some_and(|name| name == INCOMING) || !path.is_dir() {
+            continue;
+        }
+        let Some(bytes) = read_bounded(&path.join(REFERENCE), MAX_REFERENCE_BYTES) else {
+            continue;
+        };
+        let Ok(reference) = std::str::from_utf8(&bytes).map(|text| text.trim().to_owned()) else {
+            continue;
+        };
+        if reference.is_empty() {
+            continue;
+        }
+        catalog.push(match find(Some(root), &reference) {
+            Ok(found) => {
+                let manifest = &found.manifest;
+                let shape = &manifest.shape;
+                let persistence = &manifest.persistence;
+                PreparedSummary {
+                    generation_id: Some(found.id.as_str().to_owned()),
+                    vcpus: Some(shape.vcpu_count),
+                    memory_mib: Some(shape.memory_bytes / MIB),
+                    ceiling_mib: Some(shape.memory_bytes.saturating_add(shape.hotplug_bytes) / MIB),
+                    disk_mib: Some(manifest.template.writable_storage_bytes / MIB),
+                    volume_class_gib: persistence.enabled.then_some(persistence.size_class_gib),
+                    compiler_policy: Some(manifest.compiler_policy_version),
+                    refusal: None,
+                    reference,
+                }
+            }
+            Err(error) => PreparedSummary::refused(reference, refusal_code(&error)),
+        });
+    }
+    catalog.sort_by(|a, b| a.reference.cmp(&b.reference));
+    catalog.dedup_by(|a, b| a.reference == b.reference);
+    Ok(catalog)
+}
+
+const fn refusal_code(error: &PreparedError) -> &'static str {
+    match error {
+        PreparedError::StoreUnset | PreparedError::StoreUnreadable => "store_unavailable",
+        PreparedError::NotPrepared => "not_prepared",
+        PreparedError::Ambiguous => "ambiguous",
+        PreparedError::Uncertified => "uncertified",
+        PreparedError::Linked => "linked",
+        PreparedError::Damaged => "damaged",
+    }
+}
+
 /// The prepared root this host names, if any.
 pub(in crate::backend::kvm) fn store_root() -> Option<PathBuf> {
     std::env::var_os(STORE).map(PathBuf::from)
