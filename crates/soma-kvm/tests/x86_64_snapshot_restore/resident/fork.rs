@@ -125,11 +125,15 @@ impl Fork {
             vcpus: fixture.vcpus,
             contract: fixture.contract,
             hotplug: None,
-            // Every fork after the first skips the memory read, as a broker's restore would.
-            memory_attestation: soma_kvm::x86_64::attest_memory(
-                &mut saved.memory.try_clone().unwrap(),
-            )
-            .expect("attest the captured memory"),
+            // Every fork skips the memory read, as a broker's restore of a sealed capture would.
+            attestations: soma_kvm::snapshot::RestoreAttestations {
+                memory: soma_kvm::x86_64::attest_sealed(
+                    &saved.memory,
+                    memory_digest(&saved.memory),
+                )
+                .expect("attest the captured memory"),
+                root: None,
+            },
         };
         let address = instance::Identity {
             instance: session::random16(),
@@ -230,4 +234,20 @@ pub fn verify(fixture: &Fixture) {
         "[resident-fork] two authenticated forks from one checkpoint, separate guest identities, private disk writes, private RAM counters {} and {}",
         a.ticks, b.ticks
     );
+}
+
+/// The digest of the captured memory, as capture sealed it.
+fn memory_digest(memory: &std::fs::File) -> soma_kvm::snapshot::Digest {
+    use std::io::Read as _;
+    let mut reader = memory.try_clone().expect("memory");
+    std::io::Seek::rewind(&mut reader).expect("rewind");
+    let mut hasher = soma_kvm::snapshot::Hasher::new();
+    let mut buffer = vec![0_u8; 1 << 20];
+    loop {
+        let count = reader.read(&mut buffer).expect("read memory");
+        if count == 0 {
+            return hasher.finish();
+        }
+        hasher.update(&buffer[..count]);
+    }
 }

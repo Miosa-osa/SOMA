@@ -34,7 +34,7 @@ pub(in crate::x86_64) mod vm_state;
 
 pub use crate::snapshot::inspection::{ArtifactEvidence, CaptureExpectation, VerifiedCapture};
 pub use artifacts::SnapshotPaths;
-pub use attest::attest_memory;
+pub use attest::attest_sealed;
 pub use capture::{CaptureOutcome, CapturePoint, CaptureRequest, capture};
 pub use checkpoint::{CheckpointError, CheckpointRequest, CheckpointTargets, capture_checkpoint};
 pub use error::{Artifact, SnapshotError};

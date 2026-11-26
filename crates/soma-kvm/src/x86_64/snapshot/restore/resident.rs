@@ -11,13 +11,11 @@ use crate::{
     contract::MachineContract,
     memory_layout::HotplugRegion,
     snapshot::{
-        Digest, MemoryAttestation, device_state::DeviceSpecific, manifest::CheckpointManifest,
+        ArtifactAttestation, Digest, RestoreAttestations, device_state::DeviceSpecific,
+        manifest::CheckpointManifest,
     },
     virtio::{DeviceSet, Slot},
-    x86_64::{
-        Hypervisor, LAUNCH_PAGE_SIZE, SnapshotObjects,
-        snapshot::{Artifact, artifacts::hash},
-    },
+    x86_64::{Hypervisor, LAUNCH_PAGE_SIZE, SnapshotObjects, snapshot::Artifact},
 };
 
 /// The broker-owned inputs for reconstructing one stopped Instance.
@@ -40,9 +38,10 @@ pub struct ResidentRestoreRequest {
     pub vcpus: u16,
     pub contract: MachineContract,
     pub hotplug: Option<HotplugRegion>,
-    /// The broker's record that it hashed this memory file, filled only by the broker that
-    /// opened the descriptors. A file whose stamp, size, or manifest digest differs is hashed.
-    pub memory_attestation: Option<MemoryAttestation>,
+    /// The broker's records of the checkpoint memory and the Generation root, filled only by the
+    /// broker that opened the descriptors. A file whose stamp, size, or digest differs is hashed;
+    /// the private head and durable volume are always hashed.
+    pub attestations: RestoreAttestations,
 }
 
 /// An unstarted Instance with a disconnected control channel.
@@ -92,9 +91,10 @@ impl PreparedCheckpoint {
 /// Rebuilds a broker-authorized checkpoint for the original Instance after its owner stopped.
 ///
 /// All mapped artifacts must remain private to the trusted broker and immutable for the lifetime
-/// of the restored machine. The memory file is hashed unless the broker's attestation vouches for
-/// its exact current stamp; the other artifacts are always hashed. The broker owns the same-Instance lease and must exclude another
-/// active owner. This entry point performs no scheduling or tenant authorization of its own.
+/// of the restored machine. The memory file and the root are hashed unless the broker's
+/// attestation vouches for their exact current stamps; the private head and volume always are.
+/// The broker owns the same-Instance lease and must exclude another active owner. This entry
+/// point performs no scheduling or tenant authorization of its own.
 ///
 /// # Errors
 ///
@@ -145,7 +145,7 @@ fn prepare_for(
         vcpus,
         contract,
         hotplug,
-        memory_attestation,
+        attestations,
     } = request;
     let timeline = Timeline::new();
     if devices.volume() != volume.is_some() {
@@ -186,15 +186,16 @@ fn prepare_for(
         declared,
         hotplug,
     )?;
-    super::resident_memory::verify(
+    super::attested::verify_memory(
         objects.memory_handle(),
         &manifest.header().memory,
-        memory_attestation,
+        attestations.memory,
     )?;
-    verify_disk(Slot::Root, Artifact::Root, &mut root, &state)?;
+    let root_record = (Slot::Root, Artifact::Root, attestations.root);
+    verify_disk(root_record, &mut root, &state)?;
     verify_head(head.as_mut(), objects.overlay_template(), &state)?;
     if let Some(file) = &mut volume {
-        verify_disk(Slot::Volume, Artifact::Volume, file, &state)?;
+        verify_disk((Slot::Volume, Artifact::Volume, None), file, &state)?;
     }
     let facts = facts(manifest.state(), state_digest, Vec::new(), &state)?;
     let (machine, sequence) = rebuild(
@@ -235,15 +236,16 @@ fn verify_head(
                     "the writable head aliases the saved overlay",
                 ));
             }
-            verify_disk(Slot::Overlay, Artifact::Overlay, head, state)
+            verify_disk((Slot::Overlay, Artifact::Overlay, None), head, state)
         }
         _ => Err(SnapshotError::DeviceStateNotCanonical(Slot::Overlay)),
     }
 }
 
+/// Checks one disk against its captured block record. Only an immutable disk is ever attested:
+/// the private head and the durable volume pass `None` and are always hashed.
 fn verify_disk(
-    slot: Slot,
-    artifact: Artifact,
+    (slot, artifact, attestation): (Slot, Artifact, Option<ArtifactAttestation>),
     file: &mut File,
     state: &super::Sections,
 ) -> Result<(), SnapshotError> {
@@ -253,10 +255,12 @@ fn verify_disk(
     else {
         return Err(SnapshotError::DeviceStateNotCanonical(slot));
     };
-    if block.capacity_sectors.checked_mul(512) != Some(metadata(artifact, file)?.len()) {
+    let info = metadata(artifact, file)?;
+    if block.capacity_sectors.checked_mul(512) != Some(info.len()) {
         return Err(SnapshotError::DeviceStateNotCanonical(slot));
     }
-    if hash(artifact, file)? != block.image_digest {
+    let digest = super::attested::digest(artifact, file, &info, attestation, block.image_digest)?;
+    if digest != block.image_digest {
         return Err(SnapshotError::StagingDigestMismatch(artifact));
     }
     Ok(())

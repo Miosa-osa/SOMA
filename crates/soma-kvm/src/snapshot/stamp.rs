@@ -90,18 +90,18 @@ impl FileStamp {
     }
 }
 
-/// A trusted broker's record that it hashed a checkpoint memory file at one exact stamp.
+/// A trusted broker's record that one immutable artifact had this digest at this exact stamp.
 ///
-/// The broker that owns the checkpoint directory is the only party that may produce one. A
-/// restore that receives it may skip re-reading a memory file whose descriptor still has this
-/// stamp and whose manifest names this digest; any other file is hashed as before.
+/// Only the broker that owns the artifact's directory may produce one. A restore that receives
+/// it may skip re-reading a file whose descriptor still has this stamp and whose record names
+/// this digest; any other file is hashed as before.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MemoryAttestation {
+pub struct ArtifactAttestation {
     digest: Digest,
     stamp: FileStamp,
 }
 
-impl MemoryAttestation {
+impl ArtifactAttestation {
     /// Records that the bytes with this stamp hash to `digest`.
     #[must_use]
     pub const fn new(digest: Digest, stamp: FileStamp) -> Self {
@@ -142,6 +142,53 @@ impl MemoryAttestation {
     }
 }
 
+/// Which restore input an attestation describes.
+///
+/// Only artifacts nothing may write after publication are listed: the checkpoint memory and the
+/// Generation root. A private head or durable volume is writable by its guest, so a stamp says
+/// nothing about its content and it is always hashed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AttestedArtifact {
+    Memory,
+    Root,
+}
+
+impl AttestedArtifact {
+    #[must_use]
+    pub const fn token(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::Root => "root",
+        }
+    }
+
+    #[must_use]
+    pub fn from_token(token: &str) -> Option<Self> {
+        match token {
+            "memory" => Some(Self::Memory),
+            "root" => Some(Self::Root),
+            _ => None,
+        }
+    }
+}
+
+/// The attestations one resident restore received, each optional.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RestoreAttestations {
+    pub memory: Option<ArtifactAttestation>,
+    pub root: Option<ArtifactAttestation>,
+}
+
+impl RestoreAttestations {
+    /// Holds `attestation` for `artifact`, replacing any earlier one.
+    pub const fn set(&mut self, artifact: AttestedArtifact, attestation: ArtifactAttestation) {
+        match artifact {
+            AttestedArtifact::Memory => self.memory = Some(attestation),
+            AttestedArtifact::Root => self.root = Some(attestation),
+        }
+    }
+}
+
 fn parse_digest(text: &str) -> Option<Digest> {
     if text.len() != Digest::LEN * 2 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
@@ -155,10 +202,10 @@ fn parse_digest(text: &str) -> Option<Digest> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Digest, FileStamp, MemoryAttestation};
+    use super::{ArtifactAttestation, Digest, FileStamp};
 
-    fn attestation() -> MemoryAttestation {
-        MemoryAttestation::new(
+    fn attestation() -> ArtifactAttestation {
+        ArtifactAttestation::new(
             Digest::of(b"memory"),
             FileStamp::new(66, 7, 4096, (10, 20), (30, 40)),
         )
@@ -167,9 +214,9 @@ mod tests {
     #[test]
     fn an_attestation_round_trips_through_its_line() {
         let line = attestation().encode();
-        assert_eq!(MemoryAttestation::decode(&line), Some(attestation()));
+        assert_eq!(ArtifactAttestation::decode(&line), Some(attestation()));
         assert_eq!(
-            MemoryAttestation::decode(&format!("{line}\n")),
+            ArtifactAttestation::decode(&format!("{line}\n")),
             Some(attestation())
         );
     }
@@ -185,7 +232,7 @@ mod tests {
             line.replace(" 4096 ", " -1 "),
             format!("zz{}", &line[2..]),
         ] {
-            assert_eq!(MemoryAttestation::decode(&damaged), None, "{damaged}");
+            assert_eq!(ArtifactAttestation::decode(&damaged), None, "{damaged}");
         }
     }
 

@@ -7,12 +7,12 @@
 //! goes into its own slot which the snapshot never contained, and the vCPU resumes only after
 //! every state constructor has succeeded.
 
+mod attested;
 mod devices;
 mod guest_memory;
 mod handle;
 mod readiness;
 mod resident;
-mod resident_memory;
 mod sections;
 mod sterile;
 

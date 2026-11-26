@@ -21,5 +21,5 @@ mod stamp;
 mod wire;
 
 pub use digest::{Digest, Hasher};
-pub use stamp::{FileStamp, MemoryAttestation};
+pub use stamp::{ArtifactAttestation, AttestedArtifact, FileStamp, RestoreAttestations};
 pub use wire::WireError;
