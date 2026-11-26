@@ -6,17 +6,21 @@
 //! (`handler::transfer`). Every transfer route answers the platform tenant only and any other
 //! caller as if the route did not exist.
 
-use std::{
-    io::{BufReader, Read as _, Write as _},
-    net::TcpStream,
-};
+use std::{io::BufReader, net::TcpStream};
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use std::io::{Read as _, Write as _};
 
 use crate::{
-    envelope::{ApiError, Envelope, failure_body, render},
+    envelope::{ApiError, failure_body},
     facade::SandboxFacade,
     http::{request::Request, response::Response},
     route::{TransferArtifact, TransferRoute},
     tenant::{TENANT_HEADER, identify},
+};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::{
+    envelope::{Envelope, render},
     version::{API_VERSION, API_VERSION_HEADER},
 };
 
@@ -170,6 +174,7 @@ pub const fn local_artifact(artifact: TransferArtifact) -> soma_local::Checkpoin
     }
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[derive(serde::Serialize)]
 struct Received<'a> {
     import_id: &'a str,

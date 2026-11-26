@@ -3,11 +3,18 @@
 //! The raw export and receive routes are served by the connection (`crate::transfer`); these two
 //! carry small JSON bodies and run like any other handler, platform tenant only.
 
-use super::{ApiError, Response, SandboxFacade, parse, success};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::success;
+use super::{ApiError, Response, SandboxFacade, parse};
 use crate::{route::TransferRoute, tenant::TenantId, transfer::refusal};
 
 /// What a commit publishes: the capture's owner and full receipt, and whether it reserves an
 /// Instance this host does not hold (ADR 0066) rather than serving the one it does.
+// Off Linux the body is only parsed, so a malformed commit is still refused as malformed.
+#[cfg_attr(
+    not(all(target_os = "linux", target_arch = "x86_64")),
+    allow(dead_code)
+)]
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct CommitBody {
@@ -17,6 +24,7 @@ pub(crate) struct CommitBody {
     absent: bool,
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[derive(serde::Serialize)]
 struct Published<'a> {
     import_id: &'a str,
