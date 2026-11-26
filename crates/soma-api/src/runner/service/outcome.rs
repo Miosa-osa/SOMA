@@ -122,6 +122,12 @@ fn backend_failure_error(kind: BackendFailureKind) -> PlatformError {
             "the sandbox runtime refused this request",
             false,
         ),
+        BackendFailureKind::ShapeMisfit => PlatformError::new(
+            422,
+            "GENERATION_DOES_NOT_FIT",
+            "the requested shape does not fit the sandbox's Generation",
+            false,
+        ),
         // The request is sound and the host is full now, so it is retryable elsewhere.
         BackendFailureKind::CapacityExhausted => PlatformError::new(
             503,

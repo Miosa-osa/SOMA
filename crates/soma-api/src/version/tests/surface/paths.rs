@@ -9,6 +9,7 @@ pub(super) fn template(route: &Route) -> String {
         Route::Version => "/v1/version".to_owned(),
         Route::Prewarm(_) => "/v1/prewarm".to_owned(),
         Route::PrunePrepared => "/v1/prepared/prune".to_owned(),
+        Route::ListPrepared => "/v1/prepared".to_owned(),
         Route::Capacity => "/v1/capacity".to_owned(),
         Route::Autosize(..) => "/v1/sandboxes/{instance}/autosize".to_owned(),
         Route::CreateSandbox | Route::ListSandboxes => "/v1/sandboxes".to_owned(),

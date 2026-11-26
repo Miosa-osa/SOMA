@@ -149,6 +149,13 @@ fn backend_error(kind: BackendFailureKind) -> ApiError {
         BackendFailureKind::WorkloadRejected => {
             ApiError::new(400, "workload_rejected", "workload was rejected", false)
         }
+        BackendFailureKind::ShapeMisfit => ApiError::new(
+            422,
+            "generation_does_not_fit",
+            "the requested shape does not fit the Generation: its vCPUs, its boot memory and \
+             memory ceiling (GET /v1/prepared), or its disk",
+            false,
+        ),
         // Retryable, and not a 400: the request is sound, the host is full now, and a caller
         // with other hosts places it there.
         BackendFailureKind::CapacityExhausted => ApiError::new(
@@ -242,6 +249,18 @@ mod logging_tests {
         assert_eq!(
             (rejected.status(), rejected.body().code),
             (400, "workload_rejected")
+        );
+    }
+
+    /// A placer must tell a size it should not have offered from any other refused request.
+    #[test]
+    fn a_shape_the_generation_cannot_give_has_its_own_code() {
+        let misfit = managed_error(&ManagedFailure::Backend(
+            soma::BackendFailureKind::ShapeMisfit,
+        ));
+        assert_eq!(
+            (misfit.status(), misfit.body().code, misfit.body().retryable),
+            (422, "generation_does_not_fit", false)
         );
     }
 

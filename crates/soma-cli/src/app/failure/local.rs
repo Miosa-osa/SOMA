@@ -1,8 +1,8 @@
 //! What a failure to open the local runtime, or to launch on a backend that cannot host, reports.
 //!
-//! These two are apart from the rest because neither describes an operation that reached a
-//! sandbox. One is the runtime failing to open at all and the other is a capability the selected
-//! backend does not have, so neither carries a receipt and neither names an Instance.
+//! These are apart from the rest because none describes an operation that reached a sandbox. One
+//! is the runtime failing to open at all, one a capability the selected backend does not have,
+//! and one a shape the Generation cannot give, refused before any machine is built.
 
 use soma_local::LocalFailureKind;
 
@@ -71,4 +71,17 @@ pub(in crate::app) fn not_hosted(command: &'static str) -> Execution {
         ),
         exit: ProcessExit::CapabilityUnavailable,
     }
+}
+
+/// A shape the Generation cannot give: its own code, so a caller can tell it from every other
+/// rejected request.
+pub(super) fn shape_misfit() -> (FailureBody, ProcessExit) {
+    (
+        FailureBody::new(
+            "generation_does_not_fit",
+            "the requested shape does not fit the Generation",
+            false,
+        ),
+        ProcessExit::InvalidInput,
+    )
 }

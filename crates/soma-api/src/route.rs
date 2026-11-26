@@ -119,6 +119,9 @@ pub enum Route {
     /// Served with a facade, because whether a Generation is still in use is what the durable
     /// store's records say.
     PrunePrepared,
+    /// `GET` lists what the prepared store can launch, with each Generation's shape and memory
+    /// ceiling, for the platform only.
+    ListPrepared,
     /// One durable data volume operation (ADR 0053 Step A).
     ///
     /// The read carries its volume id on the path and no body; the others carry a body and no id.
@@ -159,6 +162,7 @@ impl Route {
             Self::Prewarm(false) => "prewarm.status",
             Self::Prewarm(true) => "prewarm.set",
             Self::PrunePrepared => "prepared.prune",
+            Self::ListPrepared => "prepared.list",
             Self::Volume(operation, _) => operation.name(),
             Self::Version => crate::version::VERSION_OPERATION,
         }
@@ -183,6 +187,7 @@ pub fn resolve(request: &Request) -> Result<Route, ApiError> {
             Method::Put => Ok(Route::Prewarm(true)),
             _ => Err(ApiError::method_not_allowed()),
         },
+        ["v1", "prepared"] => get_only(request, Route::ListPrepared),
         ["v1", "prepared", "prune"] => post_only(request, Route::PrunePrepared),
         ["v1", "capacity"] => get_only(request, Route::Capacity),
         ["v1", "sandboxes"] => match request.method {

@@ -35,7 +35,8 @@ pub(crate) use kvm::{
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
-    prewarm_machine_hosts, prewarm_status, prune_prepared, set_prewarm_targets, start_prewarm,
+    prepared_catalog, prewarm_machine_hosts, prewarm_status, prune_prepared, set_prewarm_targets,
+    start_prewarm,
 };
 pub(crate) use local::LocalBackend;
 

@@ -135,7 +135,7 @@ impl KvmBackend {
         let booted_vcpus = prepared.manifest.shape.vcpu_count;
         let boot_mib = prepared.manifest.shape.memory_bytes / (1024 * 1024);
         if let Some(reason) = self.misfit(prepared, shape) {
-            return Err(self.fail(operation, fit::refuse(instance, &reason)));
+            return Err(self.fail(operation, fit::refuse_shape(instance, &reason)));
         }
         let Some(storage_mib) = prepared
             .manifest

@@ -6,6 +6,12 @@ pub enum BackendFailureKind {
     /// The request was refused because the sandbox is paused.
     SandboxPaused,
     WorkloadRejected,
+    /// The request's shape is one its Generation cannot give: more vCPUs than it booted, memory
+    /// below its boot memory or above its memory ceiling, or another disk size than it carries.
+    ///
+    /// Distinct from [`Self::WorkloadRejected`] so a placer can tell a size it should not have
+    /// offered from a request that is wrong in some other way; neither is helped by retrying.
+    ShapeMisfit,
     /// The host has no room for this machine now; another host, or this one later, may.
     ///
     /// Apart from [`Self::WorkloadRejected`], which is a request no host would run, so a caller

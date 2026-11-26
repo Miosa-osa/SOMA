@@ -230,6 +230,7 @@ pub(super) fn backend_failure_details(
             FailureBody::new("workload_rejected", "workload was rejected", false),
             ProcessExit::InvalidInput,
         ),
+        BackendFailureKind::ShapeMisfit => local::shape_misfit(),
         BackendFailureKind::GuestAgentOutdated => (
             FailureBody::new(
                 "guest_agent_outdated",

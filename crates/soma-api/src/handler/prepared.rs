@@ -6,10 +6,53 @@
 //! between keeps its entry.
 
 use serde::Serialize;
-use soma_local::{InstanceHolds, PruneError, PruneRequest};
+use soma_local::{CatalogError, InstanceHolds, PreparedSummary, PruneError, PruneRequest};
 
 use super::{ApiError, Response, failure_body_with_result, optional_body, success};
-use crate::{facade::SandboxFacade, failure::managed_error};
+use crate::{facade::SandboxFacade, failure::managed_error, tenant::TenantId};
+
+#[derive(Serialize)]
+struct PreparedList {
+    entries: Vec<PreparedSummary>,
+    count: usize,
+}
+
+/// Lists what the prepared store can launch, as a launch would resolve each entry.
+///
+/// Only the platform places work by it, so no tenant reads which Generations a host holds.
+pub(super) fn catalog(operation: &'static str, tenant: &TenantId) -> Result<Response, ApiError> {
+    if !tenant.is_platform() {
+        return Err(ApiError::new(
+            403,
+            "platform_only",
+            "only the platform reads the prepared store",
+            false,
+        ));
+    }
+    match soma_local::prepared_catalog() {
+        Ok(entries) => Ok(success(
+            200,
+            operation,
+            &PreparedList {
+                count: entries.len(),
+                entries,
+            },
+            None,
+        )),
+        Err(CatalogError::Unsupported) => Err(ApiError::new(
+            501,
+            "prepared_store_unavailable",
+            "this host has no prepared store",
+            false,
+        )),
+        Err(CatalogError::StoreUnavailable) => Err(ApiError::new(
+            503,
+            "prepared_store_unreadable",
+            "the prepared store on this host cannot be read",
+            true,
+        )),
+    }
+}
 
 /// Plans a prune and, when the body says `apply`, performs it.
 ///
