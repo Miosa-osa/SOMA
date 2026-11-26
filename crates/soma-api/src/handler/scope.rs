@@ -5,7 +5,7 @@
 //! ([`crate::tenant::PLATFORM_TENANT`]), which also answers for every tenant's; see
 //! [`crate::owners`].
 
-use soma::{InstanceId, ManagedFailure, ManagedStateError};
+use soma::{InstanceId, ManagedFailure, ManagedStateError, SandboxPhase};
 use soma_hostd::FailureCode;
 
 use crate::{
@@ -112,6 +112,37 @@ pub(super) fn reserve<F: SandboxFacade + ?Sized>(
             claim(facade, Resource::Sandbox, identity, tenant)
         }
     }
+}
+
+/// The sandboxes on this host that are not ending and that no owner record names.
+///
+/// Every tenant reads such a sandbox as absent, so each is named on the service's log when it
+/// starts and in `GET /v1/capacity`, until the platform records its owner, rather than going
+/// quiet as a 404 to the customer it belongs to.
+///
+/// # Errors
+///
+/// Returns the listing's refusal, or a refusal when an owner record cannot be read.
+pub fn ownerless<F: SandboxFacade + ?Sized>(facade: &mut F) -> Result<Vec<InstanceId>, ApiError> {
+    let listing = facade.list().map_err(|failure| managed_error(&failure))?;
+    let Some(owners) = facade.owners() else {
+        return Ok(Vec::new());
+    };
+    let mut ownerless = Vec::new();
+    for entry in listing.entries() {
+        if entry.phase() == SandboxPhase::Terminating {
+            continue;
+        }
+        let id = entry.instance_id();
+        if owners
+            .owner(Resource::Sandbox, id.as_str())
+            .map_err(|_| unavailable())?
+            .is_none()
+        {
+            ownerless.push(id.clone());
+        }
+    }
+    Ok(ownerless)
 }
 
 /// Takes an identity for `tenant` before the operation that creates it runs.

@@ -237,3 +237,34 @@ fn a_tenant_cannot_take_an_unowned_sandbox_by_attaching_to_it() {
     let (status, _) = call(&mut facade, &as_tenant(OWNER, "GET", &path, ""));
     assert_eq!(status, 404, "the record is still no tenant's");
 }
+
+#[test]
+fn a_sandbox_no_owner_names_is_listed_as_ownerless_until_its_owner_is_recorded() {
+    let mut facade = unowned();
+    let ownerless = soma_api::handler::ownerless(&mut facade).expect("owners read");
+    assert_eq!(
+        ownerless.iter().map(InstanceId::as_str).collect::<Vec<_>>(),
+        [FIXTURE_INSTANCE_ID]
+    );
+    let mut owned = created();
+    assert_eq!(
+        soma_api::handler::ownerless(&mut owned).expect("owners read"),
+        []
+    );
+}
+
+#[test]
+fn an_ending_sandbox_is_not_reported_as_ownerless() {
+    let entry = SandboxEntry::new(
+        InstanceId::new(FIXTURE_INSTANCE_ID).expect("fixture identity is canonical"),
+        SandboxPhase::Terminating,
+        BackendKind::LinuxKvm,
+        None,
+        SandboxLiveness::Absent,
+    );
+    let mut facade = FakeFacade::new(Mode::Succeed).holding(vec![entry]);
+    assert_eq!(
+        soma_api::handler::ownerless(&mut facade).expect("owners read"),
+        []
+    );
+}
