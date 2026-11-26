@@ -100,7 +100,13 @@ struct Fork {
 }
 
 impl Fork {
-    fn prepare(fixture: &Fixture, saved: &Saved, original: [u8; 16], cid: u32) -> Self {
+    fn prepare(
+        fixture: &Fixture,
+        saved: &Saved,
+        original: [u8; 16],
+        cid: u32,
+        attested: bool,
+    ) -> Self {
         let mut overlay = saved.overlay.try_clone().unwrap();
         overlay.rewind().expect("rewind captured overlay");
         let head_path = fixture.scratch.join(format!("resident-fork-{cid}.ext4"));
@@ -125,6 +131,21 @@ impl Fork {
             vcpus: fixture.vcpus,
             contract: fixture.contract,
             hotplug: None,
+            // One fork hashes the memory and the other skips the read, as a broker's restore of a
+            // sealed capture would, so both paths reach an authenticated fork.
+            attestations: soma_kvm::snapshot::RestoreAttestations {
+                memory: attested
+                    .then(|| {
+                        soma_kvm::x86_64::attest_sealed(
+                            soma_kvm::x86_64::Artifact::Memory,
+                            &saved.memory,
+                            sealed_memory_digest(&saved.state),
+                        )
+                        .expect("attest the captured memory")
+                    })
+                    .flatten(),
+                ..soma_kvm::snapshot::RestoreAttestations::default()
+            },
         };
         let address = instance::Identity {
             instance: session::random16(),
@@ -189,8 +210,8 @@ pub fn verify(fixture: &Fixture) {
     );
     assert_eq!(source.evidence.exit, Ok(GuestExit::Reset));
     let saved = source.output;
-    let first = Fork::prepare(fixture, &saved, source.identity, 5);
-    let second = Fork::prepare(fixture, &saved, source.identity, 6);
+    let first = Fork::prepare(fixture, &saved, source.identity, 5, false);
+    let second = Fork::prepare(fixture, &saved, source.identity, 6, true);
     assert_ne!(first.address.instance, second.address.instance);
     let (sent_a, seen_b) = mpsc::channel();
     let (sent_b, seen_a) = mpsc::channel();
@@ -225,4 +246,18 @@ pub fn verify(fixture: &Fixture) {
         "[resident-fork] two authenticated forks from one checkpoint, separate guest identities, private disk writes, private RAM counters {} and {}",
         a.ticks, b.ticks
     );
+}
+
+/// The memory digest the captured manifest names, which capture sealed the memory against.
+fn sealed_memory_digest(state: &std::fs::File) -> soma_kvm::snapshot::Digest {
+    use std::io::Read as _;
+    let mut reader = state.try_clone().expect("state");
+    reader.rewind().expect("rewind state");
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).expect("read state");
+    soma_kvm::snapshot::manifest::CheckpointManifest::decode(&bytes)
+        .expect("captured manifest")
+        .header()
+        .memory
+        .digest()
 }

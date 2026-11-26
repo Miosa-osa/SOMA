@@ -72,6 +72,10 @@ pub(super) struct LaunchWire {
     /// Source Instance of a fork. Same-Instance restores omit this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) fork_source: Option<InstanceId>,
+    /// The stamp the parent's admission verified the root's content under, sent only with a
+    /// checkpoint so a restore can attest the root. Without it the child hashes the root.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) root_stamp: Option<String>,
     pub(super) operation_id: OperationId,
     pub(super) instance_id: InstanceId,
     /// The image reference the client resolved.

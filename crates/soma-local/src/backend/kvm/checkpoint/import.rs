@@ -41,7 +41,7 @@ pub(crate) fn verify_import<'a>(
     let target = published_path(&root, expected);
     match fs::symlink_metadata(&target) {
         Ok(_) => {
-            validate_bundle(&target, expected)?;
+            validate_bundle(&target, expected, true)?;
             return Ok(VerifiedImport {
                 root,
                 target,
@@ -55,7 +55,7 @@ pub(crate) fn verify_import<'a>(
         return Err(CheckpointFailure::CaptureRefused);
     }
     require_encrypted(stage)?;
-    validate_bundle(stage, expected)?;
+    validate_bundle(stage, expected, false)?;
     Ok(VerifiedImport {
         root,
         target,
@@ -63,7 +63,14 @@ pub(crate) fn verify_import<'a>(
     })
 }
 
-fn validate_bundle(path: &Path, expected: &CheckpointReceipt) -> Result<(), CheckpointFailure> {
+/// Checks one bundle holds exactly the expected artifacts. A checkpoint `published` on this host
+/// may also hold the broker's own memory record; an incoming bundle never may, because only the
+/// broker that hashed a file can vouch for its stamp.
+fn validate_bundle(
+    path: &Path,
+    expected: &CheckpointReceipt,
+    published: bool,
+) -> Result<(), CheckpointFailure> {
     let storage = |_| CheckpointFailure::Storage;
     let metadata = fs::symlink_metadata(path).map_err(storage)?;
     if !metadata.is_dir() || metadata.mode() & 0o077 != 0 {
@@ -74,6 +81,9 @@ fn validate_bundle(path: &Path, expected: &CheckpointReceipt) -> Result<(), Chec
     let mut seen = 0;
     for entry in fs::read_dir(path).map_err(storage)? {
         let name = entry.map_err(storage)?.file_name();
+        if published && name.to_str().is_some_and(super::attestation::is_record) {
+            continue;
+        }
         let allowed = match name.to_str() {
             Some(STATE | MEMORY | RECEIPT) => true,
             Some(OVERLAY) => expected.overlay_digest.is_some(),

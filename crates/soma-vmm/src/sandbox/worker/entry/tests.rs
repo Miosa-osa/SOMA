@@ -26,6 +26,7 @@ fn recovery_boot() -> Boot {
             vcpus: 1,
             contract: MachineContract::V1,
             hotplug: None,
+            attestations: soma_kvm::snapshot::RestoreAttestations::default(),
         })),
         instance: [1; 16],
         generation: [2; 32],

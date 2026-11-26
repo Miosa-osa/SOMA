@@ -25,7 +25,7 @@ soma-hostd = { path = "../soma-hostd", version = "=1.0.0-alpha.6" }
 soma-kvm = { path = "../soma-kvm", version = "=1.0.0-alpha.6" }
 soma-netd = { path = "../soma-netd", version = "=1.0.0-alpha.6" }
 libc = "=0.2.190"
-rustix = { version = "=1.1.6", features = ["fs"] }
+rustix = { version = "=1.1.6", features = ["fs", "process"] }
 soma-storage = { path = "../soma-storage", version = "=1.0.0-alpha.6" }
 soma-vmm = { path = "../soma-vmm", version = "=1.0.0-alpha.6" }
 soma-supervise = { path = "../soma-supervise", version = "=1.0.0-alpha.6" }

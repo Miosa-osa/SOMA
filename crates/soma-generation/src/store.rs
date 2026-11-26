@@ -95,22 +95,23 @@ impl Store {
     /// A blob that has the stamp the ledger recorded when its content was last hashed is the same
     /// bytes and is returned without being read. Any other blob is hashed in full exactly as
     /// [`Self::open_verified_blob`] does, and its stamp is then recorded for the next admission.
+    /// The stamp returned is the one the content was verified under, if any (`Ledger::record_hashed`).
     pub(crate) fn open_admitted_blob(
         &self,
         descriptor: &Descriptor,
         maximum: u64,
         phase: ImportPhase,
-    ) -> Result<File, ImportError> {
+    ) -> Result<(File, Option<ledger::Stamp>), ImportError> {
         if descriptor.size > maximum {
             return Err(ImportError::new(phase, ImportErrorKind::LimitExceeded));
         }
         let mut file = self.open_blob(descriptor, phase)?;
         let name = digest::hex(&descriptor.digest);
-        let stamp = file.metadata().ok().and_then(|m| ledger::Stamp::of(&m));
+        let stamp = file.metadata().ok().and_then(|m| ledger::stamp_of(&m));
         if stamp.is_some_and(|stamp| self.ledger.knows(name, stamp)) {
             file.seek(SeekFrom::Start(0))
                 .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
-            return Ok(file);
+            return Ok((file, stamp));
         }
         self.hashed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -120,10 +121,8 @@ impl Store {
         }
         file.seek(SeekFrom::Start(0))
             .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;
-        if let Some(stamp) = stamp {
-            self.ledger.record(&self.version, name, stamp);
-        }
-        Ok(file)
+        let hashed = self.ledger.record_hashed(&self.version, name, stamp, &file);
+        Ok((file, hashed))
     }
 
     pub(crate) fn open_verified_blob(

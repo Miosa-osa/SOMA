@@ -156,6 +156,7 @@ fn launch_wire_with(skip_warm: bool, windowed: bool) -> LaunchWire {
     LaunchWire {
         checkpoint: None,
         fork_source: None,
+        root_stamp: None,
         volume: None,
         socket: "/run/soma/one.sock".into(),
         operation_id: OperationId::new(ONE).expect("operation"),
@@ -169,6 +170,22 @@ fn launch_wire_with(skip_warm: bool, windowed: bool) -> LaunchWire {
         windowed,
         resume: None,
     }
+}
+
+#[test]
+fn a_root_stamp_crosses_only_when_set_and_decodes_on_the_other_side() {
+    let plain = serde_json::to_value(launch_wire(false)).expect("encodes");
+    assert!(plain.get("root_stamp").is_none(), "{plain}");
+    let stamp = soma_kvm::snapshot::FileStamp::new(2049, 77, 4096, (1, 2), (3, 4));
+    let mut wire = launch_wire(false);
+    wire.root_stamp = Some(stamp.encode());
+    let text = serde_json::to_string(&wire).expect("encodes");
+    let read: LaunchWire = serde_json::from_str(&text).expect("decodes");
+    let carried = read.root_stamp.expect("carried");
+    assert_eq!(
+        soma_kvm::snapshot::FileStamp::decode(&mut carried.split(' ')),
+        Some(stamp)
+    );
 }
 
 #[test]

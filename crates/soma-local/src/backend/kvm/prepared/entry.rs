@@ -23,11 +23,15 @@ use super::{
 };
 
 /// Rebuilds a prepared Generation from verified handles transferred by its launching parent.
+///
+/// `root_stamp` is the stamp the parent's admission verified the root's content under, when the
+/// parent sent one; without it the root has no attestation here and a restore hashes it.
 pub(in crate::backend::kvm) fn from_handoff(
     reference: String,
     id: &GenerationId,
     manifest: &[u8],
     descriptors: Vec<OwnedFd>,
+    root_stamp: Option<soma_kvm::snapshot::FileStamp>,
 ) -> Result<PreparedGeneration, PreparedError> {
     let files = descriptors.into_iter().map(std::fs::File::from).collect();
     // The profile is the one the manifest itself declares. A Generation built under a newer
@@ -43,6 +47,10 @@ pub(in crate::backend::kvm) fn from_handoff(
     let artifacts = artifacts
         .into_iter()
         .map(|(descriptor, file)| (descriptor, Arc::new(file)))
+        .collect::<Vec<_>>();
+    let admitted_stamps = root_stamp
+        .map(|stamp| (manifest.root.descriptor, stamp))
+        .into_iter()
         .collect();
     Ok(PreparedGeneration {
         store: PathBuf::new(),
@@ -50,6 +58,7 @@ pub(in crate::backend::kvm) fn from_handoff(
         id: admitted_id,
         manifest,
         artifacts,
+        admitted_stamps,
     })
 }
 
@@ -180,18 +189,24 @@ pub(super) fn read_entry(
     let admitted =
         admit_installed_generation(&store, &id, &profile).map_err(|_| PreparedError::Damaged)?;
     let admitted_id = admitted.id.clone();
-    let (manifest, artifacts) = admitted.into_parts();
+    let (manifest, stamped) = admitted.into_stamped_parts();
     verify_source_pin(reference, &manifest.source.oci_manifest_digest)?;
-    let artifacts = artifacts
-        .into_iter()
-        .map(|(descriptor, file)| (descriptor, Arc::new(file)))
+    // Only a stamp the content was hashed or ledger-matched under is kept; none is taken later.
+    let admitted_stamps = stamped
+        .iter()
+        .filter_map(|(descriptor, _, stamp)| stamp.map(|stamp| (*descriptor, stamp)))
         .collect();
+    let artifacts = stamped
+        .into_iter()
+        .map(|(descriptor, file, _)| (descriptor, Arc::new(file)))
+        .collect::<Vec<_>>();
     Ok(PreparedGeneration {
         store,
         reference: reference.to_owned(),
         id: admitted_id,
         manifest,
         artifacts,
+        admitted_stamps,
     })
 }
 
