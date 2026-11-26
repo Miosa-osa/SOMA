@@ -185,6 +185,7 @@ pub fn verify(fixture: &Fixture) {
         vcpus: fixture.vcpus,
         contract: fixture.contract,
         hotplug: None,
+        memory_attestation: None,
     };
     let prepared = prepare_checkpoint(request).expect("rebuild stopped Instance");
     let operation = session::random16();

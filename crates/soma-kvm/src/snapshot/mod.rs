@@ -17,7 +17,9 @@ pub mod memory;
 pub mod readiness;
 pub mod restore;
 pub mod section;
+mod stamp;
 mod wire;
 
 pub use digest::{Digest, Hasher};
+pub use stamp::{FileStamp, MemoryAttestation};
 pub use wire::WireError;

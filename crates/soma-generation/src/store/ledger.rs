@@ -20,71 +20,40 @@ const LEDGER: &str = "admitted-ledger";
 const STAGING: &str = "admitted-ledger.tmp";
 
 /// What the kernel reports about one blob, enough to tell it from any other state of the same name.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct Stamp {
-    device: u64,
-    inode: u64,
-    size: u64,
-    modified: (i64, i64),
-    changed: (i64, i64),
+///
+/// The type is shared with checkpoint memory attestation so both records mean the same thing.
+pub(super) use soma_kvm::snapshot::FileStamp as Stamp;
+
+/// The stamp of an open blob, or `None` where the platform cannot say.
+#[cfg(unix)]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "platforms that cannot stamp a blob return None from the other definition"
+)]
+pub(super) fn stamp_of(metadata: &cap_std::fs::Metadata) -> Option<Stamp> {
+    use cap_std::fs::MetadataExt as _;
+    Some(Stamp::new(
+        metadata.dev(),
+        metadata.ino(),
+        metadata.size(),
+        (metadata.mtime(), metadata.mtime_nsec()),
+        (metadata.ctime(), metadata.ctime_nsec()),
+    ))
 }
 
-impl Stamp {
-    /// The stamp of an open blob, or `None` where the platform cannot say.
-    #[cfg(unix)]
-    #[allow(
-        clippy::unnecessary_wraps,
-        reason = "platforms that cannot stamp a blob return None from the other definition"
-    )]
-    pub(super) fn of(metadata: &cap_std::fs::Metadata) -> Option<Self> {
-        use cap_std::fs::MetadataExt as _;
-        Some(Self {
-            device: metadata.dev(),
-            inode: metadata.ino(),
-            size: metadata.size(),
-            modified: (metadata.mtime(), metadata.mtime_nsec()),
-            changed: (metadata.ctime(), metadata.ctime_nsec()),
-        })
-    }
+#[cfg(not(unix))]
+pub(super) fn stamp_of(_metadata: &cap_std::fs::Metadata) -> Option<Stamp> {
+    None
+}
 
-    #[cfg(not(unix))]
-    pub(super) fn of(_metadata: &cap_std::fs::Metadata) -> Option<Self> {
-        None
-    }
+fn encode(name: &str, stamp: Stamp) -> String {
+    format!("{name} {}\n", stamp.encode())
+}
 
-    fn encode(self, name: &str) -> String {
-        format!(
-            "{name} {} {} {} {} {} {} {}\n",
-            self.device,
-            self.inode,
-            self.size,
-            self.modified.0,
-            self.modified.1,
-            self.changed.0,
-            self.changed.1
-        )
-    }
-
-    fn decode(line: &str) -> Option<(String, Self)> {
-        let mut fields = line.split(' ');
-        let name = fields.next()?.to_owned();
-        let mut number = || fields.next()?.parse::<i64>().ok();
-        let device = u64::try_from(number()?).ok()?;
-        let inode = u64::try_from(number()?).ok()?;
-        let size = u64::try_from(number()?).ok()?;
-        let modified = (number()?, number()?);
-        let changed = (number()?, number()?);
-        Some((
-            name,
-            Self {
-                device,
-                inode,
-                size,
-                modified,
-                changed,
-            },
-        ))
-    }
+fn decode(line: &str) -> Option<(String, Stamp)> {
+    let mut fields = line.split(' ');
+    let name = fields.next()?.to_owned();
+    Some((name, Stamp::decode(&mut fields)?))
 }
 
 /// The recorded stamps of blobs whose content has been hashed.
@@ -97,7 +66,7 @@ impl Ledger {
     pub(super) fn load(version: &Dir) -> Self {
         let entries = version
             .read_to_string(LEDGER)
-            .map(|text| text.lines().filter_map(Stamp::decode).collect())
+            .map(|text| text.lines().filter_map(decode).collect())
             .unwrap_or_default();
         Self {
             entries: Mutex::new(entries),
@@ -124,7 +93,7 @@ impl Ledger {
         entries.insert(name.to_owned(), stamp);
         let mut text: Vec<String> = entries
             .iter()
-            .map(|(known, stamp)| stamp.encode(known))
+            .map(|(known, stamp)| encode(known, *stamp))
             .collect();
         text.sort();
         if version.write(STAGING, text.concat()).is_ok() {

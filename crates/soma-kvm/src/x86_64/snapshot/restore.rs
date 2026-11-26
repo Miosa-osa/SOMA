@@ -12,6 +12,7 @@ mod guest_memory;
 mod handle;
 mod readiness;
 mod resident;
+mod resident_memory;
 mod sections;
 mod sterile;
 

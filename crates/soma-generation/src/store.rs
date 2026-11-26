@@ -106,7 +106,7 @@ impl Store {
         }
         let mut file = self.open_blob(descriptor, phase)?;
         let name = digest::hex(&descriptor.digest);
-        let stamp = file.metadata().ok().and_then(|m| ledger::Stamp::of(&m));
+        let stamp = file.metadata().ok().and_then(|m| ledger::stamp_of(&m));
         if stamp.is_some_and(|stamp| self.ledger.knows(name, stamp)) {
             file.seek(SeekFrom::Start(0))
                 .map_err(|_| ImportError::new(phase, ImportErrorKind::Io))?;

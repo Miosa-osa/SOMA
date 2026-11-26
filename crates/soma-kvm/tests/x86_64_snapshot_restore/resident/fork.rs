@@ -125,6 +125,11 @@ impl Fork {
             vcpus: fixture.vcpus,
             contract: fixture.contract,
             hotplug: None,
+            // Every fork after the first skips the memory read, as a broker's restore would.
+            memory_attestation: soma_kvm::x86_64::attest_memory(
+                &mut saved.memory.try_clone().unwrap(),
+            )
+            .expect("attest the captured memory"),
         };
         let address = instance::Identity {
             instance: session::random16(),

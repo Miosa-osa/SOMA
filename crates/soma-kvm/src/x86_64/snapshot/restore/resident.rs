@@ -10,7 +10,9 @@ use super::{
 use crate::{
     contract::MachineContract,
     memory_layout::HotplugRegion,
-    snapshot::{Digest, device_state::DeviceSpecific, manifest::CheckpointManifest},
+    snapshot::{
+        Digest, MemoryAttestation, device_state::DeviceSpecific, manifest::CheckpointManifest,
+    },
     virtio::{DeviceSet, Slot},
     x86_64::{
         Hypervisor, LAUNCH_PAGE_SIZE, SnapshotObjects,
@@ -38,6 +40,9 @@ pub struct ResidentRestoreRequest {
     pub vcpus: u16,
     pub contract: MachineContract,
     pub hotplug: Option<HotplugRegion>,
+    /// The broker's record that it hashed this memory file, filled only by the broker that
+    /// opened the descriptors. A file whose stamp, size, or manifest digest differs is hashed.
+    pub memory_attestation: Option<MemoryAttestation>,
 }
 
 /// An unstarted Instance with a disconnected control channel.
@@ -87,7 +92,8 @@ impl PreparedCheckpoint {
 /// Rebuilds a broker-authorized checkpoint for the original Instance after its owner stopped.
 ///
 /// All mapped artifacts must remain private to the trusted broker and immutable for the lifetime
-/// of the restored machine. The broker owns the same-Instance lease and must exclude another
+/// of the restored machine. The memory file is hashed unless the broker's attestation vouches for
+/// its exact current stamp; the other artifacts are always hashed. The broker owns the same-Instance lease and must exclude another
 /// active owner. This entry point performs no scheduling or tenant authorization of its own.
 ///
 /// # Errors
@@ -139,6 +145,7 @@ fn prepare_for(
         vcpus,
         contract,
         hotplug,
+        memory_attestation,
     } = request;
     let timeline = Timeline::new();
     if devices.volume() != volume.is_some() {
@@ -179,9 +186,11 @@ fn prepare_for(
         declared,
         hotplug,
     )?;
-    let size = metadata(Artifact::Memory, objects.memory_handle())?.len();
-    let digest = hash(Artifact::Memory, objects.memory_handle())?;
-    manifest.header().memory.verify_generation(digest, size)?;
+    super::resident_memory::verify(
+        objects.memory_handle(),
+        &manifest.header().memory,
+        memory_attestation,
+    )?;
     verify_disk(Slot::Root, Artifact::Root, &mut root, &state)?;
     verify_head(head.as_mut(), objects.overlay_template(), &state)?;
     if let Some(file) = &mut volume {
