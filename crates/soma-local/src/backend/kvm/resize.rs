@@ -12,6 +12,7 @@ use soma_jail::{CgroupLeaf, CpuMax};
 
 use super::{KvmBackend, held::Held};
 
+mod capture;
 mod link;
 mod memory;
 use crate::{CpuResize, DimensionState, ResizeFailure, ResizeOutcome, ResizeRequest};

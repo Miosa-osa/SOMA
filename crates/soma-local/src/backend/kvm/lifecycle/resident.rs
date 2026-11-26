@@ -99,14 +99,19 @@ impl KvmBackend {
         if live.windowed {
             return Err(crate::CheckpointFailure::Unsupported);
         }
-        super::super::checkpoint::perform(
-            &mut live.held,
-            instance,
-            &live.generation,
-            operation,
-            live.checkpoint_source,
-            live.paused,
-        )
+        self.capture_at_boot_memory(instance, |backend| {
+            let live = backend
+                .live_for(instance)
+                .ok_or(crate::CheckpointFailure::NotFound)?;
+            super::super::checkpoint::perform(
+                &mut live.held,
+                instance,
+                &live.generation,
+                operation,
+                live.checkpoint_source,
+                live.paused,
+            )
+        })
     }
 
     /// Reports the state of the sandbox this process is driving.
