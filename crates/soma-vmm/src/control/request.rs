@@ -29,6 +29,12 @@ pub enum Request {
     Recover(Launch, [u8; 32]),
     /// Fork from the named checkpoint source into the launch's new Instance.
     Fork(Launch, [u8; 32], InstanceId),
+    /// The broker's record that it hashed the checkpoint memory file at one exact stamp.
+    ///
+    /// It precedes [`Request::Recover`] or [`Request::Fork`] as a word of its own, so a worker
+    /// that predates it rejects only this packet and the restore that follows hashes the file.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    AttestMemory(soma_kvm::snapshot::MemoryAttestation),
     Execute(Execute),
     /// Run one command and send each output chunk back as it arrives, then the final reply.
     ///
@@ -101,6 +107,10 @@ impl Request {
                     &format!("{verb} {} {}", hex(source.as_bytes()), hex(digest)),
                     launch,
                 )
+            }
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::AttestMemory(attestation) => {
+                format!("memory_attestation {}", attestation.encode())
             }
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
@@ -192,6 +202,12 @@ impl Request {
                 let digest = super::field::identifier(tokens.next(), "checkpoint digest")?;
                 decode_launch(&mut tokens, capacity)
                     .map(|launch| Self::Fork(launch, digest, source))
+            }
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "memory_attestation" => {
+                soma_kvm::snapshot::MemoryAttestation::decode(&tokens.collect::<Vec<_>>().join(" "))
+                    .map(Self::AttestMemory)
+                    .ok_or(ControlError::InvalidValue("memory attestation"))
             }
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]

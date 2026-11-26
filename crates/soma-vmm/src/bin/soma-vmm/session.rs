@@ -159,6 +159,13 @@ fn perform(
         Request::File(_) | Request::Checkpoint(_) | Request::Recover(..) | Request::Fork(..) => {
             unreachable!("descriptor requests are handled at receive")
         }
+        Request::AttestMemory(attestation) => {
+            let reply = match machine.attest_checkpoint_memory(attestation) {
+                Ok(()) => Reply::MemoryAttested,
+                Err(_) => Reply::Rejected("the memory attestation was not accepted"),
+            };
+            control.send(&reply.encode());
+        }
         Request::Seal => control.send(&seal().encode()),
         Request::Shutdown(status) => return Some(status),
     }

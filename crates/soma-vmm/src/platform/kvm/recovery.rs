@@ -76,6 +76,7 @@ impl KvmPlatform {
             vcpus: spec.vcpus().get(),
             contract,
             hotplug,
+            memory_attestation: self.memory_attestation.take(),
         };
         let source = if selection.fork_from.is_some() {
             Source::CheckpointFork(Box::new(request))

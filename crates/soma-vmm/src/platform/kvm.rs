@@ -57,6 +57,8 @@ pub(crate) struct KvmPlatform {
     volume: Option<File>,
     network: Option<(File, ActivationChannel)>,
     recovery: Option<recovery::Selection>,
+    /// The broker's record of the checkpoint memory, consumed by the recovery that follows it.
+    memory_attestation: Option<soma_kvm::snapshot::MemoryAttestation>,
     recovered: bool,
     checkpoint_geometry: Option<([u8; 32], MachineContract, bool, bool)>,
     /// The parked or serving sandbox.
@@ -74,6 +76,7 @@ impl KvmPlatform {
             session: None,
             checkpoint_geometry: None,
             recovery: None,
+            memory_attestation: None,
             recovered: false,
         })
     }
@@ -94,6 +97,18 @@ impl Platform for KvmPlatform {
             saved_overlay,
             fork_from,
         });
+        Ok(())
+    }
+
+    fn configure_memory_attestation(
+        &mut self,
+        attestation: soma_kvm::snapshot::MemoryAttestation,
+    ) -> Result<(), PlatformFailure> {
+        if self.resources.is_none() || self.recovery.is_some() || self.memory_attestation.is_some()
+        {
+            return Err(PlatformFailure::new(Recovery::DoNotRetry));
+        }
+        self.memory_attestation = Some(attestation);
         Ok(())
     }
 

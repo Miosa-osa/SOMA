@@ -111,6 +111,11 @@ fn every_request_round_trips() {
         Request::Pause(instance()),
         Request::Resume(instance()),
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        Request::AttestMemory(soma_kvm::snapshot::MemoryAttestation::new(
+            soma_kvm::snapshot::Digest::of(b"memory"),
+            soma_kvm::snapshot::FileStamp::new(2049, 77, 1 << 30, (1, 2), (-3, 999_999_999)),
+        )),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         Request::Workspace {
             instance: instance(),
             attach: true,

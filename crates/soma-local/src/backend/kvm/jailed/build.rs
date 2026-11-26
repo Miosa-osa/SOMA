@@ -86,6 +86,7 @@ pub(super) struct Opened {
 pub(super) struct Recovery {
     pub(super) digest: soma_kvm::snapshot::Digest,
     pub(super) overlay: Option<File>,
+    pub(super) memory_attestation: Option<soma_kvm::snapshot::MemoryAttestation>,
 }
 
 /// Opens every resource one jailed machine is built from.
@@ -129,6 +130,7 @@ pub(super) fn open(
             Some(Recovery {
                 digest: checkpoint.digest,
                 overlay: checkpoint.overlay,
+                memory_attestation: checkpoint.memory_attestation,
             }),
         )
     } else {

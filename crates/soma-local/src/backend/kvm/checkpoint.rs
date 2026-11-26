@@ -8,6 +8,7 @@ pub(crate) use export::open_export;
 pub use export::{CheckpointArtifact, CheckpointExport};
 pub(crate) use import::{install_import, verify_import};
 pub(crate) use workspace_import::import_cold_workspace;
+mod attestation;
 mod read;
 mod restore;
 pub(super) mod retention;
@@ -54,6 +55,8 @@ const MEMORY: &str = "memory.raw";
 const OVERLAY: &str = "overlay.raw";
 const VOLUME: &str = "volume.raw";
 const RECEIPT: &str = "receipt.json";
+/// The broker's record of the stamp and digest of `memory.raw`, written after publication.
+const MEMORY_ATTESTATION: &str = "memory.attest";
 
 struct VerifiedCheckpoint {
     receipt: CheckpointReceipt,
@@ -110,6 +113,7 @@ pub(super) fn perform(
     )?
     .receipt;
     stage.publish(&root, &published, &receipt)?;
+    attestation::record(&published);
     Ok(receipt)
 }
 

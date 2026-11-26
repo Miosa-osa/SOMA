@@ -16,6 +16,15 @@ pub(crate) trait Platform: Send {
         Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
     }
 
+    /// Notes the broker's attestation of the checkpoint memory the next recovery maps.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn configure_memory_attestation(
+        &mut self,
+        _attestation: soma_kvm::snapshot::MemoryAttestation,
+    ) -> Result<(), PlatformFailure> {
+        Err(PlatformFailure::new(crate::Recovery::DoNotRetry))
+    }
+
     /// Verifies the exact Generation and restores one private machine as one cohesive operation.
     fn verify_and_restore(&mut self, launch: &Launch) -> Result<RestoredMachine, RestoreFailure>;
 
