@@ -243,6 +243,24 @@ pub(super) fn decode_instance<'a>(
     Ok(instance)
 }
 
+/// `memory <instance>` reads the device; `memory <instance> <bytes>` asks it to plug that total.
+pub(super) fn decode_memory<'a>(
+    tokens: &mut impl Iterator<Item = &'a str>,
+) -> Result<super::Request, ControlError> {
+    let instance = InstanceId::new(identifier(tokens.next(), "instance")?)
+        .map_err(|_| ControlError::InvalidValue("instance"))?;
+    let requested = tokens
+        .next()
+        .map(|bytes| {
+            bytes
+                .parse::<u64>()
+                .map_err(|_| ControlError::InvalidValue("memory bytes"))
+        })
+        .transpose()?;
+    end(tokens)?;
+    Ok(super::Request::Memory(instance, requested))
+}
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) fn decode_checkpoint<'a>(
     tokens: &mut impl Iterator<Item = &'a str>,

@@ -134,7 +134,7 @@ impl KvmBackend {
         // not the shape asked for; the bounds come from the Generation it is built with.
         let booted_vcpus = prepared.manifest.shape.vcpu_count;
         let boot_mib = prepared.manifest.shape.memory_bytes / (1024 * 1024);
-        if let Some(reason) = self.misfit(prepared, shape) {
+        if let Some(reason) = super::fit::misfit(prepared, shape) {
             return Err(self.fail(operation, fit::refuse(instance, &reason)));
         }
         let Some(storage_mib) = prepared

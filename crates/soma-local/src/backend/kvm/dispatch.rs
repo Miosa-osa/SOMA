@@ -64,7 +64,7 @@ impl KvmBackend {
         let volume_misfit = (self.jail.is_some() && restore.is_none())
             .then(|| super::fit::volume_misfit(prepared, request.volume()))
             .flatten();
-        if let Some(reason) = self.misfit(prepared, request.shape()).or(volume_misfit) {
+        if let Some(reason) = super::fit::misfit(prepared, request.shape()).or(volume_misfit) {
             let kind = super::fit::refuse(request.instance_id(), &reason);
             return Err(self.fail(operation, kind));
         }

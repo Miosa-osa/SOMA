@@ -152,6 +152,10 @@ fn perform(
             Ok(()) => control.send(&Reply::Resumed(instance).encode()),
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
+        Request::Memory(instance, requested) => match machine.memory(instance, requested) {
+            Ok(answer) => control.send(&Reply::Memory(answer).encode()),
+            Err(failure) => control.send(&Reply::Failure(&failure).encode()),
+        },
         Request::Stop(stop) => match machine.stop(stop) {
             Ok(stopped) => {
                 control.send(&Reply::Stopped(&stopped).encode());

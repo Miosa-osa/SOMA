@@ -49,6 +49,19 @@ pub(crate) trait Platform: Send {
         Ok(outcome)
     }
 
+    /// Sets how much the memory device should plug, or with `None` reads its level.
+    ///
+    /// The inner result is the device's own answer; the outer one is a session that can no
+    /// longer be trusted. A platform with no memory device answers that it has none.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn memory(
+        &mut self,
+        _requested: Option<u64>,
+    ) -> Result<Result<crate::sandbox::MemoryLevel, crate::sandbox::MemoryError>, PlatformFailure>
+    {
+        Ok(Err(crate::sandbox::MemoryError::NoDevice))
+    }
+
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn file(
         &mut self,

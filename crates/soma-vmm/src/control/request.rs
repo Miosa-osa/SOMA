@@ -1,14 +1,12 @@
 use crate::{Execute, InstanceId, Launch, Stop};
 
-use super::{
-    ControlError,
-    field::{hex, tagged},
-    window::OutputWindow,
-};
+use super::{ControlError, field::hex, window::OutputWindow};
 
 mod decode;
+mod encode;
 
 use decode::{decode_execute, decode_launch, decode_output, decode_stop};
+use encode::{encode_execute, encode_execute_in};
 
 /// The largest control packet a worker accepts.
 ///
@@ -57,6 +55,11 @@ pub enum Request {
     Pause(InstanceId),
     /// Resume the exact resident machine.
     Resume(InstanceId),
+    /// Ask the memory device to plug this many bytes in total, or with `None` read its level.
+    ///
+    /// A worker that predates it refuses the word, which the supervisor reads as a machine that
+    /// cannot resize its memory.
+    Memory(InstanceId, Option<u64>),
     /// Capture the matching resident machine into file descriptors carried by this packet.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Checkpoint(crate::sandbox::CheckpointSource),
@@ -127,6 +130,10 @@ impl Request {
             Self::File(instance) => format!("file {}", hex(instance.as_bytes())),
             Self::Pause(instance) => format!("pause {}", hex(instance.as_bytes())),
             Self::Resume(instance) => format!("resume {}", hex(instance.as_bytes())),
+            Self::Memory(instance, None) => format!("memory {}", hex(instance.as_bytes())),
+            Self::Memory(instance, Some(bytes)) => {
+                format!("memory {} {bytes}", hex(instance.as_bytes()))
+            }
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Checkpoint(source) => format!(
                 "checkpoint {} {} {} {} {}",
@@ -216,6 +223,7 @@ impl Request {
             }
             "file" => decode::decode_instance(&mut tokens).map(Self::File),
             "resume" => decode::decode_instance(&mut tokens).map(Self::Resume),
+            "memory" => decode::decode_memory(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "checkpoint" => decode::decode_checkpoint(&mut tokens).map(Self::Checkpoint),
             _ => Err(ControlError::UnknownRequest),
@@ -243,71 +251,6 @@ fn encode_launch(verb: &str, launch: &Launch) -> String {
         text.push(' ');
         text.push_str(&hotplug.get().to_string());
     }
-    text
-}
-
-fn encode_execute(execute: &Execute) -> String {
-    if !execute.context().is_empty() {
-        return encode_execute_in("execute_in", execute);
-    }
-    let limits = execute.limits();
-    let mut text = format!(
-        "execute {} {} {} {} {}",
-        hex(execute.operation_id().as_bytes()),
-        hex(execute.instance_id().as_bytes()),
-        limits.timeout().get(),
-        limits.output().get(),
-        hex(execute.program().as_bytes()),
-    );
-    for argument in execute.arguments() {
-        text.push(' ');
-        text.push_str(&hex(argument.as_bytes()));
-    }
-    text
-}
-
-/// A command with a context, in a form of its own.
-///
-/// A worker built before contexts existed knows only `execute`, so it refuses this word and the
-/// command never runs without the environment the caller asked for. The plain form above is
-/// untouched, so an older worker keeps serving every command that has no context.
-///
-/// Layout: operation, instance, timeout, output, program, argument count and arguments,
-/// environment count and name/value pairs, working directory, user, standard input. Every byte
-/// string is `x`-prefixed hexadecimal, and an absent directory or user is `-`.
-fn encode_execute_in(word: &str, execute: &Execute) -> String {
-    let limits = execute.limits();
-    let context = execute.context();
-    let mut text = format!(
-        "{word} {} {} {} {} {} {}",
-        hex(execute.operation_id().as_bytes()),
-        hex(execute.instance_id().as_bytes()),
-        limits.timeout().get(),
-        limits.output().get(),
-        tagged(execute.program().as_bytes()),
-        execute.arguments().len(),
-    );
-    for argument in execute.arguments() {
-        text.push(' ');
-        text.push_str(&tagged(argument.as_bytes()));
-    }
-    text.push(' ');
-    text.push_str(&context.environment.len().to_string());
-    for (name, value) in &context.environment {
-        text.push(' ');
-        text.push_str(&tagged(name));
-        text.push(' ');
-        text.push_str(&tagged(value));
-    }
-    for optional in [&context.working_directory, &context.user] {
-        text.push(' ');
-        match optional {
-            Some(bytes) => text.push_str(&tagged(bytes)),
-            None => text.push('-'),
-        }
-    }
-    text.push(' ');
-    text.push_str(&tagged(&context.stdin));
     text
 }
 

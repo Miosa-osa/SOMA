@@ -126,6 +126,8 @@ fn every_request_round_trips() {
         Request::Stop(Stop::new(operation(), instance())),
         Request::Pause(instance()),
         Request::Resume(instance()),
+        Request::Memory(instance(), None),
+        Request::Memory(instance(), Some(512 << 20)),
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         Request::AttestArtifact((
             soma_kvm::snapshot::AttestedArtifact::Root,

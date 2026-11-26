@@ -30,6 +30,9 @@ pub enum Outcome {
     Paused(InstanceId),
     /// The resident machine resumed with the same identity.
     Resumed(InstanceId),
+    /// The memory device's level, or why it refused.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Memory(Result<crate::sandbox::MemoryLevel, crate::sandbox::MemoryError>),
     /// The authenticated workspace result for the matching Instance.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Workspace(InstanceId, soma_guest::WorkspaceOutcome),
@@ -87,6 +90,10 @@ impl Outcome {
             "stopped" => stopped(rest),
             "paused" => resident_instance(rest).map(Self::Paused),
             "resumed" => resident_instance(rest).map(Self::Resumed),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "memory" => super::memory::level(rest).map(|level| Self::Memory(Ok(level))),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            "memory_refused" => super::memory::refusal(rest).map(|error| Self::Memory(Err(error))),
             "file_complete" => resident_instance(rest).map(Self::FileComplete),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "workspace" => workspace(rest),
