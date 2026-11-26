@@ -1,10 +1,11 @@
 //! Answers a request only for the tenant that owns the sandbox or volume it names (SOMA#222).
 //!
 //! Another tenant's sandbox answers exactly as one that does not exist, and a listing names only
-//! the caller's own. An identity with no recorded owner is answered as before; see
+//! the caller's own. An identity with no recorded owner is answered only to the platform
+//! ([`crate::tenant::PLATFORM_TENANT`]), which also answers for every tenant's; see
 //! [`crate::owners`].
 
-use soma::{InstanceId, ManagedFailure, ManagedStateError};
+use soma::{InstanceId, ManagedFailure, ManagedStateError, SandboxPhase};
 use soma_hostd::FailureCode;
 
 use crate::{
@@ -71,9 +72,77 @@ pub(super) fn require<F: SandboxFacade + ?Sized>(
         .access(resource, identity, tenant.as_str())
         .map_err(|_| unavailable())?
     {
-        Access::Other => Err(absent(resource)),
-        Access::Owner | Access::Unclaimed => Ok(()),
+        Access::Owner => Ok(()),
+        Access::Other | Access::Unclaimed if tenant.is_platform() => Ok(()),
+        Access::Other | Access::Unclaimed => Err(absent(resource)),
     }
+}
+
+/// Takes a sandbox identity for `tenant` ahead of the create that names it, as the attach of its
+/// volume does.
+///
+/// An identity no tenant owns whose sandbox is already on this host was written before owners
+/// were recorded, so it is not handed to the first tenant that names it.
+pub(super) fn reserve<F: SandboxFacade + ?Sized>(
+    facade: &mut F,
+    identity: &str,
+    tenant: &TenantId,
+) -> Result<bool, ApiError> {
+    let Some(owners) = facade.owners() else {
+        return Ok(false);
+    };
+    let access = owners
+        .access(Resource::Sandbox, identity, tenant.as_str())
+        .map_err(|_| unavailable())?;
+    match access {
+        Access::Owner => Ok(false),
+        Access::Other | Access::Unclaimed if tenant.is_platform() => Ok(false),
+        Access::Other => Err(absent(Resource::Sandbox)),
+        Access::Unclaimed => {
+            let listing = facade.list().map_err(|failure| managed_error(&failure))?;
+            let (sandboxes, unreadable) = listing.into_parts();
+            let held = sandboxes
+                .iter()
+                .map(soma::SandboxEntry::instance_id)
+                .chain(unreadable.iter().map(soma::UnreadableRecord::instance_id))
+                .any(|held| held.as_str() == identity);
+            if held {
+                return Err(absent(Resource::Sandbox));
+            }
+            claim(facade, Resource::Sandbox, identity, tenant)
+        }
+    }
+}
+
+/// The sandboxes on this host that are not ending and that no owner record names.
+///
+/// Every tenant reads such a sandbox as absent, so each is named on the service's log when it
+/// starts and in `GET /v1/capacity`, until the platform records its owner, rather than going
+/// quiet as a 404 to the customer it belongs to.
+///
+/// # Errors
+///
+/// Returns the listing's refusal, or a refusal when an owner record cannot be read.
+pub fn ownerless<F: SandboxFacade + ?Sized>(facade: &mut F) -> Result<Vec<InstanceId>, ApiError> {
+    let listing = facade.list().map_err(|failure| managed_error(&failure))?;
+    let Some(owners) = facade.owners() else {
+        return Ok(Vec::new());
+    };
+    let mut ownerless = Vec::new();
+    for entry in listing.entries() {
+        if entry.phase() == SandboxPhase::Terminating {
+            continue;
+        }
+        let id = entry.instance_id();
+        if owners
+            .owner(Resource::Sandbox, id.as_str())
+            .map_err(|_| unavailable())?
+            .is_none()
+        {
+            ownerless.push(id.clone());
+        }
+    }
+    Ok(ownerless)
 }
 
 /// Takes an identity for `tenant` before the operation that creates it runs.
@@ -123,7 +192,7 @@ pub(super) fn list<F: SandboxFacade + ?Sized>(
         let visible = |id: &InstanceId| {
             owners
                 .access(Resource::Sandbox, id.as_str(), tenant.as_str())
-                .map(|access| access != Access::Other)
+                .map(|access| access == Access::Owner || tenant.is_platform())
                 .map_err(|_| unavailable())
         };
         let mut kept = Vec::with_capacity(report.sandboxes.len());

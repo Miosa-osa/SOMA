@@ -12,6 +12,7 @@ use soma::{BackendKind, InstanceId, SandboxEntry, SandboxLiveness, SandboxPhase}
 use support::{Call, FIXTURE_INSTANCE_ID, FakeFacade, Mode, as_tenant, call};
 
 const OWNER: &str = "wl-desktop-proof";
+const PLATFORM: &str = "soma-platform";
 const OTHER: &str = "wl-edge-other";
 const VOLUME: &str = "759e3025aa11bb22cc33dd44ee55ff66";
 
@@ -32,6 +33,18 @@ fn created() -> FakeFacade {
     assert_eq!(status, 201, "the owner creates the sandbox");
     facade.calls.clear();
     facade
+}
+
+/// A record written before this service recorded owners: a sandbox no tenant claimed.
+fn unowned() -> FakeFacade {
+    let entry = SandboxEntry::new(
+        InstanceId::new(FIXTURE_INSTANCE_ID).expect("fixture identity is canonical"),
+        SandboxPhase::Launching,
+        BackendKind::LinuxKvm,
+        None,
+        SandboxLiveness::Live,
+    );
+    FakeFacade::new(Mode::Succeed).holding(vec![entry])
 }
 
 fn volume_body(operation: &str, tenant: &str) -> String {
@@ -141,4 +154,117 @@ fn a_volume_body_that_names_another_tenant_than_the_caller_is_refused() {
     );
     assert_eq!(status, 400);
     assert!(facade.volume_operations.is_empty());
+}
+
+#[test]
+fn a_sandbox_no_tenant_owns_is_answered_only_to_the_platform() {
+    let mut facade = unowned();
+    let path = format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}");
+    for tenant in [OWNER, OTHER] {
+        let (_, listed) = call(&mut facade, &as_tenant(tenant, "GET", "/v1/sandboxes", ""));
+        assert_eq!(
+            listed["result"]["count"], 0,
+            "{tenant} lists no unowned record"
+        );
+        for (method, path) in [("GET", path.clone()), ("DELETE", path.clone())] {
+            let (status, body) = call(&mut facade, &as_tenant(tenant, method, &path, ""));
+            assert_eq!(status, 404, "{method} {path} from {tenant}");
+            assert_eq!(body["error"]["code"], "machine_not_found");
+        }
+    }
+    assert!(
+        facade.calls.iter().all(|asked| *asked == Call::List),
+        "no tenant reached the sandbox: {:?}",
+        facade.calls
+    );
+
+    let (_, listed) = call(
+        &mut facade,
+        &as_tenant(PLATFORM, "GET", "/v1/sandboxes", ""),
+    );
+    assert_eq!(listed["result"]["count"], 1, "the platform lists it");
+    let (status, _) = call(&mut facade, &as_tenant(PLATFORM, "GET", &path, ""));
+    assert_eq!(status, 200, "the platform reads it");
+    assert_eq!(facade.calls.last(), Some(&Call::Inspect));
+}
+
+#[test]
+fn the_platform_reads_a_sandbox_a_tenant_owns() {
+    let mut facade = created();
+    let path = format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}");
+    let (_, listed) = call(
+        &mut facade,
+        &as_tenant(PLATFORM, "GET", "/v1/sandboxes", ""),
+    );
+    assert_eq!(listed["result"]["count"], 1);
+    let (status, _) = call(&mut facade, &as_tenant(PLATFORM, "GET", &path, ""));
+    assert_eq!(status, 200);
+}
+
+#[test]
+fn an_attach_before_the_create_takes_the_sandbox_identity_for_its_tenant() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    let attach = volume_body("a1b2c3d4e5f60718293a4b5c6d7e8f90", OWNER);
+    let (status, _) = call(
+        &mut facade,
+        &as_tenant(OWNER, "POST", "/v1/volumes/attach", &attach),
+    );
+    assert_ne!(
+        status, 404,
+        "a tenant attaches a volume for the sandbox it is about to create"
+    );
+    let create = format!(r#"{{"image":"node:22","instance_id":"{FIXTURE_INSTANCE_ID}"}}"#);
+    let (status, _) = call(
+        &mut facade,
+        &as_tenant(OTHER, "POST", "/v1/sandboxes", &create),
+    );
+    assert_ne!(
+        status, 201,
+        "another tenant cannot create over the reserved identity"
+    );
+}
+
+#[test]
+fn a_tenant_cannot_take_an_unowned_sandbox_by_attaching_to_it() {
+    let mut facade = unowned();
+    let attach = volume_body("a1b2c3d4e5f60718293a4b5c6d7e8f90", OWNER);
+    let (status, body) = call(
+        &mut facade,
+        &as_tenant(OWNER, "POST", "/v1/volumes/attach", &attach),
+    );
+    assert_eq!(status, 404, "{body}");
+    let path = format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}");
+    let (status, _) = call(&mut facade, &as_tenant(OWNER, "GET", &path, ""));
+    assert_eq!(status, 404, "the record is still no tenant's");
+}
+
+#[test]
+fn a_sandbox_no_owner_names_is_listed_as_ownerless_until_its_owner_is_recorded() {
+    let mut facade = unowned();
+    let ownerless = soma_api::handler::ownerless(&mut facade).expect("owners read");
+    assert_eq!(
+        ownerless.iter().map(InstanceId::as_str).collect::<Vec<_>>(),
+        [FIXTURE_INSTANCE_ID]
+    );
+    let mut owned = created();
+    assert_eq!(
+        soma_api::handler::ownerless(&mut owned).expect("owners read"),
+        []
+    );
+}
+
+#[test]
+fn an_ending_sandbox_is_not_reported_as_ownerless() {
+    let entry = SandboxEntry::new(
+        InstanceId::new(FIXTURE_INSTANCE_ID).expect("fixture identity is canonical"),
+        SandboxPhase::Terminating,
+        BackendKind::LinuxKvm,
+        None,
+        SandboxLiveness::Absent,
+    );
+    let mut facade = FakeFacade::new(Mode::Succeed).holding(vec![entry]);
+    assert_eq!(
+        soma_api::handler::ownerless(&mut facade).expect("owners read"),
+        []
+    );
 }

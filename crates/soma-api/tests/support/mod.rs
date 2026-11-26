@@ -214,7 +214,7 @@ pub fn call(facade: &mut FakeFacade, raw: &str) -> (u16, serde_json::Value) {
 /// Builds a raw HTTP request carrying a tenant identity.
 #[must_use]
 pub fn identified(method: &str, path: &str, body: &str) -> String {
-    request_with_headers(method, path, "x-soma-tenant: acme\r\n", body)
+    request_with_headers(method, path, "x-soma-tenant: soma-platform\r\n", body)
 }
 
 /// Builds a raw HTTP request carrying the identity of one named tenant.
