@@ -36,6 +36,8 @@ pub struct InstalledGeneration {
     /// The decoded ready manifest.
     pub manifest: GenerationManifest,
     artifacts: Vec<(ArtifactDescriptor, File)>,
+    /// The stamp each artifact's content was verified under, when admission knows it.
+    stamps: Vec<Option<soma_kvm::snapshot::FileStamp>>,
 }
 
 impl InstalledGeneration {
@@ -43,6 +45,30 @@ impl InstalledGeneration {
     #[must_use]
     pub fn into_parts(self) -> (GenerationManifest, Vec<(ArtifactDescriptor, File)>) {
         (self.manifest, self.artifacts)
+    }
+
+    /// Like [`Self::into_parts`], with the stamp each artifact's content was verified under.
+    ///
+    /// The stamp is `None` where admission did not hash or ledger-match the artifact itself, as
+    /// for a handoff from another process, or where the artifact changed while it was hashed.
+    #[must_use]
+    #[allow(
+        clippy::type_complexity,
+        reason = "one tuple per artifact keeps descriptor, handle, and stamp from drifting apart"
+    )]
+    pub fn into_stamped_parts(
+        self,
+    ) -> (
+        GenerationManifest,
+        Vec<(ArtifactDescriptor, File, Option<soma_kvm::snapshot::FileStamp>)>,
+    ) {
+        let artifacts = self
+            .artifacts
+            .into_iter()
+            .zip(self.stamps)
+            .map(|((descriptor, file), stamp)| (descriptor, file, stamp))
+            .collect();
+        (self.manifest, artifacts)
     }
 }
 
@@ -78,21 +104,22 @@ pub fn admit_installed_generation(
     let artifacts = launch_descriptors(&manifest)
         .into_iter()
         .map(|descriptor| {
-            let file = store
+            let (file, stamp) = store
                 .open_admitted_blob(
                     &descriptor.to_store_descriptor(),
                     descriptor.size,
                     ImportPhase::Publish,
                 )
-                .map_err(from_import)?
-                .into_std();
-            Ok((descriptor, file))
+                .map_err(from_import)?;
+            Ok(((descriptor, file.into_std()), stamp))
         })
         .collect::<Result<Vec<_>, CompileError>>()?;
+    let (artifacts, stamps) = artifacts.into_iter().unzip();
     Ok(InstalledGeneration {
         id: id.clone(),
         manifest,
         artifacts,
+        stamps,
     })
 }
 
@@ -162,10 +189,12 @@ pub fn admit_verified_handoff(
             Ok((descriptor, file))
         })
         .collect::<Result<Vec<_>, CompileError>>()?;
+    let stamps = vec![None; artifacts.len()];
     Ok(InstalledGeneration {
         id: id.clone(),
         manifest,
         artifacts,
+        stamps,
     })
 }
 

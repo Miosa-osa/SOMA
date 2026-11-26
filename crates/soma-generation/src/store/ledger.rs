@@ -82,6 +82,23 @@ impl Ledger {
             == Some(&stamp)
     }
 
+    /// Records a just-hashed blob under the stamp its content was verified under, and returns it.
+    ///
+    /// That stamp is the one taken before the hash, if the blob still has it after. A blob that
+    /// changed while it was hashed has none and is not recorded.
+    pub(super) fn record_hashed(
+        &self,
+        version: &Dir,
+        name: &str,
+        before: Option<Stamp>,
+        file: &cap_std::fs::File,
+    ) -> Option<Stamp> {
+        let after = file.metadata().ok().and_then(|metadata| stamp_of(&metadata));
+        let hashed = before.filter(|stamp| after == Some(*stamp))?;
+        self.record(version, name, hashed);
+        Some(hashed)
+    }
+
     /// Notes that `name` was just hashed at this stamp, and saves the ledger if the store allows it.
     ///
     /// A store that cannot be written (read-only, full) keeps working: the next start hashes again.

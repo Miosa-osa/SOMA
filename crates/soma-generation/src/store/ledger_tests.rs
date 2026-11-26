@@ -26,7 +26,7 @@ fn store_with(bytes: &[u8]) -> (tempfile::TempDir, std::path::PathBuf, Descripto
 fn admit(store: &super::Store, descriptor: &Descriptor) -> Result<(), ImportErrorKind> {
     store
         .open_admitted_blob(descriptor, descriptor.size, ImportPhase::Publish)
-        .map(|_| ())
+        .map(|(_, _stamp)| ())
         .map_err(|error| error.kind())
 }
 

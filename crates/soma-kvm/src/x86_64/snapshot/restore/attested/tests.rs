@@ -62,7 +62,7 @@ fn an_attested_unchanged_file_is_not_read() {
 fn a_file_changed_after_its_attestation_is_hashed_and_refused() {
     let captured = vec![7_u8; 2 * PAGE];
     let mut file = file_with(&captured);
-    let attestation = attest_sealed(&file, Digest::of(&captured))
+    let attestation = attest_sealed(Artifact::Memory, &file, Digest::of(&captured))
         .expect("stamp")
         .expect("settled attestation");
     file.seek(SeekFrom::Start(0)).expect("rewind");
@@ -113,7 +113,7 @@ fn an_attested_root_is_not_read_and_a_touched_root_is() {
     let certified = vec![5_u8; 2 * PAGE];
     let mut root = file_with(&vec![6_u8; 2 * PAGE]);
     let expected = Digest::of(&certified);
-    let attestation = attest_sealed(&root, expected)
+    let attestation = attest_sealed(Artifact::Root, &root, expected)
         .expect("stamp")
         .expect("settled attestation");
     let metadata = root.metadata().expect("stat");
@@ -180,7 +180,7 @@ fn a_head_modified_after_the_broker_stamped_it_is_hashed_and_refused() {
 fn sealing_waits_out_a_fresh_change_time_and_never_reads() {
     let mut file = file_with(&[3_u8; PAGE]);
     let began = Instant::now();
-    let attestation = attest_sealed(&file, Digest::of(b"never computed here"))
+    let attestation = attest_sealed(Artifact::Memory, &file, Digest::of(b"never computed here"))
         .expect("stamp")
         .expect("settled attestation");
     assert!(began.elapsed() < Duration::from_secs(1));
@@ -221,7 +221,7 @@ fn measure_one_gib_with_and_without_an_attestation() {
         crate::x86_64::snapshot::artifacts::hash(Artifact::Memory, &mut file).expect("hash");
     let hashed_once = began.elapsed();
     let began = Instant::now();
-    let attestation = attest_sealed(&file, digest)
+    let attestation = attest_sealed(Artifact::Memory, &file, digest)
         .expect("stamp")
         .expect("attest");
     let sealed = began.elapsed();

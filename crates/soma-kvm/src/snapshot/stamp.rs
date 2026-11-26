@@ -218,6 +218,20 @@ mod tests {
     }
 
     #[test]
+    fn a_durable_volume_can_never_be_named_for_attestation() {
+        use super::{AttestedArtifact, RestoreAttestations};
+        for token in ["memory", "root", "head"] {
+            assert_eq!(AttestedArtifact::from_token(token).map(AttestedArtifact::token), Some(token));
+        }
+        for token in ["volume", "workspace", "overlay", ""] {
+            assert_eq!(AttestedArtifact::from_token(token), None, "{token}");
+        }
+        // The restore attestations have no slot a volume could occupy.
+        let RestoreAttestations { memory, root, head } = RestoreAttestations::default();
+        assert_eq!((memory, root, head), (None, None, None));
+    }
+
+    #[test]
     fn an_attestation_round_trips_through_its_line() {
         let line = attestation().encode();
         assert_eq!(ArtifactAttestation::decode(&line), Some(attestation()));
