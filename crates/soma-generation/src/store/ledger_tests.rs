@@ -1,7 +1,7 @@
 //! The admission ledger's tests.
 //!
 //! Unix only: the ledger admits a blob by a kernel stamp a unix host gives, and elsewhere
-//! `Stamp::of` is `None` and every admission hashes.
+//! `stamp_of` is `None` and every admission hashes.
 
 #![cfg(unix)]
 
@@ -26,7 +26,7 @@ fn store_with(bytes: &[u8]) -> (tempfile::TempDir, std::path::PathBuf, Descripto
 fn admit(store: &super::Store, descriptor: &Descriptor) -> Result<(), ImportErrorKind> {
     store
         .open_admitted_blob(descriptor, descriptor.size, ImportPhase::Publish)
-        .map(|_| ())
+        .map(|(_, _stamp)| ())
         .map_err(|error| error.kind())
 }
 

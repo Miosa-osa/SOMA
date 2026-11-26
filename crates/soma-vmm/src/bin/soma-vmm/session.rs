@@ -44,6 +44,8 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
         Machine::new()
     };
     let mut buffer = [0u8; MAX_REQUEST_BYTES];
+    // The broker's attestations, held only for the recovery that follows them.
+    let mut attested = soma_kvm::snapshot::RestoreAttestations::default();
     for _ in 0..MAX_REQUESTS {
         let (count, descriptors) = match control.receive(&mut buffer) {
             Ok((0, _)) => return exit::SUPERVISOR_GONE,
@@ -75,19 +77,31 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
             checkpoint::reply(&mut machine, control, source, descriptors);
             continue;
         }
-        if let Request::Recover(launch, digest) = request {
-            recovery::reply(&mut machine, control, launch, digest, descriptors, None);
+        if let Request::AttestArtifact((kind, record)) = request {
+            let reply = if descriptors.is_empty() {
+                attested.set(kind, record);
+                Reply::ArtifactAttested
+            } else {
+                Reply::Rejected("unexpected control descriptors")
+            };
+            control.send(&reply.encode());
             continue;
         }
-        if let Request::Fork(launch, digest, source) = request {
+        if let Request::Recover(launch, digest) = request {
+            let memory = std::mem::take(&mut attested);
             recovery::reply(
                 &mut machine,
                 control,
-                launch,
-                digest,
+                (launch, digest, memory),
                 descriptors,
-                Some(source),
+                None,
             );
+            continue;
+        }
+        if let Request::Fork(launch, digest, source) = request {
+            let memory = std::mem::take(&mut attested);
+            let checkpoint = (launch, digest, memory);
+            recovery::reply(&mut machine, control, checkpoint, descriptors, Some(source));
             continue;
         }
         if !descriptors.is_empty() {
@@ -156,7 +170,11 @@ fn perform(
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
         Request::Workspace { .. } => unreachable!("descriptor requests are handled at receive"),
-        Request::File(_) | Request::Checkpoint(_) | Request::Recover(..) | Request::Fork(..) => {
+        Request::File(_)
+        | Request::Checkpoint(_)
+        | Request::AttestArtifact(..)
+        | Request::Recover(..)
+        | Request::Fork(..) => {
             unreachable!("descriptor requests are handled at receive")
         }
         Request::Seal => control.send(&seal().encode()),

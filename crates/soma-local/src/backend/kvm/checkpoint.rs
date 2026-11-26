@@ -10,9 +10,11 @@ pub use export::{CheckpointArtifact, CheckpointExport};
 pub(crate) use import::{install_import, verify_import};
 pub use import_stage::ImportStage;
 pub(crate) use workspace_import::import_cold_workspace;
+mod attestation;
 mod read;
 mod restore;
 pub(super) mod retention;
+pub(super) use attestation::{stamps_hold, vouch_head};
 pub(crate) use discard::discard_checkpoint;
 use read::{read_bounded, read_published, read_staged};
 pub(super) use restore::{RestoreArtifacts, restore_artifacts};
@@ -112,6 +114,15 @@ pub(super) fn perform(
     )?
     .receipt;
     stage.publish(&root, &published, &receipt)?;
+    // Each sealed artifact is recorded with the digest capture already verified; none is read.
+    let sealed = |digest: &String| {
+        let digest = GenerationId::new(digest.clone()).ok()?;
+        generation_bytes(&digest).ok().map(Digest::from_bytes)
+    };
+    if let Some(memory) = sealed(&receipt.memory_digest) {
+        let overlay = receipt.overlay_digest.as_ref().and_then(sealed);
+        attestation::record(&published, memory, overlay);
+    }
     Ok(receipt)
 }
 

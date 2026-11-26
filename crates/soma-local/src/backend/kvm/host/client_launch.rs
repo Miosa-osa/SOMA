@@ -186,6 +186,11 @@ fn handshake(
         fork_source: context
             .restore
             .and_then(|recovery| recovery.fork_source.cloned()),
+        root_stamp: context
+            .restore
+            .and_then(|recovery| recovery.checkpoint)
+            .and(prepared.root_stamp())
+            .map(|stamp| stamp.encode()),
         operation_id: context.operation_id.clone(),
         instance_id: context.instance_id.clone(),
         reference: prepared.reference.clone(),

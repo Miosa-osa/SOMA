@@ -18,6 +18,7 @@ mod launch;
 mod outcome;
 mod pause;
 mod pty;
+mod restore_inputs;
 mod workspace;
 
 use std::{

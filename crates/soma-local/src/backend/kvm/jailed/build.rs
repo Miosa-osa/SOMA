@@ -86,6 +86,8 @@ pub(super) struct Opened {
 pub(super) struct Recovery {
     pub(super) digest: soma_kvm::snapshot::Digest,
     pub(super) overlay: Option<File>,
+    /// The memory record from the checkpoint and the root record from Generation admission.
+    pub(super) attestations: soma_kvm::snapshot::RestoreAttestations,
 }
 
 /// Opens every resource one jailed machine is built from.
@@ -114,14 +116,10 @@ pub(super) fn open(
         if checkpoint.overlay.is_some() != overlay {
             return Err(BackendFailureKind::WorkloadRejected);
         }
-        let head = checkpoint
-            .overlay
-            .as_ref()
-            .map(|template| {
-                let template = template.try_clone().map_err(unavailable)?;
-                private_head_from(template, instance)
-            })
-            .transpose()?;
+        let head = Recovery::clone_head(&checkpoint, instance)?;
+        let root = prepared.attestation(&prepared.manifest.root.descriptor);
+        let private = crate::backend::kvm::boot::head_root_is_private();
+        let attestations = Recovery::attestations(&checkpoint, head.as_ref(), root, private);
         (
             checkpoint.memory,
             checkpoint.state,
@@ -129,6 +127,7 @@ pub(super) fn open(
             Some(Recovery {
                 digest: checkpoint.digest,
                 overlay: checkpoint.overlay,
+                attestations,
             }),
         )
     } else {
