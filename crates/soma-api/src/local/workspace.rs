@@ -16,18 +16,15 @@ impl LocalFacade {
             OperationId::new(body.operation_id.clone()).map_err(|_| VolumeFailure::Malformed)?;
         let instance =
             InstanceId::new(body.instance_id.clone()).map_err(|_| VolumeFailure::Malformed)?;
-        let inspect = self
+        let state = self
             .runtime
-            .inspect_machine(InspectMachineRequest::new(operation_id, instance.clone()));
-        match inspect {
-            Err(ManagedFailure::State(
-                ManagedStateError::MachineNotFound | ManagedStateError::MachineStopped,
-            )) => Ok(None),
-            Ok(_) => self
-                .change_while_running(operation, body, &instance)
-                .map(Some),
-            Err(ManagedFailure::State(_)) => Err(VolumeFailure::RequiresStopped),
-            Err(_) => Err(VolumeFailure::Transport),
+            .inspect_machine(InspectMachineRequest::new(operation_id, instance.clone()))
+            .map(|inspection| inspection.state());
+        if running(&state)? {
+            self.change_while_running(operation, body, &instance)
+                .map(Some)
+        } else {
+            Ok(None)
         }
     }
 
@@ -75,5 +72,52 @@ fn refusal(kind: soma::BackendFailureKind) -> VolumeFailure {
             VolumeFailure::Refused(failure_code(FailureCode::VolumeBusy))
         }
         _ => VolumeFailure::Transport,
+    }
+}
+
+/// Whether a volume change goes through the running machine, from what reading it answered.
+///
+/// A sandbox that is stopped, gone, or whose machine is lost reads as stopped or absent: there
+/// is no machine to route the change through, so it takes the offline operation. Reading a
+/// stopped sandbox as running sent every stop's detach to a machine that was not there, and the
+/// stop answered `503 volume_transport`.
+fn running(state: &Result<soma::MachineState, ManagedFailure>) -> Result<bool, VolumeFailure> {
+    match state {
+        Ok(soma::MachineState::Stopped)
+        | Err(ManagedFailure::State(
+            ManagedStateError::MachineNotFound | ManagedStateError::MachineStopped,
+        )) => Ok(false),
+        Ok(_) => Ok(true),
+        Err(ManagedFailure::State(_)) => Err(VolumeFailure::RequiresStopped),
+        Err(_) => Err(VolumeFailure::Transport),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use soma::{MachineState, ManagedFailure, ManagedStateError};
+
+    use super::running;
+
+    #[test]
+    fn a_stopped_or_absent_sandbox_takes_the_offline_volume_operation() {
+        assert_eq!(running(&Ok(MachineState::Stopped)), Ok(false));
+        assert_eq!(
+            running(&Err(ManagedFailure::State(
+                ManagedStateError::MachineNotFound
+            ))),
+            Ok(false)
+        );
+        assert_eq!(
+            running(&Err(ManagedFailure::State(
+                ManagedStateError::MachineStopped
+            ))),
+            Ok(false)
+        );
+    }
+
+    #[test]
+    fn a_running_sandbox_takes_the_live_operation() {
+        assert_eq!(running(&Ok(MachineState::Ready)), Ok(true));
     }
 }
