@@ -270,3 +270,21 @@ pub(super) fn decode_checkpoint<'a>(
         has_volume,
     })
 }
+
+/// The broker's memory attestation, which is the rest of the packet.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(super) fn decode_memory_attestation<'a>(
+    tokens: impl Iterator<Item = &'a str>,
+) -> Result<Request, ControlError> {
+    soma_kvm::snapshot::MemoryAttestation::decode(&tokens.collect::<Vec<_>>().join(" "))
+        .map(Request::AttestMemory)
+        .ok_or(ControlError::InvalidValue("memory attestation"))
+}
+
+/// A platform with no checkpoint restore has no memory to attest.
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+pub(super) fn decode_memory_attestation<'a>(
+    _tokens: impl Iterator<Item = &'a str>,
+) -> Result<Request, ControlError> {
+    Err(ControlError::UnknownRequest)
+}

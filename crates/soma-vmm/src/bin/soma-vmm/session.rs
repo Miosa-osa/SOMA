@@ -44,6 +44,8 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
         Machine::new()
     };
     let mut buffer = [0u8; MAX_REQUEST_BYTES];
+    // The broker's memory attestation, held only for the recovery that follows it.
+    let mut memory = None;
     for _ in 0..MAX_REQUESTS {
         let (count, descriptors) = match control.receive(&mut buffer) {
             Ok((0, _)) => return exit::SUPERVISOR_GONE,
@@ -75,19 +77,25 @@ pub fn serve(control: &Channel, manifest: &DescriptorManifest) -> i32 {
             checkpoint::reply(&mut machine, control, source, descriptors);
             continue;
         }
+        if let Request::AttestMemory(attestation) = request {
+            memory = descriptors.is_empty().then_some(attestation);
+            let reply = if memory.is_some() {
+                Reply::MemoryAttested
+            } else {
+                Reply::Rejected("unexpected control descriptors")
+            };
+            control.send(&reply.encode());
+            continue;
+        }
         if let Request::Recover(launch, digest) = request {
-            recovery::reply(&mut machine, control, launch, digest, descriptors, None);
+            let memory = memory.take();
+            recovery::reply(&mut machine, control, (launch, digest, memory), descriptors, None);
             continue;
         }
         if let Request::Fork(launch, digest, source) = request {
-            recovery::reply(
-                &mut machine,
-                control,
-                launch,
-                digest,
-                descriptors,
-                Some(source),
-            );
+            let memory = memory.take();
+            let checkpoint = (launch, digest, memory);
+            recovery::reply(&mut machine, control, checkpoint, descriptors, Some(source));
             continue;
         }
         if !descriptors.is_empty() {
@@ -156,15 +164,12 @@ fn perform(
             Err(failure) => control.send(&Reply::Failure(&failure).encode()),
         },
         Request::Workspace { .. } => unreachable!("descriptor requests are handled at receive"),
-        Request::File(_) | Request::Checkpoint(_) | Request::Recover(..) | Request::Fork(..) => {
+        Request::File(_)
+        | Request::Checkpoint(_)
+        | Request::AttestMemory(_)
+        | Request::Recover(..)
+        | Request::Fork(..) => {
             unreachable!("descriptor requests are handled at receive")
-        }
-        Request::AttestMemory(attestation) => {
-            let reply = match machine.attest_checkpoint_memory(attestation) {
-                Ok(()) => Reply::MemoryAttested,
-                Err(_) => Reply::Rejected("the memory attestation was not accepted"),
-            };
-            control.send(&reply.encode());
         }
         Request::Seal => control.send(&seal().encode()),
         Request::Shutdown(status) => return Some(status),

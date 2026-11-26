@@ -29,10 +29,7 @@ pub enum Request {
     Recover(Launch, [u8; 32]),
     /// Fork from the named checkpoint source into the launch's new Instance.
     Fork(Launch, [u8; 32], InstanceId),
-    /// The broker's record that it hashed the checkpoint memory file at one exact stamp.
-    ///
-    /// It precedes [`Request::Recover`] or [`Request::Fork`] as a word of its own, so a worker
-    /// that predates it rejects only this packet and the restore that follows hashes the file.
+    /// The broker's checkpoint memory record; a worker that predates it rejects only this packet.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     AttestMemory(soma_kvm::snapshot::MemoryAttestation),
     Execute(Execute),
@@ -109,9 +106,7 @@ impl Request {
                 )
             }
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            Self::AttestMemory(attestation) => {
-                format!("memory_attestation {}", attestation.encode())
-            }
+            Self::AttestMemory(record) => format!("memory_attestation {}", record.encode()),
             Self::Execute(execute) => encode_execute(execute),
             Self::ExecuteStreaming(execute) => encode_execute_in("execute_stream", execute),
             Self::Output(window) => format!(
@@ -203,12 +198,7 @@ impl Request {
                 decode_launch(&mut tokens, capacity)
                     .map(|launch| Self::Fork(launch, digest, source))
             }
-            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-            "memory_attestation" => {
-                soma_kvm::snapshot::MemoryAttestation::decode(&tokens.collect::<Vec<_>>().join(" "))
-                    .map(Self::AttestMemory)
-                    .ok_or(ControlError::InvalidValue("memory attestation"))
-            }
+            "memory_attestation" => decode::decode_memory_attestation(tokens),
             "output" => decode_output(&mut tokens),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             "pty" => decode::decode_pty(&mut tokens),

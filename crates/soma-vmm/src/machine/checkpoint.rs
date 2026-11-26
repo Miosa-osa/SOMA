@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use soma_kvm::snapshot::Digest;
+use soma_kvm::snapshot::{Digest, MemoryAttestation};
 
 use super::{Machine, State};
 use crate::{
@@ -11,6 +11,9 @@ use crate::{
 impl Machine {
     /// Launches the authorized checkpoint on a worker with no existing Instance.
     ///
+    /// `memory` is the trusted broker's attestation of the checkpoint memory file; the file is
+    /// re-read unless it describes the mapped descriptor exactly.
+    ///
     /// # Errors
     ///
     /// Refuses a used worker and any invalid checkpoint or unauthenticated recovery.
@@ -19,8 +22,9 @@ impl Machine {
         launch: Launch,
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
+        memory: Option<MemoryAttestation>,
     ) -> Result<Ready, Failure> {
-        self.launch_checkpoint(launch, digest, saved_overlay, None)
+        self.launch_checkpoint(launch, digest, saved_overlay, None, memory)
     }
 
     /// Launches an authorized checkpoint in a fresh Instance with separate guest authority.
@@ -32,30 +36,12 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
         source: InstanceId,
+        memory: Option<MemoryAttestation>,
     ) -> Result<Ready, Failure> {
         if source == launch.instance_id() {
             return Err(super::fault::lifecycle_failure());
         }
-        self.launch_checkpoint(launch, digest, saved_overlay, Some(source))
-    }
-
-    /// Notes the trusted broker's attestation of the checkpoint memory file that the following
-    /// [`recover`](Self::recover) or [`fork`](Self::fork) maps, so an unchanged file is not
-    /// re-read. A file the attestation does not describe exactly is hashed as without one.
-    ///
-    /// # Errors
-    ///
-    /// Refuses a used worker, a worker with no machine resources, or a second attestation.
-    pub fn attest_checkpoint_memory(
-        &mut self,
-        attestation: soma_kvm::snapshot::MemoryAttestation,
-    ) -> Result<(), Failure> {
-        if self.state != State::New {
-            return Err(super::fault::lifecycle_failure());
-        }
-        self.platform
-            .configure_memory_attestation(attestation)
-            .map_err(|_| super::fault::lifecycle_failure())
+        self.launch_checkpoint(launch, digest, saved_overlay, Some(source), memory)
     }
 
     fn launch_checkpoint(
@@ -64,6 +50,7 @@ impl Machine {
         digest: Digest,
         saved_overlay: Option<std::fs::File>,
         fork_from: Option<InstanceId>,
+        memory: Option<MemoryAttestation>,
     ) -> Result<Ready, Failure> {
         if self.state != State::New
             || saved_overlay.is_some() != launch.generation().devices().writable_disk()
@@ -71,7 +58,7 @@ impl Machine {
             return Err(super::fault::lifecycle_failure());
         }
         self.platform
-            .configure_recovery(digest, saved_overlay, fork_from)
+            .configure_recovery(digest, saved_overlay, fork_from, memory)
             .map_err(|_| super::fault::lifecycle_failure())?;
         self.launch(launch)
     }
