@@ -16,6 +16,8 @@ mod field;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod files;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod memory;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use files::{
     FILE_CONTROL_CEILING, read_file_answer, read_file_request, write_file_answer,
     write_file_request,

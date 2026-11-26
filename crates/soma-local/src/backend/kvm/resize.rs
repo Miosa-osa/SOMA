@@ -12,6 +12,7 @@ use soma_jail::{CgroupLeaf, CpuMax};
 
 use super::{KvmBackend, held::Held};
 
+mod link;
 mod memory;
 use crate::{CpuResize, DimensionState, ResizeFailure, ResizeOutcome, ResizeRequest};
 
@@ -41,27 +42,16 @@ impl KvmBackend {
             ),
             Some(wanted) => resize_cpu(instance, live, wanted, jailed),
         };
+        let mut link = link::Link::of(&mut live.held, instance);
         let memory = match request.memory_mb {
-            None => match &mut live.held {
-                Held::Resident(session) => {
-                    memory::current(&mut memory::ResidentLink::new(session), live.memory_mib)
-                }
-                Held::Jailed(_) => memory::report_unchanged(live.memory_mib, live.memory_mib, 0),
-            },
-            Some(wanted) => match &mut live.held {
-                Held::Resident(session) => memory::resize(
-                    &mut memory::ResidentLink::new(session),
-                    live.memory_mib,
-                    wanted,
-                    &memory::REAL,
-                    &mut std::thread::sleep,
-                ),
-                Held::Jailed(_) => memory::unsupported(
-                    live.memory_mib,
-                    request.memory_mb,
-                    "jailed_machines_do_not_resize_memory_yet",
-                ),
-            },
+            None => memory::current(&mut link, live.memory_mib),
+            Some(wanted) => memory::resize(
+                &mut link,
+                live.memory_mib,
+                wanted,
+                &memory::REAL,
+                &mut std::thread::sleep,
+            ),
         };
         Ok(ResizeOutcome {
             host_pid: std::process::id(),
@@ -94,11 +84,8 @@ impl KvmBackend {
             }
         }
         if shape.memory_mib() > live.memory_mib {
-            let Held::Resident(session) = &mut live.held else {
-                return Err(Unavailable);
-            };
             let plugged = memory::resize(
-                &mut memory::ResidentLink::new(session),
+                &mut link::Link::of(&mut live.held, instance),
                 live.memory_mib,
                 shape.memory_mib(),
                 &memory::REAL,

@@ -110,6 +110,8 @@ fn every_request_round_trips() {
         Request::Stop(Stop::new(operation(), instance())),
         Request::Pause(instance()),
         Request::Resume(instance()),
+        Request::Memory(instance(), None),
+        Request::Memory(instance(), Some(512 << 20)),
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         Request::Workspace {
             instance: instance(),
@@ -262,5 +264,18 @@ fn checkpoint_disk_flags_preserve_legacy_requests_and_round_trip_a_volume() {
             Some(flags.to_string().as_str())
         );
         assert_eq!(Request::decode(&encoded), Ok(request));
+    }
+}
+
+#[test]
+fn a_memory_request_names_one_instance_and_at_most_one_size() {
+    let instance = hex(instance().as_bytes());
+    for bad in [
+        "memory".to_owned(),
+        format!("memory {instance} lots"),
+        format!("memory {instance} 1 2"),
+        format!("memory {instance} -1"),
+    ] {
+        assert!(Request::decode(&bad).is_err(), "{bad}");
     }
 }

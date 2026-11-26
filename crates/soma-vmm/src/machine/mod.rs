@@ -5,6 +5,8 @@ mod fault;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod file;
 mod launch;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+mod memory;
 mod pause;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod pty;

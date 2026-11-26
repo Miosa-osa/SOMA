@@ -26,4 +26,3 @@
 ./crates/soma-netd/src/reconcile.rs 440
 ./crates/soma-netd/tests/live/recovery.rs 482
 ./crates/soma-netd/tests/live_linux.rs 305
-./crates/soma-vmm/src/control/request.rs 315

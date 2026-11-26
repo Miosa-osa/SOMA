@@ -12,6 +12,7 @@
 
 mod command;
 mod faults;
+use faults::left_on_its_own;
 mod generation;
 mod network;
 use command::guest_command;
@@ -25,7 +26,7 @@ use std::time::Duration;
 use soma_guest::GuestCommand;
 use soma_jail::DescriptorManifest;
 use soma_kvm::memory_layout::{GuestLayout, HotplugRegion};
-use soma_kvm::x86_64::{GuestExit, Hypervisor, NetworkAttachment, SnapshotObjects};
+use soma_kvm::x86_64::{Hypervisor, NetworkAttachment, SnapshotObjects};
 use soma_kvm::{DeviceSet, MachineContract};
 
 use crate::sandbox::{
@@ -235,6 +236,10 @@ impl Platform for KvmPlatform {
             .map_err(|error| PlatformFailure::new(faults::execute_recovery(error)))
     }
 
+    fn memory(&mut self, requested: Option<u64>) -> faults::MemoryAnswer {
+        faults::memory(self.session.as_mut(), requested)
+    }
+
     fn pause(&mut self) -> Result<(), PlatformFailure> {
         self.session
             .as_mut()
@@ -287,12 +292,4 @@ impl Platform for KvmPlatform {
         drop(self.overlay.take());
         Ok(())
     }
-}
-
-/// Whether the guest ended the machine itself rather than being ended inside it.
-fn left_on_its_own<E>(exit: &Result<GuestExit, E>) -> bool {
-    matches!(
-        exit,
-        Ok(GuestExit::Halt | GuestExit::Shutdown | GuestExit::Reset | GuestExit::Sentinel)
-    )
 }

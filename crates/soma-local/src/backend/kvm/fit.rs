@@ -6,7 +6,7 @@
 
 use soma::{BackendFailureKind, InstanceId, MachineShape, VolumeAttachment};
 
-use super::{KvmBackend, hotplug, prepared::PreparedGeneration};
+use super::{hotplug, prepared::PreparedGeneration};
 
 const MIB: u64 = 1024 * 1024;
 
@@ -16,10 +16,9 @@ pub(super) fn boot_mib_of(prepared: &PreparedGeneration) -> u64 {
 
 /// Whether the Generation can give the request, whatever process serves it.
 ///
-/// A host that jails its machines is stricter (memory must be exactly the boot size), and that
-/// part is decided where the jail is known. The parent of a machine host asks this before it
-/// claims a prepared machine, so a request that can never be served does not consume one or
-/// count as demand.
+/// A jailed machine grows the same way an unjailed one does, through its memory device. The
+/// parent of a machine host asks this before it claims a prepared machine, so a request that can
+/// never be served does not consume one or count as demand.
 pub(super) fn request_fits(prepared: &PreparedGeneration, shape: &MachineShape) -> bool {
     misfit(prepared, shape).is_none()
 }
@@ -120,32 +119,6 @@ pub(super) fn refuse(instance: &InstanceId, reason: &str) -> BackendFailureKind 
         instance.as_str()
     );
     BackendFailureKind::WorkloadRejected
-}
-
-impl KvmBackend {
-    /// Why this Backend cannot give a request the vCPUs and memory it names.
-    ///
-    /// A request may be smaller than the machine the Generation booted: the vCPUs it did not
-    /// ask for are withheld by a CPU quota applied before the launch answers. It can never be
-    /// larger, because the guest has only the processors it booted with. Memory is restored at
-    /// the Generation's own boot size and grown to the request, which needs the memory device
-    /// and a machine that is not jailed.
-    pub(super) fn misfit(
-        &self,
-        prepared: &PreparedGeneration,
-        shape: &MachineShape,
-    ) -> Option<String> {
-        misfit(prepared, shape).or_else(|| {
-            (self.jail.is_some() && shape.memory_mib() != boot_mib_of(prepared)).then(|| {
-                format!(
-                    "memory_mib {} is not the Generation's boot memory {} and a jailed machine \
-                     cannot grow",
-                    shape.memory_mib(),
-                    boot_mib_of(prepared)
-                )
-            })
-        })
-    }
 }
 
 #[cfg(test)]

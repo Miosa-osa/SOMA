@@ -105,3 +105,31 @@ pub(super) const fn exit_status(status: TerminalStatus) -> Option<ExitStatus> {
         TerminalStatus::AgentFailed(_) => None,
     }
 }
+
+/// Whether the guest ended the machine itself rather than being ended inside it.
+pub(super) fn left_on_its_own<E>(exit: &Result<soma_kvm::x86_64::GuestExit, E>) -> bool {
+    use soma_kvm::x86_64::GuestExit;
+    matches!(
+        exit,
+        Ok(GuestExit::Halt | GuestExit::Shutdown | GuestExit::Reset | GuestExit::Sentinel)
+    )
+}
+
+/// The device's own answer, inside the platform's account of whether the session survived.
+pub(super) type MemoryAnswer = Result<
+    Result<crate::sandbox::MemoryLevel, crate::sandbox::MemoryError>,
+    super::PlatformFailure,
+>;
+
+/// One exchange with the running machine's memory device.
+pub(super) fn memory(
+    session: Option<&mut crate::sandbox::Session>,
+    requested: Option<u64>,
+) -> MemoryAnswer {
+    let session = session.ok_or_else(|| super::PlatformFailure::new(Recovery::RepairHost))?;
+    match requested {
+        Some(bytes) => session.set_requested_memory(bytes),
+        None => session.memory(),
+    }
+    .map_err(|error| super::PlatformFailure::new(execute_recovery(error)))
+}

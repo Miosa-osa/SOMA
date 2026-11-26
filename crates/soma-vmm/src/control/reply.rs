@@ -15,6 +15,9 @@ pub enum Reply<'a> {
     Stopped(&'a Stopped),
     Paused(InstanceId),
     Resumed(InstanceId),
+    /// The memory device's level after the request, or why it refused.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    Memory(Result<crate::sandbox::MemoryLevel, crate::sandbox::MemoryError>),
     /// A confirmed workspace outcome for the addressed Instance.
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     Workspace(InstanceId, soma_guest::WorkspaceOutcome),
@@ -63,6 +66,8 @@ impl Reply<'_> {
             ),
             Self::Paused(instance) => format!("paused instance={}", hex(instance.as_bytes())),
             Self::Resumed(instance) => format!("resumed instance={}", hex(instance.as_bytes())),
+            #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+            Self::Memory(answer) => super::memory::encode(answer),
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             Self::Workspace(instance, outcome) => {
                 format!("workspace {} {}", hex(instance.as_bytes()), *outcome as u8)

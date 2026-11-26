@@ -15,6 +15,7 @@ mod command;
 mod control;
 mod file;
 mod launch;
+mod memory;
 mod outcome;
 mod pause;
 mod pty;
