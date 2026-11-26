@@ -266,16 +266,3 @@ fn checkpoint_disk_flags_preserve_legacy_requests_and_round_trip_a_volume() {
         assert_eq!(Request::decode(&encoded), Ok(request));
     }
 }
-
-#[test]
-fn a_memory_request_names_one_instance_and_at_most_one_size() {
-    let instance = hex(instance().as_bytes());
-    for bad in [
-        "memory".to_owned(),
-        format!("memory {instance} lots"),
-        format!("memory {instance} 1 2"),
-        format!("memory {instance} -1"),
-    ] {
-        assert!(Request::decode(&bad).is_err(), "{bad}");
-    }
-}

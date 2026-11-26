@@ -85,4 +85,19 @@ mod tests {
         assert!(level("requested=1 plugged=2 region=3 extra").is_err());
         assert!(refusal("tired").is_err());
     }
+
+    #[test]
+    fn a_memory_request_names_one_instance_and_at_most_one_size() {
+        use crate::control::Request;
+        let instance = crate::control::field::hex(&[2; 16]);
+        for bad in [
+            "memory".to_owned(),
+            format!("memory {instance} lots"),
+            format!("memory {instance} 1 2"),
+            format!("memory {instance} -1"),
+        ] {
+            assert!(Request::decode(&bad).is_err(), "{bad}");
+        }
+        assert!(Request::decode(&format!("memory {instance} 1048576")).is_ok());
+    }
 }
