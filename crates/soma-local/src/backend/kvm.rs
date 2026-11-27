@@ -32,6 +32,7 @@ use soma_hostd::{ExhaustedBehavior, Limits};
 use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
+pub(crate) use checkpoint::retention::published_checkpoints;
 pub(super) use checkpoint::retention::retains_stopped_checkpoint;
 pub use checkpoint::{CheckpointArtifact, CheckpointExport};
 pub(crate) use checkpoint::{

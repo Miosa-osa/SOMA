@@ -103,11 +103,18 @@ impl LocalRuntime {
     /// # Errors
     ///
     /// Returns the facade's typed managed failure.
+    ///
+    /// The Instance's published checkpoints go with it: nothing can restore or fork a destroyed
+    /// Instance, so they would otherwise stay on the encrypted root with nothing to reclaim them.
+    /// A checkpoint that cannot be discarded is named on the log and does not fail the destroy.
     pub fn destroy_machine(
         &mut self,
         request: DestroyMachineRequest,
     ) -> Result<MachineDestroy, ManagedFailure> {
-        self.engine.destroy_machine(request)
+        let instance = request.instance_id().clone();
+        let destroyed = self.engine.destroy_machine(request)?;
+        self.discard_checkpoints_of(&instance);
+        Ok(destroyed)
     }
 
     /// Counts the durable records and names the ones that reached a terminal phase.

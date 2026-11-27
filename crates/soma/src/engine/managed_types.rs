@@ -188,6 +188,12 @@ impl DestroyMachineRequest {
             instance_id,
         }
     }
+
+    /// The Instance this destroy ends.
+    #[must_use]
+    pub const fn instance_id(&self) -> &InstanceId {
+        &self.instance_id
+    }
 }
 
 impl StopMachineRequest {
