@@ -1,13 +1,18 @@
-use std::{fs, io::Cursor, os::unix::fs::PermissionsExt as _};
+use std::{fs, io::Cursor, os::unix::fs::PermissionsExt as _, path::Path};
 
-use super::{CheckpointArtifact, CheckpointFailure, ImportStage};
+use super::{CheckpointArtifact, CheckpointFailure, ImportRefusal, ImportStage, limits};
+
+fn private_dir(path: &Path) {
+    fs::create_dir(path).expect("stage");
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700)).expect("private");
+}
 
 fn stage() -> (tempfile::TempDir, ImportStage) {
     let root = tempfile::tempdir().expect("root");
     let path = root.path().join(".staging-import-test");
-    fs::create_dir(&path).expect("stage");
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).expect("private");
-    (root, ImportStage { path })
+    private_dir(&path);
+    let stage = ImportStage::lock(path).expect("locked");
+    (root, stage)
 }
 
 #[test]
@@ -33,7 +38,7 @@ fn an_artifact_is_received_once_with_its_digest() {
     );
     assert_eq!(
         stage.receive(CheckpointArtifact::Memory, 1, &mut Cursor::new(b"x")),
-        Err(CheckpointFailure::CaptureRefused),
+        Err(ImportRefusal::Checkpoint(CheckpointFailure::CaptureRefused)),
     );
 }
 
@@ -42,10 +47,11 @@ fn a_short_transfer_leaves_nothing_and_can_be_sent_again() {
     let (_root, stage) = stage();
     assert_eq!(
         stage.receive(CheckpointArtifact::State, 10, &mut Cursor::new(b"short")),
-        Err(CheckpointFailure::Storage),
+        Err(ImportRefusal::Checkpoint(CheckpointFailure::Storage)),
     );
     let target = stage.path().join(CheckpointArtifact::State.filename());
     assert!(!target.exists());
+    assert_eq!(fs::read_dir(stage.path()).expect("stage").count(), 0);
     stage
         .receive(CheckpointArtifact::State, 5, &mut Cursor::new(b"whole"))
         .expect("the retry is received");
@@ -53,17 +59,32 @@ fn a_short_transfer_leaves_nothing_and_can_be_sent_again() {
 }
 
 #[test]
-fn a_source_longer_than_its_length_is_read_only_to_the_length() {
+fn a_partial_file_a_crash_left_behind_does_not_block_the_resend() {
     let (_root, stage) = stage();
-    let mut source = Cursor::new(b"abcdef".to_vec());
+    let part = stage
+        .path()
+        .join(format!("{}.part", CheckpointArtifact::Overlay.filename()));
+    fs::write(&part, b"half of it").expect("left by a crash");
     stage
-        .receive(CheckpointArtifact::Overlay, 4, &mut source)
-        .expect("received");
-    assert_eq!(source.position(), 4);
+        .receive(CheckpointArtifact::Overlay, 4, &mut Cursor::new(b"abcdef"))
+        .expect("the resend is received");
+    assert!(!part.exists());
     assert_eq!(
         fs::read(stage.path().join(CheckpointArtifact::Overlay.filename())).expect("overlay"),
         b"abcd"
     );
+}
+
+#[test]
+fn one_import_is_held_by_one_request_at_a_time() {
+    let (_root, stage) = stage();
+    assert_eq!(
+        ImportStage::lock(stage.path().to_path_buf()).map(|_| ()),
+        Err(ImportRefusal::Busy)
+    );
+    let path = stage.path().to_path_buf();
+    drop(stage);
+    ImportStage::lock(path).expect("free once the holder answered");
 }
 
 #[test]
@@ -75,4 +96,55 @@ fn an_abort_removes_the_stage_and_what_it_received() {
     let path = stage.path().to_path_buf();
     stage.abort().expect("aborted");
     assert!(!path.exists());
+}
+
+#[test]
+fn an_abandoned_stage_expires_and_a_held_one_does_not() {
+    let root = tempfile::tempdir().expect("root");
+    let old = root.path().join(".staging-import-old");
+    let held = root.path().join(".staging-import-held");
+    private_dir(&old);
+    private_dir(&held);
+    fs::write(old.join("memory.raw"), b"x").expect("received");
+    let long_ago = rustix::fs::Timestamps {
+        last_access: rustix::fs::Timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
+        },
+        last_modification: rustix::fs::Timespec {
+            tv_sec: 1,
+            tv_nsec: 0,
+        },
+    };
+    for stage in [&old, &held] {
+        rustix::fs::utimensat(
+            rustix::fs::CWD,
+            stage,
+            &long_ago,
+            rustix::fs::AtFlags::empty(),
+        )
+        .expect("aged");
+    }
+    let holder = ImportStage::lock(held.clone()).expect("held");
+    assert_eq!(limits::open_imports(root.path()), 2);
+    limits::sweep_expired(root.path());
+    assert!(!old.exists(), "an abandoned stage is removed");
+    assert!(held.exists(), "a stage a request holds is kept");
+    drop(holder);
+}
+
+#[test]
+fn an_artifact_that_does_not_fit_is_refused_before_a_byte_is_read() {
+    let (root, stage) = stage();
+    let mut source = Cursor::new(vec![0_u8; 8]);
+    assert_eq!(
+        stage.receive(
+            CheckpointArtifact::Memory,
+            limits::MAX_STAGED_BYTES + 1,
+            &mut source
+        ),
+        Err(ImportRefusal::NoSpace)
+    );
+    assert_eq!(source.position(), 0);
+    assert!(limits::require_room(root.path(), 1).is_ok());
 }

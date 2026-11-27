@@ -1,4 +1,4 @@
-# 0070 - Checkpoint transfer on the host listener
+# 0077 - Checkpoint transfer on the host listener
 
 Status: Accepted for implementation
 
@@ -10,8 +10,8 @@ The control plane drives every other checkpoint operation through the loopback s
 
 ## Decision
 
-The loopback host listener serves four checkpoint transfer routes, to the platform tenant only.
-Any other tenant is answered `404 route_not_found`, as if the routes did not exist.
+The loopback host listener serves four checkpoint transfer routes, to the platform tenant on a loopback connection only.
+Any other tenant, and any peer that is not this host, is answered `404 route_not_found`, as if the routes did not exist.
 The public runner exposes none of them.
 
 - `POST /v1/checkpoints/export` names the owner, the full capture receipt and one artifact (`state`, `memory`, `overlay` or `workspace`).
@@ -19,11 +19,19 @@ The public runner exposes none of them.
   A read or digest failure part way closes the connection short of the announced length.
 - `PUT /v1/checkpoints/imports/{import}/{artifact}` receives one artifact as a raw body with a `content-length`.
   The bytes go into a private stage in the checkpoint root on the encrypted mount, named `.staging-import-{import}`, and the answer carries their SHA-256.
-  An artifact is written once; a transfer that ends short leaves nothing, so it can be sent again.
+  An artifact is written to a temporary name, synced, and renamed into place, so a transfer that ends short, or a soma-api that dies during one, leaves nothing that blocks sending it again; a second complete copy is refused.
+  A receive is refused with `507 insufficient_storage` before a byte is read when the artifact would leave the checkpoint root with less than 8 GiB free or take all open imports past 2 TiB.
+  A new import beyond 16 open on the host is refused with `429 import_capacity`.
 - `POST /v1/checkpoints/imports/{import}/commit` names the owner and the full receipt, and `absent` when the Instance is not on this host.
   It records the receipt in the stage and imports it exactly as ADR 0065 does, or reserves recovery authority for the absent Instance as ADR 0066 does.
+  For an absent Instance, an optional `tenant` is recorded as the sandbox's owner first, so the recovered sandbox answers that tenant and not only the platform.
+  A capture already published is verified in place and its unused stage is removed.
   A refused commit keeps the stage for a retry or an abort.
-- `DELETE /v1/checkpoints/imports/{import}` removes the stage and everything received into it.
+- `DELETE /v1/checkpoints/imports/{import}` removes the stage and everything received into it; an unknown import is already absent.
+
+Commit and abort never create a stage, and an unknown import is `404 import_not_found` to a commit.
+One request holds an import at a time: receive, commit and abort take an exclusive lock on the stage directory, and a second request is answered `409 import_busy`.
+A stage no request has touched for 24 hours belongs to a transfer that is not coming back, and the next new import removes it, unless a request holds it.
 
 The export and receive bodies are streamed by the connection and never held in memory.
 The facade is opened only to authorize and open an export; the open descriptors pin the artifacts, so a long stream holds no state-store handle.

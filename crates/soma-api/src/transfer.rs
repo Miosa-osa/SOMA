@@ -1,4 +1,4 @@
-//! Checkpoint transfer to and from off-host storage (ADR 0070), on the loopback host listener.
+//! Checkpoint transfer to and from off-host storage (ADR 0077), on the loopback host listener.
 //!
 //! Export streams one artifact of a published capture as a raw body, and receive writes one raw
 //! body into a private import stage; both are served by the connection because their bodies are
@@ -24,6 +24,11 @@ use crate::{
     version::{API_VERSION, API_VERSION_HEADER},
 };
 
+mod refusal;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub use refusal::import_refusal;
+pub use refusal::refusal;
+
 /// The largest artifact one receive accepts: the largest durable volume class a host offers.
 pub const MAX_ARTIFACT_BYTES: u64 = 1 << 40;
 
@@ -40,36 +45,13 @@ pub fn platform_only(request: &Request) -> Result<(), ApiError> {
     }
 }
 
-/// How a checkpoint transfer refusal reads on the wire.
+/// Whether the connection comes from this host: the transfer routes serve no other peer, whatever
+/// identity a request names.
 #[must_use]
-pub fn refusal(failure: soma_local::CheckpointFailure) -> ApiError {
-    use soma_local::CheckpointFailure;
-    match failure {
-        CheckpointFailure::NotFound => ApiError::new(
-            404,
-            "checkpoint_not_found",
-            "no published checkpoint matches the receipt",
-            false,
-        ),
-        CheckpointFailure::CaptureRefused => ApiError::new(
-            409,
-            "checkpoint_transfer_refused",
-            "the owner, receipt or received artifacts do not match the checkpoint",
-            false,
-        ),
-        CheckpointFailure::Unsupported => ApiError::new(
-            409,
-            "checkpoint_transfer_unsupported",
-            "this host has no encrypted checkpoint root",
-            false,
-        ),
-        CheckpointFailure::Storage | CheckpointFailure::Unconfirmed => ApiError::new(
-            503,
-            "checkpoint_storage_unavailable",
-            "the host did not confirm the checkpoint transfer",
-            true,
-        ),
-    }
+pub fn from_loopback(stream: &TcpStream) -> bool {
+    stream
+        .peer_addr()
+        .is_ok_and(|address| address.ip().is_loopback())
 }
 
 fn answer(stream: &TcpStream, operation: &'static str, outcome: Result<Response, ApiError>) {
@@ -238,10 +220,10 @@ fn receive(
     artifact: TransferArtifact,
     length: u64,
 ) -> Result<Response, ApiError> {
-    let stage = soma_local::ImportStage::open(import).map_err(refusal)?;
+    let stage = soma_local::ImportStage::begin(import).map_err(import_refusal)?;
     let digest = stage
         .receive(local_artifact(artifact), length, &mut reader.take(length))
-        .map_err(refusal)?;
+        .map_err(import_refusal)?;
     let received = Received {
         import_id: import.as_str(),
         artifact: artifact.name(),

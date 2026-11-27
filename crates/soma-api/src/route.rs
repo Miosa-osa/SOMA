@@ -127,7 +127,7 @@ pub enum Route {
     ///
     /// Served by the connection, not by a handler: it needs no sandbox facade.
     Version,
-    /// Moving a capture to and from off-host storage; the platform tenant only (ADR 0070).
+    /// Moving a capture to and from off-host storage; the platform tenant only (ADR 0077).
     CheckpointTransfer(TransferRoute),
 }
 

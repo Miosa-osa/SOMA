@@ -1,7 +1,7 @@
 //! The checkpoint transfer routes: export to, and import from, off-host storage.
 //!
 //! They exist only on the loopback host listener and answer only the platform tenant
-//! (ADR 0070). The caller owns the object store, its names and its credentials; these routes move
+//! (ADR 0077). The caller owns the object store, its names and its credentials; these routes move
 //! the exact capture artifacts between that caller and the host's encrypted checkpoint root.
 
 use soma::OperationId;

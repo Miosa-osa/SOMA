@@ -99,10 +99,12 @@ impl LocalRuntime {
     ) -> Result<(), crate::CheckpointFailure> {
         stage.record_receipt(expected)?;
         if absent {
-            self.recover_absent_checkpoint(owner, expected, stage.path())
+            self.recover_absent_checkpoint(owner, expected, stage.path())?;
         } else {
-            self.import_checkpoint(owner, expected, stage.path())
+            self.import_checkpoint(owner, expected, stage.path())?;
         }
+        // A capture already published is verified in place and the stage is left unused.
+        stage.remove_if_unused()
     }
 
     /// Installs a verified backup and reserves recovery authority for an absent Instance.

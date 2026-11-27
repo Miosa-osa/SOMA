@@ -8,7 +8,7 @@ mod workspace_import;
 pub(crate) use export::open_export;
 pub use export::{CheckpointArtifact, CheckpointExport};
 pub(crate) use import::{install_import, verify_import};
-pub use import_stage::ImportStage;
+pub use import_stage::{ImportRefusal, ImportStage};
 pub(crate) use workspace_import::import_cold_workspace;
 mod attestation;
 mod read;

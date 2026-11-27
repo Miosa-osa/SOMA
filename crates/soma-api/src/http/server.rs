@@ -127,6 +127,17 @@ fn serve_connection<M, F>(
             let _ignored = refusal.write_to(&mut &*stream);
             return;
         }
+        if let Ok(Route::CheckpointTransfer(transfer)) = resolve(&request)
+            && !crate::transfer::from_loopback(stream)
+        {
+            let refused = ApiError::not_found();
+            let response = Response::new(
+                refused.status(),
+                failure_body(transfer.operation(), refused),
+            );
+            let _ignored = response.write_to(&mut &*stream);
+            return;
+        }
         // A received checkpoint artifact is far larger than any JSON body: it is streamed from the
         // connection into its import stage, never read into memory, and ends the connection.
         if let Ok(Route::CheckpointTransfer(TransferRoute::Receive(import, artifact))) =

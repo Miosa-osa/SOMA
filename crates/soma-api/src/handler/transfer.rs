@@ -1,4 +1,4 @@
-//! Commit and abort of a checkpoint received from off-host storage (ADR 0070).
+//! Commit and abort of a checkpoint received from off-host storage (ADR 0077).
 //!
 //! The raw export and receive routes are served by the connection (`crate::transfer`); these two
 //! carry small JSON bodies and run like any other handler, platform tenant only.
@@ -6,6 +6,8 @@
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use super::success;
 use super::{ApiError, Response, SandboxFacade, parse};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::{owners::Resource, transfer::import_refusal};
 use crate::{route::TransferRoute, tenant::TenantId, transfer::refusal};
 
 /// What a commit publishes: the capture's owner and full receipt, and whether it reserves an
@@ -22,6 +24,10 @@ pub(crate) struct CommitBody {
     receipt: soma_local::CheckpointReceipt,
     #[serde(default)]
     absent: bool,
+    /// For an absent Instance, the tenant that owns it, recorded before the import so the
+    /// recovered sandbox answers its owner and not only the platform.
+    #[serde(default)]
+    tenant: Option<String>,
 }
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -58,10 +64,23 @@ fn commit<F: SandboxFacade + ?Sized>(
     operation: &'static str,
 ) -> Result<Response, ApiError> {
     let body: CommitBody = parse(body)?;
-    let stage = soma_local::ImportStage::open(import).map_err(refusal)?;
-    facade
-        .commit_checkpoint_import(&body.owner, &body.receipt, &stage, body.absent)
-        .map_err(refusal)?;
+    let stage = soma_local::ImportStage::existing(import).map_err(import_refusal)?;
+    let instance = body.receipt.instance_id.as_str();
+    let claimed = match body.tenant.as_deref().filter(|_| body.absent) {
+        Some(tenant) => {
+            let tenant = crate::tenant::identify(Some(tenant))?;
+            super::scope::claim(facade, Resource::Sandbox, instance, &tenant)?
+        }
+        None => false,
+    };
+    if let Err(failure) =
+        facade.commit_checkpoint_import(&body.owner, &body.receipt, &stage, body.absent)
+    {
+        if claimed {
+            super::scope::release(facade, Resource::Sandbox, instance);
+        }
+        return Err(refusal(failure));
+    }
     Ok(success(
         200,
         operation,
@@ -77,9 +96,12 @@ fn commit<F: SandboxFacade + ?Sized>(
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn abort(import: &soma::OperationId, operation: &'static str) -> Result<Response, ApiError> {
-    soma_local::ImportStage::open(import)
-        .and_then(soma_local::ImportStage::abort)
-        .map_err(refusal)?;
+    match soma_local::ImportStage::existing(import) {
+        Ok(stage) => stage.abort().map_err(refusal)?,
+        // An abort of a stage that is already gone has nothing left to do.
+        Err(soma_local::ImportRefusal::Unknown) => {}
+        Err(refused) => return Err(import_refusal(refused)),
+    }
     Ok(success(
         200,
         operation,
