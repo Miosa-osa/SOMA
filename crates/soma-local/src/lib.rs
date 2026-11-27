@@ -13,7 +13,7 @@ mod prewarm;
 mod prune;
 mod resize;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub use backend::{CheckpointArtifact, CheckpointExport};
+pub use backend::{CheckpointArtifact, CheckpointExport, ImportRefusal, ImportStage};
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub use checkpoint::ColdWorkspaceTarget;
 pub use checkpoint::{CheckpointFailure, CheckpointReceipt, CheckpointVolumeReceipt};

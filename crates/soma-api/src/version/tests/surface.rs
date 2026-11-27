@@ -14,7 +14,9 @@ use crate::{
     handler::suspension::{ResumeBody, SuspendBody},
     http::request::{Method, Request},
     resources::ResourcesBody,
-    route::{FilesystemOperation, Route, TerminalOperation, resolve},
+    route::{
+        FilesystemOperation, Route, TerminalOperation, TransferArtifact, TransferRoute, resolve,
+    },
     terminal::TerminalBody,
     version::API_VERSION,
     volumes::VolumeOperation,
@@ -29,6 +31,7 @@ const DOCUMENT: &str = include_str!("../../../../../docs/product/reference/api-s
 const INSTANCE: &str = "33333333333333333333333333333333";
 const VOLUME: &str = "44444444444444444444444444444444";
 const SUSPENSION: &str = "55555555555555555555555555555555";
+const IMPORT: &str = "66666666666666666666666666666666";
 const METHODS: [(Method, &str); 5] = [
     (Method::Get, "GET"),
     (Method::Post, "POST"),
@@ -98,6 +101,21 @@ fn every_route() -> Vec<Route> {
             VolumeOperation::Destroy,
         ]
         .map(|operation| Route::Volume(operation, None)),
+    );
+    let import = || soma::OperationId::new(IMPORT).expect("a valid import");
+    routes.extend([
+        Route::CheckpointTransfer(TransferRoute::Export),
+        Route::CheckpointTransfer(TransferRoute::Commit(import())),
+        Route::CheckpointTransfer(TransferRoute::Abort(import())),
+    ]);
+    routes.extend(
+        [
+            TransferArtifact::State,
+            TransferArtifact::Memory,
+            TransferArtifact::Overlay,
+            TransferArtifact::Workspace,
+        ]
+        .map(|artifact| Route::CheckpointTransfer(TransferRoute::Receive(import(), artifact))),
     );
     routes
 }
@@ -175,6 +193,14 @@ fn surface() -> String {
     );
     for (name, accepted) in [
         ("AutosizeBody", fields::<crate::autosize::AutosizeBody>()),
+        (
+            "CheckpointCommitBody",
+            fields::<crate::handler::transfer::CommitBody>(),
+        ),
+        (
+            "CheckpointExportBody",
+            fields::<crate::transfer::ExportBody>(),
+        ),
         ("ControlBody", fields::<ControlBody>()),
         ("CreateSandboxBody", fields::<CreateSandboxBody>()),
         (

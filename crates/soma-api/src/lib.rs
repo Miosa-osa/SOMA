@@ -20,6 +20,7 @@ pub mod route;
 pub mod runner;
 pub mod tenant;
 pub mod terminal;
+pub mod transfer;
 pub mod tunnel;
 pub mod version;
 pub mod volumes;

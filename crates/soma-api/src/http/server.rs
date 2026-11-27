@@ -12,7 +12,7 @@ use crate::{
     facade::SandboxFacade,
     handler::{handle, handle_prewarm},
     http::{request::Request, response::Response},
-    route::{Route, resolve},
+    route::{Route, TransferRoute, resolve},
     tenant::{TENANT_HEADER, identify},
     tunnel::{self, Refusal, TunnelPolicy, TunnelTable},
     version::{self, API_VERSION, API_VERSION_HEADER},
@@ -113,18 +113,44 @@ fn serve_connection<M, F>(
     }
     let mut reader = BufReader::new(stream);
     for request_index in 0..MAX_REQUESTS_PER_CONNECTION {
-        let request = match Request::read_from(&mut reader) {
+        let refuse = |error: ApiError| {
+            let response = Response::new(error.status(), failure_body("request", error));
+            let _ignored = response.write_to(&mut &*stream);
+        };
+        let mut request = match Request::read_head_from(&mut reader) {
             Ok(request) => request,
-            Err(error) => {
-                let response = Response::new(error.status(), failure_body("request", error));
-                let _ignored = response.write_to(&mut &*stream);
-                return;
-            }
+            Err(error) => return refuse(error),
         };
         // A request that needs an API version this build does not serve is refused before any
         // route runs, so it never reaches a handler that would answer it differently.
         if let Some(refusal) = version::negotiate(&request) {
             let _ignored = refusal.write_to(&mut &*stream);
+            return;
+        }
+        if let Ok(Route::CheckpointTransfer(transfer)) = resolve(&request)
+            && !crate::transfer::from_loopback(stream)
+        {
+            let refused = ApiError::not_found();
+            let response = Response::new(
+                refused.status(),
+                failure_body(transfer.operation(), refused),
+            );
+            let _ignored = response.write_to(&mut &*stream);
+            return;
+        }
+        // A received checkpoint artifact is far larger than any JSON body: it is streamed from the
+        // connection into its import stage, never read into memory, and ends the connection.
+        if let Ok(Route::CheckpointTransfer(TransferRoute::Receive(import, artifact))) =
+            resolve(&request)
+        {
+            crate::transfer::serve_receive(&mut reader, &request, &import, artifact);
+            return;
+        }
+        if let Err(error) = request.read_body_from(&mut reader) {
+            return refuse(error);
+        }
+        if let Ok(Route::CheckpointTransfer(TransferRoute::Export)) = resolve(&request) {
+            crate::transfer::serve_export(stream, &request, open_facade);
             return;
         }
         if let Ok(Route::Tunnel(instance_id, port)) = resolve(&request) {

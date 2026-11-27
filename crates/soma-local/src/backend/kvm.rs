@@ -33,7 +33,7 @@ use crate::{LocalFailure, LocalFailureKind};
 
 use super::clock::OperationClocks;
 pub(super) use checkpoint::retention::retains_stopped_checkpoint;
-pub use checkpoint::{CheckpointArtifact, CheckpointExport};
+pub use checkpoint::{CheckpointArtifact, CheckpointExport, ImportRefusal, ImportStage};
 pub(crate) use checkpoint::{
     discard_checkpoint, import_cold_workspace, install_import, open_export, verify_import,
 };

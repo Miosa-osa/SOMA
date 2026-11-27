@@ -107,17 +107,40 @@ impl Request {
     /// Returns a 400 refusal for a malformed request, a 411 refusal when a body is sent without
     /// a length, and a 413 refusal when any declared bound is exceeded.
     pub fn read_from(reader: &mut impl BufRead) -> Result<Self, ApiError> {
+        let mut request = Self::read_head_from(reader)?;
+        request.read_body_from(reader)?;
+        Ok(request)
+    }
+
+    /// Reads the request line and headers only, leaving any body unread on the stream.
+    ///
+    /// A route that streams its body (a checkpoint artifact) reads it itself; every other route
+    /// finishes the request with [`Self::read_body_from`].
+    ///
+    /// # Errors
+    ///
+    /// The refusals of [`Self::read_from`] for the line and headers.
+    pub fn read_head_from(reader: &mut impl BufRead) -> Result<Self, ApiError> {
         let line = read_line(reader, MAX_REQUEST_LINE_BYTES)?;
         let (method, path, http11) = request_line(&line)?;
         let headers = read_headers(reader)?;
-        let body = read_body(reader, &headers)?;
         Ok(Self {
             method,
             path,
             headers,
-            body,
+            body: Vec::new(),
             http11,
         })
+    }
+
+    /// Reads the bounded body announced by the headers [`Self::read_head_from`] read.
+    ///
+    /// # Errors
+    ///
+    /// The body refusals of [`Self::read_from`].
+    pub fn read_body_from(&mut self, reader: &mut impl BufRead) -> Result<(), ApiError> {
+        self.body = read_body(reader, &self.headers)?;
+        Ok(())
     }
 }
 

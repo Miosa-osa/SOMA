@@ -6,9 +6,7 @@ use soma::{
 use soma_local::{LocalFailure, LocalRuntime, LocalRuntimeConfig};
 
 use crate::facade::{
-    CommandOutcome, FileOutcome, LifecycleOutcome, OwnedVolume, SandboxFacade, SandboxSnapshot,
-    SandboxStorage, TerminalOutcome, VolumeBinding, VolumeBody, VolumeFailure, VolumeOperation,
-    VolumeReport,
+    CommandOutcome, FileOutcome, LifecycleOutcome, SandboxFacade, SandboxSnapshot, TerminalOutcome,
 };
 use crate::{owners::Owners, volumes::VolumeClient};
 
@@ -46,6 +44,7 @@ impl LocalFacade {
     }
 }
 
+mod storage;
 mod workspace;
 
 impl SandboxFacade for LocalFacade {
@@ -236,54 +235,6 @@ impl SandboxFacade for LocalFacade {
         port: u16,
     ) -> Result<crate::tunnel::GuestStream, soma_local::TunnelFailure> {
         self.runtime.tunnel_machine(instance_id, port)
-    }
-}
-
-impl SandboxStorage for LocalFacade {
-    fn owners(&self) -> Option<&Owners> {
-        Some(&self.owners)
-    }
-
-    fn checkpoint(
-        &mut self,
-        instance: &soma::InstanceId,
-        operation: &soma::OperationId,
-    ) -> Result<soma_local::CheckpointReceipt, soma_local::CheckpointFailure> {
-        self.runtime.checkpoint_machine(instance, operation)
-    }
-
-    fn discard_checkpoint(
-        &mut self,
-        instance: &soma::InstanceId,
-        checkpoint: &soma::OperationId,
-        state_digest: &soma::GenerationId,
-    ) -> Result<(), soma_local::CheckpointFailure> {
-        self.runtime
-            .discard_checkpoint(instance, checkpoint, state_digest)
-    }
-
-    /// The volume store lives in the host daemon, so this forwards to the control socket and
-    /// reports the missing capability when no socket is configured.
-    fn volume_binding(&mut self, instance: &str) -> Result<VolumeBinding, VolumeFailure> {
-        self.volumes.binding(instance)
-    }
-
-    fn volume_owned(&mut self, instance: &str) -> Result<Option<OwnedVolume>, VolumeFailure> {
-        self.volumes.owned(instance)
-    }
-
-    fn volume(
-        &mut self,
-        operation: VolumeOperation,
-        body: &VolumeBody,
-    ) -> Result<VolumeReport, VolumeFailure> {
-        if matches!(operation, VolumeOperation::Attach | VolumeOperation::Detach)
-            && self.volumes.configured()
-            && let Some(report) = self.live_workspace(operation, body)?
-        {
-            return Ok(report);
-        }
-        self.volumes.call(operation, body)
     }
 }
 

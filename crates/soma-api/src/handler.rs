@@ -7,6 +7,7 @@ pub(crate) mod prewarm;
 pub(crate) mod scope;
 mod support;
 pub(crate) mod suspension;
+pub(crate) mod transfer;
 mod volume;
 mod volumes;
 use create::{create, lifecycle};
@@ -96,6 +97,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
         Route::DiscardCheckpoint(instance_id) => checkpoint::discard(facade, &instance_id, body),
         Route::RestoreSandbox(instance_id) => checkpoint::restore(facade, instance_id, body),
         Route::ForkSandbox(source) => checkpoint::fork(facade, &source, body, tenant),
+        Route::CheckpointTransfer(transfer) => transfer::serve(facade, &transfer, body, tenant),
         Route::StopSandbox(instance_id) => {
             let request = control_body(body)?.into_stop(instance_id.clone())?;
             let stop = request.operation_id().clone();

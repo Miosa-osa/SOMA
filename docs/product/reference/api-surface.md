@@ -72,6 +72,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.7 | sha256:3818d9888def5ba6aa9470c51a3787a5114042814b97e82166d0af5c0c96aee5 | Added host-local fork with a committed child identity. |
 | 1.8 | sha256:808fa360e5a55aa579529c77855446e86052fda23319be920a43b7c8ef220d2c | Integrates encrypted suspension, host capacity reporting, and live autosizing with resident lifecycle operations. |
 | 1.9 | sha256:08a30a24261d22a1753fc6aa8447ef4254443061284fb6830007f09f5f1f82d4 | Adds volume-bound checkpoint receipts and same-sandbox mounted restore with reconciliation after broker interruption. |
+| 1.10 | sha256:c3deb5a9e81df5d319e2dc52acacb0ed2ece7de54ab0a93775ae604ffb3eacda | Adds checkpoint transfer for off-host backup on the loopback host listener, platform tenant only: export one artifact raw, receive one artifact raw into an import stage, commit and abort the import. |
 
 The upstream development branch numbered these additions 1.1 through 1.3 before integration.
 The integrated API continues the resident lifecycle sequence and serves both sets of routes starting at 1.8.
@@ -82,8 +83,9 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.9
+api 1.10
 envelope soma.api.v1 error operation receipt result schema status
+route DELETE /v1/checkpoints/imports/{import} checkpoint.import.abort
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route DELETE /v1/suspensions/{suspension} suspension.destroy
 route GET /v1/capacity host.capacity
@@ -96,6 +98,8 @@ route GET /v1/sandboxes/{instance}/tunnel/{port} sandbox.tunnel
 route GET /v1/version service.version
 route GET /v1/volumes/{volume} volume.read
 route PATCH /v1/sandboxes/{instance}/resources sandbox.resize
+route POST /v1/checkpoints/export checkpoint.export
+route POST /v1/checkpoints/imports/{import}/commit checkpoint.import.commit
 route POST /v1/prepared/prune prepared.prune
 route POST /v1/sandboxes sandbox.create
 route POST /v1/sandboxes/{instance}/checkpoints sandbox.checkpoint
@@ -127,10 +131,16 @@ route POST /v1/suspensions/{suspension}/resume suspension.resume
 route POST /v1/volumes/attach volume.attach
 route POST /v1/volumes/destroy volume.destroy
 route POST /v1/volumes/detach volume.detach
+route PUT /v1/checkpoints/imports/{import}/memory checkpoint.import.receive
+route PUT /v1/checkpoints/imports/{import}/overlay checkpoint.import.receive
+route PUT /v1/checkpoints/imports/{import}/state checkpoint.import.receive
+route PUT /v1/checkpoints/imports/{import}/workspace checkpoint.import.receive
 route PUT /v1/prewarm prewarm.set
 route PUT /v1/sandboxes/{instance}/autosize sandbox.autosize
 body CheckpointBody operation_id(required)
 body AutosizeBody enabled min_cpu max_cpu min_memory_mb max_memory_mb
+body CheckpointCommitBody owner receipt absent tenant
+body CheckpointExportBody owner receipt artifact
 body ControlBody operation_id
 body CreateSandboxBody image volume_id shape name instance_id operation_id
 body DiscardBody checkpoint_id(required) state_digest(required)
@@ -188,6 +198,16 @@ It can do so after confirming that Restore succeeded or the sandbox no longer ne
 A matching request returns absent after the checkpoint files are removed and the storage directory is synchronized.
 Repeat the same request after a lost acknowledgement.
 The route is available on the host-local API and has no equivalent public runner route.
+
+## Transfer a checkpoint to and from off-host storage
+
+The trusted host control plane can move a published capture to its object store and back through four loopback routes that answer the `soma-platform` tenant only; any other tenant is answered `404 route_not_found` (ADR 0077).
+POST /v1/checkpoints/export takes `owner`, the full capture `receipt`, and one `artifact` (`state`, `memory`, `overlay` or `workspace`), and answers the raw artifact as `application/octet-stream` with its exact `content-length` and the receipt's digest in `soma-artifact-digest`.
+A body shorter than its `content-length` is a failed export, and the caller must discard it.
+PUT /v1/checkpoints/imports/{import}/{artifact} receives one raw artifact with a `content-length` into a private import stage on the encrypted checkpoint root, and answers its `bytes` and `digest`.
+POST /v1/checkpoints/imports/{import}/commit takes `owner`, the full `receipt`, `absent` (true for an Instance this host does not hold) and, for an absent Instance, the owning `tenant`; it verifies every artifact against the receipt and publishes the checkpoint for a same-Instance restore.
+The routes answer only a loopback peer; a receive that does not fit answers `507 insufficient_storage`, a new import beyond the host's cap `429 import_capacity`, and a second request on one import `409 import_busy`.
+DELETE /v1/checkpoints/imports/{import} removes the stage and what it received.
 
 ## Fork from a checkpoint
 
