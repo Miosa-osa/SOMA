@@ -144,7 +144,13 @@ pub(crate) async fn h3_request(
         .send_data(Bytes::from(body.to_owned()))
         .await
         .expect("send body");
-    stream.finish().await.expect("finish");
+    // A server that has the whole request and has answered may stop reading before this
+    // side's end-of-stream reaches it, and the stop arrives here as a remote terminate on
+    // `finish`. The answer still follows, so only any other failure is one.
+    match stream.finish().await {
+        Ok(()) | Err(h3::error::StreamError::RemoteTerminate { .. }) => {}
+        Err(error) => panic!("finish: {error:?}"),
+    }
     let response = stream.recv_response().await.expect("response");
     let mut bytes = Vec::new();
     while let Some(mut chunk) = stream.recv_data().await.expect("data") {
