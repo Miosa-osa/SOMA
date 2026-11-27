@@ -166,6 +166,36 @@ impl LocalRuntime {
             .map_err(|_| CheckpointFailure::Unconfirmed)
     }
 
+    /// Discards every checkpoint a destroyed Instance published, naming each one that stays.
+    pub(super) fn discard_checkpoints_of(&self, instance: &soma::InstanceId) {
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+        {
+            match crate::backend::published_checkpoints(instance) {
+                Ok(published) => {
+                    for (checkpoint, digest) in published {
+                        if let Err(failure) =
+                            self.discard_checkpoint(instance, &checkpoint, &digest)
+                        {
+                            eprintln!(
+                                "soma: checkpoint {} of destroyed {} was not discarded: {failure:?}",
+                                checkpoint.as_str(),
+                                instance.as_str()
+                            );
+                        }
+                    }
+                }
+                Err(failure) => eprintln!(
+                    "soma: checkpoints of destroyed {} were not listed: {failure:?}",
+                    instance.as_str()
+                ),
+            }
+        }
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        {
+            let _ = instance;
+        }
+    }
+
     /// Releases a published checkpoint by its exact sandbox, operation and state digest.
     ///
     /// # Errors

@@ -31,7 +31,8 @@ pub(crate) use kvm::{
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
-    discard_checkpoint, import_cold_workspace, install_import, open_export, verify_import,
+    discard_checkpoint, import_cold_workspace, install_import, open_export, published_checkpoints,
+    verify_import,
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
