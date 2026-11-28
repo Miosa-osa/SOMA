@@ -104,8 +104,9 @@ impl KvmBackend {
         shape: &MachineShape,
         extras: LaunchExtras<'_>,
     ) -> Result<Launched, BackendFailure> {
-        let volume = super::scratch_volume::resolve(&extras, instance, prepared)
-            .map_err(|kind| self.fail(operation, kind))?;
+        let (volume, mut scratch_guard) =
+            super::scratch_volume::resolve(&extras, instance, prepared)
+                .map_err(|kind| self.fail(operation, kind))?;
         let LaunchExtras {
             windowed,
             checkpoint,
@@ -254,6 +255,7 @@ impl KvmBackend {
             memory_mib: boot_mib,
             windowed,
         });
+        scratch_guard.disarm();
         // The answer states the machine as it is, so a Launch that cannot give the limits it
         // was asked for ends here instead of reporting a shape the machine does not have.
         if let Err(kind) = self.fit_to_request(instance, shape) {
