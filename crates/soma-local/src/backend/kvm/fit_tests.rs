@@ -51,15 +51,13 @@ fn a_volume_the_generation_cannot_take_is_named() {
     let volume = VolumeAttachment::new([7; 16], &path);
 
     assert_eq!(paired_volume_misfit(false, 10, None), None);
+    // SOMA#262: a volume-declaring Generation launched without a volume gets a scratch disk.
+    assert_eq!(paired_volume_misfit(true, 10, None), None);
     assert_eq!(paired_volume_misfit(true, 10, Some(&volume)), None);
     let cases = [
         (
             paired_volume_misfit(false, 10, Some(&volume)),
             "declares no persistent volume",
-        ),
-        (
-            paired_volume_misfit(true, 10, None),
-            "10 GiB persistent volume and none was attached",
         ),
         (
             paired_volume_misfit(true, 20, Some(&volume)),

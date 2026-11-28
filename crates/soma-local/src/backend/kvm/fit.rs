@@ -92,13 +92,12 @@ fn paired_volume_misfit(
     volume: Option<&VolumeAttachment>,
 ) -> Option<String> {
     match (enabled, volume) {
-        (false, None) => None,
+        // SOMA#262: a volume-declaring Generation launched without a volume gets an empty sparse
+        // scratch disk (`scratch_volume::resolve`), so `None` is admitted either way.
+        (_, None) => None,
         (false, Some(_)) => Some(
             "a volume was attached but the Generation declares no persistent volume".to_owned(),
         ),
-        (true, None) => Some(format!(
-            "the Generation declares a {gib} GiB persistent volume and none was attached"
-        )),
         (true, Some(volume)) => match std::fs::symlink_metadata(&volume.path) {
             Ok(info) if !info.is_file() => Some(format!(
                 "the volume at {} is not a regular file",
