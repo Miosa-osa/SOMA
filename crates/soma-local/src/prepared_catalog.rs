@@ -32,6 +32,7 @@ pub struct PreparedSummary {
     pub refusal: Option<&'static str>,
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl PreparedSummary {
     pub(crate) const fn refused(reference: String, refusal: &'static str) -> Self {
         Self {
