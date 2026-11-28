@@ -268,3 +268,17 @@ fn an_ending_sandbox_is_not_reported_as_ownerless() {
         []
     );
 }
+
+#[test]
+fn only_the_platform_reads_the_prepared_store() {
+    let mut facade = FakeFacade::new(Mode::Succeed);
+    for tenant in [OWNER, OTHER] {
+        let (status, body) = call(&mut facade, &as_tenant(tenant, "GET", "/v1/prepared", ""));
+        assert_eq!(status, 403, "{tenant}: {body}");
+        assert_eq!(body["error"]["code"], "platform_only");
+    }
+    // The test process names no prepared store, so the platform is told there is none.
+    let (status, body) = call(&mut facade, &as_tenant(PLATFORM, "GET", "/v1/prepared", ""));
+    assert_eq!(status, 501, "{body}");
+    assert_eq!(body["error"]["code"], "prepared_store_unavailable");
+}

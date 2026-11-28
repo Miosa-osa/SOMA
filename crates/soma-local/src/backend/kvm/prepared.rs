@@ -21,6 +21,12 @@ mod scan;
 
 pub(super) use entry::from_handoff;
 pub(crate) use prune::prune;
+pub(crate) use scan::catalog;
+#[cfg(test)]
+use scan::catalog_in;
+#[cfg(test)]
+#[path = "prepared_catalog_tests.rs"]
+mod catalog_tests;
 pub(super) use scan::{find, preload, store_root};
 
 /// Names the root holding Generations prepared for this host.

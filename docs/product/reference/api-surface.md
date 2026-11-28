@@ -72,6 +72,7 @@ Response fields and error codes are held to the rule above by each route's integ
 | 1.7 | sha256:3818d9888def5ba6aa9470c51a3787a5114042814b97e82166d0af5c0c96aee5 | Added host-local fork with a committed child identity. |
 | 1.8 | sha256:808fa360e5a55aa579529c77855446e86052fda23319be920a43b7c8ef220d2c | Integrates encrypted suspension, host capacity reporting, and live autosizing with resident lifecycle operations. |
 | 1.9 | sha256:08a30a24261d22a1753fc6aa8447ef4254443061284fb6830007f09f5f1f82d4 | Adds volume-bound checkpoint receipts and same-sandbox mounted restore with reconciliation after broker interruption. |
+| 1.10 | sha256:73f27c226ab5927241f829bd3c99f262029bff8c9e5b0b41099946b5c31a9732 | Adds `GET /v1/prepared`: the platform reads each prepared Generation's vCPUs, boot memory, memory ceiling, disk and volume class, resolved as a launch would. |
 
 The upstream development branch numbered these additions 1.1 through 1.3 before integration.
 The integrated API continues the resident lifecycle sequence and serves both sets of routes starting at 1.8.
@@ -82,11 +83,12 @@ The surface of the current version, one fact per line: the API version, the enve
 The digest in the table above is the SHA-256 of this block's text.
 
 ```text
-api 1.9
+api 1.10
 envelope soma.api.v1 error operation receipt result schema status
 route DELETE /v1/sandboxes/{instance} sandbox.destroy
 route DELETE /v1/suspensions/{suspension} suspension.destroy
 route GET /v1/capacity host.capacity
+route GET /v1/prepared prepared.list
 route GET /v1/prewarm prewarm.status
 route GET /v1/sandboxes sandbox.list
 route GET /v1/sandboxes/{instance} sandbox.get

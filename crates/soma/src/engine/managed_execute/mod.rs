@@ -162,6 +162,7 @@ impl<B: Backend, S: StateStore> Engine<B, S> {
 const fn refusal_disposition(kind: BackendFailureKind) -> CommandDisposition {
     match kind {
         BackendFailureKind::WorkloadRejected
+        | BackendFailureKind::ShapeMisfit
         | BackendFailureKind::GuestAgentOutdated
         | BackendFailureKind::SandboxPaused => CommandDisposition::RefusedBeforeRun,
         _ => CommandDisposition::Unobserved,

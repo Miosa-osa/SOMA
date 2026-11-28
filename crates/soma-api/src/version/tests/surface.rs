@@ -46,6 +46,7 @@ fn every_route() -> Vec<Route> {
         Route::Version,
         Route::Prewarm(false),
         Route::PrunePrepared,
+        Route::ListPrepared,
         Route::Capacity,
         Route::Autosize(instance(), false),
         Route::CreateSandbox,
