@@ -90,3 +90,12 @@ fn the_volume_is_declared_unless_it_is_turned_off() {
     }
     assert!(persistence_from(Some("yes")).is_err());
 }
+
+#[test]
+fn a_desktop_is_always_captured_with_its_durable_volume() {
+    // A computer keeps its files across stop and start, so every desktop Generation is the
+    // persistent machine (compiler profile 4) and no caller can capture one without it.
+    let desktop = include_str!("../../../../scripts/desktop-generation.sh");
+    assert!(desktop.contains("SOMA_PREPARE_PERSISTENCE=1 \\\n"));
+    assert!(!desktop.contains("SOMA_PREPARE_PERSISTENCE=\"$"));
+}
