@@ -2,8 +2,8 @@
 
 use soma_generation::CompilerProfile;
 
-use super::persistence_from;
 use super::{Args, BuildInputs, DEFAULT_MEMORY_MIB, DEFAULT_STORAGE_MIB, MIB, admit_storage};
+use super::{persistence_from, volume_class_from, with_volume_class};
 
 fn args(vcpus: u16, memory_mib: u64, storage_mib: u64) -> Args {
     Args {
@@ -98,4 +98,31 @@ fn a_desktop_is_always_captured_with_its_durable_volume() {
     let desktop = include_str!("../../../../scripts/desktop-generation.sh");
     assert!(desktop.contains("SOMA_PREPARE_PERSISTENCE=1 \\\n"));
     assert!(!desktop.contains("SOMA_PREPARE_PERSISTENCE=\"$"));
+}
+
+#[test]
+fn a_persistent_generation_names_its_volume_class() {
+    assert_eq!(volume_class_from(None), Ok(None));
+    assert_eq!(volume_class_from(Some("")), Ok(None));
+    for gib in [10, 20, 40] {
+        assert_eq!(volume_class_from(Some(&gib.to_string())), Ok(Some(gib)));
+    }
+    for refused in ["0", "30", "80", "forty"] {
+        assert!(volume_class_from(Some(refused)).is_err(), "{refused}");
+    }
+
+    let wide = with_volume_class(CompilerProfile::v4(), Some(40)).expect("a persistent class");
+    assert_eq!(wide.persistence.size_class_gib, 40);
+    assert_eq!(wide.policy_version, CompilerProfile::v4().policy_version);
+    let fixed_wide = with_volume_class(CompilerProfile::v5().with_persistence(), Some(40))
+        .expect("a fixed-memory persistent class");
+    assert_eq!(fixed_wide.persistence.size_class_gib, 40);
+    assert_eq!(
+        fixed_wide.policy_version,
+        CompilerProfile::v5().policy_version
+    );
+    let unstated = with_volume_class(CompilerProfile::v4(), None).expect("the profile's own");
+    assert_eq!(unstated.persistence.size_class_gib, 10);
+    // A class names the volume a Generation declares, so one without a volume cannot take it.
+    assert!(with_volume_class(CompilerProfile::v3(), Some(40)).is_err());
 }
