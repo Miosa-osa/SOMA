@@ -43,6 +43,15 @@ pub const fn from_status(status: i32) -> Option<GuestEnd> {
     }
 }
 
+/// The end a guest of this process asked for, without clearing it.
+///
+/// Lets an inspection racing with the watcher thread observe that the guest powered itself off
+/// before the watcher has written the shutdown marker.
+#[must_use]
+pub fn peek_observed() -> Option<GuestEnd> {
+    from_status(i32::from(OBSERVED.load(Ordering::Acquire)))
+}
+
 /// The end a guest of this process asked for since it was last taken, if any.
 ///
 /// A process that holds one machine in its own sandbox thread reads this to learn that the
@@ -77,7 +86,9 @@ mod tests {
     #[test]
     fn an_observed_end_is_taken_once() {
         ended(GuestEnd::Reboot);
+        assert_eq!(peek_observed(), Some(GuestEnd::Reboot));
         assert_eq!(take_observed(), Some(GuestEnd::Reboot));
+        assert_eq!(peek_observed(), None);
         assert_eq!(take_observed(), None);
     }
 }

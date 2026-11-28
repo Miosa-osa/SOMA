@@ -137,7 +137,8 @@ fn answer_until_released(
     let activity = Arc::new(AtomicU64::new(0));
     let started = Instant::now();
     watch_for_idleness(socket.to_path_buf(), Arc::clone(&activity), started);
-    guest_end::watch(socket.to_path_buf(), backend.worker_pid(instance));
+    let mut worker_pid = backend.worker_pid(instance);
+    guest_end::watch(socket.to_path_buf(), worker_pid);
     for accepted in listener.incoming() {
         let Ok(mut stream) = accepted else {
             break;
@@ -149,15 +150,16 @@ fn answer_until_released(
             break;
         }
         if let Call::GuestEnded { reboot } = call {
+            if !reboot {
+                let _ignored = std::fs::write(guest_end::shutdown_marker(socket), b"");
+            }
             // The machine is gone; what it held on this host is released either way.
             let _ignored = backend.cleanup_resident(instance, Force::Immediately);
             if reboot && guest_end::relaunch(backend, request, prepared).is_ok() {
-                guest_end::watch(socket.to_path_buf(), backend.worker_pid(instance));
+                worker_pid = backend.worker_pid(instance);
+                guest_end::watch(socket.to_path_buf(), worker_pid);
                 activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
                 continue;
-            }
-            if !reboot {
-                let _ignored = std::fs::write(guest_end::shutdown_marker(socket), b"");
             }
             let _ignored = std::fs::remove_file(socket);
             held::finish_released();
@@ -210,7 +212,14 @@ fn answer_until_released(
             }
             continue;
         }
+        let is_inspect = matches!(call, Call::Inspect { .. });
         let answer = requests::perform(backend, call);
+        if is_inspect
+            && matches!(answer, Answer::Refused(_))
+            && guest_end::observed_power_off(worker_pid)
+        {
+            let _ignored = std::fs::write(guest_end::shutdown_marker(socket), b"");
+        }
         let _ignored = channel::write_line(&mut stream, &answer);
         activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
     }

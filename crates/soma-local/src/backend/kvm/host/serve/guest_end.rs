@@ -28,11 +28,37 @@ use super::super::{
 };
 
 /// How often the watcher looks for the guest's own end.
-const POLL: Duration = Duration::from_millis(250);
+const POLL: Duration = Duration::from_millis(25);
 
 /// The marker a guest shutdown leaves beside the host's socket.
 pub(in crate::backend::kvm) fn shutdown_marker(socket: &Path) -> PathBuf {
     socket.with_extension("guest-shutdown")
+}
+
+/// Whether the guest has already ended its machine via power-off, without consuming that state.
+pub(super) fn observed_power_off(worker: Option<i32>) -> bool {
+    match worker {
+        None => guest_end::peek_observed() == Some(GuestEnd::PowerOff),
+        Some(pid) => matches!(worker_status(pid), Worker::Ended(Some(GuestEnd::PowerOff))),
+    }
+}
+
+/// Generates a fresh 32-hex operation identity for a guest-triggered relaunch.
+///
+/// The host daemon records each launch under its operation identity and refuses a second launch
+/// reusing the terminated one (`InstanceError::Terminated`), so an in-place reboot must carry a
+/// new operation identity of its own.
+fn fresh_operation_id() -> Result<soma::OperationId, BackendFailureKind> {
+    use std::fmt::Write as _;
+
+    let bytes = crate::backend::kvm::identity::fresh16();
+    let hex = bytes
+        .iter()
+        .fold(String::with_capacity(32), |mut out, byte| {
+            let _ignored = write!(out, "{byte:02x}");
+            out
+        });
+    soma::OperationId::new(hex).map_err(|_| BackendFailureKind::Unavailable)
 }
 
 /// Starts the same Instance again after the guest restarted it: a fresh boot of the same
@@ -43,9 +69,11 @@ pub(super) fn relaunch(
     request: &LaunchWire,
     prepared: &PreparedGeneration,
 ) -> Result<Launched, BackendFailureKind> {
+    let operation = fresh_operation_id()?;
+    backend.begin_operation(&operation);
     backend
         .launch_resident(
-            &request.operation_id,
+            &operation,
             &request.instance_id,
             prepared,
             &request.shape,
@@ -81,6 +109,11 @@ pub(super) fn watch(socket: PathBuf, worker: Option<i32>) {
                     }
                     continue;
                 };
+                if end == GuestEnd::PowerOff {
+                    // Written before the serve loop releases the machine so an inspect racing
+                    // with release reads `guest_shutdown` rather than `machine_lost` (SOMA#258).
+                    let _ignored = std::fs::write(shutdown_marker(&socket), b"");
+                }
                 if let Ok(mut stream) = UnixStream::connect(&socket) {
                     let reboot = end == GuestEnd::Reboot;
                     let _ignored = channel::write_line(&mut stream, &Call::GuestEnded { reboot });
@@ -143,5 +176,14 @@ mod tests {
             shutdown_marker(Path::new("/run/soma/abc.sock")),
             Path::new("/run/soma/abc.guest-shutdown")
         );
+    }
+
+    #[test]
+    fn each_relaunch_operation_id_is_fresh_hex() {
+        let first = super::fresh_operation_id().expect("first");
+        let second = super::fresh_operation_id().expect("second");
+        assert_eq!(first.as_str().len(), 32);
+        assert_eq!(second.as_str().len(), 32);
+        assert_ne!(first, second);
     }
 }
