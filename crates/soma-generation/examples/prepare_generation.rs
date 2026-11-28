@@ -23,10 +23,11 @@
 //! hotplug region as the ceiling minus the boot memory, and it must be above the boot memory.
 //! Without it the Generation is built with no memory device and cannot be resized in memory.
 //!
-//! `SOMA_PREPARE_PERSISTENCE=1` declares the durable data volume: it targets compiler profile
-//! version 4, whose manifest carries the persistence group and the class the volume is created
-//! at, so a capture of this Generation declares the device and every launch of it binds a file
-//! of the same class. Nothing about a shape implies it, so it is a setting rather than a rule.
+//! Every Generation declares the durable data volume unless `SOMA_PREPARE_PERSISTENCE=0` says
+//! otherwise (SOMA#262): the disk is part of every instance, not a feature of one image. A small
+//! machine targets compiler profile version 4; the fixed-memory machines (versions 5 to 8)
+//! declare it under their own policy, whose manifest already carries the persistence group.
+//! `SOMA_PREPARE_VOLUME_GIB` (10, 20 or 40) names that class; unset, it is the profile's 10 GiB.
 //!
 //! Usage:
 //!
@@ -46,7 +47,7 @@ use std::path::PathBuf;
 use soma::{Capabilities, MachineShape, OciImage};
 use soma_generation::{
     CompilerProfile, LifetimeLimits, StartupBehavior, TemplateImage,
-    TemplateRevision as CompilerRevision,
+    TemplateRevision as CompilerRevision, generation_manifest,
 };
 use soma_guest::{CaptureWarmPlan, WarmCommand};
 
@@ -103,17 +104,13 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
         _ => return Err("SOMA_PREPARE_COMPILER_POLICY must be 8 when set".into()),
     };
     let profile = if guest_cache {
-        if persistence || args.inputs.ceiling_mib.is_some() {
-            return Err(
-                "compiler policy 8 requires fixed memory and an ephemeral writable disk".into(),
-            );
+        if args.inputs.ceiling_mib.is_some() {
+            return Err("compiler policy 8 requires fixed memory".into());
         }
         CompilerProfile::v8()
     } else if large_storage || large_memory || args.vcpus > soma_kvm::V2_MAX_VCPUS {
-        if persistence || args.inputs.ceiling_mib.is_some() {
-            return Err(
-                "the requested machine uses fixed memory and an ephemeral writable disk".into(),
-            );
+        if args.inputs.ceiling_mib.is_some() {
+            return Err("the requested machine uses fixed memory".into());
         }
         if large_storage {
             CompilerProfile::v7()
@@ -131,6 +128,14 @@ fn shape(args: &Args) -> Result<(MachineShape, CompilerProfile), Box<dyn Error>>
     } else {
         CompilerProfile::v1()
     };
+    // Every instance takes its own disk (SOMA#262): the fixed-memory machines declare the volume
+    // under their own policy, whose manifest already carries the persistence group.
+    let profile = if persistence && profile.policy_version > 4 {
+        profile.with_persistence()
+    } else {
+        profile
+    };
+    let profile = with_volume_class(profile, volume_class_requested()?)?;
     Ok((shape, profile))
 }
 
@@ -146,11 +151,53 @@ pub(crate) fn persistence_requested() -> Result<bool, String> {
 /// The same reading of one configured value, so the rule is testable without the environment.
 pub(crate) fn persistence_from(configured: Option<&str>) -> Result<bool, String> {
     match configured {
-        None | Some("" | "0" | "false") => Ok(false),
-        Some("1" | "true") => Ok(true),
+        Some("0" | "false") => Ok(false),
+        None | Some("" | "1" | "true") => Ok(true),
         Some(other) => Err(format!(
             "SOMA_PREPARE_PERSISTENCE must be 1 or 0, got {other:?}"
         )),
+    }
+}
+
+/// The volume class a persistent Generation declares, from `SOMA_PREPARE_VOLUME_GIB`.
+fn volume_class_requested() -> Result<Option<u32>, String> {
+    volume_class_from(std::env::var("SOMA_PREPARE_VOLUME_GIB").as_deref().ok())
+}
+
+/// The same reading of one configured value: unset or blank is the profile's own class, and
+/// anything but a volume class is refused rather than rounded to one.
+pub(crate) fn volume_class_from(configured: Option<&str>) -> Result<Option<u32>, String> {
+    match configured {
+        None | Some("") => Ok(None),
+        Some(value) => match value.parse::<u32>() {
+            Ok(gib) if generation_manifest::is_volume_class(gib) => Ok(Some(gib)),
+            _ => Err(format!(
+                "SOMA_PREPARE_VOLUME_GIB must be one of {:?}, got {value:?}",
+                generation_manifest::VOLUME_CLASSES_GIB
+            )),
+        },
+    }
+}
+
+/// The profile with its volume at `class`, which only a profile that declares a volume takes.
+///
+/// The class is the volume device's capacity, so the capture, every restore and every attach of
+/// this Generation agree about the file behind the device without being told again.
+pub(crate) fn with_volume_class(
+    mut profile: CompilerProfile,
+    class: Option<u32>,
+) -> Result<CompilerProfile, String> {
+    match class {
+        None => Ok(profile),
+        Some(_) if !profile.persistence.enabled => Err(
+            "SOMA_PREPARE_VOLUME_GIB names a volume class, but this Generation declares no volume; \
+             set SOMA_PREPARE_PERSISTENCE=1"
+                .to_owned(),
+        ),
+        Some(gib) => {
+            profile.persistence.size_class_gib = gib;
+            Ok(profile)
+        }
     }
 }
 

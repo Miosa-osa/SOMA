@@ -54,7 +54,13 @@ pub(super) fn worker_main(
     let result = match RunMaskGuard::install(configure_kvm_mask.then_some(&vcpu), signal) {
         Ok(mask) => {
             let result = if sender.send(WorkerEvent::Ready).is_ok() {
-                run::run(&mut vcpu, bus, mmio.as_deref_mut(), sentinel, pause, ledger)
+                let result = run::run(&mut vcpu, bus, mmio.as_deref_mut(), sentinel, pause, ledger);
+                // Recorded here, before the thread reports, so a supervisor that only polls sees
+                // the guest's own end of the machine without waiting for anyone to join this one.
+                if let Some(end) = result.as_ref().ok().and_then(|exit| exit.guest_end()) {
+                    ledger.record_guest_end(end);
+                }
+                result
             } else {
                 Err(MachineError::new(Phase::Run, MachineErrorKind::WorkerLost))
             };

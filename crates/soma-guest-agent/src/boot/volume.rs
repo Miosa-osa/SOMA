@@ -34,28 +34,47 @@ pub const PERSISTENCE_PATHS: [&str; 4] = [
 /// Spelled here rather than taken from `libc`, whose `MS_*` set stops short of it.
 const MS_LAZYTIME: libc::c_ulong = 1 << 25;
 
-/// Verifies the volume, mounts it, and binds its paths into the composed root.
+/// Verifies the volume, mounts it, and binds its paths into the composed root, and answers
+/// whether this Instance has a volume at all.
+///
+/// A device whose superblock region is all zeros is the host's empty scratch disk for a launch
+/// that named no volume: the persistent paths then stay on the private overlay. Anything else
+/// that is not a valid ext4 filesystem still fails the boot, so a damaged volume is never
+/// served as an empty one (SOMA#262).
 ///
 /// # Errors
 ///
 /// Returns the first failed step; the caller reports it and powers off.
-pub(super) fn compose() -> Result<(), BootFailure> {
+pub(super) fn compose() -> Result<bool, BootFailure> {
+    // Read only after the cache of the capture's empty placeholder is dropped, or a real volume
+    // would read as blank.
+    flush_device()?;
+    if super::superblock::superblock_is_blank(VOLUME_DEVICE).map_err(|errno| BootFailure {
+        step: BootStep::VolumeIdentity,
+        errno,
+    })? {
+        crate::console::report("no volume for this instance; persistent paths stay on the overlay");
+        return Ok(false);
+    }
     mount_device()?;
     for path in PERSISTENCE_PATHS {
         bind_path(path)?;
     }
-    Ok(())
+    Ok(true)
 }
 
 fn mount_device() -> Result<(), BootFailure> {
-    // Linux may already have buffered partition probes from early boot's empty device.
-    // Flush them now that the worker has assigned this Instance's backing file.
-    let file =
-        fs::File::open(VOLUME_DEVICE).map_err(|error| failure(BootStep::VolumeIdentity, &error))?;
-    discard_placeholder_cache(&file).map_err(|error| failure(BootStep::VolumeIdentity, &error))?;
-    drop(file);
+    flush_device()?;
     verify_superblock(BootStep::VolumeIdentity, VOLUME_DEVICE, ext4_superblock_ok)?;
     mount_ext4()
+}
+
+/// Drops what Linux buffered from early boot's empty device, now that the worker has assigned
+/// this Instance's backing file.
+fn flush_device() -> Result<(), BootFailure> {
+    let file =
+        fs::File::open(VOLUME_DEVICE).map_err(|error| failure(BootStep::VolumeIdentity, &error))?;
+    discard_placeholder_cache(&file).map_err(|error| failure(BootStep::VolumeIdentity, &error))
 }
 
 fn mount_ext4() -> Result<(), BootFailure> {

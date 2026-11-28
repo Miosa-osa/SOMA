@@ -1,8 +1,9 @@
 //! Whether a Generation can give a request, whatever process serves it.
 //!
-//! A refusal reaches the caller as the one kind `workload_rejected`, so the reason is written
-//! here, on the log of the process that decided it, naming the field, what was asked and what
-//! the Generation gives.
+//! A shape the Generation cannot give reaches the caller as `generation_does_not_fit`, and a volume
+//! it cannot take as `workload_rejected`. Neither carries the detail, so the reason is written
+//! here, on the log of the process that decided it, naming the field, what was asked and what the
+//! Generation gives.
 
 use soma::{BackendFailureKind, InstanceId, MachineShape, VolumeAttachment};
 
@@ -91,13 +92,12 @@ fn paired_volume_misfit(
     volume: Option<&VolumeAttachment>,
 ) -> Option<String> {
     match (enabled, volume) {
-        (false, None) => None,
+        // SOMA#262: a volume-declaring Generation launched without a volume gets an empty sparse
+        // scratch disk (`scratch_volume::resolve`), so `None` is admitted either way.
+        (_, None) => None,
         (false, Some(_)) => Some(
             "a volume was attached but the Generation declares no persistent volume".to_owned(),
         ),
-        (true, None) => Some(format!(
-            "the Generation declares a {gib} GiB persistent volume and none was attached"
-        )),
         (true, Some(volume)) => match std::fs::symlink_metadata(&volume.path) {
             Ok(info) if !info.is_file() => Some(format!(
                 "the volume at {} is not a regular file",
@@ -120,6 +120,16 @@ pub(super) fn refuse(instance: &InstanceId, reason: &str) -> BackendFailureKind 
         instance.as_str()
     );
     BackendFailureKind::WorkloadRejected
+}
+
+/// Writes why the shape of a launch of `instance` does not fit its Generation, and returns the
+/// kind of its own a placer can tell from every other refusal.
+pub(super) fn refuse_shape(instance: &InstanceId, reason: &str) -> BackendFailureKind {
+    eprintln!(
+        "soma: refused the launch of {}: generation_does_not_fit: {reason}",
+        instance.as_str()
+    );
+    BackendFailureKind::ShapeMisfit
 }
 
 impl KvmBackend {

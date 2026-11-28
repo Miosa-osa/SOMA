@@ -42,6 +42,8 @@ pub enum Mode {
     Unsupported,
     /// The machine's worker died: an inspection reads it as stopped.
     Lost,
+    /// The guest shut its machine down from inside: an inspection reads it as stopped.
+    ShutDownByGuest,
 }
 
 /// Which facade call the handler made.
@@ -180,7 +182,7 @@ impl FakeFacade {
     fn record(&mut self, call: Call) -> Result<(), ManagedFailure> {
         self.calls.push(call);
         match self.mode {
-            Mode::Succeed | Mode::Lost => Ok(()),
+            Mode::Succeed | Mode::Lost | Mode::ShutDownByGuest => Ok(()),
             Mode::NotFound => Err(ManagedFailure::State(ManagedStateError::MachineNotFound)),
             Mode::Conflict => Err(ManagedFailure::State(ManagedStateError::OperationConflict)),
             Mode::Unsupported => Err(ManagedFailure::Backend(BackendFailureKind::Unsupported)),

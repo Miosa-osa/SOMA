@@ -35,7 +35,8 @@ pub(crate) use kvm::{
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use kvm::{
-    prewarm_machine_hosts, prewarm_status, prune_prepared, set_prewarm_targets, start_prewarm,
+    prepared_catalog, prewarm_machine_hosts, prewarm_status, prune_prepared, set_prewarm_targets,
+    start_prewarm,
 };
 pub(crate) use local::LocalBackend;
 
@@ -97,6 +98,14 @@ pub fn probe_backend(
 /// caller had to reconcile.
 pub(crate) fn machine_host_directory(state_root: &std::path::Path) -> PathBuf {
     state_root.join(crate::file_store::MACHINE_HOST_DIRECTORY)
+}
+
+/// The marker a host leaves beside `instance`'s socket when its guest shut the machine down.
+pub(crate) fn guest_shutdown_marker(
+    directory: &std::path::Path,
+    instance: &soma::InstanceId,
+) -> PathBuf {
+    directory.join(format!("{}.guest-shutdown", instance.as_str()))
 }
 
 mod local;

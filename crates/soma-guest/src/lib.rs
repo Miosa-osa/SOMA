@@ -105,3 +105,11 @@ pub const APPLICATION_PROTOCOL_VERSION: u16 = 1;
 pub const GUEST_API_LEVEL: u8 = 6;
 
 pub use application::{WorkspaceAction, WorkspaceOutcome};
+
+/// The console line a guest agent prints just before it ends a machine its guest shut down.
+///
+/// The machine contract boots the guest kernel without ACPI, so it has no power-off of its own,
+/// and the guest kernel's lockdown refuses port access. The agent therefore ends every machine
+/// through the keyboard-controller reset, and prints this line first for a shutdown: the host
+/// reads it on the console at the reset and treats the end as a power-off, not a restart.
+pub const POWER_OFF_LINE: &str = "soma-guest-agent: power off";

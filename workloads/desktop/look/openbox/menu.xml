@@ -4,5 +4,8 @@
     <item label="Browser"><action name="Execute"><command>google-chrome</command></action></item>
     <item label="Terminal"><action name="Execute"><command>xfce4-terminal</command></action></item>
     <item label="Files"><action name="Execute"><command>thunar</command></action></item>
+    <separator />
+    <item label="Restart"><action name="Execute"><command>/usr/local/sbin/miosa-power reboot</command></action></item>
+    <item label="Shut down"><action name="Execute"><command>/usr/local/sbin/miosa-power poweroff</command></action></item>
   </menu>
 </openbox_menu>

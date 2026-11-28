@@ -33,3 +33,17 @@ fn a_running_sandbox_reads_with_no_reason() {
     assert_eq!(body["result"]["state"], "ready");
     assert!(body["result"].get("reason").is_none());
 }
+
+/// SOMA#258: a guest shut down from inside reads as stopped, and says the guest did it, so the
+/// platform tells a user's Shut down from a crash.
+#[test]
+fn a_sandbox_its_guest_shut_down_reads_as_stopped_by_the_guest() {
+    let mut facade = FakeFacade::new(Mode::ShutDownByGuest);
+    let request = identified("GET", &format!("/v1/sandboxes/{FIXTURE_INSTANCE_ID}"), "");
+
+    let (status, body) = call(&mut facade, &request);
+
+    assert_eq!(status, 200);
+    assert_eq!(body["result"]["state"], "stopped");
+    assert_eq!(body["result"]["reason"], "guest_shutdown");
+}

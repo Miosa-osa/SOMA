@@ -144,18 +144,9 @@ impl CompilerProfile {
     pub fn v4() -> Self {
         Self {
             policy_version: PERSISTENCE_POLICY_VERSION,
-            persistence: PersistenceBinding {
-                enabled: true,
-                // The class is the volume device's capacity, fixed here so a capture, a restore,
-                // and every launch of this Generation agree about the file behind the device.
-                size_class_gib: DEFAULT_VOLUME_CLASS_GIB,
-                paths: STEP_A_PERSISTENCE_PATHS
-                    .iter()
-                    .map(|path| (*path).to_owned())
-                    .collect(),
-            },
             ..Self::v3()
         }
+        .with_persistence()
     }
 
     /// Returns the profile for machine contract version 4.
@@ -198,6 +189,24 @@ impl CompilerProfile {
             .extend([DEFAULT_WRITABLE_CLASS_BYTES, XL_WRITABLE_CLASS_BYTES]);
         profile.overlay_capacities.sort_unstable();
         profile
+    }
+
+    /// This profile with the durable data volume declared, at the default class.
+    ///
+    /// Version 4 is version 3's machine with it; the fixed-memory machines (versions 5 to 8)
+    /// declare it under their own policy, whose manifest already carries the persistence group,
+    /// so neither the machine contract nor the policy changes (SOMA#262).
+    #[must_use]
+    pub fn with_persistence(mut self) -> Self {
+        self.persistence = PersistenceBinding {
+            enabled: true,
+            size_class_gib: DEFAULT_VOLUME_CLASS_GIB,
+            paths: STEP_A_PERSISTENCE_PATHS
+                .iter()
+                .map(|path| (*path).to_owned())
+                .collect(),
+        };
+        self
     }
 
     /// This profile with a different hotplug region: the ceiling minus the boot memory.

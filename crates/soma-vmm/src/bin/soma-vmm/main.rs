@@ -53,6 +53,17 @@ fn run() -> i32 {
     // supervisor can learn which property of the jail was not met.
     control.send(&attestation.encode());
     if admission::admits_service(&attestation) {
+        // This process holds one machine, so a guest that ends it from inside ends the process,
+        // and the exit status tells the supervisor whether the guest shut down or restarted.
+        soma_vmm::sandbox::guest_end::exit_process_on_guest_end();
+        debug_assert_eq!(
+            soma_vmm::sandbox::guest_end::GUEST_POWER_OFF_STATUS,
+            exit::GUEST_POWER_OFF
+        );
+        debug_assert_eq!(
+            soma_vmm::sandbox::guest_end::GUEST_REBOOT_STATUS,
+            exit::GUEST_REBOOT
+        );
         session::serve(&control, &manifest)
     } else {
         exit::UNCONTAINED

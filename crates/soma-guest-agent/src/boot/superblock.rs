@@ -23,6 +23,14 @@ pub(super) fn verify_superblock(
         .ok_or(BootFailure { step, errno: 0 })
 }
 
+/// Whether the device's superblock region is all zeros: a disk nothing was ever written to.
+///
+/// It is how a guest whose launch named no volume tells the host's empty scratch disk from a
+/// volume: anything else in the region, a damaged filesystem included, is a volume (SOMA#262).
+pub(super) fn superblock_is_blank(device: &str) -> Result<bool, i32> {
+    read_superblock(device).map(|superblock| superblock.iter().all(|byte| *byte == 0))
+}
+
 /// Reads the superblock of one block device, or the errno that stopped the read.
 fn read_superblock(device: &str) -> Result<[u8; SUPERBLOCK_SIZE], i32> {
     let mut file = fs::File::open(device).map_err(|error| errno_of(&error))?;
@@ -60,6 +68,21 @@ pub(super) fn ext4_superblock_ok(superblock: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// The host's empty scratch disk reads as blank; a disk with anything in its superblock region,
+    /// a damaged filesystem included, does not (SOMA#262).
+    #[test]
+    fn only_an_all_zero_superblock_region_is_blank() {
+        let path = std::env::temp_dir().join(format!("soma-blank-{}", std::process::id()));
+        std::fs::write(&path, vec![0_u8; 4096]).expect("blank disk");
+        let device = path.to_str().expect("utf8");
+        assert_eq!(super::superblock_is_blank(device), Ok(true));
+        let mut damaged = vec![0_u8; 4096];
+        damaged[1024 + 200] = 0x5a;
+        std::fs::write(&path, damaged).expect("damaged disk");
+        assert_eq!(super::superblock_is_blank(device), Ok(false));
+        let _ = std::fs::remove_file(&path);
+    }
     use super::*;
 
     #[test]

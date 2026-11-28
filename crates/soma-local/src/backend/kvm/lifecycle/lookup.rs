@@ -46,6 +46,12 @@ impl KvmBackend {
             .filter(|live| &live.instance == instance && live.held.is_usable())
     }
 
+    /// The jailed worker process holding `instance`'s machine, when a worker holds it.
+    pub(in crate::backend::kvm) fn worker_pid(&mut self, instance: &InstanceId) -> Option<i32> {
+        self.live_for(instance)
+            .and_then(|live| live.held.worker_pid())
+    }
+
     pub(in crate::backend::kvm) fn running_for(
         &mut self,
         instance: &InstanceId,

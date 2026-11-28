@@ -9,6 +9,7 @@ mod egress;
 mod error;
 mod file_store;
 mod pause;
+mod prepared_catalog;
 mod prewarm;
 mod prune;
 mod resize;
@@ -27,6 +28,7 @@ mod test_support;
 
 pub use backend::{BackendProbe, BackendSelection, MachineHosting, machine_hosting, probe_backend};
 pub use egress::{EgressSetFailure, EgressSetOutcome, EgressSetRequest};
+pub use prepared_catalog::{CatalogError, PreparedSummary, prepared_catalog};
 pub use prewarm::{
     MAX_TARGET_COUNT, MAX_TARGETS, PrewarmError, PrewarmStatus, PrewarmTarget, Source,
     TargetStatus, UncoveredDemand,

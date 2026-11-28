@@ -104,14 +104,16 @@ impl KvmBackend {
         shape: &MachineShape,
         extras: LaunchExtras<'_>,
     ) -> Result<Launched, BackendFailure> {
+        let (volume, mut scratch_guard) =
+            super::scratch_volume::resolve(&extras, instance, prepared)
+                .map_err(|kind| self.fail(operation, kind))?;
         let LaunchExtras {
-            volume,
             windowed,
             checkpoint,
             resume,
+            ..
         } = extras;
-        // A jailed worker is handed its machine's descriptors by a protocol that carries no
-        // Suspension yet, so a resume there is refused rather than served by a fresh machine.
+        // A jailed worker is given descriptors by a protocol with no Suspension: no resume there.
         if resume.is_some() && (self.jail.is_some() || checkpoint.is_some()) {
             return Err(self.fail(operation, BackendFailureKind::Unsupported));
         }
@@ -135,7 +137,7 @@ impl KvmBackend {
         let booted_vcpus = prepared.manifest.shape.vcpu_count;
         let boot_mib = prepared.manifest.shape.memory_bytes / (1024 * 1024);
         if let Some(reason) = self.misfit(prepared, shape) {
-            return Err(self.fail(operation, fit::refuse(instance, &reason)));
+            return Err(self.fail(operation, fit::refuse_shape(instance, &reason)));
         }
         let Some(storage_mib) = prepared
             .manifest
@@ -221,8 +223,7 @@ impl KvmBackend {
             storage_mib: shape.storage_mib(),
             network,
             secrets: Vec::new(),
-            // The volume the host resolved, when the Generation declares one; a machine given
-            // none refuses to start rather than serve an empty disk.
+            // The volume the host resolved, or the scratch disk (`scratch_volume`).
             volume,
             checkpoint,
             resume,
@@ -254,6 +255,7 @@ impl KvmBackend {
             memory_mib: boot_mib,
             windowed,
         });
+        scratch_guard.disarm();
         // The answer states the machine as it is, so a Launch that cannot give the limits it
         // was asked for ends here instead of reporting a shape the machine does not have.
         if let Err(kind) = self.fit_to_request(instance, shape) {

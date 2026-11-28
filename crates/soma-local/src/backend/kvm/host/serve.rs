@@ -9,6 +9,7 @@
 //! that vanished, a host that was told to shut down, and a listener that failed all leave the
 //! same thing behind: no machine, no overlay head, no lease, and no socket.
 
+mod guest_end;
 mod requests;
 
 use std::{
@@ -91,7 +92,8 @@ pub(super) fn serve_machine(
     if !request.skip_warm {
         super::warm::warm(&mut backend, &instance);
     }
-    answer_until_released(listener, socket, &mut backend, &instance)
+    let _ignored = std::fs::remove_file(guest_end::shutdown_marker(socket));
+    answer_until_released(listener, socket, &mut backend, (request, prepared))
 }
 
 /// Builds the one machine this host will hold.
@@ -129,11 +131,14 @@ fn answer_until_released(
     listener: &UnixListener,
     socket: &Path,
     backend: &mut KvmBackend,
-    instance: &InstanceId,
+    (request, prepared): (&LaunchWire, &prepared::PreparedGeneration),
 ) -> i32 {
+    let instance = &request.instance_id;
     let activity = Arc::new(AtomicU64::new(0));
     let started = Instant::now();
     watch_for_idleness(socket.to_path_buf(), Arc::clone(&activity), started);
+    let mut worker_pid = backend.worker_pid(instance);
+    guest_end::watch(socket.to_path_buf(), worker_pid);
     for accepted in listener.incoming() {
         let Ok(mut stream) = accepted else {
             break;
@@ -143,6 +148,22 @@ fn answer_until_released(
         };
         if matches!(call, Call::Shutdown) {
             break;
+        }
+        if let Call::GuestEnded { reboot } = call {
+            if !reboot {
+                let _ignored = std::fs::write(guest_end::shutdown_marker(socket), b"");
+            }
+            // The machine is gone; what it held on this host is released either way.
+            let _ignored = backend.cleanup_resident(instance, Force::Immediately);
+            if reboot && guest_end::relaunch(backend, request, prepared).is_ok() {
+                worker_pid = backend.worker_pid(instance);
+                guest_end::watch(socket.to_path_buf(), worker_pid);
+                activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
+                continue;
+            }
+            let _ignored = std::fs::remove_file(socket);
+            held::finish_released();
+            return RELEASED;
         }
         if let Call::Tunnel { instance_id, port } = &call {
             // The caller's connection becomes the tunnel, so it is handed over and the loop
@@ -191,7 +212,14 @@ fn answer_until_released(
             }
             continue;
         }
+        let is_inspect = matches!(call, Call::Inspect { .. });
         let answer = requests::perform(backend, call);
+        if is_inspect
+            && matches!(answer, Answer::Refused(_))
+            && guest_end::observed_power_off(worker_pid)
+        {
+            let _ignored = std::fs::write(guest_end::shutdown_marker(socket), b"");
+        }
         let _ignored = channel::write_line(&mut stream, &answer);
         activity.store(started.elapsed().as_secs(), Ordering::Relaxed);
     }

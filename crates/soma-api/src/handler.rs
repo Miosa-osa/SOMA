@@ -78,10 +78,10 @@ fn dispatch<F: SandboxFacade + ?Sized>(
                 200,
                 operation,
                 &InspectionReport {
+                    reason: snapshot.stopped_reason(),
                     instance_id: snapshot.instance_id,
                     state: snapshot.state,
                     backend: snapshot.backend,
-                    reason: snapshot.machine_lost.then_some("machine_lost"),
                 },
                 Some(&snapshot.receipt),
             ))
@@ -140,6 +140,7 @@ fn dispatch<F: SandboxFacade + ?Sized>(
         Route::ResumeSuspension(id) => suspension::resume(facade, &id, body),
         Route::DestroySuspension(id) => suspension::destroy(facade, &id),
         Route::PrunePrepared => prepared::prune(facade, operation, body),
+        Route::ListPrepared => prepared::catalog(operation, tenant),
         Route::Capacity => capacity::report(facade, operation),
         Route::Autosize(id, change) => crate::autosize::serve(facade, &id, change, body),
         Route::RunCommand(instance_id) => {
