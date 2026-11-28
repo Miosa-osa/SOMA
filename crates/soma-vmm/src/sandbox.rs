@@ -19,6 +19,7 @@
 mod assign;
 mod checkpoint;
 mod file;
+pub mod guest_end;
 mod identity;
 mod io;
 mod memory;

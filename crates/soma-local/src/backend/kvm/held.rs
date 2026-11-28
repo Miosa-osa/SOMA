@@ -18,7 +18,7 @@ use soma::{
     PtyOperation,
 };
 use soma_guest::GuestCommand;
-use soma_kvm::x86_64::{GuestExit, SandboxEvidence};
+use soma_kvm::x86_64::SandboxEvidence;
 use soma_vmm::sandbox::{Completed, Session, SuspendTarget, Suspension, Teardown, dump_timeline};
 
 use super::jailed::Jailed;
@@ -38,6 +38,14 @@ impl Held {
         match self {
             Self::Resident(session) => session.is_usable(),
             Self::Jailed(jailed) => jailed.is_usable(),
+        }
+    }
+
+    /// The jailed worker's process, which ends with a status naming a guest's own end.
+    pub(super) fn worker_pid(&self) -> Option<i32> {
+        match self {
+            Self::Resident(_) => None,
+            Self::Jailed(jailed) => jailed.pid(),
         }
     }
 
@@ -249,10 +257,8 @@ fn release_resident(session: Session, instance: &InstanceId, forced: bool) -> Cl
 /// and reporting that as graceful would describe a termination that did not happen.
 fn shutdown_method(evidence: &SandboxEvidence) -> CleanupMethod {
     match evidence.exit {
-        Ok(GuestExit::Halt | GuestExit::Shutdown | GuestExit::Reset | GuestExit::Sentinel) => {
-            CleanupMethod::Graceful
-        }
-        Ok(GuestExit::Paused) | Err(_) => CleanupMethod::GracefulThenForced,
+        Ok(exit) if exit.ended_by_the_guest() => CleanupMethod::Graceful,
+        Ok(_) | Err(_) => CleanupMethod::GracefulThenForced,
     }
 }
 

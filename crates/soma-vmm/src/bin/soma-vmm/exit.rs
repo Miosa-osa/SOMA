@@ -20,5 +20,10 @@ pub const REQUEST_BUDGET: i32 = 5;
 /// This is a distinct status rather than a clean one, because losing a supervisor is not the
 /// ordered end of a lifecycle and must not be recorded as one.
 pub const SUPERVISOR_GONE: i32 = 7;
+/// The guest shut the machine down from inside. The sandbox chooses it and exits with it, as
+/// `soma_vmm::sandbox::guest_end::GUEST_POWER_OFF_STATUS`.
+pub const GUEST_POWER_OFF: i32 = 8;
+/// The guest restarted the machine from inside, as `GUEST_REBOOT_STATUS`.
+pub const GUEST_REBOOT: i32 = 9;
 /// The build target is not one this worker runs on.
 pub const UNSUPPORTED: i32 = 6;

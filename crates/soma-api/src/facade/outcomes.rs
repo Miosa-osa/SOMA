@@ -55,6 +55,21 @@ pub struct SandboxSnapshot {
     pub receipt: ExecutionReceipt,
     /// The machine is gone without a stop: its worker died, or a command took it down.
     pub machine_lost: bool,
+    /// The machine is gone because its guest was shut down from inside.
+    pub shut_down_by_guest: bool,
+}
+
+impl SandboxSnapshot {
+    /// Why a sandbox nobody stopped reads `stopped`: its guest shut it down from inside
+    /// (`guest_shutdown`), or its machine is gone otherwise (`machine_lost`).
+    #[must_use]
+    pub const fn stopped_reason(&self) -> Option<&'static str> {
+        match (self.machine_lost, self.shut_down_by_guest) {
+            (false, _) => None,
+            (true, true) => Some("guest_shutdown"),
+            (true, false) => Some("machine_lost"),
+        }
+    }
 }
 
 /// The answer of a facade that cannot suspend: the sandbox keeps running.

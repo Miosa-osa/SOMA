@@ -100,6 +100,14 @@ pub(crate) fn machine_host_directory(state_root: &std::path::Path) -> PathBuf {
     state_root.join(crate::file_store::MACHINE_HOST_DIRECTORY)
 }
 
+/// The marker a host leaves beside `instance`'s socket when its guest shut the machine down.
+pub(crate) fn guest_shutdown_marker(
+    directory: &std::path::Path,
+    instance: &soma::InstanceId,
+) -> PathBuf {
+    directory.join(format!("{}.guest-shutdown", instance.as_str()))
+}
+
 mod local;
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

@@ -51,14 +51,15 @@ impl SandboxFacade for FakeFacade {
         let receipt = receipt();
         Ok(SandboxSnapshot {
             instance_id: receipt.instance_id().clone(),
-            state: if self.mode == Mode::Lost {
+            state: if matches!(self.mode, Mode::Lost | Mode::ShutDownByGuest) {
                 MachineState::Stopped
             } else {
                 MachineState::Ready
             },
             backend: receipt.backend(),
             receipt,
-            machine_lost: self.mode == Mode::Lost,
+            machine_lost: matches!(self.mode, Mode::Lost | Mode::ShutDownByGuest),
+            shut_down_by_guest: self.mode == Mode::ShutDownByGuest,
         })
     }
 

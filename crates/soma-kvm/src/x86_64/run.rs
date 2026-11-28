@@ -27,6 +27,8 @@ pub enum GuestExit {
     Shutdown,
     /// The guest pulsed the keyboard-controller CPU-reset line, as `reboot=k` does.
     Reset,
+    /// The guest reset its machine just after its agent printed the power-off line: a shutdown.
+    PowerOff,
     /// SOMA stopped the vCPU because the expected serial sentinel arrived.
     Sentinel,
     /// SOMA kicked the vCPU out of `KVM_RUN` so its state could be captured.
@@ -34,6 +36,36 @@ pub enum GuestExit {
     /// The guest is still live and the vCPU descriptor is handed back to the caller instead
     /// of being dropped, because a paused machine is about to be read, not released.
     Paused,
+}
+
+/// How a guest ended its own machine, when it did.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GuestEnd {
+    /// The guest pulsed the reset line: a restart from inside.
+    Reboot,
+    /// The guest wrote the power-off byte: a shutdown from inside.
+    PowerOff,
+}
+
+impl GuestExit {
+    /// The end this exit is, when the guest asked for it from inside.
+    #[must_use]
+    pub const fn guest_end(self) -> Option<GuestEnd> {
+        match self {
+            Self::Reset => Some(GuestEnd::Reboot),
+            Self::PowerOff => Some(GuestEnd::PowerOff),
+            Self::Halt | Self::Shutdown | Self::Sentinel | Self::Paused => None,
+        }
+    }
+
+    /// Whether the guest ended the machine itself rather than being stopped inside it.
+    #[must_use]
+    pub const fn ended_by_the_guest(self) -> bool {
+        matches!(
+            self,
+            Self::Halt | Self::Shutdown | Self::Reset | Self::PowerOff | Self::Sentinel
+        )
+    }
 }
 
 /// Runs the vCPU until it stops, an unexpected exit occurs, or the watchdog interrupts it.
@@ -69,7 +101,16 @@ pub(crate) fn run(
             },
             Ok(VcpuExit::IoIn(port, data)) => bus.io_in(port, data),
             Ok(VcpuExit::IoOut(port, data)) => match bus.io_out(port, data)? {
-                PortEvent::Reset => return Ok(GuestExit::Reset),
+                // A shutdown from inside ends the machine through the same reset; the agent's
+                // console line just before it is what says it was a shutdown (SOMA#258).
+                PortEvent::Reset => {
+                    let powered_off = bus.with_serial(|serial| shut_down(serial.output()));
+                    return Ok(if powered_off {
+                        GuestExit::PowerOff
+                    } else {
+                        GuestExit::Reset
+                    });
+                }
                 PortEvent::Continue => {
                     // The console is the only device on the port bus, so the sentinel is checked
                     // through the shared bus rather than a thread-local copy of it.
@@ -113,6 +154,21 @@ fn unexpected(exit: &VcpuExit<'_>) -> MachineError {
 }
 
 /// True when `output` ends with `expected` followed by at most one line terminator.
+/// The console line the guest agent prints just before a shutdown's reset; the same text as
+/// `soma_guest::POWER_OFF_LINE`, which the agent prints.
+pub const POWER_OFF_LINE: &str = "soma-guest-agent: power off";
+
+/// Whether the agent's power-off line is among the console's last lines.
+///
+/// The kernel prints its own lines between the agent's and the reset, so the line is looked for
+/// in the tail rather than only at the end.
+fn shut_down(output: &[u8]) -> bool {
+    const TAIL: usize = 4096;
+    let tail = &output[output.len().saturating_sub(TAIL)..];
+    tail.split(|byte| *byte == b'\n')
+        .any(|line| line.strip_suffix(b"\r").unwrap_or(line) == POWER_OFF_LINE.as_bytes())
+}
+
 fn ends_with(output: &[u8], expected: &[u8]) -> bool {
     let trimmed = output
         .strip_suffix(b"\r\n")
@@ -141,6 +197,23 @@ fn classify(exit: &VcpuExit<'_>) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// A reset after the agent's power-off line is a shutdown, even with kernel lines after it;
+    /// a reset without it is a restart (SOMA#258).
+    #[test]
+    fn only_a_reset_after_the_power_off_line_is_a_shutdown() {
+        let shutdown = b"soma-guest-agent: ready\r\nsoma-guest-agent: power off\r\n[ 9.1] reboot: Restarting system\r\n";
+        assert!(super::shut_down(shutdown));
+        let restart = b"soma-guest-agent: ready\r\n[ 9.1] reboot: Restarting system\r\n";
+        assert!(!super::shut_down(restart));
+        assert!(!super::shut_down(b"echo soma-guest-agent: power off now\n"));
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn the_power_off_line_is_the_one_the_guest_agent_prints() {
+        assert_eq!(super::POWER_OFF_LINE, soma_guest::POWER_OFF_LINE);
+    }
     use super::*;
 
     #[test]

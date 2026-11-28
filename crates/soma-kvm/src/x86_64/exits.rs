@@ -15,11 +15,13 @@
 //! so the instrument costs tens of microseconds on a launch and nothing after that.
 
 use std::{
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering},
     time::{Duration, Instant},
 };
 
 use kvm_ioctls::VcpuExit;
+
+use super::run::GuestEnd;
 
 #[cfg(test)]
 mod tests;
@@ -136,7 +138,13 @@ pub(crate) struct ExitLedger {
     sampled: AtomicU32,
     inside_ns: AtomicU64,
     outside_ns: AtomicU64,
+    /// How the guest ended the machine itself, once a vCPU returned that end; see [`GuestEnd`].
+    guest_end: AtomicU8,
 }
+
+const NO_GUEST_END: u8 = 0;
+const GUEST_REBOOT: u8 = 1;
+const GUEST_POWER_OFF: u8 = 2;
 
 impl ExitLedger {
     pub(crate) fn new() -> Self {
@@ -148,6 +156,30 @@ impl ExitLedger {
             sampled: AtomicU32::new(0),
             inside_ns: AtomicU64::new(0),
             outside_ns: AtomicU64::new(0),
+            guest_end: AtomicU8::new(NO_GUEST_END),
+        }
+    }
+
+    /// Records that a vCPU returned the guest's own end of the machine; the first one stays.
+    pub(crate) fn record_guest_end(&self, end: GuestEnd) {
+        let value = match end {
+            GuestEnd::Reboot => GUEST_REBOOT,
+            GuestEnd::PowerOff => GUEST_POWER_OFF,
+        };
+        let _ignored = self.guest_end.compare_exchange(
+            NO_GUEST_END,
+            value,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    /// How the guest ended the machine itself, if it has.
+    pub(crate) fn guest_end(&self) -> Option<GuestEnd> {
+        match self.guest_end.load(Ordering::Acquire) {
+            GUEST_REBOOT => Some(GuestEnd::Reboot),
+            GUEST_POWER_OFF => Some(GuestEnd::PowerOff),
+            _ => None,
         }
     }
 

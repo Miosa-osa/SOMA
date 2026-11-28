@@ -117,6 +117,7 @@ pub(super) fn perform(backend: &mut KvmBackend, call: Call) -> Answer {
         },
         Call::Cleanup { .. }
         | Call::Shutdown
+        | Call::GuestEnded { .. }
         | Call::Tunnel { .. }
         | Call::ExecuteStreaming { .. } => Answer::Refused(BackendFailureKind::Unsupported.into()),
     }

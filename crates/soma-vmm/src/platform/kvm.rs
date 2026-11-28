@@ -293,8 +293,5 @@ impl Platform for KvmPlatform {
 
 /// Whether the guest ended the machine itself rather than being ended inside it.
 fn left_on_its_own<E>(exit: &Result<GuestExit, E>) -> bool {
-    matches!(
-        exit,
-        Ok(GuestExit::Halt | GuestExit::Shutdown | GuestExit::Reset | GuestExit::Sentinel)
-    )
+    matches!(exit, Ok(exit) if exit.ended_by_the_guest())
 }

@@ -18,6 +18,13 @@ pub fn report(message: &str) {
     }
 }
 
+/// Writes one exact line, unprefixed, for a host that reads the console for it.
+pub fn line(text: &str) {
+    if let Ok(mut console) = OpenOptions::new().write(true).open(CONSOLE_PATH) {
+        let _ = console.write_all(format!("{text}\n").as_bytes());
+    }
+}
+
 /// Renders one prefixed, newline-terminated line no longer than the fixed bound.
 #[must_use]
 pub fn bounded_line(message: &str) -> String {

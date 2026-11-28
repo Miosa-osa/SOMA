@@ -121,6 +121,11 @@ RUN set -e; \
     command -v sunshine; test -x /lib/systemd/systemd-udevd
 
 COPY session/cua-driver-wrapper.sh /usr/local/bin/cua-driver
+# Shut down and Restart for the desktop user. Every SOMA instance gets /usr/local/sbin/miosa-power
+# and poweroff, reboot, halt and shutdown from the guest agent at boot; the desktop only lets its
+# unprivileged user run it.
+RUN printf 'ubuntu ALL=(root) NOPASSWD: /usr/local/sbin/miosa-power\n' > /etc/sudoers.d/miosa-power \
+ && chmod 0440 /etc/sudoers.d/miosa-power && visudo -cf /etc/sudoers.d/miosa-power
 COPY session/soma-desktop-session.sh /usr/local/sbin/soma-desktop-session
 COPY session/soma-desktop-call.sh /usr/local/bin/soma-desktop-call
 COPY session/session.sh /usr/local/libexec/soma-desktop/session.sh
