@@ -39,8 +39,12 @@ impl Workspace {
     /// Returns the first failed device or mount check.
     pub fn boot(&mut self) -> Result<(), BootFailure> {
         if matches!(self.0, State::Declared) {
-            compose()?;
-            self.0 = State::Mounted;
+            // A launch that named no volume has none to change later either.
+            self.0 = if compose()? {
+                State::Mounted
+            } else {
+                State::Undeclared
+            };
         }
         Ok(())
     }

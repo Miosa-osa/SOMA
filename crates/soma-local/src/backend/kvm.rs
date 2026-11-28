@@ -20,6 +20,7 @@ mod pty;
 mod resize;
 mod resolve;
 mod runtime;
+mod scratch_volume;
 mod start;
 mod suspend;
 mod targets;

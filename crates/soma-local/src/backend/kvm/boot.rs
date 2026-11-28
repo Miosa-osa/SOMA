@@ -10,7 +10,7 @@ use super::identity::{LaunchIdentity, generation_bytes, now_unix_nanos};
 use super::prepared::PreparedGeneration;
 use soma_vmm::sandbox::{Boot, ColdBootInputs, Network, Source, cold_boot_config};
 
-mod head;
+pub(super) mod head;
 mod resume;
 
 pub(in crate::backend::kvm) use head::{head_root, head_root_is_private, private_head_from};

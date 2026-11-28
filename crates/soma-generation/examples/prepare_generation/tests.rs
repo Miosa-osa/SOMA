@@ -79,14 +79,13 @@ fn the_scripts_default_to_the_tools_writable_size() {
     assert!(end_to_end.contains(&format!("STORAGE_MIB={DEFAULT_STORAGE_MIB}\n")));
 }
 
+/// Every Generation takes its volume unless the builder says otherwise (SOMA#262).
 #[test]
-fn the_persistence_policy_is_asked_for_rather_than_implied() {
-    // Absent, blank, and the two false spellings are all "no"; the two true spellings are
-    // "yes"; anything else is refused rather than read as one of them.
-    for value in [None, Some(""), Some("0"), Some("false")] {
+fn the_volume_is_declared_unless_it_is_turned_off() {
+    for value in [Some("0"), Some("false")] {
         assert_eq!(persistence_from(value), Ok(false), "value {value:?}");
     }
-    for value in [Some("1"), Some("true")] {
+    for value in [None, Some(""), Some("1"), Some("true")] {
         assert_eq!(persistence_from(value), Ok(true), "value {value:?}");
     }
     assert!(persistence_from(Some("yes")).is_err());
